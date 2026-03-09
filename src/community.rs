@@ -234,7 +234,8 @@ fn apply_single_event(db: &db::Db, node_pubkey: &str, ev: &event::Event) -> Resu
 
     // Recover from mutex poison: the data is SQLite-backed and we can safely
     // continue from the last consistent on-disk state even after a panic.
-    let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    // `mut` is required so the ArtistMerged arm can pass `&mut *conn` to merge_artists.
+    let mut conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     match &ev.payload {
         event::EventPayload::ArtistUpserted(p) => {
@@ -268,6 +269,16 @@ fn apply_single_event(db: &db::Db, node_pubkey: &str, ev: &event::Event) -> Resu
                 "[community] TrackRemoved for {} not yet implemented; skipping",
                 p.track_guid
             );
+        }
+        event::EventPayload::ArtistMerged(p) => {
+            // merge_artists needs &mut Connection; auto-deref through the MutexGuard.
+            // We drop the result (transferred aliases) — the event payload already
+            // records them for audit purposes.
+            db::merge_artists(
+                &mut conn,
+                &p.source_artist_id,
+                &p.target_artist_id,
+            )?;
         }
     }
 

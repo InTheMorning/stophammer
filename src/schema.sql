@@ -116,3 +116,15 @@ CREATE TABLE IF NOT EXISTS node_sync_state (
     last_seq     INTEGER NOT NULL DEFAULT 0,
     last_seen_at INTEGER NOT NULL
 ) STRICT;
+
+-- Artist aliases: multiple name variants can map to the same canonical artist.
+-- Every new artist auto-registers its canonical name here so merges need no
+-- special-case for the primary name.
+CREATE TABLE IF NOT EXISTS artist_aliases (
+    alias_lower  TEXT NOT NULL,
+    artist_id    TEXT NOT NULL REFERENCES artists(artist_id),
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (alias_lower, artist_id)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_aliases_lower ON artist_aliases(alias_lower);

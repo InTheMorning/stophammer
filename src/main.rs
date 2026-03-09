@@ -59,6 +59,8 @@ async fn run_primary(
     bind_addr:  String,
 ) {
     let crawl_token = std::env::var("CRAWL_TOKEN").expect("CRAWL_TOKEN env var required");
+    // ADMIN_TOKEN is optional: if absent, all admin endpoints return 403.
+    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
     let chain = build_verifier_chain(crawl_token);
 
     let state = std::sync::Arc::new(api::AppState {
@@ -66,6 +68,7 @@ async fn run_primary(
         chain:           std::sync::Arc::new(chain),
         signer:          std::sync::Arc::new(signer),
         node_pubkey_hex: pubkey,
+        admin_token,
     });
 
     let router   = api::build_router(state);
@@ -117,6 +120,8 @@ async fn run_community(
         chain:           std::sync::Arc::new(dummy_chain),
         signer:          std::sync::Arc::new(signer),
         node_pubkey_hex: pubkey,
+        // Community nodes do not expose admin routes — empty token means 403 always.
+        admin_token:     String::new(),
     });
 
     let router   = api::build_readonly_router(state);

@@ -17,12 +17,12 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{db, event, ingest, model, signing, sync, verify};
 
@@ -38,6 +38,9 @@ pub struct AppState {
     pub signer:          Arc<signing::NodeSigner>,
     /// Hex-encoded ed25519 public key identifying this node in the network.
     pub node_pubkey_hex: String,
+    /// Token required in `X-Admin-Token` for admin endpoints. Empty string means
+    /// the token was not configured and all admin calls return 403.
+    pub admin_token:     String,
 }
 
 // ── ApiError ─────────────────────────────────────────────────────────────────
@@ -80,16 +83,20 @@ impl From<db::DbError> for ApiError {
 /// Builds the full read-write router used by the primary node.
 ///
 /// Routes exposed:
-/// - `POST /ingest/feed` — crawler submission; validates via [`verify::VerifierChain`].
-/// - `GET  /sync/events` — paginated event log for community nodes.
-/// - `POST /sync/reconcile` — negentropy-style diff for nodes rejoining after downtime.
-/// - `GET  /health` — liveness probe.
+/// - `POST /ingest/feed`          — crawler submission; validates via [`verify::VerifierChain`].
+/// - `GET  /sync/events`          — paginated event log for community nodes.
+/// - `POST /sync/reconcile`       — negentropy-style diff for nodes rejoining after downtime.
+/// - `POST /admin/artists/merge`  — merge two artist records (requires `X-Admin-Token`).
+/// - `POST /admin/artists/alias`  — register an extra alias for an artist (requires `X-Admin-Token`).
+/// - `GET  /health`               — liveness probe.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/ingest/feed",    post(handle_ingest_feed))
-        .route("/sync/events",    get(handle_sync_events))
-        .route("/sync/reconcile", post(handle_sync_reconcile))
-        .route("/health",         get(|| async { "ok" }))
+        .route("/ingest/feed",         post(handle_ingest_feed))
+        .route("/sync/events",         get(handle_sync_events))
+        .route("/sync/reconcile",      post(handle_sync_reconcile))
+        .route("/admin/artists/merge", post(handle_admin_merge_artists))
+        .route("/admin/artists/alias", post(handle_admin_add_alias))
+        .route("/health",              get(|| async { "ok" }))
         .with_state(state)
 }
 
@@ -500,6 +507,150 @@ async fn handle_sync_reconcile(
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: format!("internal task panic: {e}"),
         })?;
+
+    result.map(Json)
+}
+
+// ── Admin auth helper ─────────────────────────────────────────────────────────
+
+/// Returns `Ok(())` if the request carries a valid `X-Admin-Token`, else `Err(ApiError)`.
+///
+/// If `admin_token` in [`AppState`] is empty (not configured), every call returns
+/// 403 regardless of the header value.
+fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError> {
+    if expected.is_empty() {
+        return Err(ApiError {
+            status:  StatusCode::FORBIDDEN,
+            message: "admin token not configured on this node".into(),
+        });
+    }
+    let provided = headers
+        .get("X-Admin-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    if provided == expected {
+        Ok(())
+    } else {
+        Err(ApiError {
+            status:  StatusCode::FORBIDDEN,
+            message: "invalid or missing X-Admin-Token".into(),
+        })
+    }
+}
+
+// ── POST /admin/artists/merge ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct MergeArtistsRequest {
+    source_artist_id: String,
+    target_artist_id: String,
+}
+
+#[derive(Serialize)]
+struct MergeArtistsResponse {
+    merged:         bool,
+    events_emitted: Vec<String>,
+}
+
+// Flow: verify admin token → merge in DB → emit ArtistMerged event → return response.
+async fn handle_admin_merge_artists(
+    State(state): State<Arc<AppState>>,
+    headers:      HeaderMap,
+    Json(req):    Json<MergeArtistsRequest>,
+) -> Result<Json<MergeArtistsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || -> Result<MergeArtistsResponse, ApiError> {
+        let mut conn = state2.db.lock().unwrap();
+
+        let transferred = db::merge_artists(&mut conn, &req.source_artist_id, &req.target_artist_id)
+            .map_err(ApiError::from)?;
+
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs()
+            .cast_signed();
+
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let payload = event::ArtistMergedPayload {
+            source_artist_id:    req.source_artist_id.clone(),
+            target_artist_id:    req.target_artist_id.clone(),
+            aliases_transferred: transferred,
+        };
+        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("failed to serialize ArtistMerged payload: {e}"),
+        })?;
+        let (signed_by, signature) = state2.signer.sign_event(
+            &event_id,
+            &event::EventType::ArtistMerged,
+            &payload_json,
+            &req.target_artist_id,
+            now,
+        );
+
+        db::insert_event(
+            &conn,
+            &event_id,
+            &event::EventType::ArtistMerged,
+            &payload_json,
+            &req.target_artist_id,
+            &signed_by,
+            &signature,
+            now,
+            &[],
+        )
+        .map_err(ApiError::from)?;
+
+        Ok(MergeArtistsResponse {
+            merged:         true,
+            events_emitted: vec![event_id],
+        })
+    })
+    .await
+    .map_err(|e| ApiError {
+        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+    })?;
+
+    result.map(Json)
+}
+
+// ── POST /admin/artists/alias ─────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct AddAliasRequest {
+    artist_id: String,
+    alias:     String,
+}
+
+#[derive(Serialize)]
+struct AddAliasResponse {
+    ok: bool,
+}
+
+// Flow: verify admin token → insert alias row → return ok.
+async fn handle_admin_add_alias(
+    State(state): State<Arc<AppState>>,
+    headers:      HeaderMap,
+    Json(req):    Json<AddAliasRequest>,
+) -> Result<Json<AddAliasResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || -> Result<AddAliasResponse, ApiError> {
+        let conn = state2.db.lock().unwrap();
+        db::add_artist_alias(&conn, &req.artist_id, &req.alias)
+            .map_err(ApiError::from)?;
+        Ok(AddAliasResponse { ok: true })
+    })
+    .await
+    .map_err(|e| ApiError {
+        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+    })?;
 
     result.map(Json)
 }

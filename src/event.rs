@@ -29,6 +29,8 @@ pub enum EventType {
     ArtistUpserted,
     /// The full set of payment routes for a track was atomically replaced.
     RoutesReplaced,
+    /// Two artist records were merged; one was absorbed into the other.
+    ArtistMerged,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -47,6 +49,8 @@ pub enum EventPayload {
     ArtistUpserted(ArtistUpsertedPayload),
     /// Payload for an atomic payment-route replacement event.
     RoutesReplaced(RoutesReplacedPayload),
+    /// Payload for an artist merge event.
+    ArtistMerged(ArtistMergedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -124,4 +128,16 @@ pub struct ArtistUpsertedPayload {
 pub struct RoutesReplacedPayload {
     pub track_guid: String,
     pub routes:     Vec<PaymentRoute>,
+}
+
+/// Emitted when two artist records are merged: `source_artist_id` is absorbed
+/// into `target_artist_id` and then deleted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ArtistMergedPayload {
+    /// The artist that was absorbed and deleted.
+    pub source_artist_id: String,
+    /// The artist that now owns all feeds, tracks, and aliases.
+    pub target_artist_id: String,
+    /// Alias strings (lowercased) transferred from the source to the target.
+    pub aliases_transferred: Vec<String>,
 }

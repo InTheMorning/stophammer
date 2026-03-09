@@ -119,7 +119,14 @@ fn event_type_str(et: &EventType) -> Result<String, DbError> {
 
 // ── resolve_artist ────────────────────────────────────────────────────────────
 
-/// Returns an existing artist matched by lowercased `name`, or inserts a new one.
+/// Returns an existing artist matched by alias or lowercased `name`, or inserts
+/// a new one and auto-registers its canonical name as an alias.
+///
+/// Resolution order:
+/// 1. `artist_aliases.alias_lower = name.to_lowercase()` — alias lookup.
+/// 2. `artists.name_lower = name.to_lowercase()` — direct name lookup (legacy
+///    rows created before the alias table existed).
+/// 3. Insert new artist + insert a canonical alias row.
 ///
 /// # Errors
 ///
@@ -127,6 +134,29 @@ fn event_type_str(et: &EventType) -> Result<String, DbError> {
 pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> {
     let name_lower = name.to_lowercase();
 
+    // 1. Check alias table first.
+    let via_alias: Option<Artist> = conn.query_row(
+        "SELECT a.artist_id, a.name, a.name_lower, a.created_at \
+         FROM artist_aliases aa \
+         JOIN artists a ON a.artist_id = aa.artist_id \
+         WHERE aa.alias_lower = ?1 \
+         LIMIT 1",
+        params![name_lower],
+        |row| {
+            Ok(Artist {
+                artist_id:  row.get(0)?,
+                name:       row.get(1)?,
+                name_lower: row.get(2)?,
+                created_at: row.get(3)?,
+            })
+        },
+    ).optional()?;
+
+    if let Some(a) = via_alias {
+        return Ok(a);
+    }
+
+    // 2. Fall back to direct name_lower match (handles rows predating the alias table).
     let existing: Option<Artist> = conn.query_row(
         "SELECT artist_id, name, name_lower, created_at FROM artists WHERE name_lower = ?1",
         params![name_lower],
@@ -141,9 +171,17 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
     ).optional()?;
 
     if let Some(a) = existing {
+        // Back-fill the alias row for this legacy artist so future lookups hit
+        // the alias table instead of the slow name_lower scan.
+        conn.execute(
+            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
+             VALUES (?1, ?2, ?3)",
+            params![name_lower, a.artist_id, a.created_at],
+        )?;
         return Ok(a);
     }
 
+    // 3. New artist — insert artist row and its canonical alias.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -156,7 +194,117 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
         params![artist_id, name, name_lower, now],
     )?;
 
+    conn.execute(
+        "INSERT INTO artist_aliases (alias_lower, artist_id, created_at) VALUES (?1, ?2, ?3)",
+        params![name_lower, artist_id, now],
+    )?;
+
     Ok(Artist { artist_id, name: name.to_string(), name_lower, created_at: now })
+}
+
+// ── add_artist_alias ──────────────────────────────────────────────────────────
+
+/// Registers `alias` (lowercased) as an additional lookup key for `artist_id`.
+///
+/// Uses `INSERT OR IGNORE` — if the `(alias_lower, artist_id)` pair already
+/// exists the call is a no-op.
+///
+/// # Errors
+///
+/// Returns [`DbError::Rusqlite`] if the SQL operation fails (e.g. `artist_id`
+/// does not exist and the foreign-key constraint fires).
+pub fn add_artist_alias(conn: &Connection, artist_id: &str, alias: &str) -> Result<(), DbError> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .cast_signed();
+
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        params![alias.to_lowercase(), artist_id, now],
+    )?;
+    Ok(())
+}
+
+// ── merge_artists ──────────────────────────────────────────────────────────────
+
+/// Merges `source_artist_id` into `target_artist_id`.
+///
+/// All feeds and tracks pointing to `source` are repointed to `target`. All
+/// aliases of `source` that do not already exist on `target` are transferred;
+/// any that would conflict are dropped. The `source` artist row is then
+/// deleted. Returns the list of alias strings that were transferred.
+///
+/// This operation is intentionally admin-only and not automatic: determining
+/// whether two artists with the same name are truly the same entity requires
+/// human judgment (see ADR 0014).
+///
+/// # Errors
+///
+/// Returns [`DbError::Rusqlite`] if any SQL operation fails. The transaction is
+/// rolled back automatically on error.
+pub fn merge_artists(
+    conn: &mut Connection,
+    source_artist_id: &str,
+    target_artist_id: &str,
+) -> Result<Vec<String>, DbError> {
+    let tx = conn.transaction()?;
+
+    // Collect the aliases that will be transferred (those that do not already
+    // exist on target) before we mutate the table.
+    let mut stmt = tx.prepare(
+        "SELECT alias_lower FROM artist_aliases \
+         WHERE artist_id = ?1 \
+           AND NOT EXISTS ( \
+               SELECT 1 FROM artist_aliases \
+               WHERE alias_lower = artist_aliases.alias_lower \
+                 AND artist_id = ?2 \
+           )",
+    )?;
+    let transferred: Vec<String> = stmt
+        .query_map(params![source_artist_id, target_artist_id], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    // Repoint feeds and tracks.
+    tx.execute(
+        "UPDATE feeds SET artist_id = ?1 WHERE artist_id = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+    tx.execute(
+        "UPDATE tracks SET artist_id = ?1 WHERE artist_id = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+
+    // Transfer non-conflicting aliases.
+    tx.execute(
+        "UPDATE artist_aliases SET artist_id = ?1 \
+         WHERE artist_id = ?2 \
+           AND NOT EXISTS ( \
+               SELECT 1 FROM artist_aliases \
+               WHERE alias_lower = artist_aliases.alias_lower \
+                 AND artist_id = ?1 \
+           )",
+        params![target_artist_id, source_artist_id],
+    )?;
+
+    // Drop any remaining source aliases (those that conflicted).
+    tx.execute(
+        "DELETE FROM artist_aliases WHERE artist_id = ?1",
+        params![source_artist_id],
+    )?;
+
+    // Delete the source artist row.
+    tx.execute(
+        "DELETE FROM artists WHERE artist_id = ?1",
+        params![source_artist_id],
+    )?;
+
+    tx.commit()?;
+
+    Ok(transferred)
 }
 
 // ── upsert_artist_if_absent ───────────────────────────────────────────────────
@@ -614,7 +762,7 @@ pub fn ingest_transaction(
 ) -> Result<Vec<i64>, DbError> {
     let tx = conn.transaction()?;
 
-    // 1. Resolve/insert artist
+    // 1. Resolve/insert artist (and ensure a canonical alias row exists)
     {
         let name_lower = artist.name.to_lowercase();
         let existing: Option<String> = tx.query_row(
@@ -627,6 +775,18 @@ pub fn ingest_transaction(
             tx.execute(
                 "INSERT INTO artists (artist_id, name, name_lower, created_at) VALUES (?1, ?2, ?3, ?4)",
                 params![artist.artist_id, artist.name, name_lower, artist.created_at],
+            )?;
+            tx.execute(
+                "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![name_lower, artist.artist_id, artist.created_at],
+            )?;
+        } else {
+            // Back-fill alias for pre-existing artist rows that predate the alias table.
+            tx.execute(
+                "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![name_lower, artist.artist_id, artist.created_at],
             )?;
         }
     }
