@@ -14,3 +14,4 @@ pub mod enclosure_type;
 pub mod feed_guid;
 pub mod medium_music;
 pub mod payment_route_sum;
+pub mod v4v_payment;

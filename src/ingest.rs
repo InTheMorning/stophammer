@@ -45,8 +45,11 @@ pub struct IngestFeedData {
     pub author_name:  Option<String>,
     pub owner_name:   Option<String>,
     /// Publication date of the feed channel; drives `newest_item_at` tracking.
-    pub pub_date:     Option<i64>,
-    pub tracks:       Vec<IngestTrackData>,
+    pub pub_date:              Option<i64>,
+    /// Feed-level `podcast:value` recipients. Tracks that have no payment
+    /// routes of their own fall back to these at play time.
+    pub feed_payment_routes:   Vec<IngestPaymentRoute>,
+    pub tracks:                Vec<IngestTrackData>,
 }
 
 /// Per-episode data within an [`IngestFeedData`] submission.

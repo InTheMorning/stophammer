@@ -26,11 +26,12 @@
 //! | Name | Module | Function |
 //! |---|---|---|
 //! | `crawl_token` | [`verifiers::crawl_token`] | Rejects invalid crawl tokens |
-//! | `medium_music` | [`verifiers::medium_music`] | Rejects non-music `podcast:medium` |
-//! | `feed_guid` | [`verifiers::feed_guid`] | Rejects bad/malformed GUIDs |
-//! | `payment_route_sum` | [`verifiers::payment_route_sum`] | Rejects splits ≠ 100 |
 //! | `content_hash` | [`verifiers::content_hash`] | Short-circuits unchanged feeds |
+//! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or non-music `podcast:medium` |
+//! | `feed_guid` | [`verifiers::feed_guid`] | Rejects bad/malformed GUIDs |
+//! | `v4v_payment` | [`verifiers::v4v_payment`] | Rejects feeds with no valid V4V payment routes |
 //! | `enclosure_type` | [`verifiers::enclosure_type`] | Warns on video MIME types |
+//! | `payment_route_sum` | [`verifiers::payment_route_sum`] | Optional: rejects splits ≠ 100 (not in default chain) |
 
 use rusqlite::Connection;
 use crate::ingest::IngestFeedRequest;
@@ -151,7 +152,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Default chain: all built-ins in the recommended order.
     pub const DEFAULT: &'static str =
-        "crawl_token,content_hash,medium_music,feed_guid,payment_route_sum,enclosure_type";
+        "crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type";
 
     /// Reads `VERIFIER_CHAIN` from the environment.
     ///
@@ -188,6 +189,7 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
         feed_guid::FeedGuidVerifier,
         medium_music::MediumMusicVerifier,
         payment_route_sum::PaymentRouteSumVerifier,
+        v4v_payment::V4VPaymentVerifier,
     };
 
     let mut verifiers: Vec<Box<dyn Verifier>> = Vec::new();
@@ -198,6 +200,7 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
             "content_hash"      => Box::new(ContentHashVerifier),
             "medium_music"      => Box::new(MediumMusicVerifier),
             "feed_guid"         => Box::new(FeedGuidVerifier),
+            "v4v_payment"       => Box::new(V4VPaymentVerifier),
             "payment_route_sum" => Box::new(PaymentRouteSumVerifier),
             "enclosure_type"    => Box::new(EnclosureTypeVerifier),
             unknown => {

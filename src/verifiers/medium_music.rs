@@ -19,7 +19,7 @@ impl Verifier for MediumMusicVerifier {
         match ctx.request.feed_data.as_ref().and_then(|f| f.raw_medium.as_deref()) {
             Some("music") => VerifyResult::Pass,
             Some(other)   => VerifyResult::Fail(format!("medium is '{other}', not 'music'")),
-            None          => VerifyResult::Warn("podcast:medium absent — inferred as music".into()),
+            None          => VerifyResult::Fail("podcast:medium absent — must be 'music'".into()),
         }
     }
 }
