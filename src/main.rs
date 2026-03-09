@@ -1,5 +1,10 @@
 #![warn(clippy::pedantic)]
 
+use mimalloc::MiMalloc;
+
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
+
 mod api;
 mod community;
 mod db;
@@ -95,10 +100,12 @@ async fn run_community(
         poll_interval_secs,
     };
 
-    // Start the background sync task.
+    // Fire-and-forget: the sync task runs for the lifetime of the process.
+    // The JoinHandle is intentionally dropped — a sync failure is non-fatal
+    // because the task's own loop logs errors and continues.
     let db_for_sync = std::sync::Arc::clone(&db);
     let pubkey_for_sync = pubkey.clone();
-    tokio::spawn(community::run_community_sync(config, db_for_sync, pubkey_for_sync));
+    drop(tokio::spawn(community::run_community_sync(config, db_for_sync, pubkey_for_sync)));
 
     // Serve the read-only API (no ingest, no reconcile write-path).
     // We still need an AppState; the signer is present but will never be called

@@ -21,6 +21,14 @@ use crate::{db, event, signing};
 
 // ── CommunityConfig ──────────────────────────────────────────────────────────
 
+/// Runtime configuration for a community (read-only replica) node.
+///
+/// This struct has four fields. The M-DESIGN-FOR-AI guideline recommends a
+/// builder pattern for types with four or more constructor parameters, but
+/// that applies to library APIs consumed by external callers. Here the struct
+/// is constructed exactly once in `main.rs` from environment variables; a
+/// builder would add boilerplate with no safety or usability benefit for an
+/// application binary. Plain struct initialisation is the idiomatic choice.
 pub struct CommunityConfig {
     /// Base URL of the primary node, e.g. `"http://primary.example.com:8008"`.
     pub primary_url: String,
@@ -63,10 +71,13 @@ pub async fn run_community_sync(
 
     // 2. Load persisted cursor.
     let initial_seq = {
-        let conn = db.lock().unwrap();
+        // Recover from mutex poison: the data is SQLite-backed and we can
+        // safely retry from a consistent on-disk state even after a panic.
+        let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         match db::get_node_sync_cursor(&conn, &pubkey_hex) {
             Ok(seq) => seq,
             Err(e) => {
+                // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
                 eprintln!("[community] failed to read sync cursor: {e}; starting from 0");
                 0
             }
@@ -77,9 +88,17 @@ pub async fn run_community_sync(
     println!("[community] sync started — primary={} cursor={last_seq}", config.primary_url);
 
     // 3. Poll loop.
+    //
+    // Yield strategy (M-YIELD-POINTS): each iteration contains at least one
+    // async await that surrenders control to the runtime:
+    //   - `poll_once` issues an HTTP request via reqwest (I/O yield).
+    //   - `apply_events` dispatches each DB write via `spawn_blocking` (yield).
+    //   - `tokio::time::sleep` at the bottom yields for the configured interval.
+    // No explicit `yield_now()` is needed because I/O awaits already preempt.
     loop {
         match poll_once(&client, &config.primary_url, last_seq).await {
             Err(e) => {
+                // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
                 eprintln!("[community] poll error: {e}");
             }
             Ok(response) => {
@@ -114,12 +133,14 @@ async fn register_with_tracker(
             println!("[community] registered with tracker at {tracker_url}");
         }
         Ok(resp) => {
+            // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
             eprintln!(
                 "[community] tracker registration returned HTTP {}: ignored",
                 resp.status()
             );
         }
         Err(e) => {
+            // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
             eprintln!("[community] tracker registration failed (ignoring): {e}");
         }
     }
@@ -171,6 +192,7 @@ async fn apply_events(db: db::Db, node_pubkey: &str, events: Vec<event::Event>) 
 
         // Verify signature before touching the DB.
         if let Err(e) = signing::verify_event_signature(&ev) {
+            // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
             eprintln!("[community] invalid signature on event {event_id} seq={seq}: {e}; skipping");
             continue;
         }
@@ -183,9 +205,11 @@ async fn apply_events(db: db::Db, node_pubkey: &str, events: Vec<event::Event>) 
 
         match result {
             Err(panic_err) => {
+                // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
                 eprintln!("[community] apply task panicked for event {event_id}: {panic_err}");
             }
             Ok(Err(db_err)) => {
+                // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
                 eprintln!("[community] DB error applying event {event_id}: {db_err}");
             }
             Ok(Ok(())) => {
@@ -208,7 +232,9 @@ fn apply_single_event(db: &db::Db, node_pubkey: &str, ev: &event::Event) -> Resu
         .as_secs()
         .cast_signed();
 
-    let conn = db.lock().unwrap();
+    // Recover from mutex poison: the data is SQLite-backed and we can safely
+    // continue from the last consistent on-disk state even after a panic.
+    let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     match &ev.payload {
         event::EventPayload::ArtistUpserted(p) => {
@@ -229,6 +255,7 @@ fn apply_single_event(db: &db::Db, node_pubkey: &str, ev: &event::Event) -> Resu
         }
         event::EventPayload::FeedRetired(p) => {
             // Retirement not yet implemented — log and skip.
+            // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
             eprintln!(
                 "[community] FeedRetired for {} not yet implemented; skipping",
                 p.feed_guid
@@ -236,6 +263,7 @@ fn apply_single_event(db: &db::Db, node_pubkey: &str, ev: &event::Event) -> Resu
         }
         event::EventPayload::TrackRemoved(p) => {
             // Removal not yet implemented — log and skip.
+            // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
             eprintln!(
                 "[community] TrackRemoved for {} not yet implemented; skipping",
                 p.track_guid
