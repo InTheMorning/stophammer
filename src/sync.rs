@@ -13,7 +13,7 @@ use crate::event::Event;
 
 /// Response for `GET /sync/events?after_seq={n}&limit={m}`.
 /// Community nodes poll this to stay current.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SyncEventsResponse {
     pub events:   Vec<Event>,
     pub has_more: bool,

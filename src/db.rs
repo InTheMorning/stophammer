@@ -136,6 +136,20 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
     Ok(Artist { artist_id, name: name.to_string(), name_lower, created_at: now })
 }
 
+// ── upsert_artist_if_absent ───────────────────────────────────────────────────
+
+/// Inserts the artist if no row with the same `artist_id` exists yet.
+/// Used by the community node to replay `ArtistUpserted` events without
+/// overwriting locally-resolved `created_at` timestamps.
+pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO artists (artist_id, name, name_lower, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![artist.artist_id, artist.name, artist.name_lower, artist.created_at],
+    )?;
+    Ok(())
+}
+
 // ── upsert_feed ───────────────────────────────────────────────────────────────
 
 pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
@@ -431,6 +445,18 @@ pub fn upsert_node_sync_state(
         params![node_pubkey, last_seq, last_seen_at],
     )?;
     Ok(())
+}
+
+// ── get_node_sync_cursor ──────────────────────────────────────────────────────
+
+/// Returns the `last_seq` cursor stored for `node_pubkey`, or 0 if none exists.
+pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64, DbError> {
+    let seq: Option<i64> = conn.query_row(
+        "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
+        params![node_pubkey],
+        |row| row.get(0),
+    ).optional()?;
+    Ok(seq.unwrap_or(0))
 }
 
 // ── get_existing_feed ─────────────────────────────────────────────────────────

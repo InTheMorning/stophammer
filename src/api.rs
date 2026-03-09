@@ -78,6 +78,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .with_state(state)
 }
 
+/// Read-only router for community nodes.
+///
+/// Exposes only `GET /sync/events` and `GET /health`; ingest and reconcile
+/// write-paths are intentionally absent so a community node can never be used
+/// as an ingestion endpoint.
+pub fn build_readonly_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/sync/events", get(handle_sync_events))
+        .route("/health",      get(|| async { "ok" }))
+        .with_state(state)
+}
+
 // ── POST /ingest/feed ─────────────────────────────────────────────────────────
 
 #[expect(clippy::too_many_lines, reason = "single ingest flow — splitting would obscure the sequential validation steps")]
