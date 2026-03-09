@@ -1,0 +1,68 @@
+# cargo-deny configuration for stophammer
+# Run: cargo deny check
+# Checks: licenses, security advisories, banned crates, allowed sources
+
+[graph]
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+]
+
+# ── Licenses ──────────────────────────────────────────────────────────────────
+# All dependencies must use a license from this list.
+# All direct and transitive deps are permissive and compatible with AGPL-3.0.
+
+[licenses]
+confidence-threshold = 0.8
+allow = [
+    "AGPL-3.0-only",
+    "MIT",
+    "Apache-2.0",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Unlicense",
+    # ryu is Apache-2.0 OR BSL-1.0; we accept via Apache-2.0 above,
+    # but BSL-1.0 must be listed to satisfy the OR expression check.
+    "BSL-1.0",
+    # webpki-roots: permissive, allows free use and redistribution.
+    "CDLA-Permissive-2.0",
+]
+
+# ring uses a custom license combining ISC, MIT, and OpenSSL terms.
+# The ISC and MIT portions are accepted above. The OpenSSL exception is
+# clarified here so cargo-deny can verify the file hash rather than
+# guessing from plain text.
+[[licenses.clarify]]
+crate = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [
+    { path = "LICENSE", hash = 0xbd0eed23 },
+]
+
+# ── Advisories ────────────────────────────────────────────────────────────────
+# Fail on any published security advisory with no known fix.
+
+[advisories]
+ignore = []
+
+# ── Bans ──────────────────────────────────────────────────────────────────────
+# Warn on duplicate versions of the same crate; error on explicitly banned ones.
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+deny = [
+    # openssl: use rustls instead (already enforced via reqwest/rustls-tls feature)
+    "openssl",
+    "openssl-sys",
+]
+
+# ── Sources ───────────────────────────────────────────────────────────────────
+# Only allow crates from crates.io; no git dependencies.
+
+[sources]
+unknown-registry = "deny"
+unknown-git      = "deny"
+allow-registry   = ["https://github.com/rust-lang/crates.io-index"]
