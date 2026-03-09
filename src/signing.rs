@@ -1,0 +1,146 @@
+// Rust guideline compliant (M-APP-ERROR, M-MODULE-DOCS) — 2026-03-09
+
+//! Ed25519 key management and event signing for stophammer nodes.
+//!
+//! [`NodeSigner`] loads a 32-byte ed25519 signing key from disk, or generates
+//! and persists one on first run (Unix: mode 0o600). Signing computes
+//! SHA-256 over the canonical JSON serialisation of [`EventSigningPayload`]
+//! and produces an ed25519 signature stored as a hex string.
+//!
+//! [`verify_event_signature`] reconstructs the same payload from an [`Event`]
+//! and verifies the signature without requiring access to a `NodeSigner`.
+
+use std::fmt;
+use ed25519_dalek::{Signer, Verifier, SigningKey, VerifyingKey, Signature};
+use rand_core::OsRng;
+use sha2::{Sha256, Digest};
+use crate::event::{EventSigningPayload, EventType, Event};
+
+pub struct NodeSigner {
+    signing_key: SigningKey,
+    pubkey_hex:  String,
+}
+
+pub enum SigningError {
+    Io(std::io::Error),
+    InvalidKey(ed25519_dalek::SignatureError),
+}
+
+impl fmt::Debug for SigningError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self, f)
+    }
+}
+
+impl fmt::Display for SigningError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            SigningError::Io(e)         => write!(f, "IO error: {e}"),
+            SigningError::InvalidKey(e) => write!(f, "Invalid key: {e}"),
+        }
+    }
+}
+
+impl From<std::io::Error> for SigningError {
+    fn from(e: std::io::Error) -> Self {
+        SigningError::Io(e)
+    }
+}
+
+impl From<ed25519_dalek::SignatureError> for SigningError {
+    fn from(e: ed25519_dalek::SignatureError) -> Self {
+        SigningError::InvalidKey(e)
+    }
+}
+
+impl std::error::Error for SigningError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            SigningError::Io(e)         => Some(e),
+            SigningError::InvalidKey(e) => Some(e),
+        }
+    }
+}
+
+impl NodeSigner {
+    pub fn load_or_create(path: &str) -> Result<Self, SigningError> {
+        let signing_key = if std::path::Path::new(path).exists() {
+            let bytes = std::fs::read(path)?;
+            let arr: [u8; 32] = bytes.try_into()
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "key file must be 32 bytes"))?;
+            SigningKey::from_bytes(&arr)
+        } else {
+            let key = SigningKey::generate(&mut OsRng);
+            std::fs::write(path, key.to_bytes())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let perms = std::fs::Permissions::from_mode(0o600);
+                std::fs::set_permissions(path, perms)?;
+            }
+            key
+        };
+
+        // VerifyingKey can be derived from SigningKey at any point via
+        // signing_key.verifying_key(), so there is no need to store it.
+        let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
+
+        Ok(Self { signing_key, pubkey_hex })
+    }
+
+    pub fn pubkey_hex(&self) -> &str {
+        &self.pubkey_hex
+    }
+
+    pub fn sign_event(
+        &self,
+        event_id:     &str,
+        event_type:   &EventType,
+        payload_json: &str,
+        subject_guid: &str,
+        created_at:   i64,
+    ) -> (String, String) {
+        let payload = EventSigningPayload {
+            event_id,
+            event_type,
+            payload_json,
+            subject_guid,
+            created_at,
+        };
+        let serialized = serde_json::to_string(&payload).expect("EventSigningPayload serialization failed");
+        let digest = Sha256::digest(serialized.as_bytes());
+        let sig: Signature = self.signing_key.sign(&digest);
+        (self.pubkey_hex.clone(), hex::encode(sig.to_bytes()))
+    }
+}
+
+pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
+    let pubkey_bytes = hex::decode(&event.signed_by)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let pubkey_arr: [u8; 32] = pubkey_bytes.try_into()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes"))?;
+    let verifying_key = VerifyingKey::from_bytes(&pubkey_arr)?;
+
+    let payload_json = serde_json::to_string(&event.payload)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+
+    let payload = EventSigningPayload {
+        event_id:     &event.event_id,
+        event_type:   &event.event_type,
+        payload_json: &payload_json,
+        subject_guid: &event.subject_guid,
+        created_at:   event.created_at,
+    };
+    let serialized = serde_json::to_string(&payload)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let digest = Sha256::digest(serialized.as_bytes());
+
+    let sig_bytes = hex::decode(&event.signature)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let sig_arr: [u8; 64] = sig_bytes.try_into()
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "signature must be 64 bytes"))?;
+    let sig = Signature::from_bytes(&sig_arr);
+
+    verifying_key.verify(&digest, &sig)?;
+    Ok(())
+}

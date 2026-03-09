@@ -1,0 +1,20 @@
+[package]
+name    = "stophammer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rusqlite      = { version = "0.31", features = ["bundled"] }
+serde         = { version = "1",    features = ["derive"] }
+serde_json    = "1"
+uuid          = { version = "1",    features = ["v4"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+axum          = "0.8"
+tokio         = { version = "1",    features = ["full"] }
+sha2          = "0.10"
+hex           = "0.4"
+rand_core     = { version = "0.6",  features = ["getrandom"] }
+
+[profile.release]
+opt-level = 3
+strip     = "symbols"
