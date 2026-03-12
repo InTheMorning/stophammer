@@ -7,9 +7,8 @@ A quality-gated V4V music index.
 | Repository | Description |
 |---|---|
 | **[stophammer](https://github.com/dardevelin/stophammer)** | Primary / community node (this repo) |
-| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | RSS feed crawler — one-shot or scheduled |
-| [stophammer-podping](https://github.com/dardevelin/stophammer-podping) | Real-time discovery via the Podping WebSocket stream |
-| [stophammer-importer](https://github.com/dardevelin/stophammer-importer) | Bulk importer from a PodcastIndex SQLite snapshot |
+| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, and Podping listener |
+| [stophammer-parser](https://github.com/dardevelin/stophammer-parser) | Declarative RSS/Podcast XML extraction engine (Rust library) |
 | [stophammer-tracker](https://github.com/dardevelin/stophammer-tracker) | Cloudflare Workers peer tracker (optional bootstrap) |
 
 ## The problem
@@ -264,36 +263,37 @@ that authenticate with `CRAWL_TOKEN` and POST to `/ingest/feed`.
 
 ### RSS crawler
 
+All crawling modes live in [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler):
+
 ```bash
-cd stophammer-crawler
+# One-shot: crawl specific feed URLs
+CRAWL_TOKEN=secret stophammer-crawler crawl https://feeds.rssblue.com/stereon-music
 
-# One-shot: crawl a list of feed URLs
-CRAWL_TOKEN=secret \
-INGEST_URL=http://localhost:8008/ingest/feed \
-FEED_URLS="https://feeds.rssblue.com/stereon-music" \
-bun run src/index.ts
-
-# Or pass a file
-CRAWL_TOKEN=secret INGEST_URL=http://localhost:8008/ingest/feed \
-bun run src/index.ts feeds.txt
+# From a file
+CRAWL_TOKEN=secret stophammer-crawler crawl feeds.txt
 ```
 
 Schedule with cron:
 ```
 0 */6 * * *  CRAWL_TOKEN=secret INGEST_URL=http://primary:8008/ingest/feed \
-             FEED_URLS="$(cat /etc/stophammer/feeds.txt)" \
-             bun run /opt/stophammer-crawler/src/index.ts
+             stophammer-crawler crawl /etc/stophammer/feeds.txt
 ```
 
 ### Podping listener
 
-Listens to the Podping Hive stream and submits feeds in real time.
-See `stophammer-podping/README.md`.
+Listens to the Podping WebSocket stream and submits music feeds in real time:
+
+```bash
+CRAWL_TOKEN=secret stophammer-crawler podping --concurrency 3
+```
 
 ### PodcastIndex snapshot importer
 
-Bulk-imports from a PodcastIndex database snapshot.
-See `stophammer-importer/README.md`.
+Bulk-imports from a PodcastIndex database snapshot:
+
+```bash
+CRAWL_TOKEN=secret stophammer-crawler import --db /path/to/podcastindex_feeds.db
+```
 
 ---
 
