@@ -46,6 +46,9 @@ pub struct IngestFeedData {
     pub owner_name:   Option<String>,
     /// Publication date of the feed channel; drives `newest_item_at` tracking.
     pub pub_date:              Option<i64>,
+    #[expect(dead_code, reason = "accepted from crawler now; persisted in a later schema change")]
+    #[serde(default)]
+    pub persons:               Vec<IngestPerson>,
     /// Feed-level `podcast:value` recipients. Tracks that have no payment
     /// routes of their own fall back to these at play time.
     pub feed_payment_routes:   Vec<IngestPaymentRoute>,
@@ -68,8 +71,23 @@ pub struct IngestTrackData {
     pub description:       Option<String>,
     /// Per-track author override — some feeds have different artist per track
     pub author_name:       Option<String>,
+    #[expect(dead_code, reason = "accepted from crawler now; persisted in a later schema change")]
+    #[serde(default)]
+    pub persons:           Vec<IngestPerson>,
     pub payment_routes:    Vec<IngestPaymentRoute>,
     pub value_time_splits: Vec<IngestValueTimeSplit>,
+}
+
+/// Ingest-time `podcast:person` contributor entry.
+#[expect(dead_code, reason = "accepted from crawler now; persisted in a later schema change")]
+#[derive(Debug, Deserialize)]
+pub struct IngestPerson {
+    pub position: i64,
+    pub name:     String,
+    pub role:     Option<String>,
+    pub group:    Option<String>,
+    pub href:     Option<String>,
+    pub img:      Option<String>,
 }
 
 /// Ingest-time payment route before a DB row ID is assigned.

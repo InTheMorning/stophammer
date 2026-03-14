@@ -1,0 +1,6 @@
+[submodule "stophammer-crawler"]
+	path = stophammer-crawler
+	url = https://github.com/InTheMorning/stophammer-crawler.git
+[submodule "stophammer-parser"]
+	path = stophammer-parser
+	url = https://github.com/InTheMorning/stophammer-parser.git
