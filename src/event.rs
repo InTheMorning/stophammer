@@ -8,10 +8,11 @@
 //! `seq` is intentionally excluded from the signing payload — it is a
 //! delivery-ordering field and does not affect content integrity.
 
-use serde::{Deserialize, Serialize};
 use crate::model::{
-    Artist, ArtistCredit, Contributor, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit,
+    Artist, ArtistCredit, Feed, FeedPaymentRoute, PaymentRoute, RawPodcastPerson, Track,
+    ValueTimeSplit,
 };
+use serde::{Deserialize, Serialize};
 
 /// Discriminant identifying which domain action produced an [`Event`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,18 +75,21 @@ pub enum EventPayload {
 /// Callers that construct `Event` from the wire (community sync) must populate
 /// `payload_json` using [`Event::payload_json_from_payload`] before calling
 /// `verify_event_signature`.
-#[expect(clippy::struct_field_names, reason = "event_id and event_type are canonical field names in the protocol")]
+#[expect(
+    clippy::struct_field_names,
+    reason = "event_id and event_type are canonical field names in the protocol"
+)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
-    pub event_id:     String,
-    pub event_type:   EventType,
-    pub payload:      EventPayload,
+    pub event_id: String,
+    pub event_type: EventType,
+    pub payload: EventPayload,
     pub subject_guid: String,
-    pub signed_by:    String,       // hex ed25519 pubkey
-    pub signature:    String,       // hex ed25519 sig over sha256(EventSigningPayload)
-    pub seq:          i64,          // monotonic, assigned by primary at commit
-    pub created_at:   i64,          // unix seconds
-    pub warnings:     Vec<String>,  // verifier warnings stored for audit
+    pub signed_by: String,     // hex ed25519 pubkey
+    pub signature: String,     // hex ed25519 sig over sha256(EventSigningPayload)
+    pub seq: i64,              // monotonic, assigned by primary at commit
+    pub created_at: i64,       // unix seconds
+    pub warnings: Vec<String>, // verifier warnings stored for audit
     /// Canonical inner-payload JSON string used when computing the ed25519 signature.
     ///
     /// Transmitted over the wire so community nodes can verify the signature
@@ -106,11 +110,11 @@ pub struct Event {
 /// rather than to the content itself, making cross-node verification impossible.
 #[derive(Debug, Serialize)]
 pub struct EventSigningPayload<'a> {
-    pub event_id:     &'a str,
-    pub event_type:   &'a EventType,
+    pub event_id: &'a str,
+    pub event_type: &'a EventType,
     pub payload_json: &'a str,
     pub subject_guid: &'a str,
-    pub created_at:   i64,
+    pub created_at: i64,
 }
 
 // ── Payload types ──────────────────────────────────────────────────────────
@@ -118,34 +122,34 @@ pub struct EventSigningPayload<'a> {
 /// Emitted when a feed is created or any of its metadata fields change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUpsertedPayload {
-    pub feed:          Feed,
-    pub artist:        Artist,
+    pub feed: Feed,
+    pub artist: Artist,
     pub artist_credit: ArtistCredit,
-    pub contributors:  Vec<Contributor>,
+    pub podcast_persons: Vec<RawPodcastPerson>,
 }
 
 /// Emitted when a feed is permanently removed from the index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedRetiredPayload {
     pub feed_guid: String,
-    pub reason:    Option<String>,
+    pub reason: Option<String>,
 }
 
 /// Emitted when a track is created or its metadata, routes, or time-splits change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackUpsertedPayload {
-    pub track:             Track,
-    pub routes:            Vec<PaymentRoute>,
+    pub track: Track,
+    pub routes: Vec<PaymentRoute>,
     pub value_time_splits: Vec<ValueTimeSplit>,
-    pub artist_credit:     ArtistCredit,
-    pub contributors:      Vec<Contributor>,
+    pub artist_credit: ArtistCredit,
+    pub podcast_persons: Vec<RawPodcastPerson>,
 }
 
 /// Emitted when a track is deleted from its parent feed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackRemovedPayload {
     pub track_guid: String,
-    pub feed_guid:  String,
+    pub feed_guid: String,
 }
 
 /// Emitted when an artist record is created or its display name changes.
@@ -158,7 +162,7 @@ pub struct ArtistUpsertedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutesReplacedPayload {
     pub track_guid: String,
-    pub routes:     Vec<PaymentRoute>,
+    pub routes: Vec<PaymentRoute>,
 }
 
 /// Emitted when two artist records are merged: `source_artist_id` is absorbed
@@ -183,5 +187,5 @@ pub struct ArtistCreditCreatedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedRoutesReplacedPayload {
     pub feed_guid: String,
-    pub routes:    Vec<FeedPaymentRoute>,
+    pub routes: Vec<FeedPaymentRoute>,
 }

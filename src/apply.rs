@@ -23,11 +23,11 @@ pub(crate) enum ApplyOutcome {
 
 /// Aggregate counts returned by [`apply_events`].
 pub(crate) struct ApplySummary {
-    pub applied:   usize,
+    pub applied: usize,
     pub duplicate: usize,
-    pub rejected:  usize,
+    pub rejected: usize,
     /// Highest seq applied during this batch (0 if nothing was applied).
-    pub max_seq:   i64,
+    pub max_seq: i64,
 }
 
 // ── apply_single_event ───────────────────────────────────────────────────────
@@ -38,9 +38,9 @@ pub(crate) struct ApplySummary {
 /// re-delivering the same event is safe. The caller must have already verified
 /// the event signature before calling this function.
 pub(crate) fn apply_single_event(
-    db:          &db::Db,
+    db: &db::Db,
     node_pubkey: &str,
-    ev:          &event::Event,
+    ev: &event::Event,
 ) -> Result<ApplyOutcome, db::DbError> {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -59,7 +59,7 @@ pub(crate) fn apply_single_event(
             // Ensure artist credit exists before upserting feed
             upsert_artist_credit_if_absent(&conn, &p.artist_credit)?;
             db::upsert_feed(&conn, &p.feed)?;
-            db::replace_contributors(&conn, "feed", &p.feed.feed_guid, &p.contributors)?;
+            db::replace_podcast_persons_raw(&conn, "feed", &p.feed.feed_guid, &p.podcast_persons)?;
         }
         event::EventPayload::TrackUpserted(p) => {
             // Ensure artist credit exists before upserting track
@@ -67,7 +67,12 @@ pub(crate) fn apply_single_event(
             db::upsert_track(&conn, &p.track)?;
             db::replace_payment_routes(&conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(&conn, &p.track.track_guid, &p.value_time_splits)?;
-            db::replace_contributors(&conn, "track", &p.track.track_guid, &p.contributors)?;
+            db::replace_podcast_persons_raw(
+                &conn,
+                "track",
+                &p.track.track_guid,
+                &p.podcast_persons,
+            )?;
         }
         event::EventPayload::RoutesReplaced(p) => {
             db::replace_payment_routes(&conn, &p.track_guid, &p.routes)?;
@@ -91,11 +96,7 @@ pub(crate) fn apply_single_event(
             );
         }
         event::EventPayload::ArtistMerged(p) => {
-            db::merge_artists(
-                &mut conn,
-                &p.source_artist_id,
-                &p.target_artist_id,
-            )?;
+            db::merge_artists(&mut conn, &p.source_artist_id, &p.target_artist_id)?;
         }
     }
 
@@ -135,7 +136,13 @@ fn upsert_artist_credit_if_absent(
             "INSERT OR IGNORE INTO artist_credit_name \
              (artist_credit_id, artist_id, position, name, join_phrase) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![acn.artist_credit_id, acn.artist_id, acn.position, acn.name, acn.join_phrase],
+            rusqlite::params![
+                acn.artist_credit_id,
+                acn.artist_id,
+                acn.position,
+                acn.name,
+                acn.join_phrase
+            ],
         )?;
     }
     Ok(())
@@ -145,15 +152,20 @@ fn upsert_artist_credit_if_absent(
 
 /// Verify and apply a batch of events to the local DB.
 pub(crate) async fn apply_events(
-    db:          db::Db,
+    db: db::Db,
     node_pubkey: &str,
-    events:      Vec<event::Event>,
+    events: Vec<event::Event>,
 ) -> ApplySummary {
-    let mut summary = ApplySummary { applied: 0, duplicate: 0, rejected: 0, max_seq: 0 };
+    let mut summary = ApplySummary {
+        applied: 0,
+        duplicate: 0,
+        rejected: 0,
+        max_seq: 0,
+    };
     let node_pubkey = node_pubkey.to_string();
 
     for ev in events {
-        let seq      = ev.seq;
+        let seq = ev.seq;
         let event_id = ev.event_id.clone();
 
         if let Err(e) = signing::verify_event_signature(&ev) {
@@ -162,10 +174,9 @@ pub(crate) async fn apply_events(
             continue;
         }
 
-        let db2    = Arc::clone(&db);
-        let pk     = node_pubkey.clone();
-        let result = tokio::task::spawn_blocking(move || apply_single_event(&db2, &pk, &ev))
-            .await;
+        let db2 = Arc::clone(&db);
+        let pk = node_pubkey.clone();
+        let result = tokio::task::spawn_blocking(move || apply_single_event(&db2, &pk, &ev)).await;
 
         match result {
             Err(panic_err) => {

@@ -28,7 +28,6 @@ fn schema_creates_all_tables() {
         "artist_tag",
         "artist_type",
         "artists",
-        "contributors",
         "entity_field_status",
         "entity_quality",
         "entity_source",
@@ -44,6 +43,7 @@ fn schema_creates_all_tables() {
         "node_sync_state",
         "payment_routes",
         "peer_nodes",
+        "podcast_persons_raw",
         "rel_type",
         "tags",
         "track_rel",
@@ -52,10 +52,7 @@ fn schema_creates_all_tables() {
         "value_time_splits",
     ];
     for name in &expected {
-        assert!(
-            tables.contains(&name.to_string()),
-            "missing table: {name}"
-        );
+        assert!(tables.contains(&name.to_string()), "missing table: {name}");
     }
 }
 
@@ -653,16 +650,24 @@ fn value_time_split_replace() {
 }
 
 // ---------------------------------------------------------------------------
-// 15. Contributor replace (generic entity contributors)
+// 15. Raw podcast:person snapshot replace
 // ---------------------------------------------------------------------------
 
 #[test]
-fn contributor_replace() {
+fn podcast_persons_raw_replace() {
     let conn = common::test_db();
-    let fg = insert_feed(&conn, "feed-contrib", insert_single_credit(&conn, &insert_artist(&conn, "art-contrib", "Contributor Artist"), "Contributor Artist"));
+    let fg = insert_feed(
+        &conn,
+        "feed-contrib",
+        insert_single_credit(
+            &conn,
+            &insert_artist(&conn, "art-contrib", "Contributor Artist"),
+            "Contributor Artist",
+        ),
+    );
 
     conn.execute(
-        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+        "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, source)
          VALUES ('feed', ?1, 0, 'Alice', 'artist', 'podcast_person')",
         params![&fg],
     )
@@ -670,7 +675,7 @@ fn contributor_replace() {
 
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+            "SELECT COUNT(*) FROM podcast_persons_raw WHERE entity_type = 'feed' AND entity_id = ?1",
             params![&fg],
             |r| r.get(0),
         )
@@ -678,18 +683,18 @@ fn contributor_replace() {
     assert_eq!(count, 1);
 
     conn.execute(
-        "DELETE FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+        "DELETE FROM podcast_persons_raw WHERE entity_type = 'feed' AND entity_id = ?1",
         params![&fg],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+        "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, source)
          VALUES ('feed', ?1, 0, 'Bob', 'artist', 'podcast_person')",
         params![&fg],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+        "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, source)
          VALUES ('feed', ?1, 1, 'Carol', 'producer', 'podcast_person')",
         params![&fg],
     )
@@ -697,7 +702,7 @@ fn contributor_replace() {
 
     let names: Vec<String> = conn
         .prepare(
-            "SELECT name FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1 ORDER BY position",
+            "SELECT name FROM podcast_persons_raw WHERE entity_type = 'feed' AND entity_id = ?1 ORDER BY position",
         )
         .unwrap()
         .query_map(params![&fg], |r| r.get(0))

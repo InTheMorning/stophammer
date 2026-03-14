@@ -8,14 +8,14 @@
 //! failures. `api.rs` pattern-matches on the variants to produce appropriate
 //! HTTP status codes, so the typed error is intentional.
 
-use std::fmt;
-use std::sync::{Arc, Mutex};
-use rusqlite::{Connection, OptionalExtension, params};
+use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
-    Artist, ArtistCredit, ArtistCreditName, Contributor, Feed, FeedPaymentRoute, PaymentRoute,
+    Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, RawPodcastPerson,
     Track, ValueTimeSplit,
 };
-use crate::event::{Event, EventPayload, EventType};
+use rusqlite::{Connection, OptionalExtension, params};
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 pub type Db = Arc<Mutex<Connection>>;
 
@@ -45,7 +45,7 @@ impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DbError::Rusqlite(e) => write!(f, "SQLite error: {e}"),
-            DbError::Json(e)     => write!(f, "JSON error: {e}"),
+            DbError::Json(e) => write!(f, "JSON error: {e}"),
         }
     }
 }
@@ -60,7 +60,7 @@ impl std::error::Error for DbError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             DbError::Rusqlite(e) => Some(e),
-            DbError::Json(e)     => Some(e),
+            DbError::Json(e) => Some(e),
         }
     }
 }
@@ -70,21 +70,21 @@ impl std::error::Error for DbError {
 /// A pre-assembled event ready to be written to the `events` table.
 pub struct EventRow {
     /// Globally unique identifier for this event (UUID v4).
-    pub event_id:     String,
+    pub event_id: String,
     /// Discriminant describing the kind of state change this event records.
-    pub event_type:   EventType,
+    pub event_type: EventType,
     /// Canonical JSON representation of the event-specific payload.
     pub payload_json: String,
     /// GUID of the primary entity this event concerns (feed, track, etc.).
     pub subject_guid: String,
     /// Hex-encoded ed25519 public key of the node that signed this event.
-    pub signed_by:    String,
+    pub signed_by: String,
     /// Hex-encoded ed25519 signature over the canonical signing payload.
-    pub signature:    String,
+    pub signature: String,
     /// Unix timestamp (seconds) at which the event was created.
-    pub created_at:   i64,
+    pub created_at: i64,
     /// Human-readable warnings produced by the verifier chain, if any.
-    pub warnings:     Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 // ── ExternalIdRow ──────────────────────────────────────────────────────────────
@@ -92,9 +92,9 @@ pub struct EventRow {
 /// A row from the `external_ids` table linking an entity to an external system.
 #[allow(dead_code)]
 pub struct ExternalIdRow {
-    pub id:     i64,
+    pub id: i64,
     pub scheme: String,
-    pub value:  String,
+    pub value: String,
 }
 
 // ── EntitySourceRow ────────────────────────────────────────────────────────────
@@ -102,11 +102,11 @@ pub struct ExternalIdRow {
 /// A row from the `entity_source` table recording where an entity came from.
 #[allow(dead_code)]
 pub struct EntitySourceRow {
-    pub id:          i64,
+    pub id: i64,
     pub source_type: String,
-    pub source_url:  Option<String>,
+    pub source_url: Option<String>,
     pub trust_level: i64,
-    pub created_at:  i64,
+    pub created_at: i64,
 }
 
 // ── Schema constant ──────────────────────────────────────────────────────────
@@ -159,59 +159,63 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
     let now = unix_now();
 
     // 1. Check alias table first.
-    let via_alias: Option<Artist> = conn.query_row(
-        "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
+    let via_alias: Option<Artist> = conn
+        .query_row(
+            "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
          a.img_url, a.url, a.begin_year, a.end_year, a.created_at, a.updated_at \
          FROM artist_aliases aa \
          JOIN artists a ON a.artist_id = aa.artist_id \
          WHERE aa.alias_lower = ?1 \
          LIMIT 1",
-        params![name_lower],
-        |row| {
-            Ok(Artist {
-                artist_id:  row.get(0)?,
-                name:       row.get(1)?,
-                name_lower: row.get(2)?,
-                sort_name:  row.get(3)?,
-                type_id:    row.get(4)?,
-                area:       row.get(5)?,
-                img_url:    row.get(6)?,
-                url:        row.get(7)?,
-                begin_year: row.get(8)?,
-                end_year:   row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
-    ).optional()?;
+            params![name_lower],
+            |row| {
+                Ok(Artist {
+                    artist_id: row.get(0)?,
+                    name: row.get(1)?,
+                    name_lower: row.get(2)?,
+                    sort_name: row.get(3)?,
+                    type_id: row.get(4)?,
+                    area: row.get(5)?,
+                    img_url: row.get(6)?,
+                    url: row.get(7)?,
+                    begin_year: row.get(8)?,
+                    end_year: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .optional()?;
 
     if let Some(a) = via_alias {
         return Ok(a);
     }
 
     // 2. Fall back to direct name_lower match.
-    let existing: Option<Artist> = conn.query_row(
-        "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
+    let existing: Option<Artist> = conn
+        .query_row(
+            "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
          img_url, url, begin_year, end_year, created_at, updated_at \
          FROM artists WHERE name_lower = ?1",
-        params![name_lower],
-        |row| {
-            Ok(Artist {
-                artist_id:  row.get(0)?,
-                name:       row.get(1)?,
-                name_lower: row.get(2)?,
-                sort_name:  row.get(3)?,
-                type_id:    row.get(4)?,
-                area:       row.get(5)?,
-                img_url:    row.get(6)?,
-                url:        row.get(7)?,
-                begin_year: row.get(8)?,
-                end_year:   row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
-    ).optional()?;
+            params![name_lower],
+            |row| {
+                Ok(Artist {
+                    artist_id: row.get(0)?,
+                    name: row.get(1)?,
+                    name_lower: row.get(2)?,
+                    sort_name: row.get(3)?,
+                    type_id: row.get(4)?,
+                    area: row.get(5)?,
+                    img_url: row.get(6)?,
+                    url: row.get(7)?,
+                    begin_year: row.get(8)?,
+                    end_year: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .optional()?;
 
     if let Some(a) = existing {
         conn.execute(
@@ -239,13 +243,13 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
         artist_id,
         name: name.to_string(),
         name_lower,
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     })
@@ -290,7 +294,9 @@ pub fn merge_artists(
            )",
     )?;
     let transferred: Vec<String> = stmt
-        .query_map(params![source_artist_id, target_artist_id], |row| row.get(0))?
+        .query_map(params![source_artist_id, target_artist_id], |row| {
+            row.get(0)
+        })?
         .collect::<Result<_, _>>()?;
     drop(stmt);
 
@@ -346,10 +352,18 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
          img_url, url, begin_year, end_year, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
-            artist.artist_id, artist.name, artist.name_lower,
-            artist.sort_name, artist.type_id, artist.area,
-            artist.img_url, artist.url, artist.begin_year, artist.end_year,
-            artist.created_at, artist.updated_at,
+            artist.artist_id,
+            artist.name,
+            artist.name_lower,
+            artist.sort_name,
+            artist.type_id,
+            artist.area,
+            artist.img_url,
+            artist.url,
+            artist.begin_year,
+            artist.end_year,
+            artist.created_at,
+            artist.updated_at,
         ],
     )?;
     Ok(())
@@ -362,7 +376,7 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
 pub fn create_artist_credit(
     conn: &Connection,
     display_name: &str,
-    names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
 ) -> Result<ArtistCredit, DbError> {
     let now = unix_now();
 
@@ -374,7 +388,10 @@ pub fn create_artist_credit(
 
     let mut credit_names = Vec::with_capacity(names.len());
     for (pos, (artist_id, name, join_phrase)) in names.iter().enumerate() {
-        #[expect(clippy::cast_possible_wrap, reason = "artist credit position count never approaches i64::MAX")]
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "artist credit position count never approaches i64::MAX"
+        )]
         let position = pos as i64;
         conn.execute(
             "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
@@ -383,25 +400,28 @@ pub fn create_artist_credit(
         )?;
         let acn_id = conn.last_insert_rowid();
         credit_names.push(ArtistCreditName {
-            id:               acn_id,
+            id: acn_id,
             artist_credit_id: credit_id,
-            artist_id:        artist_id.clone(),
+            artist_id: artist_id.clone(),
             position,
-            name:             name.clone(),
-            join_phrase:      join_phrase.clone(),
+            name: name.clone(),
+            join_phrase: join_phrase.clone(),
         });
     }
 
     Ok(ArtistCredit {
-        id:           credit_id,
+        id: credit_id,
         display_name: display_name.to_string(),
-        created_at:   now,
-        names:        credit_names,
+        created_at: now,
+        names: credit_names,
     })
 }
 
 /// Creates a simple single-artist credit and returns it.
-#[expect(dead_code, reason = "convenience wrapper kept for future single-artist credit creation")]
+#[expect(
+    dead_code,
+    reason = "convenience wrapper kept for future single-artist credit creation"
+)]
 pub fn create_single_artist_credit(
     conn: &Connection,
     artist: &Artist,
@@ -415,12 +435,17 @@ pub fn create_single_artist_credit(
 
 /// Retrieves an artist credit by ID, including its constituent names.
 #[expect(dead_code, reason = "used by query API tests and future enrichment")]
-pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<ArtistCredit>, DbError> {
-    let credit: Option<(i64, String, i64)> = conn.query_row(
-        "SELECT id, display_name, created_at FROM artist_credit WHERE id = ?1",
-        params![credit_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).optional()?;
+pub fn get_artist_credit(
+    conn: &Connection,
+    credit_id: i64,
+) -> Result<Option<ArtistCredit>, DbError> {
+    let credit: Option<(i64, String, i64)> = conn
+        .query_row(
+            "SELECT id, display_name, created_at FROM artist_credit WHERE id = ?1",
+            params![credit_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
 
     let Some((id, display_name, created_at)) = credit else {
         return Ok(None);
@@ -430,18 +455,25 @@ pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<Art
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
          FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
     )?;
-    let names: Vec<ArtistCreditName> = stmt.query_map(params![id], |row| {
-        Ok(ArtistCreditName {
-            id:               row.get(0)?,
-            artist_credit_id: row.get(1)?,
-            artist_id:        row.get(2)?,
-            position:         row.get(3)?,
-            name:             row.get(4)?,
-            join_phrase:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let names: Vec<ArtistCreditName> = stmt
+        .query_map(params![id], |row| {
+            Ok(ArtistCreditName {
+                id: row.get(0)?,
+                artist_credit_id: row.get(1)?,
+                artist_id: row.get(2)?,
+                position: row.get(3)?,
+                name: row.get(4)?,
+                join_phrase: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, created_at, names }))
+    Ok(Some(ArtistCredit {
+        id,
+        display_name,
+        created_at,
+        names,
+    }))
 }
 
 /// Looks up an artist credit by display name (case-insensitive via `LOWER()`).
@@ -451,11 +483,13 @@ pub fn get_artist_credit_by_display_name(
 ) -> Result<Option<ArtistCredit>, DbError> {
     let lower = display_name.to_lowercase();
 
-    let credit: Option<(i64, String, i64)> = conn.query_row(
-        "SELECT id, display_name, created_at FROM artist_credit WHERE LOWER(display_name) = ?1",
-        params![lower],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).optional()?;
+    let credit: Option<(i64, String, i64)> = conn
+        .query_row(
+            "SELECT id, display_name, created_at FROM artist_credit WHERE LOWER(display_name) = ?1",
+            params![lower],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()?;
 
     let Some((id, display_name, created_at)) = credit else {
         return Ok(None);
@@ -465,18 +499,25 @@ pub fn get_artist_credit_by_display_name(
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
          FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
     )?;
-    let names: Vec<ArtistCreditName> = stmt.query_map(params![id], |row| {
-        Ok(ArtistCreditName {
-            id:               row.get(0)?,
-            artist_credit_id: row.get(1)?,
-            artist_id:        row.get(2)?,
-            position:         row.get(3)?,
-            name:             row.get(4)?,
-            join_phrase:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let names: Vec<ArtistCreditName> = stmt
+        .query_map(params![id], |row| {
+            Ok(ArtistCreditName {
+                id: row.get(0)?,
+                artist_credit_id: row.get(1)?,
+                artist_id: row.get(2)?,
+                position: row.get(3)?,
+                name: row.get(4)?,
+                join_phrase: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, created_at, names }))
+    Ok(Some(ArtistCredit {
+        id,
+        display_name,
+        created_at,
+        names,
+    }))
 }
 
 /// Idempotent artist credit retrieval: returns an existing credit if one with
@@ -485,7 +526,7 @@ pub fn get_artist_credit_by_display_name(
 pub fn get_or_create_artist_credit(
     conn: &Connection,
     display_name: &str,
-    names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
 ) -> Result<ArtistCredit, DbError> {
     if let Some(existing) = get_artist_credit_by_display_name(conn, display_name)? {
         return Ok(existing);
@@ -506,9 +547,11 @@ pub fn get_artist_credits_for_artist(
          WHERE acn.artist_id = ?1 \
          ORDER BY ac.id",
     )?;
-    let credits: Vec<(i64, String, i64)> = credit_stmt.query_map(params![artist_id], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    })?.collect::<Result<_, _>>()?;
+    let credits: Vec<(i64, String, i64)> = credit_stmt
+        .query_map(params![artist_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?;
 
     let mut name_stmt = conn.prepare(
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
@@ -517,17 +560,24 @@ pub fn get_artist_credits_for_artist(
 
     let mut result = Vec::with_capacity(credits.len());
     for (id, display_name, created_at) in credits {
-        let names: Vec<ArtistCreditName> = name_stmt.query_map(params![id], |row| {
-            Ok(ArtistCreditName {
-                id:               row.get(0)?,
-                artist_credit_id: row.get(1)?,
-                artist_id:        row.get(2)?,
-                position:         row.get(3)?,
-                name:             row.get(4)?,
-                join_phrase:      row.get(5)?,
-            })
-        })?.collect::<Result<_, _>>()?;
-        result.push(ArtistCredit { id, display_name, created_at, names });
+        let names: Vec<ArtistCreditName> = name_stmt
+            .query_map(params![id], |row| {
+                Ok(ArtistCreditName {
+                    id: row.get(0)?,
+                    artist_credit_id: row.get(1)?,
+                    artist_id: row.get(2)?,
+                    position: row.get(3)?,
+                    name: row.get(4)?,
+                    join_phrase: row.get(5)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        result.push(ArtistCredit {
+            id,
+            display_name,
+            created_at,
+            names,
+        });
     }
 
     Ok(result)
@@ -633,7 +683,10 @@ pub fn replace_payment_routes(
     track_guid: &str,
     routes: &[PaymentRoute],
 ) -> Result<(), DbError> {
-    conn.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track_guid])?;
+    conn.execute(
+        "DELETE FROM payment_routes WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
     for r in routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -665,7 +718,10 @@ pub fn replace_feed_payment_routes(
     feed_guid: &str,
     routes: &[FeedPaymentRoute],
 ) -> Result<(), DbError> {
-    conn.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed_guid])?;
+    conn.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
     for r in routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -719,33 +775,33 @@ pub fn replace_value_time_splits(
     Ok(())
 }
 
-// ── replace_contributors ─────────────────────────────────────────────────────
+// ── replace_podcast_persons_raw ──────────────────────────────────────────────
 
-/// Deletes all contributors for an entity and inserts `contributors`.
-pub fn replace_contributors(
-    conn:        &Connection,
+/// Deletes all raw `podcast:person` rows for an entity and inserts the latest snapshot.
+pub fn replace_podcast_persons_raw(
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
-    contributors: &[Contributor],
+    entity_id: &str,
+    podcast_persons: &[RawPodcastPerson],
 ) -> Result<(), DbError> {
     conn.execute(
-        "DELETE FROM contributors WHERE entity_type = ?1 AND entity_id = ?2",
+        "DELETE FROM podcast_persons_raw WHERE entity_type = ?1 AND entity_id = ?2",
         params![entity_type, entity_id],
     )?;
-    for contributor in contributors {
+    for person in podcast_persons {
         conn.execute(
-            "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+            "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, group_name, \
              href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                &contributor.entity_type,
-                &contributor.entity_id,
-                contributor.position,
-                &contributor.name,
-                &contributor.role,
-                &contributor.group_name,
-                &contributor.href,
-                &contributor.img,
-                &contributor.source,
+                &person.entity_type,
+                &person.entity_id,
+                person.position,
+                &person.name,
+                &person.role,
+                &person.group_name,
+                &person.href,
+                &person.img,
+                &person.source,
             ],
         )?;
     }
@@ -755,17 +811,20 @@ pub fn replace_contributors(
 // ── insert_event ──────────────────────────────────────────────────────────────
 
 /// Inserts a single event row and returns the assigned monotonic `seq`.
-#[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all fields are required for a complete event row"
+)]
 pub fn insert_event(
-    conn:         &Connection,
-    event_id:     &str,
-    event_type:   &EventType,
+    conn: &Connection,
+    event_id: &str,
+    event_type: &EventType,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
-    created_at:   i64,
-    warnings:     &[String],
+    signed_by: &str,
+    signature: &str,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<i64, DbError> {
     let et_str = event_type_str(event_type)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -777,7 +836,16 @@ pub fn insert_event(
 
     let seq = conn.query_row(
         sql,
-        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        params![
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signed_by,
+            signature,
+            created_at,
+            warnings_json
+        ],
         |row| row.get::<_, i64>(0),
     )?;
 
@@ -788,10 +856,10 @@ pub fn insert_event(
 
 /// Records the latest content hash and crawl timestamp for `feed_url`.
 pub fn upsert_feed_crawl_cache(
-    conn:         &Connection,
-    feed_url:     &str,
+    conn: &Connection,
+    feed_url: &str,
     content_hash: &str,
-    crawled_at:   i64,
+    crawled_at: i64,
 ) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO feed_crawl_cache (feed_url, content_hash, crawled_at) \
@@ -808,9 +876,9 @@ pub fn upsert_feed_crawl_cache(
 
 /// Returns up to `limit` events with `seq > after_seq`, ordered ascending.
 pub fn get_events_since(
-    conn:       &Connection,
-    after_seq:  i64,
-    limit:      i64,
+    conn: &Connection,
+    after_seq: i64,
+    limit: i64,
 ) -> Result<Vec<Event>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json \
@@ -819,21 +887,31 @@ pub fn get_events_since(
 
     let rows = stmt.query_map(params![after_seq, limit], |row| {
         Ok((
-            row.get::<_, String>(0)?,   // event_id
-            row.get::<_, String>(1)?,   // event_type string
-            row.get::<_, String>(2)?,   // payload_json
-            row.get::<_, String>(3)?,   // subject_guid
-            row.get::<_, String>(4)?,   // signed_by
-            row.get::<_, String>(5)?,   // signature
-            row.get::<_, i64>(6)?,      // seq
-            row.get::<_, i64>(7)?,      // created_at
-            row.get::<_, String>(8)?,   // warnings_json
+            row.get::<_, String>(0)?, // event_id
+            row.get::<_, String>(1)?, // event_type string
+            row.get::<_, String>(2)?, // payload_json
+            row.get::<_, String>(3)?, // subject_guid
+            row.get::<_, String>(4)?, // signed_by
+            row.get::<_, String>(5)?, // signature
+            row.get::<_, i64>(6)?,    // seq
+            row.get::<_, i64>(7)?,    // created_at
+            row.get::<_, String>(8)?, // warnings_json
         ))
     })?;
 
     let mut events = Vec::new();
     for row in rows {
-        let (event_id, et_str, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) = row?;
+        let (
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signed_by,
+            signature,
+            seq,
+            created_at,
+            warnings_json,
+        ) = row?;
 
         let et_quoted = format!("\"{et_str}\"");
         let event_type: EventType = serde_json::from_str(&et_quoted)?;
@@ -863,17 +941,16 @@ pub fn get_events_since(
 
 /// Returns lightweight `(event_id, seq)` references for all events with `seq >= since_seq`.
 pub fn get_event_refs_since(
-    conn:      &Connection,
+    conn: &Connection,
     since_seq: i64,
 ) -> Result<Vec<crate::sync::EventRef>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC")?;
 
     let rows = stmt.query_map(params![since_seq], |row| {
         Ok(crate::sync::EventRef {
             event_id: row.get(0)?,
-            seq:      row.get(1)?,
+            seq: row.get(1)?,
         })
     })?;
 
@@ -888,9 +965,9 @@ pub fn get_event_refs_since(
 
 /// Records or updates the last-seen sequence number for a peer node.
 pub fn upsert_node_sync_state(
-    conn:         &Connection,
-    node_pubkey:  &str,
-    last_seq:     i64,
+    conn: &Connection,
+    node_pubkey: &str,
+    last_seq: i64,
     last_seen_at: i64,
 ) -> Result<(), DbError> {
     conn.execute(
@@ -908,12 +985,15 @@ pub fn upsert_node_sync_state(
 
 /// A peer node registered for push fan-out.
 pub struct PeerNode {
-    pub node_pubkey:          String,
-    pub node_url:             String,
+    pub node_pubkey: String,
+    pub node_url: String,
     #[expect(dead_code, reason = "returned in GET /sync/peers for future use")]
-    pub discovered_at:        i64,
-    pub last_push_at:         Option<i64>,
-    #[expect(dead_code, reason = "used indirectly via SQL WHERE clause in get_push_peers")]
+    pub discovered_at: i64,
+    pub last_push_at: Option<i64>,
+    #[expect(
+        dead_code,
+        reason = "used indirectly via SQL WHERE clause in get_push_peers"
+    )]
     pub consecutive_failures: i64,
 }
 
@@ -926,10 +1006,10 @@ pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
 
     let rows = stmt.query_map([], |row| {
         Ok(PeerNode {
-            node_pubkey:          row.get(0)?,
-            node_url:             row.get(1)?,
-            discovered_at:        row.get(2)?,
-            last_push_at:         row.get(3)?,
+            node_pubkey: row.get(0)?,
+            node_url: row.get(1)?,
+            discovered_at: row.get(2)?,
+            last_push_at: row.get(3)?,
             consecutive_failures: row.get(4)?,
         })
     })?;
@@ -943,10 +1023,10 @@ pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
 
 /// Upserts a peer node record.
 pub fn upsert_peer_node(
-    conn:        &Connection,
+    conn: &Connection,
     node_pubkey: &str,
-    node_url:    &str,
-    now:         i64,
+    node_url: &str,
+    now: i64,
 ) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO peer_nodes (node_pubkey, node_url, discovered_at) \
@@ -990,17 +1070,20 @@ pub fn reset_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(), D
 ///
 /// Returns `Some(seq)` if the event was newly inserted, or `None` if a row
 /// with the same `event_id` already existed (idempotent community-side apply).
-#[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all fields are required for a complete event row"
+)]
 pub fn insert_event_idempotent(
-    conn:         &Connection,
-    event_id:     &str,
-    event_type:   &crate::event::EventType,
+    conn: &Connection,
+    event_id: &str,
+    event_type: &crate::event::EventType,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
-    created_at:   i64,
-    warnings:     &[String],
+    signed_by: &str,
+    signature: &str,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<Option<i64>, DbError> {
     let et_str = event_type_str(event_type)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -1011,7 +1094,16 @@ pub fn insert_event_idempotent(
 
     let changed = conn.execute(
         sql,
-        rusqlite::params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        rusqlite::params![
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signed_by,
+            signature,
+            created_at,
+            warnings_json
+        ],
     )?;
 
     if changed == 0 {
@@ -1031,11 +1123,13 @@ pub fn insert_event_idempotent(
 
 /// Returns the `last_seq` cursor stored for `node_pubkey`, or `0` if none exists.
 pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64, DbError> {
-    let seq: Option<i64> = conn.query_row(
-        "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
-        params![node_pubkey],
-        |row| row.get(0),
-    ).optional()?;
+    let seq: Option<i64> = conn
+        .query_row(
+            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
+            params![node_pubkey],
+            |row| row.get(0),
+        )
+        .optional()?;
     Ok(seq.unwrap_or(0))
 }
 
@@ -1065,7 +1159,12 @@ pub fn get_or_create_tag(conn: &Connection, name: &str) -> Result<i64, DbError> 
 /// Inserts a tag association into the appropriate junction table based on
 /// `entity_type` ("artist", "feed", or "track").
 #[expect(dead_code, reason = "will be called from ingest/admin handlers")]
-pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
+pub fn apply_tag(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    tag_id: i64,
+) -> Result<(), DbError> {
     let now = unix_now();
     match entity_type {
         "artist" => {
@@ -1093,7 +1192,12 @@ pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: 
 
 /// Removes a tag association from the appropriate junction table.
 #[expect(dead_code, reason = "will be called from admin handlers")]
-pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
+pub fn remove_tag(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    tag_id: i64,
+) -> Result<(), DbError> {
     match entity_type {
         "artist" => {
             conn.execute(
@@ -1120,37 +1224,38 @@ pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id:
 
 /// Returns `(tag_id, name)` pairs for all tags associated with an entity.
 #[expect(dead_code, reason = "will be called from admin/query handlers")]
-pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str) -> Result<Vec<(i64, String)>, DbError> {
+pub fn get_tags_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<(i64, String)>, DbError> {
     let result = match entity_type {
         "artist" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN artist_tag at ON at.tag_id = t.id \
-                 WHERE at.artist_id = ?1 ORDER BY t.name"
+                 WHERE at.artist_id = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         "feed" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN feed_tag ft ON ft.tag_id = t.id \
-                 WHERE ft.feed_guid = ?1 ORDER BY t.name"
+                 WHERE ft.feed_guid = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         "track" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN track_tag tt ON tt.tag_id = t.id \
-                 WHERE tt.track_guid = ?1 ORDER BY t.name"
+                 WHERE tt.track_guid = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         _ => Vec::new(),
     };
@@ -1162,21 +1267,23 @@ pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str
 /// Row returned by [`get_artist_rels`].
 pub struct ArtistRelRow {
     #[allow(dead_code)]
-    pub id:            i64,
-    pub artist_id_a:   String,
-    pub artist_id_b:   String,
+    pub id: i64,
+    pub artist_id_a: String,
+    pub artist_id_b: String,
     pub rel_type_name: String,
-    pub begin_year:    Option<i64>,
-    pub end_year:      Option<i64>,
+    pub begin_year: Option<i64>,
+    pub end_year: Option<i64>,
 }
 
 /// Checks whether a `rel_type_id` exists in the `rel_type` lookup table.
 pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, DbError> {
-    let exists: Option<i64> = conn.query_row(
-        "SELECT id FROM rel_type WHERE id = ?1",
-        params![rel_type_id],
-        |row| row.get(0),
-    ).optional()?;
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM rel_type WHERE id = ?1",
+            params![rel_type_id],
+            |row| row.get(0),
+        )
+        .optional()?;
     Ok(exists.is_some())
 }
 
@@ -1185,12 +1292,12 @@ pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, Db
 /// Validates `rel_type_id` before inserting.
 #[expect(dead_code, reason = "will be called from admin/ingest handlers")]
 pub fn create_artist_artist_rel(
-    conn:        &Connection,
+    conn: &Connection,
     artist_id_a: &str,
     artist_id_b: &str,
     rel_type_id: i64,
-    begin_year:  Option<i64>,
-    end_year:    Option<i64>,
+    begin_year: Option<i64>,
+    end_year: Option<i64>,
 ) -> Result<i64, DbError> {
     // Validate rel_type_id exists.
     let valid = validate_rel_type(conn, rel_type_id)?;
@@ -1219,16 +1326,18 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
          ORDER BY aar.id",
     )?;
 
-    let rows: Vec<ArtistRelRow> = stmt.query_map(params![artist_id], |row| {
-        Ok(ArtistRelRow {
-            id:            row.get(0)?,
-            artist_id_a:   row.get(1)?,
-            artist_id_b:   row.get(2)?,
-            rel_type_name: row.get(3)?,
-            begin_year:    row.get(4)?,
-            end_year:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let rows: Vec<ArtistRelRow> = stmt
+        .query_map(params![artist_id], |row| {
+            Ok(ArtistRelRow {
+                id: row.get(0)?,
+                artist_id_a: row.get(1)?,
+                artist_id_b: row.get(2)?,
+                rel_type_name: row.get(3)?,
+                begin_year: row.get(4)?,
+                end_year: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
     Ok(rows)
 }
@@ -1236,10 +1345,10 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
 /// Creates a track-to-track relationship. Returns the new row id.
 #[expect(dead_code, reason = "will be called from admin/ingest handlers")]
 pub fn create_track_rel(
-    conn:         &Connection,
+    conn: &Connection,
     track_guid_a: &str,
     track_guid_b: &str,
-    rel_type_id:  i64,
+    rel_type_id: i64,
 ) -> Result<i64, DbError> {
     let now = unix_now();
     conn.execute(
@@ -1253,7 +1362,7 @@ pub fn create_track_rel(
 /// Creates a feed-to-feed relationship. Returns the new row id.
 #[expect(dead_code, reason = "will be called from admin/ingest handlers")]
 pub fn create_feed_rel(
-    conn:        &Connection,
+    conn: &Connection,
     feed_guid_a: &str,
     feed_guid_b: &str,
     rel_type_id: i64,
@@ -1270,10 +1379,7 @@ pub fn create_feed_rel(
 // ── get_existing_feed ─────────────────────────────────────────────────────────
 
 /// Looks up the feed row whose `feed_url` matches, returning `None` if absent.
-pub fn get_existing_feed(
-    conn:     &Connection,
-    feed_url: &str,
-) -> Result<Option<Feed>, DbError> {
+pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Feed>, DbError> {
     let result = conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          language, explicit, itunes_type, episode_count, newest_item_at, oldest_item_at, \
@@ -1317,28 +1423,41 @@ pub fn get_existing_feed(
 /// Upserts the artist, creates the artist credit, upserts the feed (with feed
 /// payment routes), all tracks (with payment routes and value-time splits),
 /// and inserts the supplied event rows — all inside one `SQLite` transaction.
-#[expect(clippy::too_many_lines, reason = "single atomic transaction — splitting would obscure the transactional boundary")]
-#[expect(clippy::needless_pass_by_value, reason = "takes ownership to make the transaction boundary clear at call sites")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "single atomic transaction — splitting would obscure the transactional boundary"
+)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "takes ownership to make the transaction boundary clear at call sites"
+)]
 pub fn ingest_transaction(
-    conn:               &mut Connection,
-    artist:             Artist,
-    artist_credit:      ArtistCredit,
-    feed:               Feed,
-    feed_contributors:  Vec<Contributor>,
-    feed_routes:        Vec<FeedPaymentRoute>,
-    tracks:             Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>, Vec<Contributor>)>,
-    event_rows:         Vec<EventRow>,
+    conn: &mut Connection,
+    artist: Artist,
+    artist_credit: ArtistCredit,
+    feed: Feed,
+    feed_podcast_persons: Vec<RawPodcastPerson>,
+    feed_routes: Vec<FeedPaymentRoute>,
+    tracks: Vec<(
+        Track,
+        Vec<PaymentRoute>,
+        Vec<ValueTimeSplit>,
+        Vec<RawPodcastPerson>,
+    )>,
+    event_rows: Vec<EventRow>,
 ) -> Result<Vec<i64>, DbError> {
     let tx = conn.transaction()?;
 
     // 1. Resolve/insert artist (and ensure a canonical alias row exists)
     {
         let name_lower = artist.name.to_lowercase();
-        let existing: Option<String> = tx.query_row(
-            "SELECT artist_id FROM artists WHERE name_lower = ?1",
-            params![name_lower],
-            |row| row.get(0),
-        ).optional()?;
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT artist_id FROM artists WHERE name_lower = ?1",
+                params![name_lower],
+                |row| row.get(0),
+            )
+            .optional()?;
 
         if existing.is_none() {
             tx.execute(
@@ -1346,10 +1465,18 @@ pub fn ingest_transaction(
                  img_url, url, begin_year, end_year, created_at, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
-                    artist.artist_id, artist.name, name_lower,
-                    artist.sort_name, artist.type_id, artist.area,
-                    artist.img_url, artist.url, artist.begin_year, artist.end_year,
-                    artist.created_at, artist.updated_at,
+                    artist.artist_id,
+                    artist.name,
+                    name_lower,
+                    artist.sort_name,
+                    artist.type_id,
+                    artist.area,
+                    artist.img_url,
+                    artist.url,
+                    artist.begin_year,
+                    artist.end_year,
+                    artist.created_at,
+                    artist.updated_at,
                 ],
             )?;
             tx.execute(
@@ -1371,14 +1498,24 @@ pub fn ingest_transaction(
         tx.execute(
             "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) \
              VALUES (?1, ?2, ?3)",
-            params![artist_credit.id, artist_credit.display_name, artist_credit.created_at],
+            params![
+                artist_credit.id,
+                artist_credit.display_name,
+                artist_credit.created_at
+            ],
         )?;
         for acn in &artist_credit.names {
             tx.execute(
                 "INSERT OR IGNORE INTO artist_credit_name \
                  (artist_credit_id, artist_id, position, name, join_phrase) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![acn.artist_credit_id, acn.artist_id, acn.position, acn.name, acn.join_phrase],
+                params![
+                    acn.artist_credit_id,
+                    acn.artist_id,
+                    acn.position,
+                    acn.name,
+                    acn.join_phrase
+                ],
             )?;
         }
     }
@@ -1425,7 +1562,10 @@ pub fn ingest_transaction(
     )?;
 
     // 3b. Replace feed-level payment routes
-    tx.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed.feed_guid])?;
+    tx.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
     for r in &feed_routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -1446,31 +1586,31 @@ pub fn ingest_transaction(
         )?;
     }
 
-    // 3c. Replace feed contributors
+    // 3c. Replace raw feed-level podcast:person rows
     tx.execute(
-        "DELETE FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+        "DELETE FROM podcast_persons_raw WHERE entity_type = 'feed' AND entity_id = ?1",
         params![feed.feed_guid],
     )?;
-    for contributor in &feed_contributors {
+    for person in &feed_podcast_persons {
         tx.execute(
-            "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+            "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, group_name, \
              href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
-                &contributor.entity_type,
-                &contributor.entity_id,
-                contributor.position,
-                &contributor.name,
-                &contributor.role,
-                &contributor.group_name,
-                &contributor.href,
-                &contributor.img,
-                &contributor.source,
+                &person.entity_type,
+                &person.entity_id,
+                person.position,
+                &person.name,
+                &person.role,
+                &person.group_name,
+                &person.href,
+                &person.img,
+                &person.source,
             ],
         )?;
     }
 
     // 4. Tracks, routes, splits
-    for (track, routes, splits, contributors) in &tracks {
+    for (track, routes, splits, podcast_persons) in &tracks {
         tx.execute(
             "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
              duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
@@ -1512,7 +1652,10 @@ pub fn ingest_transaction(
         )?;
 
         // replace payment routes
-        tx.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track.track_guid])?;
+        tx.execute(
+            "DELETE FROM payment_routes WHERE track_guid = ?1",
+            params![track.track_guid],
+        )?;
         for r in routes {
             let route_type = serde_json::to_string(&r.route_type)?;
             let route_type = route_type.trim_matches('"');
@@ -1556,25 +1699,25 @@ pub fn ingest_transaction(
             )?;
         }
 
-        // replace contributors
+        // Replace raw track-level podcast:person rows
         tx.execute(
-            "DELETE FROM contributors WHERE entity_type = 'track' AND entity_id = ?1",
+            "DELETE FROM podcast_persons_raw WHERE entity_type = 'track' AND entity_id = ?1",
             params![track.track_guid],
         )?;
-        for contributor in contributors {
+        for person in podcast_persons {
             tx.execute(
-                "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+                "INSERT INTO podcast_persons_raw (entity_type, entity_id, position, name, role, group_name, \
                  href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
-                    &contributor.entity_type,
-                    &contributor.entity_id,
-                    contributor.position,
-                    &contributor.name,
-                    &contributor.role,
-                    &contributor.group_name,
-                    &contributor.href,
-                    &contributor.img,
-                    &contributor.source,
+                    &person.entity_type,
+                    &person.entity_id,
+                    person.position,
+                    &person.name,
+                    &person.role,
+                    &person.group_name,
+                    &person.href,
+                    &person.img,
+                    &person.source,
                 ],
             )?;
         }
@@ -1618,13 +1761,16 @@ pub fn ingest_transaction(
 ///
 /// Uses `INSERT OR REPLACE` so a second call with the same `(entity_type,
 /// entity_id, scheme)` triple updates the stored `value`.
-#[expect(dead_code, reason = "will be called from importer and enrichment pipelines")]
+#[expect(
+    dead_code,
+    reason = "will be called from importer and enrichment pipelines"
+)]
 pub fn link_external_id(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
-    scheme:      &str,
-    value:       &str,
+    entity_id: &str,
+    scheme: &str,
+    value: &str,
 ) -> Result<i64, DbError> {
     let now = unix_now();
     conn.execute(
@@ -1638,9 +1784,9 @@ pub fn link_external_id(
 /// Returns all external IDs linked to the given entity.
 #[expect(dead_code, reason = "will be called from query API enrichment")]
 pub fn get_external_ids(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
 ) -> Result<Vec<ExternalIdRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, scheme, value FROM external_ids \
@@ -1649,9 +1795,9 @@ pub fn get_external_ids(
     )?;
     let rows = stmt.query_map(params![entity_type, entity_id], |row| {
         Ok(ExternalIdRow {
-            id:     row.get(0)?,
+            id: row.get(0)?,
             scheme: row.get(1)?,
-            value:  row.get(2)?,
+            value: row.get(2)?,
         })
     })?;
     let mut result = Vec::new();
@@ -1665,16 +1811,18 @@ pub fn get_external_ids(
 /// owns it, or `None` if no matching row exists.
 #[expect(dead_code, reason = "will be called from reverse-lookup API endpoint")]
 pub fn reverse_lookup_external_id(
-    conn:   &Connection,
+    conn: &Connection,
     scheme: &str,
-    value:  &str,
+    value: &str,
 ) -> Result<Option<(String, String)>, DbError> {
-    let result = conn.query_row(
-        "SELECT entity_type, entity_id FROM external_ids \
+    let result = conn
+        .query_row(
+            "SELECT entity_type, entity_id FROM external_ids \
          WHERE scheme = ?1 AND value = ?2",
-        params![scheme, value],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).optional()?;
+            params![scheme, value],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
     Ok(result)
 }
 
@@ -1687,11 +1835,11 @@ pub fn reverse_lookup_external_id(
 /// 3 = verified.
 #[expect(dead_code, reason = "will be called from crawl and import pipelines")]
 pub fn record_entity_source(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
     source_type: &str,
-    source_url:  Option<&str>,
+    source_url: Option<&str>,
     trust_level: i64,
 ) -> Result<i64, DbError> {
     let now = unix_now();
@@ -1706,9 +1854,9 @@ pub fn record_entity_source(
 /// Returns all provenance records for the given entity.
 #[expect(dead_code, reason = "will be called from query API enrichment")]
 pub fn get_entity_sources(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
 ) -> Result<Vec<EntitySourceRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, source_type, source_url, trust_level, created_at \
@@ -1718,11 +1866,11 @@ pub fn get_entity_sources(
     )?;
     let rows = stmt.query_map(params![entity_type, entity_id], |row| {
         Ok(EntitySourceRow {
-            id:          row.get(0)?,
+            id: row.get(0)?,
             source_type: row.get(1)?,
-            source_url:  row.get(2)?,
+            source_url: row.get(2)?,
             trust_level: row.get(3)?,
-            created_at:  row.get(4)?,
+            created_at: row.get(4)?,
         })
     })?;
     let mut result = Vec::new();

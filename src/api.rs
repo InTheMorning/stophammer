@@ -15,11 +15,11 @@ use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use axum::{
+    Json, Router,
     extract::{Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 
@@ -30,17 +30,17 @@ use crate::{db, event, ingest, model, query, signing, sync, verify};
 /// Shared application state injected into every Axum handler.
 pub struct AppState {
     /// `SQLite` database handle (mutex-wrapped for blocking-task access).
-    pub db:              db::Db,
+    pub db: db::Db,
     /// Ordered chain of verifiers that must all pass before an ingest is accepted.
-    pub chain:           Arc<verify::VerifierChain>,
+    pub chain: Arc<verify::VerifierChain>,
     /// Signs event payloads with this node's ed25519 key.
-    pub signer:          Arc<signing::NodeSigner>,
+    pub signer: Arc<signing::NodeSigner>,
     /// Hex-encoded ed25519 public key identifying this node in the network.
     pub node_pubkey_hex: String,
     /// Token required in `X-Admin-Token` for admin endpoints.
-    pub admin_token:     String,
+    pub admin_token: String,
     /// HTTP client used for push fan-out to peer community nodes.
-    pub push_client:     reqwest::Client,
+    pub push_client: reqwest::Client,
     /// In-memory cache of active push peers: pubkey → push URL.
     pub push_subscribers: Arc<RwLock<HashMap<String, String>>>,
 }
@@ -50,7 +50,7 @@ pub struct AppState {
 /// HTTP error response returned by all handlers; serializes to `{"error":"..."}`.
 pub struct ApiError {
     /// HTTP status code sent to the client.
-    pub status:  StatusCode,
+    pub status: StatusCode,
     /// Human-readable error message included in the JSON body.
     pub message: String,
 }
@@ -62,7 +62,9 @@ struct ErrorBody {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        let body = Json(ErrorBody { error: self.message });
+        let body = Json(ErrorBody {
+            error: self.message,
+        });
         (self.status, body).into_response()
     }
 }
@@ -71,10 +73,10 @@ impl From<db::DbError> for ApiError {
     fn from(e: db::DbError) -> Self {
         let message = match e {
             db::DbError::Rusqlite(inner) => format!("database error: {inner}"),
-            db::DbError::Json(inner)     => format!("json error: {inner}"),
+            db::DbError::Json(inner) => format!("json error: {inner}"),
         };
         ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message,
         }
     }
@@ -91,15 +93,15 @@ impl From<rusqlite::Error> for ApiError {
 /// Builds the full read-write router used by the primary node.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/ingest/feed",         post(handle_ingest_feed))
-        .route("/sync/events",         get(handle_sync_events))
-        .route("/sync/reconcile",      post(handle_sync_reconcile))
-        .route("/sync/register",       post(handle_sync_register))
-        .route("/sync/peers",          get(handle_sync_peers))
-        .route("/node/info",           get(handle_node_info))
+        .route("/ingest/feed", post(handle_ingest_feed))
+        .route("/sync/events", get(handle_sync_events))
+        .route("/sync/reconcile", post(handle_sync_reconcile))
+        .route("/sync/register", post(handle_sync_register))
+        .route("/sync/peers", get(handle_sync_peers))
+        .route("/node/info", get(handle_node_info))
         .route("/admin/artists/merge", post(handle_admin_merge_artists))
         .route("/admin/artists/alias", post(handle_admin_add_alias))
-        .route("/health",              get(|| async { "ok" }))
+        .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .with_state(state)
 }
@@ -108,469 +110,499 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 pub fn build_readonly_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/sync/events", get(handle_sync_events))
-        .route("/health",      get(|| async { "ok" }))
+        .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .with_state(state)
 }
 
 // ── POST /ingest/feed ─────────────────────────────────────────────────────────
 
-#[expect(clippy::too_many_lines, reason = "single ingest flow — splitting would obscure the sequential validation steps")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "single ingest flow — splitting would obscure the sequential validation steps"
+)]
 async fn handle_ingest_feed(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ingest::IngestFeedRequest>,
 ) -> Result<Json<ingest::IngestResponse>, ApiError> {
     let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
-        let mut conn = state2.db.lock().unwrap();
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
+            let mut conn = state2.db.lock().unwrap();
 
-        // 1. Get existing feed
-        let existing = db::get_existing_feed(&conn, &req.canonical_url)?;
+            // 1. Get existing feed
+            let existing = db::get_existing_feed(&conn, &req.canonical_url)?;
 
-        // 2. Build verify context and run chain
-        let ctx = verify::IngestContext {
-            request:  &req,
-            db:       &conn,
-            existing: existing.as_ref(),
-        };
-
-        let warnings = match state2.chain.run(&ctx) {
-            Err(reason) if reason == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
-                return Ok((ingest::IngestResponse {
-                    accepted:       true,
-                    no_change:      true,
-                    reason:         None,
-                    events_emitted: vec![],
-                    warnings:       vec![],
-                }, vec![]));
-            }
-            Err(reason) => {
-                return Ok((ingest::IngestResponse {
-                    accepted:       false,
-                    no_change:      false,
-                    reason:         Some(reason),
-                    events_emitted: vec![],
-                    warnings:       vec![],
-                }, vec![]));
-            }
-            Ok(w) => w,
-        };
-
-        // 3. Unwrap feed_data
-        let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
-            status:  StatusCode::BAD_REQUEST,
-            message: "feed_data is required for successful ingest".into(),
-        })?;
-
-        // 4. Resolve artist
-        let artist_name = feed_data
-            .owner_name
-            .as_deref()
-            .or(feed_data.author_name.as_deref())
-            .unwrap_or(feed_data.title.as_str())
-            .to_string();
-
-        let feed_artist = db::resolve_artist(&conn, &artist_name)?;
-
-        // 5. Get or create artist credit for the feed artist (idempotent)
-        let feed_artist_credit = db::get_or_create_artist_credit(
-            &conn,
-            &feed_artist.name,
-            &[(feed_artist.artist_id.clone(), feed_artist.name.clone(), String::new())],
-        )?;
-
-        // 6. Get current time
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .cast_signed();
-
-        // 7. Compute newest_item_at and oldest_item_at from track pub_dates
-        let pub_dates: Vec<i64> = feed_data
-            .tracks
-            .iter()
-            .filter_map(|t| t.pub_date)
-            .collect();
-
-        let newest_item_at = pub_dates.iter().copied().max();
-        let oldest_item_at = pub_dates.iter().copied().min();
-
-        // 8. Build Feed struct
-        let feed = model::Feed {
-            feed_guid:        feed_data.feed_guid.clone(),
-            feed_url:         req.canonical_url.clone(),
-            title:            feed_data.title.clone(),
-            title_lower:      feed_data.title.to_lowercase(),
-            artist_credit_id: feed_artist_credit.id,
-            description:      feed_data.description.clone(),
-            image_url:        feed_data.image_url.clone(),
-            language:         feed_data.language.clone(),
-            explicit:         feed_data.explicit,
-            itunes_type:      feed_data.itunes_type.clone(),
-            #[expect(clippy::cast_possible_wrap, reason = "episode counts never approach i64::MAX")]
-            episode_count:    feed_data.tracks.len() as i64,
-            newest_item_at,
-            oldest_item_at,
-            created_at:       now,
-            updated_at:       now,
-            raw_medium:       feed_data.raw_medium.clone(),
-        };
-
-        // 8b. Build feed-level payment routes
-        let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
-            .feed_payment_routes
-            .iter()
-            .map(|r| model::FeedPaymentRoute {
-                id:             None,
-                feed_guid:      feed_data.feed_guid.clone(),
-                recipient_name: r.recipient_name.clone(),
-                route_type:     r.route_type.clone(),
-                address:        r.address.clone(),
-                custom_key:     r.custom_key.clone(),
-                custom_value:   r.custom_value.clone(),
-                split:          r.split,
-                fee:            r.fee,
-            })
-            .collect();
-
-        let feed_contributors: Vec<model::Contributor> = feed_data
-            .persons
-            .iter()
-            .map(|p| model::Contributor {
-                id:          None,
-                entity_type: "feed".to_string(),
-                entity_id:   feed_data.feed_guid.clone(),
-                position:    p.position,
-                name:        p.name.clone(),
-                role:        p.role.clone(),
-                group_name:  p.group.clone(),
-                href:        p.href.clone(),
-                img:         p.img.clone(),
-                source:      "podcast_person".to_string(),
-            })
-            .collect();
-
-        // 9. Build track tuples
-        let mut track_tuples: Vec<(
-            model::Track,
-            Vec<model::PaymentRoute>,
-            Vec<model::ValueTimeSplit>,
-            Vec<model::Contributor>,
-        )> = Vec::with_capacity(feed_data.tracks.len());
-
-        // Track artist credits for event generation
-        let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(feed_data.tracks.len());
-
-        for track_data in &feed_data.tracks {
-            // Per-track artist resolution
-            let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
-                let track_artist = db::resolve_artist(&conn, author)?;
-                let credit = db::get_or_create_artist_credit(
-                    &conn,
-                    &track_artist.name,
-                    &[(track_artist.artist_id.clone(), track_artist.name.clone(), String::new())],
-                )?;
-                (credit.id, credit)
-            } else {
-                (feed_artist_credit.id, feed_artist_credit.clone())
+            // 2. Build verify context and run chain
+            let ctx = verify::IngestContext {
+                request: &req,
+                db: &conn,
+                existing: existing.as_ref(),
             };
 
-            let track = model::Track {
-                track_guid:       track_data.track_guid.clone(),
-                feed_guid:        feed_data.feed_guid.clone(),
-                artist_credit_id: track_credit_id,
-                title:            track_data.title.clone(),
-                title_lower:      track_data.title.to_lowercase(),
-                pub_date:         track_data.pub_date,
-                duration_secs:    track_data.duration_secs,
-                enclosure_url:    track_data.enclosure_url.clone(),
-                enclosure_type:   track_data.enclosure_type.clone(),
-                enclosure_bytes:  track_data.enclosure_bytes,
-                track_number:     track_data.track_number,
-                season:           track_data.season,
-                explicit:         track_data.explicit,
-                description:      track_data.description.clone(),
-                created_at:       now,
-                updated_at:       now,
+            let warnings = match state2.chain.run(&ctx) {
+                Err(reason) if reason == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: true,
+                            no_change: true,
+                            reason: None,
+                            events_emitted: vec![],
+                            warnings: vec![],
+                        },
+                        vec![],
+                    ));
+                }
+                Err(reason) => {
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some(reason),
+                            events_emitted: vec![],
+                            warnings: vec![],
+                        },
+                        vec![],
+                    ));
+                }
+                Ok(w) => w,
             };
 
-            let routes: Vec<model::PaymentRoute> = track_data
-                .payment_routes
+            // 3. Unwrap feed_data
+            let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "feed_data is required for successful ingest".into(),
+            })?;
+
+            // 4. Resolve artist
+            let artist_name = feed_data
+                .owner_name
+                .as_deref()
+                .or(feed_data.author_name.as_deref())
+                .unwrap_or(feed_data.title.as_str())
+                .to_string();
+
+            let feed_artist = db::resolve_artist(&conn, &artist_name)?;
+
+            // 5. Get or create artist credit for the feed artist (idempotent)
+            let feed_artist_credit = db::get_or_create_artist_credit(
+                &conn,
+                &feed_artist.name,
+                &[(
+                    feed_artist.artist_id.clone(),
+                    feed_artist.name.clone(),
+                    String::new(),
+                )],
+            )?;
+
+            // 6. Get current time
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+                .cast_signed();
+
+            // 7. Compute newest_item_at and oldest_item_at from track pub_dates
+            let pub_dates: Vec<i64> = feed_data.tracks.iter().filter_map(|t| t.pub_date).collect();
+
+            let newest_item_at = pub_dates.iter().copied().max();
+            let oldest_item_at = pub_dates.iter().copied().min();
+
+            // 8. Build Feed struct
+            let feed = model::Feed {
+                feed_guid: feed_data.feed_guid.clone(),
+                feed_url: req.canonical_url.clone(),
+                title: feed_data.title.clone(),
+                title_lower: feed_data.title.to_lowercase(),
+                artist_credit_id: feed_artist_credit.id,
+                description: feed_data.description.clone(),
+                image_url: feed_data.image_url.clone(),
+                language: feed_data.language.clone(),
+                explicit: feed_data.explicit,
+                itunes_type: feed_data.itunes_type.clone(),
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "episode counts never approach i64::MAX"
+                )]
+                episode_count: feed_data.tracks.len() as i64,
+                newest_item_at,
+                oldest_item_at,
+                created_at: now,
+                updated_at: now,
+                raw_medium: feed_data.raw_medium.clone(),
+            };
+
+            // 8b. Build feed-level payment routes
+            let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
+                .feed_payment_routes
                 .iter()
-                .map(|r| model::PaymentRoute {
-                    id:             None,
-                    track_guid:     track_data.track_guid.clone(),
-                    feed_guid:      feed_data.feed_guid.clone(),
+                .map(|r| model::FeedPaymentRoute {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
                     recipient_name: r.recipient_name.clone(),
-                    route_type:     r.route_type.clone(),
-                    address:        r.address.clone(),
-                    custom_key:     r.custom_key.clone(),
-                    custom_value:   r.custom_value.clone(),
-                    split:          r.split,
-                    fee:            r.fee,
+                    route_type: r.route_type.clone(),
+                    address: r.address.clone(),
+                    custom_key: r.custom_key.clone(),
+                    custom_value: r.custom_value.clone(),
+                    split: r.split,
+                    fee: r.fee,
                 })
                 .collect();
 
-            let vts: Vec<model::ValueTimeSplit> = track_data
-                .value_time_splits
-                .iter()
-                .map(|v| model::ValueTimeSplit {
-                    id:                None,
-                    source_track_guid: track_data.track_guid.clone(),
-                    start_time_secs:   v.start_time_secs,
-                    duration_secs:     v.duration_secs,
-                    remote_feed_guid:  v.remote_feed_guid.clone(),
-                    remote_item_guid:  v.remote_item_guid.clone(),
-                    split:             v.split,
-                    created_at:        now,
-                })
-                .collect();
-
-            let contributors: Vec<model::Contributor> = track_data
+            let feed_podcast_persons: Vec<model::RawPodcastPerson> = feed_data
                 .persons
                 .iter()
-                .map(|p| model::Contributor {
-                    id:          None,
-                    entity_type: "track".to_string(),
-                    entity_id:   track_data.track_guid.clone(),
-                    position:    p.position,
-                    name:        p.name.clone(),
-                    role:        p.role.clone(),
-                    group_name:  p.group.clone(),
-                    href:        p.href.clone(),
-                    img:         p.img.clone(),
-                    source:      "podcast_person".to_string(),
+                .map(|p| model::RawPodcastPerson {
+                    id: None,
+                    entity_type: "feed".to_string(),
+                    entity_id: feed_data.feed_guid.clone(),
+                    position: p.position,
+                    name: p.name.clone(),
+                    role: p.role.clone(),
+                    group_name: p.group.clone(),
+                    href: p.href.clone(),
+                    img: p.img.clone(),
+                    source: "podcast_person".to_string(),
                 })
                 .collect();
 
-            track_tuples.push((track, routes, vts, contributors));
-            track_credits.push(track_credit);
-        }
+            // 9. Build track tuples
+            let mut track_tuples: Vec<(
+                model::Track,
+                Vec<model::PaymentRoute>,
+                Vec<model::ValueTimeSplit>,
+                Vec<model::RawPodcastPerson>,
+            )> = Vec::with_capacity(feed_data.tracks.len());
 
-        // 10. Build event rows
-        let mut event_rows: Vec<db::EventRow> = Vec::new();
+            // Track artist credits for event generation
+            let mut track_credits: Vec<model::ArtistCredit> =
+                Vec::with_capacity(feed_data.tracks.len());
 
-        // ArtistUpserted
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::ArtistUpsertedPayload {
-                artist: feed_artist.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize ArtistUpserted payload: {e}"),
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::ArtistUpserted,
-                &payload_json,
-                &feed_artist.artist_id,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::ArtistUpserted,
-                payload_json,
-                subject_guid: feed_artist.artist_id.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+            for track_data in &feed_data.tracks {
+                // Per-track artist resolution
+                let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name
+                {
+                    let track_artist = db::resolve_artist(&conn, author)?;
+                    let credit = db::get_or_create_artist_credit(
+                        &conn,
+                        &track_artist.name,
+                        &[(
+                            track_artist.artist_id.clone(),
+                            track_artist.name.clone(),
+                            String::new(),
+                        )],
+                    )?;
+                    (credit.id, credit)
+                } else {
+                    (feed_artist_credit.id, feed_artist_credit.clone())
+                };
 
-        // ArtistCreditCreated
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::ArtistCreditCreatedPayload {
-                artist_credit: feed_artist_credit.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize ArtistCreditCreated payload: {e}"),
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::ArtistCreditCreated,
-                &payload_json,
-                &feed_artist.artist_id,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::ArtistCreditCreated,
-                payload_json,
-                subject_guid: feed_artist.artist_id.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+                let track = model::Track {
+                    track_guid: track_data.track_guid.clone(),
+                    feed_guid: feed_data.feed_guid.clone(),
+                    artist_credit_id: track_credit_id,
+                    title: track_data.title.clone(),
+                    title_lower: track_data.title.to_lowercase(),
+                    pub_date: track_data.pub_date,
+                    duration_secs: track_data.duration_secs,
+                    enclosure_url: track_data.enclosure_url.clone(),
+                    enclosure_type: track_data.enclosure_type.clone(),
+                    enclosure_bytes: track_data.enclosure_bytes,
+                    track_number: track_data.track_number,
+                    season: track_data.season,
+                    explicit: track_data.explicit,
+                    description: track_data.description.clone(),
+                    created_at: now,
+                    updated_at: now,
+                };
 
-        // FeedUpserted
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedUpsertedPayload {
-                feed:          feed.clone(),
-                artist:        feed_artist.clone(),
-                artist_credit: feed_artist_credit.clone(),
-                contributors:  feed_contributors.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize FeedUpserted payload: {e}"),
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::FeedUpserted,
-                &payload_json,
-                &feed.feed_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::FeedUpserted,
-                payload_json,
-                subject_guid: feed.feed_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+                let routes: Vec<model::PaymentRoute> = track_data
+                    .payment_routes
+                    .iter()
+                    .map(|r| model::PaymentRoute {
+                        id: None,
+                        track_guid: track_data.track_guid.clone(),
+                        feed_guid: feed_data.feed_guid.clone(),
+                        recipient_name: r.recipient_name.clone(),
+                        route_type: r.route_type.clone(),
+                        address: r.address.clone(),
+                        custom_key: r.custom_key.clone(),
+                        custom_value: r.custom_value.clone(),
+                        split: r.split,
+                        fee: r.fee,
+                    })
+                    .collect();
 
-        // FeedRoutesReplaced (if feed has payment routes)
-        if !feed_routes.is_empty() {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedRoutesReplacedPayload {
-                feed_guid: feed.feed_guid.clone(),
-                routes:    feed_routes.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize FeedRoutesReplaced payload: {e}"),
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::FeedRoutesReplaced,
-                &payload_json,
-                &feed.feed_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::FeedRoutesReplaced,
-                payload_json,
-                subject_guid: feed.feed_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+                let vts: Vec<model::ValueTimeSplit> = track_data
+                    .value_time_splits
+                    .iter()
+                    .map(|v| model::ValueTimeSplit {
+                        id: None,
+                        source_track_guid: track_data.track_guid.clone(),
+                        start_time_secs: v.start_time_secs,
+                        duration_secs: v.duration_secs,
+                        remote_feed_guid: v.remote_feed_guid.clone(),
+                        remote_item_guid: v.remote_item_guid.clone(),
+                        split: v.split,
+                        created_at: now,
+                    })
+                    .collect();
 
-        // TrackUpserted — one per track
-        for (i, (track, routes, vts, contributors)) in track_tuples.iter().enumerate() {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::TrackUpsertedPayload {
-                track:             track.clone(),
-                routes:            routes.clone(),
-                value_time_splits: vts.clone(),
-                artist_credit:     track_credits[i].clone(),
-                contributors:      contributors.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize TrackUpserted payload: {e}"),
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::TrackUpserted,
-                &payload_json,
-                &track.track_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::TrackUpserted,
-                payload_json,
-                subject_guid: track.track_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+                let podcast_persons: Vec<model::RawPodcastPerson> = track_data
+                    .persons
+                    .iter()
+                    .map(|p| model::RawPodcastPerson {
+                        id: None,
+                        entity_type: "track".to_string(),
+                        entity_id: track_data.track_guid.clone(),
+                        position: p.position,
+                        name: p.name.clone(),
+                        role: p.role.clone(),
+                        group_name: p.group.clone(),
+                        href: p.href.clone(),
+                        img: p.img.clone(),
+                        source: "podcast_person".to_string(),
+                    })
+                    .collect();
 
-        // Collect event_ids and snapshot event data before moving event_rows
-        let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
-
-        // Snapshot events for fan-out
-        let events_for_fanout: Vec<db::EventRow> = event_rows.iter().map(|r| db::EventRow {
-            event_id:     r.event_id.clone(),
-            event_type:   r.event_type.clone(),
-            payload_json: r.payload_json.clone(),
-            subject_guid: r.subject_guid.clone(),
-            signed_by:    r.signed_by.clone(),
-            signature:    r.signature.clone(),
-            created_at:   r.created_at,
-            warnings:     r.warnings.clone(),
-        }).collect();
-
-        // 11. Run ingest transaction
-        let seqs = db::ingest_transaction(
-            &mut conn,
-            feed_artist,
-            feed_artist_credit,
-            feed.clone(),
-            feed_contributors,
-            feed_routes,
-            track_tuples,
-            event_rows,
-        )?;
-
-        // 12. Update crawl cache
-        db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
-
-        // 13. Reconstruct events with assigned seqs for fan-out
-        let fanout_events: Vec<event::Event> = events_for_fanout.into_iter().zip(seqs.iter()).map(
-            |(r, &seq)| {
-                let et_str = serde_json::to_string(&r.event_type)
-                    .unwrap_or_default();
-                let et_str = et_str.trim_matches('"');
-                let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
-                let payload = serde_json::from_str::<event::EventPayload>(&tagged)
-                    .unwrap_or_else(|_| event::EventPayload::FeedRetired(
-                        event::FeedRetiredPayload { feed_guid: String::new(), reason: None }
-                    ));
-                event::Event {
-                    event_id:     r.event_id,
-                    event_type:   r.event_type,
-                    payload,
-                    subject_guid: r.subject_guid,
-                    signed_by:    r.signed_by,
-                    signature:    r.signature,
-                    seq,
-                    created_at:   r.created_at,
-                    warnings:     r.warnings,
-                    payload_json: r.payload_json,
-                }
+                track_tuples.push((track, routes, vts, podcast_persons));
+                track_credits.push(track_credit);
             }
-        ).collect();
 
-        Ok((ingest::IngestResponse {
-            accepted:       true,
-            no_change:      false,
-            reason:         None,
-            events_emitted: event_ids,
-            warnings,
-        }, fanout_events))
-    })
+            // 10. Build event rows
+            let mut event_rows: Vec<db::EventRow> = Vec::new();
+
+            // ArtistUpserted
+            {
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let payload = event::ArtistUpsertedPayload {
+                    artist: feed_artist.clone(),
+                };
+                let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize ArtistUpserted payload: {e}"),
+                })?;
+                let (signed_by, signature) = state2.signer.sign_event(
+                    &event_id,
+                    &event::EventType::ArtistUpserted,
+                    &payload_json,
+                    &feed_artist.artist_id,
+                    now,
+                );
+                event_rows.push(db::EventRow {
+                    event_id,
+                    event_type: event::EventType::ArtistUpserted,
+                    payload_json,
+                    subject_guid: feed_artist.artist_id.clone(),
+                    signed_by,
+                    signature,
+                    created_at: now,
+                    warnings: warnings.clone(),
+                });
+            }
+
+            // ArtistCreditCreated
+            {
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let payload = event::ArtistCreditCreatedPayload {
+                    artist_credit: feed_artist_credit.clone(),
+                };
+                let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize ArtistCreditCreated payload: {e}"),
+                })?;
+                let (signed_by, signature) = state2.signer.sign_event(
+                    &event_id,
+                    &event::EventType::ArtistCreditCreated,
+                    &payload_json,
+                    &feed_artist.artist_id,
+                    now,
+                );
+                event_rows.push(db::EventRow {
+                    event_id,
+                    event_type: event::EventType::ArtistCreditCreated,
+                    payload_json,
+                    subject_guid: feed_artist.artist_id.clone(),
+                    signed_by,
+                    signature,
+                    created_at: now,
+                    warnings: warnings.clone(),
+                });
+            }
+
+            // FeedUpserted
+            {
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let payload = event::FeedUpsertedPayload {
+                    feed: feed.clone(),
+                    artist: feed_artist.clone(),
+                    artist_credit: feed_artist_credit.clone(),
+                    podcast_persons: feed_podcast_persons.clone(),
+                };
+                let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize FeedUpserted payload: {e}"),
+                })?;
+                let (signed_by, signature) = state2.signer.sign_event(
+                    &event_id,
+                    &event::EventType::FeedUpserted,
+                    &payload_json,
+                    &feed.feed_guid,
+                    now,
+                );
+                event_rows.push(db::EventRow {
+                    event_id,
+                    event_type: event::EventType::FeedUpserted,
+                    payload_json,
+                    subject_guid: feed.feed_guid.clone(),
+                    signed_by,
+                    signature,
+                    created_at: now,
+                    warnings: warnings.clone(),
+                });
+            }
+
+            // FeedRoutesReplaced (if feed has payment routes)
+            if !feed_routes.is_empty() {
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let payload = event::FeedRoutesReplacedPayload {
+                    feed_guid: feed.feed_guid.clone(),
+                    routes: feed_routes.clone(),
+                };
+                let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize FeedRoutesReplaced payload: {e}"),
+                })?;
+                let (signed_by, signature) = state2.signer.sign_event(
+                    &event_id,
+                    &event::EventType::FeedRoutesReplaced,
+                    &payload_json,
+                    &feed.feed_guid,
+                    now,
+                );
+                event_rows.push(db::EventRow {
+                    event_id,
+                    event_type: event::EventType::FeedRoutesReplaced,
+                    payload_json,
+                    subject_guid: feed.feed_guid.clone(),
+                    signed_by,
+                    signature,
+                    created_at: now,
+                    warnings: warnings.clone(),
+                });
+            }
+
+            // TrackUpserted — one per track
+            for (i, (track, routes, vts, podcast_persons)) in track_tuples.iter().enumerate() {
+                let event_id = uuid::Uuid::new_v4().to_string();
+                let payload = event::TrackUpsertedPayload {
+                    track: track.clone(),
+                    routes: routes.clone(),
+                    value_time_splits: vts.clone(),
+                    artist_credit: track_credits[i].clone(),
+                    podcast_persons: podcast_persons.clone(),
+                };
+                let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize TrackUpserted payload: {e}"),
+                })?;
+                let (signed_by, signature) = state2.signer.sign_event(
+                    &event_id,
+                    &event::EventType::TrackUpserted,
+                    &payload_json,
+                    &track.track_guid,
+                    now,
+                );
+                event_rows.push(db::EventRow {
+                    event_id,
+                    event_type: event::EventType::TrackUpserted,
+                    payload_json,
+                    subject_guid: track.track_guid.clone(),
+                    signed_by,
+                    signature,
+                    created_at: now,
+                    warnings: warnings.clone(),
+                });
+            }
+
+            // Collect event_ids and snapshot event data before moving event_rows
+            let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
+
+            // Snapshot events for fan-out
+            let events_for_fanout: Vec<db::EventRow> = event_rows
+                .iter()
+                .map(|r| db::EventRow {
+                    event_id: r.event_id.clone(),
+                    event_type: r.event_type.clone(),
+                    payload_json: r.payload_json.clone(),
+                    subject_guid: r.subject_guid.clone(),
+                    signed_by: r.signed_by.clone(),
+                    signature: r.signature.clone(),
+                    created_at: r.created_at,
+                    warnings: r.warnings.clone(),
+                })
+                .collect();
+
+            // 11. Run ingest transaction
+            let seqs = db::ingest_transaction(
+                &mut conn,
+                feed_artist,
+                feed_artist_credit,
+                feed.clone(),
+                feed_podcast_persons,
+                feed_routes,
+                track_tuples,
+                event_rows,
+            )?;
+
+            // 12. Update crawl cache
+            db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
+
+            // 13. Reconstruct events with assigned seqs for fan-out
+            let fanout_events: Vec<event::Event> = events_for_fanout
+                .into_iter()
+                .zip(seqs.iter())
+                .map(|(r, &seq)| {
+                    let et_str = serde_json::to_string(&r.event_type).unwrap_or_default();
+                    let et_str = et_str.trim_matches('"');
+                    let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
+                    let payload = serde_json::from_str::<event::EventPayload>(&tagged)
+                        .unwrap_or_else(|_| {
+                            event::EventPayload::FeedRetired(event::FeedRetiredPayload {
+                                feed_guid: String::new(),
+                                reason: None,
+                            })
+                        });
+                    event::Event {
+                        event_id: r.event_id,
+                        event_type: r.event_type,
+                        payload,
+                        subject_guid: r.subject_guid,
+                        signed_by: r.signed_by,
+                        signature: r.signature,
+                        seq,
+                        created_at: r.created_at,
+                        warnings: r.warnings,
+                        payload_json: r.payload_json,
+                    }
+                })
+                .collect();
+
+            Ok((
+                ingest::IngestResponse {
+                    accepted: true,
+                    no_change: false,
+                    reason: None,
+                    events_emitted: event_ids,
+                    warnings,
+                },
+                fanout_events,
+            ))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
     })?;
 
@@ -578,10 +610,15 @@ async fn handle_ingest_feed(
 
     // Fire-and-forget fan-out to push subscribers.
     if !fanout_events.is_empty() {
-        let db_fanout          = Arc::clone(&state.db);
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = Arc::clone(&state.db);
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, fanout_events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            fanout_events,
+        ));
     }
 
     Ok(Json(response))
@@ -593,7 +630,7 @@ async fn handle_ingest_feed(
 struct SyncEventsQuery {
     #[serde(default)]
     after_seq: i64,
-    limit:     Option<i64>,
+    limit: Option<i64>,
 }
 
 async fn handle_sync_events(
@@ -604,24 +641,25 @@ async fn handle_sync_events(
     let capped_limit = params.limit.unwrap_or(500).min(1000);
 
     let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || -> Result<sync::SyncEventsResponse, ApiError> {
-        let conn = state2.db.lock().unwrap();
-        let events = db::get_events_since(&conn, after_seq, capped_limit)?;
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<sync::SyncEventsResponse, ApiError> {
+            let conn = state2.db.lock().unwrap();
+            let events = db::get_events_since(&conn, after_seq, capped_limit)?;
 
-        let has_more = events.len() == usize::try_from(capped_limit).unwrap_or(usize::MAX);
-        let next_seq = events.last().map_or(after_seq, |e| e.seq);
+            let has_more = events.len() == usize::try_from(capped_limit).unwrap_or(usize::MAX);
+            let next_seq = events.last().map_or(after_seq, |e| e.seq);
 
-        Ok(sync::SyncEventsResponse {
-            events,
-            has_more,
-            next_seq,
+            Ok(sync::SyncEventsResponse {
+                events,
+                has_more,
+                next_seq,
+            })
         })
-    })
-    .await
-    .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-    })?;
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
+        })?;
 
     result.map(Json)
 }
@@ -639,10 +677,8 @@ async fn handle_sync_reconcile(
 
             let our_refs = db::get_event_refs_since(&conn, req.since_seq)?;
 
-            let our_ids: HashSet<String> =
-                our_refs.iter().map(|r| r.event_id.clone()).collect();
-            let their_ids: HashSet<String> =
-                req.have.iter().map(|r| r.event_id.clone()).collect();
+            let our_ids: HashSet<String> = our_refs.iter().map(|r| r.event_id.clone()).collect();
+            let their_ids: HashSet<String> = req.have.iter().map(|r| r.event_id.clone()).collect();
 
             let missing_ids: HashSet<&String> = our_ids.difference(&their_ids).collect();
 
@@ -664,7 +700,11 @@ async fn handle_sync_reconcile(
                 .as_secs()
                 .cast_signed();
 
-            let last_seq = our_refs.iter().map(|r| r.seq).max().unwrap_or(req.since_seq);
+            let last_seq = our_refs
+                .iter()
+                .map(|r| r.seq)
+                .max()
+                .unwrap_or(req.since_seq);
 
             db::upsert_node_sync_state(&conn, &req.node_pubkey, last_seq, now)?;
 
@@ -675,7 +715,7 @@ async fn handle_sync_reconcile(
         })
         .await
         .map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message: format!("internal task panic: {e}"),
         })?;
 
@@ -684,27 +724,34 @@ async fn handle_sync_reconcile(
 
 // ── fan_out_push ──────────────────────────────────────────────────────────────
 
-#[expect(clippy::unused_async, reason = "must be async because tokio::spawn requires a Future")]
+#[expect(
+    clippy::unused_async,
+    reason = "must be async because tokio::spawn requires a Future"
+)]
 async fn fan_out_push(
-    db:          db::Db,
-    client:      reqwest::Client,
+    db: db::Db,
+    client: reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
-    events:      Vec<event::Event>,
+    events: Vec<event::Event>,
 ) {
     let peers: Vec<(String, String)> = {
-        let guard = subscribers.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = subscribers
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     };
 
     let body = sync::PushRequest { events };
 
     for (pubkey, push_url) in peers {
-        let client2      = client.clone();
-        let db2          = Arc::clone(&db);
-        let subs2        = Arc::clone(&subscribers);
-        let pubkey2      = pubkey.clone();
-        let push_url2    = push_url.clone();
-        let body2        = sync::PushRequest { events: body.events.clone() };
+        let client2 = client.clone();
+        let db2 = Arc::clone(&db);
+        let subs2 = Arc::clone(&subscribers);
+        let pubkey2 = pubkey.clone();
+        let push_url2 = push_url.clone();
+        let body2 = sync::PushRequest {
+            events: body.events.clone(),
+        };
 
         tokio::spawn(async move {
             let now = std::time::SystemTime::now()
@@ -722,13 +769,18 @@ async fn fan_out_push(
 
             match result {
                 Ok(resp) if resp.status().is_success() => {
-                    let conn = db2.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    let conn = db2
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner);
                     if let Err(e) = db::record_push_success(&conn, &pubkey2, now) {
                         eprintln!("[fanout] failed to record push success for {pubkey2}: {e}");
                     }
                 }
                 Ok(resp) => {
-                    eprintln!("[fanout] push to {push_url2} returned HTTP {}", resp.status());
+                    eprintln!(
+                        "[fanout] push to {push_url2} returned HTTP {}",
+                        resp.status()
+                    );
                     handle_push_failure(&db2, &subs2, &pubkey2);
                 }
                 Err(e) => {
@@ -741,9 +793,9 @@ async fn fan_out_push(
 }
 
 fn handle_push_failure(
-    db:          &db::Db,
+    db: &db::Db,
     subscribers: &Arc<RwLock<HashMap<String, String>>>,
-    pubkey:      &str,
+    pubkey: &str,
 ) {
     let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if let Err(e) = db::increment_peer_failures(&conn, pubkey) {
@@ -760,7 +812,9 @@ fn handle_push_failure(
         .unwrap_or(0);
 
     if failures >= 5 {
-        let mut guard = subscribers.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = subscribers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.remove(pubkey);
         eprintln!("[fanout] evicted {pubkey} from push cache after 5 failures");
     }
@@ -779,28 +833,37 @@ async fn handle_sync_register(
         .cast_signed();
 
     let pubkey = req.node_pubkey.clone();
-    let url    = req.node_url.clone();
+    let url = req.node_url.clone();
 
     let state2 = Arc::clone(&state);
     tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let conn = state2
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         db::upsert_peer_node(&conn, &pubkey, &url, now)?;
         db::reset_peer_failures(&conn, &pubkey)?;
         Ok::<(), db::DbError>(())
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
     })?
     .map_err(ApiError::from)?;
 
     {
-        let mut guard = state.push_subscribers.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = state
+            .push_subscribers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard.insert(req.node_pubkey.clone(), req.node_url.clone());
     }
 
-    println!("[primary] registered peer {} → {}", req.node_pubkey, req.node_url);
+    println!(
+        "[primary] registered peer {} → {}",
+        req.node_pubkey, req.node_url
+    );
 
     Ok(Json(sync::RegisterResponse { ok: true }))
 }
@@ -812,18 +875,24 @@ async fn handle_sync_peers(
 ) -> Result<Json<sync::PeersResponse>, ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn  = state2.db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let conn = state2
+            .db
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let peers = db::get_push_peers(&conn)?;
-        let nodes = peers.into_iter().map(|p| sync::PeerEntry {
-            node_pubkey:  p.node_pubkey,
-            node_url:     p.node_url,
-            last_push_at: p.last_push_at,
-        }).collect();
+        let nodes = peers
+            .into_iter()
+            .map(|p| sync::PeerEntry {
+                node_pubkey: p.node_pubkey,
+                node_url: p.node_url,
+                last_push_at: p.last_push_at,
+            })
+            .collect();
         Ok::<sync::PeersResponse, db::DbError>(sync::PeersResponse { nodes })
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
     })?
     .map_err(ApiError::from)?;
@@ -838,10 +907,10 @@ struct NodeInfoResponse {
     node_pubkey: String,
 }
 
-async fn handle_node_info(
-    State(state): State<Arc<AppState>>,
-) -> Json<NodeInfoResponse> {
-    Json(NodeInfoResponse { node_pubkey: state.node_pubkey_hex.clone() })
+async fn handle_node_info(State(state): State<Arc<AppState>>) -> Json<NodeInfoResponse> {
+    Json(NodeInfoResponse {
+        node_pubkey: state.node_pubkey_hex.clone(),
+    })
 }
 
 // ── Admin auth helper ─────────────────────────────────────────────────────────
@@ -849,7 +918,7 @@ async fn handle_node_info(
 fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError> {
     if expected.is_empty() {
         return Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "admin token not configured on this node".into(),
         });
     }
@@ -861,7 +930,7 @@ fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError
         Ok(())
     } else {
         Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "invalid or missing X-Admin-Token".into(),
         })
     }
@@ -877,14 +946,14 @@ struct MergeArtistsRequest {
 
 #[derive(Serialize)]
 struct MergeArtistsResponse {
-    merged:         bool,
+    merged: bool,
     events_emitted: Vec<String>,
 }
 
 async fn handle_admin_merge_artists(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Json(req):    Json<MergeArtistsRequest>,
+    headers: HeaderMap,
+    Json(req): Json<MergeArtistsRequest>,
 ) -> Result<Json<MergeArtistsResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
@@ -892,8 +961,9 @@ async fn handle_admin_merge_artists(
     let result = tokio::task::spawn_blocking(move || -> Result<MergeArtistsResponse, ApiError> {
         let mut conn = state2.db.lock().unwrap();
 
-        let transferred = db::merge_artists(&mut conn, &req.source_artist_id, &req.target_artist_id)
-            .map_err(ApiError::from)?;
+        let transferred =
+            db::merge_artists(&mut conn, &req.source_artist_id, &req.target_artist_id)
+                .map_err(ApiError::from)?;
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -903,12 +973,12 @@ async fn handle_admin_merge_artists(
 
         let event_id = uuid::Uuid::new_v4().to_string();
         let payload = event::ArtistMergedPayload {
-            source_artist_id:    req.source_artist_id.clone(),
-            target_artist_id:    req.target_artist_id.clone(),
+            source_artist_id: req.source_artist_id.clone(),
+            target_artist_id: req.target_artist_id.clone(),
             aliases_transferred: transferred,
         };
         let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message: format!("failed to serialize ArtistMerged payload: {e}"),
         })?;
         let (signed_by, signature) = state2.signer.sign_event(
@@ -933,13 +1003,13 @@ async fn handle_admin_merge_artists(
         .map_err(ApiError::from)?;
 
         Ok(MergeArtistsResponse {
-            merged:         true,
+            merged: true,
             events_emitted: vec![event_id],
         })
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
     })?;
 
@@ -951,7 +1021,7 @@ async fn handle_admin_merge_artists(
 #[derive(Deserialize)]
 struct AddAliasRequest {
     artist_id: String,
-    alias:     String,
+    alias: String,
 }
 
 #[derive(Serialize)]
@@ -961,21 +1031,20 @@ struct AddAliasResponse {
 
 async fn handle_admin_add_alias(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Json(req):    Json<AddAliasRequest>,
+    headers: HeaderMap,
+    Json(req): Json<AddAliasRequest>,
 ) -> Result<Json<AddAliasResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || -> Result<AddAliasResponse, ApiError> {
         let conn = state2.db.lock().unwrap();
-        db::add_artist_alias(&conn, &req.artist_id, &req.alias)
-            .map_err(ApiError::from)?;
+        db::add_artist_alias(&conn, &req.artist_id, &req.alias).map_err(ApiError::from)?;
         Ok(AddAliasResponse { ok: true })
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
     })?;
 
