@@ -2,9 +2,9 @@
 //!
 //! Defines the persisted entities: [`Artist`], [`ArtistCredit`],
 //! [`ArtistCreditName`], [`Feed`], [`Track`], [`PaymentRoute`],
-//! [`FeedPaymentRoute`], and [`ValueTimeSplit`]. All types derive `Serialize`
-//! and `Deserialize` so they can be embedded in event payloads and returned
-//! from API endpoints without additional mapping.
+//! [`FeedPaymentRoute`], [`ValueTimeSplit`], and [`Contributor`]. All types
+//! derive `Serialize` and `Deserialize` so they can be embedded in event
+//! payloads and returned from API endpoints without additional mapping.
 
 use serde::{Deserialize, Serialize};
 
@@ -148,4 +148,18 @@ pub struct ValueTimeSplit {
     pub remote_item_guid:  String,
     pub split:             i64,
     pub created_at:        i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Contributor {
+    pub id:          Option<i64>,
+    pub entity_type: String,
+    pub entity_id:   String,
+    pub position:    i64,
+    pub name:        String,
+    pub role:        Option<String>,
+    pub group_name:  Option<String>,
+    pub href:        Option<String>,
+    pub img:         Option<String>,
+    pub source:      String,
 }

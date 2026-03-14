@@ -234,11 +234,29 @@ async fn handle_ingest_feed(
             })
             .collect();
 
+        let feed_contributors: Vec<model::Contributor> = feed_data
+            .persons
+            .iter()
+            .map(|p| model::Contributor {
+                id:          None,
+                entity_type: "feed".to_string(),
+                entity_id:   feed_data.feed_guid.clone(),
+                position:    p.position,
+                name:        p.name.clone(),
+                role:        p.role.clone(),
+                group_name:  p.group.clone(),
+                href:        p.href.clone(),
+                img:         p.img.clone(),
+                source:      "podcast_person".to_string(),
+            })
+            .collect();
+
         // 9. Build track tuples
         let mut track_tuples: Vec<(
             model::Track,
             Vec<model::PaymentRoute>,
             Vec<model::ValueTimeSplit>,
+            Vec<model::Contributor>,
         )> = Vec::with_capacity(feed_data.tracks.len());
 
         // Track artist credits for event generation
@@ -309,7 +327,24 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            track_tuples.push((track, routes, vts));
+            let contributors: Vec<model::Contributor> = track_data
+                .persons
+                .iter()
+                .map(|p| model::Contributor {
+                    id:          None,
+                    entity_type: "track".to_string(),
+                    entity_id:   track_data.track_guid.clone(),
+                    position:    p.position,
+                    name:        p.name.clone(),
+                    role:        p.role.clone(),
+                    group_name:  p.group.clone(),
+                    href:        p.href.clone(),
+                    img:         p.img.clone(),
+                    source:      "podcast_person".to_string(),
+                })
+                .collect();
+
+            track_tuples.push((track, routes, vts, contributors));
             track_credits.push(track_credit);
         }
 
@@ -381,6 +416,7 @@ async fn handle_ingest_feed(
                 feed:          feed.clone(),
                 artist:        feed_artist.clone(),
                 artist_credit: feed_artist_credit.clone(),
+                contributors:  feed_contributors.clone(),
             };
             let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
                 status:  StatusCode::INTERNAL_SERVER_ERROR,
@@ -436,13 +472,14 @@ async fn handle_ingest_feed(
         }
 
         // TrackUpserted — one per track
-        for (i, (track, routes, vts)) in track_tuples.iter().enumerate() {
+        for (i, (track, routes, vts, contributors)) in track_tuples.iter().enumerate() {
             let event_id = uuid::Uuid::new_v4().to_string();
             let payload = event::TrackUpsertedPayload {
                 track:             track.clone(),
                 routes:            routes.clone(),
                 value_time_splits: vts.clone(),
                 artist_credit:     track_credits[i].clone(),
+                contributors:      contributors.clone(),
             };
             let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
                 status:  StatusCode::INTERNAL_SERVER_ERROR,
@@ -488,6 +525,7 @@ async fn handle_ingest_feed(
             feed_artist,
             feed_artist_credit,
             feed.clone(),
+            feed_contributors,
             feed_routes,
             track_tuples,
             event_rows,

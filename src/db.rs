@@ -11,7 +11,10 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension, params};
-use crate::model::{Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit};
+use crate::model::{
+    Artist, ArtistCredit, ArtistCreditName, Contributor, Feed, FeedPaymentRoute, PaymentRoute,
+    Track, ValueTimeSplit,
+};
 use crate::event::{Event, EventPayload, EventType};
 
 pub type Db = Arc<Mutex<Connection>>;
@@ -716,6 +719,39 @@ pub fn replace_value_time_splits(
     Ok(())
 }
 
+// ── replace_contributors ─────────────────────────────────────────────────────
+
+/// Deletes all contributors for an entity and inserts `contributors`.
+pub fn replace_contributors(
+    conn:        &Connection,
+    entity_type: &str,
+    entity_id:   &str,
+    contributors: &[Contributor],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM contributors WHERE entity_type = ?1 AND entity_id = ?2",
+        params![entity_type, entity_id],
+    )?;
+    for contributor in contributors {
+        conn.execute(
+            "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+             href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &contributor.entity_type,
+                &contributor.entity_id,
+                contributor.position,
+                &contributor.name,
+                &contributor.role,
+                &contributor.group_name,
+                &contributor.href,
+                &contributor.img,
+                &contributor.source,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── insert_event ──────────────────────────────────────────────────────────────
 
 /// Inserts a single event row and returns the assigned monotonic `seq`.
@@ -1288,8 +1324,9 @@ pub fn ingest_transaction(
     artist:             Artist,
     artist_credit:      ArtistCredit,
     feed:               Feed,
+    feed_contributors:  Vec<Contributor>,
     feed_routes:        Vec<FeedPaymentRoute>,
-    tracks:             Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
+    tracks:             Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>, Vec<Contributor>)>,
     event_rows:         Vec<EventRow>,
 ) -> Result<Vec<i64>, DbError> {
     let tx = conn.transaction()?;
@@ -1409,8 +1446,31 @@ pub fn ingest_transaction(
         )?;
     }
 
+    // 3c. Replace feed contributors
+    tx.execute(
+        "DELETE FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![feed.feed_guid],
+    )?;
+    for contributor in &feed_contributors {
+        tx.execute(
+            "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+             href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &contributor.entity_type,
+                &contributor.entity_id,
+                contributor.position,
+                &contributor.name,
+                &contributor.role,
+                &contributor.group_name,
+                &contributor.href,
+                &contributor.img,
+                &contributor.source,
+            ],
+        )?;
+    }
+
     // 4. Tracks, routes, splits
-    for (track, routes, splits) in &tracks {
+    for (track, routes, splits, contributors) in &tracks {
         tx.execute(
             "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
              duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
@@ -1492,6 +1552,29 @@ pub fn ingest_transaction(
                     s.remote_item_guid,
                     s.split,
                     s.created_at,
+                ],
+            )?;
+        }
+
+        // replace contributors
+        tx.execute(
+            "DELETE FROM contributors WHERE entity_type = 'track' AND entity_id = ?1",
+            params![track.track_guid],
+        )?;
+        for contributor in contributors {
+            tx.execute(
+                "INSERT INTO contributors (entity_type, entity_id, position, name, role, group_name, \
+                 href, img, source) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![
+                    &contributor.entity_type,
+                    &contributor.entity_id,
+                    contributor.position,
+                    &contributor.name,
+                    &contributor.role,
+                    &contributor.group_name,
+                    &contributor.href,
+                    &contributor.img,
+                    &contributor.source,
                 ],
             )?;
         }

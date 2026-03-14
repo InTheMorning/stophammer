@@ -59,6 +59,7 @@ pub(crate) fn apply_single_event(
             // Ensure artist credit exists before upserting feed
             upsert_artist_credit_if_absent(&conn, &p.artist_credit)?;
             db::upsert_feed(&conn, &p.feed)?;
+            db::replace_contributors(&conn, "feed", &p.feed.feed_guid, &p.contributors)?;
         }
         event::EventPayload::TrackUpserted(p) => {
             // Ensure artist credit exists before upserting track
@@ -66,6 +67,7 @@ pub(crate) fn apply_single_event(
             db::upsert_track(&conn, &p.track)?;
             db::replace_payment_routes(&conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(&conn, &p.track.track_guid, &p.value_time_splits)?;
+            db::replace_contributors(&conn, "track", &p.track.track_guid, &p.contributors)?;
         }
         event::EventPayload::RoutesReplaced(p) => {
             db::replace_payment_routes(&conn, &p.track_guid, &p.routes)?;

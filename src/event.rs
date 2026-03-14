@@ -9,7 +9,9 @@
 //! delivery-ordering field and does not affect content integrity.
 
 use serde::{Deserialize, Serialize};
-use crate::model::{Artist, ArtistCredit, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit};
+use crate::model::{
+    Artist, ArtistCredit, Contributor, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit,
+};
 
 /// Discriminant identifying which domain action produced an [`Event`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -119,6 +121,7 @@ pub struct FeedUpsertedPayload {
     pub feed:          Feed,
     pub artist:        Artist,
     pub artist_credit: ArtistCredit,
+    pub contributors:  Vec<Contributor>,
 }
 
 /// Emitted when a feed is permanently removed from the index.
@@ -135,6 +138,7 @@ pub struct TrackUpsertedPayload {
     pub routes:            Vec<PaymentRoute>,
     pub value_time_splits: Vec<ValueTimeSplit>,
     pub artist_credit:     ArtistCredit,
+    pub contributors:      Vec<Contributor>,
 }
 
 /// Emitted when a track is deleted from its parent feed.

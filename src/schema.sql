@@ -165,6 +165,23 @@ CREATE TABLE IF NOT EXISTS value_time_splits (
 
 CREATE INDEX IF NOT EXISTS idx_vts_source ON value_time_splits(source_track_guid);
 
+CREATE TABLE IF NOT EXISTS contributors (
+    id           INTEGER PRIMARY KEY,
+    entity_type  TEXT NOT NULL CHECK(entity_type IN ('feed', 'track')),
+    entity_id    TEXT NOT NULL,
+    position     INTEGER NOT NULL,
+    name         TEXT NOT NULL,
+    role         TEXT,
+    group_name   TEXT,
+    href         TEXT,
+    img          TEXT,
+    source       TEXT NOT NULL DEFAULT 'podcast_person',
+    UNIQUE(entity_type, entity_id, position)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_contrib_entity ON contributors(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_contrib_name   ON contributors(name);
+
 -- ---------------------------------------------------------------------------
 -- EVENTS & SYNC
 -- ---------------------------------------------------------------------------

@@ -28,6 +28,7 @@ fn schema_creates_all_tables() {
         "artist_tag",
         "artist_type",
         "artists",
+        "contributors",
         "entity_field_status",
         "entity_quality",
         "entity_source",
@@ -652,7 +653,62 @@ fn value_time_split_replace() {
 }
 
 // ---------------------------------------------------------------------------
-// 15. Event insert monotonic seq
+// 15. Contributor replace (generic entity contributors)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn contributor_replace() {
+    let conn = common::test_db();
+    let fg = insert_feed(&conn, "feed-contrib", insert_single_credit(&conn, &insert_artist(&conn, "art-contrib", "Contributor Artist"), "Contributor Artist"));
+
+    conn.execute(
+        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+         VALUES ('feed', ?1, 0, 'Alice', 'artist', 'podcast_person')",
+        params![&fg],
+    )
+    .unwrap();
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+            params![&fg],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 1);
+
+    conn.execute(
+        "DELETE FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![&fg],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+         VALUES ('feed', ?1, 0, 'Bob', 'artist', 'podcast_person')",
+        params![&fg],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO contributors (entity_type, entity_id, position, name, role, source)
+         VALUES ('feed', ?1, 1, 'Carol', 'producer', 'podcast_person')",
+        params![&fg],
+    )
+    .unwrap();
+
+    let names: Vec<String> = conn
+        .prepare(
+            "SELECT name FROM contributors WHERE entity_type = 'feed' AND entity_id = ?1 ORDER BY position",
+        )
+        .unwrap()
+        .query_map(params![&fg], |r| r.get(0))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    assert_eq!(names, vec!["Bob".to_string(), "Carol".to_string()]);
+}
+
+// ---------------------------------------------------------------------------
+// 16. Event insert monotonic seq
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -682,7 +738,7 @@ fn event_insert_monotonic_seq() {
 }
 
 // ---------------------------------------------------------------------------
-// 16. Event insert idempotent
+// 17. Event insert idempotent
 // ---------------------------------------------------------------------------
 
 #[test]
