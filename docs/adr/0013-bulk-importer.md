@@ -9,15 +9,16 @@ Stophammer needs an initial corpus of music podcast feeds to be useful.
 Manual curation is impractical at scale.  The PodcastIndex maintains a
 snapshot SQLite database of ~4.65 million known podcast feeds, available
 locally at `/Volumes/T7/hey-v4v/podcastindex-snapshots/podcastindex_feeds.db`.
-This snapshot provides a large, pre-curated seed set with known-alive status
-(`dead = 0`), hosting metadata, and rough category classification.
+This snapshot provides a large, stable seed set of feed URLs and PodcastIndex
+GUIDs, but its denormalized classification columns are not trusted as source
+of truth for what should be indexed.
 
 Key constraints:
 
 - The `podcast:medium` namespace tag (which would directly identify music feeds)
-  is embedded in each feed's RSS XML and is not captured in the snapshot DB
-  columns.  Only denormalized flat strings (`category1`–`category10`) and
-  `itunesType` are available as filters in the snapshot.
+  is embedded in each feed's RSS XML and is not captured in the snapshot DB.
+  The snapshot's denormalized liveness/classification columns are heuristics
+  maintained by PodcastIndex, not authoritative feed metadata.
 - The snapshot `chash` column holds a stale MD5 content hash; it cannot be
   used as the `content_hash` submitted to stophammer because
   `ContentHashVerifier` uses the hash of the live-fetched body to detect
@@ -30,32 +31,18 @@ Key constraints:
 
 ## Decision
 
-### Seed source: PodcastIndex snapshot
-
-The snapshot provides 4.65 million feeds with `dead`, category, and hosting
-metadata already scraped.  Filtering `dead = 0` and using category columns as
-a pre-filter yields a manageable candidate set without requiring a full-table
-scan or network request per row to check aliveness.
-
-### Category-based pre-filter
+### Seed source: full PodcastIndex snapshot scan
 
 ```sql
-WHERE dead = 0
-  AND (
-    category1 LIKE '%music%' OR category2 LIKE '%music%'
-    OR itunesType = 'serial'
-  )
-  AND id > :last_id
+WHERE id > :last_id
 ORDER BY id ASC
 LIMIT :batch_size
 ```
 
-`category1 LIKE '%music%'` catches feeds that publishers tagged as "Music" in
-their iTunes/Apple Podcasts category.  `itunesType = 'serial'` catches
-narrative and album-style feeds that may not be tagged music but are structured
-like music albums.  This is deliberately over-inclusive: stophammer's own
-verifier chain (particularly `MediumVerifier` and `TrackCountVerifier`) will
-reject false positives when the live feed is parsed.
+The importer intentionally ignores PodcastIndex's `dead` and category columns.
+Those fields are not reliably informative enough to decide whether a feed is
+worth crawling.  Candidate discovery is broad; stophammer's own verifier chain
+decides whether a fetched feed belongs in the index.
 
 ### Resume cursor in a separate SQLite file (`import_state.db`)
 
@@ -70,7 +57,7 @@ unchanged feed returns `no_change = true` without writing a new event.
 
 ### Live RSS fetch per candidate
 
-Each candidate URL is fetched live (10 s timeout) to obtain:
+Each candidate URL is fetched live to obtain:
 
 1. A fresh SHA-256 `content_hash` for `ContentHashVerifier`.
 2. Up-to-date `podcast:medium` in the raw XML for `MediumVerifier`.
@@ -101,13 +88,10 @@ different deployment lifecycle (run once, not continuously).
 - Rate limiting from RSS hosting providers is likely at sustained concurrency.
   Operators should monitor error rates and reduce `--concurrency` if needed.
   Future work may add per-host rate limiting inside `crawl.ts`.
-- The category pre-filter includes `itunesType = 'serial'` as a broad catch for
-  album-structured feeds.  This increases candidate volume but keeps recall
-  high for music feeds that omit category tags.
-- `podcast:medium` is absent from snapshot columns, so non-music feeds tagged
-  only with `podcast:medium = music` (and no iTunes category) are missed by
-  this importer.  A future pass using a full XML scan of the snapshot blobs
-  (if available) could close this gap.
+- The importer now trusts only live feed data for acceptance.  This improves
+  recall for feeds whose PodcastIndex categories are stale, missing, or wrong,
+  but it also increases network cost because the crawler must inspect more
+  candidates directly.
 - Re-running the importer after stophammer indexes new feeds from other sources
   will produce mostly `no_change` responses, which are cheap.  Periodic
   re-runs are safe and will pick up newly published tracks on already-indexed
