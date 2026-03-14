@@ -9,6 +9,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 /// Video enclosures are unexpected in a music feed index. This verifier does
 /// not fail (some music feeds embed music videos), but it flags the submission
 /// for audit so operators can decide whether to add a stricter rule.
+#[derive(Debug)]
 pub struct EnclosureTypeVerifier;
 
 impl Verifier for EnclosureTypeVerifier {

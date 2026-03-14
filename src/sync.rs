@@ -39,7 +39,12 @@ pub struct EventRef {
     pub seq:      i64,
 }
 
+// Finding-5 reconcile pagination — 2026-03-13
 /// Response to `POST /sync/reconcile`.
+///
+/// Pagination contract: callers should loop calling reconcile with increasing
+/// `since_seq` (set to `next_seq` from the previous response) until
+/// `has_more` is `false`.
 #[derive(Debug, Serialize)]
 pub struct ReconcileResponse {
     /// Events the requesting node is missing; the node should apply these in order.
@@ -50,6 +55,13 @@ pub struct ReconcileResponse {
     /// passed through this primary, which should not happen in normal operation
     /// and warrants investigation (e.g. data corruption or a rogue writer).
     pub unknown_to_us: Vec<EventRef>,
+    /// `true` when the result was truncated and more events exist beyond `next_seq`.
+    /// Callers should re-call reconcile with `since_seq = next_seq` to continue.
+    pub has_more: bool,
+    /// Sequence number the caller should use as `since_seq` in the next reconcile
+    /// request to continue pagination. When `has_more` is `false`, this is the
+    /// highest seq seen (or the original `since_seq` if no events were found).
+    pub next_seq: i64,
 }
 
 /// Body for `POST /sync/push` sent by the primary to peer community nodes.

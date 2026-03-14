@@ -33,13 +33,35 @@
 //! | `enclosure_type` | [`verifiers::enclosure_type`] | Warns on video MIME types |
 //! | `payment_route_sum` | [`verifiers::payment_route_sum`] | Optional: rejects splits ≠ 100 (not in default chain) |
 
+use std::fmt;
+
 use rusqlite::Connection;
 use crate::ingest::IngestFeedRequest;
 use crate::model::Feed;
 
+// ── Error type ──────────────────────────────────────────────────────────────
+
+/// Structured error returned by [`VerifierChain::run`] on the first `Fail`.
+///
+/// Wraps the formatted rejection reason (e.g. `"[medium_music] ..."`).
+/// Implements [`std::error::Error`] so callers can use `?` and trait-object
+/// error handling instead of bare `String`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifierError(pub String);
+
+impl fmt::Display for VerifierError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl std::error::Error for VerifierError {}
+
 // ── Context ────────────────────────────────────────────────────────────────
 
 /// Contextual data threaded through the verifier chain for a single ingest request.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct IngestContext<'a> {
     /// The ingest request being validated, including the parsed feed data.
     pub request:  &'a IngestFeedRequest,
@@ -49,13 +71,13 @@ pub struct IngestContext<'a> {
     ///
     /// Available for verifiers that need to diff against prior state; not yet
     /// consumed but retained so new verifiers can use it without API changes.
-    #[expect(dead_code, reason = "used by future diff-based verifiers without API changes")]
     pub existing: Option<&'a Feed>,
 }
 
 // ── Result ─────────────────────────────────────────────────────────────────
 
 /// The outcome of a single verifier step.
+#[derive(Debug)]
 pub enum VerifyResult {
     /// The check passed; ingestion continues normally.
     Pass,
@@ -97,12 +119,23 @@ pub trait Verifier: Send + Sync {
 // ── Chain ──────────────────────────────────────────────────────────────────
 
 /// An ordered sequence of [`Verifier`]s run against each ingest request.
+// CRIT-03 Debug derive — 2026-03-13
 pub struct VerifierChain {
     verifiers: Vec<Box<dyn Verifier>>,
 }
 
+impl std::fmt::Debug for VerifierChain {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.verifiers.iter().map(|v| v.name()).collect();
+        f.debug_struct("VerifierChain")
+            .field("verifiers", &names)
+            .finish()
+    }
+}
+
 impl VerifierChain {
     /// Creates a new chain that will run `verifiers` in order.
+    #[must_use]
     pub fn new(verifiers: Vec<Box<dyn Verifier>>) -> Self {
         Self { verifiers }
     }
@@ -110,22 +143,24 @@ impl VerifierChain {
     /// Runs all verifiers in order and collects warnings.
     ///
     /// Returns `Ok(warnings)` when all verifiers pass or warn. Stops at the
-    /// first [`VerifyResult::Fail`] and returns `Err(reason)`.
+    /// first [`VerifyResult::Fail`] and returns `Err(VerifierError)`.
     ///
     /// # Errors
     ///
-    /// Returns the formatted rejection reason on the first `Fail`.
-    /// [`verifiers::content_hash::ContentHashVerifier`] uses
+    /// Returns [`VerifierError`] containing the formatted rejection reason on
+    /// the first `Fail`. [`verifiers::content_hash::ContentHashVerifier`] uses
     /// [`verifiers::content_hash::NO_CHANGE_SENTINEL`] as its rejection string
     /// to signal a no-op — callers must check for this sentinel before treating
     /// the error as a real failure.
-    pub fn run(&self, ctx: &IngestContext) -> Result<Vec<String>, String> {
+    // Issue #8 #[must_use] — 2026-03-13
+    #[must_use = "verification warnings or rejection reason must be handled"]
+    pub fn run(&self, ctx: &IngestContext) -> Result<Vec<String>, VerifierError> {
         let mut warnings = Vec::new();
         for v in &self.verifiers {
             match v.verify(ctx) {
                 VerifyResult::Pass       => {}
                 VerifyResult::Warn(msg)  => warnings.push(format!("[{}] {}", v.name(), msg)),
-                VerifyResult::Fail(msg)  => return Err(format!("[{}] {}", v.name(), msg)),
+                VerifyResult::Fail(msg)  => return Err(VerifierError(format!("[{}] {}", v.name(), msg))),
             }
         }
         Ok(warnings)
@@ -144,6 +179,8 @@ impl VerifierChain {
 /// - `VERIFIER_CHAIN` — comma-separated list of verifier names, in run order.
 ///   Defaults to the full built-in set in a sensible order.
 ///   Example: `"crawl_token,content_hash,medium_music,feed_guid,payment_route_sum,enclosure_type"`
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct ChainSpec {
     /// Names of verifiers to run, in order.
     pub names: Vec<String>,
@@ -157,11 +194,27 @@ impl ChainSpec {
     /// Reads `VERIFIER_CHAIN` from the environment.
     ///
     /// Falls back to [`Self::DEFAULT`] when the variable is absent or empty.
+    #[must_use]
     pub fn from_env() -> Self {
         let raw = std::env::var("VERIFIER_CHAIN").unwrap_or_default();
-        let raw = if raw.trim().is_empty() { Self::DEFAULT.to_string() } else { raw };
-        Self {
-            names: raw.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect(),
+        let names: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        // A value that parses to zero names (e.g. VERIFIER_CHAIN=",") is a
+        // misconfiguration — fall back to the default rather than creating an
+        // empty chain that silently accepts all ingests with no authentication.
+        if names.is_empty() {
+            Self {
+                names: Self::DEFAULT
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect(),
+            }
+        } else {
+            Self { names }
         }
     }
 }
@@ -171,7 +224,8 @@ impl ChainSpec {
 /// Assembles a [`VerifierChain`] from a [`ChainSpec`].
 ///
 /// Maps each name in `spec.names` to its built-in [`Verifier`] implementation.
-/// Unknown names are logged and skipped — they do not abort startup.
+/// Unknown names cause a panic — a misconfigured verifier chain is a startup
+/// configuration error that makes the security pipeline untrustworthy.
 ///
 /// `crawl_token` requires the shared secret from `CRAWL_TOKEN`; pass it via
 /// the `crawl_token` argument so this function does not read env vars itself.
@@ -181,6 +235,15 @@ impl ChainSpec {
 /// Add a `match` arm below and declare it in `src/verifiers/mod.rs`. No other
 /// files need to change. See the [module-level docs](self) for the full
 /// four-step procedure.
+///
+/// # Panics
+///
+/// Panics if `spec.names` contains an unrecognised verifier name. This is
+/// intentional per M-PANIC-ON-BUG: a misconfigured verifier chain is a
+/// programming/configuration error that should fail fast at startup rather
+/// than silently running with a broken security gate.
+// Finding-7 verifier fails-closed — 2026-03-13
+#[must_use]
 #[expect(clippy::needless_pass_by_value, reason = "takes ownership so callers can move the token into the chain")]
 pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
     use crate::verifiers::{
@@ -205,13 +268,142 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
             "payment_route_sum" => Box::new(PaymentRouteSumVerifier),
             "enclosure_type"    => Box::new(EnclosureTypeVerifier),
             unknown => {
-                // TODO(logging): replace eprintln! with structured tracing once tracing crate is added
-                eprintln!("[verifier_chain] unknown verifier '{unknown}' in VERIFIER_CHAIN — skipping");
-                continue;
+                panic!(
+                    "FATAL: unknown verifier '{unknown}' in VERIFIER_CHAIN. \
+                     Valid verifiers are: crawl_token, content_hash, medium_music, \
+                     feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
+                     Check the VERIFIER_CHAIN env var for typos."
+                );
             }
         };
         verifiers.push(v);
     }
 
     VerifierChain::new(verifiers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── VerifierError trait compliance ────────────────────────────────────
+
+    #[test]
+    fn verifier_error_implements_std_error() {
+        let err = VerifierError("test failure".into());
+        // Must implement std::error::Error
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn verifier_error_display_matches_inner() {
+        let msg = "[medium_music] rejected: not music";
+        let err = VerifierError(msg.into());
+        assert_eq!(err.to_string(), msg);
+    }
+
+    #[test]
+    fn verifier_error_debug_and_clone() {
+        let err = VerifierError("clone me".into());
+        let cloned = err.clone();
+        assert_eq!(err, cloned);
+        let debug = format!("{err:?}");
+        assert!(debug.contains("clone me"));
+    }
+
+    #[test]
+    fn verifier_error_eq() {
+        let a = VerifierError("same".into());
+        let b = VerifierError("same".into());
+        let c = VerifierError("different".into());
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    // ── Chain returns VerifierError ──────────────────────────────────────
+
+    struct AlwaysFail;
+    impl Verifier for AlwaysFail {
+        fn name(&self) -> &'static str { "always_fail" }
+        fn verify(&self, _ctx: &IngestContext) -> VerifyResult {
+            VerifyResult::Fail("boom".into())
+        }
+    }
+
+    struct AlwaysPass;
+    impl Verifier for AlwaysPass {
+        fn name(&self) -> &'static str { "always_pass" }
+        fn verify(&self, _ctx: &IngestContext) -> VerifyResult {
+            VerifyResult::Pass
+        }
+    }
+
+    #[test]
+    fn chain_run_returns_verifier_error_on_fail() {
+        let chain = VerifierChain::new(vec![Box::new(AlwaysFail)]);
+        let conn = rusqlite::Connection::open_in_memory().expect("open db");
+        let req = crate::ingest::IngestFeedRequest {
+            crawl_token:   String::new(),
+            canonical_url: String::new(),
+            source_url:    String::new(),
+            http_status:   200,
+            content_hash:  String::new(),
+            feed_data:     None,
+        };
+        let ctx = IngestContext { request: &req, db: &conn, existing: None };
+        let err = chain.run(&ctx).unwrap_err();
+        assert_eq!(err.0, "[always_fail] boom");
+        // Verify it implements Error trait
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn chain_run_returns_ok_on_all_pass() {
+        let chain = VerifierChain::new(vec![Box::new(AlwaysPass)]);
+        let conn = rusqlite::Connection::open_in_memory().expect("open db");
+        let req = crate::ingest::IngestFeedRequest {
+            crawl_token:   String::new(),
+            canonical_url: String::new(),
+            source_url:    String::new(),
+            http_status:   200,
+            content_hash:  String::new(),
+            feed_data:     None,
+        };
+        let ctx = IngestContext { request: &req, db: &conn, existing: None };
+        chain.run(&ctx).unwrap();
+    }
+
+    // ── ChainSpec::from_env empty-chain fallback ─────────────────────────
+
+    #[test]
+    fn chain_spec_comma_only_falls_back_to_default() {
+        // VERIFIER_CHAIN="," produces zero valid names — must fall back to
+        // the default chain rather than creating an empty (accept-all) chain.
+        // Safety: single-threaded test, no other thread reads VERIFIER_CHAIN.
+        #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
+        // SAFETY: test is single-threaded; no concurrent env reads
+        unsafe { std::env::set_var("VERIFIER_CHAIN", ",") };
+        let spec = ChainSpec::from_env();
+        #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
+        // SAFETY: test is single-threaded; no concurrent env reads
+        unsafe { std::env::remove_var("VERIFIER_CHAIN") };
+        let default_names: Vec<String> = ChainSpec::DEFAULT
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        assert_eq!(spec.names, default_names, "empty result should fall back to DEFAULT");
+    }
+
+    #[test]
+    fn chain_spec_whitespace_commas_falls_back_to_default() {
+        #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
+        // SAFETY: test is single-threaded; no concurrent env reads
+        unsafe { std::env::set_var("VERIFIER_CHAIN", " , , ") };
+        let spec = ChainSpec::from_env();
+        #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
+        // SAFETY: test is single-threaded; no concurrent env reads
+        unsafe { std::env::remove_var("VERIFIER_CHAIN") };
+        assert!(!spec.names.is_empty(), "empty result should fall back to DEFAULT");
+    }
 }

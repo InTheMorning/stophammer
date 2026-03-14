@@ -67,8 +67,8 @@ fn insert_track(
 // 1. artist_artist_rel_created
 // ---------------------------------------------------------------------------
 
-/// Create 2 artists, insert into artist_artist_rel with rel_type_id=20
-/// (member_of), verify the row is stored with correct fields.
+/// Create 2 artists, insert into `artist_artist_rel` with `rel_type_id`=20
+/// (`member_of`), verify the row is stored with correct fields.
 #[test]
 fn artist_artist_rel_created() {
     let conn = common::test_db();
@@ -110,7 +110,7 @@ fn artist_artist_rel_created() {
 // 2. rel_type_lookup
 // ---------------------------------------------------------------------------
 
-/// Query rel_type table for id=1 (performer), verify name and entity_pair.
+/// Query `rel_type` table for id=1 (performer), verify name and `entity_pair`.
 #[test]
 fn rel_type_lookup() {
     let conn = common::test_db();
@@ -132,7 +132,7 @@ fn rel_type_lookup() {
 // ---------------------------------------------------------------------------
 
 /// Create 2 artists, add rel from A->B, query rels for artist B using
-/// WHERE artist_id_a = ?1 OR artist_id_b = ?1, verify B can find the relationship.
+/// `WHERE artist_id_a = ?1 OR artist_id_b = ?1`, verify B can find the relationship.
 #[test]
 fn artist_rels_bidirectional() {
     let conn = common::test_db();
@@ -175,8 +175,8 @@ fn artist_rels_bidirectional() {
 // 4. track_rel_created
 // ---------------------------------------------------------------------------
 
-/// Create 2 tracks (needs feeds), insert into track_rel with rel_type_id=12
-/// (remixer), verify stored correctly.
+/// Create 2 tracks (needs feeds), insert into `track_rel` with `rel_type_id`=12
+/// (`remixer`), verify stored correctly.
 #[test]
 fn track_rel_created() {
     let conn = common::test_db();

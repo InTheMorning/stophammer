@@ -2,16 +2,17 @@ PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 PRAGMA synchronous = NORMAL;
 
+-- Migration: drop legacy unused tables
+-- Dead schema removed — 2026-03-13
+DROP TABLE IF EXISTS feed_type;
+DROP TABLE IF EXISTS artist_location;
+DROP TABLE IF EXISTS manifest_source;
+
 -- ---------------------------------------------------------------------------
 -- LOOKUP TABLES
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS artist_type (
-    id   INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS feed_type (
     id   INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE
 ) STRICT;
@@ -70,6 +71,9 @@ CREATE TABLE IF NOT EXISTS artist_credit_name (
     UNIQUE(artist_credit_id, position)
 ) STRICT;
 
+-- Issue-7 missing indexes — 2026-03-13
+CREATE INDEX IF NOT EXISTS idx_ac_display_lower ON artist_credit(LOWER(display_name));
+
 CREATE INDEX IF NOT EXISTS idx_acn_credit ON artist_credit_name(artist_credit_id);
 CREATE INDEX IF NOT EXISTS idx_acn_artist ON artist_credit_name(artist_id);
 
@@ -95,6 +99,7 @@ CREATE TABLE IF NOT EXISTS feeds (
 CREATE INDEX IF NOT EXISTS idx_feeds_credit ON feeds(artist_credit_id);
 CREATE INDEX IF NOT EXISTS idx_feeds_newest ON feeds(newest_item_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feeds_title  ON feeds(title_lower);
+CREATE INDEX IF NOT EXISTS idx_feeds_title_guid ON feeds(title_lower, feed_guid);
 
 CREATE TABLE IF NOT EXISTS tracks (
     track_guid       TEXT PRIMARY KEY,
@@ -121,32 +126,37 @@ CREATE INDEX IF NOT EXISTS idx_tracks_pub_date ON tracks(pub_date DESC);
 CREATE INDEX IF NOT EXISTS idx_tracks_title    ON tracks(title_lower);
 
 -- Track-level payment routes
+-- NOTE (SG-04/SG-05): CHECK constraints apply to new inserts only on existing
+-- databases (SQLite does not retroactively validate existing rows when using
+-- CREATE TABLE IF NOT EXISTS). For a full migration on an existing database,
+-- recreate the table via: CREATE new -> INSERT INTO new SELECT * FROM old ->
+-- DROP old -> ALTER TABLE new RENAME TO old.
 CREATE TABLE IF NOT EXISTS payment_routes (
     id              INTEGER PRIMARY KEY,
     track_guid      TEXT NOT NULL REFERENCES tracks(track_guid),
     feed_guid       TEXT NOT NULL,
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL,
+    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
     address         TEXT NOT NULL,
     custom_key      TEXT,
     custom_value    TEXT,
-    split           INTEGER NOT NULL,
+    split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_routes_track ON payment_routes(track_guid);
 CREATE INDEX IF NOT EXISTS idx_routes_feed  ON payment_routes(feed_guid);
 
--- Feed-level payment routes
+-- Feed-level payment routes (same CHECK migration note as payment_routes above)
 CREATE TABLE IF NOT EXISTS feed_payment_routes (
     id              INTEGER PRIMARY KEY,
     feed_guid       TEXT NOT NULL REFERENCES feeds(feed_guid),
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL,
+    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
     address         TEXT NOT NULL,
     custom_key      TEXT,
     custom_value    TEXT,
-    split           INTEGER NOT NULL,
+    split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
@@ -159,7 +169,7 @@ CREATE TABLE IF NOT EXISTS value_time_splits (
     duration_secs       INTEGER,
     remote_feed_guid    TEXT NOT NULL,
     remote_item_guid    TEXT NOT NULL,
-    split               INTEGER NOT NULL,
+    split               INTEGER NOT NULL CHECK(split >= 0),
     created_at          INTEGER NOT NULL
 ) STRICT;
 
@@ -181,7 +191,7 @@ CREATE TABLE IF NOT EXISTS events (
     warnings_json   TEXT NOT NULL DEFAULT '[]'
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_events_seq     ON events(seq);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_events_seq_unique ON events(seq);
 CREATE INDEX IF NOT EXISTS idx_events_subject ON events(subject_guid);
 CREATE INDEX IF NOT EXISTS idx_events_type    ON events(event_type);
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
@@ -210,16 +220,6 @@ CREATE TABLE IF NOT EXISTS peer_nodes (
 -- METADATA TABLES
 -- ---------------------------------------------------------------------------
 
--- Artist location (latitude/longitude for map views)
-CREATE TABLE IF NOT EXISTS artist_location (
-    artist_id  TEXT PRIMARY KEY REFERENCES artists(artist_id),
-    latitude   REAL NOT NULL,
-    longitude  REAL NOT NULL,
-    city       TEXT,
-    region     TEXT,
-    country    TEXT
-) STRICT;
-
 -- Artist-to-artist relationships (member_of, collaboration, etc.)
 CREATE TABLE IF NOT EXISTS artist_artist_rel (
     id          INTEGER PRIMARY KEY,
@@ -231,8 +231,9 @@ CREATE TABLE IF NOT EXISTS artist_artist_rel (
     created_at  INTEGER NOT NULL
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_aar_a ON artist_artist_rel(artist_id_a);
-CREATE INDEX IF NOT EXISTS idx_aar_b ON artist_artist_rel(artist_id_b);
+CREATE INDEX IF NOT EXISTS idx_aar_a   ON artist_artist_rel(artist_id_a);
+CREATE INDEX IF NOT EXISTS idx_aar_b   ON artist_artist_rel(artist_id_b);
+CREATE INDEX IF NOT EXISTS idx_aar_rel ON artist_artist_rel(rel_type_id);
 
 -- Artist ID redirect (when artists are merged, old ID -> new ID)
 CREATE TABLE IF NOT EXISTS artist_id_redirect (
@@ -250,8 +251,9 @@ CREATE TABLE IF NOT EXISTS track_rel (
     created_at   INTEGER NOT NULL
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_trel_a ON track_rel(track_guid_a);
-CREATE INDEX IF NOT EXISTS idx_trel_b ON track_rel(track_guid_b);
+CREATE INDEX IF NOT EXISTS idx_trel_a   ON track_rel(track_guid_a);
+CREATE INDEX IF NOT EXISTS idx_trel_b   ON track_rel(track_guid_b);
+CREATE INDEX IF NOT EXISTS idx_trel_rel ON track_rel(rel_type_id);
 
 -- Feed relationships
 CREATE TABLE IF NOT EXISTS feed_rel (
@@ -262,8 +264,9 @@ CREATE TABLE IF NOT EXISTS feed_rel (
     created_at   INTEGER NOT NULL
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_frel_a ON feed_rel(feed_guid_a);
-CREATE INDEX IF NOT EXISTS idx_frel_b ON feed_rel(feed_guid_b);
+CREATE INDEX IF NOT EXISTS idx_frel_a   ON feed_rel(feed_guid_a);
+CREATE INDEX IF NOT EXISTS idx_frel_b   ON feed_rel(feed_guid_b);
+CREATE INDEX IF NOT EXISTS idx_frel_rel ON feed_rel(rel_type_id);
 
 -- ---------------------------------------------------------------------------
 -- TAGS
@@ -282,6 +285,8 @@ CREATE TABLE IF NOT EXISTS artist_tag (
     PRIMARY KEY (artist_id, tag_id)
 ) STRICT;
 
+CREATE INDEX IF NOT EXISTS idx_artist_tag_tag ON artist_tag(tag_id);
+
 CREATE TABLE IF NOT EXISTS feed_tag (
     feed_guid  TEXT NOT NULL REFERENCES feeds(feed_guid),
     tag_id     INTEGER NOT NULL REFERENCES tags(id),
@@ -289,12 +294,16 @@ CREATE TABLE IF NOT EXISTS feed_tag (
     PRIMARY KEY (feed_guid, tag_id)
 ) STRICT;
 
+CREATE INDEX IF NOT EXISTS idx_feed_tag_tag ON feed_tag(tag_id);
+
 CREATE TABLE IF NOT EXISTS track_tag (
     track_guid TEXT NOT NULL REFERENCES tracks(track_guid),
     tag_id     INTEGER NOT NULL REFERENCES tags(id),
     created_at INTEGER NOT NULL,
     PRIMARY KEY (track_guid, tag_id)
 ) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_track_tag_tag ON track_tag(tag_id);
 
 -- ---------------------------------------------------------------------------
 -- EXTERNAL IDS & PROVENANCE
@@ -324,15 +333,6 @@ CREATE TABLE IF NOT EXISTS entity_source (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_esrc_entity ON entity_source(entity_type, entity_id);
-
-CREATE TABLE IF NOT EXISTS manifest_source (
-    id           INTEGER PRIMARY KEY,
-    feed_guid    TEXT NOT NULL REFERENCES feeds(feed_guid),
-    manifest_url TEXT NOT NULL UNIQUE,
-    signed_by    TEXT,
-    verified_at  INTEGER,
-    created_at   INTEGER NOT NULL
-) STRICT;
 
 -- ---------------------------------------------------------------------------
 -- QUALITY
@@ -369,6 +369,20 @@ CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     tokenize='unicode61'
 );
 
+-- Issue-FTS5-CONTENT — 2026-03-14
+-- Companion table for the contentless FTS5 index.  Because search_index uses
+-- content='', column values cannot be read back via SELECT.  This table maps
+-- each FTS5 rowid to the (entity_type, entity_id) pair so that search results
+-- can be resolved through a JOIN on rowid.
+CREATE TABLE IF NOT EXISTS search_entities (
+    rowid       INTEGER PRIMARY KEY,
+    entity_type TEXT NOT NULL,
+    entity_id   TEXT NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_search_entities_entity
+    ON search_entities(entity_type, entity_id);
+
 -- ---------------------------------------------------------------------------
 -- SEED DATA
 -- ---------------------------------------------------------------------------
@@ -380,16 +394,6 @@ INSERT OR IGNORE INTO artist_type (id, name) VALUES (3, 'orchestra');
 INSERT OR IGNORE INTO artist_type (id, name) VALUES (4, 'choir');
 INSERT OR IGNORE INTO artist_type (id, name) VALUES (5, 'character');
 INSERT OR IGNORE INTO artist_type (id, name) VALUES (6, 'other');
-
--- Seed feed_type
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (1, 'album');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (2, 'ep');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (3, 'single');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (4, 'compilation');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (5, 'soundtrack');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (6, 'live');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (7, 'remix');
-INSERT OR IGNORE INTO feed_type (id, name) VALUES (8, 'other');
 
 -- Seed rel_type
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (1, 'performer', 'artist-track', 'Primary performing artist');
@@ -427,3 +431,30 @@ INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (32, 
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (33, 'marketing', 'artist-feed', 'Marketing');
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (34, 'a_and_r', 'artist-feed', 'A&R representative');
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (35, 'other', 'artist-track', 'Other role');
+
+-- ---------------------------------------------------------------------------
+-- PROOF-OF-POSSESSION (Sprint 3)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS proof_challenges (
+    challenge_id     TEXT PRIMARY KEY,
+    feed_guid        TEXT NOT NULL,
+    scope            TEXT NOT NULL,
+    token_binding    TEXT NOT NULL,
+    state            TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','valid','invalid')),
+    expires_at       INTEGER NOT NULL,
+    created_at       INTEGER NOT NULL
+) STRICT;
+-- Issue-7 missing indexes — 2026-03-13
+DROP INDEX IF EXISTS idx_proof_challenges_feed;
+CREATE INDEX IF NOT EXISTS idx_proof_challenges_feed_state ON proof_challenges(feed_guid, state);
+CREATE INDEX IF NOT EXISTS idx_proof_challenges_expires ON proof_challenges(expires_at);
+
+CREATE TABLE IF NOT EXISTS proof_tokens (
+    access_token      TEXT PRIMARY KEY,
+    scope             TEXT NOT NULL,
+    subject_feed_guid TEXT NOT NULL,
+    expires_at        INTEGER NOT NULL,
+    created_at        INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_proof_tokens_expires ON proof_tokens(expires_at);

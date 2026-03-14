@@ -1,6 +1,6 @@
 mod common;
 
-use ed25519_dalek::{Signer, SigningKey, VerifyingKey, Signature, Verifier};
+use ed25519_dalek::{Signer, SigningKey, Signature, Verifier};
 use rand_core::OsRng;
 use rusqlite::params;
 use sha2::{Sha256, Digest};
@@ -92,7 +92,7 @@ fn wrong_pubkey_rejects() {
 
     // Attempt verification with key B (different key)
     let key_b = SigningKey::generate(&mut OsRng);
-    let verifier_b: VerifyingKey = key_b.verifying_key();
+    let verifier_b = key_b.verifying_key();
 
     let result = verifier_b.verify(&digest, &sig);
     assert!(result.is_err(), "verification with wrong pubkey must fail");
@@ -103,7 +103,7 @@ fn tampered_payload_rejects() {
     let now = common::now();
 
     let key = SigningKey::generate(&mut OsRng);
-    let verifier: VerifyingKey = key.verifying_key();
+    let verifier = key.verifying_key();
 
     let event_id = "evt-tamper";
     let event_type = "artist_upserted";

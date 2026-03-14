@@ -72,7 +72,6 @@ pub enum EventPayload {
 /// Callers that construct `Event` from the wire (community sync) must populate
 /// `payload_json` using [`Event::payload_json_from_payload`] before calling
 /// `verify_event_signature`.
-#[expect(clippy::struct_field_names, reason = "event_id and event_type are canonical field names in the protocol")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub event_id:     String,

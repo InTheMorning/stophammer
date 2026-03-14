@@ -1,26 +1,22 @@
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
-/// Opens an in-memory SQLite database with the stophammer schema applied.
-/// Uses the same schema.sql that the production code uses (via include_str!).
+/// Opens an in-memory `SQLite` database with the stophammer schema applied.
+/// Uses `open_db(":memory:")` so that the migration system is exercised
+/// identically to production.
 pub fn test_db() -> Connection {
-    let conn = Connection::open_in_memory().expect("failed to open in-memory database");
-    // Apply the schema exactly as production does
-    const SCHEMA: &str = include_str!("../../src/schema.sql");
-    conn.execute_batch(SCHEMA).expect("failed to apply schema");
-    conn
+    stophammer::db::open_db(":memory:")
 }
 
-/// Returns the DB as an Arc<Mutex<Connection>> matching the `db::Db` type.
-#[allow(dead_code)]
+/// Returns the DB as an `Arc<Mutex<Connection>>` matching the `db::Db` type.
+#[allow(dead_code, reason = "used conditionally across test files")]
 pub fn test_db_arc() -> Arc<Mutex<Connection>> {
     Arc::new(Mutex::new(test_db()))
 }
 
+// SP-05 epoch guard — 2026-03-12
 /// Returns current unix timestamp as i64.
+#[allow(dead_code, reason = "used conditionally across test files")]
 pub fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+    stophammer::db::unix_now()
 }

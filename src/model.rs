@@ -11,8 +11,7 @@ use serde::{Deserialize, Serialize};
 // Field names intentionally repeat the struct prefix (e.g. artist_id, feed_guid)
 // because these are canonical Podcast Namespace identifiers used verbatim in
 // SQLite columns, JSON payloads, and the RSS/Podcast Index spec.
-#[expect(clippy::struct_field_names, reason = "field names match Podcast Namespace / DB column conventions")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artist {
     pub artist_id:  String,
     pub name:       String,
@@ -36,7 +35,7 @@ pub struct Artist {
 }
 
 /// MusicBrainz-style artist credit: a display name for multi-artist attribution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCredit {
     pub id:           i64,
     pub display_name: String,
@@ -46,7 +45,7 @@ pub struct ArtistCredit {
 }
 
 /// Individual entry within an [`ArtistCredit`], linking to the underlying [`Artist`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCreditName {
     pub id:               i64,
     pub artist_credit_id: i64,
@@ -57,8 +56,7 @@ pub struct ArtistCreditName {
     pub join_phrase:      String,
 }
 
-#[expect(clippy::struct_field_names, reason = "field names match Podcast Namespace / DB column conventions")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Feed {
     pub feed_guid:        String,
     pub feed_url:         String,
@@ -79,8 +77,7 @@ pub struct Feed {
     pub raw_medium:       Option<String>,
 }
 
-#[expect(clippy::struct_field_names, reason = "field names match Podcast Namespace / DB column conventions")]
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Track {
     pub track_guid:       String,
     pub feed_guid:        String,
@@ -101,14 +98,17 @@ pub struct Track {
     pub updated_at:       i64,
 }
 
+// Issue-11 RouteType alignment — 2026-03-13
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum RouteType {
     Node,
+    Wallet,
+    Keysend,
     Lnaddress,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PaymentRoute {
     pub id:             Option<i64>,
     pub track_guid:     String,
@@ -124,7 +124,7 @@ pub struct PaymentRoute {
 }
 
 /// Feed-level payment route (fallback when a track has no per-track routes).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FeedPaymentRoute {
     pub id:             Option<i64>,
     pub feed_guid:      String,
@@ -137,7 +137,7 @@ pub struct FeedPaymentRoute {
     pub fee:            bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueTimeSplit {
     pub id:                Option<i64>,
     /// GUID of the track whose playback triggers this split.

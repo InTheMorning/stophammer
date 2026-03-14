@@ -1,0 +1,500 @@
+//! Proof-of-possession challenge/token helpers.
+//!
+//! Implements the ACME-inspired (RFC 8555) challenge-assert flow for
+//! authorizing feed and track mutations without an account system.
+//! See `docs/adr/0018-proof-of-possession-mutations.md` for the full design.
+
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
+use rand_core::{OsRng, RngCore};
+use rusqlite::{Connection, OptionalExtension, params};
+use sha2::{Digest, Sha256};
+
+use crate::db::DbError;
+
+// ── Named constants (M-DOCUMENTED-MAGIC) ────────────────────────────────────
+
+/// Challenge lifetime in seconds (24 hours).
+///
+/// Long enough for RSS propagation delay: the feed owner must publish a
+/// `podcast:txt` element and wait for the CDN to pick it up. Shorter values
+/// risk timing out before the proof can be verified.
+const CHALLENGE_TTL_SECS: i64 = 86400;
+
+/// Access token lifetime in seconds (1 hour).
+///
+/// Grants a time-limited mutation window after a successful proof assertion.
+/// Kept short to limit exposure if a token is leaked.
+const TOKEN_TTL_SECS: i64 = 3600;
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+/// A row from the `proof_challenges` table.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
+pub struct ChallengeRow {
+    pub challenge_id:  String,
+    pub feed_guid:     String,
+    pub scope:         String,
+    pub token_binding: String,
+    pub state:         String,
+    pub expires_at:    i64,
+}
+
+// ── Challenge helpers ──────────────────────────────────────────────────────
+
+/// Create a new pending challenge.
+///
+/// The server-issued token is 128 bits of entropy (base64url-encoded, ~22 chars).
+/// `token_binding = token || '.' || base64url(SHA-256(requester_nonce))`
+///
+/// Returns `(challenge_id, token_binding)`.
+///
+/// # Errors
+///
+/// Returns `DbError` if the INSERT into `proof_challenges` fails.
+pub fn create_challenge(
+    conn: &Connection,
+    feed_guid: &str,
+    scope: &str,
+    requester_nonce: &str,
+) -> Result<(String, String), DbError> {
+    let challenge_id = uuid::Uuid::new_v4().to_string();
+
+    // 128 bits of entropy for the server-issued token (RFC 8555 section 11.3).
+    let mut bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    let token = URL_SAFE_NO_PAD.encode(bytes);
+
+    // Bind the token to the requester's nonce (same pattern as ACME keyAuthorization).
+    let mut hasher = Sha256::new();
+    hasher.update(requester_nonce.as_bytes());
+    let hash = hasher.finalize();
+    let token_binding = format!("{}.{}", token, URL_SAFE_NO_PAD.encode(hash));
+
+    let now = now_secs();
+    let expires_at = now + CHALLENGE_TTL_SECS;
+
+    conn.execute(
+        "INSERT INTO proof_challenges (challenge_id, feed_guid, scope, token_binding, state, expires_at, created_at) \
+         VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6)",
+        params![challenge_id, feed_guid, scope, token_binding, expires_at, now],
+    )?;
+
+    Ok((challenge_id, token_binding))
+}
+
+/// Transition a challenge to `valid` or `invalid` state.
+///
+/// Challenges are single-use: once resolved they cannot be reused.
+/// Returns the number of rows affected (1 if the challenge was pending
+/// and transitioned, 0 if already resolved or nonexistent).
+///
+/// # Errors
+///
+/// Returns `DbError` if the UPDATE fails.
+pub fn resolve_challenge(
+    conn: &Connection,
+    challenge_id: &str,
+    new_state: &str,
+) -> Result<usize, DbError> {
+    let rows = conn.execute(
+        "UPDATE proof_challenges SET state = ?1 WHERE challenge_id = ?2 AND state = 'pending'",
+        params![new_state, challenge_id],
+    )?;
+    // rows == 0 means already resolved or doesn't exist — no-op (idempotent).
+    Ok(rows)
+}
+
+/// Fetch a challenge by id. Returns `None` if not found or expired.
+///
+/// # Errors
+///
+/// Returns `DbError` if the SELECT fails.
+pub fn get_challenge(
+    conn: &Connection,
+    challenge_id: &str,
+) -> Result<Option<ChallengeRow>, DbError> {
+    let now = now_secs();
+    let row = conn
+        .query_row(
+            "SELECT challenge_id, feed_guid, scope, token_binding, state, expires_at \
+             FROM proof_challenges \
+             WHERE challenge_id = ?1 AND expires_at > ?2",
+            params![challenge_id, now],
+            |r| {
+                Ok(ChallengeRow {
+                    challenge_id:  r.get(0)?,
+                    feed_guid:     r.get(1)?,
+                    scope:         r.get(2)?,
+                    token_binding: r.get(3)?,
+                    state:         r.get(4)?,
+                    expires_at:    r.get(5)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row)
+}
+
+// ── Token helpers ──────────────────────────────────────────────────────────
+
+/// Issue an access token for a successfully asserted challenge.
+///
+/// Token is 128 bits of entropy (base64url), expires in 1 hour.
+/// Returns the `access_token` string.
+///
+/// # Errors
+///
+/// Returns `DbError` if the INSERT into `proof_tokens` fails.
+pub fn issue_token(
+    conn: &Connection,
+    scope: &str,
+    feed_guid: &str,
+) -> Result<String, DbError> {
+    let mut bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    let access_token = URL_SAFE_NO_PAD.encode(bytes);
+
+    let now = now_secs();
+    let expires_at = now + TOKEN_TTL_SECS;
+
+    conn.execute(
+        "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![access_token, scope, feed_guid, expires_at, now],
+    )?;
+
+    Ok(access_token)
+}
+
+/// Validate a bearer token. Returns `Some(subject_feed_guid)` if valid and unexpired.
+///
+/// Security note: standard string comparison is acceptable here because tokens
+/// are 128 bits of random entropy -- timing side-channels do not meaningfully
+/// reduce the search space for an attacker.
+///
+/// # Errors
+///
+/// Returns `DbError` if the SELECT fails.
+pub fn validate_token(
+    conn: &Connection,
+    token: &str,
+    required_scope: &str,
+) -> Result<Option<String>, DbError> {
+    let now = now_secs();
+    let row: Option<String> = conn
+        .query_row(
+            "SELECT subject_feed_guid FROM proof_tokens \
+             WHERE access_token = ?1 AND scope = ?2 AND expires_at > ?3",
+            params![token, required_scope, now],
+            |r| r.get(0),
+        )
+        .optional()?;
+    Ok(row)
+}
+
+// Finding-6 token revocation on URL change — 2026-03-13
+
+/// Revoke all access tokens for a given `feed_guid`.
+///
+/// Called after a `feed_url` PATCH: the existing tokens were issued against
+/// the **old** feed URL's `podcast:txt` proof, so they must be invalidated.
+/// The artist must re-prove ownership against the new URL.
+///
+/// Returns the number of tokens deleted.
+///
+/// # Errors
+///
+/// Returns `DbError` if the DELETE statement fails.
+pub fn revoke_tokens_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<usize, DbError> {
+    let rows = conn.execute(
+        "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    Ok(rows)
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+
+/// Recompute the `token_binding` from a stored binding's token portion and a
+/// requester nonce. Used during assertion to verify the nonce matches.
+///
+/// Returns `None` if `stored_binding` is malformed (missing `.` separator, or
+/// either the base-token or hash portion is empty).
+#[must_use]
+pub fn recompute_binding(stored_binding: &str, requester_nonce: &str) -> Option<String> {
+    let (base_token, hash_part) = stored_binding.split_once('.')?;
+    if base_token.is_empty() || hash_part.is_empty() {
+        return None;
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(requester_nonce.as_bytes());
+    let hash = hasher.finalize();
+    Some(format!("{}.{}", base_token, URL_SAFE_NO_PAD.encode(hash)))
+}
+
+// SP-02 pruner interval — 2026-03-13
+/// Reads `PROOF_PRUNE_INTERVAL_SECS` from the environment, defaulting to 300.
+#[must_use]
+pub fn prune_interval_from_env() -> u64 {
+    std::env::var("PROOF_PRUNE_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300)
+}
+
+/// Delete expired rows from `proof_challenges` and `proof_tokens` atomically.
+///
+/// Returns the total number of rows deleted (sum from both tables).
+///
+/// # Errors
+///
+/// Returns `DbError` if any SQL operation fails. Both deletes run inside
+/// a single transaction so they are atomic.
+pub fn prune_expired(conn: &Connection) -> Result<usize, DbError> {
+    let now = now_secs();
+    let tx = conn.unchecked_transaction()?;
+    let challenges_deleted = tx.execute(
+        "DELETE FROM proof_challenges WHERE expires_at < ?1",
+        params![now],
+    )?;
+    let tokens_deleted = tx.execute(
+        "DELETE FROM proof_tokens WHERE expires_at < ?1",
+        params![now],
+    )?;
+    tx.commit()?;
+    Ok(challenges_deleted + tokens_deleted)
+}
+
+// CS-01 pod:txt verification — 2026-03-12
+//
+// NOTE: Audio proof verification (ID3 TXXX / FLAC comment) is Phase 2.
+// Only RSS `podcast:txt` verification is implemented. Dual-location
+// verification for feed URL relocations is also Phase 2.
+// See ADR-0018 "Implementation Status" for details.
+
+/// Fetch RSS from `feed_url` and verify it contains a `<podcast:txt>` element
+/// with text `stophammer-proof <token_binding>` at channel level.
+///
+/// Returns `Ok(true)` if the verification text is found, `Ok(false)` if the
+/// RSS was fetched and parsed but the text was not found, and `Err(message)`
+/// if the RSS could not be fetched or parsed.
+///
+/// # Errors
+///
+/// Returns a human-readable error string if the HTTP request fails or the
+/// response body cannot be read.
+/// Maximum RSS response body size (bytes) for podcast:txt verification.
+/// Prevents a malicious feed URL from streaming gigabytes of data.
+/// 5 MiB is generous for any legitimate RSS feed.
+const MAX_RSS_BODY_BYTES: usize = 5 * 1024 * 1024;
+
+/// # Errors
+///
+/// Returns `Err(String)` if the RSS feed cannot be fetched, exceeds the size
+/// limit, or cannot be parsed as valid XML.
+pub async fn verify_podcast_txt(
+    client: &reqwest::Client,
+    feed_url: &str,
+    token_binding: &str,
+) -> Result<bool, String> {
+    use quick_xml::events::Event;
+    use quick_xml::Reader;
+    use std::time::Duration;
+    // Issue #19 chunked streaming read — 2026-03-13
+    use futures_util::StreamExt;
+
+    let resp = client
+        .get(feed_url)
+        .timeout(Duration::from_secs(10))
+        .send()
+        .await
+        .map_err(|e| format!("RSS fetch failed: {e}"))?;
+
+    // Check Content-Length header (if present) before reading the body.
+    if let Some(cl) = resp.content_length()
+        && cl > MAX_RSS_BODY_BYTES as u64
+    {
+        return Err(format!(
+            "RSS response too large: {cl} bytes (limit: {MAX_RSS_BODY_BYTES})"
+        ));
+    }
+
+    // Read body in chunks with an accumulating limit to prevent OOM from
+    // streaming responses that lack a Content-Length header.
+
+    let mut body_bytes = Vec::new();
+    let mut stream = resp.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("RSS fetch error: {e}"))?;
+        body_bytes.extend_from_slice(&chunk);
+        if body_bytes.len() > MAX_RSS_BODY_BYTES {
+            return Err(format!("RSS response exceeds {MAX_RSS_BODY_BYTES} bytes"));
+        }
+    }
+
+    let body = String::from_utf8_lossy(&body_bytes);
+
+    let expected_text = format!("stophammer-proof {token_binding}");
+    let mut reader = Reader::from_str(&body);
+
+    // Track namespace state: we need to find <podcast:txt> elements in the
+    // podcast namespace (https://podcastindex.org/namespace/1.0).
+    // We look for any element with local name "txt" whose namespace prefix
+    // maps to the podcast namespace URI.
+    let mut inside_podcast_txt = false;
+    let mut depth: u32 = 0;
+    let mut channel_depth: Option<u32> = None;
+    let mut found = false;
+
+    loop {
+        match reader.read_event() {
+            Ok(Event::Start(ref e)) => {
+                depth += 1;
+                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                if name == "channel" {
+                    channel_depth = Some(depth);
+                }
+                // Look for podcast:txt (or any prefix:txt where the prefix
+                // resolves to the podcast namespace). In practice, feeds use
+                // the "podcast:" prefix.
+                if channel_depth.is_some() && is_podcast_txt_element(&name, e, &body) {
+                    inside_podcast_txt = true;
+                }
+            }
+            Ok(Event::End(_)) => {
+                if let Some(cd) = channel_depth
+                    && depth == cd
+                {
+                    channel_depth = None;
+                }
+                inside_podcast_txt = false;
+                depth = depth.saturating_sub(1);
+            }
+            Ok(Event::Text(ref t)) if inside_podcast_txt => {
+                let text = t.unescape().unwrap_or_default();
+                let trimmed = text.trim();
+                if trimmed == expected_text {
+                    found = true;
+                    break;
+                }
+                inside_podcast_txt = false;
+            }
+            Ok(Event::Eof) => break,
+            Err(e) => return Err(format!("RSS parse error: {e}")),
+            _ => {}
+        }
+    }
+
+    Ok(found)
+}
+
+/// Check whether an XML start tag represents a `podcast:txt` element.
+///
+/// Matches any element whose local name is `txt` and whose namespace prefix
+/// either:
+/// - is literally `podcast` (the conventional prefix), or
+/// - is declared with `xmlns:<prefix>="https://podcastindex.org/namespace/1.0"`
+///   in the document's `<rss>` root element.
+fn is_podcast_txt_element(
+    name: &str,
+    _event: &quick_xml::events::BytesStart<'_>,
+    rss_body: &str,
+) -> bool {
+    // Most feeds use the standard prefix "podcast:txt".
+    if name == "podcast:txt" {
+        return true;
+    }
+
+    // Handle non-standard prefixes: extract the prefix from "prefix:txt".
+    if let Some(prefix) = name.strip_suffix(":txt") {
+        // Check if this prefix is declared for the podcast namespace.
+        let ns_decl = format!("xmlns:{prefix}=\"https://podcastindex.org/namespace/1.0\"");
+        return rss_body.contains(&ns_decl);
+    }
+
+    false
+}
+
+// ── SSRF guard — 2026-03-13 ──────────────────────────────────────────────
+
+/// Validates that `feed_url` is safe to fetch (no SSRF).
+///
+/// Rejects:
+/// - Non-HTTP(S) schemes (`file://`, `ftp://`, etc.)
+/// - Hostnames that resolve to private/reserved IP ranges
+/// - Literal private/reserved IP addresses in the hostname
+///
+/// # Errors
+///
+/// Returns a human-readable error string if the URL is rejected.
+pub fn validate_feed_url(feed_url: &str) -> Result<(), String> {
+    let url = url::Url::parse(feed_url)
+        .map_err(|e| format!("invalid feed URL: {e}"))?;
+
+    // Scheme check: only http and https are allowed.
+    match url.scheme() {
+        "http" | "https" => {}
+        scheme => return Err(format!("disallowed URL scheme: {scheme}")),
+    }
+
+    let host = url.host_str()
+        .ok_or_else(|| "feed URL has no host".to_string())?;
+
+    // Check literal IP addresses against private/reserved ranges.
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        if is_private_ip(ip) {
+            return Err(format!("feed URL targets a private/reserved IP: {ip}"));
+        }
+    } else {
+        // Hostname: resolve and check all addresses.
+        // Use std::net::ToSocketAddrs for synchronous DNS resolution (acceptable
+        // because this runs before the async fetch and is fast for cached lookups).
+        use std::net::ToSocketAddrs;
+        let socket_addr = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
+        if let Ok(addrs) = socket_addr.to_socket_addrs() {
+            for addr in addrs {
+                if is_private_ip(addr.ip()) {
+                    return Err(format!("feed URL hostname resolves to private/reserved IP: {}", addr.ip()));
+                }
+            }
+        }
+        // If DNS resolution fails, let the subsequent HTTP client handle it
+        // (it will return an error that surfaces as 503).
+    }
+
+    Ok(())
+}
+
+/// Returns `true` if the IP address is in a private or reserved range
+/// that should not be reachable via SSRF.
+const fn is_private_ip(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            v4.is_loopback()           // 127.0.0.0/8
+                || v4.is_private()     // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
+                || v4.is_link_local()  // 169.254.0.0/16
+                || v4.is_broadcast()   // 255.255.255.255
+                || v4.is_unspecified() // 0.0.0.0
+                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64.0.0/10 (CGNAT)
+        }
+        std::net::IpAddr::V6(v6) => {
+            v6.is_loopback()           // ::1
+                || v6.is_unspecified() // ::
+                // fc00::/7 (unique local addresses)
+                || (v6.segments()[0] & 0xFE00) == 0xFC00
+                // fe80::/10 (link-local)
+                || (v6.segments()[0] & 0xFFC0) == 0xFE80
+        }
+    }
+}
+
+// SP-05 epoch guard — 2026-03-12
+fn now_secs() -> i64 {
+    crate::db::unix_now()
+}
+
+// proof.rs security compliant — 2026-03-13

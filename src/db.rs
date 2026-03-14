@@ -11,7 +11,7 @@
 use std::fmt;
 use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension, params};
-use crate::model::{Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit};
+use crate::model::{Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, RouteType, Track, ValueTimeSplit};
 use crate::event::{Event, EventPayload, EventType};
 
 pub type Db = Arc<Mutex<Connection>>;
@@ -19,30 +19,34 @@ pub type Db = Arc<Mutex<Connection>>;
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 /// Errors returned by all database operations in this module.
+// Mutex safety compliant — 2026-03-12
 pub enum DbError {
     /// A rusqlite operation failed (query, execute, or schema application).
     Rusqlite(rusqlite::Error),
     /// A JSON serialisation or deserialisation step failed.
     Json(serde_json::Error),
+    /// The database mutex was poisoned (a thread panicked while holding the lock).
+    Poisoned,
 }
 
 impl From<rusqlite::Error> for DbError {
     fn from(e: rusqlite::Error) -> Self {
-        DbError::Rusqlite(e)
+        Self::Rusqlite(e)
     }
 }
 
 impl From<serde_json::Error> for DbError {
     fn from(e: serde_json::Error) -> Self {
-        DbError::Json(e)
+        Self::Json(e)
     }
 }
 
 impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            DbError::Rusqlite(e) => write!(f, "SQLite error: {e}"),
-            DbError::Json(e)     => write!(f, "JSON error: {e}"),
+            Self::Rusqlite(e) => write!(f, "SQLite error: {e}"),
+            Self::Json(e)     => write!(f, "JSON error: {e}"),
+            Self::Poisoned    => write!(f, "database mutex poisoned"),
         }
     }
 }
@@ -56,8 +60,9 @@ impl fmt::Debug for DbError {
 impl std::error::Error for DbError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            DbError::Rusqlite(e) => Some(e),
-            DbError::Json(e)     => Some(e),
+            Self::Rusqlite(e) => Some(e),
+            Self::Json(e)     => Some(e),
+            Self::Poisoned    => None,
         }
     }
 }
@@ -65,6 +70,8 @@ impl std::error::Error for DbError {
 // ── EventRow ─────────────────────────────────────────────────────────────────
 
 /// A pre-assembled event ready to be written to the `events` table.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct EventRow {
     /// Globally unique identifier for this event (UUID v4).
     pub event_id:     String,
@@ -87,7 +94,8 @@ pub struct EventRow {
 // ── ExternalIdRow ──────────────────────────────────────────────────────────────
 
 /// A row from the `external_ids` table linking an entity to an external system.
-#[allow(dead_code)]
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct ExternalIdRow {
     pub id:     i64,
     pub scheme: String,
@@ -97,7 +105,8 @@ pub struct ExternalIdRow {
 // ── EntitySourceRow ────────────────────────────────────────────────────────────
 
 /// A row from the `entity_source` table recording where an entity came from.
-#[allow(dead_code)]
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct EntitySourceRow {
     pub id:          i64,
     pub source_type: String,
@@ -106,21 +115,87 @@ pub struct EntitySourceRow {
     pub created_at:  i64,
 }
 
-// ── Schema constant ──────────────────────────────────────────────────────────
+// ── Migrations ───────────────────────────────────────────────────────────────
+// Issue-MIGRATIONS — 2026-03-14
 
-const SCHEMA: &str = include_str!("schema.sql");
+/// Ordered list of schema migrations.  Each entry is a SQL script that is
+/// applied exactly once, inside its own transaction.  The `schema_migrations`
+/// table tracks which versions have already been applied, so restarts never
+/// re-execute earlier migrations and data is never silently dropped.
+const MIGRATIONS: &[&str] = &[
+    // Migration 1: baseline schema (formerly src/schema.sql, all DROPs removed)
+    include_str!("../migrations/0001_baseline.sql"),
+];
+
+/// Applies any pending schema migrations to `conn`.
+///
+/// On the very first run the `schema_migrations` table is created.  Each
+/// migration runs inside a transaction so that a failure rolls back cleanly
+/// without leaving the database in a half-migrated state.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any migration SQL fails or if the bookkeeping
+/// queries fail.
+fn run_migrations(conn: &Connection) -> Result<(), DbError> {
+    // Ensure the tracker table exists (idempotent).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS schema_migrations (
+            version    INTEGER PRIMARY KEY,
+            applied_at INTEGER NOT NULL
+        );"
+    )?;
+
+    let current: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |r| r.get(0),
+    )?;
+
+    for (idx, sql) in MIGRATIONS.iter().enumerate() {
+        // Migration versions are 1-indexed; the array will never have enough
+        // entries for the index to overflow i64.
+        let version = i64::try_from(idx).expect("migration count overflowed i64") + 1;
+        if version > current {
+            let tx = conn.unchecked_transaction()?;
+            tx.execute_batch(sql)?;
+            tx.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+                params![version, unix_now()],
+            )?;
+            tx.commit()?;
+        }
+    }
+
+    Ok(())
+}
 
 // ── open_db ──────────────────────────────────────────────────────────────────
 
-/// Opens the `SQLite` database at `path` and applies the bundled schema.
+/// Opens the `SQLite` database at `path` and runs pending schema migrations.
+///
+/// PRAGMAs are applied before migrations so that WAL mode, foreign keys, and
+/// synchronous settings are active for all subsequent operations.
 ///
 /// # Panics
 ///
-/// Panics if the file cannot be opened (e.g. permission denied) or if the
-/// schema SQL fails to execute. Both are unrecoverable startup failures.
-pub fn open_db(path: &str) -> Connection {
-    let conn = Connection::open(path).expect("failed to open database");
-    conn.execute_batch(SCHEMA).expect("failed to apply schema");
+/// Panics if the file cannot be opened (e.g. permission denied) or if a
+/// migration fails to apply. Both are unrecoverable startup failures.
+#[must_use]
+// SP-01 stable FTS5 hash — 2026-03-13
+// Note: The FTS5 table uses content='' (contentless), so the 'rebuild' command
+// is not available. Hash stability is enforced by using SipHash-2-4 with fixed
+// keys in search::rowid_for. If the hash ever changes, the index must be
+// dropped and re-populated from the source tables.
+// HIGH-02 impl AsRef<Path> param — 2026-03-13
+pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
+    let conn = Connection::open(path.as_ref()).expect("failed to open database");
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;\n\
+         PRAGMA foreign_keys = ON;\n\
+         PRAGMA synchronous = NORMAL;"
+    ).expect("failed to set PRAGMAs");
+    run_migrations(&conn).expect("failed to apply migrations");
     conn
 }
 
@@ -133,10 +208,19 @@ fn event_type_str(et: &EventType) -> Result<String, DbError> {
 
 // ── Helper: current unix timestamp ──────────────────────────────────────────
 
-fn unix_now() -> i64 {
+// SP-05 epoch guard — 2026-03-12
+/// Returns the current Unix timestamp in seconds.
+///
+/// # Panics
+///
+/// Panics if the system clock is before the Unix epoch (1970-01-01T00:00:00Z).
+/// This indicates a misconfigured system clock that would corrupt all
+/// time-based operations.
+#[must_use]
+pub fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
+        .expect("system clock is before Unix epoch — check system time configuration")
         .as_secs()
         .cast_signed()
 }
@@ -151,6 +235,10 @@ fn unix_now() -> i64 {
 /// 2. `artists.name_lower = name.to_lowercase()` — direct name lookup (legacy
 ///    rows created before the alias table existed).
 /// 3. Insert new artist + insert a canonical alias row.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> {
     let name_lower = name.to_lowercase();
     let now = unix_now();
@@ -248,9 +336,117 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
     })
 }
 
+// ── get_artist_by_id ─────────────────────────────────────────────────────────
+// Issue-12 PATCH emits events — 2026-03-13
+
+/// Returns the artist row for `artist_id`, or `None` if absent.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_artist_by_id(conn: &Connection, artist_id: &str) -> Result<Option<Artist>, DbError> {
+    let result = conn.query_row(
+        "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
+         img_url, url, begin_year, end_year, created_at, updated_at \
+         FROM artists WHERE artist_id = ?1",
+        params![artist_id],
+        |row| {
+            Ok(Artist {
+                artist_id:  row.get(0)?,
+                name:       row.get(1)?,
+                name_lower: row.get(2)?,
+                sort_name:  row.get(3)?,
+                type_id:    row.get(4)?,
+                area:       row.get(5)?,
+                img_url:    row.get(6)?,
+                url:        row.get(7)?,
+                begin_year: row.get(8)?,
+                end_year:   row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        },
+    ).optional()?;
+    Ok(result)
+}
+
+// ── get_payment_routes_for_track ─────────────────────────────────────────────
+// Issue-12 PATCH emits events — 2026-03-13
+
+/// Returns all payment routes for `track_guid`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_payment_routes_for_track(conn: &Connection, track_guid: &str) -> Result<Vec<PaymentRoute>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
+         custom_key, custom_value, split, fee \
+         FROM payment_routes WHERE track_guid = ?1",
+    )?;
+    let rows = stmt.query_map(params![track_guid], |row| {
+        let rt_str: String = row.get(4)?;
+        let fee_i: i64 = row.get(9)?;
+        Ok(PaymentRoute {
+            id:             row.get(0)?,
+            track_guid:     row.get(1)?,
+            feed_guid:      row.get(2)?,
+            recipient_name: row.get(3)?,
+            route_type:     serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
+            address:        row.get(5)?,
+            custom_key:     row.get(6)?,
+            custom_value:   row.get(7)?,
+            split:          row.get(8)?,
+            fee:            fee_i != 0,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+// ── get_value_time_splits_for_track ──────────────────────────────────────────
+// Issue-12 PATCH emits events — 2026-03-13
+
+/// Returns all value-time splits for `source_track_guid`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_value_time_splits_for_track(conn: &Connection, track_guid: &str) -> Result<Vec<ValueTimeSplit>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
+         remote_item_guid, split, created_at \
+         FROM value_time_splits WHERE source_track_guid = ?1",
+    )?;
+    let rows = stmt.query_map(params![track_guid], |row| {
+        Ok(ValueTimeSplit {
+            id:                row.get(0)?,
+            source_track_guid: row.get(1)?,
+            start_time_secs:   row.get(2)?,
+            duration_secs:     row.get(3)?,
+            remote_feed_guid:  row.get(4)?,
+            remote_item_guid:  row.get(5)?,
+            split:             row.get(6)?,
+            created_at:        row.get(7)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
 // ── add_artist_alias ──────────────────────────────────────────────────────────
 
 /// Registers `alias` (lowercased) as an additional lookup key for `artist_id`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn add_artist_alias(conn: &Connection, artist_id: &str, alias: &str) -> Result<(), DbError> {
     let now = unix_now();
     conn.execute(
@@ -269,21 +465,38 @@ pub fn add_artist_alias(conn: &Connection, artist_id: &str, alias: &str) -> Resu
 /// All aliases of `source` that do not already exist on `target` are transferred;
 /// any that would conflict are dropped. The `source` artist row is then
 /// deleted. Returns the list of alias strings that were transferred.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL statement or the transaction commit fails.
 pub fn merge_artists(
     conn: &mut Connection,
     source_artist_id: &str,
     target_artist_id: &str,
 ) -> Result<Vec<String>, DbError> {
     let tx = conn.transaction()?;
+    let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
+    tx.commit()?;
+    Ok(transferred)
+}
 
+/// Inner implementation of artist merge: executes all SQL operations on
+/// the provided connection without managing its own transaction.  Callers
+/// must ensure they are already inside a transaction or savepoint.
+pub(crate) fn merge_artists_sql(
+    conn: &Connection,
+    source_artist_id: &str,
+    target_artist_id: &str,
+) -> Result<Vec<String>, DbError> {
+    // Finding-1 alias transfer SQL fixed — 2026-03-13
     // Collect the aliases that will be transferred.
-    let mut stmt = tx.prepare(
-        "SELECT alias_lower FROM artist_aliases \
-         WHERE artist_id = ?1 \
+    let mut stmt = conn.prepare(
+        "SELECT aa.alias_lower FROM artist_aliases aa \
+         WHERE aa.artist_id = ?1 \
            AND NOT EXISTS ( \
-               SELECT 1 FROM artist_aliases \
-               WHERE alias_lower = artist_aliases.alias_lower \
-                 AND artist_id = ?2 \
+               SELECT 1 FROM artist_aliases existing \
+               WHERE existing.alias_lower = aa.alias_lower \
+                 AND existing.artist_id = ?2 \
            )",
     )?;
     let transferred: Vec<String> = stmt
@@ -292,44 +505,42 @@ pub fn merge_artists(
     drop(stmt);
 
     // Repoint artist_credit_name entries.
-    tx.execute(
+    conn.execute(
         "UPDATE artist_credit_name SET artist_id = ?1 WHERE artist_id = ?2",
         params![target_artist_id, source_artist_id],
     )?;
 
-    // Transfer non-conflicting aliases.
-    tx.execute(
+    // Transfer non-conflicting aliases (Finding-1 fix: use distinct table aliases).
+    conn.execute(
         "UPDATE artist_aliases SET artist_id = ?1 \
          WHERE artist_id = ?2 \
            AND NOT EXISTS ( \
-               SELECT 1 FROM artist_aliases \
-               WHERE alias_lower = artist_aliases.alias_lower \
-                 AND artist_id = ?1 \
+               SELECT 1 FROM artist_aliases existing \
+               WHERE existing.alias_lower = artist_aliases.alias_lower \
+                 AND existing.artist_id = ?1 \
            )",
         params![target_artist_id, source_artist_id],
     )?;
 
     // Drop any remaining source aliases (those that conflicted).
-    tx.execute(
+    conn.execute(
         "DELETE FROM artist_aliases WHERE artist_id = ?1",
         params![source_artist_id],
     )?;
 
     // Record redirect for old ID resolution.
     let now = unix_now();
-    tx.execute(
+    conn.execute(
         "INSERT OR REPLACE INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
          VALUES (?1, ?2, ?3)",
         params![source_artist_id, target_artist_id, now],
     )?;
 
     // Delete the source artist row.
-    tx.execute(
+    conn.execute(
         "DELETE FROM artists WHERE artist_id = ?1",
         params![source_artist_id],
     )?;
-
-    tx.commit()?;
 
     Ok(transferred)
 }
@@ -337,6 +548,10 @@ pub fn merge_artists(
 // ── upsert_artist_if_absent ───────────────────────────────────────────────────
 
 /// Inserts the artist if no row with the same `artist_id` exists yet.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(), DbError> {
     conn.execute(
         "INSERT OR IGNORE INTO artists (artist_id, name, name_lower, sort_name, type_id, area, \
@@ -356,6 +571,10 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
 
 /// Creates an artist credit with its constituent names. Returns the credit with
 /// the assigned `id` populated.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL insert fails.
 pub fn create_artist_credit(
     conn: &Connection,
     display_name: &str,
@@ -398,7 +617,10 @@ pub fn create_artist_credit(
 }
 
 /// Creates a simple single-artist credit and returns it.
-#[expect(dead_code, reason = "convenience wrapper kept for future single-artist credit creation")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the underlying credit creation fails.
 pub fn create_single_artist_credit(
     conn: &Connection,
     artist: &Artist,
@@ -411,7 +633,10 @@ pub fn create_single_artist_credit(
 }
 
 /// Retrieves an artist credit by ID, including its constituent names.
-#[expect(dead_code, reason = "used by query API tests and future enrichment")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<ArtistCredit>, DbError> {
     let credit: Option<(i64, String, i64)> = conn.query_row(
         "SELECT id, display_name, created_at FROM artist_credit WHERE id = ?1",
@@ -441,7 +666,91 @@ pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<Art
     Ok(Some(ArtistCredit { id, display_name, created_at, names }))
 }
 
+// Issue-6 batch credits — 2026-03-13
+/// Batch-loads multiple artist credits by ID in two queries instead of 2*N.
+///
+/// Returns a `HashMap<credit_id, ArtistCredit>` for O(1) lookup. Credits whose
+/// IDs are not found in the database are silently omitted from the map.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
+pub fn load_credits_batch(
+    conn: &Connection,
+    ids: &[i64],
+) -> Result<std::collections::HashMap<i64, ArtistCredit>, DbError> {
+    use std::collections::HashMap;
+
+    if ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    // Deduplicate IDs to avoid redundant rows.
+    let unique_ids: Vec<i64> = {
+        let mut set = std::collections::HashSet::new();
+        ids.iter().copied().filter(|id| set.insert(*id)).collect()
+    };
+
+    // Build a single parameterised placeholder string: ?,?,?
+    let placeholders: String = std::iter::repeat_n("?", unique_ids.len())
+        .collect::<Vec<_>>()
+        .join(",");
+
+    // Query 1: artist_credit rows.
+    let sql_credits = format!(
+        "SELECT id, display_name, created_at FROM artist_credit WHERE id IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare(&sql_credits)?;
+    let params_credits: Vec<Box<dyn rusqlite::types::ToSql>> =
+        unique_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
+    let credit_rows = stmt.query_map(params_credits.iter().map(AsRef::as_ref).collect::<Vec<_>>().as_slice(), |row| {
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+    })?;
+
+    let mut map: HashMap<i64, ArtistCredit> = HashMap::new();
+    for row in credit_rows {
+        let (id, display_name, created_at) = row?;
+        map.insert(id, ArtistCredit { id, display_name, created_at, names: Vec::new() });
+    }
+
+    if map.is_empty() {
+        return Ok(map);
+    }
+
+    // Query 2: artist_credit_name rows for all loaded credits.
+    let sql_names = format!(
+        "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
+         FROM artist_credit_name WHERE artist_credit_id IN ({placeholders}) ORDER BY artist_credit_id, position"
+    );
+    let mut stmt_names = conn.prepare(&sql_names)?;
+    let params_names: Vec<Box<dyn rusqlite::types::ToSql>> =
+        unique_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
+    let name_rows = stmt_names.query_map(params_names.iter().map(AsRef::as_ref).collect::<Vec<_>>().as_slice(), |row| {
+        Ok(ArtistCreditName {
+            id:               row.get(0)?,
+            artist_credit_id: row.get(1)?,
+            artist_id:        row.get(2)?,
+            position:         row.get(3)?,
+            name:             row.get(4)?,
+            join_phrase:      row.get(5)?,
+        })
+    })?;
+
+    for row in name_rows {
+        let acn = row?;
+        if let Some(credit) = map.get_mut(&acn.artist_credit_id) {
+            credit.names.push(acn);
+        }
+    }
+
+    Ok(map)
+}
+
 /// Looks up an artist credit by display name (case-insensitive via `LOWER()`).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn get_artist_credit_by_display_name(
     conn: &Connection,
     display_name: &str,
@@ -479,6 +788,10 @@ pub fn get_artist_credit_by_display_name(
 /// Idempotent artist credit retrieval: returns an existing credit if one with
 /// a matching `display_name` (case-insensitive) already exists, otherwise
 /// creates a new credit with the given `names`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the lookup or creation query fails.
 pub fn get_or_create_artist_credit(
     conn: &Connection,
     display_name: &str,
@@ -492,6 +805,10 @@ pub fn get_or_create_artist_credit(
 
 /// Returns all artist credits in which `artist_id` participates (via
 /// `artist_credit_name` JOIN).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn get_artist_credits_for_artist(
     conn: &Connection,
     artist_id: &str,
@@ -533,6 +850,10 @@ pub fn get_artist_credits_for_artist(
 // ── upsert_feed ───────────────────────────────────────────────────────────────
 
 /// Inserts or updates a feed row keyed on `feed_guid`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
@@ -579,6 +900,10 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
 // ── upsert_track ──────────────────────────────────────────────────────────────
 
 /// Inserts or updates a track row keyed on `track_guid`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
@@ -625,6 +950,10 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
 // ── replace_payment_routes ────────────────────────────────────────────────────
 
 /// Deletes all payment routes for `track_guid` and inserts the new `routes`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete/insert or JSON serialisation fails.
 pub fn replace_payment_routes(
     conn: &Connection,
     track_guid: &str,
@@ -657,6 +986,10 @@ pub fn replace_payment_routes(
 // ── replace_feed_payment_routes ─────────────────────────────────────────────
 
 /// Deletes all feed-level payment routes for `feed_guid` and inserts `routes`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete/insert or JSON serialisation fails.
 pub fn replace_feed_payment_routes(
     conn: &Connection,
     feed_guid: &str,
@@ -688,6 +1021,10 @@ pub fn replace_feed_payment_routes(
 // ── replace_value_time_splits ─────────────────────────────────────────────────
 
 /// Deletes all value-time splits for `source_track_guid` and inserts `splits`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete or insert fails.
 pub fn replace_value_time_splits(
     conn: &Connection,
     source_track_guid: &str,
@@ -716,9 +1053,474 @@ pub fn replace_value_time_splits(
     Ok(())
 }
 
+// ── delete_track ────────────────────────────────────────────────────────────
+
+/// Cascade-deletes a track and all child rows, respecting FK constraints.
+///
+/// Deletes in order: `track_tag`, `value_time_splits`, `payment_routes`,
+/// `entity_quality`, `entity_field_status`, then the `tracks` row itself.
+///
+/// Idempotent: calling with a non-existent `track_guid` is a no-op.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete fails.
+pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbError> {
+    let sp = conn.savepoint()?;
+    delete_track_sql(&sp, track_guid)?;
+    sp.commit()?;
+    Ok(())
+}
+
+/// Inner implementation of track cascade-delete: executes all SQL deletes on
+/// the provided connection without managing its own transaction.  Callers
+/// must ensure they are already inside a transaction or savepoint.
+pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM track_tag WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM payment_routes WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM tracks WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    Ok(())
+}
+
+// ── delete_feed ─────────────────────────────────────────────────────────────
+
+/// Cascade-deletes a feed and all child rows, respecting FK constraints.
+///
+/// Uses correlated subqueries (`WHERE col IN (SELECT track_guid FROM tracks
+/// WHERE feed_guid = ?1)`) so that child-row deletion is O(1) SQL operations
+/// regardless of the number of tracks. Deletes in dependency order: track-level
+/// children, feed-level children, tracks, then the feed itself.
+///
+/// Idempotent: calling with a non-existent `feed_guid` is a no-op.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query or delete fails.
+// DB performance compliant (subqueries) — 2026-03-12
+pub fn delete_feed(conn: &mut Connection, feed_guid: &str) -> Result<(), DbError> {
+    let sp = conn.savepoint()?;
+    delete_feed_sql(&sp, feed_guid)?;
+    sp.commit()?;
+    Ok(())
+}
+
+/// Inner implementation of feed cascade-delete: executes all SQL deletes on
+/// the provided connection without managing its own transaction.  Callers
+/// must ensure they are already inside a transaction or savepoint.
+// DB performance compliant (subqueries) — 2026-03-12
+pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    // 1. track_tag for all tracks in the feed (subquery)
+    conn.execute(
+        "DELETE FROM track_tag WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+
+    // 2. feed_tag
+    conn.execute(
+        "DELETE FROM feed_tag WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    // 3. value_time_splits for all tracks (subquery)
+    conn.execute(
+        "DELETE FROM value_time_splits WHERE source_track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+
+    // 4. payment_routes for all tracks (subquery)
+    conn.execute(
+        "DELETE FROM payment_routes WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+
+    // 5. feed_payment_routes
+    conn.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    // 6. entity_quality for all tracks (subquery) and the feed
+    conn.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![feed_guid],
+    )?;
+
+    // 7. entity_field_status for all tracks (subquery) and the feed
+    conn.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![feed_guid],
+    )?;
+
+    // 8. proof_tokens & proof_challenges (SG-07)
+    conn.execute(
+        "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM proof_challenges WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    // 9. tracks
+    conn.execute(
+        "DELETE FROM tracks WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    // 10. feeds
+    conn.execute(
+        "DELETE FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    Ok(())
+}
+
+// ── delete_feed_with_event ───────────────────────────────────────────────────
+
+/// Cascade-deletes a feed and records a `FeedRetired` event in a single atomic
+/// transaction, returning the assigned event `seq`.
+///
+/// Uses correlated subqueries for track-level child deletion, matching the
+/// strategy in [`delete_feed`].
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
+/// transaction commit fails.
+// DB performance compliant (subqueries) — 2026-03-12
+#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
+pub fn delete_feed_with_event(
+    conn:         &mut Connection,
+    feed_guid:    &str,
+    event_id:     &str,
+    payload_json: &str,
+    subject_guid: &str,
+    signed_by:    &str,
+    signature:    &str,
+    created_at:   i64,
+    warnings:     &[String],
+) -> Result<i64, DbError> {
+    let tx = conn.transaction()?;
+
+    tx.execute(
+        "DELETE FROM track_tag WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute("DELETE FROM feed_tag WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM value_time_splits WHERE source_track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM payment_routes WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'feed' AND entity_id = ?1",
+        params![feed_guid],
+    )?;
+    // proof_tokens & proof_challenges (SG-07)
+    tx.execute("DELETE FROM proof_tokens WHERE subject_feed_guid = ?1", params![feed_guid])?;
+    tx.execute("DELETE FROM proof_challenges WHERE feed_guid = ?1", params![feed_guid])?;
+
+    tx.execute("DELETE FROM tracks WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
+
+    let et_str = event_type_str(&crate::event::EventType::FeedRetired)?;
+    let warnings_json = serde_json::to_string(warnings)?;
+    let seq = tx.query_row(
+        "INSERT INTO events \
+         (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
+         RETURNING seq",
+        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    tx.commit()?;
+    Ok(seq)
+}
+
+// ── delete_track_with_event ──────────────────────────────────────────────────
+
+/// Cascade-deletes a track and records a `TrackRemoved` event in a single
+/// atomic transaction, returning the assigned event `seq`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
+/// transaction commit fails.
+#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
+pub fn delete_track_with_event(
+    conn:         &mut Connection,
+    track_guid:   &str,
+    event_id:     &str,
+    payload_json: &str,
+    subject_guid: &str,
+    signed_by:    &str,
+    signature:    &str,
+    created_at:   i64,
+    warnings:     &[String],
+) -> Result<i64, DbError> {
+    let tx = conn.transaction()?;
+
+    tx.execute("DELETE FROM track_tag WHERE track_guid = ?1", params![track_guid])?;
+    tx.execute("DELETE FROM value_time_splits WHERE source_track_guid = ?1", params![track_guid])?;
+    tx.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track_guid])?;
+    tx.execute(
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+        params![track_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id = ?1",
+        params![track_guid],
+    )?;
+    tx.execute("DELETE FROM tracks WHERE track_guid = ?1", params![track_guid])?;
+
+    let et_str = event_type_str(&crate::event::EventType::TrackRemoved)?;
+    let warnings_json = serde_json::to_string(warnings)?;
+    let seq = tx.query_row(
+        "INSERT INTO events \
+         (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
+         RETURNING seq",
+        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        |row| row.get::<_, i64>(0),
+    )?;
+
+    tx.commit()?;
+    Ok(seq)
+}
+
+// ── merge_artists_with_event ──────────────────────────────────────────────────
+
+/// Merges two artists AND records the signed event in a single atomic
+/// transaction.  Returns `(transferred_aliases, seq)`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL statement or the transaction commit fails.
+// Finding-2 atomic mutation+event — 2026-03-13
+#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic merge+event")]
+pub fn merge_artists_with_event(
+    conn:            &mut Connection,
+    source_artist_id: &str,
+    target_artist_id: &str,
+    event_id:        &str,
+    event_type:      &EventType,
+    payload_json:    &str,
+    subject_guid:    &str,
+    signed_by:       &str,
+    signature:       &str,
+    created_at:      i64,
+    warnings:        &[String],
+) -> Result<(Vec<String>, i64), DbError> {
+    let tx = conn.transaction()?;
+
+    let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
+
+    let seq = insert_event(
+        &tx, event_id, event_type, payload_json, subject_guid,
+        signed_by, signature, created_at, warnings,
+    )?;
+
+    tx.commit()?;
+    Ok((transferred, seq))
+}
+
+// ── get_feed_by_guid ────────────────────────────────────────────────────────
+
+/// Looks up the feed row by `feed_guid`, returning `None` if absent.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_feed_by_guid(
+    conn:      &Connection,
+    feed_guid: &str,
+) -> Result<Option<Feed>, DbError> {
+    let result = conn.query_row(
+        "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
+         language, explicit, itunes_type, episode_count, newest_item_at, oldest_item_at, \
+         created_at, updated_at, raw_medium \
+         FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| {
+            let explicit_i: i64 = row.get(8)?;
+            Ok(Feed {
+                feed_guid:        row.get(0)?,
+                feed_url:         row.get(1)?,
+                title:            row.get(2)?,
+                title_lower:      row.get(3)?,
+                artist_credit_id: row.get(4)?,
+                description:      row.get(5)?,
+                image_url:        row.get(6)?,
+                language:         row.get(7)?,
+                explicit:         explicit_i != 0,
+                itunes_type:      row.get(9)?,
+                episode_count:    row.get(10)?,
+                newest_item_at:   row.get(11)?,
+                oldest_item_at:   row.get(12)?,
+                created_at:       row.get(13)?,
+                updated_at:       row.get(14)?,
+                raw_medium:       row.get(15)?,
+            })
+        },
+    ).optional()?;
+
+    Ok(result)
+}
+
+// ── get_track_by_guid ───────────────────────────────────────────────────────
+
+/// Looks up the track row by `track_guid`, returning `None` if absent.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_track_by_guid(
+    conn:       &Connection,
+    track_guid: &str,
+) -> Result<Option<Track>, DbError> {
+    let result = conn.query_row(
+        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+         duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         season, explicit, description, created_at, updated_at \
+         FROM tracks WHERE track_guid = ?1",
+        params![track_guid],
+        |row| {
+            let explicit_i: i64 = row.get(12)?;
+            Ok(Track {
+                track_guid:       row.get(0)?,
+                feed_guid:        row.get(1)?,
+                artist_credit_id: row.get(2)?,
+                title:            row.get(3)?,
+                title_lower:      row.get(4)?,
+                pub_date:         row.get(5)?,
+                duration_secs:    row.get(6)?,
+                enclosure_url:    row.get(7)?,
+                enclosure_type:   row.get(8)?,
+                enclosure_bytes:  row.get(9)?,
+                track_number:     row.get(10)?,
+                season:           row.get(11)?,
+                explicit:         explicit_i != 0,
+                description:      row.get(13)?,
+                created_at:       row.get(14)?,
+                updated_at:       row.get(15)?,
+            })
+        },
+    ).optional()?;
+
+    Ok(result)
+}
+
+// ── get_tracks_for_feed ─────────────────────────────────────────────────────
+
+/// Returns all tracks belonging to the given `feed_guid`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_tracks_for_feed(
+    conn:      &Connection,
+    feed_guid: &str,
+) -> Result<Vec<Track>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+         duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         season, explicit, description, created_at, updated_at \
+         FROM tracks WHERE feed_guid = ?1",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        let explicit_i: i64 = row.get(12)?;
+        Ok(Track {
+            track_guid:       row.get(0)?,
+            feed_guid:        row.get(1)?,
+            artist_credit_id: row.get(2)?,
+            title:            row.get(3)?,
+            title_lower:      row.get(4)?,
+            pub_date:         row.get(5)?,
+            duration_secs:    row.get(6)?,
+            enclosure_url:    row.get(7)?,
+            enclosure_type:   row.get(8)?,
+            enclosure_bytes:  row.get(9)?,
+            track_number:     row.get(10)?,
+            season:           row.get(11)?,
+            explicit:         explicit_i != 0,
+            description:      row.get(13)?,
+            created_at:       row.get(14)?,
+            updated_at:       row.get(15)?,
+        })
+    })?;
+
+    let mut tracks = Vec::new();
+    for row in rows {
+        tracks.push(row?);
+    }
+    Ok(tracks)
+}
+
 // ── insert_event ──────────────────────────────────────────────────────────────
 
 /// Inserts a single event row and returns the assigned monotonic `seq`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert or JSON serialisation fails.
 #[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
 pub fn insert_event(
     conn:         &Connection,
@@ -751,6 +1553,10 @@ pub fn insert_event(
 // ── upsert_feed_crawl_cache ───────────────────────────────────────────────────
 
 /// Records the latest content hash and crawl timestamp for `feed_url`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_feed_crawl_cache(
     conn:         &Connection,
     feed_url:     &str,
@@ -771,6 +1577,10 @@ pub fn upsert_feed_crawl_cache(
 // ── get_events_since ──────────────────────────────────────────────────────────
 
 /// Returns up to `limit` events with `seq > after_seq`, ordered ascending.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a SQL query fails or event JSON cannot be deserialised.
 pub fn get_events_since(
     conn:       &Connection,
     after_seq:  i64,
@@ -825,16 +1635,28 @@ pub fn get_events_since(
 
 // ── get_event_refs_since ──────────────────────────────────────────────────────
 
-/// Returns lightweight `(event_id, seq)` references for all events with `seq >= since_seq`.
+// Finding-5 reconcile pagination — 2026-03-13
+/// Returns lightweight `(event_id, seq)` references for events with `seq >= since_seq`,
+/// bounded by `limit` to prevent unbounded memory usage.
+///
+/// Returns a tuple of `(refs, truncated)` where `truncated` is `true` when
+/// more rows exist beyond the limit.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_event_refs_since(
     conn:      &Connection,
     since_seq: i64,
-) -> Result<Vec<crate::sync::EventRef>, DbError> {
+    limit:     i64,
+) -> Result<(Vec<crate::sync::EventRef>, bool), DbError> {
+    // Fetch limit + 1 to detect truncation without a separate COUNT query.
+    let fetch_limit = limit.saturating_add(1);
     let mut stmt = conn.prepare(
-        "SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC",
+        "SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC LIMIT ?2",
     )?;
 
-    let rows = stmt.query_map(params![since_seq], |row| {
+    let rows = stmt.query_map(params![since_seq, fetch_limit], |row| {
         Ok(crate::sync::EventRef {
             event_id: row.get(0)?,
             seq:      row.get(1)?,
@@ -845,12 +1667,22 @@ pub fn get_event_refs_since(
     for row in rows {
         refs.push(row?);
     }
-    Ok(refs)
+
+    let truncated = i64::try_from(refs.len()).unwrap_or(i64::MAX) > limit;
+    if truncated {
+        refs.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
+    }
+
+    Ok((refs, truncated))
 }
 
 // ── upsert_node_sync_state ────────────────────────────────────────────────────
 
 /// Records or updates the last-seen sequence number for a peer node.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_node_sync_state(
     conn:         &Connection,
     node_pubkey:  &str,
@@ -871,17 +1703,20 @@ pub fn upsert_node_sync_state(
 // ── peer_nodes ────────────────────────────────────────────────────────────────
 
 /// A peer node registered for push fan-out.
+#[derive(Debug)]
 pub struct PeerNode {
     pub node_pubkey:          String,
     pub node_url:             String,
-    #[expect(dead_code, reason = "returned in GET /sync/peers for future use")]
     pub discovered_at:        i64,
     pub last_push_at:         Option<i64>,
-    #[expect(dead_code, reason = "used indirectly via SQL WHERE clause in get_push_peers")]
     pub consecutive_failures: i64,
 }
 
 /// Returns all peers with `consecutive_failures < 5`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT node_pubkey, node_url, discovered_at, last_push_at, consecutive_failures \
@@ -906,6 +1741,10 @@ pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
 }
 
 /// Upserts a peer node record.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_peer_node(
     conn:        &Connection,
     node_pubkey: &str,
@@ -922,6 +1761,10 @@ pub fn upsert_peer_node(
 }
 
 /// Records a successful push delivery.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL update fails.
 pub fn record_push_success(conn: &Connection, node_pubkey: &str, now: i64) -> Result<(), DbError> {
     conn.execute(
         "UPDATE peer_nodes SET last_push_at = ?1, consecutive_failures = 0 \
@@ -932,6 +1775,10 @@ pub fn record_push_success(conn: &Connection, node_pubkey: &str, now: i64) -> Re
 }
 
 /// Increments `consecutive_failures` by 1 for the given peer.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL update fails.
 pub fn increment_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE peer_nodes SET consecutive_failures = consecutive_failures + 1 \
@@ -942,6 +1789,10 @@ pub fn increment_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(
 }
 
 /// Resets `consecutive_failures` to 0 for the given peer.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL update fails.
 pub fn reset_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE peer_nodes SET consecutive_failures = 0 WHERE node_pubkey = ?1",
@@ -954,6 +1805,10 @@ pub fn reset_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(), D
 ///
 /// Returns `Some(seq)` if the event was newly inserted, or `None` if a row
 /// with the same `event_id` already existed (idempotent community-side apply).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert or JSON serialisation fails.
 #[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
 pub fn insert_event_idempotent(
     conn:         &Connection,
@@ -966,34 +1821,31 @@ pub fn insert_event_idempotent(
     created_at:   i64,
     warnings:     &[String],
 ) -> Result<Option<i64>, DbError> {
+    // Issue-3 RETURNING seq — 2026-03-13
     let et_str = event_type_str(event_type)?;
     let warnings_json = serde_json::to_string(warnings)?;
 
     let sql = "INSERT OR IGNORE INTO events \
         (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8)";
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
+        RETURNING seq";
 
-    let changed = conn.execute(
+    let seq: Option<i64> = conn.query_row(
         sql,
         rusqlite::params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
-    )?;
+        |row| row.get::<_, i64>(0),
+    ).optional()?;
 
-    if changed == 0 {
-        return Ok(None);
-    }
-
-    let seq: i64 = conn.query_row(
-        "SELECT seq FROM events WHERE event_id = ?1",
-        rusqlite::params![event_id],
-        |row| row.get(0),
-    )?;
-
-    Ok(Some(seq))
+    Ok(seq)
 }
 
 // ── get_node_sync_cursor ──────────────────────────────────────────────────────
 
 /// Returns the `last_seq` cursor stored for `node_pubkey`, or `0` if none exists.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64, DbError> {
     let seq: Option<i64> = conn.query_row(
         "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
@@ -1007,7 +1859,10 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
 
 /// Returns the id of an existing tag with the given (lowercased) name, or
 /// creates a new one and returns its id.
-#[expect(dead_code, reason = "will be called from ingest/admin handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert or query fails.
 pub fn get_or_create_tag(conn: &Connection, name: &str) -> Result<i64, DbError> {
     let lower = name.to_lowercase();
     let now = unix_now();
@@ -1028,7 +1883,10 @@ pub fn get_or_create_tag(conn: &Connection, name: &str) -> Result<i64, DbError> 
 
 /// Inserts a tag association into the appropriate junction table based on
 /// `entity_type` ("artist", "feed", or "track").
-#[expect(dead_code, reason = "will be called from ingest/admin handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
     let now = unix_now();
     match entity_type {
@@ -1056,7 +1914,10 @@ pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: 
 }
 
 /// Removes a tag association from the appropriate junction table.
-#[expect(dead_code, reason = "will be called from admin handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL delete fails.
 pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
     match entity_type {
         "artist" => {
@@ -1083,7 +1944,10 @@ pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id:
 }
 
 /// Returns `(tag_id, name)` pairs for all tags associated with an entity.
-#[expect(dead_code, reason = "will be called from admin/query handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str) -> Result<Vec<(i64, String)>, DbError> {
     let result = match entity_type {
         "artist" => {
@@ -1124,8 +1988,8 @@ pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str
 // ── Relationships ────────────────────────────────────────────────────────────
 
 /// Row returned by [`get_artist_rels`].
+#[derive(Debug)]
 pub struct ArtistRelRow {
-    #[allow(dead_code)]
     pub id:            i64,
     pub artist_id_a:   String,
     pub artist_id_b:   String,
@@ -1135,6 +1999,10 @@ pub struct ArtistRelRow {
 }
 
 /// Checks whether a `rel_type_id` exists in the `rel_type` lookup table.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, DbError> {
     let exists: Option<i64> = conn.query_row(
         "SELECT id FROM rel_type WHERE id = ?1",
@@ -1147,7 +2015,10 @@ pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, Db
 /// Creates an artist-to-artist relationship. Returns the new row id.
 ///
 /// Validates `rel_type_id` before inserting.
-#[expect(dead_code, reason = "will be called from admin/ingest handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the rel type is invalid or the SQL insert fails.
 pub fn create_artist_artist_rel(
     conn:        &Connection,
     artist_id_a: &str,
@@ -1174,6 +2045,10 @@ pub fn create_artist_artist_rel(
 /// Returns all artist-artist relationships where `artist_id` appears on
 /// either side (as `artist_id_a` or `artist_id_b`), joined with the
 /// `rel_type` name.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistRelRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT aar.id, aar.artist_id_a, aar.artist_id_b, rt.name, aar.begin_year, aar.end_year \
@@ -1198,7 +2073,10 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
 }
 
 /// Creates a track-to-track relationship. Returns the new row id.
-#[expect(dead_code, reason = "will be called from admin/ingest handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn create_track_rel(
     conn:         &Connection,
     track_guid_a: &str,
@@ -1215,7 +2093,10 @@ pub fn create_track_rel(
 }
 
 /// Creates a feed-to-feed relationship. Returns the new row id.
-#[expect(dead_code, reason = "will be called from admin/ingest handlers")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn create_feed_rel(
     conn:        &Connection,
     feed_guid_a: &str,
@@ -1234,6 +2115,10 @@ pub fn create_feed_rel(
 // ── get_existing_feed ─────────────────────────────────────────────────────────
 
 /// Looks up the feed row whose `feed_url` matches, returning `None` if absent.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_existing_feed(
     conn:     &Connection,
     feed_url: &str,
@@ -1281,6 +2166,11 @@ pub fn get_existing_feed(
 /// Upserts the artist, creates the artist credit, upserts the feed (with feed
 /// payment routes), all tracks (with payment routes and value-time splits),
 /// and inserts the supplied event rows — all inside one `SQLite` transaction.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
+/// transaction commit fails.
 #[expect(clippy::too_many_lines, reason = "single atomic transaction — splitting would obscure the transactional boundary")]
 #[expect(clippy::needless_pass_by_value, reason = "takes ownership to make the transaction boundary clear at call sites")]
 pub fn ingest_transaction(
@@ -1523,7 +2413,44 @@ pub fn ingest_transaction(
         seqs.push(seq);
     }
 
-    // 6. Commit
+    // Issue-5 ingest atomic — 2026-03-13
+    // 6. Populate search index + compute quality scores inside the same
+    //    transaction so they are atomic with the entity and event writes.
+    {
+        // Feed search index
+        crate::search::populate_search_index(
+            &tx, "feed", &feed.feed_guid,
+            "", &feed.title,
+            feed.description.as_deref().unwrap_or(""),
+            feed.raw_medium.as_deref().unwrap_or(""),
+        )?;
+        let feed_score = crate::quality::compute_feed_quality(&tx, &feed.feed_guid)?;
+        crate::quality::store_quality(&tx, "feed", &feed.feed_guid, feed_score)?;
+
+        // Artist quality + search index
+        let artist_score = crate::quality::compute_artist_quality(&tx, &artist.artist_id)?;
+        crate::quality::store_quality(&tx, "artist", &artist.artist_id, artist_score)?;
+        crate::search::populate_search_index(
+            &tx, "artist", &artist.artist_id,
+            &artist.name, "",
+            "",
+            "",
+        )?;
+
+        // Track search index + quality for each track
+        for (track, _, _) in &tracks {
+            crate::search::populate_search_index(
+                &tx, "track", &track.track_guid,
+                "", &track.title,
+                track.description.as_deref().unwrap_or(""),
+                "",
+            )?;
+            let track_score = crate::quality::compute_track_quality(&tx, &track.track_guid)?;
+            crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
+        }
+    }
+
+    // 7. Commit
     tx.commit()?;
 
     Ok(seqs)
@@ -1535,7 +2462,10 @@ pub fn ingest_transaction(
 ///
 /// Uses `INSERT OR REPLACE` so a second call with the same `(entity_type,
 /// entity_id, scheme)` triple updates the stored `value`.
-#[expect(dead_code, reason = "will be called from importer and enrichment pipelines")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn link_external_id(
     conn:        &Connection,
     entity_type: &str,
@@ -1553,7 +2483,10 @@ pub fn link_external_id(
 }
 
 /// Returns all external IDs linked to the given entity.
-#[expect(dead_code, reason = "will be called from query API enrichment")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_external_ids(
     conn:        &Connection,
     entity_type: &str,
@@ -1580,7 +2513,10 @@ pub fn get_external_ids(
 
 /// Given a `(scheme, value)` pair, returns the `(entity_type, entity_id)` that
 /// owns it, or `None` if no matching row exists.
-#[expect(dead_code, reason = "will be called from reverse-lookup API endpoint")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn reverse_lookup_external_id(
     conn:   &Connection,
     scheme: &str,
@@ -1602,7 +2538,10 @@ pub fn reverse_lookup_external_id(
 /// `source_type` should be one of: `"rss_crawl"`, `"manifest"`, `"manual"`,
 /// `"bulk_import"`. `trust_level`: 0 = unknown, 1 = rss, 2 = signed manifest,
 /// 3 = verified.
-#[expect(dead_code, reason = "will be called from crawl and import pipelines")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
 pub fn record_entity_source(
     conn:        &Connection,
     entity_type: &str,
@@ -1621,7 +2560,10 @@ pub fn record_entity_source(
 }
 
 /// Returns all provenance records for the given entity.
-#[expect(dead_code, reason = "will be called from query API enrichment")]
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_entity_sources(
     conn:        &Connection,
     entity_type: &str,

@@ -185,8 +185,8 @@ fn search_multiple_results() {
 
     assert_eq!(rows.len(), 3, "all 3 artists with 'rock' in tags should be returned");
 
-    let mut sorted = rows.clone();
-    sorted.sort();
+    let mut sorted = rows;
+    sorted.sort_unstable();
     assert_eq!(sorted, vec![1, 2, 3]);
 }
 

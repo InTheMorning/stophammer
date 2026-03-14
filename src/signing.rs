@@ -22,6 +22,16 @@ pub struct NodeSigner {
     pubkey_hex:  String,
 }
 
+// CRIT-03 custom Debug (redacts key material) — 2026-03-13
+impl fmt::Debug for NodeSigner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NodeSigner")
+            .field("pubkey_hex", &self.pubkey_hex)
+            .field("signing_key", &"[REDACTED]")
+            .finish()
+    }
+}
+
 /// Errors returned by key-management and signature-verification operations.
 pub enum SigningError {
     /// An I/O error occurred reading or writing the key file, or decoding
@@ -41,29 +51,29 @@ impl fmt::Debug for SigningError {
 impl fmt::Display for SigningError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            SigningError::Io(e)         => write!(f, "IO error: {e}"),
-            SigningError::InvalidKey(e) => write!(f, "Invalid key: {e}"),
+            Self::Io(e)         => write!(f, "IO error: {e}"),
+            Self::InvalidKey(e) => write!(f, "Invalid key: {e}"),
         }
     }
 }
 
 impl From<std::io::Error> for SigningError {
     fn from(e: std::io::Error) -> Self {
-        SigningError::Io(e)
+        Self::Io(e)
     }
 }
 
 impl From<ed25519_dalek::SignatureError> for SigningError {
     fn from(e: ed25519_dalek::SignatureError) -> Self {
-        SigningError::InvalidKey(e)
+        Self::InvalidKey(e)
     }
 }
 
 impl std::error::Error for SigningError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            SigningError::Io(e)         => Some(e),
-            SigningError::InvalidKey(e) => Some(e),
+            Self::Io(e)         => Some(e),
+            Self::InvalidKey(e) => Some(e),
         }
     }
 }
@@ -79,11 +89,13 @@ impl NodeSigner {
     /// or if the file does not contain exactly 32 bytes (the raw bytes are
     /// `try_into`-converted and the length mismatch is mapped to an
     /// `InvalidData` I/O error).
-    pub fn load_or_create(path: &str) -> Result<Self, SigningError> {
-        let signing_key = if std::path::Path::new(path).exists() {
+    // HIGH-02 Path param — 2026-03-13
+    pub fn load_or_create(path: impl AsRef<std::path::Path>) -> Result<Self, SigningError> {
+        let path = path.as_ref();
+        let signing_key = if path.exists() {
             let bytes = std::fs::read(path)?;
             let arr: [u8; 32] = bytes.try_into()
-                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "key file must be 32 bytes"))?;
+                .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "key file must be 32 bytes"))?;
             SigningKey::from_bytes(&arr)
         } else {
             let key = SigningKey::generate(&mut OsRng);
@@ -105,6 +117,7 @@ impl NodeSigner {
     }
 
     /// Returns the hex-encoded ed25519 public key for this node.
+    #[must_use]
     pub fn pubkey_hex(&self) -> &str {
         &self.pubkey_hex
     }
@@ -118,6 +131,7 @@ impl NodeSigner {
     ///
     /// Panics if [`EventSigningPayload`] cannot be serialised to JSON. This
     /// is a programming error — the type is always serialisable.
+    #[must_use]
     pub fn sign_event(
         &self,
         event_id:     &str,
@@ -156,7 +170,7 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
     let pubkey_bytes = hex::decode(&event.signed_by)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
     let pubkey_arr: [u8; 32] = pubkey_bytes.try_into()
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes"))?;
+        .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes"))?;
     let verifying_key = VerifyingKey::from_bytes(&pubkey_arr)?;
 
     // Use the canonical payload_json string set at sign time.
@@ -185,7 +199,7 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
     let sig_bytes = hex::decode(&event.signature)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
     let sig_arr: [u8; 64] = sig_bytes.try_into()
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "signature must be 64 bytes"))?;
+        .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "signature must be 64 bytes"))?;
     let sig = Signature::from_bytes(&sig_arr);
 
     verifying_key.verify(&digest, &sig)?;
@@ -195,7 +209,7 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{EventPayload, EventType, ArtistUpsertedPayload};
+    use crate::event::{EventPayload, ArtistUpsertedPayload};
     use crate::model::Artist;
 
     #[test]
@@ -228,7 +242,7 @@ mod tests {
             event_id:     "evt-1".into(),
             event_type:   EventType::ArtistUpserted,
             payload:      EventPayload::ArtistUpserted(inner),
-            payload_json: payload_json.clone(),
+            payload_json,
             subject_guid: "subj-1".into(),
             signed_by,
             signature,

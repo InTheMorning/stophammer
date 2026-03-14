@@ -16,7 +16,7 @@ Alternatives considered:
 - **LevelDB / RocksDB**: Key-value only; would require building secondary indices manually
 
 ## Decision
-We will use SQLite in WAL (Write-Ahead Log) mode with `PRAGMA synchronous = NORMAL`. All tables use `STRICT` mode to enforce type constraints at the SQLite level. The schema is embedded in the binary via `include_str!("schema.sql")` and applied at startup via `execute_batch`. All writes go through a single `Arc<Mutex<Connection>>`; blocking DB work runs in `tokio::task::spawn_blocking` to avoid blocking the async executor.
+We will use SQLite in WAL (Write-Ahead Log) mode with `PRAGMA synchronous = NORMAL`. All tables use `STRICT` mode to enforce type constraints at the SQLite level. Schema is applied at startup via a versioned migration system (see ADR 0023). All writes go through a single `Arc<Mutex<Connection>>`; blocking DB work runs in `tokio::task::spawn_blocking` to avoid blocking the async executor.
 
 ## Consequences
 - The entire database is a single file — trivially backed up with `cp` or `rsync`.

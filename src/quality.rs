@@ -5,19 +5,14 @@
 //! populated records. The scores are stored in `entity_quality` and can be
 //! used to weight search results via the `search` module.
 
-#![allow(dead_code)]
-
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::db::DbError;
 
+// SP-05 epoch guard — 2026-03-12
 /// Returns the current unix timestamp in seconds.
 fn unix_now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .cast_signed()
+    crate::db::unix_now()
 }
 
 /// Fields fetched from the `artists` table for quality computation.
@@ -54,6 +49,10 @@ struct FeedFields {
 /// - `begin_year` present: 5
 /// - aliases count: min(count * 5, 15)
 /// - feeds count (via `artist_credit_name` + `feeds`): min(count * 5, 25)
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn compute_artist_quality(conn: &Connection, artist_id: &str) -> Result<i64, DbError> {
     let mut score: i64 = 0;
 
@@ -117,6 +116,10 @@ pub fn compute_artist_quality(conn: &Connection, artist_id: &str) -> Result<i64,
 /// - `newest_item_at` present: 5
 /// - `explicit` explicitly set (non-zero): 5
 /// - `itunes_type` present: 5
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
 pub fn compute_feed_quality(conn: &Connection, feed_guid: &str) -> Result<i64, DbError> {
     let mut score: i64 = 0;
 
@@ -174,7 +177,94 @@ pub fn compute_feed_quality(conn: &Connection, feed_guid: &str) -> Result<i64, D
     Ok(score)
 }
 
+/// Fields fetched from the `tracks` table for quality computation.
+struct TrackFields {
+    title:          Option<String>,
+    enclosure_url:  Option<String>,
+    enclosure_type: Option<String>,
+    duration_secs:  Option<i64>,
+    pub_date:       Option<i64>,
+    description:    Option<String>,
+    track_number:   Option<i64>,
+    season:         Option<i64>,
+    artist_credit_id: i64,
+}
+
+/// Computes a quality score (0–100) for a track based on field completeness.
+///
+/// Scoring breakdown:
+/// - `title` present and non-empty: 10
+/// - `enclosure_url` present: 15
+/// - `enclosure_type` present: 5
+/// - `duration_secs` > 0: 10
+/// - `pub_date` present: 5
+/// - `description` present and non-empty: 10
+/// - `artist_credit_id` > 0 (author present via credit): 5
+/// - `track_number` present: 5
+/// - `season` present: 5
+/// - has payment routes: 20
+/// - has value time splits: 10
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query fails.
+pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64, DbError> {
+    let mut score: i64 = 0;
+
+    let row: Option<TrackFields> = conn.query_row(
+        "SELECT title, enclosure_url, enclosure_type, duration_secs, pub_date, \
+                description, track_number, season, artist_credit_id \
+         FROM tracks WHERE track_guid = ?1",
+        params![track_guid],
+        |row| Ok(TrackFields {
+            title:            row.get(0)?,
+            enclosure_url:    row.get(1)?,
+            enclosure_type:   row.get(2)?,
+            duration_secs:    row.get(3)?,
+            pub_date:         row.get(4)?,
+            description:      row.get(5)?,
+            track_number:     row.get(6)?,
+            season:           row.get(7)?,
+            artist_credit_id: row.get(8)?,
+        }),
+    ).optional()?;
+
+    if let Some(t) = row {
+        if t.title.as_ref().is_some_and(|s| !s.is_empty()) { score += 10; }
+        if t.enclosure_url.is_some() { score += 15; }
+        if t.enclosure_type.is_some() { score += 5; }
+        if t.duration_secs.is_some_and(|d| d > 0) { score += 10; }
+        if t.pub_date.is_some() { score += 5; }
+        if t.description.as_ref().is_some_and(|s| !s.is_empty()) { score += 10; }
+        if t.artist_credit_id > 0 { score += 5; }
+        if t.track_number.is_some() { score += 5; }
+        if t.season.is_some() { score += 5; }
+    }
+
+    // Has payment routes?
+    let has_routes: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM payment_routes WHERE track_guid = ?1)",
+        params![track_guid],
+        |row| row.get(0),
+    )?;
+    if has_routes { score += 20; }
+
+    // Has value time splits?
+    let has_vts: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM value_time_splits WHERE source_track_guid = ?1)",
+        params![track_guid],
+        |row| row.get(0),
+    )?;
+    if has_vts { score += 10; }
+
+    Ok(score)
+}
+
 /// Upserts a quality score into the `entity_quality` table.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL upsert fails.
 pub fn store_quality(
     conn: &Connection,
     entity_type: &str,
@@ -195,6 +285,10 @@ pub fn store_quality(
 }
 
 /// Returns the quality score for an entity, defaulting to 0 if none is stored.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_quality(
     conn: &Connection,
     entity_type: &str,

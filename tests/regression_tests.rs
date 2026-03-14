@@ -35,7 +35,7 @@ fn insert_single_credit(conn: &rusqlite::Connection, artist_id: &str, display: &
     credit_id
 }
 
-/// Insert a minimal feed and return its feed_guid.
+/// Insert a minimal feed and return its `feed_guid`.
 fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> String {
     let now = common::now();
     conn.execute(
@@ -54,7 +54,7 @@ fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> Strin
     guid.to_string()
 }
 
-/// Insert a minimal track and return its track_guid.
+/// Insert a minimal track and return its `track_guid`.
 fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,

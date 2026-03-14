@@ -1,3 +1,5 @@
+#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full spawn_blocking scope")]
+
 //! Query API handlers for the `/v1/*` read-only endpoints.
 //!
 //! All handlers are read-only and run on both primary and community nodes.
@@ -32,20 +34,22 @@ fn encode_cursor(value: &str) -> String {
 }
 
 fn decode_cursor(cursor: &str) -> Result<String, api::ApiError> {
-    let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_| api::ApiError {
+    let bytes = URL_SAFE_NO_PAD.decode(cursor).map_err(|_err| api::ApiError {
         status:  StatusCode::BAD_REQUEST,
         message: "invalid cursor".into(),
+        www_authenticate: None,
     })?;
-    String::from_utf8(bytes).map_err(|_| api::ApiError {
+    String::from_utf8(bytes).map_err(|_err| api::ApiError {
         status:  StatusCode::BAD_REQUEST,
         message: "invalid cursor encoding".into(),
+        www_authenticate: None,
     })
 }
 
 // ── Response envelope ───────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
-struct QueryResponse<T: Serialize> {
+struct QueryResponse<T> {
     data:       T,
     pagination: Pagination,
     meta:       ResponseMeta,
@@ -87,14 +91,10 @@ impl ListQuery {
 
 #[derive(Debug, Deserialize)]
 pub struct SearchQuery {
-    #[allow(dead_code)]
     q:       String,
     #[serde(rename = "type")]
-    #[allow(dead_code)]
     kind:    Option<String>,
-    #[allow(dead_code)]
     limit:   Option<i64>,
-    #[allow(dead_code)]
     cursor:  Option<String>,
 }
 
@@ -131,14 +131,14 @@ struct RelResponse {
     end_year:    Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct CreditResponse {
     id:           i64,
     display_name: String,
     names:        Vec<CreditNameResponse>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct CreditNameResponse {
     artist_id:   String,
     position:    i64,
@@ -274,7 +274,12 @@ async fn handle_get_artist(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
 
         // Check for redirect first.
         let resolved_id: String = conn.query_row(
@@ -303,9 +308,10 @@ async fn handle_get_artist(
                 tags:           None,
                 relationships:  None,
             }),
-        ).map_err(|_| api::ApiError {
+        ).map_err(|_err| api::ApiError {
             status: StatusCode::NOT_FOUND,
             message: "artist not found".into(),
+            www_authenticate: None,
         })?;
 
         let mut artist = artist;
@@ -358,6 +364,7 @@ async fn handle_get_artist(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
 
     Ok(Json(result))
@@ -365,6 +372,7 @@ async fn handle_get_artist(
 
 // ── GET /v1/artists/{id}/feeds ──────────────────────────────────────────────
 
+#[expect(clippy::too_many_lines, reason = "single paginated feed-list flow with batch credit loading")]
 async fn handle_get_artist_feeds(
     State(state): State<Arc<api::AppState>>,
     Path(artist_id): Path<String>,
@@ -372,7 +380,12 @@ async fn handle_get_artist_feeds(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
         let limit = params.capped_limit();
 
         // Resolve redirect.
@@ -387,31 +400,40 @@ async fn handle_get_artist_feeds(
             "SELECT 1 FROM artists WHERE artist_id = ?1",
             params![resolved_id],
             |_| Ok(()),
-        ).map_err(|_| api::ApiError {
+        ).map_err(|_err| api::ApiError {
             status: StatusCode::NOT_FOUND,
             message: "artist not found".into(),
+            www_authenticate: None,
         })?;
 
-        let cursor_value = params.cursor.as_deref()
-            .map(decode_cursor)
-            .transpose()?
-            .unwrap_or_default();
+        // Issue-CURSOR-STABILITY — 2026-03-14
+        // Cursor encodes (title_lower, feed_guid) for a unique tiebreaker.
+        let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(api::ApiError {
+                    status:  StatusCode::BAD_REQUEST,
+                    message: "invalid cursor format".into(),
+                    www_authenticate: None,
+                });
+            }
+            let cursor_title = parts[0];
+            let cursor_guid  = parts[1];
 
-        // Fetch limit+1 to detect has_more.
-        let mut stmt = conn.prepare(
-            "SELECT f.feed_guid, f.feed_url, f.title, f.artist_credit_id, \
-             f.description, f.image_url, f.language, f.explicit, \
-             f.episode_count, f.newest_item_at, f.oldest_item_at, \
-             f.created_at, f.updated_at \
-             FROM feeds f \
-             JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-             WHERE acn.artist_id = ?1 AND f.title_lower > ?2 \
-             ORDER BY f.title_lower ASC \
-             LIMIT ?3",
-        )?;
-
-        let rows: Vec<FeedRow> =
-            stmt.query_map(params![resolved_id, cursor_value, limit + 1], |row| {
+            let mut stmt = conn.prepare(
+                "SELECT f.feed_guid, f.feed_url, f.title, f.artist_credit_id, \
+                 f.description, f.image_url, f.language, f.explicit, \
+                 f.episode_count, f.newest_item_at, f.oldest_item_at, \
+                 f.created_at, f.updated_at \
+                 FROM feeds f \
+                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+                 WHERE acn.artist_id = ?1 \
+                   AND (f.title_lower > ?2 OR (f.title_lower = ?2 AND f.feed_guid > ?3)) \
+                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
+                 LIMIT ?4",
+            )?;
+            stmt.query_map(params![resolved_id, cursor_title, cursor_guid, limit + 1], |row| {
                 Ok(FeedRow {
                     feed_guid:      row.get(0)?,
                     feed_url:       row.get(1)?,
@@ -427,21 +449,58 @@ async fn handle_get_artist_feeds(
                     created_at:     row.get(11)?,
                     updated_at:     row.get(12)?,
                 })
-            })?.collect::<Result<_, _>>()?;
+            })?.collect::<Result<_, _>>()?
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT f.feed_guid, f.feed_url, f.title, f.artist_credit_id, \
+                 f.description, f.image_url, f.language, f.explicit, \
+                 f.episode_count, f.newest_item_at, f.oldest_item_at, \
+                 f.created_at, f.updated_at \
+                 FROM feeds f \
+                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+                 WHERE acn.artist_id = ?1 \
+                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
+                 LIMIT ?2",
+            )?;
+            stmt.query_map(params![resolved_id, limit + 1], |row| {
+                Ok(FeedRow {
+                    feed_guid:      row.get(0)?,
+                    feed_url:       row.get(1)?,
+                    title:          row.get(2)?,
+                    credit_id:      row.get(3)?,
+                    description:    row.get(4)?,
+                    image_url:      row.get(5)?,
+                    language:       row.get(6)?,
+                    explicit_int:   row.get(7)?,
+                    episode_count:  row.get(8)?,
+                    newest_item_at: row.get(9)?,
+                    oldest_item_at: row.get(10)?,
+                    created_at:     row.get(11)?,
+                    updated_at:     row.get(12)?,
+                })
+            })?.collect::<Result<_, _>>()?
+        };
 
         let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
         let items: Vec<_> = rows.into_iter().take(usize::try_from(limit).unwrap_or(usize::MAX)).collect();
 
         let next_cursor = if has_more {
-            items.last().map(|r| encode_cursor(&r.title.to_lowercase()))
+            items.last().map(|r| {
+                encode_cursor(&format!("{}\0{}", r.title.to_lowercase(), r.feed_guid))
+            })
         } else {
             None
         };
 
-        // Build feed responses with credit info.
+        // Issue-6 batch credits — 2026-03-13
+        // Batch-load all credits in two queries instead of 2*N.
+        let credit_map = load_credits_for_feeds(&conn, &items)?;
+
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
-            let credit = load_credit(&conn, r.credit_id)?;
+            let credit = credit_map.get(&r.credit_id)
+                .cloned()
+                .map_or_else(|| load_credit(&conn, r.credit_id), Ok)?;
             feeds.push(FeedResponse {
                 feed_guid:        r.feed_guid,
                 feed_url:         r.feed_url,
@@ -472,6 +531,7 @@ async fn handle_get_artist_feeds(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
 
     Ok(Json(result))
@@ -479,6 +539,7 @@ async fn handle_get_artist_feeds(
 
 // ── GET /v1/feeds/{guid} ────────────────────────────────────────────────────
 
+#[expect(clippy::too_many_lines, reason = "single paginated-detail flow with optional includes")]
 async fn handle_get_feed(
     State(state): State<Arc<api::AppState>>,
     Path(feed_guid): Path<String>,
@@ -486,7 +547,12 @@ async fn handle_get_feed(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
 
         let feed = conn.query_row(
             "SELECT feed_guid, feed_url, title, artist_credit_id, description, image_url, \
@@ -509,9 +575,10 @@ async fn handle_get_feed(
                 row.get::<_, i64>(11)?,
                 row.get::<_, i64>(12)?,
             )),
-        ).map_err(|_| api::ApiError {
+        ).map_err(|_err| api::ApiError {
             status: StatusCode::NOT_FOUND,
             message: "feed not found".into(),
+            www_authenticate: None,
         })?;
 
         let credit = load_credit(&conn, feed.3)?;
@@ -584,6 +651,7 @@ async fn handle_get_feed(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
 
     Ok(Json(result))
@@ -596,9 +664,10 @@ fn load_credit(conn: &rusqlite::Connection, credit_id: i64) -> Result<CreditResp
         "SELECT id, display_name FROM artist_credit WHERE id = ?1",
         params![credit_id],
         |row| Ok((row.get(0)?, row.get(1)?)),
-    ).map_err(|_| api::ApiError {
+    ).map_err(|_err| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: "missing artist credit".into(),
+        www_authenticate: None,
     })?;
 
     let mut stmt = conn.prepare(
@@ -617,6 +686,34 @@ fn load_credit(conn: &rusqlite::Connection, credit_id: i64) -> Result<CreditResp
     .map_err(db::DbError::from)?;
 
     Ok(CreditResponse { id, display_name, names })
+}
+
+// Issue-6 batch credits — 2026-03-13
+/// Converts a model `ArtistCredit` to the query-local `CreditResponse`.
+fn credit_from_model(ac: &crate::model::ArtistCredit) -> CreditResponse {
+    CreditResponse {
+        id:           ac.id,
+        display_name: ac.display_name.clone(),
+        names:        ac.names.iter().map(|n| CreditNameResponse {
+            artist_id:   n.artist_id.clone(),
+            position:    n.position,
+            name:        n.name.clone(),
+            join_phrase: n.join_phrase.clone(),
+        }).collect(),
+    }
+}
+
+// Issue-6 batch credits — 2026-03-13
+/// Batch-loads credits for a set of `FeedRow` items, returning a `HashMap`
+/// of `credit_id -> CreditResponse` for O(1) lookup. Falls back to the
+/// single-load path for any credit IDs missing from the batch result.
+fn load_credits_for_feeds(
+    conn: &rusqlite::Connection,
+    items: &[FeedRow],
+) -> Result<HashMap<i64, CreditResponse>, api::ApiError> {
+    let credit_ids: Vec<i64> = items.iter().map(|r| r.credit_id).collect();
+    let batch = db::load_credits_batch(conn, &credit_ids)?;
+    Ok(batch.into_iter().map(|(id, ac)| (id, credit_from_model(&ac))).collect())
 }
 
 fn load_tags(conn: &rusqlite::Connection, entity_type: &str, entity_id: &str) -> Result<Vec<String>, api::ApiError> {
@@ -642,7 +739,12 @@ async fn handle_get_track(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
 
         let row = conn.query_row(
             "SELECT track_guid, feed_guid, artist_credit_id, title, pub_date, \
@@ -667,9 +769,10 @@ async fn handle_get_track(
                 created_at:      row.get(13)?,
                 updated_at:      row.get(14)?,
             }),
-        ).map_err(|_| api::ApiError {
+        ).map_err(|_err| api::ApiError {
             status: StatusCode::NOT_FOUND,
             message: "track not found".into(),
+            www_authenticate: None,
         })?;
 
         let credit = load_credit(&conn, row.credit_id)?;
@@ -745,6 +848,7 @@ async fn handle_get_track(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
 
     Ok(Json(result))
@@ -759,21 +863,28 @@ async fn handle_get_recent(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
         let limit = params.capped_limit();
 
         let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
             let decoded = decode_cursor(cursor_str)?;
-            let parts: Vec<&str> = decoded.splitn(2, ':').collect();
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
             if parts.len() != 2 {
                 return Err(api::ApiError {
                     status:  StatusCode::BAD_REQUEST,
                     message: "invalid cursor format".into(),
+                    www_authenticate: None,
                 });
             }
-            let cursor_ts: i64 = parts[0].parse().map_err(|_| api::ApiError {
+            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
                 status:  StatusCode::BAD_REQUEST,
                 message: "invalid cursor timestamp".into(),
+                www_authenticate: None,
             })?;
             let cursor_guid = parts[1];
 
@@ -840,15 +951,21 @@ async fn handle_get_recent(
 
         let next_cursor = if has_more {
             items.last().and_then(|r| {
-                r.newest_item_at.map(|ts| encode_cursor(&format!("{ts}:{}", r.feed_guid)))
+                r.newest_item_at.map(|ts| encode_cursor(&format!("{ts}\0{}", r.feed_guid)))
             })
         } else {
             None
         };
 
+        // Issue-6 batch credits — 2026-03-13
+        // Batch-load all credits in two queries instead of 2*N.
+        let credit_map = load_credits_for_feeds(&conn, &items)?;
+
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
-            let credit = load_credit(&conn, r.credit_id)?;
+            let credit = credit_map.get(&r.credit_id)
+                .cloned()
+                .map_or_else(|| load_credit(&conn, r.credit_id), Ok)?;
             feeds.push(FeedResponse {
                 feed_guid:        r.feed_guid,
                 feed_url:         r.feed_url,
@@ -879,6 +996,7 @@ async fn handle_get_recent(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
 
     Ok(Json(result))
@@ -888,14 +1006,59 @@ async fn handle_get_recent(
 
 async fn handle_search(
     State(state): State<Arc<api::AppState>>,
-    Query(_params): Query<SearchQuery>,
+    Query(params): Query<SearchQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    // TODO: Wire up crate::search::search() once the search module is built.
-    // For now, return an empty result set.
-    let empty: Vec<serde_json::Value> = Vec::new();
+    let q = params.q.clone();
+    let kind = params.kind.clone();
+    let limit = params.limit.unwrap_or(20).min(100);
+    let cursor_offset = params.cursor
+        .as_deref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0);
+
+    let db = Arc::clone(&state.db);
+    // Mutex safety compliant — 2026-03-12
+    let results = tokio::task::spawn_blocking(move || {
+        let conn = db.lock().map_err(|_err| db::DbError::Poisoned)?;
+        crate::search::search(&conn, &q, kind.as_deref(), limit + 1, cursor_offset)
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })?
+    // Issue-21 FTS5 sanitize — 2026-03-13
+    // Catch FTS5 parse errors and return 400 instead of 500.
+    .map_err(|e| {
+        let msg = e.to_string();
+        if msg.contains("fts5: syntax error") || msg.contains("fts5:") {
+            api::ApiError {
+                status:  StatusCode::BAD_REQUEST,
+                message: format!("invalid search query: {msg}"),
+                www_authenticate: None,
+            }
+        } else {
+            api::ApiError::from(e)
+        }
+    })?;
+
+    let has_more = results.len() > usize::try_from(limit).unwrap_or(0);
+    let data: Vec<serde_json::Value> = results.iter()
+        .take(usize::try_from(limit).unwrap_or(0))
+        .map(|r| serde_json::json!({
+            "entity_type": r.entity_type,
+            "entity_id": r.entity_id,
+            "rank": r.rank,
+            "quality_score": r.quality_score,
+        }))
+        .collect();
+
+    let next_cursor = has_more.then(|| (cursor_offset + limit).to_string());
+
     Ok(Json(QueryResponse {
-        data:       empty,
-        pagination: Pagination { cursor: None, has_more: false },
+        data,
+        pagination: Pagination { cursor: next_cursor, has_more },
         meta:       meta(&state),
     }))
 }
@@ -935,7 +1098,12 @@ async fn handle_get_peers(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
-        let conn = state2.db.lock().unwrap();
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
         let mut stmt = conn.prepare(
             "SELECT node_pubkey, node_url, last_push_at FROM peer_nodes ORDER BY node_pubkey",
         )?;
@@ -952,6 +1120,7 @@ async fn handle_get_peers(
     .map_err(|e| api::ApiError {
         status:  StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
+        www_authenticate: None,
     })??;
     Ok(Json(result))
 }

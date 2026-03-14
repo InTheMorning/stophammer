@@ -9,6 +9,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 /// Some hosting platforms set the same GUID on thousands of unrelated feeds
 /// as their default value. These platform-default GUIDs are collected in
 /// [`BAD_GUIDS`] and rejected explicitly.
+#[derive(Debug)]
 pub struct FeedGuidVerifier;
 
 /// GUIDs shared by thousands of unrelated feeds (platform defaults).

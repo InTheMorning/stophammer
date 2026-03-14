@@ -18,13 +18,13 @@ fn schema_creates_all_tables() {
         .collect::<Result<_, _>>()
         .unwrap();
 
+    // Dead schema removed — 2026-03-13: feed_type, artist_location, manifest_source
     let expected = [
         "artist_aliases",
         "artist_artist_rel",
         "artist_credit",
         "artist_credit_name",
         "artist_id_redirect",
-        "artist_location",
         "artist_tag",
         "artist_type",
         "artists",
@@ -37,13 +37,15 @@ fn schema_creates_all_tables() {
         "feed_payment_routes",
         "feed_rel",
         "feed_tag",
-        "feed_type",
         "feeds",
-        "manifest_source",
         "node_sync_state",
         "payment_routes",
         "peer_nodes",
+        "proof_challenges",
+        "proof_tokens",
         "rel_type",
+        "schema_migrations",
+        "search_entities",
         "tags",
         "track_rel",
         "track_tag",
@@ -71,10 +73,7 @@ fn lookup_tables_seeded() {
         .unwrap();
     assert_eq!(artist_type_count, 6);
 
-    let feed_type_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM feed_type", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(feed_type_count, 8);
+    // Dead schema removed — 2026-03-13: feed_type table removed
 
     let rel_type_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM rel_type", [], |r| r.get(0))
@@ -83,21 +82,35 @@ fn lookup_tables_seeded() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Schema idempotency
+// 3. Schema idempotency (via migration system)
 // ---------------------------------------------------------------------------
 
 #[test]
 fn schema_idempotent() {
-    let conn = common::test_db();
-    const SCHEMA: &str = include_str!("../src/schema.sql");
-    // Applying schema a second time must not error.
-    conn.execute_batch(SCHEMA).unwrap();
+    // Opening the same database file twice must not error; the migration
+    // system should detect that all migrations are already applied and
+    // skip them.
+    let tmp = std::env::temp_dir().join("stophammer_db_test_idem.db");
+    let _ = std::fs::remove_file(&tmp); // clean slate
+    let conn = stophammer::db::open_db(&tmp);
 
-    // Seed counts should remain unchanged (INSERT OR IGNORE).
+    // Seed counts should be correct after first open.
     let artist_type_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM artist_type", [], |r| r.get(0))
         .unwrap();
     assert_eq!(artist_type_count, 6);
+
+    drop(conn);
+
+    // Second open — migrations must be skipped, data intact.
+    let conn2 = stophammer::db::open_db(&tmp);
+    let artist_type_count2: i64 = conn2
+        .query_row("SELECT COUNT(*) FROM artist_type", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(artist_type_count2, 6);
+
+    drop(conn2);
+    let _ = std::fs::remove_file(&tmp);
 }
 
 // ---------------------------------------------------------------------------
@@ -133,7 +146,7 @@ fn insert_single_credit(conn: &rusqlite::Connection, artist_id: &str, display: &
     credit_id
 }
 
-/// Insert a minimal feed and return its feed_guid.
+/// Insert a minimal feed and return its `feed_guid`.
 fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> String {
     let now = common::now();
     conn.execute(
@@ -152,7 +165,7 @@ fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> Strin
     guid.to_string()
 }
 
-/// Insert a minimal track and return its track_guid.
+/// Insert a minimal track and return its `track_guid`.
 fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,
@@ -953,6 +966,7 @@ fn peer_node_eviction() {
 // ---------------------------------------------------------------------------
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "integration test exercises full transaction atomicity")]
 fn ingest_transaction_atomicity() {
     let conn = common::test_db();
     let now = common::now();

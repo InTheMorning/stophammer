@@ -11,6 +11,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 /// This verifier relies on the `feed_crawl_cache` table via the DB connection
 /// in [`IngestContext`]. It is intentionally a built-in (not movable to an
 /// external script) because it requires direct DB access for correctness.
+#[derive(Debug)]
 pub struct ContentHashVerifier;
 
 /// Sentinel returned by [`ContentHashVerifier`] when a feed is unchanged.

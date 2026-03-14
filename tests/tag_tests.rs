@@ -109,7 +109,7 @@ fn tag_create_and_lookup() {
 // 2. artist_tag_applied
 // ---------------------------------------------------------------------------
 
-/// Create artist + tag, INSERT into artist_tag, verify the join returns the tag.
+/// Create artist + tag, INSERT into `artist_tag`, verify the join returns the tag.
 #[test]
 fn artist_tag_applied() {
     let conn = common::test_db();
@@ -183,7 +183,7 @@ fn feed_tag_applied() {
 // 4. tag_removal
 // ---------------------------------------------------------------------------
 
-/// Apply a tag to an artist, verify it exists, DELETE from artist_tag, verify gone.
+/// Apply a tag to an artist, verify it exists, DELETE from `artist_tag`, verify gone.
 #[test]
 fn tag_removal() {
     let conn = common::test_db();

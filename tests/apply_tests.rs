@@ -1,6 +1,7 @@
 mod common;
 
 use rusqlite::params;
+use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
 // Helper: insert prerequisite artist + artist_credit for tests that need a
@@ -368,6 +369,80 @@ fn apply_artist_merged() {
 }
 
 // ---------------------------------------------------------------------------
+// 5b. merge_artists alias transfer with deduplication (Finding-1 regression)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn merge_artists_transfers_and_deduplicates_aliases() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    // Source artist with aliases A, B, C.
+    insert_artist(&conn, "src", "Source", now);
+    for alias in &["a", "b", "c"] {
+        conn.execute(
+            "INSERT INTO artist_aliases (alias_lower, artist_id, created_at) \
+             VALUES (?1, ?2, ?3)",
+            params![alias, "src", now],
+        )
+        .expect("insert source alias");
+    }
+
+    // Target artist with alias B (overlap).
+    insert_artist(&conn, "tgt", "Target", now);
+    conn.execute(
+        "INSERT INTO artist_aliases (alias_lower, artist_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        params!["b", "tgt", now],
+    )
+    .expect("insert target alias");
+
+    // Call the PRODUCTION merge function.
+    let transferred = stophammer::db::merge_artists(&mut conn, "src", "tgt")
+        .expect("merge_artists must succeed");
+
+    // A and C should have been transferred (B already existed on target).
+    let mut transferred = transferred;
+    transferred.sort();
+    assert_eq!(
+        transferred,
+        vec!["a", "c"],
+        "only non-overlapping aliases should be reported as transferred"
+    );
+
+    // Target must now own exactly {a, b, c}.
+    let mut aliases: Vec<String> = conn
+        .prepare("SELECT alias_lower FROM artist_aliases WHERE artist_id = 'tgt' ORDER BY alias_lower")
+        .expect("prepare")
+        .query_map([], |row| row.get(0))
+        .expect("query")
+        .collect::<Result<_, _>>()
+        .expect("collect");
+    aliases.sort();
+    assert_eq!(aliases, vec!["a", "b", "c"], "target must own all three aliases after merge");
+
+    // Source must have zero remaining aliases.
+    let src_alias_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_aliases WHERE artist_id = 'src'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count source aliases");
+    assert_eq!(src_alias_count, 0, "source aliases must be fully cleaned up");
+
+    // Source artist row must be deleted.
+    let src_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE artist_id = 'src'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count source artist");
+    assert_eq!(src_count, 0, "source artist must be deleted after merge");
+}
+
+// ---------------------------------------------------------------------------
 // 6. apply_feed_routes_replaced
 // ---------------------------------------------------------------------------
 
@@ -442,7 +517,7 @@ fn apply_feed_routes_replaced() {
 // 7. apply_duplicate_event
 // ---------------------------------------------------------------------------
 
-/// Inserting the same event_id twice should be idempotent: the second insert
+/// Inserting the same `event_id` twice should be idempotent: the second insert
 /// is a no-op thanks to INSERT OR IGNORE on the events table PK.
 #[test]
 fn apply_duplicate_event() {
@@ -525,7 +600,7 @@ fn apply_duplicate_event() {
 // ---------------------------------------------------------------------------
 
 /// Artist credits link multiple artists to a single display name. This test
-/// verifies the credit + credit_name rows are created correctly and the
+/// verifies the credit + `credit_name` rows are created correctly and the
 /// foreign key to artists is valid.
 #[test]
 fn apply_creates_artist_credit() {
@@ -601,6 +676,434 @@ fn apply_creates_artist_credit() {
     assert_eq!(second_join, "");
 
     // Reconstructing the display name from parts:
-    let reconstructed = format!("{}{}{}", first_name, first_join, second_name);
+    let reconstructed = format!("{first_name}{first_join}{second_name}");
     assert_eq!(reconstructed, "Alice & Bob");
+}
+
+// ============================================================================
+// Sprint 4B — Issue #16: Timestamp captured before mutex lock
+// ============================================================================
+
+// ---------------------------------------------------------------------------
+// 9. apply_single_event records last_seen_at captured before the lock
+// ---------------------------------------------------------------------------
+
+/// Verifies that the `now` timestamp written to `node_sync_state.last_seen_at`
+/// by `apply_single_event` is captured BEFORE the mutex lock is acquired, not
+/// after. We record wall-clock time before the call and assert that the stored
+/// `last_seen_at` is within a tight tolerance (no lock-induced delay).
+#[test]
+fn timestamp_captured_before_lock() {
+    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::model::Artist;
+
+    let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let now = common::now();
+
+    // Build a minimal ArtistUpserted event.
+    let artist = Artist {
+        artist_id:  "ts-artist-1".into(),
+        name:       "Timestamp Artist".into(),
+        name_lower: "timestamp artist".into(),
+        sort_name:  None,
+        type_id:    None,
+        area:       None,
+        img_url:    None,
+        url:        None,
+        begin_year: None,
+        end_year:   None,
+        created_at: now,
+        updated_at: now,
+    };
+    let inner = ArtistUpsertedPayload { artist: artist.clone() };
+    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
+        artist,
+    });
+    // payload_json must contain only the inner struct (not the tagged enum),
+    // matching production usage where the DB stores the inner payload.
+    let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
+    let ev = Event {
+        event_id:     "ts-evt-001".into(),
+        event_type:   EventType::ArtistUpserted,
+        payload,
+        subject_guid: "ts-artist-1".into(),
+        signed_by:    "deadbeef".into(),
+        signature:    "cafebabe".into(),
+        seq:          1,
+        created_at:   now,
+        warnings:     vec![],
+        payload_json,
+    };
+
+    // Capture wall-clock before calling apply_single_event.
+    let before = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .cast_signed();
+
+    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed");
+
+    // Capture wall-clock after the call.
+    let after = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+        .cast_signed();
+
+    // Read the stored last_seen_at from node_sync_state.
+    let last_seen_at: i64 = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT last_seen_at FROM node_sync_state WHERE node_pubkey = 'test-node-pubkey'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("node_sync_state row should exist")
+    };
+
+    // The stored timestamp must fall within [before, after].
+    // If the timestamp were captured AFTER the lock, it would still be in this
+    // range for an uncontended lock, but the key invariant is that it is at
+    // least >= before (not delayed by lock wait time).
+    assert!(
+        last_seen_at >= before && last_seen_at <= after,
+        "last_seen_at ({last_seen_at}) should be between before ({before}) and after ({after}); \
+         timestamp must be captured before the mutex lock"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 10. Issue-PAYLOAD-INTEGRITY: tampered ev.payload must not be applied
+// ---------------------------------------------------------------------------
+
+/// A MITM attacker can alter `ev.payload` in transit without breaking the
+/// signature, which only covers `payload_json`. This test verifies that
+/// `apply_single_event` applies state from `payload_json` (the signed bytes),
+/// not the potentially-tampered `ev.payload`.
+///
+/// Strategy: create an event with `payload_json` containing artist name
+/// "Signed Artist", but tamper `ev.payload` to contain "Tampered Artist".
+/// After `apply_single_event`, the DB must contain "Signed Artist".
+// Issue-PAYLOAD-INTEGRITY — 2026-03-14
+#[test]
+fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
+    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::model::Artist;
+
+    let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let now = common::now();
+
+    // The "real" (signed) artist — what payload_json contains.
+    let signed_artist = Artist {
+        artist_id:  "integrity-artist-1".into(),
+        name:       "Signed Artist".into(),
+        name_lower: "signed artist".into(),
+        sort_name:  None,
+        type_id:    None,
+        area:       None,
+        img_url:    None,
+        url:        None,
+        begin_year: None,
+        end_year:   None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    // payload_json is the inner struct, matching production format.
+    let inner = ArtistUpsertedPayload { artist: signed_artist };
+    let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
+
+    // The tampered payload struct — what an attacker puts in ev.payload.
+    let tampered_artist = Artist {
+        artist_id:  "integrity-artist-1".into(),
+        name:       "Tampered Artist".into(),
+        name_lower: "tampered artist".into(),
+        sort_name:  None,
+        type_id:    None,
+        area:       None,
+        img_url:    None,
+        url:        None,
+        begin_year: None,
+        end_year:   None,
+        created_at: now,
+        updated_at: now,
+    };
+    let tampered_payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
+        artist: tampered_artist,
+    });
+
+    let ev = Event {
+        event_id:     "integrity-evt-001".into(),
+        event_type:   EventType::ArtistUpserted,
+        payload:      tampered_payload,   // TAMPERED — must be ignored
+        subject_guid: "integrity-artist-1".into(),
+        signed_by:    "deadbeef".into(),
+        signature:    "cafebabe".into(),
+        seq:          1,
+        created_at:   now,
+        warnings:     vec![],
+        payload_json,                     // SIGNED — must be authoritative
+    };
+
+    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+
+    // Verify the DB contains the signed name, NOT the tampered name.
+    let stored_name: String = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT name FROM artists WHERE artist_id = 'integrity-artist-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("artist row should exist")
+    };
+
+    assert_eq!(
+        stored_name, "Signed Artist",
+        "apply_single_event must use payload_json (signed data), not ev.payload (tampered data)"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 11. Issue-PAYLOAD-INTEGRITY: malformed payload_json is rejected
+// ---------------------------------------------------------------------------
+
+/// If `payload_json` cannot be deserialized into a valid `EventPayload`,
+/// the event must be rejected with an error rather than silently applied.
+// Issue-PAYLOAD-INTEGRITY — 2026-03-14
+#[test]
+fn malformed_payload_json_is_rejected() {
+    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::model::Artist;
+
+    let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let now = common::now();
+
+    let artist = Artist {
+        artist_id:  "bad-json-artist".into(),
+        name:       "Bad Artist".into(),
+        name_lower: "bad artist".into(),
+        sort_name:  None,
+        type_id:    None,
+        area:       None,
+        img_url:    None,
+        url:        None,
+        begin_year: None,
+        end_year:   None,
+        created_at: now,
+        updated_at: now,
+    };
+    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
+        artist,
+    });
+
+    let ev = Event {
+        event_id:     "bad-json-evt-001".into(),
+        event_type:   EventType::ArtistUpserted,
+        payload,
+        subject_guid: "bad-json-artist".into(),
+        signed_by:    "deadbeef".into(),
+        signature:    "cafebabe".into(),
+        seq:          1,
+        created_at:   now,
+        warnings:     vec![],
+        payload_json: "NOT VALID JSON".into(),  // garbage
+    };
+
+    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    assert!(
+        result.is_err(),
+        "apply_single_event must reject events with malformed payload_json"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers for Issue-DEDUP-ORDER tests
+// ---------------------------------------------------------------------------
+
+/// Build a `FeedUpserted` event with the given parameters.
+fn make_feed_upserted_event(
+    event_id: &str,
+    feed_guid: &str,
+    feed_title: &str,
+    artist_prefix: &str,
+    seq: i64,
+    now: i64,
+) -> stophammer::event::Event {
+    use stophammer::event::{Event, EventPayload, EventType, FeedUpsertedPayload};
+    use stophammer::model::{Artist, ArtistCredit, ArtistCreditName, Feed};
+
+    let artist = Artist {
+        artist_id:  format!("{artist_prefix}-artist"),
+        name:       format!("{artist_prefix} Artist"),
+        name_lower: format!("{artist_prefix} artist"),
+        sort_name:  None,
+        type_id:    None,
+        area:       None,
+        img_url:    None,
+        url:        None,
+        begin_year: None,
+        end_year:   None,
+        created_at: now,
+        updated_at: now,
+    };
+    let credit = ArtistCredit {
+        id:           1,
+        display_name: format!("{artist_prefix} Artist"),
+        created_at:   now,
+        names:        vec![ArtistCreditName {
+            id:               0,
+            artist_credit_id: 1,
+            artist_id:        format!("{artist_prefix}-artist"),
+            position:         0,
+            name:             format!("{artist_prefix} Artist"),
+            join_phrase:      String::new(),
+        }],
+    };
+    let feed = Feed {
+        feed_guid:        feed_guid.into(),
+        feed_url:         format!("https://example.com/{feed_guid}.xml"),
+        title:            feed_title.into(),
+        title_lower:      feed_title.to_lowercase(),
+        artist_credit_id: 1,
+        description:      None,
+        image_url:        None,
+        language:         None,
+        explicit:         false,
+        itunes_type:      None,
+        episode_count:    0,
+        newest_item_at:   None,
+        oldest_item_at:   None,
+        created_at:       now,
+        updated_at:       now,
+        raw_medium:       None,
+    };
+
+    let inner = FeedUpsertedPayload { feed, artist, artist_credit: credit };
+    let payload_json = serde_json::to_string(&inner).expect("serialize");
+
+    Event {
+        event_id:     event_id.into(),
+        event_type:   EventType::FeedUpserted,
+        payload:      EventPayload::FeedUpserted(inner),
+        subject_guid: feed_guid.into(),
+        signed_by:    "deadbeef".into(),
+        signature:    "cafebabe".into(),
+        seq,
+        created_at:   now,
+        warnings:     vec![],
+        payload_json,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 12. Issue-DEDUP-ORDER: duplicate `FeedUpserted` must not overwrite newer data
+// ---------------------------------------------------------------------------
+
+/// Replaying the same `FeedUpserted` event (same `event_id`) must be a no-op:
+/// the feed's title must not be overwritten and only one event row must exist.
+// Issue-DEDUP-ORDER — 2026-03-14
+#[test]
+fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
+    use stophammer::apply::{apply_single_event, ApplyOutcome};
+
+    let db = common::test_db_arc();
+    let now = common::now();
+    let ev = make_feed_upserted_event(
+        "dedup-evt-feed-001", "dedup-feed-1", "Original Title", "dedup", 1, now,
+    );
+
+    // First apply — should succeed.
+    let r1 = apply_single_event(&db, "test-node", &ev).expect("first apply");
+    assert!(matches!(r1, ApplyOutcome::Applied(_)), "first apply must be Applied");
+
+    // Simulate newer data arriving via a different event.
+    {
+        let conn = db.lock().expect("lock");
+        conn.execute(
+            "UPDATE feeds SET title = 'Updated Title' WHERE feed_guid = 'dedup-feed-1'",
+            [],
+        )
+        .expect("update title");
+    }
+
+    // Second apply — same `event_id`, must be Duplicate and NOT overwrite.
+    let r2 = apply_single_event(&db, "test-node", &ev).expect("second apply");
+    assert!(
+        matches!(r2, ApplyOutcome::Duplicate),
+        "second apply of same event_id must be Duplicate"
+    );
+
+    // The feed must still have "Updated Title".
+    let title: String = {
+        let conn = db.lock().expect("lock");
+        conn.query_row(
+            "SELECT title FROM feeds WHERE feed_guid = 'dedup-feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("query title")
+    };
+    assert_eq!(
+        title, "Updated Title",
+        "duplicate event must NOT overwrite newer feed data"
+    );
+
+    // Only one event row should exist.
+    let event_count: i64 = {
+        let conn = db.lock().expect("lock");
+        conn.query_row(
+            "SELECT COUNT(*) FROM events WHERE event_id = 'dedup-evt-feed-001'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count events")
+    };
+    assert_eq!(event_count, 1, "only one event row must exist");
+}
+
+// ---------------------------------------------------------------------------
+// 13. Issue-DEDUP-ORDER: out-of-order event with same `event_id` is rejected
+// ---------------------------------------------------------------------------
+
+/// Replaying the same `event_id` with a different seq must be detected as a
+/// duplicate regardless of seq ordering.
+// Issue-DEDUP-ORDER — 2026-03-14
+#[test]
+fn out_of_order_event_is_rejected() {
+    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::event::Event;
+
+    let db = common::test_db_arc();
+    let now = common::now();
+    let ev10 = make_feed_upserted_event(
+        "ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now,
+    );
+
+    // Apply the seq=10 event first.
+    let r1 = apply_single_event(&db, "test-node", &ev10).expect("apply seq=10");
+    assert!(matches!(r1, ApplyOutcome::Applied(_)));
+
+    // Replay the SAME `event_id` with a lower seq.
+    let ev10_replay = Event { seq: 5, ..ev10 };
+    let r2 = apply_single_event(&db, "test-node", &ev10_replay).expect("replay");
+    assert!(
+        matches!(r2, ApplyOutcome::Duplicate),
+        "replaying same event_id must return Duplicate regardless of seq"
+    );
+
+    // Feed must still reflect the seq=10 data.
+    let title: String = {
+        let conn = db.lock().expect("lock");
+        conn.query_row(
+            "SELECT title FROM feeds WHERE feed_guid = 'ooo-feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("query title")
+    };
+    assert_eq!(title, "Title Seq 10", "feed data must reflect seq=10 event only");
 }

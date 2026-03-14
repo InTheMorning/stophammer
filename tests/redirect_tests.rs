@@ -51,7 +51,7 @@ fn insert_feed(conn: &rusqlite::Connection, guid: &str, url: &str, title: &str, 
 // ---------------------------------------------------------------------------
 
 /// Create artist A and artist B, insert redirect old->new, query
-/// artist_id_redirect for old, verify new_artist_id = B's id.
+/// `artist_id_redirect` for old, verify `new_artist_id` = B's id.
 #[test]
 fn redirect_resolves_old_id() {
     let conn = common::test_db();
@@ -145,7 +145,7 @@ fn redirect_chain() {
 // 3. redirect_with_query
 // ---------------------------------------------------------------------------
 
-/// Create artist, feed with credit, insert redirect from old_artist_id, verify
+/// Create artist, feed with credit, insert redirect from `old_artist_id`, verify
 /// the join query returns the correct new artist name.
 #[test]
 fn redirect_with_query() {
