@@ -241,12 +241,13 @@ async fn patch_feed_event_has_valid_signature() {
 
     // Read the raw event from the events table and verify its signature.
     let conn = db.lock().expect("lock db");
-    let (event_id, event_type_str, payload_json, subject_guid, signed_by, signature, created_at): (String, String, String, String, String, String, i64) =
+    // Issue-SEQ-INTEGRITY — 2026-03-14: must read seq for signature verification.
+    let (event_id, event_type_str, payload_json, subject_guid, signed_by, signature, seq, created_at): (String, String, String, String, String, String, i64, i64) =
         conn.query_row(
-            "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, created_at \
+            "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at \
              FROM events WHERE event_type = 'feed_upserted' ORDER BY seq DESC LIMIT 1",
             [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
         )
         .expect("read event from DB");
 
@@ -267,7 +268,7 @@ async fn patch_feed_event_has_valid_signature() {
         subject_guid,
         signed_by,
         signature,
-        seq: 0,
+        seq, // Issue-SEQ-INTEGRITY — 2026-03-14: use actual DB seq for verification
         created_at,
         warnings: vec![],
         payload_json,

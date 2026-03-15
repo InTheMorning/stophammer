@@ -13,6 +13,7 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{Connection, OptionalExtension, params};
 use crate::model::{Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, RouteType, Track, ValueTimeSplit};
 use crate::event::{Event, EventPayload, EventType};
+use crate::signing::NodeSigner; // Issue-SEQ-INTEGRITY — 2026-03-14
 
 pub type Db = Arc<Mutex<Connection>>;
 
@@ -70,7 +71,13 @@ impl std::error::Error for DbError {
 // ── EventRow ─────────────────────────────────────────────────────────────────
 
 /// A pre-assembled event ready to be written to the `events` table.
+///
+/// `signed_by` and `signature` are no longer stored here because the
+/// signature covers the DB-assigned `seq` (Issue-SEQ-INTEGRITY). The
+/// `NodeSigner` passed to [`ingest_transaction`] signs each event after
+/// insertion and updates the row with the real signature.
 // CRIT-03 Debug derive — 2026-03-13
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[derive(Debug)]
 pub struct EventRow {
     /// Globally unique identifier for this event (UUID v4).
@@ -81,10 +88,6 @@ pub struct EventRow {
     pub payload_json: String,
     /// GUID of the primary entity this event concerns (feed, track, etc.).
     pub subject_guid: String,
-    /// Hex-encoded ed25519 public key of the node that signed this event.
-    pub signed_by:    String,
-    /// Hex-encoded ed25519 signature over the canonical signing payload.
-    pub signature:    String,
     /// Unix timestamp (seconds) at which the event was created.
     pub created_at:   i64,
     /// Human-readable warnings produced by the verifier chain, if any.
@@ -125,6 +128,10 @@ pub struct EntitySourceRow {
 const MIGRATIONS: &[&str] = &[
     // Migration 1: baseline schema (formerly src/schema.sql, all DROPs removed)
     include_str!("../migrations/0001_baseline.sql"),
+    // Migration 2: scope artist credits to feed_guid (Issue-ARTIST-IDENTITY — 2026-03-14)
+    include_str!("../migrations/0002_artist_credit_feed_scope.sql"),
+    // Migration 3: unique constraint on search_entities (Issue-HASH-COLLISION — 2026-03-14)
+    include_str!("../migrations/0003_search_entities_unique.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -226,88 +233,93 @@ pub fn unix_now() -> i64 {
 }
 
 // ── resolve_artist ────────────────────────────────────────────────────────────
+// Issue-ARTIST-IDENTITY — 2026-03-14
 
-/// Returns an existing artist matched by alias or lowercased `name`, or inserts
-/// a new one and auto-registers its canonical name as an alias.
+/// Returns an existing artist matched by alias or lowercased `name`, scoped to
+/// a specific feed when `feed_guid` is provided, or inserts a new one and
+/// auto-registers its canonical name as an alias.
+///
+/// When `feed_guid` is `Some`, alias and name lookups are scoped to artists
+/// already linked to that feed (via `artist_aliases.feed_guid`). This prevents
+/// cross-feed name collisions where two unrelated podcasts with the same
+/// `owner_name` would otherwise share an artist record.
 ///
 /// Resolution order:
-/// 1. `artist_aliases.alias_lower = name.to_lowercase()` — alias lookup.
-/// 2. `artists.name_lower = name.to_lowercase()` — direct name lookup (legacy
-///    rows created before the alias table existed).
-/// 3. Insert new artist + insert a canonical alias row.
+/// 1. `artist_aliases.alias_lower = name.to_lowercase()` scoped by
+///    `feed_guid` — alias lookup.
+/// 2. Insert new artist + insert a feed-scoped canonical alias row.
 ///
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
-pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> {
+pub fn resolve_artist(
+    conn: &Connection,
+    name: &str,
+    feed_guid: Option<&str>,
+) -> Result<Artist, DbError> {
     let name_lower = name.to_lowercase();
     let now = unix_now();
 
-    // 1. Check alias table first.
-    let via_alias: Option<Artist> = conn.query_row(
-        "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
-         a.img_url, a.url, a.begin_year, a.end_year, a.created_at, a.updated_at \
-         FROM artist_aliases aa \
-         JOIN artists a ON a.artist_id = aa.artist_id \
-         WHERE aa.alias_lower = ?1 \
-         LIMIT 1",
-        params![name_lower],
-        |row| {
-            Ok(Artist {
-                artist_id:  row.get(0)?,
-                name:       row.get(1)?,
-                name_lower: row.get(2)?,
-                sort_name:  row.get(3)?,
-                type_id:    row.get(4)?,
-                area:       row.get(5)?,
-                img_url:    row.get(6)?,
-                url:        row.get(7)?,
-                begin_year: row.get(8)?,
-                end_year:   row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
-    ).optional()?;
+    // 1. Check alias table, scoped by feed_guid.
+    let via_alias: Option<Artist> = if let Some(fg) = feed_guid {
+        conn.query_row(
+            "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
+             a.img_url, a.url, a.begin_year, a.end_year, a.created_at, a.updated_at \
+             FROM artist_aliases aa \
+             JOIN artists a ON a.artist_id = aa.artist_id \
+             WHERE aa.alias_lower = ?1 AND aa.feed_guid = ?2 \
+             LIMIT 1",
+            params![name_lower, fg],
+            |row| {
+                Ok(Artist {
+                    artist_id:  row.get(0)?,
+                    name:       row.get(1)?,
+                    name_lower: row.get(2)?,
+                    sort_name:  row.get(3)?,
+                    type_id:    row.get(4)?,
+                    area:       row.get(5)?,
+                    img_url:    row.get(6)?,
+                    url:        row.get(7)?,
+                    begin_year: row.get(8)?,
+                    end_year:   row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        ).optional()?
+    } else {
+        conn.query_row(
+            "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
+             a.img_url, a.url, a.begin_year, a.end_year, a.created_at, a.updated_at \
+             FROM artist_aliases aa \
+             JOIN artists a ON a.artist_id = aa.artist_id \
+             WHERE aa.alias_lower = ?1 \
+             LIMIT 1",
+            params![name_lower],
+            |row| {
+                Ok(Artist {
+                    artist_id:  row.get(0)?,
+                    name:       row.get(1)?,
+                    name_lower: row.get(2)?,
+                    sort_name:  row.get(3)?,
+                    type_id:    row.get(4)?,
+                    area:       row.get(5)?,
+                    img_url:    row.get(6)?,
+                    url:        row.get(7)?,
+                    begin_year: row.get(8)?,
+                    end_year:   row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        ).optional()?
+    };
 
     if let Some(a) = via_alias {
         return Ok(a);
     }
 
-    // 2. Fall back to direct name_lower match.
-    let existing: Option<Artist> = conn.query_row(
-        "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
-         img_url, url, begin_year, end_year, created_at, updated_at \
-         FROM artists WHERE name_lower = ?1",
-        params![name_lower],
-        |row| {
-            Ok(Artist {
-                artist_id:  row.get(0)?,
-                name:       row.get(1)?,
-                name_lower: row.get(2)?,
-                sort_name:  row.get(3)?,
-                type_id:    row.get(4)?,
-                area:       row.get(5)?,
-                img_url:    row.get(6)?,
-                url:        row.get(7)?,
-                begin_year: row.get(8)?,
-                end_year:   row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
-    ).optional()?;
-
-    if let Some(a) = existing {
-        conn.execute(
-            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
-             VALUES (?1, ?2, ?3)",
-            params![name_lower, a.artist_id, a.created_at],
-        )?;
-        return Ok(a);
-    }
-
-    // 3. New artist — insert artist row and its canonical alias.
+    // 2. New artist — insert artist row and its feed-scoped canonical alias.
     let artist_id = uuid::Uuid::new_v4().to_string();
 
     conn.execute(
@@ -316,8 +328,8 @@ pub fn resolve_artist(conn: &Connection, name: &str) -> Result<Artist, DbError> 
     )?;
 
     conn.execute(
-        "INSERT INTO artist_aliases (alias_lower, artist_id, created_at) VALUES (?1, ?2, ?3)",
-        params![name_lower, artist_id, now],
+        "INSERT INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) VALUES (?1, ?2, ?3, ?4)",
+        params![name_lower, artist_id, feed_guid, now],
     )?;
 
     Ok(Artist {
@@ -368,6 +380,27 @@ pub fn get_artist_by_id(conn: &Connection, artist_id: &str) -> Result<Option<Art
         },
     ).optional()?;
     Ok(result)
+}
+
+// ── artist_exists ────────────────────────────────────────────────────────────
+// Issue-SSE-EXHAUSTION — 2026-03-15
+
+/// Returns `true` if an artist with the given `artist_id` exists in the database.
+///
+/// Uses a lightweight `SELECT 1` query (no row parsing) so it is cheaper than
+/// [`get_artist_by_id`] for pure existence checks.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn artist_exists(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM artists WHERE artist_id = ?1)",
+            params![artist_id],
+            |row| row.get(0),
+        )?;
+    Ok(exists)
 }
 
 // ── get_payment_routes_for_track ─────────────────────────────────────────────
@@ -575,16 +608,18 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL insert fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn create_artist_credit(
     conn: &Connection,
     display_name: &str,
     names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    feed_guid: Option<&str>,
 ) -> Result<ArtistCredit, DbError> {
     let now = unix_now();
 
     conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
+        "INSERT INTO artist_credit (display_name, feed_guid, created_at) VALUES (?1, ?2, ?3)",
+        params![display_name, feed_guid, now],
     )?;
     let credit_id = conn.last_insert_rowid();
 
@@ -611,6 +646,7 @@ pub fn create_artist_credit(
     Ok(ArtistCredit {
         id:           credit_id,
         display_name: display_name.to_string(),
+        feed_guid:    feed_guid.map(String::from),
         created_at:   now,
         names:        credit_names,
     })
@@ -621,14 +657,17 @@ pub fn create_artist_credit(
 /// # Errors
 ///
 /// Returns [`DbError`] if the underlying credit creation fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn create_single_artist_credit(
     conn: &Connection,
     artist: &Artist,
+    feed_guid: Option<&str>,
 ) -> Result<ArtistCredit, DbError> {
     create_artist_credit(
         conn,
         &artist.name,
         &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        feed_guid,
     )
 }
 
@@ -637,14 +676,15 @@ pub fn create_single_artist_credit(
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<ArtistCredit>, DbError> {
-    let credit: Option<(i64, String, i64)> = conn.query_row(
-        "SELECT id, display_name, created_at FROM artist_credit WHERE id = ?1",
+    let credit: Option<(i64, String, Option<String>, i64)> = conn.query_row(
+        "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id = ?1",
         params![credit_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).optional()?;
 
-    let Some((id, display_name, created_at)) = credit else {
+    let Some((id, display_name, feed_guid, created_at)) = credit else {
         return Ok(None);
     };
 
@@ -663,7 +703,7 @@ pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<Art
         })
     })?.collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, created_at, names }))
+    Ok(Some(ArtistCredit { id, display_name, feed_guid, created_at, names }))
 }
 
 // Issue-6 batch credits — 2026-03-13
@@ -697,20 +737,21 @@ pub fn load_credits_batch(
         .join(",");
 
     // Query 1: artist_credit rows.
+    // Issue-ARTIST-IDENTITY — 2026-03-14
     let sql_credits = format!(
-        "SELECT id, display_name, created_at FROM artist_credit WHERE id IN ({placeholders})"
+        "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql_credits)?;
     let params_credits: Vec<Box<dyn rusqlite::types::ToSql>> =
         unique_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
     let credit_rows = stmt.query_map(params_credits.iter().map(AsRef::as_ref).collect::<Vec<_>>().as_slice(), |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?))
+        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, i64>(3)?))
     })?;
 
     let mut map: HashMap<i64, ArtistCredit> = HashMap::new();
     for row in credit_rows {
-        let (id, display_name, created_at) = row?;
-        map.insert(id, ArtistCredit { id, display_name, created_at, names: Vec::new() });
+        let (id, display_name, feed_guid, created_at) = row?;
+        map.insert(id, ArtistCredit { id, display_name, feed_guid, created_at, names: Vec::new() });
     }
 
     if map.is_empty() {
@@ -746,24 +787,37 @@ pub fn load_credits_batch(
     Ok(map)
 }
 
-/// Looks up an artist credit by display name (case-insensitive via `LOWER()`).
+/// Looks up an artist credit by display name (case-insensitive via `LOWER()`)
+/// scoped to a specific feed when `feed_guid` is provided.
 ///
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn get_artist_credit_by_display_name(
     conn: &Connection,
     display_name: &str,
+    feed_guid: Option<&str>,
 ) -> Result<Option<ArtistCredit>, DbError> {
     let lower = display_name.to_lowercase();
 
-    let credit: Option<(i64, String, i64)> = conn.query_row(
-        "SELECT id, display_name, created_at FROM artist_credit WHERE LOWER(display_name) = ?1",
-        params![lower],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).optional()?;
+    let credit: Option<(i64, String, Option<String>, i64)> = if let Some(fg) = feed_guid {
+        conn.query_row(
+            "SELECT id, display_name, feed_guid, created_at FROM artist_credit \
+             WHERE LOWER(display_name) = ?1 AND feed_guid = ?2",
+            params![lower, fg],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?
+    } else {
+        conn.query_row(
+            "SELECT id, display_name, feed_guid, created_at FROM artist_credit \
+             WHERE LOWER(display_name) = ?1 AND feed_guid IS NULL",
+            params![lower],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        ).optional()?
+    };
 
-    let Some((id, display_name, created_at)) = credit else {
+    let Some((id, display_name, feed_guid_val, created_at)) = credit else {
         return Ok(None);
     };
 
@@ -782,25 +836,29 @@ pub fn get_artist_credit_by_display_name(
         })
     })?.collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, created_at, names }))
+    Ok(Some(ArtistCredit { id, display_name, feed_guid: feed_guid_val, created_at, names }))
 }
 
-/// Idempotent artist credit retrieval: returns an existing credit if one with
-/// a matching `display_name` (case-insensitive) already exists, otherwise
+/// Idempotent artist credit retrieval, scoped by feed.
+///
+/// Returns an existing credit if one with a matching `display_name`
+/// (case-insensitive) already exists within the same feed scope, otherwise
 /// creates a new credit with the given `names`.
 ///
 /// # Errors
 ///
 /// Returns [`DbError`] if the lookup or creation query fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn get_or_create_artist_credit(
     conn: &Connection,
     display_name: &str,
     names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    feed_guid: Option<&str>,
 ) -> Result<ArtistCredit, DbError> {
-    if let Some(existing) = get_artist_credit_by_display_name(conn, display_name)? {
+    if let Some(existing) = get_artist_credit_by_display_name(conn, display_name, feed_guid)? {
         return Ok(existing);
     }
-    create_artist_credit(conn, display_name, names)
+    create_artist_credit(conn, display_name, names, feed_guid)
 }
 
 /// Returns all artist credits in which `artist_id` participates (via
@@ -809,19 +867,20 @@ pub fn get_or_create_artist_credit(
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 pub fn get_artist_credits_for_artist(
     conn: &Connection,
     artist_id: &str,
 ) -> Result<Vec<ArtistCredit>, DbError> {
     let mut credit_stmt = conn.prepare(
-        "SELECT DISTINCT ac.id, ac.display_name, ac.created_at \
+        "SELECT DISTINCT ac.id, ac.display_name, ac.feed_guid, ac.created_at \
          FROM artist_credit ac \
          JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
          WHERE acn.artist_id = ?1 \
          ORDER BY ac.id",
     )?;
-    let credits: Vec<(i64, String, i64)> = credit_stmt.query_map(params![artist_id], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    let credits: Vec<(i64, String, Option<String>, i64)> = credit_stmt.query_map(params![artist_id], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
     })?.collect::<Result<_, _>>()?;
 
     let mut name_stmt = conn.prepare(
@@ -830,7 +889,7 @@ pub fn get_artist_credits_for_artist(
     )?;
 
     let mut result = Vec::with_capacity(credits.len());
-    for (id, display_name, created_at) in credits {
+    for (id, display_name, feed_guid, created_at) in credits {
         let names: Vec<ArtistCreditName> = name_stmt.query_map(params![id], |row| {
             Ok(ArtistCreditName {
                 id:               row.get(0)?,
@@ -841,7 +900,7 @@ pub fn get_artist_credits_for_artist(
                 join_phrase:      row.get(5)?,
             })
         })?.collect::<Result<_, _>>()?;
-        result.push(ArtistCredit { id, display_name, created_at, names });
+        result.push(ArtistCredit { id, display_name, feed_guid, created_at, names });
     }
 
     Ok(result)
@@ -1223,6 +1282,7 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
 /// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
 /// transaction commit fails.
 // DB performance compliant (subqueries) — 2026-03-12
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
 pub fn delete_feed_with_event(
     conn:         &mut Connection,
@@ -1230,11 +1290,10 @@ pub fn delete_feed_with_event(
     event_id:     &str,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
+    signer:       &NodeSigner,
     created_at:   i64,
     warnings:     &[String],
-) -> Result<i64, DbError> {
+) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
     tx.execute(
@@ -1281,17 +1340,22 @@ pub fn delete_feed_with_event(
 
     let et_str = event_type_str(&crate::event::EventType::FeedRetired)?;
     let warnings_json = serde_json::to_string(warnings)?;
+    // Issue-SEQ-INTEGRITY — 2026-03-14: insert with placeholder, sign with seq, update.
     let seq = tx.query_row(
         "INSERT INTO events \
          (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
          RETURNING seq",
-        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        params![event_id, et_str, payload_json, subject_guid, signer.pubkey_hex(), "", created_at, warnings_json],
         |row| row.get::<_, i64>(0),
     )?;
+    let (signed_by, signature) = signer.sign_event(
+        event_id, &crate::event::EventType::FeedRetired, payload_json, subject_guid, created_at, seq,
+    );
+    update_event_signature(&tx, event_id, &signed_by, &signature)?;
 
     tx.commit()?;
-    Ok(seq)
+    Ok((seq, signed_by, signature))
 }
 
 // ── delete_track_with_event ──────────────────────────────────────────────────
@@ -1303,6 +1367,7 @@ pub fn delete_feed_with_event(
 ///
 /// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
 /// transaction commit fails.
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
 pub fn delete_track_with_event(
     conn:         &mut Connection,
@@ -1310,11 +1375,10 @@ pub fn delete_track_with_event(
     event_id:     &str,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
+    signer:       &NodeSigner,
     created_at:   i64,
     warnings:     &[String],
-) -> Result<i64, DbError> {
+) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
     tx.execute("DELETE FROM track_tag WHERE track_guid = ?1", params![track_guid])?;
@@ -1332,17 +1396,22 @@ pub fn delete_track_with_event(
 
     let et_str = event_type_str(&crate::event::EventType::TrackRemoved)?;
     let warnings_json = serde_json::to_string(warnings)?;
+    // Issue-SEQ-INTEGRITY — 2026-03-14: insert with placeholder, sign with seq, update.
     let seq = tx.query_row(
         "INSERT INTO events \
          (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
          RETURNING seq",
-        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        params![event_id, et_str, payload_json, subject_guid, signer.pubkey_hex(), "", created_at, warnings_json],
         |row| row.get::<_, i64>(0),
     )?;
+    let (signed_by, signature) = signer.sign_event(
+        event_id, &crate::event::EventType::TrackRemoved, payload_json, subject_guid, created_at, seq,
+    );
+    update_event_signature(&tx, event_id, &signed_by, &signature)?;
 
     tx.commit()?;
-    Ok(seq)
+    Ok((seq, signed_by, signature))
 }
 
 // ── merge_artists_with_event ──────────────────────────────────────────────────
@@ -1354,6 +1423,7 @@ pub fn delete_track_with_event(
 ///
 /// Returns [`DbError`] if any SQL statement or the transaction commit fails.
 // Finding-2 atomic mutation+event — 2026-03-13
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic merge+event")]
 pub fn merge_artists_with_event(
     conn:            &mut Connection,
@@ -1363,22 +1433,21 @@ pub fn merge_artists_with_event(
     event_type:      &EventType,
     payload_json:    &str,
     subject_guid:    &str,
-    signed_by:       &str,
-    signature:       &str,
+    signer:          &NodeSigner,
     created_at:      i64,
     warnings:        &[String],
-) -> Result<(Vec<String>, i64), DbError> {
+) -> Result<(Vec<String>, i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
     let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
 
-    let seq = insert_event(
+    let (seq, signed_by, signature) = insert_event(
         &tx, event_id, event_type, payload_json, subject_guid,
-        signed_by, signature, created_at, warnings,
+        signer, created_at, warnings,
     )?;
 
     tx.commit()?;
-    Ok((transferred, seq))
+    Ok((transferred, seq, signed_by, signature))
 }
 
 // ── get_feed_by_guid ────────────────────────────────────────────────────────
@@ -1514,13 +1583,387 @@ pub fn get_tracks_for_feed(
     Ok(tracks)
 }
 
-// ── insert_event ──────────────────────────────────────────────────────────────
+// ── get_feed_payment_routes_for_feed ────────────────────────────────────────
+// Issue-WRITE-AMP — 2026-03-14
 
-/// Inserts a single event row and returns the assigned monotonic `seq`.
+/// Returns all feed-level payment routes for the given `feed_guid`.
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if the SQL insert or JSON serialisation fails.
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_feed_payment_routes_for_feed(
+    conn:      &Connection,
+    feed_guid: &str,
+) -> Result<Vec<FeedPaymentRoute>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, recipient_name, route_type, address, \
+         custom_key, custom_value, split, fee \
+         FROM feed_payment_routes WHERE feed_guid = ?1",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        let rt_str: String = row.get(3)?;
+        let fee_i: i64 = row.get(8)?;
+        Ok(FeedPaymentRoute {
+            id:             row.get(0)?,
+            feed_guid:      row.get(1)?,
+            recipient_name: row.get(2)?,
+            route_type:     serde_json::from_str(&format!("\"{rt_str}\""))
+                                .unwrap_or(RouteType::Node),
+            address:        row.get(4)?,
+            custom_key:     row.get(5)?,
+            custom_value:   row.get(6)?,
+            split:          row.get(7)?,
+            fee:            fee_i != 0,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+// ── diff helpers ────────────────────────────────────────────────────────────
+// Issue-WRITE-AMP — 2026-03-14
+
+/// Compares two feeds by their content fields (ignoring timestamps and
+/// computed fields like `episode_count`, `newest_item_at`, `oldest_item_at`).
+fn feed_fields_changed(existing: &Feed, new: &Feed) -> bool {
+    existing.title       != new.title
+    || existing.description != new.description
+    || existing.image_url   != new.image_url
+    || existing.language    != new.language
+    || existing.explicit    != new.explicit
+    || existing.itunes_type != new.itunes_type
+    || existing.raw_medium  != new.raw_medium
+    || existing.feed_url    != new.feed_url
+}
+
+/// Compares two tracks by their content fields (ignoring timestamps).
+fn track_fields_changed(existing: &Track, new: &Track) -> bool {
+    existing.title            != new.title
+    || existing.artist_credit_id != new.artist_credit_id
+    || existing.pub_date         != new.pub_date
+    || existing.duration_secs    != new.duration_secs
+    || existing.enclosure_url    != new.enclosure_url
+    || existing.enclosure_type   != new.enclosure_type
+    || existing.enclosure_bytes  != new.enclosure_bytes
+    || existing.track_number     != new.track_number
+    || existing.season           != new.season
+    || existing.explicit         != new.explicit
+    || existing.description      != new.description
+}
+
+/// Compares two artists by their content fields (ignoring timestamps).
+fn artist_fields_changed(existing: &Artist, new: &Artist) -> bool {
+    existing.name       != new.name
+    || existing.sort_name  != new.sort_name
+    || existing.type_id    != new.type_id
+    || existing.area       != new.area
+    || existing.img_url    != new.img_url
+    || existing.url        != new.url
+    || existing.begin_year != new.begin_year
+    || existing.end_year   != new.end_year
+}
+
+/// Compares two sets of feed payment routes by their content fields
+/// (ignoring `id` which is DB-assigned).
+fn feed_routes_changed(
+    existing: &[FeedPaymentRoute],
+    new: &[FeedPaymentRoute],
+) -> bool {
+    if existing.len() != new.len() {
+        return true;
+    }
+    // Compare route-by-route; order matters.
+    existing.iter().zip(new.iter()).any(|(a, b)| {
+        a.recipient_name != b.recipient_name
+        || a.route_type     != b.route_type
+        || a.address        != b.address
+        || a.custom_key     != b.custom_key
+        || a.custom_value   != b.custom_value
+        || a.split          != b.split
+        || a.fee            != b.fee
+    })
+}
+
+// ── build_diff_events ───────────────────────────────────────────────────────
+// Issue-WRITE-AMP — 2026-03-14
+
+/// Queries existing DB state and builds event rows only for entities that
+/// actually changed compared to what is stored.
+///
+/// On first ingest (feed not yet in DB), all events are emitted. On
+/// re-ingest, only entities whose fields actually differ produce events.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL query or JSON serialisation fails.
+#[expect(clippy::too_many_arguments, reason = "mirrors the data needed to build events")]
+pub fn build_diff_events(
+    conn:           &Connection,
+    artist:         &Artist,
+    artist_credit:  &ArtistCredit,
+    feed:           &Feed,
+    feed_routes:    &[FeedPaymentRoute],
+    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits:  &[ArtistCredit],
+    now:            i64,
+    warnings:       &[String],
+) -> Result<Vec<EventRow>, DbError> {
+    // Use feed existence as the primary gate: if the feed is not yet in the
+    // DB, this is a first ingest and all events must be emitted. Note: the
+    // artist may already exist (resolve_artist creates it before this runs),
+    // so we cannot rely on artist existence alone.
+    let existing_feed = get_feed_by_guid(conn, &feed.feed_guid)?;
+
+    existing_feed.map_or_else(
+        || build_all_events(
+            artist, artist_credit, feed, feed_routes, tracks,
+            track_credits, now, warnings,
+        ),
+        |ef| build_changed_events(
+            conn, artist, artist_credit, feed, feed_routes, tracks,
+            track_credits, now, warnings, &ef,
+        ),
+    )
+}
+
+/// Emits all events unconditionally (first ingest of a feed).
+#[expect(clippy::too_many_arguments, reason = "mirrors build_diff_events params")]
+fn build_all_events(
+    artist:         &Artist,
+    artist_credit:  &ArtistCredit,
+    feed:           &Feed,
+    feed_routes:    &[FeedPaymentRoute],
+    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits:  &[ArtistCredit],
+    now:            i64,
+    warnings:       &[String],
+) -> Result<Vec<EventRow>, DbError> {
+    let mut event_rows: Vec<EventRow> = Vec::new();
+    let warn_vec: Vec<String> = warnings.to_vec();
+
+    event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
+    event_rows.push(build_artist_credit_event(
+        artist_credit, artist, now, &warn_vec,
+    )?);
+    event_rows.push(build_feed_upserted_event(
+        feed, artist, artist_credit, now, &warn_vec,
+    )?);
+
+    if !feed_routes.is_empty() {
+        event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+
+    for (i, (track, routes, vts)) in tracks.iter().enumerate() {
+        let credit = if i < track_credits.len() {
+            &track_credits[i]
+        } else {
+            artist_credit
+        };
+        event_rows.push(build_track_upserted_event(
+            track, routes, vts, credit, now, &warn_vec,
+        )?);
+    }
+
+    Ok(event_rows)
+}
+
+/// Emits events only for entities that differ from the stored DB state.
+#[expect(clippy::too_many_arguments, reason = "mirrors build_diff_events params")]
+fn build_changed_events(
+    conn:           &Connection,
+    artist:         &Artist,
+    artist_credit:  &ArtistCredit,
+    feed:           &Feed,
+    feed_routes:    &[FeedPaymentRoute],
+    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits:  &[ArtistCredit],
+    now:            i64,
+    warnings:       &[String],
+    existing_feed:  &Feed,
+) -> Result<Vec<EventRow>, DbError> {
+    let mut event_rows: Vec<EventRow> = Vec::new();
+    let warn_vec: Vec<String> = warnings.to_vec();
+
+    // --- Artist diff ---
+    let artist_changed = diff_artist(conn, artist)?;
+    if artist_changed {
+        event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
+        event_rows.push(build_artist_credit_event(
+            artist_credit, artist, now, &warn_vec,
+        )?);
+    }
+
+    // --- Feed diff ---
+    if feed_fields_changed(existing_feed, feed) {
+        event_rows.push(build_feed_upserted_event(
+            feed, artist, artist_credit, now, &warn_vec,
+        )?);
+    }
+
+    // --- Feed routes diff ---
+    let existing_routes = get_feed_payment_routes_for_feed(conn, &feed.feed_guid)?;
+    if !feed_routes.is_empty() && feed_routes_changed(&existing_routes, feed_routes) {
+        event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+
+    // --- Track diff ---
+    let existing_tracks = get_tracks_for_feed(conn, &feed.feed_guid)?;
+    let existing_map: std::collections::HashMap<&str, &Track> = existing_tracks
+        .iter()
+        .map(|t| (t.track_guid.as_str(), t))
+        .collect();
+
+    for (i, (track, routes, vts)) in tracks.iter().enumerate() {
+        let is_new_or_changed = existing_map
+            .get(track.track_guid.as_str())
+            .is_none_or(|existing| track_fields_changed(existing, track));
+
+        if is_new_or_changed {
+            let credit = if i < track_credits.len() {
+                &track_credits[i]
+            } else {
+                artist_credit
+            };
+            event_rows.push(build_track_upserted_event(
+                track, routes, vts, credit, now, &warn_vec,
+            )?);
+        }
+    }
+
+    Ok(event_rows)
+}
+
+// --- private event builders (keep each under 50 lines) ---
+
+fn diff_artist(conn: &Connection, artist: &Artist) -> Result<bool, DbError> {
+    let existing = get_artist_by_id(conn, &artist.artist_id)?;
+    Ok(existing.is_none_or(|e| artist_fields_changed(&e, artist)))
+}
+
+fn build_artist_upserted_event(
+    artist:   &Artist,
+    now:      i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::ArtistUpsertedPayload {
+        artist: artist.clone(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id:     uuid::Uuid::new_v4().to_string(),
+        event_type:   EventType::ArtistUpserted,
+        payload_json,
+        subject_guid: artist.artist_id.clone(),
+        created_at:   now,
+        warnings:     warnings.to_vec(),
+    })
+}
+
+fn build_artist_credit_event(
+    credit:   &ArtistCredit,
+    artist:   &Artist,
+    now:      i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::ArtistCreditCreatedPayload {
+        artist_credit: credit.clone(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id:     uuid::Uuid::new_v4().to_string(),
+        event_type:   EventType::ArtistCreditCreated,
+        payload_json,
+        subject_guid: artist.artist_id.clone(),
+        created_at:   now,
+        warnings:     warnings.to_vec(),
+    })
+}
+
+fn build_feed_upserted_event(
+    feed:     &Feed,
+    artist:   &Artist,
+    credit:   &ArtistCredit,
+    now:      i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::FeedUpsertedPayload {
+        feed:          feed.clone(),
+        artist:        artist.clone(),
+        artist_credit: credit.clone(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id:     uuid::Uuid::new_v4().to_string(),
+        event_type:   EventType::FeedUpserted,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at:   now,
+        warnings:     warnings.to_vec(),
+    })
+}
+
+fn build_feed_routes_event(
+    feed:     &Feed,
+    routes:   &[FeedPaymentRoute],
+    now:      i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::FeedRoutesReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        routes:    routes.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id:     uuid::Uuid::new_v4().to_string(),
+        event_type:   EventType::FeedRoutesReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at:   now,
+        warnings:     warnings.to_vec(),
+    })
+}
+
+fn build_track_upserted_event(
+    track:    &Track,
+    routes:   &[PaymentRoute],
+    vts:      &[ValueTimeSplit],
+    credit:   &ArtistCredit,
+    now:      i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::TrackUpsertedPayload {
+        track:             track.clone(),
+        routes:            routes.to_vec(),
+        value_time_splits: vts.to_vec(),
+        artist_credit:     credit.clone(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id:     uuid::Uuid::new_v4().to_string(),
+        event_type:   EventType::TrackUpserted,
+        payload_json,
+        subject_guid: track.track_guid.clone(),
+        created_at:   now,
+        warnings:     warnings.to_vec(),
+    })
+}
+
+// ── insert_event ──────────────────────────────────────────────────────────────
+
+/// Inserts a single event row, signs it with the DB-assigned `seq`, and
+/// returns `(seq, signed_by, signature)`.
+///
+/// The event is inserted with a placeholder signature first so the
+/// DB can assign a monotonic `seq`. The signature is then computed
+/// over the full signing payload (including `seq`) and written back.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert, update, or JSON serialisation fails.
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
 pub fn insert_event(
     conn:         &Connection,
@@ -1528,14 +1971,15 @@ pub fn insert_event(
     event_type:   &EventType,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
+    signer:       &NodeSigner,
     created_at:   i64,
     warnings:     &[String],
-) -> Result<i64, DbError> {
+) -> Result<(i64, String, String), DbError> {
     let et_str = event_type_str(event_type)?;
     let warnings_json = serde_json::to_string(warnings)?;
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14
+    // Insert with placeholder signature to get the DB-assigned seq.
     let sql = "INSERT INTO events \
         (event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) \
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
@@ -1543,11 +1987,41 @@ pub fn insert_event(
 
     let seq = conn.query_row(
         sql,
-        params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
+        params![event_id, et_str, payload_json, subject_guid, signer.pubkey_hex(), "", created_at, warnings_json],
         |row| row.get::<_, i64>(0),
     )?;
 
-    Ok(seq)
+    // Sign with the assigned seq and update the row.
+    let (signed_by, signature) = signer.sign_event(
+        event_id, event_type, payload_json, subject_guid, created_at, seq,
+    );
+    update_event_signature(conn, event_id, &signed_by, &signature)?;
+
+    Ok((seq, signed_by, signature))
+}
+
+// ── update_event_signature ─────────────────────────────────────────────────
+
+/// Updates the `signed_by` and `signature` columns for an existing event row.
+///
+/// Used by the primary after inserting an event to get the DB-assigned `seq`,
+/// signing the event (including seq), and backfilling the real signature.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL update fails.
+// Issue-SEQ-INTEGRITY — 2026-03-14
+pub fn update_event_signature(
+    conn:      &Connection,
+    event_id:  &str,
+    signed_by: &str,
+    signature: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE events SET signed_by = ?1, signature = ?2 WHERE event_id = ?3",
+        params![signed_by, signature, event_id],
+    )?;
+    Ok(())
 }
 
 // ── upsert_feed_crawl_cache ───────────────────────────────────────────────────
@@ -1586,12 +2060,14 @@ pub fn get_events_since(
     after_seq:  i64,
     limit:      i64,
 ) -> Result<Vec<Event>, DbError> {
+    // Issue-NEGATIVE-LIMIT — 2026-03-15
+    let safe_limit = limit.max(1);
     let mut stmt = conn.prepare(
         "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json \
          FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2",
     )?;
 
-    let rows = stmt.query_map(params![after_seq, limit], |row| {
+    let rows = stmt.query_map(params![after_seq, safe_limit], |row| {
         Ok((
             row.get::<_, String>(0)?,   // event_id
             row.get::<_, String>(1)?,   // event_type string
@@ -1650,6 +2126,8 @@ pub fn get_event_refs_since(
     since_seq: i64,
     limit:     i64,
 ) -> Result<(Vec<crate::sync::EventRef>, bool), DbError> {
+    // Issue-NEGATIVE-LIMIT — 2026-03-15
+    let limit = limit.max(1);
     // Fetch limit + 1 to detect truncation without a separate COUNT query.
     let fetch_limit = limit.saturating_add(1);
     let mut stmt = conn.prepare(
@@ -2172,12 +2650,20 @@ pub fn get_existing_feed(
 /// payment routes), all tracks (with payment routes and value-time splits),
 /// and inserts the supplied event rows — all inside one `SQLite` transaction.
 ///
+/// Tracks that existed in the DB for this feed but are absent from the new
+/// crawl are removed: their search-index and quality rows are cleaned up,
+/// the track row is cascade-deleted, and a signed `TrackRemoved` event is
+/// emitted — all within the same transaction (Issue-STALE-TRACKS).
+///
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
 /// transaction commit fails.
+// Issue-SEQ-INTEGRITY — 2026-03-14
+// Issue-STALE-TRACKS — 2026-03-14
 #[expect(clippy::too_many_lines, reason = "single atomic transaction — splitting would obscure the transactional boundary")]
 #[expect(clippy::needless_pass_by_value, reason = "takes ownership to make the transaction boundary clear at call sites")]
+#[expect(clippy::too_many_arguments, reason = "Issue-SEQ-INTEGRITY added signer param; grouping into a struct would obscure the call-site types")]
 pub fn ingest_transaction(
     conn:               &mut Connection,
     artist:             Artist,
@@ -2186,15 +2672,20 @@ pub fn ingest_transaction(
     feed_routes:        Vec<FeedPaymentRoute>,
     tracks:             Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
     event_rows:         Vec<EventRow>,
-) -> Result<Vec<i64>, DbError> {
+    signer:             &NodeSigner,
+) -> Result<Vec<(i64, String, String)>, DbError> {
     let tx = conn.transaction()?;
 
-    // 1. Resolve/insert artist (and ensure a canonical alias row exists)
+    // 1. Resolve/insert artist (and ensure a feed-scoped canonical alias row exists)
+    // Issue-ARTIST-IDENTITY — 2026-03-14
     {
         let name_lower = artist.name.to_lowercase();
+        let feed_guid_ref = Some(feed.feed_guid.as_str());
+
+        // Check if this artist already exists (by artist_id PK, not by name).
         let existing: Option<String> = tx.query_row(
-            "SELECT artist_id FROM artists WHERE name_lower = ?1",
-            params![name_lower],
+            "SELECT artist_id FROM artists WHERE artist_id = ?1",
+            params![artist.artist_id],
             |row| row.get(0),
         ).optional()?;
 
@@ -2210,26 +2701,21 @@ pub fn ingest_transaction(
                     artist.created_at, artist.updated_at,
                 ],
             )?;
-            tx.execute(
-                "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
-                 VALUES (?1, ?2, ?3)",
-                params![name_lower, artist.artist_id, artist.created_at],
-            )?;
-        } else {
-            tx.execute(
-                "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
-                 VALUES (?1, ?2, ?3)",
-                params![name_lower, artist.artist_id, artist.created_at],
-            )?;
         }
+        tx.execute(
+            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![name_lower, artist.artist_id, feed_guid_ref, artist.created_at],
+        )?;
     }
 
     // 2. Insert artist credit (idempotent via INSERT OR IGNORE on PK)
+    // Issue-ARTIST-IDENTITY — 2026-03-14
     {
         tx.execute(
-            "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) \
-             VALUES (?1, ?2, ?3)",
-            params![artist_credit.id, artist_credit.display_name, artist_credit.created_at],
+            "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![artist_credit.id, artist_credit.display_name, artist_credit.feed_guid, artist_credit.created_at],
         )?;
         for acn in &artist_credit.names {
             tx.execute(
@@ -2303,6 +2789,20 @@ pub fn ingest_transaction(
             ],
         )?;
     }
+
+    // 4a. Collect existing track GUIDs for this feed before upserting.
+    // Issue-STALE-TRACKS — 2026-03-14
+    let existing_guids: std::collections::HashSet<String> = {
+        let mut stmt = tx.prepare(
+            "SELECT track_guid FROM tracks WHERE feed_guid = ?1",
+        )?;
+        let rows = stmt.query_map(params![feed.feed_guid], |row| row.get::<_, String>(0))?;
+        let mut set = std::collections::HashSet::new();
+        for row in rows {
+            set.insert(row?);
+        }
+        set
+    };
 
     // 4. Tracks, routes, splits
     for (track, routes, splits) in &tracks {
@@ -2392,9 +2892,57 @@ pub fn ingest_transaction(
         }
     }
 
-    // 5. Insert events, collect seqs
+    // 4b. Remove stale tracks that are no longer in the new crawl.
+    // Issue-STALE-TRACKS — 2026-03-14
+    let new_guids: std::collections::HashSet<&str> = tracks
+        .iter()
+        .map(|(t, _, _)| t.track_guid.as_str())
+        .collect();
+    let mut removal_event_rows: Vec<EventRow> = Vec::new();
+    for removed_guid in &existing_guids {
+        if new_guids.contains(removed_guid.as_str()) {
+            continue;
+        }
+        // Look up the track to get search-index fields before deleting.
+        let track_opt = get_track_by_guid(&tx, removed_guid)?;
+        if let Some(track) = track_opt {
+            // Remove the track's search index entry (best-effort).
+            let _ = crate::search::delete_from_search_index(
+                &tx,
+                "track",
+                &track.track_guid,
+                "",
+                &track.title,
+                track.description.as_deref().unwrap_or(""),
+                "",
+            );
+            // Cascade-delete the track and its child rows.
+            delete_track_sql(&tx, removed_guid)?;
+        }
+        // Build a TrackRemoved event row.
+        let payload = crate::event::TrackRemovedPayload {
+            track_guid: removed_guid.clone(),
+            feed_guid:  feed.feed_guid.clone(),
+        };
+        let payload_json = serde_json::to_string(&payload)?;
+        removal_event_rows.push(EventRow {
+            event_id:     uuid::Uuid::new_v4().to_string(),
+            event_type:   EventType::TrackRemoved,
+            payload_json,
+            subject_guid: removed_guid.clone(),
+            created_at:   feed.updated_at,
+            warnings:     vec![],
+        });
+    }
+
+    // Combine original event rows with removal event rows.
+    let mut all_event_rows = event_rows;
+    all_event_rows.append(&mut removal_event_rows);
+
+    // 5. Insert events, collect seqs, sign with assigned seq, update signatures
+    // Issue-SEQ-INTEGRITY — 2026-03-14
     let mut seqs = Vec::new();
-    for er in &event_rows {
+    for er in &all_event_rows {
         let et_str = event_type_str(&er.event_type)?;
         let warnings_json = serde_json::to_string(&er.warnings)?;
         let sql = "INSERT INTO events \
@@ -2408,21 +2956,37 @@ pub fn ingest_transaction(
                 et_str,
                 er.payload_json,
                 er.subject_guid,
-                er.signed_by,
-                er.signature,
+                signer.pubkey_hex(),
+                "",
                 er.created_at,
                 warnings_json,
             ],
             |row| row.get::<_, i64>(0),
         )?;
-        seqs.push(seq);
+        // Sign with the assigned seq and update the row.
+        let (signed_by, signature) = signer.sign_event(
+            &er.event_id, &er.event_type, &er.payload_json, &er.subject_guid, er.created_at, seq,
+        );
+        update_event_signature(&tx, &er.event_id, &signed_by, &signature)?;
+        seqs.push((seq, signed_by, signature));
     }
 
     // Issue-5 ingest atomic — 2026-03-13
+    // Issue-WRITE-AMP — 2026-03-14: only recompute search/quality for
+    // tracks that actually changed. Feed and artist are always recomputed
+    // (one entity each — negligible cost).
     // 6. Populate search index + compute quality scores inside the same
     //    transaction so they are atomic with the entity and event writes.
     {
-        // Feed search index
+        // Derive the set of changed tracks from event_rows to avoid
+        // redundant search/quality recomputation for unchanged tracks.
+        let changed_track_guids: std::collections::HashSet<&str> = all_event_rows
+            .iter()
+            .filter(|e| matches!(e.event_type, EventType::TrackUpserted))
+            .map(|e| e.subject_guid.as_str())
+            .collect();
+
+        // Feed search index + quality (always — single entity, negligible)
         crate::search::populate_search_index(
             &tx, "feed", &feed.feed_guid,
             "", &feed.title,
@@ -2432,7 +2996,7 @@ pub fn ingest_transaction(
         let feed_score = crate::quality::compute_feed_quality(&tx, &feed.feed_guid)?;
         crate::quality::store_quality(&tx, "feed", &feed.feed_guid, feed_score)?;
 
-        // Artist quality + search index
+        // Artist quality + search index (always — single entity, negligible)
         let artist_score = crate::quality::compute_artist_quality(&tx, &artist.artist_id)?;
         crate::quality::store_quality(&tx, "artist", &artist.artist_id, artist_score)?;
         crate::search::populate_search_index(
@@ -2442,16 +3006,20 @@ pub fn ingest_transaction(
             "",
         )?;
 
-        // Track search index + quality for each track
+        // Issue-WRITE-AMP — 2026-03-14: track search index + quality —
+        // only for new or changed tracks. This is where the N multiplier
+        // caused the write amplification bug.
         for (track, _, _) in &tracks {
-            crate::search::populate_search_index(
-                &tx, "track", &track.track_guid,
-                "", &track.title,
-                track.description.as_deref().unwrap_or(""),
-                "",
-            )?;
-            let track_score = crate::quality::compute_track_quality(&tx, &track.track_guid)?;
-            crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
+            if changed_track_guids.contains(track.track_guid.as_str()) {
+                crate::search::populate_search_index(
+                    &tx, "track", &track.track_guid,
+                    "", &track.title,
+                    track.description.as_deref().unwrap_or(""),
+                    "",
+                )?;
+                let track_score = crate::quality::compute_track_quality(&tx, &track.track_guid)?;
+                crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
+            }
         }
     }
 

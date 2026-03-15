@@ -131,6 +131,7 @@ impl NodeSigner {
     ///
     /// Panics if [`EventSigningPayload`] cannot be serialised to JSON. This
     /// is a programming error — the type is always serialisable.
+    // Issue-SEQ-INTEGRITY — 2026-03-14
     #[must_use]
     pub fn sign_event(
         &self,
@@ -139,6 +140,7 @@ impl NodeSigner {
         payload_json: &str,
         subject_guid: &str,
         created_at:   i64,
+        seq:          i64,
     ) -> (String, String) {
         let payload = EventSigningPayload {
             event_id,
@@ -146,6 +148,7 @@ impl NodeSigner {
             payload_json,
             subject_guid,
             created_at,
+            seq, // Issue-SEQ-INTEGRITY — 2026-03-14
         };
         let serialized = serde_json::to_string(&payload).expect("EventSigningPayload serialization failed");
         let digest = Sha256::digest(serialized.as_bytes());
@@ -185,12 +188,14 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
         )));
     }
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14
     let payload = EventSigningPayload {
         event_id:     &event.event_id,
         event_type:   &event.event_type,
         payload_json: &event.payload_json,
         subject_guid: &event.subject_guid,
         created_at:   event.created_at,
+        seq:          event.seq, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized = serde_json::to_string(&payload)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
@@ -235,7 +240,7 @@ mod tests {
         let payload_json = serde_json::to_string(&inner).unwrap();
 
         let (signed_by, signature) = signer.sign_event(
-            "evt-1", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999,
+            "evt-1", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
         );
 
         let event = crate::event::Event {

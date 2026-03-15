@@ -73,7 +73,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 1, "exactly one migration should be recorded");
+    assert_eq!(count, 3, "exactly three migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +84,9 @@ fn migration_runs_only_once() {
 #[test]
 fn no_drop_table_in_migrations() {
     let baseline = include_str!("../migrations/0001_baseline.sql");
-    let all_migrations = [baseline];
+    let feed_scope = include_str!("../migrations/0002_artist_credit_feed_scope.sql");
+    let search_unique = include_str!("../migrations/0003_search_entities_unique.sql");
+    let all_migrations = [baseline, feed_scope, search_unique];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {
             let trimmed = line.trim();

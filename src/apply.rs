@@ -9,6 +9,14 @@ use std::sync::Arc;
 
 use crate::{api, db, event, signing};
 
+/// Fixed cursor key for primary-sync progress tracking.
+///
+/// Both the push handler and the poll-loop fallback use this single well-known
+/// key (instead of per-pubkey keys) so that push-advanced cursors are visible
+/// to poll, and vice versa.
+// Issue-CURSOR-IDENTITY — 2026-03-14
+pub const SYNC_CURSOR_KEY: &str = "primary_sync_cursor";
+
 // ── ApplyOutcome ─────────────────────────────────────────────────────────────
 
 /// Per-event outcome returned by [`apply_single_event`].
@@ -48,10 +56,10 @@ pub(crate) struct ApplySummary {
 // Issue-17 apply atomic transaction — 2026-03-13
 #[expect(clippy::too_many_lines, reason = "single event-application match covering all EventPayload variants")]
 #[expect(clippy::significant_drop_tightening, reason = "conn is used across the entire event-application scope")]
+// Issue-CURSOR-IDENTITY — 2026-03-14
 pub fn apply_single_event(
-    db:          &db::Db,
-    node_pubkey: &str,
-    ev:          &event::Event,
+    db: &db::Db,
+    ev: &event::Event,
 ) -> Result<ApplyOutcome, db::DbError> {
     // Timestamp ordering compliant — 2026-03-12
     let now = db::unix_now();
@@ -217,20 +225,22 @@ pub fn apply_single_event(
 
     // Event row was already inserted at the top (dedup guard); now update
     // the sync cursor and commit the full transaction.
-    db::upsert_node_sync_state(&tx, node_pubkey, ev.seq, now)?;
+    // Issue-CURSOR-IDENTITY — 2026-03-14
+    db::upsert_node_sync_state(&tx, SYNC_CURSOR_KEY, ev.seq, now)?;
     tx.commit()?;
     Ok(ApplyOutcome::Applied(seq))
 }
 
 /// Helper: insert an artist credit and its names if they don't already exist.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 fn upsert_artist_credit_if_absent(
     conn: &rusqlite::Connection,
     credit: &crate::model::ArtistCredit,
 ) -> Result<(), db::DbError> {
     conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) \
-         VALUES (?1, ?2, ?3)",
-        rusqlite::params![credit.id, credit.display_name, credit.created_at],
+        "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![credit.id, credit.display_name, credit.feed_guid, credit.created_at],
     )?;
     for acn in &credit.names {
         conn.execute(
@@ -251,14 +261,13 @@ fn upsert_artist_credit_if_absent(
 /// to the SSE broadcast channels for the relevant artist(s). This enables
 /// community-node SSE clients to receive live events.
 // Issue-SSE-PUBLISH — 2026-03-14
+// Issue-CURSOR-IDENTITY — 2026-03-14
 pub(crate) async fn apply_events(
     db:           db::Db,
-    node_pubkey:  &str,
     events:       Vec<event::Event>,
     sse_registry: Option<&Arc<api::SseRegistry>>,
 ) -> ApplySummary {
     let mut summary = ApplySummary { applied: 0, duplicate: 0, rejected: 0, max_seq: 0 };
-    let node_pubkey = node_pubkey.to_string();
 
     for ev in events {
         let seq      = ev.seq;
@@ -275,8 +284,7 @@ pub(crate) async fn apply_events(
         let ev_for_sse = sse_registry.as_ref().map(|_| ev.clone());
 
         let db2    = Arc::clone(&db);
-        let pk     = node_pubkey.clone();
-        let result = tokio::task::spawn_blocking(move || apply_single_event(&db2, &pk, &ev))
+        let result = tokio::task::spawn_blocking(move || apply_single_event(&db2, &ev))
             .await;
 
         match result {
@@ -313,4 +321,132 @@ pub(crate) async fn apply_events(
     }
 
     summary
+}
+
+// Issue-CURSOR-IDENTITY — 2026-03-14
+#[cfg(test)]
+#[expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    use crate::event::{ArtistUpsertedPayload, EventPayload, EventType};
+    use crate::model::Artist;
+    use crate::signing::NodeSigner;
+
+    /// Build a minimal in-memory DB for tests.
+    fn test_db() -> db::Db {
+        let conn = db::open_db(":memory:");
+        Arc::new(Mutex::new(conn))
+    }
+
+    /// Build a properly signed `ArtistUpserted` event.
+    fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64) -> event::Event {
+        let artist = Artist {
+            artist_id:  "artist-1".into(),
+            name:       "Test Artist".into(),
+            name_lower: "test artist".into(),
+            sort_name:  None,
+            type_id:    None,
+            area:       None,
+            img_url:    None,
+            url:        None,
+            begin_year: None,
+            end_year:   None,
+            created_at: 1_000_000,
+            updated_at: 1_000_000,
+        };
+
+        let inner = ArtistUpsertedPayload { artist };
+        let payload_json = serde_json::to_string(&inner).unwrap();
+
+        let (signed_by, signature) = signer.sign_event(
+            event_id,
+            &EventType::ArtistUpserted,
+            &payload_json,
+            "artist-1",
+            1_000_000,
+            seq,
+        );
+
+        event::Event {
+            event_id:     event_id.into(),
+            event_type:   EventType::ArtistUpserted,
+            payload:      EventPayload::ArtistUpserted(inner),
+            payload_json,
+            subject_guid: "artist-1".into(),
+            signed_by,
+            signature,
+            seq,
+            created_at:   1_000_000,
+            warnings:     vec![],
+        }
+    }
+
+    /// After push-path applies events (via `apply_events`), the poll-loop
+    /// must see the advanced cursor by reading with `SYNC_CURSOR_KEY`.
+    /// Before the fix, push wrote under the primary pubkey and poll read
+    /// under the community pubkey — a different key — so the cursor was
+    /// invisible to poll.
+    #[tokio::test]
+    async fn push_cursor_visible_to_poll_reader() {
+        let db = test_db();
+        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-1.key").unwrap();
+
+        let ev = make_signed_event(&signer, "evt-push-1", 42);
+        let summary = apply_events(Arc::clone(&db), vec![ev], None).await;
+        assert_eq!(summary.applied, 1, "event must be applied");
+
+        // Simulate what the poll loop does: read cursor via SYNC_CURSOR_KEY.
+        let conn = db.lock().unwrap();
+        let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
+        assert_eq!(cursor, 42, "poll must see the push-advanced cursor");
+    }
+
+    /// Both push and poll advance the same cursor.  After poll applies an
+    /// event at seq 10 and push applies an event at seq 20, reading the
+    /// cursor must return 20 (the maximum).
+    #[tokio::test]
+    async fn push_and_poll_share_cursor() {
+        let db = test_db();
+        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-2.key").unwrap();
+
+        // Simulate poll applying seq 10.
+        let ev1 = make_signed_event(&signer, "evt-poll-1", 10);
+        let s1 = apply_events(Arc::clone(&db), vec![ev1], None).await;
+        assert_eq!(s1.applied, 1);
+
+        {
+            let conn = db.lock().unwrap();
+            let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
+            assert_eq!(cursor, 10);
+        }
+
+        // Simulate push applying seq 20.
+        let ev2 = make_signed_event(&signer, "evt-push-2", 20);
+        let s2 = apply_events(Arc::clone(&db), vec![ev2], None).await;
+        assert_eq!(s2.applied, 1);
+
+        let conn = db.lock().unwrap();
+        let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
+        assert_eq!(cursor, 20, "cursor must be the max of both paths");
+    }
+
+    /// The cursor must not regress: applying a lower seq after a higher seq
+    /// must keep the higher value (monotonic advancement).
+    #[tokio::test]
+    async fn cursor_is_monotonic() {
+        let db = test_db();
+        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-3.key").unwrap();
+
+        let ev_high = make_signed_event(&signer, "evt-high", 100);
+        apply_events(Arc::clone(&db), vec![ev_high], None).await;
+
+        let ev_low = make_signed_event(&signer, "evt-low", 50);
+        apply_events(Arc::clone(&db), vec![ev_low], None).await;
+
+        let conn = db.lock().unwrap();
+        let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
+        assert_eq!(cursor, 100, "cursor must not regress");
+    }
 }

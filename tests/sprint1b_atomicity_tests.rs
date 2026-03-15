@@ -66,7 +66,7 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
 
     let ev = make_artist_event("atom-artist-1", "Atomic Artist", now);
 
-    let result = stophammer::apply::apply_single_event(&db, "test-node", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
     assert!(result.is_ok(), "apply should succeed");
 
     // All four artifacts must exist: entity, event, search index, quality score
@@ -142,7 +142,7 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
     }
 
     let ev = make_artist_event("rollback-artist-1", "Rollback Artist", now);
-    let result = stophammer::apply::apply_single_event(&db, "test-node", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
 
     // The apply should fail because the events table is missing
     assert!(result.is_err(), "apply should fail when events table is missing");
@@ -216,7 +216,7 @@ fn apply_single_event_rolls_back_entity_on_search_failure() {
     }
 
     let ev = make_artist_event("search-fail-artist", "Search Fail Artist", now);
-    let result = stophammer::apply::apply_single_event(&db, "test-node", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
 
     // The apply should fail because the search_index table is missing
     assert!(result.is_err(), "apply should fail when search_index is missing");
@@ -456,6 +456,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     let artist_credit = stophammer::model::ArtistCredit {
         id:           0,
         display_name: "Atomic S1B Artist".into(),
+        feed_guid:    None,
         created_at:   now,
         names:        vec![stophammer::model::ArtistCreditName {
             id:               0,
@@ -518,6 +519,9 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         fee:             false,
     };
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/sprint1b-atom-test.key")
+        .expect("signer");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
         artist,
@@ -525,16 +529,27 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         feed,
         vec![],
         vec![(track, vec![route], vec![])],
-        vec![stophammer::db::EventRow {
-            event_id:     "evt-atomic-s1b-1".into(),
-            event_type:   stophammer::event::EventType::FeedUpserted,
-            payload_json: "{}".into(),
-            subject_guid: "feed-atomic-s1b".into(),
-            signed_by:    "deadbeef".into(),
-            signature:    "cafebabe".into(),
-            created_at:   now,
-            warnings:     vec![],
-        }],
+        // Issue-WRITE-AMP — 2026-03-14: include TrackUpserted event so that
+        // search/quality is computed for the track (diff-aware gating).
+        vec![
+            stophammer::db::EventRow {
+                event_id:     "evt-atomic-s1b-1".into(),
+                event_type:   stophammer::event::EventType::FeedUpserted,
+                payload_json: "{}".into(),
+                subject_guid: "feed-atomic-s1b".into(),
+                created_at:   now,
+                warnings:     vec![],
+            },
+            stophammer::db::EventRow {
+                event_id:     "evt-atomic-s1b-2".into(),
+                event_type:   stophammer::event::EventType::TrackUpserted,
+                payload_json: "{}".into(),
+                subject_guid: "track-atomic-s1b-01".into(),
+                created_at:   now,
+                warnings:     vec![],
+            },
+        ],
+        &signer,
     );
     assert!(result.is_ok(), "ingest_transaction should succeed");
 
@@ -655,6 +670,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
     let artist_credit = stophammer::model::ArtistCredit {
         id:           0,
         display_name: "Rollback S1B Artist".into(),
+        feed_guid:    None,
         created_at:   now,
         names:        vec![stophammer::model::ArtistCreditName {
             id:               0,
@@ -689,6 +705,9 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
     conn.execute_batch("ALTER TABLE events RENAME TO events_backup")
         .expect("rename events table");
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.
+    let signer2 = stophammer::signing::NodeSigner::load_or_create("/tmp/sprint1b-atom-test2.key")
+        .expect("signer");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
         artist,
@@ -701,11 +720,10 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
             event_type:   stophammer::event::EventType::ArtistUpserted,
             payload_json: "{}".into(),
             subject_guid: "art-rollback-s1b".into(),
-            signed_by:    "deadbeef".into(),
-            signature:    "cafebabe".into(),
             created_at:   now,
             warnings:     vec![],
         }],
+        &signer2,
     );
 
     // Restore events table

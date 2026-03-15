@@ -121,6 +121,9 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
         .expect("rename events table");
 
     // Attempt the atomic merge+event operation.
+    // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/finding2-test.key")
+        .expect("signer");
     let result = stophammer::db::merge_artists_with_event(
         &mut conn,
         "art-src",
@@ -129,8 +132,7 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
         &stophammer::event::EventType::ArtistMerged,
         r#"{"source_artist_id":"art-src","target_artist_id":"art-tgt","aliases_transferred":[]}"#,
         "art-tgt",
-        "deadbeef",
-        "cafebabe",
+        &signer,
         now,
         &[],
     );

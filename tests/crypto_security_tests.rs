@@ -29,6 +29,7 @@ fn signature_bound_to_event_type() {
         payload_json,
         subject_guid: "subj-1",
         created_at:   9999,
+        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized_original = serde_json::to_string(&payload_original).unwrap();
     let digest_original = Sha256::digest(serialized_original.as_bytes());
@@ -41,6 +42,7 @@ fn signature_bound_to_event_type() {
         payload_json,
         subject_guid: "subj-1",
         created_at:   9999,
+        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized_tampered = serde_json::to_string(&payload_tampered).unwrap();
     let digest_tampered = Sha256::digest(serialized_tampered.as_bytes());
@@ -66,6 +68,7 @@ fn signing_payload_serialization_is_deterministic() {
         payload_json: r#"{"track_guid":"t1","title":"Test"}"#,
         subject_guid: "subj-1",
         created_at:   12345,
+        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
 
     let s1 = serde_json::to_string(&payload).unwrap();
@@ -89,17 +92,19 @@ fn signing_payload_field_order_is_declaration_order() {
         payload_json: "{}",
         subject_guid: "subj-1",
         created_at:   100,
+        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
 
     let serialized = serde_json::to_string(&payload).unwrap();
 
-    // Declaration order: event_id, event_type, payload_json, subject_guid, created_at
-    // If alphabetical, it would be: created_at, event_id, event_type, payload_json, subject_guid
+    // Declaration order: event_id, event_type, payload_json, subject_guid, created_at, seq
+    // If alphabetical, it would be: created_at, event_id, event_type, payload_json, seq, subject_guid
     let event_id_pos = serialized.find("\"event_id\"").unwrap();
     let event_type_pos = serialized.find("\"event_type\"").unwrap();
     let payload_json_pos = serialized.find("\"payload_json\"").unwrap();
     let subject_guid_pos = serialized.find("\"subject_guid\"").unwrap();
     let created_at_pos = serialized.find("\"created_at\"").unwrap();
+    let seq_pos = serialized.find("\"seq\"").unwrap();
 
     assert!(
         event_id_pos < event_type_pos,
@@ -116,6 +121,10 @@ fn signing_payload_field_order_is_declaration_order() {
     assert!(
         subject_guid_pos < created_at_pos,
         "subject_guid must come before created_at"
+    );
+    assert!(
+        created_at_pos < seq_pos,
+        "created_at must come before seq"
     );
 }
 
@@ -145,7 +154,7 @@ fn verify_rejects_empty_payload_json() {
 
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test.key").unwrap();
     let (signed_by, signature) = signer.sign_event(
-        "evt-empty-pj", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999,
+        "evt-empty-pj", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
     );
 
     let event = Event {
@@ -358,7 +367,7 @@ fn signature_covers_all_payload_fields() {
     let payload_json = serde_json::to_string(&inner).unwrap();
 
     let (signed_by, signature) = signer.sign_event(
-        "evt-fields", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999,
+        "evt-fields", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
     );
 
     // Helper: build event with given overrides
@@ -437,6 +446,7 @@ fn content_hash_not_in_signing_payload() {
         payload_json: "{}",
         subject_guid: "subj-1",
         created_at:   100,
+        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized = serde_json::to_string(&payload).unwrap();
 
@@ -605,7 +615,7 @@ fn verify_event_signature_rejects_unknown_signer() {
     let payload_json = serde_json::to_string(&inner).unwrap();
 
     let (_, signature) = signer.sign_event(
-        "evt-unknown", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999,
+        "evt-unknown", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
     );
 
     // Build event with attacker's pubkey but legitimate node's signature

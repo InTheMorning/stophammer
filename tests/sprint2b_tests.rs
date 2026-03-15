@@ -100,7 +100,7 @@ async fn apply_single_event_with_poisoned_mutex_returns_error() {
         payload_json,
     };
 
-    let result = apply::apply_single_event(&db, "test-node", &ev);
+    let result = apply::apply_single_event(&db, &ev);
     assert!(result.is_err(), "should return Err when mutex is poisoned");
 
     // Use match to avoid needing Debug on ApplyOutcome.

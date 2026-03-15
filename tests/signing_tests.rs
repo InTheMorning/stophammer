@@ -35,12 +35,14 @@ fn event_signature_stored_correctly() {
     let subject_guid = "subj-1";
 
     // Build the signing payload the same way NodeSigner does
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": payload_json,
         "subject_guid": subject_guid,
         "created_at":   now,
+        "seq":          1,
     });
     let serialized = serde_json::to_string(&signing_payload).unwrap();
     let digest = Sha256::digest(serialized.as_bytes());
@@ -79,12 +81,14 @@ fn wrong_pubkey_rejects() {
     let payload_json = r#"{"artist":{"artist_id":"a2","name":"A","name_lower":"a","created_at":1,"updated_at":1}}"#;
     let subject_guid = "subj-2";
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": payload_json,
         "subject_guid": subject_guid,
         "created_at":   now,
+        "seq":          1,
     });
     let serialized = serde_json::to_string(&signing_payload).unwrap();
     let digest = Sha256::digest(serialized.as_bytes());
@@ -111,12 +115,14 @@ fn tampered_payload_rejects() {
     let subject_guid = "subj-3";
 
     // Sign the original payload
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": original_payload,
         "subject_guid": subject_guid,
         "created_at":   now,
+        "seq":          1,
     });
     let serialized = serde_json::to_string(&signing_payload).unwrap();
     let digest = Sha256::digest(serialized.as_bytes());
@@ -126,12 +132,14 @@ fn tampered_payload_rejects() {
     let tampered_payload = r#"{"artist":{"artist_id":"a3","name":"Tampered","name_lower":"tampered","created_at":1,"updated_at":1}}"#;
 
     // Recompute digest with tampered content
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
     let tampered_signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": tampered_payload,
         "subject_guid": subject_guid,
         "created_at":   now,
+        "seq":          1,
     });
     let tampered_serialized = serde_json::to_string(&tampered_signing_payload).unwrap();
     let tampered_digest = Sha256::digest(tampered_serialized.as_bytes());

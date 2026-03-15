@@ -742,7 +742,7 @@ fn timestamp_captured_before_lock() {
         .as_secs()
         .cast_signed();
 
-    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
     assert!(result.is_ok(), "apply_single_event should succeed");
 
     // Capture wall-clock after the call.
@@ -756,7 +756,7 @@ fn timestamp_captured_before_lock() {
     let last_seen_at: i64 = {
         let conn = db.lock().expect("lock after apply");
         conn.query_row(
-            "SELECT last_seen_at FROM node_sync_state WHERE node_pubkey = 'test-node-pubkey'",
+            "SELECT last_seen_at FROM node_sync_state WHERE node_pubkey = 'primary_sync_cursor'",
             [],
             |r| r.get(0),
         )
@@ -847,7 +847,7 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
         payload_json,                     // SIGNED — must be authoritative
     };
 
-    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
     assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
 
     // Verify the DB contains the signed name, NOT the tampered name.
@@ -913,7 +913,7 @@ fn malformed_payload_json_is_rejected() {
         payload_json: "NOT VALID JSON".into(),  // garbage
     };
 
-    let result = stophammer::apply::apply_single_event(&db, "test-node-pubkey", &ev);
+    let result = stophammer::apply::apply_single_event(&db, &ev);
     assert!(
         result.is_err(),
         "apply_single_event must reject events with malformed payload_json"
@@ -953,6 +953,7 @@ fn make_feed_upserted_event(
     let credit = ArtistCredit {
         id:           1,
         display_name: format!("{artist_prefix} Artist"),
+        feed_guid:    None,
         created_at:   now,
         names:        vec![ArtistCreditName {
             id:               0,
@@ -1017,7 +1018,7 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     );
 
     // First apply — should succeed.
-    let r1 = apply_single_event(&db, "test-node", &ev).expect("first apply");
+    let r1 = apply_single_event(&db, &ev).expect("first apply");
     assert!(matches!(r1, ApplyOutcome::Applied(_)), "first apply must be Applied");
 
     // Simulate newer data arriving via a different event.
@@ -1031,7 +1032,7 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     }
 
     // Second apply — same `event_id`, must be Duplicate and NOT overwrite.
-    let r2 = apply_single_event(&db, "test-node", &ev).expect("second apply");
+    let r2 = apply_single_event(&db, &ev).expect("second apply");
     assert!(
         matches!(r2, ApplyOutcome::Duplicate),
         "second apply of same event_id must be Duplicate"
@@ -1084,12 +1085,12 @@ fn out_of_order_event_is_rejected() {
     );
 
     // Apply the seq=10 event first.
-    let r1 = apply_single_event(&db, "test-node", &ev10).expect("apply seq=10");
+    let r1 = apply_single_event(&db, &ev10).expect("apply seq=10");
     assert!(matches!(r1, ApplyOutcome::Applied(_)));
 
     // Replay the SAME `event_id` with a lower seq.
     let ev10_replay = Event { seq: 5, ..ev10 };
-    let r2 = apply_single_event(&db, "test-node", &ev10_replay).expect("replay");
+    let r2 = apply_single_event(&db, &ev10_replay).expect("replay");
     assert!(
         matches!(r2, ApplyOutcome::Duplicate),
         "replaying same event_id must return Duplicate regardless of seq"

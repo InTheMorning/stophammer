@@ -8,7 +8,7 @@
 use std::borrow::Cow;
 use std::hash::Hasher;
 
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 use siphasher::sip::SipHasher24;
 
 use crate::db::DbError;
@@ -76,10 +76,16 @@ pub fn rowid_for(entity_type: &str, entity_id: &str) -> i64 {
 /// `search_entities` is maintained in lockstep so that search results can be
 /// resolved back to `(entity_type, entity_id)` via a JOIN on rowid.
 ///
+/// If a hash collision is detected (the computed rowid already belongs to a
+/// *different* entity), the colliding entity is **skipped** from FTS5 and
+/// a `tracing::warn!` is emitted. The entity remains queryable via the
+/// normal REST API; it simply will not appear in full-text search results.
+///
 /// # Errors
 ///
 /// Returns [`DbError`] if the FTS5 insert or companion-table upsert fails.
 // Issue-FTS5-CONTENT — 2026-03-14
+// Issue-HASH-COLLISION — 2026-03-14
 pub fn populate_search_index(
     conn: &Connection,
     entity_type: &str,
@@ -97,17 +103,38 @@ pub fn populate_search_index(
     let description = truncate_fts_field(description);
     let tags        = truncate_fts_field(tags);
 
+    // Issue-HASH-COLLISION — 2026-03-14
+    // Before touching FTS5 or the companion table, check whether the rowid is
+    // already occupied by a *different* entity. If so, we have a hash collision
+    // and must skip this entity to avoid corrupting the existing entry.
+    let existing: Option<(String, String)> = conn.query_row(
+        "SELECT entity_type, entity_id FROM search_entities WHERE rowid = ?1",
+        params![rowid],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).optional()?;
+
+    if let Some((ref existing_type, ref existing_id)) = existing
+        && (existing_type != entity_type || existing_id != entity_id)
+    {
+        // Issue-HASH-COLLISION — 2026-03-14
+        // Collision: rowid is owned by a different entity. Log and skip.
+        tracing::warn!(
+            rowid,
+            existing_entity_type = %existing_type,
+            existing_entity_id   = %existing_id,
+            colliding_entity_type = %entity_type,
+            colliding_entity_id   = %entity_id,
+            "FTS5 rowid hash collision detected; skipping colliding entity from search index",
+        );
+        return Ok(());
+    }
+
     // Issue-FTS5-CONTENT — 2026-03-14
     // Only delete the existing FTS5 entry if one actually exists.  Issuing a
     // contentless FTS5 delete for a non-existent row corrupts the internal
     // term-frequency statistics and causes `rank`/`bm25()` to return NULL.
     // We use the companion `search_entities` table as the source of truth.
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM search_entities WHERE rowid = ?1)",
-        params![rowid],
-        |row| row.get(0),
-    )?;
-    if exists {
+    if existing.is_some() {
         conn.execute(
             "INSERT INTO search_index(search_index, rowid, entity_type, entity_id, name, title, description, tags) \
              VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",

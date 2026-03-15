@@ -4,6 +4,8 @@
 //! authorizing feed and track mutations without an account system.
 //! See `docs/adr/0018-proof-of-possession-mutations.md` for the full design.
 
+use std::net::ToSocketAddrs;
+
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand_core::{OsRng, RngCore};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -421,6 +423,10 @@ fn is_podcast_txt_element(
 
 // ── SSRF guard — 2026-03-13 ──────────────────────────────────────────────
 
+/// Maximum number of redirects the SSRF-safe proof fetch client will follow.
+// Issue-SSRF-REDIRECT — 2026-03-15
+const MAX_SSRF_REDIRECTS: usize = 3;
+
 /// Validates that `feed_url` is safe to fetch (no SSRF).
 ///
 /// Rejects:
@@ -428,10 +434,14 @@ fn is_podcast_txt_element(
 /// - Hostnames that resolve to private/reserved IP ranges
 /// - Literal private/reserved IP addresses in the hostname
 ///
+/// Returns the list of resolved `SocketAddr`s on success, enabling the caller
+/// to pin DNS (prevent rebinding between validation and fetch).
+///
 /// # Errors
 ///
 /// Returns a human-readable error string if the URL is rejected.
-pub fn validate_feed_url(feed_url: &str) -> Result<(), String> {
+// Issue-SSRF-REDIRECT — 2026-03-15: now returns resolved addresses for DNS pinning
+pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, String> {
     let url = url::Url::parse(feed_url)
         .map_err(|e| format!("invalid feed URL: {e}"))?;
 
@@ -449,25 +459,168 @@ pub fn validate_feed_url(feed_url: &str) -> Result<(), String> {
         if is_private_ip(ip) {
             return Err(format!("feed URL targets a private/reserved IP: {ip}"));
         }
-    } else {
-        // Hostname: resolve and check all addresses.
-        // Use std::net::ToSocketAddrs for synchronous DNS resolution (acceptable
-        // because this runs before the async fetch and is fast for cached lookups).
-        use std::net::ToSocketAddrs;
-        let socket_addr = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
-        if let Ok(addrs) = socket_addr.to_socket_addrs() {
-            for addr in addrs {
-                if is_private_ip(addr.ip()) {
-                    return Err(format!("feed URL hostname resolves to private/reserved IP: {}", addr.ip()));
-                }
-            }
-        }
-        // If DNS resolution fails, let the subsequent HTTP client handle it
-        // (it will return an error that surfaces as 503).
+        let port = url.port_or_known_default().unwrap_or(443);
+        return Ok(vec![std::net::SocketAddr::new(ip, port)]);
     }
 
-    Ok(())
+    // Hostname: resolve and check all addresses.
+    // Use std::net::ToSocketAddrs for synchronous DNS resolution (acceptable
+    // because this runs before the async fetch and is fast for cached lookups).
+    let socket_addr = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
+    if let Ok(addrs) = socket_addr.to_socket_addrs() {
+        let resolved: Vec<std::net::SocketAddr> = addrs.collect();
+        for addr in &resolved {
+            if is_private_ip(addr.ip()) {
+                return Err(format!("feed URL hostname resolves to private/reserved IP: {}", addr.ip()));
+            }
+        }
+        return Ok(resolved);
+    }
+
+    // If DNS resolution fails, return an empty list; the subsequent HTTP client
+    // will handle the error (surfaced as 503).
+    Ok(vec![])
 }
+
+// Issue-SSRF-REDIRECT — 2026-03-15
+
+/// Check whether a URL is safe from an SSRF perspective (synchronous, no DNS).
+///
+/// Used by the custom redirect policy to re-validate each hop in a redirect
+/// chain. Checks scheme and any literal IP in the URL hostname. Does **not**
+/// perform DNS resolution (the redirect target hostname will be resolved by
+/// reqwest, and for literal IPs this catches the attack).
+fn is_url_ssrf_safe(url: &url::Url) -> bool {
+    // Only HTTP(S) schemes are allowed.
+    match url.scheme() {
+        "http" | "https" => {}
+        _ => return false,
+    }
+
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+
+    // If the host is a literal IP address, check against private ranges.
+    if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+        return !is_private_ip(ip);
+    }
+
+    // Hostname-based redirect: resolve synchronously and check all addresses.
+    // This is acceptable because redirect targets are rare and DNS lookups for
+    // cached entries are fast (~1ms). The blocking DNS is already used in
+    // validate_feed_url which runs inside spawn_blocking.
+    let port = url.port_or_known_default().unwrap_or(443);
+    let socket_addr = format!("{host}:{port}");
+    if let Ok(addrs) = socket_addr.to_socket_addrs() {
+        for addr in addrs {
+            if is_private_ip(addr.ip()) {
+                return false;
+            }
+        }
+    }
+    // If DNS fails, allow the redirect — reqwest will surface the connection
+    // error. Blocking the redirect on DNS failure would be overly strict.
+    true
+}
+
+/// Build a `reqwest::Client` with SSRF-safe redirect policy.
+///
+/// This client:
+/// - Follows at most `MAX_SSRF_REDIRECTS` redirects
+/// - Re-validates each redirect target against the SSRF guard (scheme + IP check)
+/// - Has a 10-second total timeout
+///
+/// Use this for proof RSS fetches instead of the shared `push_client`.
+///
+/// # Panics
+///
+/// Panics if the reqwest client builder fails, which cannot happen with the
+/// options used here (no custom TLS roots, no invalid configuration).
+#[must_use]
+pub fn build_ssrf_safe_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            // Enforce maximum redirect depth.
+            if attempt.previous().len() >= MAX_SSRF_REDIRECTS {
+                return attempt.error(SsrfRedirectError::TooManyRedirects);
+            }
+            let target = attempt.url().clone();
+            // Re-run SSRF guard on the redirect target.
+            if is_url_ssrf_safe(&target) {
+                attempt.follow()
+            } else {
+                attempt.error(SsrfRedirectError::PrivateAddress(target.to_string()))
+            }
+        }))
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .expect("SSRF-safe reqwest client builder uses only safe options")
+}
+
+/// Build a `reqwest::Client` with SSRF-safe redirect policy **and** DNS
+/// pinning for a specific hostname.
+///
+/// The `resolved_addrs` from `validate_feed_url` are pinned to `hostname`,
+/// preventing DNS rebinding between validation and fetch.
+///
+/// # Panics
+///
+/// Panics if the reqwest client builder fails, which cannot happen with the
+/// options used here (no custom TLS roots, no invalid configuration).
+#[must_use]
+pub fn build_ssrf_safe_client_pinned(
+    hostname: &str,
+    resolved_addrs: &[std::net::SocketAddr],
+) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if attempt.previous().len() >= MAX_SSRF_REDIRECTS {
+                return attempt.error(SsrfRedirectError::TooManyRedirects);
+            }
+            let target = attempt.url().clone();
+            if is_url_ssrf_safe(&target) {
+                attempt.follow()
+            } else {
+                attempt.error(SsrfRedirectError::PrivateAddress(target.to_string()))
+            }
+        }))
+        .timeout(std::time::Duration::from_secs(10));
+
+    // Pin DNS for the original hostname to prevent rebinding.
+    for addr in resolved_addrs {
+        builder = builder.resolve(hostname, *addr);
+    }
+
+    builder
+        .build()
+        .expect("SSRF-safe pinned reqwest client builder uses only safe options")
+}
+
+/// Error type for SSRF redirect policy violations.
+// Issue-SSRF-REDIRECT — 2026-03-15
+#[derive(Debug)]
+enum SsrfRedirectError {
+    /// Redirect target resolves to or is a private/reserved IP address.
+    PrivateAddress(String),
+    /// Too many redirects (exceeds `MAX_SSRF_REDIRECTS`).
+    TooManyRedirects,
+}
+
+impl std::fmt::Display for SsrfRedirectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PrivateAddress(url) => {
+                write!(f, "redirect to private/reserved address blocked: {url}")
+            }
+            Self::TooManyRedirects => {
+                write!(f, "too many redirects (max {MAX_SSRF_REDIRECTS})")
+            }
+        }
+    }
+}
+
+impl std::error::Error for SsrfRedirectError {}
 
 /// Returns `true` if the IP address is in a private or reserved range
 /// that should not be reachable via SSRF.

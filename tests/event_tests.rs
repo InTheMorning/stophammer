@@ -17,12 +17,19 @@ fn insert_signed_event(
 ) -> i64 {
     let pubkey_hex = hex::encode(key.verifying_key().to_bytes());
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
+    // We pre-compute the seq to match the DB's COALESCE(MAX(seq),0)+1 logic.
+    let next_seq: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| r.get(0),
+    ).unwrap();
+
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": payload_json,
         "subject_guid": subject_guid,
         "created_at":   created_at,
+        "seq":          next_seq,
     });
     let serialized = serde_json::to_string(&signing_payload).unwrap();
     let digest = Sha256::digest(serialized.as_bytes());
@@ -98,12 +105,18 @@ fn event_idempotent_insert() {
     let payload = r#"{"artist":{"artist_id":"a1","name":"A","name_lower":"a","created_at":1,"updated_at":1}}"#;
     let subject_guid = "subj-idem";
 
+    // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
+    let next_seq: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| r.get(0),
+    ).unwrap();
+
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
         "event_type":   event_type,
         "payload_json": payload,
         "subject_guid": subject_guid,
         "created_at":   now,
+        "seq":          next_seq,
     });
     let serialized = serde_json::to_string(&signing_payload).unwrap();
     let digest = Sha256::digest(serialized.as_bytes());

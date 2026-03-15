@@ -87,13 +87,12 @@ fn api_error_has_debug() {
 
 #[test]
 fn event_row_has_debug() {
+    // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
     let row = stophammer::db::EventRow {
         event_id:     "e1".into(),
         event_type:   stophammer::event::EventType::ArtistUpserted,
         payload_json: "{}".into(),
         subject_guid: "s1".into(),
-        signed_by:    "pk".into(),
-        signature:    "sig".into(),
         created_at:   1000,
         warnings:     vec![],
     };

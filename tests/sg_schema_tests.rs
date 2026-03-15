@@ -259,14 +259,16 @@ fn test_feed_delete_with_event_cleans_proof_tokens() {
     .expect("insert proof token");
 
     let now = stophammer::db::unix_now();
+    // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/sg-schema-test.key")
+        .expect("signer");
     stophammer::db::delete_feed_with_event(
         &mut conn,
         "feed-sg",
         "evt-sg-cleanup",
         r#"{"feed_guid":"feed-sg"}"#,
         "feed-sg",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "sig-placeholder-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        &signer,
         now,
         &[],
     )
@@ -295,14 +297,16 @@ fn test_feed_delete_with_event_cleans_proof_challenges() {
     .expect("insert proof challenge");
 
     let now = stophammer::db::unix_now();
+    // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/sg-schema-test2.key")
+        .expect("signer");
     stophammer::db::delete_feed_with_event(
         &mut conn,
         "feed-sg",
         "evt-sg-cleanup2",
         r#"{"feed_guid":"feed-sg"}"#,
         "feed-sg",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "sig-placeholder-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        &signer,
         now,
         &[],
     )

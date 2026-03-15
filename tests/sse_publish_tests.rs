@@ -384,6 +384,7 @@ async fn publish_events_to_sse_routes_to_artist() {
                 artist_credit: stophammer::model::ArtistCredit {
                     id:           1,
                     display_name: "Pub Test Artist".to_string(),
+                    feed_guid:    None,
                     created_at:   0,
                     names:        vec![stophammer::model::ArtistCreditName {
                         id:               1,

@@ -1011,7 +1011,8 @@ async fn handle_search(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let q = params.q.clone();
     let kind = params.kind.clone();
-    let limit = params.limit.unwrap_or(20).min(100);
+    // Issue-NEGATIVE-LIMIT — 2026-03-15
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Parse keyset cursor: base64(f64_bits_as_decimal \0 rowid_as_decimal).

@@ -75,19 +75,19 @@ fn cursor_monotonic_through_apply_single_event() {
 
     // Apply event with seq=20.
     let ev20 = make_artist_event("mono-full-evt-20", "mono-full-art-1", 20, now);
-    let r1 = apply_single_event(&db, "mono-full-node", &ev20).expect("apply seq=20");
+    let r1 = apply_single_event(&db, &ev20).expect("apply seq=20");
     assert!(matches!(r1, ApplyOutcome::Applied(_)));
 
     // Apply event with seq=10 (lower — should NOT regress cursor).
     let ev10 = make_artist_event("mono-full-evt-10", "mono-full-art-2", 10, now);
-    let r2 = apply_single_event(&db, "mono-full-node", &ev10).expect("apply seq=10");
+    let r2 = apply_single_event(&db, &ev10).expect("apply seq=10");
     assert!(matches!(r2, ApplyOutcome::Applied(_)));
 
     // Read cursor from DB — must still be 20.
     let cursor: i64 = {
         let conn = db.lock().expect("lock");
         conn.query_row(
-            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'mono-full-node'",
+            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'primary_sync_cursor'",
             [],
             |r| r.get(0),
         )
@@ -100,13 +100,13 @@ fn cursor_monotonic_through_apply_single_event() {
 
     // Apply event with seq=25 (higher — cursor must advance).
     let ev25 = make_artist_event("mono-full-evt-25", "mono-full-art-3", 25, now);
-    let r3 = apply_single_event(&db, "mono-full-node", &ev25).expect("apply seq=25");
+    let r3 = apply_single_event(&db, &ev25).expect("apply seq=25");
     assert!(matches!(r3, ApplyOutcome::Applied(_)));
 
     let cursor2: i64 = {
         let conn = db.lock().expect("lock");
         conn.query_row(
-            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'mono-full-node'",
+            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'primary_sync_cursor'",
             [],
             |r| r.get(0),
         )
@@ -135,27 +135,27 @@ fn cursor_survives_simulated_restart() {
     let ev3 = make_artist_event("restart-evt-3", "restart-art-3", 15, now);
 
     for ev in [&ev1, &ev2, &ev3] {
-        let r = apply_single_event(&db, "restart-node", ev).expect("apply");
+        let r = apply_single_event(&db, ev).expect("apply");
         assert!(matches!(r, ApplyOutcome::Applied(_)));
     }
 
     // Simulate restart: read cursor via the production function.
     let cursor = {
         let conn = db.lock().expect("lock");
-        stophammer::db::get_node_sync_cursor(&conn, "restart-node")
+        stophammer::db::get_node_sync_cursor(&conn, stophammer::apply::SYNC_CURSOR_KEY)
             .expect("get cursor")
     };
     assert_eq!(cursor, 15, "cursor should be 15 after applying seq 5, 10, 15");
 
     // Apply a seq=12 event (out-of-order, lower than persisted cursor).
     let ev4 = make_artist_event("restart-evt-4", "restart-art-4", 12, now);
-    let r4 = apply_single_event(&db, "restart-node", &ev4).expect("apply");
+    let r4 = apply_single_event(&db, &ev4).expect("apply");
     assert!(matches!(r4, ApplyOutcome::Applied(_)));
 
     // Re-read cursor — must still be 15.
     let cursor2 = {
         let conn = db.lock().expect("lock");
-        stophammer::db::get_node_sync_cursor(&conn, "restart-node")
+        stophammer::db::get_node_sync_cursor(&conn, stophammer::apply::SYNC_CURSOR_KEY)
             .expect("get cursor after out-of-order")
     };
     assert_eq!(
@@ -1194,6 +1194,7 @@ async fn community_push_duplicate_event_returns_duplicate() {
         &payload_json,
         "art-dup-push",
         now,
+        1, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let push_body = serde_json::json!({

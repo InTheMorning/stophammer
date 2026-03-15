@@ -35,10 +35,14 @@ pub struct Artist {
 }
 
 /// MusicBrainz-style artist credit: a display name for multi-artist attribution.
+// Issue-ARTIST-IDENTITY — 2026-03-14
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCredit {
     pub id:           i64,
     pub display_name: String,
+    /// Feed GUID that scopes this credit, preventing cross-feed name collisions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_guid:    Option<String>,
     pub created_at:   i64,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub names:        Vec<ArtistCreditName>,

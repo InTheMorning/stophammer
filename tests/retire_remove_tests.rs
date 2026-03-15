@@ -696,22 +696,14 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload_json = r#"{"feed_guid":"feed-n","reason":"bulk test"}"#;
     let now = common::now();
-    let (signed_by, signature) = signer.sign_event(
-        &event_id,
-        &stophammer::event::EventType::FeedRetired,
-        payload_json,
-        "feed-n",
-        now,
-    );
-
-    let seq = stophammer::db::delete_feed_with_event(
+    // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event.
+    let (seq, _signed_by, _signature) = stophammer::db::delete_feed_with_event(
         &mut conn,
         "feed-n",
         &event_id,
         payload_json,
         "feed-n",
-        &signed_by,
-        &signature,
+        &signer,
         now,
         &[],
     )
@@ -784,6 +776,7 @@ fn apply_feed_retired_event() {
         &payload_json,
         "feed-1",
         now,
+        0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let tagged = format!(
@@ -807,7 +800,6 @@ fn apply_feed_retired_event() {
 
     let result = stophammer::apply::apply_single_event(
         &db,
-        signer.pubkey_hex(),
         &event,
     );
     assert!(result.is_ok());
@@ -846,6 +838,7 @@ fn apply_track_removed_event() {
         &payload_json,
         "track-1",
         now,
+        0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let tagged = format!(
@@ -869,7 +862,6 @@ fn apply_track_removed_event() {
 
     let result = stophammer::apply::apply_single_event(
         &db,
-        signer.pubkey_hex(),
         &event,
     );
     assert!(result.is_ok());
@@ -907,6 +899,7 @@ fn apply_feed_retired_unknown_guid_is_noop() {
         &payload_json,
         "nonexistent-feed",
         now,
+        0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let tagged = format!(
@@ -931,7 +924,6 @@ fn apply_feed_retired_unknown_guid_is_noop() {
     // Should not error even though the feed does not exist.
     let result = stophammer::apply::apply_single_event(
         &db,
-        signer.pubkey_hex(),
         &event,
     );
     assert!(result.is_ok());
@@ -961,6 +953,7 @@ fn apply_track_removed_unknown_guid_is_noop() {
         &payload_json,
         "nonexistent-track",
         now,
+        0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let tagged = format!(
@@ -985,7 +978,6 @@ fn apply_track_removed_unknown_guid_is_noop() {
     // Should not error even though the track does not exist.
     let result = stophammer::apply::apply_single_event(
         &db,
-        signer.pubkey_hex(),
         &event,
     );
     assert!(result.is_ok());

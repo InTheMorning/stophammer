@@ -73,7 +73,7 @@ async fn test_community_poll_handles_empty_response() {
     let conn = db.lock().expect("lock for verification");
     let cursor: i64 = conn
         .query_row(
-            "SELECT COALESCE((SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'deadbeef'), 0)",
+            "SELECT COALESCE((SELECT last_seq FROM node_sync_state WHERE node_pubkey = 'primary_sync_cursor'), 0)",
             [],
             |row| row.get(0),
         )
@@ -263,6 +263,7 @@ async fn test_community_push_handler_accepts_valid_events() {
         &payload_json,
         "art-valid-tc03",
         now,
+        1, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
     let push_body = serde_json::json!({

@@ -40,6 +40,12 @@ const MAX_PUSH_EVENTS: usize = 1_000;
 /// Maximum request body size (bytes) for the push endpoint.
 const MAX_PUSH_BODY_BYTES: usize = 2 * 1024 * 1024;
 
+/// Maximum pages to drain in a single catch-up burst before yielding to a
+/// sleep cycle. Prevents a runaway drain loop when the primary is
+/// misbehaving or the node is astronomically behind.
+// Issue-CATCHUP-DRAIN — 2026-03-15
+const MAX_DRAIN_PAGES: u32 = 100;
+
 // ── CommunityConfig ──────────────────────────────────────────────────────────
 
 /// Runtime configuration for a community (read-only replica) node.
@@ -98,7 +104,7 @@ struct RegisterBody<'a> {
 /// the process exits.
 ///
 /// `pubkey_hex` is the hex-encoded ed25519 pubkey of this node's key, used
-/// as the cursor identity in `node_sync_state` and in tracker registration.
+/// in tracker and primary registration.
 ///
 /// # Panics
 ///
@@ -128,10 +134,11 @@ pub async fn run_community_sync(
 
     // 3. Load persisted cursor.
     // Mutex safety compliant — 2026-03-12
+    // Issue-CURSOR-IDENTITY — 2026-03-14
     let initial_seq = db.lock().map_or_else(|_| {
         tracing::error!("community: db mutex poisoned; starting from seq 0");
         0
-    }, |conn| match db::get_node_sync_cursor(&conn, &pubkey_hex) {
+    }, |conn| match db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY) {
         Ok(seq) => seq,
         Err(e) => {
             tracing::error!(error = %e, "community: failed to read sync cursor; starting from 0");
@@ -142,7 +149,11 @@ pub async fn run_community_sync(
     let mut last_seq = initial_seq;
     tracing::info!(primary = %config.primary_url, cursor = last_seq, "community: sync started");
 
-    // 4. Poll-loop fallback.
+    // 4. Poll-loop fallback with catch-up drain.
+    //
+    // Issue-CATCHUP-DRAIN — 2026-03-15: the inner drain loop fetches all
+    // available pages before sleeping, so a node thousands of events behind
+    // converges in seconds rather than sleeping between every page.
     //
     // Yield strategy (M-YIELD-POINTS): each iteration contains at least one
     // async await that surrenders control to the runtime:
@@ -155,36 +166,74 @@ pub async fn run_community_sync(
         let secs_since_push = now_secs - last_push_at.load(Ordering::Relaxed);
         if secs_since_push > config.push_timeout_secs {
             tracing::info!(seconds_since_push = secs_since_push, "community: fallback poll triggered");
-            match poll_once(&client, &config.primary_url, last_seq).await {
-                Err(e) => {
-                    tracing::error!(error = %e, "community: poll error");
-                }
-                Ok(response) => {
-                    let fetched = response.events.len();
-                    if fetched > 0 {
-                        let summary =
-                            apply::apply_events(Arc::clone(&db), &pubkey_hex, response.events, sse_registry.as_ref())
-                                .await;
-                        if summary.applied > 0 {
-                            // Advance last_seq from the primary's seq values.
-                            // Mutex safety compliant — 2026-03-12
-                            let new_seq = db.lock().map_or_else(|_| {
-                                tracing::error!(cursor = last_seq, "community: db mutex poisoned; keeping cursor");
-                                last_seq
-                            }, |conn| db::get_node_sync_cursor(&conn, &pubkey_hex).unwrap_or(last_seq));
-                            if new_seq > last_seq {
-                                last_seq = new_seq;
+
+            // Issue-CATCHUP-DRAIN — 2026-03-15: drain all available pages (fast catch-up)
+            let mut pages_drained: u32 = 0;
+            loop {
+                match poll_once(&client, &config.primary_url, last_seq).await {
+                    Err(e) => {
+                        tracing::error!(error = %e, "community: poll error");
+                        break; // exit drain loop on error, sleep then retry
+                    }
+                    Ok(response) => {
+                        let has_more = response.has_more;
+                        let next_seq = response.next_seq;
+                        let fetched = response.events.len();
+
+                        if fetched > 0 {
+                            // Issue-CURSOR-IDENTITY — 2026-03-14
+                            let summary =
+                                apply::apply_events(Arc::clone(&db), response.events, sse_registry.as_ref())
+                                    .await;
+                            if summary.applied > 0 {
+                                // Advance last_seq from the primary's seq values.
+                                // Mutex safety compliant — 2026-03-12
+                                // Issue-CURSOR-IDENTITY — 2026-03-14
+                                let new_seq = db.lock().map_or_else(|_| {
+                                    tracing::error!(cursor = last_seq, "community: db mutex poisoned; keeping cursor");
+                                    last_seq
+                                }, |conn| db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY).unwrap_or(last_seq));
+                                if new_seq > last_seq {
+                                    last_seq = new_seq;
+                                }
+                                tracing::info!(
+                                    applied = summary.applied, fetched, cursor = last_seq,
+                                    "community: poll applied events"
+                                );
+                            } else if next_seq > last_seq {
+                                // All events were duplicates but the primary
+                                // reports a higher cursor — advance to avoid
+                                // re-fetching the same page forever.
+                                last_seq = next_seq;
                             }
-                            tracing::info!(
-                                applied = summary.applied, fetched, cursor = last_seq,
-                                "community: poll applied events"
-                            );
+                        } else if next_seq > last_seq {
+                            last_seq = next_seq;
                         }
+
+                        pages_drained += 1;
+
+                        if !has_more {
+                            break; // caught up, exit drain loop
+                        }
+
+                        // Issue-CATCHUP-DRAIN — 2026-03-15: guard against runaway drain
+                        if pages_drained >= MAX_DRAIN_PAGES {
+                            tracing::warn!(
+                                pages = pages_drained,
+                                cursor = last_seq,
+                                "community: max drain pages reached, yielding to sleep"
+                            );
+                            break;
+                        }
+
+                        // continue inner loop immediately — no sleep
                     }
                 }
             }
         }
 
+        // Sleep only when caught up or after error
+        // Issue-CATCHUP-DRAIN — 2026-03-15
         tokio::time::sleep(Duration::from_secs(config.poll_interval_secs)).await;
     }
 }
@@ -419,12 +468,12 @@ async fn handle_sync_push(
     }).collect();
 
     // Signature verification + DB apply happens inside apply_events.
-    // Cursor is keyed on the primary pubkey, consistent with the poll-loop.
+    // Issue-CURSOR-IDENTITY — 2026-03-14: cursor is keyed on a fixed
+    // constant, consistent with the poll-loop fallback.
     // Issue-SSE-PUBLISH — 2026-03-14: pass SSE registry so applied events
     // are published to community-node SSE clients.
     let summary = apply::apply_events(
         Arc::clone(&state.db),
-        &state.primary_pubkey_hex,
         trusted,
         state.sse_registry.as_ref(),
     ).await;

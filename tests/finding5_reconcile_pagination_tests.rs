@@ -49,20 +49,23 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 }
 
 /// Insert a dummy `ArtistUpserted` event into the events table.
+// Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
 fn insert_dummy_event(conn: &rusqlite::Connection, event_id: &str, created_at: i64) -> i64 {
     let payload_json = r#"{"artist":{"artist_id":"a-1","name":"Test","name_lower":"test","created_at":0,"updated_at":0}}"#;
-    stophammer::db::insert_event(
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/finding5-test.key")
+        .expect("signer");
+    let (seq, _, _) = stophammer::db::insert_event(
         conn,
         event_id,
         &stophammer::event::EventType::ArtistUpserted,
         payload_json,
         "a-1",
-        "0000000000000000000000000000000000000000000000000000000000000000",
-        "sig-placeholder-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        &signer,
         created_at,
         &[],
     )
-    .expect("insert event")
+    .expect("insert event");
+    seq
 }
 
 // ── Test: ReconcileResponse includes has_more and next_seq fields ─────────

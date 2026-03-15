@@ -666,7 +666,8 @@ async fn handle_ingest_feed(
             });
         }
 
-        // 4. Resolve artist
+        // 4. Resolve artist (scoped to feed_guid)
+        // Issue-ARTIST-IDENTITY — 2026-03-14
         let artist_name = feed_data
             .owner_name
             .as_deref()
@@ -674,13 +675,15 @@ async fn handle_ingest_feed(
             .unwrap_or(feed_data.title.as_str())
             .to_string();
 
-        let feed_artist = db::resolve_artist(&conn, &artist_name)?;
+        let feed_guid_str = feed_data.feed_guid.as_str();
+        let feed_artist = db::resolve_artist(&conn, &artist_name, Some(feed_guid_str))?;
 
-        // 5. Get or create artist credit for the feed artist (idempotent)
+        // 5. Get or create artist credit for the feed artist (idempotent, feed-scoped)
         let feed_artist_credit = db::get_or_create_artist_credit(
             &conn,
             &feed_artist.name,
             &[(feed_artist.artist_id.clone(), feed_artist.name.clone(), String::new())],
+            Some(feed_guid_str),
         )?;
 
         // 6. Get current time
@@ -745,13 +748,15 @@ async fn handle_ingest_feed(
         let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(feed_data.tracks.len());
 
         for track_data in &feed_data.tracks {
-            // Per-track artist resolution
+            // Per-track artist resolution (feed-scoped)
+            // Issue-ARTIST-IDENTITY — 2026-03-14
             let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
-                let track_artist = db::resolve_artist(&conn, author)?;
+                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
                 let credit = db::get_or_create_artist_credit(
                     &conn,
                     &track_artist.name,
                     &[(track_artist.artist_id.clone(), track_artist.name.clone(), String::new())],
+                    Some(feed_guid_str),
                 )?;
                 (credit.id, credit)
             } else {
@@ -813,181 +818,44 @@ async fn handle_ingest_feed(
             track_credits.push(track_credit);
         }
 
-        // 10. Build event rows
-        let mut event_rows: Vec<db::EventRow> = Vec::new();
-
-        // ArtistUpserted
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::ArtistUpsertedPayload {
-                artist: feed_artist.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize ArtistUpserted payload: {e}"),
-                www_authenticate: None,
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::ArtistUpserted,
-                &payload_json,
-                &feed_artist.artist_id,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::ArtistUpserted,
-                payload_json,
-                subject_guid: feed_artist.artist_id.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
-
-        // ArtistCreditCreated
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::ArtistCreditCreatedPayload {
-                artist_credit: feed_artist_credit.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize ArtistCreditCreated payload: {e}"),
-                www_authenticate: None,
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::ArtistCreditCreated,
-                &payload_json,
-                &feed_artist.artist_id,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::ArtistCreditCreated,
-                payload_json,
-                subject_guid: feed_artist.artist_id.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
-
-        // FeedUpserted
-        {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedUpsertedPayload {
-                feed:          feed.clone(),
-                artist:        feed_artist.clone(),
-                artist_credit: feed_artist_credit.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize FeedUpserted payload: {e}"),
-                www_authenticate: None,
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::FeedUpserted,
-                &payload_json,
-                &feed.feed_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::FeedUpserted,
-                payload_json,
-                subject_guid: feed.feed_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
-
-        // FeedRoutesReplaced (if feed has payment routes)
-        if !feed_routes.is_empty() {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedRoutesReplacedPayload {
-                feed_guid: feed.feed_guid.clone(),
-                routes:    feed_routes.clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize FeedRoutesReplaced payload: {e}"),
-                www_authenticate: None,
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::FeedRoutesReplaced,
-                &payload_json,
-                &feed.feed_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::FeedRoutesReplaced,
-                payload_json,
-                subject_guid: feed.feed_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
-
-        // TrackUpserted — one per track
-        for (i, (track, routes, vts)) in track_tuples.iter().enumerate() {
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::TrackUpsertedPayload {
-                track:             track.clone(),
-                routes:            routes.clone(),
-                value_time_splits: vts.clone(),
-                artist_credit:     track_credits[i].clone(),
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize TrackUpserted payload: {e}"),
-                www_authenticate: None,
-            })?;
-            let (signed_by, signature) = state2.signer.sign_event(
-                &event_id,
-                &event::EventType::TrackUpserted,
-                &payload_json,
-                &track.track_guid,
-                now,
-            );
-            event_rows.push(db::EventRow {
-                event_id,
-                event_type:   event::EventType::TrackUpserted,
-                payload_json,
-                subject_guid: track.track_guid.clone(),
-                signed_by,
-                signature,
-                created_at:   now,
-                warnings:     warnings.clone(),
-            });
-        }
+        // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
+        // Only emit events for entities whose fields actually changed
+        // compared to what is stored in the DB.
+        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRows no longer carry
+        // signatures. The signer is passed to ingest_transaction which
+        // signs each event after the DB assigns its seq.
+        let event_rows = db::build_diff_events(
+            &conn,
+            &feed_artist,
+            &feed_artist_credit,
+            &feed,
+            &feed_routes,
+            &track_tuples,
+            &track_credits,
+            now,
+            &warnings,
+        ).map_err(|e| ApiError {
+            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("failed to build diff events: {e}"),
+            www_authenticate: None,
+        })?;
 
         // Collect event_ids and snapshot event data before moving event_rows
         let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
 
         // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
+        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
         let events_for_fanout: Vec<db::EventRow> = event_rows.iter().map(|r| db::EventRow {
             event_id:     r.event_id.clone(),
             event_type:   r.event_type.clone(),
             payload_json: r.payload_json.clone(),
             subject_guid: r.subject_guid.clone(),
-            signed_by:    r.signed_by.clone(),
-            signature:    r.signature.clone(),
             created_at:   r.created_at,
             warnings:     r.warnings.clone(),
         }).collect();
 
-        // 11. Run ingest transaction
+        // 11. Run ingest transaction (signer signs after DB assigns seq)
+        // Issue-SEQ-INTEGRITY — 2026-03-14
         let seqs = db::ingest_transaction(
             &mut conn,
             feed_artist,
@@ -996,6 +864,7 @@ async fn handle_ingest_feed(
             feed_routes,
             track_tuples,
             event_rows,
+            &state2.signer,
         )?;
 
         // 11b. Search index + quality scores are now written inside
@@ -1004,9 +873,10 @@ async fn handle_ingest_feed(
         // 12. Update crawl cache
         db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
 
-        // 13. Reconstruct events with assigned seqs for fan-out
+        // 13. Reconstruct events with assigned seqs + signatures for fan-out
+        // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
         let fanout_events: Vec<event::Event> = events_for_fanout.into_iter().zip(seqs.iter()).map(
-            |(r, &seq)| {
+            |(r, (seq, signed_by, signature))| {
                 let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
                     status:  StatusCode::INTERNAL_SERVER_ERROR,
                     message: format!("failed to serialize event type for fan-out: {e}"),
@@ -1025,9 +895,9 @@ async fn handle_ingest_feed(
                     event_type:   r.event_type,
                     payload,
                     subject_guid: r.subject_guid,
-                    signed_by:    r.signed_by,
-                    signature:    r.signature,
-                    seq,
+                    signed_by:    signed_by.clone(),
+                    signature:    signature.clone(),
+                    seq:          *seq,
                     created_at:   r.created_at,
                     warnings:     r.warnings,
                     payload_json: r.payload_json,
@@ -1081,7 +951,8 @@ async fn handle_sync_events(
     Query(params): Query<SyncEventsQuery>,
 ) -> Result<Json<sync::SyncEventsResponse>, ApiError> {
     let after_seq = params.after_seq;
-    let capped_limit = params.limit.unwrap_or(500).min(1000);
+    // Issue-NEGATIVE-LIMIT — 2026-03-15
+    let capped_limit = params.limit.unwrap_or(500).clamp(1, 1000);
 
     let result = spawn_db(Arc::clone(&state.db), move |conn| {
         let events = db::get_events_since(conn, after_seq, capped_limit)?;
@@ -1418,7 +1289,7 @@ async fn handle_sse_events(
         });
     }
 
-    let artist_ids: Vec<String> = params
+    let requested_ids: Vec<String> = params
         .get("artists")
         .map(|s| {
             s.split(',')
@@ -1428,6 +1299,20 @@ async fn handle_sse_events(
                 .collect()
         })
         .unwrap_or_default();
+
+    // Issue-SSE-EXHAUSTION — 2026-03-15: only subscribe to artists that actually
+    // exist in the database. Unknown/fake artist IDs are silently dropped so
+    // attackers cannot fill the registry with phantom channels.
+    let artist_ids: Vec<String> = {
+        let db = Arc::clone(&state.db);
+        spawn_db(db, move |conn| {
+            Ok(requested_ids
+                .into_iter()
+                .filter(|id| db::artist_exists(conn, id).unwrap_or(false))
+                .collect())
+        })
+        .await?
+    };
 
     // Issue-SSE-PUBLISH — 2026-03-14: parse Last-Event-ID as an integer seq
     // for unambiguous replay. Falls back to 0 (replay everything in ring
@@ -1668,22 +1553,14 @@ async fn handle_admin_merge_artists(
             message: format!("failed to serialize ArtistMerged payload: {e}"),
             www_authenticate: None,
         })?;
-        let (signed_by, signature) = state2.signer.sign_event(
-            &event_id,
-            &event::EventType::ArtistMerged,
-            &payload_json,
-            &req.target_artist_id,
-            now,
-        );
-
-        let seq = db::insert_event(
+        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+        let (seq, _signed_by, _signature) = db::insert_event(
             &tx,
             &event_id,
             &event::EventType::ArtistMerged,
             &payload_json,
             &req.target_artist_id,
-            &signed_by,
-            &signature,
+            &state2.signer,
             now,
             &[],
         )
@@ -1823,23 +1700,15 @@ async fn handle_retire_feed(
             message: format!("failed to serialize FeedRetired payload: {e}"),
             www_authenticate: None,
         })?;
-        let (signed_by, signature) = state2.signer.sign_event(
-            &event_id,
-            &event::EventType::FeedRetired,
-            &payload_json,
-            &guid2,
-            now,
-        );
-
-        // Cascade-delete the feed and record the event atomically.
-        let seq = db::delete_feed_with_event(
+        // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event
+        // which signs after the DB assigns seq.
+        let (seq, signed_by, signature) = db::delete_feed_with_event(
             &mut conn,
             &guid2,
             &event_id,
             &payload_json,
             &guid2,
-            &signed_by,
-            &signature,
+            &state2.signer,
             now,
             &[],
         )
@@ -1973,23 +1842,15 @@ async fn handle_remove_track(
             message: format!("failed to serialize TrackRemoved payload: {e}"),
             www_authenticate: None,
         })?;
-        let (signed_by, signature) = state2.signer.sign_event(
-            &event_id,
-            &event::EventType::TrackRemoved,
-            &payload_json,
-            &track_guid2,
-            now,
-        );
-
-        // Cascade-delete the track and record the event atomically.
-        let seq = db::delete_track_with_event(
+        // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_track_with_event
+        // which signs after the DB assigns seq.
+        let (seq, signed_by, signature) = db::delete_track_with_event(
             &mut conn,
             &track_guid2,
             &event_id,
             &payload_json,
             &track_guid2,
-            &signed_by,
-            &signature,
+            &state2.signer,
             now,
             &[],
         )
@@ -2359,7 +2220,10 @@ async fn handle_proofs_assert(
     #[cfg(not(feature = "test-util"))]
     let skip_ssrf = false;
 
-    if !skip_ssrf {
+    // Issue-SSRF-REDIRECT — 2026-03-15: capture resolved addresses for DNS pinning
+    let resolved_addrs: Vec<std::net::SocketAddr> = if skip_ssrf {
+        vec![]
+    } else {
         let url_clone = feed_url.clone();
         tokio::task::spawn_blocking(move || proof::validate_feed_url(&url_clone))
             .await
@@ -2372,10 +2236,22 @@ async fn handle_proofs_assert(
                 status:  StatusCode::BAD_REQUEST,
                 message: format!("feed URL rejected: {e}"),
                 www_authenticate: None,
-            })?;
-    }
+            })?
+    };
 
-    let rss_verified = proof::verify_podcast_txt(&state.push_client, &feed_url, &token_binding)
+    // Issue-SSRF-REDIRECT — 2026-03-15: build a purpose-specific client with
+    // SSRF-safe redirect policy and DNS pinning to prevent rebinding.
+    let proof_client = if skip_ssrf {
+        proof::build_ssrf_safe_client()
+    } else {
+        let hostname = url::Url::parse(&feed_url)
+            .ok()
+            .and_then(|u| u.host_str().map(String::from))
+            .unwrap_or_default();
+        proof::build_ssrf_safe_client_pinned(&hostname, &resolved_addrs)
+    };
+
+    let rss_verified = proof::verify_podcast_txt(&proof_client, &feed_url, &token_binding)
         .await
         .map_err(|e| ApiError {
             status:  StatusCode::SERVICE_UNAVAILABLE,
@@ -2566,22 +2442,14 @@ async fn handle_patch_feed(
             message: format!("failed to serialize FeedUpserted payload: {e}"),
             www_authenticate: None,
         })?;
-        let (signed_by, signature) = state2.signer.sign_event(
-            &event_id,
-            &event::EventType::FeedUpserted,
-            &payload_json,
-            &guid2,
-            now,
-        );
-
-        let seq = db::insert_event(
+        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+        let (seq, signed_by, signature) = db::insert_event(
             &tx,
             &event_id,
             &event::EventType::FeedUpserted,
             &payload_json,
             &guid2,
-            &signed_by,
-            &signature,
+            &state2.signer,
             now,
             &[],
         )
@@ -2734,22 +2602,14 @@ async fn handle_patch_track(
             message: format!("failed to serialize TrackUpserted payload: {e}"),
             www_authenticate: None,
         })?;
-        let (signed_by, signature) = state2.signer.sign_event(
-            &event_id,
-            &event::EventType::TrackUpserted,
-            &payload_json,
-            &guid2,
-            now,
-        );
-
-        let seq = db::insert_event(
+        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+        let (seq, signed_by, signature) = db::insert_event(
             &tx,
             &event_id,
             &event::EventType::TrackUpserted,
             &payload_json,
             &guid2,
-            &signed_by,
-            &signature,
+            &state2.signer,
             now,
             &[],
         )
