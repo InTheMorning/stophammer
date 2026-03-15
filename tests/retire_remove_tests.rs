@@ -759,6 +759,7 @@ fn apply_feed_retired_event() {
     populate_feed_with_tracks(&conn);
 
     let db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(db.clone());
 
     // Build a FeedRetired event.
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-feed.key")
@@ -799,7 +800,7 @@ fn apply_feed_retired_event() {
     };
 
     let result = stophammer::apply::apply_single_event(
-        &db,
+        &pool,
         &event,
     );
     assert!(result.is_ok());
@@ -821,6 +822,7 @@ fn apply_track_removed_event() {
     populate_feed_with_tracks(&conn);
 
     let db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(db.clone());
 
     // Build a TrackRemoved event.
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-track.key")
@@ -861,7 +863,7 @@ fn apply_track_removed_event() {
     };
 
     let result = stophammer::apply::apply_single_event(
-        &db,
+        &pool,
         &event,
     );
     assert!(result.is_ok());
@@ -883,6 +885,7 @@ fn apply_track_removed_event() {
 fn apply_feed_retired_unknown_guid_is_noop() {
     let conn = common::test_db();
     let db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(db.clone());
 
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-unknown.key")
         .unwrap();
@@ -923,7 +926,7 @@ fn apply_feed_retired_unknown_guid_is_noop() {
 
     // Should not error even though the feed does not exist.
     let result = stophammer::apply::apply_single_event(
-        &db,
+        &pool,
         &event,
     );
     assert!(result.is_ok());
@@ -937,6 +940,7 @@ fn apply_feed_retired_unknown_guid_is_noop() {
 fn apply_track_removed_unknown_guid_is_noop() {
     let conn = common::test_db();
     let db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(db.clone());
 
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-unknown.key")
         .unwrap();
@@ -977,7 +981,7 @@ fn apply_track_removed_unknown_guid_is_noop() {
 
     // Should not error even though the track does not exist.
     let result = stophammer::apply::apply_single_event(
-        &db,
+        &pool,
         &event,
     );
     assert!(result.is_ok());

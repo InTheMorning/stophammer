@@ -32,7 +32,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use subtle::ConstantTimeEq;
 
-use crate::{db, event, ingest, model, proof, query, signing, sync, verify};
+use crate::{db, db_pool, event, ingest, model, proof, query, signing, sync, verify};
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
 
@@ -380,8 +380,9 @@ const MAX_NONCE_BYTES: usize = 256;
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct AppState {
-    /// `SQLite` database handle (mutex-wrapped for blocking-task access).
-    pub db:              db::Db,
+    /// SQLite WAL connection pool (writer singleton + reader pool).
+    // Issue-WAL-POOL — 2026-03-14
+    pub db:              db_pool::DbPool,
     /// Ordered chain of verifiers that must all pass before an ingest is accepted.
     pub chain:           Arc<verify::VerifierChain>,
     /// Signs event payloads with this node's ed25519 key.
@@ -450,6 +451,7 @@ impl From<db::DbError> for ApiError {
             db::DbError::Rusqlite(inner) => format!("database error: {inner}"),
             db::DbError::Json(inner)     => format!("json error: {inner}"),
             db::DbError::Poisoned        => "database mutex poisoned".to_string(),
+            db::DbError::Other(msg)      => msg,
         };
         Self {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
@@ -467,22 +469,22 @@ impl From<rusqlite::Error> for ApiError {
 
 // ── spawn_db helpers ─────────────────────────────────────────────────────────
 
-/// Runs a blocking closure with a shared (`&Connection`) database reference on
-/// a `spawn_blocking` task. Handles mutex poisoning and join errors, converting
-/// them to `ApiError` with HTTP 500.
+/// Runs a blocking closure with a **read-only** pooled connection on a
+/// `spawn_blocking` task. Uses the reader pool so multiple read handlers
+/// can run concurrently under WAL mode.
 ///
 /// # Errors
 ///
-/// Returns `ApiError` (HTTP 500) if the database mutex is poisoned, the
-/// blocking task panics, or the closure returns a `DbError`.
-// Mutex safety compliant — 2026-03-12
-pub async fn spawn_db<F, T>(db: db::Db, f: F) -> Result<T, ApiError>
+/// Returns `ApiError` (HTTP 500) if the reader pool is exhausted, the
+/// spawned task panics, or the closure returns a `DbError`.
+// Issue-WAL-POOL — 2026-03-14
+pub async fn spawn_db<F, T>(pool: db_pool::DbPool, f: F) -> Result<T, ApiError>
 where
     F: FnOnce(&rusqlite::Connection) -> Result<T, db::DbError> + Send + 'static,
     T: Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_poison| db::DbError::Poisoned)?;
+        let conn = pool.reader()?;
         f(&conn)
     })
     .await
@@ -494,24 +496,55 @@ where
     .map_err(ApiError::from)
 }
 
-/// Runs a blocking closure with an exclusive (`&mut Connection`) database
-/// reference on a `spawn_blocking` task.
+/// Runs a blocking closure with the **writer** connection (shared reference)
+/// on a `spawn_blocking` task. Uses the single writer mutex — SQLite allows
+/// only one concurrent writer.
 ///
-/// Required for handlers that use transactions or savepoints
-/// (e.g. `delete_feed`, `delete_track`, `merge_artists`).
+/// Use this for handlers that write via `&Connection` (e.g. `INSERT`,
+/// `upsert_peer_node`). For handlers that need `&mut Connection` (e.g.
+/// transactions), use [`spawn_db_mut`].
 ///
 /// # Errors
 ///
-/// Returns `ApiError` (HTTP 500) if the database mutex is poisoned, the
-/// blocking task panics, or the closure returns a `DbError`.
-// Mutex safety compliant — 2026-03-12
-pub async fn spawn_db_mut<F, T>(db: db::Db, f: F) -> Result<T, ApiError>
+/// Returns `ApiError` (HTTP 500) if the writer mutex is poisoned, the
+/// spawned task panics, or the closure returns a `DbError`.
+// Issue-WAL-POOL — 2026-03-14
+pub async fn spawn_db_write<F, T>(pool: db_pool::DbPool, f: F) -> Result<T, ApiError>
+where
+    F: FnOnce(&rusqlite::Connection) -> Result<T, db::DbError> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(move || {
+        let conn = pool.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
+        f(&conn)
+    })
+    .await
+    .map_err(|e| ApiError {
+        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })?
+    .map_err(ApiError::from)
+}
+
+/// Runs a blocking closure with the **writer** connection (exclusive reference)
+/// on a `spawn_blocking` task. Uses the single writer mutex — SQLite allows
+/// only one concurrent writer.
+///
+/// Use this for handlers that need `&mut Connection` (e.g. transactions).
+///
+/// # Errors
+///
+/// Returns `ApiError` (HTTP 500) if the writer mutex is poisoned, the
+/// spawned task panics, or the closure returns a `DbError`.
+// Issue-WAL-POOL — 2026-03-14
+pub async fn spawn_db_mut<F, T>(pool: db_pool::DbPool, f: F) -> Result<T, ApiError>
 where
     F: FnOnce(&mut rusqlite::Connection) -> Result<T, db::DbError> + Send + 'static,
     T: Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let mut conn = db.lock().map_err(|_poison| db::DbError::Poisoned)?;
+        let mut conn = pool.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
         f(&mut conn)
     })
     .await
@@ -609,7 +642,7 @@ async fn handle_ingest_feed(
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
     let result = tokio::task::spawn_blocking(move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
-        let mut conn = state2.db.lock().map_err(|_poison| ApiError {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -927,7 +960,7 @@ async fn handle_ingest_feed(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &fanout_events);
 
-        let db_fanout          = Arc::clone(&state.db);
+        let db_fanout          = state.db.clone();
         let client_fanout      = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
         tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, fanout_events));
@@ -954,7 +987,7 @@ async fn handle_sync_events(
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let capped_limit = params.limit.unwrap_or(500).clamp(1, 1000);
 
-    let result = spawn_db(Arc::clone(&state.db), move |conn| {
+    let result = spawn_db(state.db.clone(), move |conn| {
         let events = db::get_events_since(conn, after_seq, capped_limit)?;
 
         let has_more = events.len() == usize::try_from(capped_limit).unwrap_or(usize::MAX);
@@ -988,7 +1021,8 @@ async fn handle_sync_reconcile(
     }
 
     // Finding-5 reconcile pagination — 2026-03-13
-    let result = spawn_db(Arc::clone(&state.db), move |conn| {
+    // Issue-WAL-POOL — 2026-03-14: uses writer because upsert_node_sync_state writes
+    let result = spawn_db_write(state.db.clone(), move |conn| {
         let (our_refs, refs_truncated) =
             db::get_event_refs_since(conn, req.since_seq, MAX_RECONCILE_REFS)?;
 
@@ -1038,7 +1072,7 @@ async fn handle_sync_reconcile(
 // Mutex safety compliant — 2026-03-12
 #[expect(clippy::unused_async, reason = "must be async because tokio::spawn requires a Future")]
 async fn fan_out_push(
-    db:          db::Db,
+    db:          db_pool::DbPool,
     client:      reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
     events:      Vec<event::Event>,
@@ -1052,7 +1086,7 @@ async fn fan_out_push(
 #[expect(clippy::unused_async, reason = "async signature for convenience in test await context")]
 #[expect(clippy::implicit_hasher, reason = "test-only API; generic hasher adds no value")]
 pub async fn fan_out_push_public(
-    db:          db::Db,
+    db:          db_pool::DbPool,
     client:      reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
     events:      Vec<event::Event>,
@@ -1071,7 +1105,7 @@ const PUSH_EVICTION_THRESHOLD: i64 = 10;
 // SP-04 push retry — 2026-03-13
 #[expect(clippy::needless_pass_by_value, reason = "values are cloned into spawned tasks; ownership transfer is intentional")]
 fn fan_out_push_inner(
-    db:          db::Db,
+    db:          db_pool::DbPool,
     client:      reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
     events:      Vec<event::Event>,
@@ -1088,7 +1122,7 @@ fn fan_out_push_inner(
 
     for (pubkey, push_url) in peers {
         let client2      = client.clone();
-        let db2          = Arc::clone(&db);
+        let db2          = db.clone();
         let subs2        = Arc::clone(&subscribers);
         let pubkey2      = pubkey.clone();
         let push_url2    = push_url.clone();
@@ -1130,8 +1164,8 @@ fn fan_out_push_inner(
 
             if success {
                 let now = db::unix_now();
-                // Mutex safety compliant — 2026-03-12
-                match db2.lock() {
+                // Issue-WAL-POOL — 2026-03-14: use writer for push success recording
+                match db2.writer().lock() {
                     Ok(conn) => {
                         if let Err(e) = db::record_push_success(&conn, &pubkey2, now) {
                             tracing::error!(peer = %pubkey2, error = %e, "fanout: failed to record push success");
@@ -1151,11 +1185,11 @@ fn fan_out_push_inner(
 // SP-04 push retry — 2026-03-13
 // Mutex safety compliant — 2026-03-12
 fn handle_push_failure(
-    db:          &db::Db,
+    db:          &db_pool::DbPool,
     subscribers: &Arc<RwLock<HashMap<String, String>>>,
     pubkey:      &str,
 ) {
-    let Ok(conn) = db.lock() else {
+    let Ok(conn) = db.writer().lock() else {
         tracing::error!(peer = %pubkey, "fanout: db mutex poisoned; cannot track push failure");
         return;
     };
@@ -1205,7 +1239,8 @@ async fn handle_sync_register(
     let pubkey = req.node_pubkey.clone();
     let url    = req.node_url.clone();
 
-    spawn_db(Arc::clone(&state.db), move |conn| {
+    // Issue-WAL-POOL — 2026-03-14: uses writer (upsert_peer_node writes)
+    spawn_db_write(state.db.clone(), move |conn| {
         db::upsert_peer_node(conn, &pubkey, &url, now)?;
         db::reset_peer_failures(conn, &pubkey)?;
         Ok(())
@@ -1232,7 +1267,7 @@ async fn handle_sync_peers(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<sync::PeersResponse>, ApiError> {
     // Mutex safety compliant — 2026-03-12
-    let result = spawn_db(Arc::clone(&state.db), move |conn| {
+    let result = spawn_db(state.db.clone(), move |conn| {
         let peers = db::get_push_peers(conn)?;
         let nodes = peers.into_iter().map(|p| sync::PeerEntry {
             node_pubkey:  p.node_pubkey,
@@ -1304,8 +1339,8 @@ async fn handle_sse_events(
     // exist in the database. Unknown/fake artist IDs are silently dropped so
     // attackers cannot fill the registry with phantom channels.
     let artist_ids: Vec<String> = {
-        let db = Arc::clone(&state.db);
-        spawn_db(db, move |conn| {
+        let pool = state.db.clone();
+        spawn_db(pool, move |conn| {
             Ok(requested_ids
                 .into_iter()
                 .filter(|id| db::artist_exists(conn, id).unwrap_or(false))
@@ -1529,7 +1564,7 @@ async fn handle_admin_merge_artists(
     // Finding-2 atomic mutation+event — 2026-03-13
     // Issue-SSE-PUBLISH — 2026-03-14: return (response, sse_frame_info) for SSE publish.
     let result = tokio::task::spawn_blocking(move || -> Result<(MergeArtistsResponse, Option<(String, SseFrame)>), ApiError> {
-        let conn = state2.db.lock().map_err(|_poison| ApiError {
+        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -1621,8 +1656,8 @@ async fn handle_admin_add_alias(
 ) -> Result<Json<AddAliasResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
-    // Mutex safety compliant — 2026-03-12
-    let result = spawn_db(Arc::clone(&state.db), move |conn| {
+    // Issue-WAL-POOL — 2026-03-14: uses writer (add_artist_alias writes)
+    let result = spawn_db_write(state.db.clone(), move |conn| {
         db::add_artist_alias(conn, &req.artist_id, &req.alias)?;
         Ok(AddAliasResponse { ok: true })
     })
@@ -1645,7 +1680,7 @@ async fn handle_retire_feed(
     // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
     // publish to the correct SSE channel after the entity is deleted.
     let result = tokio::task::spawn_blocking(move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
-        let mut conn = state2.db.lock().map_err(|_poison| ApiError {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -1764,7 +1799,7 @@ async fn handle_retire_feed(
             }
         }
 
-        let db_fanout          = Arc::clone(&state.db);
+        let db_fanout          = state.db.clone();
         let client_fanout      = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
         tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
@@ -1788,7 +1823,7 @@ async fn handle_remove_track(
     // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
     // publish to the correct SSE channel after the entity is deleted.
     let result = tokio::task::spawn_blocking(move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
-        let mut conn = state2.db.lock().map_err(|_poison| ApiError {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -1906,7 +1941,7 @@ async fn handle_remove_track(
             }
         }
 
-        let db_fanout          = Arc::clone(&state.db);
+        let db_fanout          = state.db.clone();
         let client_fanout      = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
         tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
@@ -2054,7 +2089,7 @@ async fn handle_proofs_challenge(
     // Mutex safety compliant — 2026-03-12
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || -> Result<ProofsChallengeResponse, ApiError> {
-        let conn = state2.db.lock().map_err(|_poison| ApiError {
+        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -2115,12 +2150,14 @@ struct ProofsAssertRequest {
     requester_nonce: String,
 }
 
+// Issue-PROOF-LEVEL — 2026-03-14
 #[derive(Serialize)]
 struct ProofsAssertResponse {
     access_token:      String,
     scope:             String,
     subject_feed_guid: String,
     expires_at:        i64,
+    proof_level:       proof::ProofLevel,
 }
 
 // CS-01 pod:txt verification — 2026-03-12
@@ -2144,7 +2181,7 @@ async fn handle_proofs_assert(
 
     let phase1 = tokio::task::spawn_blocking(move || -> Result<(String, String, String, String), ApiError> {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_poison| ApiError {
+        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -2268,7 +2305,7 @@ async fn handle_proofs_assert(
 
     let result = tokio::task::spawn_blocking(move || -> Result<ProofsAssertResponse, ApiError> {
         // Mutex safety compliant — 2026-03-12
-        let conn = state3.db.lock().map_err(|_poison| ApiError {
+        let conn = state3.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -2317,7 +2354,9 @@ async fn handle_proofs_assert(
         }
 
         // Issue an access token.
-        let access_token = proof::issue_token(&conn, &scope2, &feed_guid2)
+        // Issue-PROOF-LEVEL — 2026-03-14
+        let proof_level = proof::ProofLevel::RssOnly;
+        let access_token = proof::issue_token(&conn, &scope2, &feed_guid2, &proof_level)
             .map_err(ApiError::from)?;
 
         // Compute expires_at for the response.
@@ -2329,6 +2368,7 @@ async fn handle_proofs_assert(
             scope:             scope2,
             subject_feed_guid: feed_guid2,
             expires_at,
+            proof_level,
         })
     })
     .await
@@ -2363,7 +2403,7 @@ async fn handle_patch_feed(
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
     let result = tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
-        let conn = state2.db.lock().map_err(|_poison| ApiError {
+        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -2497,7 +2537,7 @@ async fn handle_patch_feed(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &events);
 
-        let db_fanout          = Arc::clone(&state.db);
+        let db_fanout          = state.db.clone();
         let client_fanout      = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
         tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
@@ -2528,7 +2568,7 @@ async fn handle_patch_track(
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
     let result = tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
-        let conn = state2.db.lock().map_err(|_poison| ApiError {
+        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
@@ -2657,7 +2697,7 @@ async fn handle_patch_track(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &events);
 
-        let db_fanout          = Arc::clone(&state.db);
+        let db_fanout          = state.db.clone();
         let client_fanout      = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
         tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));

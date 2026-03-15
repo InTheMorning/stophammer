@@ -28,6 +28,9 @@ pub enum DbError {
     Json(serde_json::Error),
     /// The database mutex was poisoned (a thread panicked while holding the lock).
     Poisoned,
+    /// A non-SQLite, non-JSON error (e.g. connection pool failure).
+    // Issue-WAL-POOL — 2026-03-14
+    Other(String),
 }
 
 impl From<rusqlite::Error> for DbError {
@@ -48,6 +51,7 @@ impl fmt::Display for DbError {
             Self::Rusqlite(e) => write!(f, "SQLite error: {e}"),
             Self::Json(e)     => write!(f, "JSON error: {e}"),
             Self::Poisoned    => write!(f, "database mutex poisoned"),
+            Self::Other(msg)  => write!(f, "{msg}"),
         }
     }
 }
@@ -64,6 +68,7 @@ impl std::error::Error for DbError {
             Self::Rusqlite(e) => Some(e),
             Self::Json(e)     => Some(e),
             Self::Poisoned    => None,
+            Self::Other(_)    => None,
         }
     }
 }
@@ -132,6 +137,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0002_artist_credit_feed_scope.sql"),
     // Migration 3: unique constraint on search_entities (Issue-HASH-COLLISION — 2026-03-14)
     include_str!("../migrations/0003_search_entities_unique.sql"),
+    // Migration 4: add proof_level to proof_tokens (Issue-PROOF-LEVEL — 2026-03-14)
+    include_str!("../migrations/0004_proof_level.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.

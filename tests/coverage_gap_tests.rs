@@ -71,16 +71,17 @@ fn cursor_monotonic_through_apply_single_event() {
     use stophammer::apply::{apply_single_event, ApplyOutcome};
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // Apply event with seq=20.
     let ev20 = make_artist_event("mono-full-evt-20", "mono-full-art-1", 20, now);
-    let r1 = apply_single_event(&db, &ev20).expect("apply seq=20");
+    let r1 = apply_single_event(&pool, &ev20).expect("apply seq=20");
     assert!(matches!(r1, ApplyOutcome::Applied(_)));
 
     // Apply event with seq=10 (lower — should NOT regress cursor).
     let ev10 = make_artist_event("mono-full-evt-10", "mono-full-art-2", 10, now);
-    let r2 = apply_single_event(&db, &ev10).expect("apply seq=10");
+    let r2 = apply_single_event(&pool, &ev10).expect("apply seq=10");
     assert!(matches!(r2, ApplyOutcome::Applied(_)));
 
     // Read cursor from DB — must still be 20.
@@ -100,7 +101,7 @@ fn cursor_monotonic_through_apply_single_event() {
 
     // Apply event with seq=25 (higher — cursor must advance).
     let ev25 = make_artist_event("mono-full-evt-25", "mono-full-art-3", 25, now);
-    let r3 = apply_single_event(&db, &ev25).expect("apply seq=25");
+    let r3 = apply_single_event(&pool, &ev25).expect("apply seq=25");
     assert!(matches!(r3, ApplyOutcome::Applied(_)));
 
     let cursor2: i64 = {
@@ -127,6 +128,7 @@ fn cursor_survives_simulated_restart() {
     use stophammer::apply::{apply_single_event, ApplyOutcome};
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // Apply several events.
@@ -135,7 +137,7 @@ fn cursor_survives_simulated_restart() {
     let ev3 = make_artist_event("restart-evt-3", "restart-art-3", 15, now);
 
     for ev in [&ev1, &ev2, &ev3] {
-        let r = apply_single_event(&db, ev).expect("apply");
+        let r = apply_single_event(&pool, ev).expect("apply");
         assert!(matches!(r, ApplyOutcome::Applied(_)));
     }
 
@@ -149,7 +151,7 @@ fn cursor_survives_simulated_restart() {
 
     // Apply a seq=12 event (out-of-order, lower than persisted cursor).
     let ev4 = make_artist_event("restart-evt-4", "restart-art-4", 12, now);
-    let r4 = apply_single_event(&db, &ev4).expect("apply");
+    let r4 = apply_single_event(&pool, &ev4).expect("apply");
     assert!(matches!(r4, ApplyOutcome::Applied(_)));
 
     // Re-read cursor — must still be 15.
@@ -188,7 +190,7 @@ fn proof_happy_path_token_issued_and_valid() {
     assert_eq!(rows, 1, "challenge should transition to valid");
 
     // Issue token.
-    let token = stophammer::proof::issue_token(&conn, "feed:write", "feed-happy")
+    let token = stophammer::proof::issue_token(&conn, "feed:write", "feed-happy", &stophammer::proof::ProofLevel::RssOnly)
         .unwrap();
     assert!(!token.is_empty(), "token should be non-empty");
 
@@ -261,6 +263,7 @@ fn proof_feed_deleted_between_phases_returns_none() {
 
 fn test_search_app_state() -> Arc<stophammer::api::AppState> {
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
 
     // Insert a searchable entity so non-cursor queries work.
     {
@@ -277,7 +280,7 @@ fn test_search_app_state() -> Arc<stophammer::api::AppState> {
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex: pubkey,
@@ -1169,6 +1172,7 @@ async fn community_push_duplicate_event_returns_duplicate() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
 
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-dup-push-signer.key")
         .expect("create signer");
@@ -1216,7 +1220,7 @@ async fn community_push_duplicate_event_returns_duplicate() {
     });
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 Arc::clone(&db),
+        db:                 common::wrap_pool(Arc::clone(&db)),
         primary_pubkey_hex: primary_pubkey,
         last_push_at:       Arc::new(AtomicI64::new(0)),
         sse_registry:       None,
@@ -1269,6 +1273,7 @@ async fn community_push_bad_signature_rejected() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
 
     let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-badsig-push-signer.key")
         .expect("create signer");
@@ -1307,7 +1312,7 @@ async fn community_push_bad_signature_rejected() {
     });
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 Arc::clone(&db),
+        db:                 common::wrap_pool(Arc::clone(&db)),
         primary_pubkey_hex: primary_pubkey,
         last_push_at:       Arc::new(AtomicI64::new(0)),
         sse_registry:       None,

@@ -16,6 +16,7 @@ use stophammer::db;
 fn poisoned_db_mutex_returns_db_error() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
     // Poison the mutex by panicking inside a lock scope.
     let db2 = Arc::clone(&db);
@@ -58,6 +59,7 @@ async fn apply_single_event_with_poisoned_mutex_returns_error() {
 
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
     // Poison the mutex.
     let db2 = Arc::clone(&db);
@@ -100,7 +102,7 @@ async fn apply_single_event_with_poisoned_mutex_returns_error() {
         payload_json,
     };
 
-    let result = apply::apply_single_event(&db, &ev);
+    let result = apply::apply_single_event(&pool, &ev);
     assert!(result.is_err(), "should return Err when mutex is poisoned");
 
     // Use match to avoid needing Debug on ApplyOutcome.
@@ -119,8 +121,9 @@ async fn apply_single_event_with_poisoned_mutex_returns_error() {
 async fn spawn_db_success() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
-    let result = stophammer::api::spawn_db(db, |_conn| Ok(42i32)).await;
+    let result = stophammer::api::spawn_db(pool, |_conn| Ok(42i32)).await;
     assert!(result.is_ok(), "should succeed");
     assert_eq!(result.unwrap_or(0), 42);
 }
@@ -129,8 +132,9 @@ async fn spawn_db_success() {
 async fn spawn_db_propagates_db_error() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
-    let result: Result<i32, _> = stophammer::api::spawn_db(db, |_conn| {
+    let result: Result<i32, _> = stophammer::api::spawn_db(pool, |_conn| {
         Err(db::DbError::Poisoned)
     })
     .await;
@@ -143,6 +147,7 @@ async fn spawn_db_propagates_db_error() {
 async fn spawn_db_propagates_poisoned_mutex() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
     // Poison the mutex.
     let db2 = Arc::clone(&db);
@@ -152,7 +157,7 @@ async fn spawn_db_propagates_poisoned_mutex() {
     })
     .join();
 
-    let result = stophammer::api::spawn_db(db, |_conn| Ok(42i32)).await;
+    let result = stophammer::api::spawn_db(pool, |_conn| Ok(42i32)).await;
     let err = result.unwrap_err();
     assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert!(
@@ -166,8 +171,9 @@ async fn spawn_db_propagates_poisoned_mutex() {
 async fn spawn_db_mut_success() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
-    let result = stophammer::api::spawn_db_mut(db, |_conn| Ok(99i32)).await;
+    let result = stophammer::api::spawn_db_mut(pool, |_conn| Ok(99i32)).await;
     assert!(result.is_ok(), "should succeed");
     assert_eq!(result.unwrap_or(0), 99);
 }
@@ -176,6 +182,7 @@ async fn spawn_db_mut_success() {
 async fn spawn_db_mut_propagates_poisoned_mutex() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
+    let pool = common::wrap_pool(Arc::clone(&db));
 
     // Poison the mutex.
     let db2 = Arc::clone(&db);
@@ -185,7 +192,7 @@ async fn spawn_db_mut_propagates_poisoned_mutex() {
     })
     .join();
 
-    let result = stophammer::api::spawn_db_mut(db, |_conn| Ok(42i32)).await;
+    let result = stophammer::api::spawn_db_mut(pool, |_conn| Ok(42i32)).await;
     let err = result.unwrap_err();
     assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
     assert!(

@@ -138,6 +138,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
         .await;
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
@@ -148,7 +149,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
         push_timeout_secs:  0,   // immediately trigger poll
     };
 
-    let db2 = Arc::clone(&db);
+    let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
 
     let handle = tokio::spawn(async move {

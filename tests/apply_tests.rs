@@ -698,6 +698,7 @@ fn timestamp_captured_before_lock() {
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // Build a minimal ArtistUpserted event.
@@ -742,7 +743,7 @@ fn timestamp_captured_before_lock() {
         .as_secs()
         .cast_signed();
 
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(result.is_ok(), "apply_single_event should succeed");
 
     // Capture wall-clock after the call.
@@ -793,6 +794,7 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // The "real" (signed) artist — what payload_json contains.
@@ -847,7 +849,7 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
         payload_json,                     // SIGNED — must be authoritative
     };
 
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
 
     // Verify the DB contains the signed name, NOT the tampered name.
@@ -880,6 +882,7 @@ fn malformed_payload_json_is_rejected() {
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     let artist = Artist {
@@ -913,7 +916,7 @@ fn malformed_payload_json_is_rejected() {
         payload_json: "NOT VALID JSON".into(),  // garbage
     };
 
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(
         result.is_err(),
         "apply_single_event must reject events with malformed payload_json"
@@ -1012,13 +1015,14 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     use stophammer::apply::{apply_single_event, ApplyOutcome};
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
     let ev = make_feed_upserted_event(
         "dedup-evt-feed-001", "dedup-feed-1", "Original Title", "dedup", 1, now,
     );
 
     // First apply — should succeed.
-    let r1 = apply_single_event(&db, &ev).expect("first apply");
+    let r1 = apply_single_event(&pool, &ev).expect("first apply");
     assert!(matches!(r1, ApplyOutcome::Applied(_)), "first apply must be Applied");
 
     // Simulate newer data arriving via a different event.
@@ -1032,7 +1036,7 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     }
 
     // Second apply — same `event_id`, must be Duplicate and NOT overwrite.
-    let r2 = apply_single_event(&db, &ev).expect("second apply");
+    let r2 = apply_single_event(&pool, &ev).expect("second apply");
     assert!(
         matches!(r2, ApplyOutcome::Duplicate),
         "second apply of same event_id must be Duplicate"
@@ -1079,18 +1083,19 @@ fn out_of_order_event_is_rejected() {
     use stophammer::event::Event;
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
     let ev10 = make_feed_upserted_event(
         "ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now,
     );
 
     // Apply the seq=10 event first.
-    let r1 = apply_single_event(&db, &ev10).expect("apply seq=10");
+    let r1 = apply_single_event(&pool, &ev10).expect("apply seq=10");
     assert!(matches!(r1, ApplyOutcome::Applied(_)));
 
     // Replay the SAME `event_id` with a lower seq.
     let ev10_replay = Event { seq: 5, ..ev10 };
-    let r2 = apply_single_event(&db, &ev10_replay).expect("replay");
+    let r2 = apply_single_event(&pool, &ev10_replay).expect("replay");
     assert!(
         matches!(r2, ApplyOutcome::Duplicate),
         "replaying same event_id must return Duplicate regardless of seq"

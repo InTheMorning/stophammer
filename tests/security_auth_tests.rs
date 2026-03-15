@@ -93,7 +93,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex:  pubkey,
@@ -116,7 +116,7 @@ fn seed_two_feeds(conn: &rusqlite::Connection) -> (i64, i64) {
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid)
+    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
         .expect("issue token")
 }
 

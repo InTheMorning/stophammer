@@ -36,6 +36,7 @@ pub mod api;
 pub mod apply;
 pub mod community;
 pub mod db;
+pub mod db_pool;
 pub mod event;
 pub mod ingest;
 pub mod model;

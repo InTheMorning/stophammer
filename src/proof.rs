@@ -30,6 +30,25 @@ const TOKEN_TTL_SECS: i64 = 3600;
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
+// Issue-PROOF-LEVEL — 2026-03-14
+
+/// The level of ownership assurance established for this proof.
+///
+/// Tracks which verification phases have been completed. The current
+/// implementation only performs Phase 1 (RSS proof), so all tokens are
+/// issued at `RssOnly`. See ADR-0018 "Current Implementation Status"
+/// for details on the assurance gap.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProofLevel {
+    /// RSS feed proof only (Phase 1). Asserts control of the feed document.
+    RssOnly,
+    /// RSS + audio file proof (Phase 2). Asserts control of audio delivery.
+    RssAndAudio,
+    /// Full dual-location relocation proof (Phase 3).
+    RelocationProven,
+}
+
 /// A row from the `proof_challenges` table.
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
@@ -148,10 +167,12 @@ pub fn get_challenge(
 /// # Errors
 ///
 /// Returns `DbError` if the INSERT into `proof_tokens` fails.
+// Issue-PROOF-LEVEL — 2026-03-14
 pub fn issue_token(
     conn: &Connection,
     scope: &str,
     feed_guid: &str,
+    proof_level: &ProofLevel,
 ) -> Result<String, DbError> {
     let mut bytes = [0u8; 16];
     OsRng.fill_bytes(&mut bytes);
@@ -160,10 +181,17 @@ pub fn issue_token(
     let now = now_secs();
     let expires_at = now + TOKEN_TTL_SECS;
 
+    let level_value = serde_json::to_value(proof_level)
+        .map_err(|e| DbError::Other(format!("ProofLevel serialization failed: {e}")))?;
+    let level_str = level_value
+        .as_str()
+        .ok_or_else(|| DbError::Other("ProofLevel did not serialize to a JSON string".into()))?
+        .to_string();
+
     conn.execute(
-        "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![access_token, scope, feed_guid, expires_at, now],
+        "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at, proof_level) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![access_token, scope, feed_guid, expires_at, now, level_str],
     )?;
 
     Ok(access_token)
@@ -303,8 +331,6 @@ pub async fn verify_podcast_txt(
     feed_url: &str,
     token_binding: &str,
 ) -> Result<bool, String> {
-    use quick_xml::events::Event;
-    use quick_xml::Reader;
     use std::time::Duration;
     // Issue #19 chunked streaming read — 2026-03-13
     use futures_util::StreamExt;
@@ -341,84 +367,38 @@ pub async fn verify_podcast_txt(
     let body = String::from_utf8_lossy(&body_bytes);
 
     let expected_text = format!("stophammer-proof {token_binding}");
-    let mut reader = Reader::from_str(&body);
+    let txt_values = extract_podcast_txt_values(&body);
 
-    // Track namespace state: we need to find <podcast:txt> elements in the
-    // podcast namespace (https://podcastindex.org/namespace/1.0).
-    // We look for any element with local name "txt" whose namespace prefix
-    // maps to the podcast namespace URI.
-    let mut inside_podcast_txt = false;
-    let mut depth: u32 = 0;
-    let mut channel_depth: Option<u32> = None;
-    let mut found = false;
-
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(ref e)) => {
-                depth += 1;
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                if name == "channel" {
-                    channel_depth = Some(depth);
-                }
-                // Look for podcast:txt (or any prefix:txt where the prefix
-                // resolves to the podcast namespace). In practice, feeds use
-                // the "podcast:" prefix.
-                if channel_depth.is_some() && is_podcast_txt_element(&name, e, &body) {
-                    inside_podcast_txt = true;
-                }
-            }
-            Ok(Event::End(_)) => {
-                if let Some(cd) = channel_depth
-                    && depth == cd
-                {
-                    channel_depth = None;
-                }
-                inside_podcast_txt = false;
-                depth = depth.saturating_sub(1);
-            }
-            Ok(Event::Text(ref t)) if inside_podcast_txt => {
-                let text = t.unescape().unwrap_or_default();
-                let trimmed = text.trim();
-                if trimmed == expected_text {
-                    found = true;
-                    break;
-                }
-                inside_podcast_txt = false;
-            }
-            Ok(Event::Eof) => break,
-            Err(e) => return Err(format!("RSS parse error: {e}")),
-            _ => {}
-        }
-    }
-
-    Ok(found)
+    Ok(txt_values.iter().any(|v| v == &expected_text))
 }
 
-/// Check whether an XML start tag represents a `podcast:txt` element.
+// Issue-PROOF-NAMESPACE — 2026-03-14
+
+/// Extracts `<podcast:txt>` content using proper namespace resolution.
 ///
-/// Matches any element whose local name is `txt` and whose namespace prefix
-/// either:
-/// - is literally `podcast` (the conventional prefix), or
-/// - is declared with `xmlns:<prefix>="https://podcastindex.org/namespace/1.0"`
-///   in the document's `<rss>` root element.
-fn is_podcast_txt_element(
-    name: &str,
-    _event: &quick_xml::events::BytesStart<'_>,
-    rss_body: &str,
-) -> bool {
-    // Most feeds use the standard prefix "podcast:txt".
-    if name == "podcast:txt" {
-        return true;
-    }
-
-    // Handle non-standard prefixes: extract the prefix from "prefix:txt".
-    if let Some(prefix) = name.strip_suffix(":txt") {
-        // Check if this prefix is declared for the podcast namespace.
-        let ns_decl = format!("xmlns:{prefix}=\"https://podcastindex.org/namespace/1.0\"");
-        return rss_body.contains(&ns_decl);
-    }
-
-    false
+/// Handles any namespace prefix bound to `https://podcastindex.org/namespace/1.0`,
+/// not just the conventional `podcast:` prefix. Uses `roxmltree` for correct XML
+/// namespace handling instead of raw string search.
+#[must_use]
+pub fn extract_podcast_txt_values(xml: &str) -> Vec<String> {
+    const PODCAST_NS: &str = "https://podcastindex.org/namespace/1.0";
+    let doc = match roxmltree::Document::parse(xml) {
+        Ok(d) => d,
+        Err(_) => return vec![],
+    };
+    doc.descendants()
+        .filter(|n| {
+            n.is_element()
+                && n.tag_name().namespace() == Some(PODCAST_NS)
+                && n.tag_name().name() == "txt"
+        })
+        .filter_map(|n| {
+            n.text()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        })
+        .collect()
 }
 
 // ── SSRF guard — 2026-03-13 ──────────────────────────────────────────────

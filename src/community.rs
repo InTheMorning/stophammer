@@ -25,7 +25,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::{apply, db, sync};
+use crate::{apply, db, db_pool, sync};
 
 /// Seconds between retry attempts when polling for the primary's pubkey.
 ///
@@ -77,8 +77,9 @@ pub struct CommunityConfig {
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct CommunityState {
-    /// Local database handle.
-    pub db:                 db::Db,
+    /// Local database handle (WAL pool: writer + readers).
+    // Issue-WAL-POOL — 2026-03-14
+    pub db:                 db_pool::DbPool,
     /// Hex-encoded ed25519 public key of the authoritative primary node.
     pub primary_pubkey_hex: String,
     /// Unix timestamp (seconds) of the last successfully received push.
@@ -111,7 +112,7 @@ struct RegisterBody<'a> {
 /// Panics if the `reqwest::Client` cannot be built (TLS backend unavailable).
 pub async fn run_community_sync(
     config:       CommunityConfig,
-    db:           db::Db,
+    db:           db_pool::DbPool,
     pubkey_hex:   String,
     last_push_at: Arc<AtomicI64>,
     sse_registry: Option<Arc<crate::api::SseRegistry>>,
@@ -135,8 +136,9 @@ pub async fn run_community_sync(
     // 3. Load persisted cursor.
     // Mutex safety compliant — 2026-03-12
     // Issue-CURSOR-IDENTITY — 2026-03-14
-    let initial_seq = db.lock().map_or_else(|_| {
-        tracing::error!("community: db mutex poisoned; starting from seq 0");
+    // Issue-WAL-POOL — 2026-03-14: use reader for cursor lookups
+    let initial_seq = db.reader().map_or_else(|_| {
+        tracing::error!("community: db reader pool error; starting from seq 0");
         0
     }, |conn| match db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY) {
         Ok(seq) => seq,
@@ -183,14 +185,15 @@ pub async fn run_community_sync(
                         if fetched > 0 {
                             // Issue-CURSOR-IDENTITY — 2026-03-14
                             let summary =
-                                apply::apply_events(Arc::clone(&db), response.events, sse_registry.as_ref())
+                                apply::apply_events(db.clone(), response.events, sse_registry.as_ref())
                                     .await;
                             if summary.applied > 0 {
                                 // Advance last_seq from the primary's seq values.
                                 // Mutex safety compliant — 2026-03-12
                                 // Issue-CURSOR-IDENTITY — 2026-03-14
-                                let new_seq = db.lock().map_or_else(|_| {
-                                    tracing::error!(cursor = last_seq, "community: db mutex poisoned; keeping cursor");
+                                // Issue-WAL-POOL — 2026-03-14: use reader for cursor lookup
+                                let new_seq = db.reader().map_or_else(|_| {
+                                    tracing::error!(cursor = last_seq, "community: db reader pool error; keeping cursor");
                                     last_seq
                                 }, |conn| db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY).unwrap_or(last_seq));
                                 if new_seq > last_seq {
@@ -473,7 +476,7 @@ async fn handle_sync_push(
     // Issue-SSE-PUBLISH — 2026-03-14: pass SSE registry so applied events
     // are published to community-node SSE clients.
     let summary = apply::apply_events(
-        Arc::clone(&state.db),
+        state.db.clone(),
         trusted,
         state.sse_registry.as_ref(),
     ).await;

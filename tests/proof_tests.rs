@@ -104,7 +104,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex:  pubkey,
@@ -289,7 +289,7 @@ fn resolve_challenge_invalid() {
 fn issue_token_valid() {
     let conn = common::test_db();
     let token =
-        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc").unwrap();
+        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc", &stophammer::proof::ProofLevel::RssOnly).unwrap();
 
     let result = stophammer::proof::validate_token(&conn, &token, "feed:write").unwrap();
     assert_eq!(result, Some("feed-abc".to_string()));
@@ -303,7 +303,7 @@ fn issue_token_valid() {
 fn issue_token_wrong_scope() {
     let conn = common::test_db();
     let token =
-        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc").unwrap();
+        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc", &stophammer::proof::ProofLevel::RssOnly).unwrap();
 
     let result = stophammer::proof::validate_token(&conn, &token, "feed:admin").unwrap();
     assert!(result.is_none(), "wrong scope should not validate");

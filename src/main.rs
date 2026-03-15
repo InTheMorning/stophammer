@@ -9,7 +9,7 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
-use stophammer::{api, community, db, proof, signing, tls, verify};
+use stophammer::{api, community, db, db_pool, proof, signing, tls, verify};
 
 #[tokio::main]
 async fn main() {
@@ -25,25 +25,27 @@ async fn main() {
     let bind_addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8008".into());
     let node_mode = std::env::var("NODE_MODE").unwrap_or_else(|_| "primary".into());
 
-    let conn   = db::open_db(&db_path);
-    let db     = std::sync::Arc::new(std::sync::Mutex::new(conn));
+    // Issue-WAL-POOL — 2026-03-14: use DbPool (writer + reader pool) instead of
+    // single Arc<Mutex<Connection>>.
+    let pool   = db_pool::DbPool::open(std::path::Path::new(&db_path))
+        .expect("failed to open database pool");
     let signer = signing::NodeSigner::load_or_create(&key_path).expect("failed to load signing key");
     let pubkey = signer.pubkey_hex().to_string();
 
     // SP-02 pruner interval — 2026-03-13
     let prune_interval = proof::prune_interval_from_env();
-    spawn_proof_pruner(std::sync::Arc::clone(&db), prune_interval);
+    spawn_proof_pruner(pool.clone(), prune_interval);
 
     match node_mode.as_str() {
-        "community" => run_community(db, signer, pubkey, bind_addr).await,
-        _           => run_primary(db, signer, pubkey, bind_addr).await,
+        "community" => run_community(pool, signer, pubkey, bind_addr).await,
+        _           => run_primary(pool, signer, pubkey, bind_addr).await,
     }
 }
 
 // ── Primary mode ─────────────────────────────────────────────────────────────
 
 async fn run_primary(
-    db:         db::Db,
+    db:         db_pool::DbPool,
     signer:     signing::NodeSigner,
     pubkey:     String,
     bind_addr:  String,
@@ -55,9 +57,9 @@ async fn run_primary(
     let chain       = verify::build_chain(&verify::ChainSpec::from_env(), crawl_token);
 
     // Seed push_subscribers from DB at startup.
-    // Mutex safety compliant — 2026-03-12
+    // Issue-WAL-POOL — 2026-03-14: use writer for startup reads (pool not yet shared)
     let push_subscribers = {
-        let conn  = db.lock().expect("db mutex poisoned at startup");
+        let conn  = db.writer().lock().expect("db mutex poisoned at startup");
         let peers = db::get_push_peers(&conn).unwrap_or_default();
         drop(conn);
         let map: std::collections::HashMap<String, String> =
@@ -92,7 +94,7 @@ async fn run_primary(
 // ── Community mode ───────────────────────────────────────────────────────────
 
 async fn run_community(
-    db:        db::Db,
+    db:        db_pool::DbPool,
     signer:    signing::NodeSigner,
     pubkey:    String,
     bind_addr: String,
@@ -145,7 +147,7 @@ async fn run_community(
     let shared_sse_registry = std::sync::Arc::new(api::SseRegistry::new());
 
     let community_state = std::sync::Arc::new(community::CommunityState {
-        db:                 std::sync::Arc::clone(&db),
+        db:                 db.clone(),
         primary_pubkey_hex: primary_pubkey_hex.clone(),
         last_push_at:       std::sync::Arc::clone(&last_push_at),
         sse_registry:       Some(std::sync::Arc::clone(&shared_sse_registry)),
@@ -160,7 +162,7 @@ async fn run_community(
     };
 
     // Fire-and-forget sync task.
-    let db_for_sync     = std::sync::Arc::clone(&db);
+    let db_for_sync     = db.clone();
     let pubkey_for_sync = pubkey.clone();
     let lpa_for_sync    = std::sync::Arc::clone(&last_push_at);
     let sse_for_sync    = Some(std::sync::Arc::clone(&shared_sse_registry));
@@ -204,12 +206,13 @@ async fn run_community(
 // ── Proof expiry pruner ──────────────────────────────────────────────────
 
 // SP-02 pruner interval — 2026-03-13
-fn spawn_proof_pruner(db: db::Db, interval_secs: u64) {
+// Issue-WAL-POOL — 2026-03-14: pruner uses writer (it mutates proof_challenges)
+fn spawn_proof_pruner(db: db_pool::DbPool, interval_secs: u64) {
     drop(tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
         loop {
             interval.tick().await;
-            let Ok(conn) = db.lock() else {
+            let Ok(conn) = db.writer().lock() else {
                 tracing::error!("proof-pruner: db mutex poisoned, stopping pruner");
                 break;
             };

@@ -1,7 +1,30 @@
 # ADR 0018: Proof-of-Possession for Authorized Feed and Track Mutations
 
 ## Status
-Accepted (Phase 1 implemented; see Implementation Status below)
+Accepted (Phase 1 implemented; see Current Implementation Status below)
+
+## Current Implementation Status
+
+> **Only Phase 1 (RSS proof) is implemented.** The assurance model is weaker
+> than the full design described in the Decision section below.
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Phase 1** — RSS `podcast:txt` proof | Proves the requester controls the RSS feed document. The `verify_podcast_txt` function fetches the feed and checks for the token binding in a `<podcast:txt>` element at channel level. | **Implemented and active** |
+| **Phase 2** — Audio file control proof | Proves the requester controls the audio file at the enclosure URL (ID3 TXXX, FLAC comment, or header scan). Combined with Phase 1, this would prove control of both the feed and the audio delivery. | **Deferred, not yet implemented** |
+| **Phase 3** — Dual-location relocation proof | For `PATCH /feeds/{guid}` and `PATCH /tracks/{guid}`, requires the token to appear at both the old and new URL, preventing URL squatting. | **Not yet implemented** |
+
+**Assurance gap:** Until Phase 2 ships, a successful proof only demonstrates
+control of the RSS feed document. An attacker who gains write access to the
+RSS (e.g., compromised hosting credentials) but does not control the audio
+files could pass the current proof. The full design requires *both* RSS and
+audio proof to close this gap. The `proof_level` field on proof tokens
+(`ProofLevel::RssOnly`) makes this limitation machine-readable.
+
+**Relocation gap:** Until Phase 3 ships, feed URL relocations revoke all
+existing tokens and require a fresh proof against the new URL. This is a
+weaker but operationally simpler guarantee than the dual-location approach
+specified in Phase 3.
 
 ## Context
 

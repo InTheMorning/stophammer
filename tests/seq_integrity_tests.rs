@@ -164,11 +164,12 @@ fn apply_uses_wire_seq_for_cursor_after_verification() {
     use stophammer::apply::{apply_single_event, ApplyOutcome};
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     let ev = make_artist_event("seq-cursor-evt-1", "seq-cursor-a1", 42, now);
 
-    let result = apply_single_event(&db, &ev);
+    let result = apply_single_event(&pool, &ev);
     assert!(
         matches!(result, Ok(ApplyOutcome::Applied(_))),
         "apply must succeed: {result:?}"

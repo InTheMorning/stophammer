@@ -17,7 +17,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex:  pubkey,

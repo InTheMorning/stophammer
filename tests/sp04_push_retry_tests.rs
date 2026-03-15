@@ -83,6 +83,7 @@ async fn push_retry_recovers_on_second_attempt() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let pubkey = "peer-retry-ok";
     seed_peer(&db, pubkey, &push_url);
 
@@ -97,7 +98,7 @@ async fn push_retry_recovers_on_second_attempt() {
     let events = vec![make_test_event()];
 
     stophammer::api::fan_out_push_public(
-        Arc::clone(&db),
+        pool.clone(),
         client,
         Arc::clone(&subscribers),
         events,
@@ -130,6 +131,7 @@ async fn push_eviction_after_threshold() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let pubkey = "peer-always-fail";
     seed_peer(&db, pubkey, &push_url);
 
@@ -145,7 +147,7 @@ async fn push_eviction_after_threshold() {
     for _ in 0..10 {
         let events = vec![make_test_event()];
         stophammer::api::fan_out_push_public(
-            Arc::clone(&db),
+            pool.clone(),
             client.clone(),
             Arc::clone(&subscribers),
             events,
@@ -185,6 +187,7 @@ async fn push_not_evicted_at_old_threshold() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let pubkey = "peer-not-evicted-yet";
     seed_peer(&db, pubkey, &push_url);
 
@@ -200,7 +203,7 @@ async fn push_not_evicted_at_old_threshold() {
     for _ in 0..5 {
         let events = vec![make_test_event()];
         stophammer::api::fan_out_push_public(
-            Arc::clone(&db),
+            pool.clone(),
             client.clone(),
             Arc::clone(&subscribers),
             events,

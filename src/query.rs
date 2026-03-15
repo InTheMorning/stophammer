@@ -275,9 +275,9 @@ async fn handle_get_artist(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
 
@@ -381,9 +381,9 @@ async fn handle_get_artist_feeds(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
@@ -548,9 +548,9 @@ async fn handle_get_feed(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
 
@@ -740,9 +740,9 @@ async fn handle_get_track(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
 
@@ -864,9 +864,9 @@ async fn handle_get_recent(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
@@ -1050,10 +1050,10 @@ async fn handle_search(
         (None, None)
     };
 
-    let db = Arc::clone(&state.db);
-    // Mutex safety compliant — 2026-03-12
+    let pool = state.db.clone();
+    // Issue-WAL-POOL — 2026-03-14: use reader pool for search
     let results = tokio::task::spawn_blocking(move || {
-        let conn = db.lock().map_err(|_err| db::DbError::Poisoned)?;
+        let conn = pool.reader()?;
         crate::search::search(&conn, &q, kind.as_deref(), limit + 1, cursor_rank, cursor_rowid)
     })
     .await
@@ -1143,9 +1143,9 @@ async fn handle_get_peers(
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.lock().map_err(|_err| api::ApiError {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+            message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
         let mut stmt = conn.prepare(

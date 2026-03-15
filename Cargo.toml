@@ -30,6 +30,7 @@ axum-server    = { version = "0.7", features = ["tls-rustls"] }
 time           = "0.3"
 subtle         = "2"
 quick-xml      = "0.36"
+roxmltree      = "0.20"
 siphasher      = "1"
 governor       = "0.7"
 tower-http     = { version = "0.6", features = ["cors"] }
@@ -40,6 +41,8 @@ async-stream       = "0.3"
 futures-core       = "0.3"
 futures-util       = "0.3"
 url                = "2"
+r2d2               = "0.8"
+r2d2_sqlite        = "0.24"
 
 # CRIT-02 test-util feature gate — 2026-03-13
 [features]
@@ -51,6 +54,7 @@ tower          = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 http           = "1"
 wiremock        = "0.6"
+tempfile        = "3"
 
 # Rust guideline compliant (M-STATIC-VERIFICATION) — 2026-03-13
 [lints.rust]

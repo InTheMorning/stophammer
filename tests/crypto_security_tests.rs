@@ -541,7 +541,7 @@ fn proof_of_possession_issues_token_without_feed_verification() {
     // In the real flow, the assert handler would issue a token here.
     // The challenge is valid and the nonce matches -- there is no RSS verification.
     stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-    let access_token = stophammer::proof::issue_token(&conn, "feed:write", "victim-feed-guid").unwrap();
+    let access_token = stophammer::proof::issue_token(&conn, "feed:write", "victim-feed-guid", &stophammer::proof::ProofLevel::RssOnly).unwrap();
 
     // Attacker now has a valid token for the victim's feed
     let subject = stophammer::proof::validate_token(&conn, &access_token, "feed:write").unwrap();

@@ -193,7 +193,7 @@ fn community_config_has_debug() {
 fn community_state_has_debug() {
     let db = common::test_db_arc();
     let state = stophammer::community::CommunityState {
-        db,
+        db: common::wrap_pool(db),
         primary_pubkey_hex: "abcd1234".into(),
         last_push_at:       Arc::new(std::sync::atomic::AtomicI64::new(0)),
         sse_registry:       None,
@@ -250,7 +250,7 @@ fn skip_ssrf_field_available_in_test_cfg() {
     );
     let pubkey = signer.pubkey_hex().to_string();
     let _state = stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex:  pubkey,
@@ -291,7 +291,7 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
-        db,
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex:  pubkey,

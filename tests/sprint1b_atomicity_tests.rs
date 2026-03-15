@@ -62,11 +62,12 @@ fn make_artist_event(
 #[test]
 fn apply_single_event_writes_entity_event_search_quality_atomically() {
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     let ev = make_artist_event("atom-artist-1", "Atomic Artist", now);
 
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(result.is_ok(), "apply should succeed");
 
     // All four artifacts must exist: entity, event, search index, quality score
@@ -132,6 +133,7 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
 #[test]
 fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // Corrupt the events table by renaming it so INSERT fails
@@ -142,7 +144,7 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
     }
 
     let ev = make_artist_event("rollback-artist-1", "Rollback Artist", now);
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
 
     // The apply should fail because the events table is missing
     assert!(result.is_err(), "apply should fail when events table is missing");
@@ -206,6 +208,7 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
 #[test]
 fn apply_single_event_rolls_back_entity_on_search_failure() {
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
     // Drop the search_index FTS5 table so search writes fail
@@ -216,7 +219,7 @@ fn apply_single_event_rolls_back_entity_on_search_failure() {
     }
 
     let ev = make_artist_event("search-fail-artist", "Search Fail Artist", now);
-    let result = stophammer::apply::apply_single_event(&db, &ev);
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
 
     // The apply should fail because the search_index table is missing
     assert!(result.is_err(), "apply should fail when search_index is missing");
@@ -257,6 +260,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
 
     let crawl_token = "sprint1b-crawl-token";
     let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
     let signer = Arc::new(
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sprint1b-signer.key")
             .expect("create signer"),
@@ -269,7 +273,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     let state = Arc::new(stophammer::api::AppState {
-        db:               Arc::clone(&db),
+        db:               stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db)),
         chain:            Arc::new(chain),
         signer,
         node_pubkey_hex:  pubkey,

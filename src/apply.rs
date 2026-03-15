@@ -7,7 +7,7 @@
 
 use std::sync::Arc;
 
-use crate::{api, db, event, signing};
+use crate::{api, db, db_pool, event, signing};
 
 /// Fixed cursor key for primary-sync progress tracking.
 ///
@@ -57,15 +57,16 @@ pub(crate) struct ApplySummary {
 #[expect(clippy::too_many_lines, reason = "single event-application match covering all EventPayload variants")]
 #[expect(clippy::significant_drop_tightening, reason = "conn is used across the entire event-application scope")]
 // Issue-CURSOR-IDENTITY — 2026-03-14
+// Issue-WAL-POOL — 2026-03-14: accepts DbPool, uses writer for mutations
 pub fn apply_single_event(
-    db: &db::Db,
+    db: &db_pool::DbPool,
     ev: &event::Event,
 ) -> Result<ApplyOutcome, db::DbError> {
     // Timestamp ordering compliant — 2026-03-12
     let now = db::unix_now();
 
-    // Mutex safety compliant — 2026-03-12
-    let conn = db.lock().map_err(|_poison| db::DbError::Poisoned)?;
+    // Issue-WAL-POOL — 2026-03-14: use writer for event application
+    let conn = db.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
 
     // Wrap the ENTIRE body in a single transaction so all writes (entity
     // upsert + quality computation + search index + event record) are
@@ -262,8 +263,9 @@ fn upsert_artist_credit_if_absent(
 /// community-node SSE clients to receive live events.
 // Issue-SSE-PUBLISH — 2026-03-14
 // Issue-CURSOR-IDENTITY — 2026-03-14
+// Issue-WAL-POOL — 2026-03-14: accepts DbPool instead of db::Db
 pub(crate) async fn apply_events(
-    db:           db::Db,
+    db:           db_pool::DbPool,
     events:       Vec<event::Event>,
     sse_registry: Option<&Arc<api::SseRegistry>>,
 ) -> ApplySummary {
@@ -283,7 +285,7 @@ pub(crate) async fn apply_events(
         // spawn_blocking so we can publish to SSE after successful apply.
         let ev_for_sse = sse_registry.as_ref().map(|_| ev.clone());
 
-        let db2    = Arc::clone(&db);
+        let db2    = db.clone();
         let result = tokio::task::spawn_blocking(move || apply_single_event(&db2, &ev))
             .await;
 
@@ -328,16 +330,18 @@ pub(crate) async fn apply_events(
 #[expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     use crate::event::{ArtistUpsertedPayload, EventPayload, EventType};
     use crate::model::Artist;
     use crate::signing::NodeSigner;
 
-    /// Build a minimal in-memory DB for tests.
-    fn test_db() -> db::Db {
-        let conn = db::open_db(":memory:");
-        Arc::new(Mutex::new(conn))
+    /// Build a temporary file-based DB pool for tests.
+    // Issue-WAL-POOL — 2026-03-14
+    fn test_db() -> (db_pool::DbPool, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("failed to create temp dir");
+        let db_path = dir.path().join("test.db");
+        let pool = db_pool::DbPool::open(&db_path).expect("failed to open test db pool");
+        (pool, dir) // dir must be kept alive for the DB file to persist
     }
 
     /// Build a properly signed `ArtistUpserted` event.
@@ -390,15 +394,15 @@ mod tests {
     /// invisible to poll.
     #[tokio::test]
     async fn push_cursor_visible_to_poll_reader() {
-        let db = test_db();
+        let (pool, _dir) = test_db();
         let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-1.key").unwrap();
 
         let ev = make_signed_event(&signer, "evt-push-1", 42);
-        let summary = apply_events(Arc::clone(&db), vec![ev], None).await;
+        let summary = apply_events(pool.clone(), vec![ev], None).await;
         assert_eq!(summary.applied, 1, "event must be applied");
 
         // Simulate what the poll loop does: read cursor via SYNC_CURSOR_KEY.
-        let conn = db.lock().unwrap();
+        let conn = pool.reader().unwrap();
         let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
         assert_eq!(cursor, 42, "poll must see the push-advanced cursor");
     }
@@ -408,26 +412,26 @@ mod tests {
     /// cursor must return 20 (the maximum).
     #[tokio::test]
     async fn push_and_poll_share_cursor() {
-        let db = test_db();
+        let (pool, _dir) = test_db();
         let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-2.key").unwrap();
 
         // Simulate poll applying seq 10.
         let ev1 = make_signed_event(&signer, "evt-poll-1", 10);
-        let s1 = apply_events(Arc::clone(&db), vec![ev1], None).await;
+        let s1 = apply_events(pool.clone(), vec![ev1], None).await;
         assert_eq!(s1.applied, 1);
 
         {
-            let conn = db.lock().unwrap();
+            let conn = pool.reader().unwrap();
             let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
             assert_eq!(cursor, 10);
         }
 
         // Simulate push applying seq 20.
         let ev2 = make_signed_event(&signer, "evt-push-2", 20);
-        let s2 = apply_events(Arc::clone(&db), vec![ev2], None).await;
+        let s2 = apply_events(pool.clone(), vec![ev2], None).await;
         assert_eq!(s2.applied, 1);
 
-        let conn = db.lock().unwrap();
+        let conn = pool.reader().unwrap();
         let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
         assert_eq!(cursor, 20, "cursor must be the max of both paths");
     }
@@ -436,16 +440,16 @@ mod tests {
     /// must keep the higher value (monotonic advancement).
     #[tokio::test]
     async fn cursor_is_monotonic() {
-        let db = test_db();
+        let (pool, _dir) = test_db();
         let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-3.key").unwrap();
 
         let ev_high = make_signed_event(&signer, "evt-high", 100);
-        apply_events(Arc::clone(&db), vec![ev_high], None).await;
+        apply_events(pool.clone(), vec![ev_high], None).await;
 
         let ev_low = make_signed_event(&signer, "evt-low", 50);
-        apply_events(Arc::clone(&db), vec![ev_low], None).await;
+        apply_events(pool.clone(), vec![ev_low], None).await;
 
-        let conn = db.lock().unwrap();
+        let conn = pool.reader().unwrap();
         let cursor = db::get_node_sync_cursor(&conn, SYNC_CURSOR_KEY).unwrap();
         assert_eq!(cursor, 100, "cursor must not regress");
     }
