@@ -135,6 +135,8 @@ fn ingest_feed_with_tracks(
         artist_credit,
         feed,
         vec![],
+        vec![],
+        vec![],
         tracks,
         event_rows,
         signer,

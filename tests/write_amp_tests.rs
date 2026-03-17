@@ -153,7 +153,9 @@ fn ingest_and_count_track_events(
         &artist,
         &artist_credit,
         &feed_model,
+        &[], // no remote items
         &[], // no feed routes
+        &[], // no live events
         &track_tuples,
         &[], // no track credits override — use the same one
         now,
@@ -166,6 +168,8 @@ fn ingest_and_count_track_events(
         artist,
         artist_credit,
         feed_model,
+        vec![],
+        vec![],
         vec![],
         track_tuples,
         event_rows,

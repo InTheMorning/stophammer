@@ -250,6 +250,8 @@ fn ingest_transaction_feeds_get_distinct_artists() {
         vec![],
         vec![],
         vec![],
+        vec![],
+        vec![],
         &signer,
     );
     assert!(result_a.is_ok(), "ingest feed A should succeed");
@@ -293,6 +295,8 @@ fn ingest_transaction_feeds_get_distinct_artists() {
         artist_b.clone(),
         credit_b.clone(),
         feed_b,
+        vec![],
+        vec![],
         vec![],
         vec![],
         vec![],

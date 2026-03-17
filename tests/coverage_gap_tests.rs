@@ -677,7 +677,9 @@ fn medium_music_verifier_pass() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -710,7 +712,9 @@ fn medium_music_verifier_fail_podcast() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -743,7 +747,9 @@ fn medium_music_verifier_fail_absent() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -780,7 +786,9 @@ fn feed_guid_verifier_pass() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -813,7 +821,9 @@ fn feed_guid_verifier_fail_bad_guid() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -846,7 +856,9 @@ fn feed_guid_verifier_fail_invalid_uuid() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -884,6 +896,7 @@ fn v4v_payment_verifier_pass() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![stophammer::ingest::IngestPaymentRoute {
                 recipient_name: Some("Artist".into()),
                 route_type: RouteType::Keysend,
@@ -893,6 +906,7 @@ fn v4v_payment_verifier_pass() {
                 split: 100,
                 fee: false,
             }],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -925,7 +939,9 @@ fn v4v_payment_verifier_fail_no_routes() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![],
         }),
     };
@@ -962,7 +978,9 @@ fn enclosure_type_verifier_pass_audio() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t1".into(),
                 title: "Song".into(),
@@ -1010,7 +1028,9 @@ fn enclosure_type_verifier_warn_video() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-vid".into(),
                 title: "Video Song".into(),
@@ -1063,7 +1083,9 @@ fn payment_route_sum_verifier_pass() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-prs".into(),
                 title: "Song".into(),
@@ -1131,7 +1153,9 @@ fn payment_route_sum_verifier_fail_not_100() {
             author_name: None,
             owner_name: None,
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![],
+            live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-prs-fail".into(),
                 title: "Song".into(),

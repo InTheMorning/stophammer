@@ -32,6 +32,7 @@ fn sample_request() -> IngestFeedRequest {
             itunes_type: None,
             raw_medium: Some("music".into()),
             pub_date: None,
+            remote_items: vec![],
             feed_payment_routes: vec![IngestPaymentRoute {
                 recipient_name: Some("host".into()),
                 route_type: RouteType::Keysend,
@@ -42,6 +43,7 @@ fn sample_request() -> IngestFeedRequest {
                 split: 100,
                 fee: false,
             }],
+            live_items: vec![],
             tracks: vec![IngestTrackData {
                 track_guid: "t-guid-1".into(),
                 title: "Track One".into(),
