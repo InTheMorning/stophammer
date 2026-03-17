@@ -16,24 +16,19 @@ use stophammer::signing::NodeSigner;
 
 /// Build a properly signed `ArtistUpserted` event with a unique artist per
 /// `artist_suffix` so events don't collide on subject_guid.
-fn make_signed_event(
-    signer: &NodeSigner,
-    event_id: &str,
-    seq: i64,
-    artist_suffix: &str,
-) -> Event {
+fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, artist_suffix: &str) -> Event {
     let artist_id = format!("batch-artist-{artist_suffix}");
     let artist = Artist {
-        artist_id:  artist_id.clone(),
-        name:       format!("Batch Artist {artist_suffix}"),
+        artist_id: artist_id.clone(),
+        name: format!("Batch Artist {artist_suffix}"),
         name_lower: format!("batch artist {artist_suffix}"),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: 1_000_000,
         updated_at: 1_000_000,
     };
@@ -51,16 +46,16 @@ fn make_signed_event(
     );
 
     Event {
-        event_id:     event_id.into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(inner),
+        event_id: event_id.into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(inner),
         payload_json,
         subject_guid: artist_id,
         signed_by,
         signature,
         seq,
-        created_at:   1_000_000,
-        warnings:     vec![],
+        created_at: 1_000_000,
+        warnings: vec![],
     }
 }
 

@@ -1,7 +1,7 @@
 mod common;
 
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use ed25519_dalek::{Signer, SigningKey, Signature, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use rand_core::OsRng;
 use rusqlite::params;
 use sha2::{Digest, Sha256};
@@ -24,12 +24,12 @@ fn signature_bound_to_event_type() {
 
     // Sign as ArtistUpserted
     let payload_original = EventSigningPayload {
-        event_id:     "evt-1",
-        event_type:   &EventType::ArtistUpserted,
+        event_id: "evt-1",
+        event_type: &EventType::ArtistUpserted,
         payload_json,
         subject_guid: "subj-1",
-        created_at:   9999,
-        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: 9999,
+        seq: 1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized_original = serde_json::to_string(&payload_original).unwrap();
     let digest_original = Sha256::digest(serialized_original.as_bytes());
@@ -37,12 +37,12 @@ fn signature_bound_to_event_type() {
 
     // Attempt to verify as FeedUpserted (different event_type)
     let payload_tampered = EventSigningPayload {
-        event_id:     "evt-1",
-        event_type:   &EventType::FeedUpserted,
+        event_id: "evt-1",
+        event_type: &EventType::FeedUpserted,
         payload_json,
         subject_guid: "subj-1",
-        created_at:   9999,
-        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: 9999,
+        seq: 1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized_tampered = serde_json::to_string(&payload_tampered).unwrap();
     let digest_tampered = Sha256::digest(serialized_tampered.as_bytes());
@@ -63,12 +63,12 @@ fn signing_payload_serialization_is_deterministic() {
     use stophammer::event::{EventSigningPayload, EventType};
 
     let payload = EventSigningPayload {
-        event_id:     "evt-deterministic",
-        event_type:   &EventType::TrackUpserted,
+        event_id: "evt-deterministic",
+        event_type: &EventType::TrackUpserted,
         payload_json: r#"{"track_guid":"t1","title":"Test"}"#,
         subject_guid: "subj-1",
-        created_at:   12345,
-        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: 12345,
+        seq: 1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
 
     let s1 = serde_json::to_string(&payload).unwrap();
@@ -87,12 +87,12 @@ fn signing_payload_field_order_is_declaration_order() {
     use stophammer::event::{EventSigningPayload, EventType};
 
     let payload = EventSigningPayload {
-        event_id:     "evt-order",
-        event_type:   &EventType::ArtistUpserted,
+        event_id: "evt-order",
+        event_type: &EventType::ArtistUpserted,
         payload_json: "{}",
         subject_guid: "subj-1",
-        created_at:   100,
-        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: 100,
+        seq: 1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
 
     let serialized = serde_json::to_string(&payload).unwrap();
@@ -122,29 +122,26 @@ fn signing_payload_field_order_is_declaration_order() {
         subject_guid_pos < created_at_pos,
         "subject_guid must come before created_at"
     );
-    assert!(
-        created_at_pos < seq_pos,
-        "created_at must come before seq"
-    );
+    assert!(created_at_pos < seq_pos, "created_at must come before seq");
 }
 
 /// Verify that `verify_event_signature` rejects an event with empty `payload_json`.
 #[test]
 fn verify_rejects_empty_payload_json() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
     let artist = Artist {
-        artist_id:  "a1".into(),
-        name:       "Test".into(),
+        artist_id: "a1".into(),
+        name: "Test".into(),
         name_lower: "test".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: 1,
         updated_at: 1,
     };
@@ -152,22 +149,28 @@ fn verify_rejects_empty_payload_json() {
     let inner = ArtistUpsertedPayload { artist };
     let payload_json = serde_json::to_string(&inner).unwrap();
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test.key").unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test.key").unwrap();
     let (signed_by, signature) = signer.sign_event(
-        "evt-empty-pj", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
+        "evt-empty-pj",
+        &EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+        1,
     );
 
     let event = Event {
-        event_id:     "evt-empty-pj".into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(inner),
+        event_id: "evt-empty-pj".into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(inner),
         payload_json: String::new(), // empty!
         subject_guid: "subj-1".into(),
         signed_by,
         signature,
-        seq:        1,
+        seq: 1,
         created_at: 9999,
-        warnings:   vec![],
+        warnings: vec![],
     };
 
     let result = stophammer::signing::verify_event_signature(&event);
@@ -343,22 +346,23 @@ fn event_id_primary_key_prevents_duplicates() {
 /// This is the comprehensive version covering all fields.
 #[test]
 fn signature_covers_all_payload_fields() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-2.key").unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-2.key").unwrap();
 
     let artist = Artist {
-        artist_id:  "a1".into(),
-        name:       "Test".into(),
+        artist_id: "a1".into(),
+        name: "Test".into(),
         name_lower: "test".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: 1,
         updated_at: 1,
     };
@@ -367,62 +371,101 @@ fn signature_covers_all_payload_fields() {
     let payload_json = serde_json::to_string(&inner).unwrap();
 
     let (signed_by, signature) = signer.sign_event(
-        "evt-fields", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
+        "evt-fields",
+        &EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+        1,
     );
 
     // Helper: build event with given overrides
-    let make_event = |event_id: &str, event_type: EventType, pj: &str, sg: &str, ca: i64| {
-        Event {
-            event_id:     event_id.into(),
-            event_type,
-            payload:      EventPayload::ArtistUpserted(inner.clone()),
-            payload_json: pj.into(),
-            subject_guid: sg.into(),
-            signed_by:    signed_by.clone(),
-            signature:    signature.clone(),
-            seq:          1,
-            created_at:   ca,
-            warnings:     vec![],
-        }
+    let make_event = |event_id: &str, event_type: EventType, pj: &str, sg: &str, ca: i64| Event {
+        event_id: event_id.into(),
+        event_type,
+        payload: EventPayload::ArtistUpserted(inner.clone()),
+        payload_json: pj.into(),
+        subject_guid: sg.into(),
+        signed_by: signed_by.clone(),
+        signature: signature.clone(),
+        seq: 1,
+        created_at: ca,
+        warnings: vec![],
     };
 
     // Original should verify
-    let original = make_event("evt-fields", EventType::ArtistUpserted, &payload_json, "subj-1", 9999);
+    let original = make_event(
+        "evt-fields",
+        EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&original).is_ok(),
         "original event should verify"
     );
 
     // Tamper event_id
-    let tampered_id = make_event("evt-TAMPERED", EventType::ArtistUpserted, &payload_json, "subj-1", 9999);
+    let tampered_id = make_event(
+        "evt-TAMPERED",
+        EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&tampered_id).is_err(),
         "tampered event_id must break signature"
     );
 
     // Tamper event_type
-    let tampered_type = make_event("evt-fields", EventType::FeedUpserted, &payload_json, "subj-1", 9999);
+    let tampered_type = make_event(
+        "evt-fields",
+        EventType::FeedUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&tampered_type).is_err(),
         "tampered event_type must break signature"
     );
 
     // Tamper payload_json
-    let tampered_payload = make_event("evt-fields", EventType::ArtistUpserted, r#"{"tampered":true}"#, "subj-1", 9999);
+    let tampered_payload = make_event(
+        "evt-fields",
+        EventType::ArtistUpserted,
+        r#"{"tampered":true}"#,
+        "subj-1",
+        9999,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&tampered_payload).is_err(),
         "tampered payload_json must break signature"
     );
 
     // Tamper subject_guid
-    let tampered_guid = make_event("evt-fields", EventType::ArtistUpserted, &payload_json, "TAMPERED", 9999);
+    let tampered_guid = make_event(
+        "evt-fields",
+        EventType::ArtistUpserted,
+        &payload_json,
+        "TAMPERED",
+        9999,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&tampered_guid).is_err(),
         "tampered subject_guid must break signature"
     );
 
     // Tamper created_at
-    let tampered_ts = make_event("evt-fields", EventType::ArtistUpserted, &payload_json, "subj-1", 0);
+    let tampered_ts = make_event(
+        "evt-fields",
+        EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        0,
+    );
     assert!(
         stophammer::signing::verify_event_signature(&tampered_ts).is_err(),
         "tampered created_at must break signature"
@@ -441,12 +484,12 @@ fn content_hash_not_in_signing_payload() {
     use stophammer::event::{EventSigningPayload, EventType};
 
     let payload = EventSigningPayload {
-        event_id:     "evt-hash",
-        event_type:   &EventType::FeedUpserted,
+        event_id: "evt-hash",
+        event_type: &EventType::FeedUpserted,
         payload_json: "{}",
         subject_guid: "subj-1",
-        created_at:   100,
-        seq:          1, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: 100,
+        seq: 1, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized = serde_json::to_string(&payload).unwrap();
 
@@ -490,12 +533,12 @@ fn nonce_with_non_base64_chars_does_not_crash() {
 fn recompute_binding_adversarial_inputs() {
     // Various malformed stored_binding strings
     let cases = [
-        ("", false),               // empty string -- no dot
-        (".", false),              // just a dot -- both parts empty
-        (".hash", false),          // empty base_token
-        ("token.", false),         // empty hash_part
-        ("a.b", true),            // minimal valid
-        ("a.b.c.d", true),        // extra dots -- split_once takes first
+        ("", false),       // empty string -- no dot
+        (".", false),      // just a dot -- both parts empty
+        (".hash", false),  // empty base_token
+        ("token.", false), // empty hash_part
+        ("a.b", true),     // minimal valid
+        ("a.b.c.d", true), // extra dots -- split_once takes first
     ];
 
     for (input, should_be_some) in &cases {
@@ -526,9 +569,13 @@ fn proof_of_possession_issues_token_without_feed_verification() {
 
     // Attacker creates a challenge for a feed they don't own
     let attacker_nonce = "attacker-nonce-1234";
-    let (challenge_id, token_binding) =
-        stophammer::proof::create_challenge(&conn, "victim-feed-guid", "feed:write", attacker_nonce)
-            .unwrap();
+    let (challenge_id, token_binding) = stophammer::proof::create_challenge(
+        &conn,
+        "victim-feed-guid",
+        "feed:write",
+        attacker_nonce,
+    )
+    .unwrap();
 
     // Attacker can recompute the binding (they know the nonce, the binding was returned)
     let recomputed = stophammer::proof::recompute_binding(&token_binding, attacker_nonce);
@@ -541,7 +588,13 @@ fn proof_of_possession_issues_token_without_feed_verification() {
     // In the real flow, the assert handler would issue a token here.
     // The challenge is valid and the nonce matches -- there is no RSS verification.
     stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-    let access_token = stophammer::proof::issue_token(&conn, "feed:write", "victim-feed-guid", &stophammer::proof::ProofLevel::RssOnly).unwrap();
+    let access_token = stophammer::proof::issue_token(
+        &conn,
+        "feed:write",
+        "victim-feed-guid",
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .unwrap();
 
     // Attacker now has a valid token for the victim's feed
     let subject = stophammer::proof::validate_token(&conn, &access_token, "feed:write").unwrap();
@@ -569,14 +622,18 @@ fn resolved_challenge_cannot_be_replayed() {
     stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
 
     // Verify it's now "valid"
-    let ch = stophammer::proof::get_challenge(&conn, &challenge_id).unwrap().unwrap();
+    let ch = stophammer::proof::get_challenge(&conn, &challenge_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(ch.state, "valid");
 
     // Second resolve_challenge is a no-op (WHERE state = 'pending' won't match)
     stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
 
     // The state doesn't change and no error is thrown -- this is correct behavior
-    let ch2 = stophammer::proof::get_challenge(&conn, &challenge_id).unwrap().unwrap();
+    let ch2 = stophammer::proof::get_challenge(&conn, &challenge_id)
+        .unwrap()
+        .unwrap();
     assert_eq!(ch2.state, "valid");
 }
 
@@ -589,24 +646,25 @@ fn resolved_challenge_cannot_be_replayed() {
 /// a full community node in unit tests.
 #[test]
 fn verify_event_signature_rejects_unknown_signer() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-3.key").unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-3.key").unwrap();
     let attacker_key = SigningKey::generate(&mut OsRng);
     let attacker_pubkey = hex::encode(attacker_key.verifying_key().to_bytes());
 
     let artist = Artist {
-        artist_id:  "a1".into(),
-        name:       "Test".into(),
+        artist_id: "a1".into(),
+        name: "Test".into(),
         name_lower: "test".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: 1,
         updated_at: 1,
     };
@@ -615,21 +673,26 @@ fn verify_event_signature_rejects_unknown_signer() {
     let payload_json = serde_json::to_string(&inner).unwrap();
 
     let (_, signature) = signer.sign_event(
-        "evt-unknown", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
+        "evt-unknown",
+        &EventType::ArtistUpserted,
+        &payload_json,
+        "subj-1",
+        9999,
+        1,
     );
 
     // Build event with attacker's pubkey but legitimate node's signature
     let event = Event {
-        event_id:     "evt-unknown".into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(inner),
+        event_id: "evt-unknown".into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(inner),
         payload_json,
         subject_guid: "subj-1".into(),
-        signed_by:    attacker_pubkey, // wrong key
-        signature,                      // signature from different key
-        seq:          1,
-        created_at:   9999,
-        warnings:     vec![],
+        signed_by: attacker_pubkey, // wrong key
+        signature,                  // signature from different key
+        seq: 1,
+        created_at: 9999,
+        warnings: vec![],
     };
 
     let result = stophammer::signing::verify_event_signature(&event);
@@ -668,7 +731,10 @@ fn siphash_rowid_is_always_positive() {
     ];
     for (et, eid) in &test_cases {
         let rowid = stophammer::search::rowid_for(et, eid);
-        assert!(rowid >= 0, "rowid must be non-negative, got {rowid} for ({et}, {eid})");
+        assert!(
+            rowid >= 0,
+            "rowid must be non-negative, got {rowid} for ({et}, {eid})"
+        );
     }
 }
 

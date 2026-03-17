@@ -32,8 +32,7 @@ async fn verify_podcast_txt_redirect_to_loopback_blocked() {
     // The mock returns a 302 redirect to a loopback address.
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://127.0.0.1:9999/secret"),
+            ResponseTemplate::new(302).insert_header("Location", "http://127.0.0.1:9999/secret"),
         )
         .mount(&mock_server)
         .await;
@@ -92,8 +91,7 @@ async fn verify_podcast_txt_redirect_to_private_10_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://10.0.0.1:8080/internal"),
+            ResponseTemplate::new(302).insert_header("Location", "http://10.0.0.1:8080/internal"),
         )
         .mount(&mock_server)
         .await;
@@ -118,8 +116,7 @@ async fn verify_podcast_txt_redirect_to_private_192_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://192.168.1.1/admin"),
+            ResponseTemplate::new(302).insert_header("Location", "http://192.168.1.1/admin"),
         )
         .mount(&mock_server)
         .await;
@@ -143,10 +140,7 @@ async fn verify_podcast_txt_redirect_to_file_scheme_blocked() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "file:///etc/passwd"),
-        )
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "file:///etc/passwd"))
         .mount(&mock_server)
         .await;
 
@@ -217,8 +211,7 @@ async fn verify_podcast_txt_chained_redirect_to_private_blocked() {
     // hop independently).
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://172.16.0.1/internal"),
+            ResponseTemplate::new(302).insert_header("Location", "http://172.16.0.1/internal"),
         )
         .mount(&mock_server)
         .await;
@@ -279,16 +272,12 @@ async fn verify_podcast_txt_max_redirects_enforced() {
     // Mock server that always redirects to itself -- should hit the max.
     let uri = mock_server.uri();
     Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", &*uri),
-        )
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", &*uri))
         .mount(&mock_server)
         .await;
 
     let client = stophammer::proof::build_ssrf_safe_client();
-    let result =
-        stophammer::proof::verify_podcast_txt(&client, &uri, "token.hash").await;
+    let result = stophammer::proof::verify_podcast_txt(&client, &uri, "token.hash").await;
 
     assert!(
         result.is_err(),
@@ -312,8 +301,7 @@ async fn pinned_redirect_to_loopback_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://127.0.0.1:9999/secret"),
+            ResponseTemplate::new(302).insert_header("Location", "http://127.0.0.1:9999/secret"),
         )
         .mount(&mock_server)
         .await;
@@ -379,8 +367,7 @@ async fn pinned_redirect_to_private_10_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://10.0.0.1:8080/internal"),
+            ResponseTemplate::new(302).insert_header("Location", "http://10.0.0.1:8080/internal"),
         )
         .mount(&mock_server)
         .await;
@@ -410,8 +397,7 @@ async fn pinned_redirect_to_private_192_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://192.168.1.1/admin"),
+            ResponseTemplate::new(302).insert_header("Location", "http://192.168.1.1/admin"),
         )
         .mount(&mock_server)
         .await;
@@ -440,10 +426,7 @@ async fn pinned_redirect_to_file_scheme_blocked() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "file:///etc/passwd"),
-        )
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", "file:///etc/passwd"))
         .mount(&mock_server)
         .await;
 
@@ -523,21 +506,13 @@ async fn pinned_max_redirects_enforced() {
     // redirect depth -- both are valid termination conditions.
     let uri = mock_server.uri();
     Mock::given(method("GET"))
-        .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", &*uri),
-        )
+        .respond_with(ResponseTemplate::new(302).insert_header("Location", &*uri))
         .mount(&mock_server)
         .await;
 
     let (host, addrs) = mock_server_host_and_addrs(&mock_server);
-    let result = stophammer::proof::verify_podcast_txt_pinned(
-        &uri,
-        "token.hash",
-        &host,
-        &addrs,
-    )
-    .await;
+    let result =
+        stophammer::proof::verify_podcast_txt_pinned(&uri, "token.hash", &host, &addrs).await;
 
     assert!(
         result.is_err(),
@@ -565,8 +540,7 @@ async fn pinned_max_redirects_enforced_non_private() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", &*format!("{uri}/other")),
+            ResponseTemplate::new(302).insert_header("Location", &*format!("{uri}/other")),
         )
         .mount(&mock_server)
         .await;
@@ -602,8 +576,7 @@ async fn pinned_redirect_to_private_172_blocked() {
 
     Mock::given(method("GET"))
         .respond_with(
-            ResponseTemplate::new(302)
-                .insert_header("Location", "http://172.16.0.1/internal"),
+            ResponseTemplate::new(302).insert_header("Location", "http://172.16.0.1/internal"),
         )
         .mount(&mock_server)
         .await;

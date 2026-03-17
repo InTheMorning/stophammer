@@ -53,12 +53,12 @@ pub enum ProofLevel {
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct ChallengeRow {
-    pub challenge_id:  String,
-    pub feed_guid:     String,
-    pub scope:         String,
+    pub challenge_id: String,
+    pub feed_guid: String,
+    pub scope: String,
     pub token_binding: String,
-    pub state:         String,
-    pub expires_at:    i64,
+    pub state: String,
+    pub expires_at: i64,
 }
 
 // ── Challenge helpers ──────────────────────────────────────────────────────
@@ -144,12 +144,12 @@ pub fn get_challenge(
             params![challenge_id, now],
             |r| {
                 Ok(ChallengeRow {
-                    challenge_id:  r.get(0)?,
-                    feed_guid:     r.get(1)?,
-                    scope:         r.get(2)?,
+                    challenge_id: r.get(0)?,
+                    feed_guid: r.get(1)?,
+                    scope: r.get(2)?,
                     token_binding: r.get(3)?,
-                    state:         r.get(4)?,
-                    expires_at:    r.get(5)?,
+                    state: r.get(4)?,
+                    expires_at: r.get(5)?,
                 })
             },
         )
@@ -236,10 +236,7 @@ pub fn validate_token(
 /// # Errors
 ///
 /// Returns `DbError` if the DELETE statement fails.
-pub fn revoke_tokens_for_feed(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<usize, DbError> {
+pub fn revoke_tokens_for_feed(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
     let rows = conn.execute(
         "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
         params![feed_guid],
@@ -428,8 +425,7 @@ const REDIRECT_CHAIN_TIMEOUT_SECS: u64 = 30;
 /// Returns a human-readable error string if the URL is rejected.
 // Issue-SSRF-REDIRECT — 2026-03-15: now returns resolved addresses for DNS pinning
 pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, String> {
-    let url = url::Url::parse(feed_url)
-        .map_err(|e| format!("invalid feed URL: {e}"))?;
+    let url = url::Url::parse(feed_url).map_err(|e| format!("invalid feed URL: {e}"))?;
 
     // Scheme check: only http and https are allowed.
     match url.scheme() {
@@ -437,7 +433,8 @@ pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, St
         scheme => return Err(format!("disallowed URL scheme: {scheme}")),
     }
 
-    let host = url.host_str()
+    let host = url
+        .host_str()
         .ok_or_else(|| "feed URL has no host".to_string())?;
 
     // Check literal IP addresses against private/reserved ranges.
@@ -457,7 +454,10 @@ pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, St
         let resolved: Vec<std::net::SocketAddr> = addrs.collect();
         for addr in &resolved {
             if is_private_ip(addr.ip()) {
-                return Err(format!("feed URL hostname resolves to private/reserved IP: {}", addr.ip()));
+                return Err(format!(
+                    "feed URL hostname resolves to private/reserved IP: {}",
+                    addr.ip()
+                ));
             }
         }
         return Ok(resolved);
@@ -595,13 +595,16 @@ pub fn build_ssrf_safe_client_pinned(
 ///
 /// Returns a human-readable error string if the URL has no host, uses a
 /// disallowed scheme, or resolves to a private/reserved IP.
-pub fn resolve_and_validate_url(url: &url::Url) -> Result<(String, Vec<std::net::SocketAddr>), String> {
+pub fn resolve_and_validate_url(
+    url: &url::Url,
+) -> Result<(String, Vec<std::net::SocketAddr>), String> {
     match url.scheme() {
         "http" | "https" => {}
         scheme => return Err(format!("disallowed URL scheme: {scheme}")),
     }
 
-    let host = url.host_str()
+    let host = url
+        .host_str()
         .ok_or_else(|| "URL has no host".to_string())?
         .to_string();
 
@@ -628,7 +631,10 @@ pub fn resolve_and_validate_url(url: &url::Url) -> Result<(String, Vec<std::net:
 
     for addr in &addrs {
         if is_private_ip(addr.ip()) {
-            return Err(format!("URL hostname resolves to private/reserved IP: {}", addr.ip()));
+            return Err(format!(
+                "URL hostname resolves to private/reserved IP: {}",
+                addr.ip()
+            ));
         }
     }
 
@@ -690,7 +696,8 @@ pub async fn fetch_with_pinned_redirects(
     let mut current_addrs = initial_addrs.to_vec();
 
     for hop in 0..=max_redirects {
-        let remaining = deadline.checked_duration_since(Instant::now())
+        let remaining = deadline
+            .checked_duration_since(Instant::now())
             .unwrap_or(Duration::ZERO);
         if remaining.is_zero() {
             return Err("redirect chain timed out".to_string());
@@ -749,9 +756,10 @@ pub async fn fetch_with_pinned_redirects(
             .map_err(|e| format!("invalid Location header: {e}"))?;
 
         // Resolve relative URLs against the current URL.
-        let base = url::Url::parse(&current_url)
-            .map_err(|e| format!("invalid current URL: {e}"))?;
-        let next_url = base.join(location)
+        let base =
+            url::Url::parse(&current_url).map_err(|e| format!("invalid current URL: {e}"))?;
+        let next_url = base
+            .join(location)
             .map_err(|e| format!("invalid redirect Location: {e}"))?;
 
         // Validate and resolve DNS for the redirect target, pinning the result.
@@ -839,11 +847,12 @@ impl std::error::Error for SsrfRedirectError {}
 ///
 /// Returns a human-readable error string if the URL is rejected.
 pub fn validate_node_url(node_url: &str) -> Result<(), String> {
-    let url = url::Url::parse(node_url)
-        .map_err(|e| format!("invalid node URL: {e}"))?;
+    let url = url::Url::parse(node_url).map_err(|e| format!("invalid node URL: {e}"))?;
 
     if !is_url_ssrf_safe(&url) {
-        return Err(format!("node URL rejected: targets a private/reserved address or uses a disallowed scheme: {node_url}"));
+        return Err(format!(
+            "node URL rejected: targets a private/reserved address or uses a disallowed scheme: {node_url}"
+        ));
     }
 
     Ok(())

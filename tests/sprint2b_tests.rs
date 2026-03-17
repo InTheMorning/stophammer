@@ -74,31 +74,31 @@ async fn apply_single_event_with_poisoned_mutex_returns_error() {
     // the test actually reaches the poisoned-mutex lock.
     let inner = event::ArtistUpsertedPayload {
         artist: stophammer::model::Artist {
-            artist_id:  "test-artist".into(),
-            name:       "Test Artist".into(),
+            artist_id: "test-artist".into(),
+            name: "Test Artist".into(),
             name_lower: "test artist".into(),
-            sort_name:  None,
-            type_id:    None,
-            area:       None,
-            img_url:    None,
-            url:        None,
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
             begin_year: None,
-            end_year:   None,
+            end_year: None,
             created_at: 0,
             updated_at: 0,
         },
     };
     let payload_json = serde_json::to_string(&inner).expect("serialize inner");
     let ev = event::Event {
-        event_id:     "test-event-id".into(),
-        event_type:   event::EventType::ArtistUpserted,
-        payload:      event::EventPayload::ArtistUpserted(inner),
+        event_id: "test-event-id".into(),
+        event_type: event::EventType::ArtistUpserted,
+        payload: event::EventPayload::ArtistUpserted(inner),
         subject_guid: "test-artist".into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "badsig".into(),
-        seq:          1,
-        created_at:   0,
-        warnings:     vec![],
+        signed_by: "deadbeef".into(),
+        signature: "badsig".into(),
+        seq: 1,
+        created_at: 0,
+        warnings: vec![],
         payload_json,
     };
 
@@ -134,10 +134,8 @@ async fn spawn_db_propagates_db_error() {
     let db: db::Db = Arc::new(Mutex::new(conn));
     let pool = common::wrap_pool(Arc::clone(&db));
 
-    let result: Result<i32, _> = stophammer::api::spawn_db(pool, |_conn| {
-        Err(db::DbError::Poisoned)
-    })
-    .await;
+    let result: Result<i32, _> =
+        stophammer::api::spawn_db(pool, |_conn| Err(db::DbError::Poisoned)).await;
 
     let err = result.unwrap_err();
     assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);

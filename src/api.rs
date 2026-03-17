@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full spawn_blocking scope")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full spawn_blocking scope"
+)]
 
 //! Axum HTTP router, handlers, and shared application state.
 //!
@@ -18,18 +21,18 @@ use std::sync::{Arc, LazyLock, RwLock};
 use std::time::Duration;
 
 use axum::{
+    Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
-    http::{header, HeaderMap, HeaderValue, Method, StatusCode},
+    http::{HeaderMap, HeaderValue, Method, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{delete, get, patch, post},
-    Json, Router,
 };
-use tower_http::cors::{Any, CorsLayer};
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
+use tower_http::cors::{Any, CorsLayer};
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use crate::{db, db_pool, event, ingest, model, proof, query, signing, sync, verify};
@@ -94,7 +97,12 @@ impl std::fmt::Debug for SseRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SseRegistry")
             .field("artist_count", &self.artist_count())
-            .field("active_connections", &self.active_connections.load(std::sync::atomic::Ordering::Relaxed))
+            .field(
+                "active_connections",
+                &self
+                    .active_connections
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -113,7 +121,8 @@ impl SseRegistry {
     /// Returns the current number of active SSE connections.
     #[must_use]
     pub fn active_connections(&self) -> usize {
-        self.active_connections.load(std::sync::atomic::Ordering::Relaxed)
+        self.active_connections
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Attempts to acquire an SSE connection slot. Returns `true` if the
@@ -121,23 +130,24 @@ impl SseRegistry {
     // Issue #23 atomic TOCTOU fix — 2026-03-13
     pub fn try_acquire_connection(&self) -> bool {
         self.active_connections
-            .fetch_update(std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire, |current| {
-                (current < MAX_SSE_CONNECTIONS).then(|| current + 1)
-            })
+            .fetch_update(
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+                |current| (current < MAX_SSE_CONNECTIONS).then(|| current + 1),
+            )
             .is_ok()
     }
 
     /// Releases an SSE connection slot when a client disconnects.
     pub fn release_connection(&self) {
-        self.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        self.active_connections
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Returns the number of unique artist entries in the registry.
     #[must_use]
     pub fn artist_count(&self) -> usize {
-        self.senders.read()
-            .map(|g| g.len())
-            .unwrap_or(0)
+        self.senders.read().map(|g| g.len()).unwrap_or(0)
     }
 
     /// Returns a broadcast receiver for the given artist. Creates the channel
@@ -153,7 +163,10 @@ impl SseRegistry {
             }
         }
         // Slow path: create channel under write lock.
-        let mut guard = self.senders.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut guard = self
+            .senders
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check if another thread created it while we waited for the write lock.
         if let Some(tx) = guard.get(artist_id) {
             return Some(tx.subscribe());
@@ -187,7 +200,10 @@ impl SseRegistry {
         // Publish always creates channels (these are real events from ingest),
         // but is also bounded by MAX_SSE_REGISTRY_ARTISTS.
         if !sent {
-            let mut guard = self.senders.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let mut guard = self
+                .senders
+                .write()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if let Some(tx) = guard.get(artist_id) {
                 let _ = tx.send(frame.clone());
             } else if guard.len() < MAX_SSE_REGISTRY_ARTISTS {
@@ -204,7 +220,10 @@ impl SseRegistry {
         }
 
         // Append to ring buffer.
-        let mut rb_guard = self.ring_buffers.write().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut rb_guard = self
+            .ring_buffers
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Also enforce the same limit on ring buffers.
         if !rb_guard.contains_key(artist_id) && rb_guard.len() >= MAX_SSE_REGISTRY_ARTISTS {
             return;
@@ -221,7 +240,10 @@ impl SseRegistry {
     /// Returns cloned recent events for replay (bounded by `SSE_RING_BUFFER_SIZE`).
     #[must_use]
     pub fn recent_events(&self, artist_id: &str) -> Vec<SseFrame> {
-        let guard = self.ring_buffers.read().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let guard = self
+            .ring_buffers
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard
             .get(artist_id)
             .map(|buf| buf.iter().cloned().collect())
@@ -252,20 +274,18 @@ fn extract_artist_ids(ev: &event::Event) -> Vec<String> {
         event::EventPayload::FeedUpserted(p) => {
             vec![p.artist.artist_id.clone()]
         }
-        event::EventPayload::TrackUpserted(p) => {
-            p.artist_credit
-                .names
-                .iter()
-                .map(|n| n.artist_id.clone())
-                .collect()
-        }
-        event::EventPayload::ArtistCreditCreated(p) => {
-            p.artist_credit
-                .names
-                .iter()
-                .map(|n| n.artist_id.clone())
-                .collect()
-        }
+        event::EventPayload::TrackUpserted(p) => p
+            .artist_credit
+            .names
+            .iter()
+            .map(|n| n.artist_id.clone())
+            .collect(),
+        event::EventPayload::ArtistCreditCreated(p) => p
+            .artist_credit
+            .names
+            .iter()
+            .map(|n| n.artist_id.clone())
+            .collect(),
         event::EventPayload::ArtistMerged(p) => {
             vec![p.target_artist_id.clone()]
         }
@@ -289,10 +309,13 @@ pub fn publish_events_to_sse(registry: &SseRegistry, events: &[event::Event]) {
             continue;
         }
         let frame = SseFrame {
-            event_type:   serde_json::to_string(&ev.event_type).unwrap_or_default().trim_matches('"').to_string(),
+            event_type: serde_json::to_string(&ev.event_type)
+                .unwrap_or_default()
+                .trim_matches('"')
+                .to_string(),
             subject_guid: ev.subject_guid.clone(),
-            payload:      serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
-            seq:          ev.seq,
+            payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
+            seq: ev.seq,
         };
         for artist_id in &artist_ids {
             registry.publish(artist_id, frame.clone());
@@ -318,11 +341,7 @@ pub fn rate_limit_config() -> (u32, u32) {
 }
 
 /// Per-IP token-bucket rate limiter keyed by `String` (IP address).
-pub type IpRateLimiter = RateLimiter<
-    String,
-    DefaultKeyedStateStore<String>,
-    DefaultClock,
->;
+pub type IpRateLimiter = RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>;
 
 /// Builds a keyed (per-IP) governor rate limiter with the given `rps` and `burst`.
 ///
@@ -339,9 +358,7 @@ pub fn build_rate_limiter(rps: u32, burst: u32) -> IpRateLimiter {
     let quota = Quota::per_second(
         NonZeroU32::new(rps).unwrap_or(NonZeroU32::new(50).expect("50 is nonzero")),
     )
-    .allow_burst(
-        NonZeroU32::new(burst).unwrap_or(NonZeroU32::new(100).expect("100 is nonzero")),
-    );
+    .allow_burst(NonZeroU32::new(burst).unwrap_or(NonZeroU32::new(100).expect("100 is nonzero")));
     RateLimiter::keyed(quota)
 }
 
@@ -382,22 +399,22 @@ const MAX_NONCE_BYTES: usize = 256;
 pub struct AppState {
     /// SQLite WAL connection pool (writer singleton + reader pool).
     // Issue-WAL-POOL — 2026-03-14
-    pub db:              db_pool::DbPool,
+    pub db: db_pool::DbPool,
     /// Ordered chain of verifiers that must all pass before an ingest is accepted.
-    pub chain:           Arc<verify::VerifierChain>,
+    pub chain: Arc<verify::VerifierChain>,
     /// Signs event payloads with this node's ed25519 key.
-    pub signer:          Arc<signing::NodeSigner>,
+    pub signer: Arc<signing::NodeSigner>,
     /// Hex-encoded ed25519 public key identifying this node in the network.
     pub node_pubkey_hex: String,
     /// Token required in `X-Admin-Token` for admin endpoints.
-    pub admin_token:     String,
+    pub admin_token: String,
     // Finding-3 separate sync token — 2026-03-13
     /// Optional dedicated token for `POST /sync/register` (`X-Sync-Token` header).
     /// When `Some`, only this token is accepted for sync registration.
     /// When `None`, falls back to `admin_token` for backward compatibility.
-    pub sync_token:      Option<String>,
+    pub sync_token: Option<String>,
     /// HTTP client used for push fan-out to peer community nodes.
-    pub push_client:     reqwest::Client,
+    pub push_client: reqwest::Client,
     /// In-memory cache of active push peers: pubkey → push URL.
     pub push_subscribers: Arc<RwLock<HashMap<String, String>>>,
     /// FG-02 SSE artist follow — 2026-03-13
@@ -418,7 +435,7 @@ pub struct AppState {
 #[derive(Debug)]
 pub struct ApiError {
     /// HTTP status code sent to the client.
-    pub status:  StatusCode,
+    pub status: StatusCode,
     /// Human-readable error message included in the JSON body.
     pub message: String,
     /// Optional `WWW-Authenticate` header value for 401/403 responses (RFC 6750 section 3).
@@ -433,7 +450,9 @@ struct ErrorBody {
 impl IntoResponse for ApiError {
     // RFC 6750 compliant — 2026-03-12
     fn into_response(self) -> Response {
-        let body = Json(ErrorBody { error: self.message });
+        let body = Json(ErrorBody {
+            error: self.message,
+        });
         if let Some(challenge) = self.www_authenticate {
             let mut headers = HeaderMap::new();
             headers.insert("WWW-Authenticate", challenge);
@@ -449,12 +468,12 @@ impl From<db::DbError> for ApiError {
     fn from(e: db::DbError) -> Self {
         let message = match e {
             db::DbError::Rusqlite(inner) => format!("database error: {inner}"),
-            db::DbError::Json(inner)     => format!("json error: {inner}"),
-            db::DbError::Poisoned        => "database mutex poisoned".to_string(),
-            db::DbError::Other(msg)      => msg,
+            db::DbError::Json(inner) => format!("json error: {inner}"),
+            db::DbError::Poisoned => "database mutex poisoned".to_string(),
+            db::DbError::Other(msg) => msg,
         };
         Self {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message,
             www_authenticate: None,
         }
@@ -489,7 +508,7 @@ where
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?
@@ -515,12 +534,15 @@ where
     T: Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let conn = pool.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
+        let conn = pool
+            .writer()
+            .lock()
+            .map_err(|_poison| db::DbError::Poisoned)?;
         f(&conn)
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?
@@ -544,12 +566,15 @@ where
     T: Send + 'static,
 {
     tokio::task::spawn_blocking(move || {
-        let mut conn = pool.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
+        let mut conn = pool
+            .writer()
+            .lock()
+            .map_err(|_poison| db::DbError::Poisoned)?;
         f(&mut conn)
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?
@@ -565,7 +590,8 @@ fn build_cors_layer() -> CorsLayer {
 
     let cors = match std::env::var("CORS_ALLOW_ORIGIN") {
         Ok(origin) if !origin.is_empty() => {
-            let header_value: HeaderValue = origin.parse()
+            let header_value: HeaderValue = origin
+                .parse()
                 .expect("CORS_ALLOW_ORIGIN must be a valid header value");
             cors.allow_origin(header_value)
         }
@@ -573,20 +599,20 @@ fn build_cors_layer() -> CorsLayer {
     };
 
     cors.allow_methods([
-            Method::GET,
-            Method::POST,
-            Method::PATCH,
-            Method::DELETE,
-            Method::OPTIONS,
-        ])
-        .allow_headers([
-            header::AUTHORIZATION,
-            header::CONTENT_TYPE,
-            axum::http::HeaderName::from_static("x-admin-token"),
-            // Finding-3 separate sync token — 2026-03-13
-            axum::http::HeaderName::from_static("x-sync-token"),
-        ])
-        .max_age(Duration::from_secs(CORS_MAX_AGE_SECS))
+        Method::GET,
+        Method::POST,
+        Method::PATCH,
+        Method::DELETE,
+        Method::OPTIONS,
+    ])
+    .allow_headers([
+        header::AUTHORIZATION,
+        header::CONTENT_TYPE,
+        axum::http::HeaderName::from_static("x-admin-token"),
+        // Finding-3 separate sync token — 2026-03-13
+        axum::http::HeaderName::from_static("x-sync-token"),
+    ])
+    .max_age(Duration::from_secs(CORS_MAX_AGE_SECS))
 }
 
 // ── Router ────────────────────────────────────────────────────────────────────
@@ -594,22 +620,28 @@ fn build_cors_layer() -> CorsLayer {
 /// Builds the full read-write router used by the primary node.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
-        .route("/ingest/feed",         post(handle_ingest_feed))
-        .route("/sync/events",         get(handle_sync_events))
-        .route("/sync/reconcile",      post(handle_sync_reconcile))
-        .route("/sync/register",       post(handle_sync_register))
-        .route("/sync/peers",          get(handle_sync_peers))
-        .route("/node/info",           get(handle_node_info))
+        .route("/ingest/feed", post(handle_ingest_feed))
+        .route("/sync/events", get(handle_sync_events))
+        .route("/sync/reconcile", post(handle_sync_reconcile))
+        .route("/sync/register", post(handle_sync_register))
+        .route("/sync/peers", get(handle_sync_peers))
+        .route("/node/info", get(handle_node_info))
         .route("/admin/artists/merge", post(handle_admin_merge_artists))
         .route("/admin/artists/alias", post(handle_admin_add_alias))
         // Route versioning compliant — 2026-03-12
-        .route("/v1/feeds/{guid}",        delete(handle_retire_feed).patch(handle_patch_feed))
-        .route("/v1/feeds/{guid}/tracks/{track_guid}", delete(handle_remove_track))
-        .route("/v1/tracks/{guid}",       patch(handle_patch_track))
-        .route("/v1/proofs/challenge",    post(handle_proofs_challenge))
-        .route("/v1/proofs/assert",       post(handle_proofs_assert))
-        .route("/v1/events",             get(handle_sse_events))
-        .route("/health",              get(|| async { "ok" }))
+        .route(
+            "/v1/feeds/{guid}",
+            delete(handle_retire_feed).patch(handle_patch_feed),
+        )
+        .route(
+            "/v1/feeds/{guid}/tracks/{track_guid}",
+            delete(handle_remove_track),
+        )
+        .route("/v1/tracks/{guid}", patch(handle_patch_track))
+        .route("/v1/proofs/challenge", post(handle_proofs_challenge))
+        .route("/v1/proofs/assert", post(handle_proofs_assert))
+        .route("/v1/events", get(handle_sse_events))
+        .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(build_cors_layer())
@@ -621,10 +653,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 pub fn build_readonly_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/sync/events", get(handle_sync_events))
-        .route("/sync/peers",  get(handle_sync_peers))
-        .route("/node/info",   get(handle_node_info))
-        .route("/v1/events",   get(handle_sse_events))
-        .route("/health",      get(|| async { "ok" }))
+        .route("/sync/peers", get(handle_sync_peers))
+        .route("/node/info", get(handle_node_info))
+        .route("/v1/events", get(handle_sse_events))
+        .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(build_cors_layer())
@@ -633,336 +665,495 @@ pub fn build_readonly_router(state: Arc<AppState>) -> Router {
 
 // ── POST /ingest/feed ─────────────────────────────────────────────────────────
 
-#[expect(clippy::too_many_lines, reason = "single ingest flow — splitting would obscure the sequential validation steps")]
-#[expect(clippy::needless_collect, reason = "events_for_fanout snapshot is required because event_rows is consumed by ingest_transaction")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "single ingest flow — splitting would obscure the sequential validation steps"
+)]
+#[expect(
+    clippy::needless_collect,
+    reason = "events_for_fanout snapshot is required because event_rows is consumed by ingest_transaction"
+)]
 async fn handle_ingest_feed(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ingest::IngestFeedRequest>,
 ) -> Result<Json<ingest::IngestResponse>, ApiError> {
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
-    let result = tokio::task::spawn_blocking(move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
-        // Issue-VERIFY-READER — 2026-03-16
-        // Phase 1: verify against a READ-ONLY connection (reader pool).
-        // This avoids holding the writer mutex during verification, so
-        // non-trivial verifiers never block the global write path.
-        let warnings = {
-            let reader = state2.db.reader().map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("reader pool error: {e}"),
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
+            // Issue-VERIFY-READER — 2026-03-16
+            // Phase 1: verify against a READ-ONLY connection (reader pool).
+            // This avoids holding the writer mutex during verification, so
+            // non-trivial verifiers never block the global write path.
+            let warnings = {
+                let reader = state2.db.reader().map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("reader pool error: {e}"),
+                    www_authenticate: None,
+                })?;
+
+                // 1. Get existing feed (read-only)
+                let existing = db::get_existing_feed(&*reader, &req.canonical_url)?;
+
+                // 2. Build verify context and run chain against reader
+                let ctx = verify::IngestContext {
+                    request: &req,
+                    db: &*reader, // Issue-VERIFY-READER — ReadConn derefs to Connection
+                    existing: existing.as_ref(),
+                };
+
+                match state2.chain.run(&ctx) {
+                    Err(ref e) if e.0 == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
+                        return Ok((
+                            ingest::IngestResponse {
+                                accepted: true,
+                                no_change: true,
+                                reason: None,
+                                events_emitted: vec![],
+                                warnings: vec![],
+                            },
+                            vec![],
+                        ));
+                    }
+                    Err(e) => {
+                        return Ok((
+                            ingest::IngestResponse {
+                                accepted: false,
+                                no_change: false,
+                                reason: Some(e.0),
+                                events_emitted: vec![],
+                                warnings: vec![],
+                            },
+                            vec![],
+                        ));
+                    }
+                    Ok(w) => w,
+                }
+            };
+            // reader is dropped here — writer lock is never contested by verification
+
+            // Phase 2: mutate — acquire writer lock only after verification passed.
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
                 www_authenticate: None,
             })?;
 
-            // 1. Get existing feed (read-only)
-            let existing = db::get_existing_feed(&*reader, &req.canonical_url)?;
-
-            // 2. Build verify context and run chain against reader
-            let ctx = verify::IngestContext {
-                request:  &req,
-                db:       &*reader,  // Issue-VERIFY-READER — ReadConn derefs to Connection
-                existing: existing.as_ref(),
-            };
-
-            match state2.chain.run(&ctx) {
-                Err(ref e) if e.0 == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
-                    return Ok((ingest::IngestResponse {
-                        accepted:       true,
-                        no_change:      true,
-                        reason:         None,
-                        events_emitted: vec![],
-                        warnings:       vec![],
-                    }, vec![]));
-                }
-                Err(e) => {
-                    return Ok((ingest::IngestResponse {
-                        accepted:       false,
-                        no_change:      false,
-                        reason:         Some(e.0),
-                        events_emitted: vec![],
-                        warnings:       vec![],
-                    }, vec![]));
-                }
-                Ok(w) => w,
-            }
-        };
-        // reader is dropped here — writer lock is never contested by verification
-
-        // Phase 2: mutate — acquire writer lock only after verification passed.
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
-
-        // 3. Unwrap feed_data
-        let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
-            status:  StatusCode::BAD_REQUEST,
-            message: "feed_data is required for successful ingest".into(),
-            www_authenticate: None,
-        })?;
-
-        // 3b. Enforce track count limit to prevent DB growth attacks.
-        if feed_data.tracks.len() > MAX_TRACKS_PER_INGEST {
-            return Err(ApiError {
-                status:  StatusCode::BAD_REQUEST,
-                message: format!(
-                    "feed contains {} tracks, maximum is {MAX_TRACKS_PER_INGEST}",
-                    feed_data.tracks.len()
-                ),
+            // 3. Unwrap feed_data
+            let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "feed_data is required for successful ingest".into(),
                 www_authenticate: None,
-            });
-        }
+            })?;
 
-        // 4. Resolve artist (scoped to feed_guid)
-        // Issue-ARTIST-IDENTITY — 2026-03-14
-        let artist_name = feed_data
-            .owner_name
-            .as_deref()
-            .or(feed_data.author_name.as_deref())
-            .unwrap_or(feed_data.title.as_str())
-            .to_string();
-
-        let feed_guid_str = feed_data.feed_guid.as_str();
-        let feed_artist = db::resolve_artist(&conn, &artist_name, Some(feed_guid_str))?;
-
-        // 5. Get or create artist credit for the feed artist (idempotent, feed-scoped)
-        let feed_artist_credit = db::get_or_create_artist_credit(
-            &conn,
-            &feed_artist.name,
-            &[(feed_artist.artist_id.clone(), feed_artist.name.clone(), String::new())],
-            Some(feed_guid_str),
-        )?;
-
-        // 6. Get current time
-        let now = db::unix_now();
-
-        // 7. Compute newest_item_at and oldest_item_at from track pub_dates
-        let pub_dates: Vec<i64> = feed_data
-            .tracks
-            .iter()
-            .filter_map(|t| t.pub_date)
-            .collect();
-
-        let newest_item_at = pub_dates.iter().copied().max();
-        let oldest_item_at = pub_dates.iter().copied().min();
-
-        // 8. Build Feed struct
-        let feed = model::Feed {
-            feed_guid:        feed_data.feed_guid.clone(),
-            feed_url:         req.canonical_url.clone(),
-            title:            feed_data.title.clone(),
-            title_lower:      feed_data.title.to_lowercase(),
-            artist_credit_id: feed_artist_credit.id,
-            description:      feed_data.description.clone(),
-            image_url:        feed_data.image_url.clone(),
-            language:         feed_data.language.clone(),
-            explicit:         feed_data.explicit,
-            itunes_type:      feed_data.itunes_type.clone(),
-            #[expect(clippy::cast_possible_wrap, reason = "episode counts never approach i64::MAX")]
-            episode_count:    feed_data.tracks.len() as i64,
-            newest_item_at,
-            oldest_item_at,
-            created_at:       now,
-            updated_at:       now,
-            raw_medium:       feed_data.raw_medium.clone(),
-        };
-
-        // 8b. Build feed-level payment routes
-        let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
-            .feed_payment_routes
-            .iter()
-            .map(|r| model::FeedPaymentRoute {
-                id:             None,
-                feed_guid:      feed_data.feed_guid.clone(),
-                recipient_name: r.recipient_name.clone(),
-                route_type:     r.route_type.clone(),
-                address:        r.address.clone(),
-                custom_key:     r.custom_key.clone(),
-                custom_value:   r.custom_value.clone(),
-                split:          r.split,
-                fee:            r.fee,
-            })
-            .collect();
-
-        // 9. Build track tuples
-        let mut track_tuples: Vec<(
-            model::Track,
-            Vec<model::PaymentRoute>,
-            Vec<model::ValueTimeSplit>,
-        )> = Vec::with_capacity(feed_data.tracks.len());
-
-        // Track artist credits for event generation
-        let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(feed_data.tracks.len());
-
-        for track_data in &feed_data.tracks {
-            // Per-track artist resolution (feed-scoped)
-            // Issue-ARTIST-IDENTITY — 2026-03-14
-            let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
-                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
-                let credit = db::get_or_create_artist_credit(
-                    &conn,
-                    &track_artist.name,
-                    &[(track_artist.artist_id.clone(), track_artist.name.clone(), String::new())],
-                    Some(feed_guid_str),
-                )?;
-                (credit.id, credit)
-            } else {
-                (feed_artist_credit.id, feed_artist_credit.clone())
-            };
-
-            let track = model::Track {
-                track_guid:       track_data.track_guid.clone(),
-                feed_guid:        feed_data.feed_guid.clone(),
-                artist_credit_id: track_credit_id,
-                title:            track_data.title.clone(),
-                title_lower:      track_data.title.to_lowercase(),
-                pub_date:         track_data.pub_date,
-                duration_secs:    track_data.duration_secs,
-                enclosure_url:    track_data.enclosure_url.clone(),
-                enclosure_type:   track_data.enclosure_type.clone(),
-                enclosure_bytes:  track_data.enclosure_bytes,
-                track_number:     track_data.track_number,
-                season:           track_data.season,
-                explicit:         track_data.explicit,
-                description:      track_data.description.clone(),
-                created_at:       now,
-                updated_at:       now,
-            };
-
-            let routes: Vec<model::PaymentRoute> = track_data
-                .payment_routes
-                .iter()
-                .map(|r| model::PaymentRoute {
-                    id:             None,
-                    track_guid:     track_data.track_guid.clone(),
-                    feed_guid:      feed_data.feed_guid.clone(),
-                    recipient_name: r.recipient_name.clone(),
-                    route_type:     r.route_type.clone(),
-                    address:        r.address.clone(),
-                    custom_key:     r.custom_key.clone(),
-                    custom_value:   r.custom_value.clone(),
-                    split:          r.split,
-                    fee:            r.fee,
-                })
-                .collect();
-
-            let vts: Vec<model::ValueTimeSplit> = track_data
-                .value_time_splits
-                .iter()
-                .map(|v| model::ValueTimeSplit {
-                    id:                None,
-                    source_track_guid: track_data.track_guid.clone(),
-                    start_time_secs:   v.start_time_secs,
-                    duration_secs:     v.duration_secs,
-                    remote_feed_guid:  v.remote_feed_guid.clone(),
-                    remote_item_guid:  v.remote_item_guid.clone(),
-                    split:             v.split,
-                    created_at:        now,
-                })
-                .collect();
-
-            track_tuples.push((track, routes, vts));
-            track_credits.push(track_credit);
-        }
-
-        // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
-        // Only emit events for entities whose fields actually changed
-        // compared to what is stored in the DB.
-        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRows no longer carry
-        // signatures. The signer is passed to ingest_transaction which
-        // signs each event after the DB assigns its seq.
-        let event_rows = db::build_diff_events(
-            &conn,
-            &feed_artist,
-            &feed_artist_credit,
-            &feed,
-            &feed_routes,
-            &track_tuples,
-            &track_credits,
-            now,
-            &warnings,
-        ).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to build diff events: {e}"),
-            www_authenticate: None,
-        })?;
-
-        // Collect event_ids and snapshot event data before moving event_rows
-        let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
-
-        // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
-        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
-        let events_for_fanout: Vec<db::EventRow> = event_rows.iter().map(|r| db::EventRow {
-            event_id:     r.event_id.clone(),
-            event_type:   r.event_type.clone(),
-            payload_json: r.payload_json.clone(),
-            subject_guid: r.subject_guid.clone(),
-            created_at:   r.created_at,
-            warnings:     r.warnings.clone(),
-        }).collect();
-
-        // 11. Run ingest transaction (signer signs after DB assigns seq)
-        // Issue-SEQ-INTEGRITY — 2026-03-14
-        let seqs = db::ingest_transaction(
-            &mut conn,
-            feed_artist,
-            feed_artist_credit,
-            feed,
-            feed_routes,
-            track_tuples,
-            event_rows,
-            &state2.signer,
-        )?;
-
-        // 11b. Search index + quality scores are now written inside
-        // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
-
-        // 12. Update crawl cache
-        db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
-
-        // 13. Reconstruct events with assigned seqs + signatures for fan-out
-        // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
-        let fanout_events: Vec<event::Event> = events_for_fanout.into_iter().zip(seqs.iter()).map(
-            |(r, (seq, signed_by, signature))| {
-                let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
-                    status:  StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("failed to serialize event type for fan-out: {e}"),
+            // 3b. Enforce track count limit to prevent DB growth attacks.
+            if feed_data.tracks.len() > MAX_TRACKS_PER_INGEST {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: format!(
+                        "feed contains {} tracks, maximum is {MAX_TRACKS_PER_INGEST}",
+                        feed_data.tracks.len()
+                    ),
                     www_authenticate: None,
-                })?;
-                let et_str = et_str.trim_matches('"');
-                let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
-                let payload = serde_json::from_str::<event::EventPayload>(&tagged)
-                    .map_err(|e| ApiError {
-                        status:  StatusCode::INTERNAL_SERVER_ERROR,
-                        message: format!("failed to deserialize event payload for fan-out: {e}"),
+                });
+            }
+
+            // 4. Resolve artist (scoped to feed_guid)
+            // Issue-ARTIST-IDENTITY — 2026-03-14
+            let artist_name = feed_data
+                .owner_name
+                .as_deref()
+                .or(feed_data.author_name.as_deref())
+                .unwrap_or(feed_data.title.as_str())
+                .to_string();
+
+            let feed_guid_str = feed_data.feed_guid.as_str();
+            let feed_artist = db::resolve_artist(&conn, &artist_name, Some(feed_guid_str))?;
+
+            // 5. Get or create artist credit for the feed artist (idempotent, feed-scoped)
+            let feed_artist_credit = db::get_or_create_artist_credit(
+                &conn,
+                &feed_artist.name,
+                &[(
+                    feed_artist.artist_id.clone(),
+                    feed_artist.name.clone(),
+                    String::new(),
+                )],
+                Some(feed_guid_str),
+            )?;
+
+            // 6. Get current time
+            let now = db::unix_now();
+
+            // 7. Compute newest_item_at and oldest_item_at from track pub_dates
+            let pub_dates: Vec<i64> = feed_data
+                .tracks
+                .iter()
+                .filter_map(|t| t.pub_date)
+                .chain(
+                    feed_data
+                        .live_items
+                        .iter()
+                        .filter(|li| {
+                            li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some()
+                        })
+                        .filter_map(|li| li.pub_date),
+                )
+                .collect();
+
+            let newest_item_at = pub_dates.iter().copied().max();
+            let oldest_item_at = pub_dates.iter().copied().min();
+
+            // 8. Build Feed struct
+            let feed = model::Feed {
+                feed_guid: feed_data.feed_guid.clone(),
+                feed_url: req.canonical_url.clone(),
+                title: feed_data.title.clone(),
+                title_lower: feed_data.title.to_lowercase(),
+                artist_credit_id: feed_artist_credit.id,
+                description: feed_data.description.clone(),
+                image_url: feed_data.image_url.clone(),
+                language: feed_data.language.clone(),
+                explicit: feed_data.explicit,
+                itunes_type: feed_data.itunes_type.clone(),
+                #[expect(
+                    clippy::cast_possible_wrap,
+                    reason = "episode counts never approach i64::MAX"
+                )]
+                episode_count: feed_data.tracks.len() as i64,
+                newest_item_at,
+                oldest_item_at,
+                created_at: now,
+                updated_at: now,
+                raw_medium: feed_data.raw_medium.clone(),
+            };
+
+            // 8b. Build feed-level payment routes
+            let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
+                .feed_payment_routes
+                .iter()
+                .map(|r| model::FeedPaymentRoute {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
+                    recipient_name: r.recipient_name.clone(),
+                    route_type: r.route_type.clone(),
+                    address: r.address.clone(),
+                    custom_key: r.custom_key.clone(),
+                    custom_value: r.custom_value.clone(),
+                    split: r.split,
+                    fee: r.fee,
+                })
+                .collect();
+
+            let feed_remote_items: Vec<model::FeedRemoteItemRaw> = feed_data
+                .remote_items
+                .iter()
+                .map(|item| model::FeedRemoteItemRaw {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
+                    position: item.position,
+                    medium: item.medium.clone(),
+                    remote_feed_guid: item.remote_feed_guid.clone(),
+                    remote_feed_url: item.remote_feed_url.clone(),
+                    source: "podcast_remote_item".to_string(),
+                })
+                .collect();
+
+            let live_events: Vec<model::LiveEvent> = feed_data
+                .live_items
+                .iter()
+                .filter(|item| matches!(item.status.as_str(), "pending" | "live"))
+                .map(|item| model::LiveEvent {
+                    live_item_guid: item.live_item_guid.clone(),
+                    feed_guid: feed_data.feed_guid.clone(),
+                    title: item.title.clone(),
+                    content_link: item.content_link.clone(),
+                    status: item.status.clone(),
+                    scheduled_start: item.start_at,
+                    scheduled_end: item.end_at,
+                    created_at: now,
+                    updated_at: now,
+                })
+                .collect();
+
+            // 9. Build track tuples
+            let mut track_tuples: Vec<(
+                model::Track,
+                Vec<model::PaymentRoute>,
+                Vec<model::ValueTimeSplit>,
+            )> = Vec::with_capacity(feed_data.tracks.len());
+
+            // Track artist credits for event generation
+            let mut track_credits: Vec<model::ArtistCredit> =
+                Vec::with_capacity(feed_data.tracks.len());
+
+            for track_data in &feed_data.tracks {
+                // Per-track artist resolution (feed-scoped)
+                // Issue-ARTIST-IDENTITY — 2026-03-14
+                let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name
+                {
+                    let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
+                    let credit = db::get_or_create_artist_credit(
+                        &conn,
+                        &track_artist.name,
+                        &[(
+                            track_artist.artist_id.clone(),
+                            track_artist.name.clone(),
+                            String::new(),
+                        )],
+                        Some(feed_guid_str),
+                    )?;
+                    (credit.id, credit)
+                } else {
+                    (feed_artist_credit.id, feed_artist_credit.clone())
+                };
+
+                let track = model::Track {
+                    track_guid: track_data.track_guid.clone(),
+                    feed_guid: feed_data.feed_guid.clone(),
+                    artist_credit_id: track_credit_id,
+                    title: track_data.title.clone(),
+                    title_lower: track_data.title.to_lowercase(),
+                    pub_date: track_data.pub_date,
+                    duration_secs: track_data.duration_secs,
+                    enclosure_url: track_data.enclosure_url.clone(),
+                    enclosure_type: track_data.enclosure_type.clone(),
+                    enclosure_bytes: track_data.enclosure_bytes,
+                    track_number: track_data.track_number,
+                    season: track_data.season,
+                    explicit: track_data.explicit,
+                    description: track_data.description.clone(),
+                    created_at: now,
+                    updated_at: now,
+                };
+
+                let routes: Vec<model::PaymentRoute> = track_data
+                    .payment_routes
+                    .iter()
+                    .map(|r| model::PaymentRoute {
+                        id: None,
+                        track_guid: track_data.track_guid.clone(),
+                        feed_guid: feed_data.feed_guid.clone(),
+                        recipient_name: r.recipient_name.clone(),
+                        route_type: r.route_type.clone(),
+                        address: r.address.clone(),
+                        custom_key: r.custom_key.clone(),
+                        custom_value: r.custom_value.clone(),
+                        split: r.split,
+                        fee: r.fee,
+                    })
+                    .collect();
+
+                let vts: Vec<model::ValueTimeSplit> = track_data
+                    .value_time_splits
+                    .iter()
+                    .map(|v| model::ValueTimeSplit {
+                        id: None,
+                        source_track_guid: track_data.track_guid.clone(),
+                        start_time_secs: v.start_time_secs,
+                        duration_secs: v.duration_secs,
+                        remote_feed_guid: v.remote_feed_guid.clone(),
+                        remote_item_guid: v.remote_item_guid.clone(),
+                        split: v.split,
+                        created_at: now,
+                    })
+                    .collect();
+
+                track_tuples.push((track, routes, vts));
+                track_credits.push(track_credit);
+            }
+
+            for live_item in feed_data.live_items.iter().filter(|item| {
+                item.status.eq_ignore_ascii_case("ended") && item.enclosure_url.is_some()
+            }) {
+                let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
+                    let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
+                    let credit = db::get_or_create_artist_credit(
+                        &conn,
+                        &track_artist.name,
+                        &[(
+                            track_artist.artist_id.clone(),
+                            track_artist.name.clone(),
+                            String::new(),
+                        )],
+                        Some(feed_guid_str),
+                    )?;
+                    (credit.id, credit)
+                } else {
+                    (feed_artist_credit.id, feed_artist_credit.clone())
+                };
+
+                let track = model::Track {
+                    track_guid: live_item.live_item_guid.clone(),
+                    feed_guid: feed_data.feed_guid.clone(),
+                    artist_credit_id: track_credit_id,
+                    title: live_item.title.clone(),
+                    title_lower: live_item.title.to_lowercase(),
+                    pub_date: live_item.pub_date,
+                    duration_secs: live_item.duration_secs,
+                    enclosure_url: live_item.enclosure_url.clone(),
+                    enclosure_type: live_item.enclosure_type.clone(),
+                    enclosure_bytes: live_item.enclosure_bytes,
+                    track_number: live_item.track_number,
+                    season: live_item.season,
+                    explicit: live_item.explicit,
+                    description: live_item.description.clone(),
+                    created_at: now,
+                    updated_at: now,
+                };
+
+                let routes: Vec<model::PaymentRoute> = live_item
+                    .payment_routes
+                    .iter()
+                    .map(|r| model::PaymentRoute {
+                        id: None,
+                        track_guid: live_item.live_item_guid.clone(),
+                        feed_guid: feed_data.feed_guid.clone(),
+                        recipient_name: r.recipient_name.clone(),
+                        route_type: r.route_type.clone(),
+                        address: r.address.clone(),
+                        custom_key: r.custom_key.clone(),
+                        custom_value: r.custom_value.clone(),
+                        split: r.split,
+                        fee: r.fee,
+                    })
+                    .collect();
+
+                let vts: Vec<model::ValueTimeSplit> = live_item
+                    .value_time_splits
+                    .iter()
+                    .map(|v| model::ValueTimeSplit {
+                        id: None,
+                        source_track_guid: live_item.live_item_guid.clone(),
+                        start_time_secs: v.start_time_secs,
+                        duration_secs: v.duration_secs,
+                        remote_feed_guid: v.remote_feed_guid.clone(),
+                        remote_item_guid: v.remote_item_guid.clone(),
+                        split: v.split,
+                        created_at: now,
+                    })
+                    .collect();
+
+                track_tuples.push((track, routes, vts));
+                track_credits.push(track_credit);
+            }
+
+            // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
+            // Only emit events for entities whose fields actually changed
+            // compared to what is stored in the DB.
+            // Issue-SEQ-INTEGRITY — 2026-03-14: EventRows no longer carry
+            // signatures. The signer is passed to ingest_transaction which
+            // signs each event after the DB assigns its seq.
+            let event_rows = db::build_diff_events(
+                &conn,
+                &feed_artist,
+                &feed_artist_credit,
+                &feed,
+                &feed_remote_items,
+                &feed_routes,
+                &live_events,
+                &track_tuples,
+                &track_credits,
+                now,
+                &warnings,
+            )
+            .map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to build diff events: {e}"),
+                www_authenticate: None,
+            })?;
+
+            // Collect event_ids and snapshot event data before moving event_rows
+            let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
+
+            // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
+            // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
+            let events_for_fanout: Vec<db::EventRow> = event_rows
+                .iter()
+                .map(|r| db::EventRow {
+                    event_id: r.event_id.clone(),
+                    event_type: r.event_type.clone(),
+                    payload_json: r.payload_json.clone(),
+                    subject_guid: r.subject_guid.clone(),
+                    created_at: r.created_at,
+                    warnings: r.warnings.clone(),
+                })
+                .collect();
+
+            // 11. Run ingest transaction (signer signs after DB assigns seq)
+            // Issue-SEQ-INTEGRITY — 2026-03-14
+            let seqs = db::ingest_transaction(
+                &mut conn,
+                feed_artist,
+                feed_artist_credit,
+                feed,
+                feed_remote_items,
+                feed_routes,
+                live_events,
+                track_tuples,
+                event_rows,
+                &state2.signer,
+            )?;
+
+            // 11b. Search index + quality scores are now written inside
+            // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
+
+            // 12. Update crawl cache
+            db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
+
+            // 13. Reconstruct events with assigned seqs + signatures for fan-out
+            // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
+            let fanout_events: Vec<event::Event> = events_for_fanout
+                .into_iter()
+                .zip(seqs.iter())
+                .map(|(r, (seq, signed_by, signature))| {
+                    let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: format!("failed to serialize event type for fan-out: {e}"),
                         www_authenticate: None,
                     })?;
-                Ok(event::Event {
-                    event_id:     r.event_id,
-                    event_type:   r.event_type,
-                    payload,
-                    subject_guid: r.subject_guid,
-                    signed_by:    signed_by.clone(),
-                    signature:    signature.clone(),
-                    seq:          *seq,
-                    created_at:   r.created_at,
-                    warnings:     r.warnings,
-                    payload_json: r.payload_json,
+                    let et_str = et_str.trim_matches('"');
+                    let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
+                    let payload =
+                        serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| {
+                            ApiError {
+                                status: StatusCode::INTERNAL_SERVER_ERROR,
+                                message: format!(
+                                    "failed to deserialize event payload for fan-out: {e}"
+                                ),
+                                www_authenticate: None,
+                            }
+                        })?;
+                    Ok(event::Event {
+                        event_id: r.event_id,
+                        event_type: r.event_type,
+                        payload,
+                        subject_guid: r.subject_guid,
+                        signed_by: signed_by.clone(),
+                        signature: signature.clone(),
+                        seq: *seq,
+                        created_at: r.created_at,
+                        warnings: r.warnings,
+                        payload_json: r.payload_json,
+                    })
                 })
-            }
-        ).collect::<Result<Vec<_>, ApiError>>()?;
+                .collect::<Result<Vec<_>, ApiError>>()?;
 
-        Ok((ingest::IngestResponse {
-            accepted:       true,
-            no_change:      false,
-            reason:         None,
-            events_emitted: event_ids,
-            warnings,
-        }, fanout_events))
-    })
+            Ok((
+                ingest::IngestResponse {
+                    accepted: true,
+                    no_change: false,
+                    reason: None,
+                    events_emitted: event_ids,
+                    warnings,
+                },
+                fanout_events,
+            ))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?;
@@ -974,10 +1165,15 @@ async fn handle_ingest_feed(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &fanout_events);
 
-        let db_fanout          = state.db.clone();
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = state.db.clone();
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, fanout_events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            fanout_events,
+        ));
     }
 
     Ok(Json(response))
@@ -989,7 +1185,7 @@ async fn handle_ingest_feed(
 struct SyncEventsQuery {
     #[serde(default)]
     after_seq: i64,
-    limit:     Option<i64>,
+    limit: Option<i64>,
 }
 
 // Mutex safety compliant — 2026-03-12
@@ -1033,7 +1229,7 @@ async fn handle_sync_reconcile(
     // Availability: cap the size of the `have` set to prevent memory exhaustion.
     if req.have.len() > MAX_RECONCILE_HAVE {
         return Err(ApiError {
-            status:  StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
             message: format!("have array exceeds maximum size of {MAX_RECONCILE_HAVE}"),
             www_authenticate: None,
         });
@@ -1050,10 +1246,8 @@ async fn handle_sync_reconcile(
         let (our_refs, refs_truncated) =
             db::get_event_refs_since(conn, req.since_seq, MAX_RECONCILE_REFS)?;
 
-        let our_ids: HashSet<String> =
-            our_refs.iter().map(|r| r.event_id.clone()).collect();
-        let their_ids: HashSet<String> =
-            req.have.iter().map(|r| r.event_id.clone()).collect();
+        let our_ids: HashSet<String> = our_refs.iter().map(|r| r.event_id.clone()).collect();
+        let their_ids: HashSet<String> = req.have.iter().map(|r| r.event_id.clone()).collect();
 
         let missing_ids: HashSet<&String> = our_ids.difference(&their_ids).collect();
 
@@ -1072,7 +1266,11 @@ async fn handle_sync_reconcile(
             .collect();
 
         let has_more = refs_truncated || events_capped;
-        let next_seq = our_refs.iter().map(|r| r.seq).max().unwrap_or(req.since_seq);
+        let next_seq = our_refs
+            .iter()
+            .map(|r| r.seq)
+            .max()
+            .unwrap_or(req.since_seq);
 
         Ok(sync::ReconcileResponse {
             send_to_node,
@@ -1090,12 +1288,15 @@ async fn handle_sync_reconcile(
 
 // SP-04 push retry — 2026-03-13
 // Mutex safety compliant — 2026-03-12
-#[expect(clippy::unused_async, reason = "must be async because tokio::spawn requires a Future")]
+#[expect(
+    clippy::unused_async,
+    reason = "must be async because tokio::spawn requires a Future"
+)]
 async fn fan_out_push(
-    db:          db_pool::DbPool,
-    client:      reqwest::Client,
+    db: db_pool::DbPool,
+    client: reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
-    events:      Vec<event::Event>,
+    events: Vec<event::Event>,
 ) {
     fan_out_push_inner(db, client, subscribers, events);
 }
@@ -1103,13 +1304,19 @@ async fn fan_out_push(
 /// Public entry point for integration tests that need to exercise push fan-out
 /// with retry logic. Not part of the stable API — test-only.
 // SP-04 push retry — 2026-03-13
-#[expect(clippy::unused_async, reason = "async signature for convenience in test await context")]
-#[expect(clippy::implicit_hasher, reason = "test-only API; generic hasher adds no value")]
+#[expect(
+    clippy::unused_async,
+    reason = "async signature for convenience in test await context"
+)]
+#[expect(
+    clippy::implicit_hasher,
+    reason = "test-only API; generic hasher adds no value"
+)]
 pub async fn fan_out_push_public(
-    db:          db_pool::DbPool,
-    client:      reqwest::Client,
+    db: db_pool::DbPool,
+    client: reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
-    events:      Vec<event::Event>,
+    events: Vec<event::Event>,
 ) {
     fan_out_push_inner(db, client, subscribers, events);
 }
@@ -1134,12 +1341,15 @@ static PUSH_SEMAPHORE: LazyLock<tokio::sync::Semaphore> =
 // SP-04 push retry — 2026-03-13
 // Issue-PUSH-BOUNDS — 2026-03-16: Arc-shared batch, semaphore-bounded concurrency,
 // response-body rejection inspection.
-#[expect(clippy::needless_pass_by_value, reason = "values are cloned into spawned tasks; ownership transfer is intentional")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "values are cloned into spawned tasks; ownership transfer is intentional"
+)]
 fn fan_out_push_inner(
-    db:          db_pool::DbPool,
-    client:      reqwest::Client,
+    db: db_pool::DbPool,
+    client: reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
-    events:      Vec<event::Event>,
+    events: Vec<event::Event>,
 ) {
     let peers: Vec<(String, String)> = {
         let Ok(guard) = subscribers.read() else {
@@ -1180,21 +1390,22 @@ fn fan_out_push_inner(
             }
         }
 
-        let client2      = client.clone();
-        let db2          = db.clone();
-        let subs2        = Arc::clone(&subscribers);
-        let pubkey2      = pubkey.clone();
-        let push_url2    = push_url.clone();
+        let client2 = client.clone();
+        let db2 = db.clone();
+        let subs2 = Arc::clone(&subscribers);
+        let pubkey2 = pubkey.clone();
+        let push_url2 = push_url.clone();
         // Issue-PUSH-BOUNDS — 2026-03-16: share serialized batch via Arc
         // instead of cloning the event vector per peer.
-        let batch2       = Arc::clone(&batch);
+        let batch2 = Arc::clone(&batch);
 
         tokio::spawn(async move {
             // Issue-PUSH-BOUNDS — 2026-03-16: acquire semaphore permit to
             // enforce MAX_CONCURRENT_PUSHES concurrency limit.
-            let _permit = PUSH_SEMAPHORE.acquire().await.expect(
-                "push semaphore closed unexpectedly"
-            );
+            let _permit = PUSH_SEMAPHORE
+                .acquire()
+                .await
+                .expect("push semaphore closed unexpectedly");
 
             let mut success = false;
 
@@ -1216,7 +1427,8 @@ fn fan_out_push_inner(
                         // for rejected events to detect silent divergence.
                         let had_rejections = check_push_response_rejections(
                             resp, &push_url2, &pubkey2, &db2, &subs2,
-                        ).await;
+                        )
+                        .await;
                         // Treat a 2xx with rejections as partial failure: do
                         // not reset consecutive_failures via record_push_success.
                         if !had_rejections {
@@ -1265,10 +1477,10 @@ fn fan_out_push_inner(
 ///
 /// Returns `true` if the peer reported rejected events (partial failure).
 async fn check_push_response_rejections(
-    resp:        reqwest::Response,
-    push_url:    &str,
-    pubkey:      &str,
-    db:          &db_pool::DbPool,
+    resp: reqwest::Response,
+    push_url: &str,
+    pubkey: &str,
+    db: &db_pool::DbPool,
     subscribers: &Arc<RwLock<HashMap<String, String>>>,
 ) -> bool {
     let body_text = match resp.text().await {
@@ -1314,9 +1526,9 @@ async fn check_push_response_rejections(
 // SP-04 push retry — 2026-03-13
 // Mutex safety compliant — 2026-03-12
 fn handle_push_failure(
-    db:          &db_pool::DbPool,
+    db: &db_pool::DbPool,
     subscribers: &Arc<RwLock<HashMap<String, String>>>,
-    pubkey:      &str,
+    pubkey: &str,
 ) {
     let Ok(conn) = db.writer().lock() else {
         tracing::error!(peer = %pubkey, "fanout: db mutex poisoned; cannot track push failure");
@@ -1375,12 +1587,12 @@ async fn handle_sync_register(
         tokio::task::spawn_blocking(move || proof::validate_node_url(&url_for_check))
             .await
             .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
+                status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: format!("SSRF validation task failed: {e}"),
                 www_authenticate: None,
             })?
             .map_err(|e| ApiError {
-                status:  StatusCode::UNPROCESSABLE_ENTITY,
+                status: StatusCode::UNPROCESSABLE_ENTITY,
                 message: e,
                 www_authenticate: None,
             })?;
@@ -1389,7 +1601,7 @@ async fn handle_sync_register(
     let now = db::unix_now();
 
     let pubkey = req.node_pubkey.clone();
-    let url    = req.node_url.clone();
+    let url = req.node_url.clone();
 
     // Issue-WAL-POOL — 2026-03-14: uses writer (upsert_peer_node writes)
     spawn_db_write(state.db.clone(), move |conn| {
@@ -1401,7 +1613,7 @@ async fn handle_sync_register(
 
     {
         let mut guard = state.push_subscribers.write().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "push_subscribers lock poisoned".into(),
             www_authenticate: None,
         })?;
@@ -1421,11 +1633,14 @@ async fn handle_sync_peers(
     // Mutex safety compliant — 2026-03-12
     let result = spawn_db(state.db.clone(), move |conn| {
         let peers = db::get_push_peers(conn)?;
-        let nodes = peers.into_iter().map(|p| sync::PeerEntry {
-            node_pubkey:  p.node_pubkey,
-            node_url:     p.node_url,
-            last_push_at: p.last_push_at,
-        }).collect();
+        let nodes = peers
+            .into_iter()
+            .map(|p| sync::PeerEntry {
+                node_pubkey: p.node_pubkey,
+                node_url: p.node_url,
+                last_push_at: p.last_push_at,
+            })
+            .collect();
         Ok(sync::PeersResponse { nodes })
     })
     .await?;
@@ -1440,10 +1655,10 @@ struct NodeInfoResponse {
     node_pubkey: String,
 }
 
-async fn handle_node_info(
-    State(state): State<Arc<AppState>>,
-) -> Json<NodeInfoResponse> {
-    Json(NodeInfoResponse { node_pubkey: state.node_pubkey_hex.clone() })
+async fn handle_node_info(State(state): State<Arc<AppState>>) -> Json<NodeInfoResponse> {
+    Json(NodeInfoResponse {
+        node_pubkey: state.node_pubkey_hex.clone(),
+    })
 }
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────────
@@ -1460,7 +1675,12 @@ async fn handle_sse_events(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Query(params): Query<HashMap<String, String>>,
-) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, ApiError> {
+) -> Result<
+    axum::response::sse::Sse<
+        impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+    ApiError,
+> {
     use tokio_stream::StreamExt as _;
 
     // Cap the number of artist IDs per SSE connection to prevent unbounded
@@ -1470,7 +1690,7 @@ async fn handle_sse_events(
     // Enforce concurrent SSE connection limit.
     if !state.sse_registry.try_acquire_connection() {
         return Err(ApiError {
-            status:  StatusCode::SERVICE_UNAVAILABLE,
+            status: StatusCode::SERVICE_UNAVAILABLE,
             message: format!("too many SSE connections (limit: {MAX_SSE_CONNECTIONS})"),
             www_authenticate: None,
         });
@@ -1586,12 +1806,11 @@ async fn handle_sse_events(
 
     let merged = replay_stream.chain(live_stream);
 
-    Ok(axum::response::sse::Sse::new(merged)
-        .keep_alive(
-            axum::response::sse::KeepAlive::new()
-                .interval(std::time::Duration::from_secs(30))
-                .text("keepalive"),
-        ))
+    Ok(axum::response::sse::Sse::new(merged).keep_alive(
+        axum::response::sse::KeepAlive::new()
+            .interval(std::time::Duration::from_secs(30))
+            .text("keepalive"),
+    ))
 }
 
 /// RAII guard that releases an SSE connection slot when the stream is dropped
@@ -1612,7 +1831,7 @@ impl Drop for SseConnectionGuard {
 fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError> {
     if expected.is_empty() {
         return Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "admin token not configured on this node".into(),
             www_authenticate: None,
         });
@@ -1627,7 +1846,7 @@ fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError
         Ok(())
     } else {
         Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "invalid or missing X-Admin-Token".into(),
             www_authenticate: None,
         })
@@ -1653,7 +1872,7 @@ fn check_sync_or_admin_token(
         // SYNC_TOKEN is configured — only accept X-Sync-Token.
         if expected_sync.is_empty() {
             return Err(ApiError {
-                status:  StatusCode::FORBIDDEN,
+                status: StatusCode::FORBIDDEN,
                 message: "sync token not configured on this node".into(),
                 www_authenticate: None,
             });
@@ -1668,7 +1887,7 @@ fn check_sync_or_admin_token(
             return Ok(());
         }
         return Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "invalid or missing X-Sync-Token".into(),
             www_authenticate: None,
         });
@@ -1677,7 +1896,7 @@ fn check_sync_or_admin_token(
     // No SYNC_TOKEN configured — fall back to ADMIN_TOKEN (backward compatibility).
     if admin_token.is_empty() {
         return Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "neither sync token nor admin token configured on this node".into(),
             www_authenticate: None,
         });
@@ -1700,14 +1919,14 @@ struct MergeArtistsRequest {
 
 #[derive(Serialize)]
 struct MergeArtistsResponse {
-    merged:         bool,
+    merged: bool,
     events_emitted: Vec<String>,
 }
 
 async fn handle_admin_merge_artists(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Json(req):    Json<MergeArtistsRequest>,
+    headers: HeaderMap,
+    Json(req): Json<MergeArtistsRequest>,
 ) -> Result<Json<MergeArtistsResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
@@ -1715,66 +1934,75 @@ async fn handle_admin_merge_artists(
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
     // Issue-SSE-PUBLISH — 2026-03-14: return (response, sse_frame_info) for SSE publish.
-    let result = tokio::task::spawn_blocking(move || -> Result<(MergeArtistsResponse, Option<(String, SseFrame)>), ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<(MergeArtistsResponse, Option<(String, SseFrame)>), ApiError> {
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
+                www_authenticate: None,
+            })?;
 
-        // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-        let tx = conn.transaction().map_err(|e| ApiError::from(db::DbError::from(e)))?;
+            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
+            let tx = conn
+                .transaction()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
 
-        let transferred = db::merge_artists_sql(&tx, &req.source_artist_id, &req.target_artist_id)
+            let transferred =
+                db::merge_artists_sql(&tx, &req.source_artist_id, &req.target_artist_id)
+                    .map_err(ApiError::from)?;
+
+            let now = db::unix_now();
+
+            let event_id = uuid::Uuid::new_v4().to_string();
+            let payload = event::ArtistMergedPayload {
+                source_artist_id: req.source_artist_id.clone(),
+                target_artist_id: req.target_artist_id.clone(),
+                aliases_transferred: transferred,
+            };
+            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to serialize ArtistMerged payload: {e}"),
+                www_authenticate: None,
+            })?;
+            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+            let (seq, _signed_by, _signature) = db::insert_event(
+                &tx,
+                &event_id,
+                &event::EventType::ArtistMerged,
+                &payload_json,
+                &req.target_artist_id,
+                &state2.signer,
+                now,
+                &[],
+            )
             .map_err(ApiError::from)?;
 
-        let now = db::unix_now();
+            tx.commit()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
 
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let payload = event::ArtistMergedPayload {
-            source_artist_id:    req.source_artist_id.clone(),
-            target_artist_id:    req.target_artist_id.clone(),
-            aliases_transferred: transferred,
-        };
-        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to serialize ArtistMerged payload: {e}"),
-            www_authenticate: None,
-        })?;
-        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-        let (seq, _signed_by, _signature) = db::insert_event(
-            &tx,
-            &event_id,
-            &event::EventType::ArtistMerged,
-            &payload_json,
-            &req.target_artist_id,
-            &state2.signer,
-            now,
-            &[],
-        )
-        .map_err(ApiError::from)?;
-
-        tx.commit().map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-        // Issue-SSE-PUBLISH — 2026-03-14
-        let sse_info = {
-            let frame = SseFrame {
-                event_type:   "artist_merged".to_string(),
-                subject_guid: req.target_artist_id.clone(),
-                payload:      serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
-                seq,
+            // Issue-SSE-PUBLISH — 2026-03-14
+            let sse_info = {
+                let frame = SseFrame {
+                    event_type: "artist_merged".to_string(),
+                    subject_guid: req.target_artist_id.clone(),
+                    payload: serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
+                    seq,
+                };
+                Some((req.target_artist_id.clone(), frame))
             };
-            Some((req.target_artist_id.clone(), frame))
-        };
 
-        Ok((MergeArtistsResponse {
-            merged:         true,
-            events_emitted: vec![event_id],
-        }, sse_info))
-    })
+            Ok((
+                MergeArtistsResponse {
+                    merged: true,
+                    events_emitted: vec![event_id],
+                },
+                sse_info,
+            ))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?;
@@ -1794,7 +2022,7 @@ async fn handle_admin_merge_artists(
 #[derive(Deserialize)]
 struct AddAliasRequest {
     artist_id: String,
-    alias:     String,
+    alias: String,
 }
 
 #[derive(Serialize)]
@@ -1804,8 +2032,8 @@ struct AddAliasResponse {
 
 async fn handle_admin_add_alias(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Json(req):    Json<AddAliasRequest>,
+    headers: HeaderMap,
+    Json(req): Json<AddAliasRequest>,
 ) -> Result<Json<AddAliasResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
@@ -1821,114 +2049,130 @@ async fn handle_admin_add_alias(
 
 // ── DELETE /feeds/{guid} ───────────────────────────────────────────────────
 
-#[expect(clippy::too_many_lines, reason = "event signing, SSE publish, and fan-out all live in one handler")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "event signing, SSE publish, and fan-out all live in one handler"
+)]
 async fn handle_retire_feed(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Path(guid):   Path<String>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
 ) -> Result<StatusCode, ApiError> {
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
     // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
     // publish to the correct SSE channel after the entity is deleted.
-    let result = tokio::task::spawn_blocking(move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
+                www_authenticate: None,
+            })?;
 
-        // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-        check_admin_or_bearer_with_conn(&conn, &headers, &state2.admin_token, "feed:write", &guid2)?;
+            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
+            check_admin_or_bearer_with_conn(
+                &conn,
+                &headers,
+                &state2.admin_token,
+                "feed:write",
+                &guid2,
+            )?;
 
-        // Look up the feed — 404 if not found.
-        let feed = db::get_feed_by_guid(&conn, &guid2)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
+            // Look up the feed — 404 if not found.
+            let feed = db::get_feed_by_guid(&conn, &guid2)?.ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
                 message: format!("feed {guid2} not found"),
                 www_authenticate: None,
             })?;
 
-        // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
-        let sse_artist_id = db::get_artist_credit(&conn, feed.artist_credit_id)
-            .ok()
-            .flatten()
-            .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
+            // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
+            let sse_artist_id = db::get_artist_credit(&conn, feed.artist_credit_id)
+                .ok()
+                .flatten()
+                .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
 
-        // Fetch tracks to remove from search index.
-        let tracks = db::get_tracks_for_feed(&conn, &guid2)?;
+            // Fetch tracks to remove from search index.
+            let tracks = db::get_tracks_for_feed(&conn, &guid2)?;
 
-        // Remove search index entries (best-effort).
-        for track in &tracks {
+            // Remove search index entries (best-effort).
+            for track in &tracks {
+                let _ = crate::search::delete_from_search_index(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                    "",
+                    &track.title,
+                    track.description.as_deref().unwrap_or(""),
+                    "",
+                );
+            }
             let _ = crate::search::delete_from_search_index(
-                &conn, "track", &track.track_guid,
-                "", &track.title,
-                track.description.as_deref().unwrap_or(""),
+                &conn,
+                "feed",
+                &feed.feed_guid,
                 "",
+                &feed.title,
+                feed.description.as_deref().unwrap_or(""),
+                feed.raw_medium.as_deref().unwrap_or(""),
             );
-        }
-        let _ = crate::search::delete_from_search_index(
-            &conn, "feed", &feed.feed_guid,
-            "", &feed.title,
-            feed.description.as_deref().unwrap_or(""),
-            feed.raw_medium.as_deref().unwrap_or(""),
-        );
 
-        // Build and sign a FeedRetired event.
-        let now = db::unix_now();
+            // Build and sign a FeedRetired event.
+            let now = db::unix_now();
 
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let payload = event::FeedRetiredPayload {
-            feed_guid: guid2.clone(),
-            reason:    Some("admin retired via API".to_string()),
-        };
-        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to serialize FeedRetired payload: {e}"),
-            www_authenticate: None,
-        })?;
-        // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event
-        // which signs after the DB assigns seq.
-        let (seq, signed_by, signature) = db::delete_feed_with_event(
-            &mut conn,
-            &guid2,
-            &event_id,
-            &payload_json,
-            &guid2,
-            &state2.signer,
-            now,
-            &[],
-        )
-        .map_err(ApiError::from)?;
-
-        // Build event for fan-out.
-        let tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
-        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)
-            .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to deserialize FeedRetired event for fan-out: {e}"),
+            let event_id = uuid::Uuid::new_v4().to_string();
+            let payload = event::FeedRetiredPayload {
+                feed_guid: guid2.clone(),
+                reason: Some("admin retired via API".to_string()),
+            };
+            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to serialize FeedRetired payload: {e}"),
                 www_authenticate: None,
             })?;
+            // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event
+            // which signs after the DB assigns seq.
+            let (seq, signed_by, signature) = db::delete_feed_with_event(
+                &mut conn,
+                &guid2,
+                &event_id,
+                &payload_json,
+                &guid2,
+                &state2.signer,
+                now,
+                &[],
+            )
+            .map_err(ApiError::from)?;
 
-        let fanout_event = event::Event {
-            event_id,
-            event_type:   event::EventType::FeedRetired,
-            payload:      ev_payload,
-            subject_guid: guid2,
-            signed_by,
-            signature,
-            seq,
-            created_at:   now,
-            warnings:     vec![],
-            payload_json,
-        };
+            // Build event for fan-out.
+            let tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
+            let ev_payload =
+                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to deserialize FeedRetired event for fan-out: {e}"),
+                    www_authenticate: None,
+                })?;
 
-        Ok((Some(vec![fanout_event]), sse_artist_id))
-    })
+            let fanout_event = event::Event {
+                event_id,
+                event_type: event::EventType::FeedRetired,
+                payload: ev_payload,
+                subject_guid: guid2,
+                signed_by,
+                signature,
+                seq,
+                created_at: now,
+                warnings: vec![],
+                payload_json,
+            };
+
+            Ok((Some(vec![fanout_event]), sse_artist_id))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?;
@@ -1943,19 +2187,27 @@ async fn handle_retire_feed(
         if let Some(ref artist_id) = sse_artist_id {
             for ev in &events {
                 let frame = SseFrame {
-                    event_type:   serde_json::to_string(&ev.event_type).unwrap_or_default().trim_matches('"').to_string(),
+                    event_type: serde_json::to_string(&ev.event_type)
+                        .unwrap_or_default()
+                        .trim_matches('"')
+                        .to_string(),
                     subject_guid: ev.subject_guid.clone(),
-                    payload:      serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
-                    seq:          ev.seq,
+                    payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
+                    seq: ev.seq,
                 };
                 state.sse_registry.publish(artist_id, frame);
             }
         }
 
-        let db_fanout          = state.db.clone();
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = state.db.clone();
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            events,
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -1963,11 +2215,14 @@ async fn handle_retire_feed(
 
 // ── DELETE /feeds/{guid}/tracks/{track_guid} ────────────────────────────────
 
-#[expect(clippy::too_many_lines, reason = "event signing, SSE publish, and fan-out all live in one handler")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "event signing, SSE publish, and fan-out all live in one handler"
+)]
 async fn handle_remove_track(
-    State(state):              State<Arc<AppState>>,
-    headers:                   HeaderMap,
-    Path((guid, track_guid)):  Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((guid, track_guid)): Path<(String, String)>,
 ) -> Result<StatusCode, ApiError> {
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
@@ -1975,102 +2230,112 @@ async fn handle_remove_track(
     // Mutex safety compliant — 2026-03-12
     // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
     // publish to the correct SSE channel after the entity is deleted.
-    let result = tokio::task::spawn_blocking(move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
+    let result = tokio::task::spawn_blocking(
+        move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
+                www_authenticate: None,
+            })?;
 
-        // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-        // For bearer auth the token must be scoped to the parent feed.
-        check_admin_or_bearer_with_conn(&conn, &headers, &state2.admin_token, "feed:write", &guid2)?;
+            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
+            // For bearer auth the token must be scoped to the parent feed.
+            check_admin_or_bearer_with_conn(
+                &conn,
+                &headers,
+                &state2.admin_token,
+                "feed:write",
+                &guid2,
+            )?;
 
-        // Look up the track — 404 if not found.
-        let track = db::get_track_by_guid(&conn, &track_guid2)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
+            // Look up the track — 404 if not found.
+            let track = db::get_track_by_guid(&conn, &track_guid2)?.ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
                 message: format!("track {track_guid2} not found"),
                 www_authenticate: None,
             })?;
 
-        // Verify the track belongs to the specified feed.
-        if track.feed_guid != guid2 {
-            return Err(ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: format!("track {track_guid2} does not belong to feed {guid2}"),
-                www_authenticate: None,
-            });
-        }
+            // Verify the track belongs to the specified feed.
+            if track.feed_guid != guid2 {
+                return Err(ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: format!("track {track_guid2} does not belong to feed {guid2}"),
+                    www_authenticate: None,
+                });
+            }
 
-        // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
-        let sse_artist_id = db::get_artist_credit(&conn, track.artist_credit_id)
-            .ok()
-            .flatten()
-            .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
+            // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
+            let sse_artist_id = db::get_artist_credit(&conn, track.artist_credit_id)
+                .ok()
+                .flatten()
+                .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
 
-        // Remove search index entry (best-effort).
-        let _ = crate::search::delete_from_search_index(
-            &conn, "track", &track.track_guid,
-            "", &track.title,
-            track.description.as_deref().unwrap_or(""),
-            "",
-        );
+            // Remove search index entry (best-effort).
+            let _ = crate::search::delete_from_search_index(
+                &conn,
+                "track",
+                &track.track_guid,
+                "",
+                &track.title,
+                track.description.as_deref().unwrap_or(""),
+                "",
+            );
 
-        // Build and sign a TrackRemoved event.
-        let now = db::unix_now();
+            // Build and sign a TrackRemoved event.
+            let now = db::unix_now();
 
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let payload = event::TrackRemovedPayload {
-            track_guid: track_guid2.clone(),
-            feed_guid:  guid2.clone(),
-        };
-        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to serialize TrackRemoved payload: {e}"),
-            www_authenticate: None,
-        })?;
-        // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_track_with_event
-        // which signs after the DB assigns seq.
-        let (seq, signed_by, signature) = db::delete_track_with_event(
-            &mut conn,
-            &track_guid2,
-            &event_id,
-            &payload_json,
-            &track_guid2,
-            &state2.signer,
-            now,
-            &[],
-        )
-        .map_err(ApiError::from)?;
-
-        // Build event for fan-out.
-        let tagged = format!(r#"{{"type":"track_removed","data":{payload_json}}}"#);
-        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)
-            .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to deserialize TrackRemoved event for fan-out: {e}"),
+            let event_id = uuid::Uuid::new_v4().to_string();
+            let payload = event::TrackRemovedPayload {
+                track_guid: track_guid2.clone(),
+                feed_guid: guid2.clone(),
+            };
+            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to serialize TrackRemoved payload: {e}"),
                 www_authenticate: None,
             })?;
+            // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_track_with_event
+            // which signs after the DB assigns seq.
+            let (seq, signed_by, signature) = db::delete_track_with_event(
+                &mut conn,
+                &track_guid2,
+                &event_id,
+                &payload_json,
+                &track_guid2,
+                &state2.signer,
+                now,
+                &[],
+            )
+            .map_err(ApiError::from)?;
 
-        let fanout_event = event::Event {
-            event_id,
-            event_type:   event::EventType::TrackRemoved,
-            payload:      ev_payload,
-            subject_guid: track_guid2,
-            signed_by,
-            signature,
-            seq,
-            created_at:   now,
-            warnings:     vec![],
-            payload_json,
-        };
+            // Build event for fan-out.
+            let tagged = format!(r#"{{"type":"track_removed","data":{payload_json}}}"#);
+            let ev_payload =
+                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to deserialize TrackRemoved event for fan-out: {e}"),
+                    www_authenticate: None,
+                })?;
 
-        Ok((Some(vec![fanout_event]), sse_artist_id))
-    })
+            let fanout_event = event::Event {
+                event_id,
+                event_type: event::EventType::TrackRemoved,
+                payload: ev_payload,
+                subject_guid: track_guid2,
+                signed_by,
+                signature,
+                seq,
+                created_at: now,
+                warnings: vec![],
+                payload_json,
+            };
+
+            Ok((Some(vec![fanout_event]), sse_artist_id))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?;
@@ -2085,19 +2350,27 @@ async fn handle_remove_track(
         if let Some(ref artist_id) = sse_artist_id {
             for ev in &events {
                 let frame = SseFrame {
-                    event_type:   serde_json::to_string(&ev.event_type).unwrap_or_default().trim_matches('"').to_string(),
+                    event_type: serde_json::to_string(&ev.event_type)
+                        .unwrap_or_default()
+                        .trim_matches('"')
+                        .to_string(),
                     subject_guid: ev.subject_guid.clone(),
-                    payload:      serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
-                    seq:          ev.seq,
+                    payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
+                    seq: ev.seq,
                 };
                 state.sse_registry.publish(artist_id, frame);
             }
         }
 
-        let db_fanout          = state.db.clone();
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = state.db.clone();
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            events,
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2121,7 +2394,8 @@ pub fn www_authenticate_challenge(error: Option<&str>) -> HeaderValue {
         |e| format!(r#"Bearer realm="stophammer", error="{e}""#),
     );
     // The constructed string is always valid ASCII header characters.
-    HeaderValue::from_str(&value).unwrap_or_else(|_err| HeaderValue::from_static(r#"Bearer realm="stophammer""#))
+    HeaderValue::from_str(&value)
+        .unwrap_or_else(|_err| HeaderValue::from_static(r#"Bearer realm="stophammer""#))
 }
 
 /// Parse `Authorization: Bearer <token>` from headers.
@@ -2168,7 +2442,7 @@ pub fn check_admin_or_bearer_with_conn(
 
     // Try bearer token.  RFC 6750 compliant — 2026-03-12
     let token = extract_bearer_token(headers).ok_or_else(|| ApiError {
-        status:  StatusCode::UNAUTHORIZED,
+        status: StatusCode::UNAUTHORIZED,
         message: "missing Authorization header".into(),
         www_authenticate: Some(www_authenticate_challenge(None)),
     })?;
@@ -2176,14 +2450,14 @@ pub fn check_admin_or_bearer_with_conn(
     let subject = proof::validate_token(conn, &token, required_scope)
         .map_err(ApiError::from)?
         .ok_or_else(|| ApiError {
-            status:  StatusCode::UNAUTHORIZED,
+            status: StatusCode::UNAUTHORIZED,
             message: "invalid_token".into(),
             www_authenticate: Some(www_authenticate_challenge(Some("invalid_token"))),
         })?;
 
     if subject != expected_feed_guid {
         return Err(ApiError {
-            status:  StatusCode::FORBIDDEN,
+            status: StatusCode::FORBIDDEN,
             message: "insufficient_scope".into(),
             www_authenticate: Some(www_authenticate_challenge(Some("insufficient_scope"))),
         });
@@ -2196,17 +2470,17 @@ pub fn check_admin_or_bearer_with_conn(
 
 #[derive(Deserialize)]
 struct ProofsChallengeRequest {
-    feed_guid:       String,
-    scope:           String,
+    feed_guid: String,
+    scope: String,
     requester_nonce: String,
 }
 
 #[derive(Serialize)]
 struct ProofsChallengeResponse {
-    challenge_id:  String,
+    challenge_id: String,
     token_binding: String,
-    state:         String,
-    expires_at:    i64,
+    state: String,
+    expires_at: i64,
 }
 
 async fn handle_proofs_challenge(
@@ -2216,7 +2490,7 @@ async fn handle_proofs_challenge(
     // Validate scope.
     if req.scope != "feed:write" {
         return Err(ApiError {
-            status:  StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
             message: format!("unsupported scope: {}", req.scope),
             www_authenticate: None,
         });
@@ -2224,7 +2498,7 @@ async fn handle_proofs_challenge(
 
     if req.requester_nonce.len() < 16 {
         return Err(ApiError {
-            status:  StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
             message: "requester_nonce must be at least 16 characters".into(),
             www_authenticate: None,
         });
@@ -2233,7 +2507,7 @@ async fn handle_proofs_challenge(
     // Availability: cap nonce length to prevent oversized token_binding storage.
     if req.requester_nonce.len() > MAX_NONCE_BYTES {
         return Err(ApiError {
-            status:  StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
             message: format!("requester_nonce exceeds maximum length of {MAX_NONCE_BYTES} bytes"),
             www_authenticate: None,
         });
@@ -2299,29 +2573,32 @@ async fn handle_proofs_challenge(
 
 #[derive(Deserialize)]
 struct ProofsAssertRequest {
-    challenge_id:    String,
+    challenge_id: String,
     requester_nonce: String,
 }
 
 // Issue-PROOF-LEVEL — 2026-03-14
 #[derive(Serialize)]
 struct ProofsAssertResponse {
-    access_token:      String,
-    scope:             String,
+    access_token: String,
+    scope: String,
     subject_feed_guid: String,
-    expires_at:        i64,
-    proof_level:       proof::ProofLevel,
+    expires_at: i64,
+    proof_level: proof::ProofLevel,
 }
 
 // CS-01 pod:txt verification — 2026-03-12
-#[expect(clippy::too_many_lines, reason = "three-phase spawn_blocking pattern for RSS verification requires sequential structure")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "three-phase spawn_blocking pattern for RSS verification requires sequential structure"
+)]
 async fn handle_proofs_assert(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ProofsAssertRequest>,
 ) -> Result<Json<ProofsAssertResponse>, ApiError> {
     if req.requester_nonce.len() < 16 {
         return Err(ApiError {
-            status:  StatusCode::BAD_REQUEST,
+            status: StatusCode::BAD_REQUEST,
             message: "requester_nonce must be at least 16 characters".into(),
             www_authenticate: None,
         });
@@ -2332,66 +2609,68 @@ async fn handle_proofs_assert(
     let req_challenge_id = req.challenge_id.clone();
     let req_nonce = req.requester_nonce.clone();
 
-    let phase1 = tokio::task::spawn_blocking(move || -> Result<(String, String, String, String), ApiError> {
-        // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
-
-        // Load the challenge (404 if not found or expired).
-        let challenge = proof::get_challenge(&conn, &req_challenge_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: "challenge not found or expired".into(),
+    let phase1 = tokio::task::spawn_blocking(
+        move || -> Result<(String, String, String, String), ApiError> {
+            // Mutex safety compliant — 2026-03-12
+            let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
                 www_authenticate: None,
             })?;
 
-        // Check challenge is still pending (400 if already resolved).
-        if challenge.state != "pending" {
-            return Err(ApiError {
-                status:  StatusCode::BAD_REQUEST,
-                message: format!("challenge already resolved as '{}'", challenge.state),
-                www_authenticate: None,
-            });
-        }
+            // Load the challenge (404 if not found or expired).
+            let challenge = proof::get_challenge(&conn, &req_challenge_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: "challenge not found or expired".into(),
+                    www_authenticate: None,
+                })?;
 
-        // Recompute token_binding from stored token + requester_nonce.
-        let expected = proof::recompute_binding(&challenge.token_binding, &req_nonce);
-        let nonce_ok = expected.as_deref() == Some(&challenge.token_binding);
+            // Check challenge is still pending (400 if already resolved).
+            if challenge.state != "pending" {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: format!("challenge already resolved as '{}'", challenge.state),
+                    www_authenticate: None,
+                });
+            }
 
-        if !nonce_ok {
-            // Nonce mismatch: mark invalid and return 400.
-            proof::resolve_challenge(&conn, &req_challenge_id, "invalid")
-                .map_err(ApiError::from)?;
-            return Err(ApiError {
-                status:  StatusCode::BAD_REQUEST,
-                message: "requester_nonce does not match token binding".into(),
-                www_authenticate: None,
-            });
-        }
+            // Recompute token_binding from stored token + requester_nonce.
+            let expected = proof::recompute_binding(&challenge.token_binding, &req_nonce);
+            let nonce_ok = expected.as_deref() == Some(&challenge.token_binding);
 
-        // Look up feed_url from the feeds table using challenge's feed_guid.
-        let feed = db::get_feed_by_guid(&conn, &challenge.feed_guid)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: "feed not found in database".into(),
-                www_authenticate: None,
-            })?;
+            if !nonce_ok {
+                // Nonce mismatch: mark invalid and return 400.
+                proof::resolve_challenge(&conn, &req_challenge_id, "invalid")
+                    .map_err(ApiError::from)?;
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "requester_nonce does not match token binding".into(),
+                    www_authenticate: None,
+                });
+            }
 
-        Ok((
-            challenge.feed_guid,
-            challenge.scope,
-            challenge.token_binding,
-            feed.feed_url,
-        ))
-    })
+            // Look up feed_url from the feeds table using challenge's feed_guid.
+            let feed = db::get_feed_by_guid(&conn, &challenge.feed_guid)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: "feed not found in database".into(),
+                    www_authenticate: None,
+                })?;
+
+            Ok((
+                challenge.feed_guid,
+                challenge.scope,
+                challenge.token_binding,
+                feed.feed_url,
+            ))
+        },
+    )
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })??;
@@ -2420,12 +2699,12 @@ async fn handle_proofs_assert(
         tokio::task::spawn_blocking(move || proof::validate_feed_url(&url_clone))
             .await
             .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
+                status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: format!("SSRF validation task failed: {e}"),
                 www_authenticate: None,
             })?
             .map_err(|e| ApiError {
-                status:  StatusCode::BAD_REQUEST,
+                status: StatusCode::BAD_REQUEST,
                 message: format!("feed URL rejected: {e}"),
                 www_authenticate: None,
             })?
@@ -2438,7 +2717,7 @@ async fn handle_proofs_assert(
         proof::verify_podcast_txt(&proof_client, &feed_url, &token_binding)
             .await
             .map_err(|e| ApiError {
-                status:  StatusCode::SERVICE_UNAVAILABLE,
+                status: StatusCode::SERVICE_UNAVAILABLE,
                 message: format!("RSS verification failed: {e}"),
                 www_authenticate: None,
             })?
@@ -2447,18 +2726,13 @@ async fn handle_proofs_assert(
             .ok()
             .and_then(|u| u.host_str().map(String::from))
             .unwrap_or_default();
-        proof::verify_podcast_txt_pinned(
-            &feed_url,
-            &token_binding,
-            &hostname,
-            &resolved_addrs,
-        )
-        .await
-        .map_err(|e| ApiError {
-            status:  StatusCode::SERVICE_UNAVAILABLE,
-            message: format!("RSS verification failed: {e}"),
-            www_authenticate: None,
-        })?
+        proof::verify_podcast_txt_pinned(&feed_url, &token_binding, &hostname, &resolved_addrs)
+            .await
+            .map_err(|e| ApiError {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: format!("RSS verification failed: {e}"),
+                www_authenticate: None,
+            })?
     };
 
     // ── Phase 3 (blocking): resolve challenge and issue token ─────────────────
@@ -2471,16 +2745,15 @@ async fn handle_proofs_assert(
     let result = tokio::task::spawn_blocking(move || -> Result<ProofsAssertResponse, ApiError> {
         // Mutex safety compliant — 2026-03-12
         let conn = state3.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
+            status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
         })?;
 
         if !rss_verified {
-            proof::resolve_challenge(&conn, &challenge_id, "invalid")
-                .map_err(ApiError::from)?;
+            proof::resolve_challenge(&conn, &challenge_id, "invalid").map_err(ApiError::from)?;
             return Err(ApiError {
-                status:  StatusCode::BAD_REQUEST,
+                status: StatusCode::BAD_REQUEST,
                 message: "token_binding not found in RSS podcast:txt".into(),
                 www_authenticate: None,
             });
@@ -2494,13 +2767,13 @@ async fn handle_proofs_assert(
         let current_feed = db::get_feed_by_guid(&conn, &feed_guid2)
             .map_err(ApiError::from)?
             .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
+                status: StatusCode::NOT_FOUND,
                 message: "feed not found in database".into(),
                 www_authenticate: None,
             })?;
         if current_feed.feed_url != phase1_feed_url {
             return Err(ApiError {
-                status:  StatusCode::CONFLICT,
+                status: StatusCode::CONFLICT,
                 message: "feed URL changed during verification; retry".into(),
                 www_authenticate: None,
             });
@@ -2508,11 +2781,11 @@ async fn handle_proofs_assert(
 
         // Mark the challenge as valid. If rows == 0 the challenge was already
         // resolved by a concurrent request (TOCTOU between Phase 1 and Phase 3).
-        let rows = proof::resolve_challenge(&conn, &challenge_id, "valid")
-            .map_err(ApiError::from)?;
+        let rows =
+            proof::resolve_challenge(&conn, &challenge_id, "valid").map_err(ApiError::from)?;
         if rows == 0 {
             return Err(ApiError {
-                status:  StatusCode::BAD_REQUEST,
+                status: StatusCode::BAD_REQUEST,
                 message: "challenge already resolved (concurrent request)".into(),
                 www_authenticate: None,
             });
@@ -2530,7 +2803,7 @@ async fn handle_proofs_assert(
 
         Ok(ProofsAssertResponse {
             access_token,
-            scope:             scope2,
+            scope: scope2,
             subject_feed_guid: feed_guid2,
             expires_at,
             proof_level,
@@ -2538,7 +2811,7 @@ async fn handle_proofs_assert(
     })
     .await
     .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
+        status: StatusCode::INTERNAL_SERVER_ERROR,
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?;
@@ -2556,143 +2829,161 @@ struct PatchFeedRequest {
     feed_url: Option<String>,
 }
 
-#[expect(clippy::too_many_lines, reason = "event signing and fan-out follow the handle_retire_feed pattern")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "event signing and fan-out follow the handle_retire_feed pattern"
+)]
 async fn handle_patch_feed(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Path(guid):   Path<String>,
-    Json(req):    Json<PatchFeedRequest>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+    Json(req): Json<PatchFeedRequest>,
 ) -> Result<StatusCode, ApiError> {
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
-    let result = tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
-
-        // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-        check_admin_or_bearer_with_conn(&conn, &headers, &state2.admin_token, "feed:write", &guid2)?;
-
-        // Issue-13 PATCH 404 check — 2026-03-13
-        // Look up the feed — 404 if not found.
-        db::get_feed_by_guid(&conn, &guid2)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: format!("feed {guid2} not found"),
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
                 www_authenticate: None,
             })?;
 
-        let Some(new_url) = &req.feed_url else {
-            return Ok(None);
-        };
+            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
+            check_admin_or_bearer_with_conn(
+                &conn,
+                &headers,
+                &state2.admin_token,
+                "feed:write",
+                &guid2,
+            )?;
 
-        // Wrap mutation + event insert in a single transaction.
-        // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-        let tx = conn.transaction().map_err(|e| ApiError::from(db::DbError::from(e)))?;
+            // Issue-13 PATCH 404 check — 2026-03-13
+            // Look up the feed — 404 if not found.
+            db::get_feed_by_guid(&conn, &guid2)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: format!("feed {guid2} not found"),
+                    www_authenticate: None,
+                })?;
 
-        tx.execute(
-            "UPDATE feeds SET feed_url = ?1 WHERE feed_guid = ?2",
-            params![new_url, guid2],
-        )
-        .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+            let Some(new_url) = &req.feed_url else {
+                return Ok(None);
+            };
 
-        // Finding-6 token revocation on URL change — 2026-03-13
-        // Existing tokens were proved against the OLD feed URL's podcast:txt.
-        // After a URL change, the artist must re-prove ownership.
-        crate::proof::revoke_tokens_for_feed(&tx, &guid2)
+            // Wrap mutation + event insert in a single transaction.
+            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
+            let tx = conn
+                .transaction()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+            tx.execute(
+                "UPDATE feeds SET feed_url = ?1 WHERE feed_guid = ?2",
+                params![new_url, guid2],
+            )
+            .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+            // Finding-6 token revocation on URL change — 2026-03-13
+            // Existing tokens were proved against the OLD feed URL's podcast:txt.
+            // After a URL change, the artist must re-prove ownership.
+            crate::proof::revoke_tokens_for_feed(&tx, &guid2).map_err(ApiError::from)?;
+
+            // Issue-12 PATCH emits events — 2026-03-13
+            // Re-read the feed after the update to capture current state.
+            let feed = db::get_feed_by_guid(&tx, &guid2)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("feed {guid2} vanished after update"),
+                    www_authenticate: None,
+                })?;
+
+            // Look up the artist credit and artist for the event payload.
+            let artist_credit = db::get_artist_credit(&tx, feed.artist_credit_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!(
+                        "artist credit {} not found for feed {guid2}",
+                        feed.artist_credit_id
+                    ),
+                    www_authenticate: None,
+                })?;
+
+            let artist_id = artist_credit
+                .names
+                .first()
+                .map_or("", |n| n.artist_id.as_str());
+            let artist = db::get_artist_by_id(&tx, artist_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("artist {artist_id} not found for feed {guid2}"),
+                    www_authenticate: None,
+                })?;
+
+            // Build and sign a FeedUpserted event.
+            let now = db::unix_now();
+            let event_id = uuid::Uuid::new_v4().to_string();
+            let payload = event::FeedUpsertedPayload {
+                feed,
+                artist,
+                artist_credit,
+            };
+            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to serialize FeedUpserted payload: {e}"),
+                www_authenticate: None,
+            })?;
+            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+            let (seq, signed_by, signature) = db::insert_event(
+                &tx,
+                &event_id,
+                &event::EventType::FeedUpserted,
+                &payload_json,
+                &guid2,
+                &state2.signer,
+                now,
+                &[],
+            )
             .map_err(ApiError::from)?;
 
-        // Issue-12 PATCH emits events — 2026-03-13
-        // Re-read the feed after the update to capture current state.
-        let feed = db::get_feed_by_guid(&tx, &guid2)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("feed {guid2} vanished after update"),
-                www_authenticate: None,
-            })?;
+            tx.commit()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
 
-        // Look up the artist credit and artist for the event payload.
-        let artist_credit = db::get_artist_credit(&tx, feed.artist_credit_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("artist credit {} not found for feed {guid2}", feed.artist_credit_id),
-                www_authenticate: None,
-            })?;
+            // Build event for fan-out AFTER commit.
+            let tagged = format!(r#"{{"type":"feed_upserted","data":{payload_json}}}"#);
+            let ev_payload =
+                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to deserialize FeedUpserted event for fan-out: {e}"),
+                    www_authenticate: None,
+                })?;
 
-        let artist_id = artist_credit.names.first().map_or("", |n| n.artist_id.as_str());
-        let artist = db::get_artist_by_id(&tx, artist_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("artist {artist_id} not found for feed {guid2}"),
-                www_authenticate: None,
-            })?;
+            let fanout_event = event::Event {
+                event_id,
+                event_type: event::EventType::FeedUpserted,
+                payload: ev_payload,
+                subject_guid: guid2,
+                signed_by,
+                signature,
+                seq,
+                created_at: now,
+                warnings: vec![],
+                payload_json,
+            };
 
-        // Build and sign a FeedUpserted event.
-        let now = db::unix_now();
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let payload = event::FeedUpsertedPayload {
-            feed,
-            artist,
-            artist_credit,
-        };
-        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to serialize FeedUpserted payload: {e}"),
+            Ok(Some(vec![fanout_event]))
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
             www_authenticate: None,
         })?;
-        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-        let (seq, signed_by, signature) = db::insert_event(
-            &tx,
-            &event_id,
-            &event::EventType::FeedUpserted,
-            &payload_json,
-            &guid2,
-            &state2.signer,
-            now,
-            &[],
-        )
-        .map_err(ApiError::from)?;
-
-        tx.commit().map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-        // Build event for fan-out AFTER commit.
-        let tagged = format!(r#"{{"type":"feed_upserted","data":{payload_json}}}"#);
-        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)
-            .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to deserialize FeedUpserted event for fan-out: {e}"),
-                www_authenticate: None,
-            })?;
-
-        let fanout_event = event::Event {
-            event_id,
-            event_type:   event::EventType::FeedUpserted,
-            payload:      ev_payload,
-            subject_guid: guid2,
-            signed_by,
-            signature,
-            seq,
-            created_at:   now,
-            warnings:     vec![],
-            payload_json,
-        };
-
-        Ok(Some(vec![fanout_event]))
-    })
-    .await
-    .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
 
     let fanout_events = result?;
 
@@ -2703,10 +2994,15 @@ async fn handle_patch_feed(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &events);
 
-        let db_fanout          = state.db.clone();
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = state.db.clone();
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            events,
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)
@@ -2722,138 +3018,151 @@ struct PatchTrackRequest {
     enclosure_url: Option<String>,
 }
 
-#[expect(clippy::too_many_lines, reason = "event signing and fan-out follow the handle_retire_feed pattern")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "event signing and fan-out follow the handle_retire_feed pattern"
+)]
 async fn handle_patch_track(
     State(state): State<Arc<AppState>>,
-    headers:      HeaderMap,
-    Path(guid):   Path<String>,
-    Json(req):    Json<PatchTrackRequest>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+    Json(req): Json<PatchTrackRequest>,
 ) -> Result<StatusCode, ApiError> {
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
-    let result = tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
+            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "database mutex poisoned".into(),
+                www_authenticate: None,
+            })?;
+
+            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
+            // Look up the track first to find its parent feed guid, then validate
+            // the bearer token against that feed.
+            // Issue-13 PATCH 404 check — 2026-03-13
+            let track = db::get_track_by_guid(&conn, &guid2)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::NOT_FOUND,
+                    message: format!("track {guid2} not found"),
+                    www_authenticate: None,
+                })?;
+
+            check_admin_or_bearer_with_conn(
+                &conn,
+                &headers,
+                &state2.admin_token,
+                "feed:write",
+                &track.feed_guid,
+            )?;
+
+            let Some(new_url) = &req.enclosure_url else {
+                return Ok(None);
+            };
+
+            // Wrap mutation + event insert in a single transaction.
+            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
+            let tx = conn
+                .transaction()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+            tx.execute(
+                "UPDATE tracks SET enclosure_url = ?1 WHERE track_guid = ?2",
+                params![new_url, guid2],
+            )
+            .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+            // Issue-12 PATCH emits events — 2026-03-13
+            // Re-read the track after the update to capture current state.
+            let updated_track = db::get_track_by_guid(&tx, &guid2)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("track {guid2} vanished after update"),
+                    www_authenticate: None,
+                })?;
+
+            // Look up the artist credit for the event payload.
+            let artist_credit = db::get_artist_credit(&tx, updated_track.artist_credit_id)
+                .map_err(ApiError::from)?
+                .ok_or_else(|| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!(
+                        "artist credit {} not found for track {guid2}",
+                        updated_track.artist_credit_id
+                    ),
+                    www_authenticate: None,
+                })?;
+
+            // Look up payment routes and value-time splits.
+            let routes = db::get_payment_routes_for_track(&tx, &guid2).map_err(ApiError::from)?;
+            let value_time_splits =
+                db::get_value_time_splits_for_track(&tx, &guid2).map_err(ApiError::from)?;
+
+            // Build and sign a TrackUpserted event.
+            let now = db::unix_now();
+            let event_id = uuid::Uuid::new_v4().to_string();
+            let payload = event::TrackUpsertedPayload {
+                track: updated_track,
+                routes,
+                value_time_splits,
+                artist_credit,
+            };
+            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("failed to serialize TrackUpserted payload: {e}"),
+                www_authenticate: None,
+            })?;
+            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+            let (seq, signed_by, signature) = db::insert_event(
+                &tx,
+                &event_id,
+                &event::EventType::TrackUpserted,
+                &payload_json,
+                &guid2,
+                &state2.signer,
+                now,
+                &[],
+            )
+            .map_err(ApiError::from)?;
+
+            tx.commit()
+                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+            // Build event for fan-out AFTER commit.
+            let tagged = format!(r#"{{"type":"track_upserted","data":{payload_json}}}"#);
+            let ev_payload =
+                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to deserialize TrackUpserted event for fan-out: {e}"),
+                    www_authenticate: None,
+                })?;
+
+            let fanout_event = event::Event {
+                event_id,
+                event_type: event::EventType::TrackUpserted,
+                payload: ev_payload,
+                subject_guid: guid2,
+                signed_by,
+                signature,
+                seq,
+                created_at: now,
+                warnings: vec![],
+                payload_json,
+            };
+
+            Ok(Some(vec![fanout_event]))
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
             www_authenticate: None,
         })?;
-
-        // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-        // Look up the track first to find its parent feed guid, then validate
-        // the bearer token against that feed.
-        // Issue-13 PATCH 404 check — 2026-03-13
-        let track = db::get_track_by_guid(&conn, &guid2)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: format!("track {guid2} not found"),
-                www_authenticate: None,
-            })?;
-
-        check_admin_or_bearer_with_conn(
-            &conn, &headers, &state2.admin_token, "feed:write", &track.feed_guid,
-        )?;
-
-        let Some(new_url) = &req.enclosure_url else {
-            return Ok(None);
-        };
-
-        // Wrap mutation + event insert in a single transaction.
-        // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-        let tx = conn.transaction().map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-        tx.execute(
-            "UPDATE tracks SET enclosure_url = ?1 WHERE track_guid = ?2",
-            params![new_url, guid2],
-        )
-        .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-        // Issue-12 PATCH emits events — 2026-03-13
-        // Re-read the track after the update to capture current state.
-        let updated_track = db::get_track_by_guid(&tx, &guid2)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("track {guid2} vanished after update"),
-                www_authenticate: None,
-            })?;
-
-        // Look up the artist credit for the event payload.
-        let artist_credit = db::get_artist_credit(&tx, updated_track.artist_credit_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("artist credit {} not found for track {guid2}", updated_track.artist_credit_id),
-                www_authenticate: None,
-            })?;
-
-        // Look up payment routes and value-time splits.
-        let routes = db::get_payment_routes_for_track(&tx, &guid2)
-            .map_err(ApiError::from)?;
-        let value_time_splits = db::get_value_time_splits_for_track(&tx, &guid2)
-            .map_err(ApiError::from)?;
-
-        // Build and sign a TrackUpserted event.
-        let now = db::unix_now();
-        let event_id = uuid::Uuid::new_v4().to_string();
-        let payload = event::TrackUpsertedPayload {
-            track:             updated_track,
-            routes,
-            value_time_splits,
-            artist_credit,
-        };
-        let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("failed to serialize TrackUpserted payload: {e}"),
-            www_authenticate: None,
-        })?;
-        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-        let (seq, signed_by, signature) = db::insert_event(
-            &tx,
-            &event_id,
-            &event::EventType::TrackUpserted,
-            &payload_json,
-            &guid2,
-            &state2.signer,
-            now,
-            &[],
-        )
-        .map_err(ApiError::from)?;
-
-        tx.commit().map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-        // Build event for fan-out AFTER commit.
-        let tagged = format!(r#"{{"type":"track_upserted","data":{payload_json}}}"#);
-        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)
-            .map_err(|e| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to deserialize TrackUpserted event for fan-out: {e}"),
-                www_authenticate: None,
-            })?;
-
-        let fanout_event = event::Event {
-            event_id,
-            event_type:   event::EventType::TrackUpserted,
-            payload:      ev_payload,
-            subject_guid: guid2,
-            signed_by,
-            signature,
-            seq,
-            created_at:   now,
-            warnings:     vec![],
-            payload_json,
-        };
-
-        Ok(Some(vec![fanout_event]))
-    })
-    .await
-    .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
 
     let fanout_events = result?;
 
@@ -2864,10 +3173,15 @@ async fn handle_patch_track(
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &events);
 
-        let db_fanout          = state.db.clone();
-        let client_fanout      = state.push_client.clone();
+        let db_fanout = state.db.clone();
+        let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(db_fanout, client_fanout, subscribers_fanout, events));
+        tokio::spawn(fan_out_push(
+            db_fanout,
+            client_fanout,
+            subscribers_fanout,
+            events,
+        ));
     }
 
     Ok(StatusCode::NO_CONTENT)

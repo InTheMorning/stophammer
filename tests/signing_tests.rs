@@ -1,9 +1,9 @@
 mod common;
 
-use ed25519_dalek::{Signer, SigningKey, Signature, Verifier};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use rand_core::OsRng;
 use rusqlite::params;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 #[test]
 fn signing_key_roundtrip() {
@@ -57,13 +57,19 @@ fn event_signature_stored_correctly() {
     ).unwrap();
 
     // Read back and verify the signature column is hex-encoded and 128 chars (64 bytes)
-    let stored_sig: String = conn.query_row(
-        "SELECT signature FROM events WHERE event_id = ?1",
-        params![event_id],
-        |row| row.get(0),
-    ).unwrap();
+    let stored_sig: String = conn
+        .query_row(
+            "SELECT signature FROM events WHERE event_id = ?1",
+            params![event_id],
+            |row| row.get(0),
+        )
+        .unwrap();
 
-    assert_eq!(stored_sig.len(), 128, "signature hex should be 128 chars (64 bytes)");
+    assert_eq!(
+        stored_sig.len(),
+        128,
+        "signature hex should be 128 chars (64 bytes)"
+    );
     assert!(
         hex::decode(&stored_sig).is_ok(),
         "signature column should be valid hex",
@@ -146,5 +152,8 @@ fn tampered_payload_rejects() {
 
     // Original signature must not verify against the tampered digest
     let result = verifier.verify(&tampered_digest, &sig);
-    assert!(result.is_err(), "tampered payload must fail signature verification");
+    assert!(
+        result.is_err(),
+        "tampered payload must fail signature verification"
+    );
 }

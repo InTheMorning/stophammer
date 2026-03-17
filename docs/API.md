@@ -78,6 +78,14 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
     "author_name": "Artist Name",
     "owner_name": "Artist Name",
     "pub_date": 1710288000,
+    "remote_items": [
+      {
+        "position": 0,
+        "medium": "music",
+        "remote_feed_guid": "artist-feed-guid",
+        "remote_feed_url": "https://example.com/artist.xml"
+      }
+    ],
     "feed_payment_routes": [
       {
         "recipient_name": "Artist Name",
@@ -106,12 +114,38 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "payment_routes": [],
         "value_time_splits": []
       }
+    ],
+    "live_items": [
+      {
+        "live_item_guid": "live-item-guid",
+        "title": "Tonight's Listening Party",
+        "status": "pending",
+        "start_at": 1710291600,
+        "end_at": 1710298800,
+        "content_link": "https://example.com/stream",
+        "pub_date": 1710291600,
+        "duration_secs": null,
+        "enclosure_url": null,
+        "enclosure_type": null,
+        "enclosure_bytes": null,
+        "track_number": null,
+        "season": null,
+        "explicit": false,
+        "description": "Live premiere stream",
+        "author_name": "Artist Name",
+        "payment_routes": [],
+        "value_time_splits": []
+      }
     ]
   }
 }
 ```
 
 `feed_data` is `null` when the crawler could not parse the feed (e.g. HTTP error). The verifier chain still runs to record the rejection.
+
+`remote_items` carries feed-level `podcast:remoteItem` references. `live_items`
+carries parsed `podcast:liveItem` entries; `pending` and `live` rows are staged in
+`live_events`, while `ended` rows with enclosures are promoted into normal tracks.
 
 **Response (`200 OK`):**
 

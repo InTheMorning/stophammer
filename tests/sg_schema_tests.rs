@@ -33,8 +33,16 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            "feed-sg", "https://example.com/sg-feed.xml", "SG Album",
-            "sg album", credit_id, "Schema gap test feed", 0, 0, now, now,
+            "feed-sg",
+            "https://example.com/sg-feed.xml",
+            "SG Album",
+            "sg album",
+            credit_id,
+            "Schema gap test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -53,8 +61,15 @@ fn insert_track(
          description, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
-            track_guid, feed_guid, credit_id, "SG Track",
-            "sg track", "test track", 0, now, now,
+            track_guid,
+            feed_guid,
+            credit_id,
+            "SG Track",
+            "sg track",
+            "test track",
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert track");
@@ -103,7 +118,10 @@ fn test_route_type_check_constraint_payment_routes() {
          VALUES ('track-sg-rt', 'feed-sg', 'INVALID', 'addr', 100)",
         [],
     );
-    assert!(result.is_err(), "payment_routes should reject invalid route_type");
+    assert!(
+        result.is_err(),
+        "payment_routes should reject invalid route_type"
+    );
 }
 
 #[test]
@@ -116,7 +134,10 @@ fn test_route_type_check_constraint_feed_payment_routes() {
          VALUES ('feed-sg', 'BOGUS', 'addr', 100)",
         [],
     );
-    assert!(result.is_err(), "feed_payment_routes should reject invalid route_type");
+    assert!(
+        result.is_err(),
+        "feed_payment_routes should reject invalid route_type"
+    );
 }
 
 #[test]
@@ -161,7 +182,10 @@ fn test_split_check_constraint_payment_routes() {
          VALUES ('track-sg-sp', 'feed-sg', 'node', 'addr', -1)",
         [],
     );
-    assert!(result.is_err(), "payment_routes should reject negative split");
+    assert!(
+        result.is_err(),
+        "payment_routes should reject negative split"
+    );
 }
 
 #[test]
@@ -174,7 +198,10 @@ fn test_split_check_constraint_feed_payment_routes() {
          VALUES ('feed-sg', 'node', 'addr', -1)",
         [],
     );
-    assert!(result.is_err(), "feed_payment_routes should reject negative split");
+    assert!(
+        result.is_err(),
+        "feed_payment_routes should reject negative split"
+    );
 }
 
 #[test]
@@ -190,7 +217,10 @@ fn test_split_check_constraint_value_time_splits() {
          VALUES ('track-sg-vts', 0, 'rfeed', 'ritem', -1, ?1)",
         params![now],
     );
-    assert!(result.is_err(), "value_time_splits should reject negative split");
+    assert!(
+        result.is_err(),
+        "value_time_splits should reject negative split"
+    );
 }
 
 // ===========================================================================
@@ -243,7 +273,10 @@ fn test_feed_delete_cleans_proof_challenges() {
             |row| row.get(0),
         )
         .expect("count challenges");
-    assert_eq!(count, 0, "proof_challenges should be cleaned up on feed delete");
+    assert_eq!(
+        count, 0,
+        "proof_challenges should be cleaned up on feed delete"
+    );
 }
 
 #[test]
@@ -260,8 +293,8 @@ fn test_feed_delete_with_event_cleans_proof_tokens() {
 
     let now = stophammer::db::unix_now();
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/sg-schema-test.key")
-        .expect("signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/sg-schema-test.key").expect("signer");
     stophammer::db::delete_feed_with_event(
         &mut conn,
         "feed-sg",
@@ -281,7 +314,10 @@ fn test_feed_delete_with_event_cleans_proof_tokens() {
             |row| row.get(0),
         )
         .expect("count tokens");
-    assert_eq!(count, 0, "proof_tokens should be cleaned up on delete_feed_with_event");
+    assert_eq!(
+        count, 0,
+        "proof_tokens should be cleaned up on delete_feed_with_event"
+    );
 }
 
 #[test]
@@ -319,7 +355,10 @@ fn test_feed_delete_with_event_cleans_proof_challenges() {
             |row| row.get(0),
         )
         .expect("count challenges");
-    assert_eq!(count, 0, "proof_challenges should be cleaned up on delete_feed_with_event");
+    assert_eq!(
+        count, 0,
+        "proof_challenges should be cleaned up on delete_feed_with_event"
+    );
 }
 
 // ===========================================================================
@@ -336,5 +375,8 @@ fn test_events_seq_unique_index_exists() {
             |row| row.get(0),
         )
         .expect("query sqlite_master");
-    assert!(exists, "missing UNIQUE index idx_events_seq_unique on events(seq)");
+    assert!(
+        exists,
+        "missing UNIQUE index idx_events_seq_unique on events(seq)"
+    );
 }

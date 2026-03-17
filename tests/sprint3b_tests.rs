@@ -18,8 +18,8 @@ fn verifier_chain_run_returns_result() {
     let conn = common::test_db();
     let request = dummy_ingest_request();
     let ctx = stophammer::verify::IngestContext {
-        request:  &request,
-        db:       &conn,
+        request: &request,
+        db: &conn,
         existing: None,
     };
     // Must use the result — if #[must_use] is missing, clippy will warn
@@ -89,12 +89,12 @@ fn api_error_has_debug() {
 fn event_row_has_debug() {
     // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
     let row = stophammer::db::EventRow {
-        event_id:     "e1".into(),
-        event_type:   stophammer::event::EventType::ArtistUpserted,
+        event_id: "e1".into(),
+        event_type: stophammer::event::EventType::ArtistUpserted,
         payload_json: "{}".into(),
         subject_guid: "s1".into(),
-        created_at:   1000,
-        warnings:     vec![],
+        created_at: 1000,
+        warnings: vec![],
     };
     let _ = format!("{row:?}");
 }
@@ -102,9 +102,9 @@ fn event_row_has_debug() {
 #[test]
 fn external_id_row_has_debug() {
     let row = stophammer::db::ExternalIdRow {
-        id:     1,
+        id: 1,
         scheme: "isrc".into(),
-        value:  "US1234".into(),
+        value: "US1234".into(),
     };
     let _ = format!("{row:?}");
 }
@@ -112,11 +112,11 @@ fn external_id_row_has_debug() {
 #[test]
 fn entity_source_row_has_debug() {
     let row = stophammer::db::EntitySourceRow {
-        id:          1,
+        id: 1,
         source_type: "rss".into(),
-        source_url:  Some("https://example.com".into()),
+        source_url: Some("https://example.com".into()),
         trust_level: 5,
-        created_at:  1000,
+        created_at: 1000,
     };
     let _ = format!("{row:?}");
 }
@@ -130,22 +130,21 @@ fn apply_outcome_has_debug() {
 #[test]
 fn challenge_row_has_debug() {
     let row = stophammer::proof::ChallengeRow {
-        challenge_id:  "c1".into(),
-        feed_guid:     "fg1".into(),
-        scope:         "feed:write".into(),
+        challenge_id: "c1".into(),
+        feed_guid: "fg1".into(),
+        scope: "feed:write".into(),
         token_binding: "tok.hash".into(),
-        state:         "pending".into(),
-        expires_at:    9999,
+        state: "pending".into(),
+        expires_at: 9999,
     };
     let _ = format!("{row:?}");
 }
 
 #[test]
 fn node_signer_debug_redacts_key() {
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        Path::new("/tmp/test-sprint3b-debug.key"),
-    )
-    .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create(Path::new("/tmp/test-sprint3b-debug.key"))
+            .expect("create signer");
     let debug_str = format!("{signer:?}");
     assert!(
         debug_str.contains("REDACTED"),
@@ -180,11 +179,11 @@ fn chain_spec_has_debug() {
 #[test]
 fn community_config_has_debug() {
     let config = stophammer::community::CommunityConfig {
-        primary_url:       "http://localhost:8008".into(),
-        tracker_url:       "http://localhost:9009".into(),
-        node_address:      "http://localhost:7007".into(),
+        primary_url: "http://localhost:8008".into(),
+        tracker_url: "http://localhost:9009".into(),
+        node_address: "http://localhost:7007".into(),
         poll_interval_secs: 300,
-        push_timeout_secs:  90,
+        push_timeout_secs: 90,
     };
     let _ = format!("{config:?}");
 }
@@ -195,8 +194,8 @@ fn community_state_has_debug() {
     let state = stophammer::community::CommunityState {
         db: common::wrap_pool(db),
         primary_pubkey_hex: "abcd1234".into(),
-        last_push_at:       Arc::new(std::sync::atomic::AtomicI64::new(0)),
-        sse_registry:       None,
+        last_push_at: Arc::new(std::sync::atomic::AtomicI64::new(0)),
+        sse_registry: None,
     };
     let _ = format!("{state:?}");
 }
@@ -204,12 +203,12 @@ fn community_state_has_debug() {
 #[test]
 fn search_result_has_debug() {
     let result = stophammer::search::SearchResult {
-        entity_type:    "track".into(),
-        entity_id:      "t1".into(),
-        rank:           1.0,
-        quality_score:  50,
+        entity_type: "track".into(),
+        entity_id: "t1".into(),
+        rank: 1.0,
+        quality_score: 50,
         effective_rank: 1.0,
-        rowid:          42,
+        rowid: 42,
     };
     let _ = format!("{result:?}");
 }
@@ -243,22 +242,20 @@ fn cert_needs_renewal_accepts_path() {
 fn skip_ssrf_field_available_in_test_cfg() {
     let db = common::test_db_arc();
     let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create(
-            Path::new("/tmp/test-sprint3b-ssrf.key"),
-        )
-        .expect("create signer"),
+        stophammer::signing::NodeSigner::load_or_create(Path::new("/tmp/test-sprint3b-ssrf.key"))
+            .expect("create signer"),
     );
     let pubkey = signer.pubkey_hex().to_string();
     let _state = stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      String::new(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: String::new(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     };
 }
@@ -284,22 +281,20 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
     let db = common::test_db_arc();
     let key_path = format!("/tmp/test-sprint3b-{}.key", uuid::Uuid::new_v4());
     let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create(
-            Path::new(&key_path),
-        )
-        .expect("create signer"),
+        stophammer::signing::NodeSigner::load_or_create(Path::new(&key_path))
+            .expect("create signer"),
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      String::new(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: String::new(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     })
 }
@@ -307,10 +302,10 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
 fn dummy_ingest_request() -> stophammer::ingest::IngestFeedRequest {
     stophammer::ingest::IngestFeedRequest {
         canonical_url: "https://example.com/feed.xml".into(),
-        source_url:    "https://example.com/feed.xml".into(),
-        crawl_token:   "test-token".into(),
-        http_status:   200,
-        content_hash:  "abc123".into(),
-        feed_data:     None,
+        source_url: "https://example.com/feed.xml".into(),
+        crawl_token: "test-token".into(),
+        http_status: 200,
+        content_hash: "abc123".into(),
+        feed_data: None,
     }
 }

@@ -1,7 +1,7 @@
 # ADR 0021: Live Event Support
 
 ## Status
-Proposed
+Accepted (parser/storage replication implemented; scheduler and SSE follow-up remain)
 
 ## Context
 
@@ -10,9 +10,17 @@ identical to `<item>` but with an additional `status` attribute that cycles thro
 `pending → live → ended`. It is used by podcasters and music artists to announce
 scheduled streams, signal when they go live, and then record the event.
 
-Stophammer currently ignores `<podcast:liveItem>` entirely. The parser does not extract
-it; the event log has no live event types; the ingest pipeline has no transition
-detection.
+Stophammer no longer ignores `<podcast:liveItem>` entirely. The parser extracts it,
+the ingest pipeline stores `pending` and `live` entries in `live_events`, and an
+`ended` live item with an enclosure is promoted into the normal `tracks` table.
+
+The current implementation is intentionally simpler than the original proposal:
+
+- replication uses per-feed snapshot events (`LiveEventsReplaced`) instead of
+  per-transition `LiveEventStarted` / `LiveEventEnded` events
+- feed-level `podcast:remoteItem` references are also staged in
+  `feed_remote_items_raw` via `FeedRemoteItemsReplaced`
+- aggressive scheduler polling and SSE fanout for live events are still follow-up work
 
 This creates a specific gap: the two stages of a live event have fundamentally
 different time constraints.
@@ -71,21 +79,17 @@ The parsed output is a `LiveItemData` struct alongside `IngestTrackData` in the
 
 ### Event types
 
-Two new event types are added to `EventType` and `EventPayload`:
+The current implementation adds one snapshot event type for live state and stores the
+current feed-scoped view in the community node:
 
 | Event type | When emitted |
 |------------|-------------|
-| `LiveEventStarted` | A `podcast:liveItem` transitions to `status="live"` |
-| `LiveEventEnded` | A `podcast:liveItem` transitions to `status="ended"` with a valid enclosure |
+| `LiveEventsReplaced` | The set of `pending` / `live` `<podcast:liveItem>` rows for a feed changed |
 
-`LiveEventStarted` carries: `feed_guid`, `live_item_guid`, `title`, `content_link`,
-`start`, `artist_credit`.
-
-`LiveEventEnded` carries: `feed_guid`, `live_item_guid`. The recording itself is
-indexed as a separate `TrackUpserted` event emitted in the same ingest pass.
-
-These events replicate to community nodes via the normal gossip push. Community nodes
-apply them by updating the ephemeral live event table (see below).
+When a `podcast:liveItem` transitions to `ended` and has a valid enclosure, the
+recording is indexed as a normal `TrackUpserted` event in the same ingest pass. The
+ended item is omitted from the replacement snapshot, which removes it from
+`live_events` on replicas.
 
 ### Storage: ephemeral `live_events` table
 
@@ -105,24 +109,19 @@ CREATE TABLE IF NOT EXISTS live_events (
 );
 ```
 
-Rows are upserted on each crawl when `status` is `pending` or `live`. When `status`
-transitions to `ended` the row is deleted (the recording has been promoted to a
-permanent track via `TrackUpserted`). Rows older than 7 days with no transition to
-`ended` are purged by a background cleanup task — they represent streams that started
-but never concluded with a recording.
+Rows are replaced on each crawl with the current set of `pending` or `live` items for
+that feed. When a live item transitions to `ended`, it is omitted from the replacement
+set and therefore deleted from `live_events` (the recording is promoted to a permanent
+track via `TrackUpserted`).
 
-### Transition detection in the ingest pipeline
+### Current ingest behavior
 
-On each ingest of a feed containing `<podcast:liveItem>` elements, the ingest pipeline
-compares the incoming `status` against the stored row in `live_events`:
+On each ingest of a feed containing `<podcast:liveItem>` elements, the pipeline:
 
-| Previous state | Incoming state | Action |
-|---------------|---------------|--------|
-| absent / `pending` | `live` | Emit `LiveEventStarted`, upsert row |
-| `pending` | `pending` | Upsert row (update scheduled times if changed) |
-| `live` | `live` | No-op (already started) |
-| `pending` or `live` | `ended` + enclosure | Emit `LiveEventEnded`, emit `TrackUpserted`, delete live_events row |
-| `live` | absent (item removed) | Delete row, no event (stream abandoned) |
+- normalizes `status` to lowercase during parsing
+- stores `pending` and `live` items in `live_events`
+- promotes `ended` items with an enclosure into normal `tracks`
+- emits `LiveEventsReplaced` when the feed's live-event snapshot changes
 
 ### Aggressive polling for pending live items
 
@@ -136,12 +135,9 @@ event, not to all feeds.
 
 ### SSE delivery (ADR 0020)
 
-`LiveEventStarted` and `LiveEventEnded` are dispatched to the SSE fanout registry after
-apply. Connected clients subscribed to the relevant artist ID receive the event within
-the normal gossip propagation window (typically < 5 s end-to-end).
-
-This is the primary real-time delivery path. No separate push mechanism is needed for
-clients with an active SSE connection.
+Not implemented yet for live-event-specific payloads. The current work focuses on
+parsing, storage, and replication so primary and community nodes share the same live
+snapshot state.
 
 ### What is not in scope
 
@@ -170,13 +166,13 @@ node where the gossip event stream already flows. Rejected.
 
 - `stophammer-parser` gains `<podcast:liveItem>` extraction. The `IngestFeedData`
   struct gains a `live_items: Vec<LiveItemData>` field.
-- Two new event types (`LiveEventStarted`, `LiveEventEnded`) are added to `event.rs`.
-- A new `live_events` table is added to `schema.sql`.
-- `apply.rs` gains two new match arms.
-- The ingest pipeline gains transition detection logic (compare incoming vs. stored
-  status).
-- The crawl scheduler gains a fast-poll path for feeds with imminent pending live items.
-- `LiveEventStarted` and `LiveEventEnded` are the SSE delivery mechanism for live
-  events (ADR 0020).
+- `stophammer-parser` now extracts `<podcast:liveItem>` and feed-level
+  `<podcast:remoteItem>`.
+- `event.rs` adds snapshot events for `LiveEventsReplaced` and
+  `FeedRemoteItemsReplaced`.
+- `live_events` and `feed_remote_items_raw` are added to `schema.sql`.
+- `apply.rs` and the ingest pipeline now replace those feed-scoped snapshots on each
+  successful ingest.
 - Live items that transition to `ended` with a valid enclosure are indexed as permanent
   tracks — no change to the existing track indexing path.
+- Fast-poll scheduling and live-specific SSE delivery remain follow-up work.

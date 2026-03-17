@@ -27,10 +27,8 @@ fn test_app_state(
     let key_dir = tempfile::tempdir().expect("create temp dir");
     let key_path = key_dir.path().join("test.key");
     let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create(
-            key_path.to_str().expect("path to str"),
-        )
-        .expect("create signer"),
+        stophammer::signing::NodeSigner::load_or_create(key_path.to_str().expect("path to str"))
+            .expect("create signer"),
     );
     // Leak the tempdir so the key file persists for the signer's lifetime.
     std::mem::forget(key_dir);
@@ -39,12 +37,12 @@ fn test_app_state(
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      admin_token.into(),
-        sync_token:       sync_token.map(String::from),
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: admin_token.into(),
+        sync_token: sync_token.map(String::from),
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     })
 }
@@ -142,8 +140,7 @@ async fn reconcile_with_valid_sync_token_returns_200() {
         .await
         .expect("read body")
         .to_bytes();
-    let json: serde_json::Value =
-        serde_json::from_slice(&bytes).expect("parse json");
+    let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
     assert!(
         json.get("send_to_node").is_some(),
         "response must include send_to_node field"

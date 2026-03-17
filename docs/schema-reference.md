@@ -11,11 +11,6 @@ Source: `src/schema.sql`
 **Key columns:** `id` (integer PK), `name` (unique label such as `person` or `group`).
 **Notes:** Seeded at schema creation. Referenced by `artists.type_id`.
 
-### `feed_type`
-**Purpose:** Enumerates release types for feeds (album, ep, single, compilation, soundtrack, live, remix, other).
-**Key columns:** `id` (integer PK), `name` (unique label).
-**Notes:** Seeded at schema creation. Not yet referenced by a FK in `feeds` -- the column that will use it is `raw_medium`, which currently stores the raw string from the RSS.
-
 ### `rel_type`
 **Purpose:** Defines every relationship kind in the system (performer, songwriter, member_of, cover_art, label, etc.).
 **Key columns:** `id` (integer PK), `name` (unique machine name), `entity_pair` (which entity combination this type applies to, e.g. `artist-track`, `artist-artist`, `artist-feed`).
@@ -84,6 +79,16 @@ Source: `src/schema.sql`
 **Key columns:** `feed_url` (text PK), `content_hash` (hash of the last-seen feed body), `crawled_at` (epoch timestamp).
 **Notes:** See ADR 0011 (RSS crawler).
 
+### `feed_remote_items_raw`
+**Purpose:** Raw feed-level `podcast:remoteItem` references discovered during ingest.
+**Key columns:** `feed_guid` (FK to `feeds`), `position` (stable order within the feed), `remote_feed_guid`.
+**Notes:** This is staged source data, not yet a canonical relationship table. `remote_feed_url` preserves the optional source URL, and `medium` preserves the publisher-provided medium hint.
+
+### `live_events`
+**Purpose:** Current `pending` / `live` snapshot of `<podcast:liveItem>` rows for each feed.
+**Key columns:** `live_item_guid` (text PK), `feed_guid` (FK to `feeds`), `status`, `scheduled_start`, `scheduled_end`.
+**Notes:** Replaced on each ingest via `LiveEventsReplaced`. When a live item transitions to `ended` and has an enclosure, it is removed from this table and promoted into the permanent `tracks` table.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).
@@ -97,11 +102,6 @@ Source: `src/schema.sql`
 ---
 
 ## Relationships & metadata
-
-### `artist_location`
-**Purpose:** Geographic coordinates and place name for an artist, enabling map-based discovery.
-**Key columns:** `artist_id` (text PK, FK to `artists`), `latitude` / `longitude` (REAL), `country`.
-**Notes:** One location per artist. `city` and `region` are optional.
 
 ### `artist_artist_rel`
 **Purpose:** Directed relationships between two artists (member_of, collaboration, booking, management).
@@ -161,11 +161,6 @@ Source: `src/schema.sql`
 **Key columns:** `entity_type` / `entity_id` (polymorphic reference), `source_type` (e.g. `rss_crawl`, `bulk_import`, `manual`), `trust_level` (integer ranking).
 **Notes:** See ADR 0006 (crawlers as untrusted clients) and ADR 0005 (pluggable verifier chain) for how trust levels influence acceptance.
 
-### `manifest_source`
-**Purpose:** Tracks `stophammer.json` manifest files discovered at well-known URLs for a feed.
-**Key columns:** `feed_guid` (FK to `feeds`), `manifest_url` (unique URL where the manifest was found), `signed_by` / `verified_at` (optional signature verification).
-**Notes:** Manifests provide an out-of-band trust anchor linking a feed to an artist's web presence.
-
 ---
 
 ## Quality scoring
@@ -185,14 +180,25 @@ Source: `src/schema.sql`
 ## Search
 
 ### `search_index`
-**Purpose:** FTS5 virtual table providing full-text search across all entity types.
-**Key columns:** `entity_type`, `entity_id` (identify the source row), `name` / `title` / `description` / `tags` (searchable text fields).
-**Notes:** Contentless (`content=''`) -- the table stores only the inverted index, not the original text. Tokenized with `unicode61`. Populated and updated by `search.rs` during event application.
+**Purpose:** Contentless FTS5 index storing inverted search terms across all entity types.
+**Key columns:** `entity_type`, `entity_id`, `name`, `title`, `description`, `tags`.
+**Notes:** Because the virtual table is contentless (`content=''`), column values are not read back directly from it.
+
+### `search_entities`
+**Purpose:** Rowid-to-entity mapping companion for the contentless `search_index` table.
+**Key columns:** `rowid` (matches the FTS5 rowid), `entity_type`, `entity_id`.
+**Notes:** Query code joins `search_index` to `search_entities` to recover the concrete entity behind each FTS match.
 
 ---
 
-## Tables referenced in ADRs but not yet in schema
+## Proof of Possession
 
-- **`proof_challenges`** (ADR 0018) -- Stores pending, valid, and invalid proof-of-possession challenges used to authorize feed/track mutations (delete, relocate) without an account system.
-- **`proof_tokens`** (ADR 0018) -- Stores short-lived access tokens (scoped to a feed, 1-hour expiry) issued after a successful proof-of-possession assertion.
-- **`live_events`** (ADR 0021) -- Ephemeral table tracking `<podcast:liveItem>` elements in `pending` or `live` state, deleted once the item transitions to `ended` and is promoted to a permanent track.
+### `proof_challenges`
+**Purpose:** Pending and resolved proof-of-possession challenges used to authorize feed-scoped mutations without an account system.
+**Key columns:** `challenge_id` (text PK), `feed_guid`, `scope`, `token_binding`, `state`, `expires_at`.
+**Notes:** `state` is one of `pending`, `valid`, or `invalid`. Indexed by `(feed_guid, state)` and `expires_at` for rate limiting and cleanup.
+
+### `proof_tokens`
+**Purpose:** Short-lived bearer tokens issued after a successful proof assertion.
+**Key columns:** `access_token` (text PK), `scope`, `subject_feed_guid`, `expires_at`.
+**Notes:** Used by the proof-authenticated mutation path documented in ADR 0018 and `docs/API.md`.

@@ -35,7 +35,9 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 pub struct V4VPaymentVerifier;
 
 impl Verifier for V4VPaymentVerifier {
-    fn name(&self) -> &'static str { "v4v_payment" }
+    fn name(&self) -> &'static str {
+        "v4v_payment"
+    }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
         let Some(feed_data) = &ctx.request.feed_data else {

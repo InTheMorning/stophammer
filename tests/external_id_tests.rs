@@ -94,7 +94,10 @@ fn external_id_uniqueness() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 1, "only one external_id row must exist after replace");
+    assert_eq!(
+        count, 1,
+        "only one external_id row must exist after replace"
+    );
 
     // Verify the value was updated.
     let stored_value: String = conn

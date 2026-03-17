@@ -276,7 +276,10 @@ fn artist_credit_idempotent_by_display_name() {
             params![now],
         )
         .unwrap();
-    assert_eq!(rows_changed, 0, "second INSERT OR IGNORE must not insert a new row");
+    assert_eq!(
+        rows_changed, 0,
+        "second INSERT OR IGNORE must not insert a new row"
+    );
 
     // Exactly one row should exist.
     let count: i64 = conn

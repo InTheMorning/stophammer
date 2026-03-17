@@ -18,7 +18,10 @@ fn test_issue7_idx_ac_display_lower_exists() {
             |row| row.get(0),
         )
         .expect("query sqlite_master");
-    assert!(exists, "missing index idx_ac_display_lower on artist_credit(LOWER(display_name))");
+    assert!(
+        exists,
+        "missing index idx_ac_display_lower on artist_credit(LOWER(display_name))"
+    );
 }
 
 #[test]
@@ -31,7 +34,10 @@ fn test_issue7_idx_proof_challenges_feed_state_exists() {
             |row| row.get(0),
         )
         .expect("query sqlite_master");
-    assert!(exists, "missing composite index idx_proof_challenges_feed_state on proof_challenges(feed_guid, state)");
+    assert!(
+        exists,
+        "missing composite index idx_proof_challenges_feed_state on proof_challenges(feed_guid, state)"
+    );
 }
 
 #[test]
@@ -44,7 +50,10 @@ fn test_issue7_old_idx_proof_challenges_feed_dropped() {
             |row| row.get(0),
         )
         .expect("query sqlite_master");
-    assert!(!exists, "old index idx_proof_challenges_feed should have been dropped");
+    assert!(
+        !exists,
+        "old index idx_proof_challenges_feed should have been dropped"
+    );
 }
 
 // ===========================================================================
@@ -85,8 +94,8 @@ fn test_issue11_all_route_types_roundtrip() {
         let json = format!("\"{val}\"");
         let rt: stophammer::model::RouteType = serde_json::from_str(&json)
             .unwrap_or_else(|e| panic!("'{val}' should deserialize: {e}"));
-        let back = serde_json::to_string(&rt)
-            .unwrap_or_else(|e| panic!("'{val}' should serialize: {e}"));
+        let back =
+            serde_json::to_string(&rt).unwrap_or_else(|e| panic!("'{val}' should serialize: {e}"));
         assert_eq!(back, json, "roundtrip mismatch for '{val}'");
     }
 }
@@ -126,7 +135,9 @@ fn test_issue3_insert_event_idempotent_returns_seq() {
         stophammer::db::unix_now(),
         &[],
     );
-    let seq = result.expect("insert_event_idempotent should succeed").expect("should return Some(seq)");
+    let seq = result
+        .expect("insert_event_idempotent should succeed")
+        .expect("should return Some(seq)");
     assert!(seq > 0, "seq should be positive, got {seq}");
 }
 
@@ -203,5 +214,9 @@ fn test_issue3_insert_event_idempotent_seq_increments() {
     .expect("second insert")
     .expect("should return Some(seq)");
 
-    assert_eq!(seq2, seq1 + 1, "seq should increment: got seq1={seq1}, seq2={seq2}");
+    assert_eq!(
+        seq2,
+        seq1 + 1,
+        "seq should increment: got seq1={seq1}, seq2={seq2}"
+    );
 }

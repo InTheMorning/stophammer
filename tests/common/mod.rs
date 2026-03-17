@@ -23,8 +23,7 @@ pub fn test_db_arc() -> Arc<Mutex<Connection>> {
 pub fn test_db_pool() -> (stophammer::db_pool::DbPool, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
-    let pool = stophammer::db_pool::DbPool::open(&db_path)
-        .expect("failed to open test db pool");
+    let pool = stophammer::db_pool::DbPool::open(&db_path).expect("failed to open test db pool");
     (pool, dir)
 }
 

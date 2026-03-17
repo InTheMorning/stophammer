@@ -13,7 +13,9 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 pub struct EnclosureTypeVerifier;
 
 impl Verifier for EnclosureTypeVerifier {
-    fn name(&self) -> &'static str { "enclosure_type" }
+    fn name(&self) -> &'static str {
+        "enclosure_type"
+    }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
         let Some(feed_data) = &ctx.request.feed_data else {

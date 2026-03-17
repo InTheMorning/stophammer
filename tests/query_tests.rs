@@ -38,13 +38,7 @@ fn insert_credit(conn: &rusqlite::Connection, artist_id: &str, name: &str) -> i6
 }
 
 /// Insert a test feed.
-fn insert_feed(
-    conn: &rusqlite::Connection,
-    guid: &str,
-    url: &str,
-    title: &str,
-    credit_id: i64,
-) {
+fn insert_feed(conn: &rusqlite::Connection, guid: &str, url: &str, title: &str, credit_id: i64) {
     let now = common::now();
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
@@ -69,7 +63,16 @@ fn insert_track(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          pub_date, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
-        params![guid, feed_guid, credit_id, title, title.to_lowercase(), pub_date, now, now],
+        params![
+            guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            pub_date,
+            now,
+            now
+        ],
     )
     .unwrap();
 }
@@ -104,12 +107,28 @@ fn get_artist_by_id() {
     )
     .unwrap();
 
-    let row: (String, String, String, Option<String>, Option<i64>, Option<i64>) = conn
+    let row: (
+        String,
+        String,
+        String,
+        Option<String>,
+        Option<i64>,
+        Option<i64>,
+    ) = conn
         .query_row(
             "SELECT artist_id, name, name_lower, area, begin_year, end_year \
              FROM artists WHERE artist_id = ?1",
             params![id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
+            },
         )
         .unwrap();
 
@@ -321,10 +340,12 @@ fn get_feeds_pagination() {
                  ORDER BY title_lower ASC, feed_guid ASC LIMIT ?3",
             )
             .unwrap();
-        stmt.query_map(params![cursor_title, cursor_guid, 2], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
+        stmt.query_map(params![cursor_title, cursor_guid, 2], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
     };
     assert_eq!(page2.len(), 2);
     assert_eq!(page2[0].0, "page-feed-03");
@@ -342,10 +363,12 @@ fn get_feeds_pagination() {
                  ORDER BY title_lower ASC, feed_guid ASC LIMIT ?3",
             )
             .unwrap();
-        stmt.query_map(params![cursor_title2, cursor_guid2, 2], |r| Ok((r.get(0)?, r.get(1)?)))
-            .unwrap()
-            .collect::<Result<_, _>>()
-            .unwrap()
+        stmt.query_map(params![cursor_title2, cursor_guid2, 2], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap()
     };
     assert_eq!(page3.len(), 1);
     assert_eq!(page3[0].0, "page-feed-05");
@@ -366,9 +389,27 @@ fn cursor_stability_duplicate_titles() {
 
     // All three feeds share the same title_lower = "ep".
     // feed_guids are chosen so their sort order is deterministic: aaa < bbb < ccc
-    insert_feed(&conn, "aaa-guid", "https://example.com/aaa.xml", "EP", credit_id);
-    insert_feed(&conn, "bbb-guid", "https://example.com/bbb.xml", "EP", credit_id);
-    insert_feed(&conn, "ccc-guid", "https://example.com/ccc.xml", "EP", credit_id);
+    insert_feed(
+        &conn,
+        "aaa-guid",
+        "https://example.com/aaa.xml",
+        "EP",
+        credit_id,
+    );
+    insert_feed(
+        &conn,
+        "bbb-guid",
+        "https://example.com/bbb.xml",
+        "EP",
+        credit_id,
+    );
+    insert_feed(
+        &conn,
+        "ccc-guid",
+        "https://example.com/ccc.xml",
+        "EP",
+        credit_id,
+    );
 
     // Page 1: fetch first 2, ordered by (title_lower, feed_guid).
     let page1: Vec<String> = {
@@ -425,7 +466,11 @@ fn cursor_stability_duplicate_titles() {
     all_guids.extend(page2);
     all_guids.sort();
     all_guids.dedup();
-    assert_eq!(all_guids.len(), 3, "exactly 3 unique feeds across both pages");
+    assert_eq!(
+        all_guids.len(),
+        3,
+        "exactly 3 unique feeds across both pages"
+    );
 }
 
 // ---------------------------------------------------------------------------

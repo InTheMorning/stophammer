@@ -13,10 +13,12 @@ fn proof_level_serializes_to_expected_strings() {
     let rss_only = serde_json::to_value(ProofLevel::RssOnly).expect("serialize RssOnly");
     assert_eq!(rss_only, serde_json::json!("rss_only"));
 
-    let rss_and_audio = serde_json::to_value(ProofLevel::RssAndAudio).expect("serialize RssAndAudio");
+    let rss_and_audio =
+        serde_json::to_value(ProofLevel::RssAndAudio).expect("serialize RssAndAudio");
     assert_eq!(rss_and_audio, serde_json::json!("rss_and_audio"));
 
-    let relocation = serde_json::to_value(ProofLevel::RelocationProven).expect("serialize RelocationProven");
+    let relocation =
+        serde_json::to_value(ProofLevel::RelocationProven).expect("serialize RelocationProven");
     assert_eq!(relocation, serde_json::json!("relocation_proven"));
 }
 
@@ -25,10 +27,12 @@ fn proof_level_deserializes_from_strings() {
     let rss_only: ProofLevel = serde_json::from_str("\"rss_only\"").expect("deserialize rss_only");
     assert_eq!(rss_only, ProofLevel::RssOnly);
 
-    let rss_and_audio: ProofLevel = serde_json::from_str("\"rss_and_audio\"").expect("deserialize rss_and_audio");
+    let rss_and_audio: ProofLevel =
+        serde_json::from_str("\"rss_and_audio\"").expect("deserialize rss_and_audio");
     assert_eq!(rss_and_audio, ProofLevel::RssAndAudio);
 
-    let relocation: ProofLevel = serde_json::from_str("\"relocation_proven\"").expect("deserialize relocation_proven");
+    let relocation: ProofLevel =
+        serde_json::from_str("\"relocation_proven\"").expect("deserialize relocation_proven");
     assert_eq!(relocation, ProofLevel::RelocationProven);
 }
 
@@ -111,13 +115,8 @@ fn issue_token_sets_rss_only_proof_level() {
     )
     .expect("seed feed");
 
-    let token = stophammer::proof::issue_token(
-        &conn,
-        "feed:write",
-        "guid-1",
-        &ProofLevel::RssOnly,
-    )
-    .expect("issue_token should succeed");
+    let token = stophammer::proof::issue_token(&conn, "feed:write", "guid-1", &ProofLevel::RssOnly)
+        .expect("issue_token should succeed");
 
     let level: String = conn
         .query_row(
@@ -127,5 +126,8 @@ fn issue_token_sets_rss_only_proof_level() {
         )
         .expect("read proof_level for issued token");
 
-    assert_eq!(level, "rss_only", "issue_token must store proof_level as 'rss_only'");
+    assert_eq!(
+        level, "rss_only",
+        "issue_token must store proof_level as 'rss_only'"
+    );
 }

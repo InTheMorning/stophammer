@@ -251,14 +251,15 @@ fn tag_deduplication() {
             params!["JAZZ".to_lowercase(), now],
         )
         .unwrap();
-    assert_eq!(rows_changed, 0, "case-insensitive duplicate must be ignored");
+    assert_eq!(
+        rows_changed, 0,
+        "case-insensitive duplicate must be ignored"
+    );
 
     let tag_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tags WHERE name = 'jazz'",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM tags WHERE name = 'jazz'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(tag_count, 1, "only one tag row must exist for 'jazz'");
 

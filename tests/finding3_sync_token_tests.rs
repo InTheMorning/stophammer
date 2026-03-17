@@ -58,7 +58,9 @@ async fn sync_register_with_valid_sync_token_returns_200() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Sync-Token", "sync-secret")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -68,7 +70,12 @@ async fn sync_register_with_valid_sync_token_returns_200() {
         "POST /sync/register with valid X-Sync-Token must return 200"
     );
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
     assert_eq!(json["ok"], true);
 }
@@ -88,7 +95,9 @@ async fn sync_register_with_admin_token_legacy_returns_200() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "admin-secret")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -113,7 +122,9 @@ async fn sync_register_with_invalid_sync_token_returns_403() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Sync-Token", "wrong-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -141,7 +152,9 @@ async fn admin_endpoint_with_sync_token_returns_403() {
         .uri("/admin/artists/alias")
         .header("Content-Type", "application/json")
         .header("X-Sync-Token", "sync-secret")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -173,7 +186,9 @@ async fn admin_endpoint_with_admin_token_still_works() {
         .uri("/admin/artists/merge")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "admin-secret")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -199,7 +214,9 @@ async fn sync_register_no_tokens_configured_returns_403() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Sync-Token", "any-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -225,7 +242,9 @@ async fn sync_register_admin_token_rejected_when_sync_token_configured() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "admin-secret")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");

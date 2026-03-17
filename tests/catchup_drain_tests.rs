@@ -4,18 +4,25 @@
 // sleeping, so that a node 20 000 events behind converges in seconds
 // rather than hours (40 sleep cycles).
 
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
 
 mod common;
 
-use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicI64;
 
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 /// Build a signed `ArtistUpserted` event JSON value for wiremock responses.
-fn make_event_json(signer: &stophammer::signing::NodeSigner, event_id: &str, seq: i64) -> serde_json::Value {
+fn make_event_json(
+    signer: &stophammer::signing::NodeSigner,
+    event_id: &str,
+    seq: i64,
+) -> serde_json::Value {
     let now = stophammer::db::unix_now();
     let artist_payload = serde_json::json!({
         "artist": {
@@ -67,7 +74,11 @@ impl Respond for PagedResponder {
             .split('&')
             .find_map(|pair| {
                 let (k, v) = pair.split_once('=')?;
-                if k == "after_seq" { v.parse().ok() } else { None }
+                if k == "after_seq" {
+                    v.parse().ok()
+                } else {
+                    None
+                }
             })
             .unwrap_or(0);
 
@@ -142,20 +153,19 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
-        primary_url:        mock_server.uri(),
-        tracker_url:        mock_server.uri(),
-        node_address:       "http://localhost:9999".into(),
+        primary_url: mock_server.uri(),
+        tracker_url: mock_server.uri(),
+        node_address: "http://localhost:9999".into(),
         poll_interval_secs: 300, // long sleep — if drain works we finish in <1s
-        push_timeout_secs:  0,   // immediately trigger poll
+        push_timeout_secs: 0,    // immediately trigger poll
     };
 
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
 
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(
-            config, db2, "deadbeef-drain".into(), lp, None,
-        ).await;
+        stophammer::community::run_community_sync(config, db2, "deadbeef-drain".into(), lp, None)
+            .await;
     });
 
     // Give the drain loop enough time to fetch all 3 pages.
@@ -177,7 +187,10 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
             )
             .expect("query cursor");
 
-        assert_eq!(cursor, 9, "cursor must advance to 9 after draining all 3 pages");
+        assert_eq!(
+            cursor, 9,
+            "cursor must advance to 9 after draining all 3 pages"
+        );
 
         // Assert: all 9 events should be in the database.
         let event_count: i64 = conn
@@ -193,5 +206,8 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
         .iter()
         .filter(|r| r.method == wiremock::http::Method::GET && r.url.path() == "/sync/events")
         .count();
-    assert_eq!(sync_gets, 3, "exactly 3 pages should be fetched in one drain cycle");
+    assert_eq!(
+        sync_gets, 3,
+        "exactly 3 pages should be fetched in one drain cycle"
+    );
 }

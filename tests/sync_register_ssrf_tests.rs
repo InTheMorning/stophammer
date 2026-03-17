@@ -15,9 +15,7 @@ use tower::ServiceExt;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Build an `AppState` with SSRF validation **enabled** (skip_ssrf_validation = false).
-fn state_with_ssrf_enabled(
-    db: Arc<Mutex<rusqlite::Connection>>,
-) -> Arc<stophammer::api::AppState> {
+fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-ssrf.key")
             .expect("create signer"),
@@ -68,17 +66,16 @@ fn register_body(node_url: &str) -> serde_json::Value {
     })
 }
 
-async fn post_register(
-    app: axum::Router,
-    node_url: &str,
-) -> http::Response<axum::body::Body> {
+async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum::body::Body> {
     let body = register_body(node_url);
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "test-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
     app.oneshot(req).await.expect("call handler")
 }
@@ -148,7 +145,12 @@ async fn register_http_public_accepted() {
     let resp = post_register(app, "http://example.com/events").await;
     assert_eq!(resp.status(), 200, "public HTTP URL must be accepted");
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
     assert_eq!(json["ok"], true);
 }
@@ -162,7 +164,12 @@ async fn register_https_public_accepted() {
     let resp = post_register(app, "https://example.com/events").await;
     assert_eq!(resp.status(), 200, "public HTTPS URL must be accepted");
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
     assert_eq!(json["ok"], true);
 }

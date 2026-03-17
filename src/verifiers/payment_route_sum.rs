@@ -12,7 +12,9 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 pub struct PaymentRouteSumVerifier;
 
 impl Verifier for PaymentRouteSumVerifier {
-    fn name(&self) -> &'static str { "payment_route_sum" }
+    fn name(&self) -> &'static str {
+        "payment_route_sum"
+    }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
         let Some(feed_data) = &ctx.request.feed_data else {

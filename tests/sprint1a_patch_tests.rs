@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
 
 // Sprint 1A: Issue-12 PATCH emits signed events + Issue-13 PATCH 404 for unknown GUID
 // Issue-12 PATCH emits events — 2026-03-13
@@ -26,10 +29,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -61,8 +64,16 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
-            "feed-1", "https://example.com/feed.xml", "Test Album",
-            "test album", credit_id, "A test feed", 0, 0, now, now,
+            "feed-1",
+            "https://example.com/feed.xml",
+            "Test Album",
+            "test album",
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -82,16 +93,28 @@ fn insert_track(
          description, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
-            track_guid, feed_guid, credit_id, title,
-            title.to_lowercase(), "A test track", 0, now, now,
+            track_guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            "A test track",
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert track");
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
-        .expect("issue token")
+    stophammer::proof::issue_token(
+        conn,
+        "feed:write",
+        feed_guid,
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .expect("issue token")
 }
 
 fn count_events(conn: &rusqlite::Connection, event_type: &str) -> i64 {
@@ -149,7 +172,8 @@ async fn patch_feed_emits_feed_upserted_event() {
     // After PATCH, a FeedUpserted event should exist.
     let conn = db.lock().expect("lock db");
     assert_eq!(
-        count_events(&conn, "feed_upserted"), 1,
+        count_events(&conn, "feed_upserted"),
+        1,
         "PATCH /feeds must emit a FeedUpserted event"
     );
 
@@ -197,7 +221,8 @@ async fn patch_track_emits_track_upserted_event() {
 
     let conn = db.lock().expect("lock db");
     assert_eq!(
-        count_events(&conn, "track_upserted"), 1,
+        count_events(&conn, "track_upserted"),
+        1,
         "PATCH /tracks must emit a TrackUpserted event"
     );
 
@@ -306,7 +331,8 @@ async fn patch_feed_unknown_guid_returns_404() {
 
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
-        resp.status(), 404,
+        resp.status(),
+        404,
         "PATCH /feeds with unknown GUID must return 404, not 204"
     );
 }
@@ -341,7 +367,8 @@ async fn patch_track_unknown_guid_returns_404() {
 
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
-        resp.status(), 404,
+        resp.status(),
+        404,
         "PATCH /tracks with unknown GUID must return 404"
     );
 }
@@ -377,7 +404,8 @@ async fn patch_feed_empty_body_does_not_emit_event() {
 
     let conn = db.lock().expect("lock db");
     assert_eq!(
-        count_events(&conn, "feed_upserted"), 0,
+        count_events(&conn, "feed_upserted"),
+        0,
         "PATCH with no fields should not emit an event"
     );
 }

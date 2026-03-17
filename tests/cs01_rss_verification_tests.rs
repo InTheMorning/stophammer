@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test setup")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
+)]
 
 // CS-01 pod:txt RSS verification tests — 2026-03-12
 
@@ -61,9 +64,16 @@ fn insert_feed(
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            feed_guid, feed_url, title,
+            feed_guid,
+            feed_url,
+            title,
             title.to_lowercase(),
-            credit_id, "A test feed", 0, 0, now, now,
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -81,7 +91,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token".into(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -89,7 +99,11 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     })
 }
 
-fn json_request(method_str: &str, uri: &str, body: &serde_json::Value) -> Request<axum::body::Body> {
+fn json_request(
+    method_str: &str,
+    uri: &str,
+    body: &serde_json::Value,
+) -> Request<axum::body::Body> {
     Request::builder()
         .method(method_str)
         .uri(uri)
@@ -152,8 +166,14 @@ async fn create_challenge_for_feed(
         .expect("challenge request");
     assert_eq!(resp.status(), 201);
     let body = body_json(resp).await;
-    let challenge_id = body["challenge_id"].as_str().expect("challenge_id").to_string();
-    let token_binding = body["token_binding"].as_str().expect("token_binding").to_string();
+    let challenge_id = body["challenge_id"]
+        .as_str()
+        .expect("challenge_id")
+        .to_string();
+    let token_binding = body["token_binding"]
+        .as_str()
+        .expect("token_binding")
+        .to_string();
     (challenge_id, token_binding)
 }
 
@@ -177,9 +197,13 @@ async fn verify_podcast_txt_valid_match() {
         .await;
 
     let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), token_binding)
-        .await;
-    assert_eq!(result, Ok(true), "should return Ok(true) when RSS contains matching podcast:txt");
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), token_binding).await;
+    assert_eq!(
+        result,
+        Ok(true),
+        "should return Ok(true) when RSS contains matching podcast:txt"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -197,9 +221,13 @@ async fn verify_podcast_txt_no_txt_element() {
         .await;
 
     let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "abc123.hash")
-        .await;
-    assert_eq!(result, Ok(false), "should return Ok(false) when no podcast:txt in RSS");
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "abc123.hash").await;
+    assert_eq!(
+        result,
+        Ok(false),
+        "should return Ok(false) when no podcast:txt in RSS"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -223,7 +251,11 @@ async fn verify_podcast_txt_wrong_token() {
         "correct-token.correct-hash",
     )
     .await;
-    assert_eq!(result, Ok(false), "should return Ok(false) when podcast:txt has wrong token");
+    assert_eq!(
+        result,
+        Ok(false),
+        "should return Ok(false) when podcast:txt has wrong token"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -234,13 +266,12 @@ async fn verify_podcast_txt_wrong_token() {
 async fn verify_podcast_txt_unreachable_server() {
     let client = reqwest::Client::new();
     // Use a port that is almost certainly not listening.
-    let result = stophammer::proof::verify_podcast_txt(
-        &client,
-        "http://127.0.0.1:1",
-        "token.hash",
-    )
-    .await;
-    assert!(result.is_err(), "should return Err when server is unreachable");
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, "http://127.0.0.1:1", "token.hash").await;
+    assert!(
+        result.is_err(),
+        "should return Err when server is unreachable"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -269,9 +300,13 @@ async fn verify_podcast_txt_multiple_txt_elements() {
         .await;
 
     let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), token_binding)
-        .await;
-    assert_eq!(result, Ok(true), "should find matching txt among multiple elements");
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), token_binding).await;
+    assert_eq!(
+        result,
+        Ok(true),
+        "should find matching txt among multiple elements"
+    );
 }
 
 // ============================================================================
@@ -298,7 +333,14 @@ async fn assert_without_rss_txt_returns_400() {
         insert_artist(&conn, "artist-1", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-1", "Test Artist", now);
         // Feed URL points to mock server
-        insert_feed(&conn, "feed-rss-1", &mock_server.uri(), "Test Album", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-rss-1",
+            &mock_server.uri(),
+            "Test Album",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -319,7 +361,11 @@ async fn assert_without_rss_txt_returns_400() {
         .await
         .expect("assert request");
 
-    assert_eq!(resp.status(), 400, "should return 400 when RSS has no matching podcast:txt");
+    assert_eq!(
+        resp.status(),
+        400,
+        "should return 400 when RSS has no matching podcast:txt"
+    );
     let body = body_json(resp).await;
     assert!(
         body["error"]
@@ -344,7 +390,14 @@ async fn assert_with_valid_rss_txt_succeeds() {
         let now = common::now();
         insert_artist(&conn, "artist-2", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-2", "Test Artist", now);
-        insert_feed(&conn, "feed-rss-2", &mock_server.uri(), "Test Album 2", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-rss-2",
+            &mock_server.uri(),
+            "Test Album 2",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -372,11 +425,21 @@ async fn assert_with_valid_rss_txt_succeeds() {
         .await
         .expect("assert request");
 
-    assert_eq!(resp.status(), 200, "should return 200 when RSS has matching podcast:txt");
+    assert_eq!(
+        resp.status(),
+        200,
+        "should return 200 when RSS has matching podcast:txt"
+    );
     let body = body_json(resp).await;
-    assert!(body["access_token"].as_str().is_some(), "response should contain access_token");
+    assert!(
+        body["access_token"].as_str().is_some(),
+        "response should contain access_token"
+    );
     assert_eq!(body["scope"].as_str().expect("scope"), "feed:write");
-    assert_eq!(body["subject_feed_guid"].as_str().expect("guid"), "feed-rss-2");
+    assert_eq!(
+        body["subject_feed_guid"].as_str().expect("guid"),
+        "feed-rss-2"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -400,7 +463,14 @@ async fn assert_with_wrong_rss_token_returns_400() {
         let now = common::now();
         insert_artist(&conn, "artist-3", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-3", "Test Artist", now);
-        insert_feed(&conn, "feed-rss-3", &mock_server.uri(), "Test Album 3", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-rss-3",
+            &mock_server.uri(),
+            "Test Album 3",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -421,7 +491,11 @@ async fn assert_with_wrong_rss_token_returns_400() {
         .await
         .expect("assert request");
 
-    assert_eq!(resp.status(), 400, "should return 400 when RSS has wrong token_binding");
+    assert_eq!(
+        resp.status(),
+        400,
+        "should return 400 when RSS has wrong token_binding"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -452,7 +526,11 @@ async fn assert_feed_not_in_db_returns_404() {
         .await
         .expect("assert request");
 
-    assert_eq!(resp.status(), 404, "should return 404 when feed not found in DB");
+    assert_eq!(
+        resp.status(),
+        404,
+        "should return 404 when feed not found in DB"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -470,14 +548,20 @@ async fn assert_rss_server_down_returns_503() {
         let now = common::now();
         insert_artist(&conn, "artist-5", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-5", "Test Artist", now);
-        insert_feed(&conn, "feed-rss-5", unreachable_url, "Test Album 5", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-rss-5",
+            unreachable_url,
+            "Test Album 5",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
     let nonce = "rss-down-nonce-16ch";
-    let (challenge_id, _token_binding) =
-        create_challenge_for_feed(&app, "feed-rss-5", nonce).await;
+    let (challenge_id, _token_binding) = create_challenge_for_feed(&app, "feed-rss-5", nonce).await;
 
     let resp = app
         .oneshot(json_request(
@@ -491,5 +575,9 @@ async fn assert_rss_server_down_returns_503() {
         .await
         .expect("assert request");
 
-    assert_eq!(resp.status(), 503, "should return 503 when RSS server is unreachable");
+    assert_eq!(
+        resp.status(),
+        503,
+        "should return 503 when RSS server is unreachable"
+    );
 }

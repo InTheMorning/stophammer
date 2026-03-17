@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test setup")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
+)]
 
 mod common;
 
@@ -59,8 +62,16 @@ fn insert_feed(
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            feed_guid, feed_url, title, title.to_lowercase(),
-            credit_id, "A test feed", 0, 0, now, now,
+            feed_guid,
+            feed_url,
+            title,
+            title.to_lowercase(),
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -79,8 +90,15 @@ fn insert_track(
          description, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
-            track_guid, feed_guid, credit_id, title,
-            title.to_lowercase(), "A test track", 0, now, now,
+            track_guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            "A test track",
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert track");
@@ -96,10 +114,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -110,14 +128,33 @@ fn seed_two_feeds(conn: &rusqlite::Connection) -> (i64, i64) {
     let now = common::now();
     insert_artist(conn, "artist-1", "Test Artist", now);
     let credit_id = insert_artist_credit(conn, "artist-1", "Test Artist", now);
-    insert_feed(conn, "feed-A", "https://example.com/a.xml", "Feed A", credit_id, now);
-    insert_feed(conn, "feed-B", "https://example.com/b.xml", "Feed B", credit_id, now);
+    insert_feed(
+        conn,
+        "feed-A",
+        "https://example.com/a.xml",
+        "Feed A",
+        credit_id,
+        now,
+    );
+    insert_feed(
+        conn,
+        "feed-B",
+        "https://example.com/b.xml",
+        "Feed B",
+        credit_id,
+        now,
+    );
     (credit_id, now)
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
-        .expect("issue token")
+    stophammer::proof::issue_token(
+        conn,
+        "feed:write",
+        feed_guid,
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .expect("issue token")
 }
 
 fn rss_with_podcast_txt(txt_content: &str) -> String {
@@ -185,18 +222,25 @@ async fn attack1_token_replay_after_feed_deletion() {
     // Verify feed-A is actually deleted
     {
         let conn = db.lock().expect("lock");
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-A'", [], |r| r.get(0),
-        ).expect("count");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-A'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("count");
         assert_eq!(count, 0, "feed-A should be gone");
     }
 
     // SG-07: token for feed-A should be cleaned up on feed delete
     {
         let conn = db.lock().expect("lock");
-        let result = stophammer::proof::validate_token(&conn, &token, "feed:write").expect("validate");
-        assert_eq!(result, None,
-            "token should be deleted when feed is deleted (SG-07)");
+        let result =
+            stophammer::proof::validate_token(&conn, &token, "feed:write").expect("validate");
+        assert_eq!(
+            result, None,
+            "token should be deleted when feed is deleted (SG-07)"
+        );
     }
 
     // Attack: try to use the feed-A token to PATCH feed-B -- returns 401 (token gone)
@@ -212,8 +256,11 @@ async fn attack1_token_replay_after_feed_deletion() {
         .expect("build patch request");
 
     let resp = app.oneshot(patch_req).await.expect("patch feed-B");
-    assert_eq!(resp.status(), 401,
-        "PROTECTED: token for deleted feed-A is cleaned up (SG-07), returns 401");
+    assert_eq!(
+        resp.status(),
+        401,
+        "PROTECTED: token for deleted feed-A is cleaned up (SG-07), returns 401"
+    );
 }
 
 // ============================================================================
@@ -231,7 +278,14 @@ async fn attack1b_orphaned_token_patch_deleted_feed_returns_401() {
         let now = common::now();
         insert_artist(&conn, "artist-1", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-1", "Test Artist", now);
-        insert_feed(&conn, "feed-orphan", "https://example.com/orphan.xml", "Orphan Feed", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-orphan",
+            "https://example.com/orphan.xml",
+            "Orphan Feed",
+            credit_id,
+            now,
+        );
         token = issue_token_for_feed(&conn, "feed-orphan");
     }
     let state = test_app_state(Arc::clone(&db));
@@ -261,8 +315,11 @@ async fn attack1b_orphaned_token_patch_deleted_feed_returns_401() {
         .expect("build patch");
 
     let resp = app.oneshot(patch_req).await.expect("patch");
-    assert_eq!(resp.status(), 401,
-        "PROTECTED: token cleaned up on feed delete (SG-07), returns 401");
+    assert_eq!(
+        resp.status(),
+        401,
+        "PROTECTED: token cleaned up on feed delete (SG-07), returns 401"
+    );
 }
 
 // ============================================================================
@@ -284,9 +341,13 @@ async fn attack1b_orphaned_token_patch_deleted_feed_returns_401() {
 #[test]
 fn attack2_resolve_challenge_is_idempotent() {
     let conn = common::test_db();
-    let (challenge_id, _) =
-        stophammer::proof::create_challenge(&conn, "feed-abc", "feed:write", "nonce-for-double-spend")
-            .unwrap();
+    let (challenge_id, _) = stophammer::proof::create_challenge(
+        &conn,
+        "feed-abc",
+        "feed:write",
+        "nonce-for-double-spend",
+    )
+    .unwrap();
 
     // First resolution: should succeed
     stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
@@ -303,7 +364,10 @@ fn attack2_resolve_challenge_is_idempotent() {
     let ch2 = stophammer::proof::get_challenge(&conn, &challenge_id)
         .unwrap()
         .expect("challenge should still exist");
-    assert_eq!(ch2.state, "valid", "state should still be valid (idempotent)");
+    assert_eq!(
+        ch2.state, "valid",
+        "state should still be valid (idempotent)"
+    );
 }
 
 #[tokio::test]
@@ -315,7 +379,14 @@ async fn attack2_double_assert_returns_400_on_second() {
         let now = common::now();
         insert_artist(&conn, "artist-dbl", "Double Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-dbl", "Double Artist", now);
-        insert_feed(&conn, "feed-double", &mock_server.uri(), "Feed Double", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-double",
+            &mock_server.uri(),
+            "Feed Double",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -375,8 +446,11 @@ async fn attack2_double_assert_returns_400_on_second() {
         ))
         .await
         .unwrap();
-    assert_eq!(resp3.status(), 400,
-        "PROTECTED: second assert returns 400 (challenge already resolved)");
+    assert_eq!(
+        resp3.status(),
+        400,
+        "PROTECTED: second assert returns 400 (challenge already resolved)"
+    );
 }
 
 // ============================================================================
@@ -402,9 +476,16 @@ fn attack3_cross_feed_token_rejected() {
 
     // Try to use feed-A's token to authorize feed-B
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-B",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-B",
     );
-    assert!(result.is_err(), "PROTECTED: cross-feed token must be rejected");
+    assert!(
+        result.is_err(),
+        "PROTECTED: cross-feed token must be rejected"
+    );
 
     let err = result.unwrap_err();
     assert_eq!(err.status, axum::http::StatusCode::FORBIDDEN);
@@ -443,7 +524,11 @@ fn attack4_admin_token_uses_non_constant_time_comparison() {
     let mut headers_ok = axum::http::HeaderMap::new();
     headers_ok.insert("X-Admin-Token", "test-admin-token".parse().unwrap());
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers_ok, "test-admin-token", "feed:write", "feed-1",
+        &conn,
+        &headers_ok,
+        "test-admin-token",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_ok());
 
@@ -451,7 +536,11 @@ fn attack4_admin_token_uses_non_constant_time_comparison() {
     let mut headers_bad = axum::http::HeaderMap::new();
     headers_bad.insert("X-Admin-Token", "wrong-token".parse().unwrap());
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers_bad, "test-admin-token", "feed:write", "feed-1",
+        &conn,
+        &headers_bad,
+        "test-admin-token",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_err());
 
@@ -460,7 +549,11 @@ fn attack4_admin_token_uses_non_constant_time_comparison() {
     let mut headers_partial = axum::http::HeaderMap::new();
     headers_partial.insert("X-Admin-Token", "test-admin-toke".parse().unwrap());
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers_partial, "test-admin-token", "feed:write", "feed-1",
+        &conn,
+        &headers_partial,
+        "test-admin-token",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_err());
 }
@@ -485,7 +578,10 @@ fn attack5a_empty_bearer_token_rejected() {
     headers.insert("Authorization", "Bearer ".parse().unwrap());
 
     let result = stophammer::api::extract_bearer_token(&headers);
-    assert!(result.is_none(), "PROTECTED: empty bearer token returns None");
+    assert!(
+        result.is_none(),
+        "PROTECTED: empty bearer token returns None"
+    );
 }
 
 #[test]
@@ -494,8 +590,10 @@ fn attack5b_whitespace_only_bearer_rejected() {
     headers.insert("Authorization", "Bearer    ".parse().unwrap());
 
     let result = stophammer::api::extract_bearer_token(&headers);
-    assert!(result.is_none(),
-        "PROTECTED: whitespace-only bearer token returns None after trim");
+    assert!(
+        result.is_none(),
+        "PROTECTED: whitespace-only bearer token returns None after trim"
+    );
 }
 
 #[test]
@@ -506,8 +604,10 @@ fn attack5c_long_bearer_token_harmless() {
     let long_token = "A".repeat(1_000_000);
 
     let result = stophammer::proof::validate_token(&conn, &long_token, "feed:write").unwrap();
-    assert!(result.is_none(),
-        "PROTECTED: extremely long token simply doesn't match any row");
+    assert!(
+        result.is_none(),
+        "PROTECTED: extremely long token simply doesn't match any row"
+    );
 }
 
 #[test]
@@ -517,13 +617,19 @@ fn attack5d_special_chars_in_bearer_harmless() {
     // SQL injection attempt
     let malicious = "'; DROP TABLE proof_tokens; --";
     let result = stophammer::proof::validate_token(&conn, malicious, "feed:write").unwrap();
-    assert!(result.is_none(), "PROTECTED: parameterized queries prevent SQL injection");
+    assert!(
+        result.is_none(),
+        "PROTECTED: parameterized queries prevent SQL injection"
+    );
 
     // Verify the table still exists
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_tokens", [], |r| r.get(0),
-    ).unwrap();
-    assert_eq!(count, 0, "table should still exist after SQL injection attempt");
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM proof_tokens", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        count, 0,
+        "table should still exist after SQL injection attempt"
+    );
 }
 
 // ============================================================================
@@ -547,7 +653,10 @@ fn attack6_expired_challenge_returns_none() {
     ).unwrap();
 
     let result = stophammer::proof::get_challenge(&conn, "expired-challenge").unwrap();
-    assert!(result.is_none(), "PROTECTED: expired challenge returns None");
+    assert!(
+        result.is_none(),
+        "PROTECTED: expired challenge returns None"
+    );
 }
 
 #[tokio::test]
@@ -577,8 +686,11 @@ async fn attack6_expired_challenge_assert_returns_404() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 404,
-        "PROTECTED: expired challenge returns 404 from assert endpoint");
+    assert_eq!(
+        resp.status(),
+        404,
+        "PROTECTED: expired challenge returns 404 from assert endpoint"
+    );
 }
 
 // ============================================================================
@@ -602,14 +714,24 @@ fn attack7_scope_confusion_rejected() {
     assert!(result.is_none(), "PROTECTED: wrong scope does not validate");
 
     let result2 = stophammer::proof::validate_token(&conn, &token, "admin").unwrap();
-    assert!(result2.is_none(), "PROTECTED: admin scope does not validate");
+    assert!(
+        result2.is_none(),
+        "PROTECTED: admin scope does not validate"
+    );
 
     let result3 = stophammer::proof::validate_token(&conn, &token, "").unwrap();
-    assert!(result3.is_none(), "PROTECTED: empty scope does not validate");
+    assert!(
+        result3.is_none(),
+        "PROTECTED: empty scope does not validate"
+    );
 
     // Correct scope works
     let result4 = stophammer::proof::validate_token(&conn, &token, "feed:write").unwrap();
-    assert_eq!(result4, Some("feed-A".to_string()), "correct scope validates");
+    assert_eq!(
+        result4,
+        Some("feed-A".to_string()),
+        "correct scope validates"
+    );
 }
 
 // ============================================================================
@@ -627,7 +749,14 @@ async fn attack7b_track_patch_requires_parent_feed_token() {
     {
         let conn = db.lock().expect("lock");
         let (credit_id, now) = seed_two_feeds(&conn);
-        insert_track(&conn, "track-B1", "feed-B", credit_id, "Track in Feed B", now);
+        insert_track(
+            &conn,
+            "track-B1",
+            "feed-B",
+            credit_id,
+            "Track in Feed B",
+            now,
+        );
         token_a = issue_token_for_feed(&conn, "feed-A");
     }
     let state = test_app_state(Arc::clone(&db));
@@ -642,13 +771,17 @@ async fn attack7b_track_patch_requires_parent_feed_token() {
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
                 "enclosure_url": "https://evil.com/song.mp3"
-            })).expect("serialize"),
+            }))
+            .expect("serialize"),
         ))
         .expect("build request");
 
     let resp = app.oneshot(patch_req).await.expect("call handler");
-    assert_eq!(resp.status(), 403,
-        "PROTECTED: token for feed-A cannot patch tracks in feed-B");
+    assert_eq!(
+        resp.status(),
+        403,
+        "PROTECTED: token for feed-A cannot patch tracks in feed-B"
+    );
 }
 
 // ============================================================================
@@ -670,7 +803,11 @@ fn attack8_empty_admin_token_header_rejected() {
     headers.insert("X-Admin-Token", "".parse().unwrap());
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "real-admin-token", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "real-admin-token",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_err(), "PROTECTED: empty admin token rejected");
 }
@@ -701,8 +838,11 @@ async fn attack9_unsupported_scope_rejected_at_challenge_creation() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 400,
-        "PROTECTED: unsupported scope rejected at challenge creation");
+    assert_eq!(
+        resp.status(),
+        400,
+        "PROTECTED: unsupported scope rejected at challenge creation"
+    );
 }
 
 // ============================================================================
@@ -718,12 +858,18 @@ fn attack10_non_bearer_auth_scheme_rejected() {
     headers.insert("Authorization", "Basic dXNlcjpwYXNz".parse().unwrap());
 
     let result = stophammer::api::extract_bearer_token(&headers);
-    assert!(result.is_none(), "PROTECTED: Basic auth scheme not accepted");
+    assert!(
+        result.is_none(),
+        "PROTECTED: Basic auth scheme not accepted"
+    );
 
     // Raw token without scheme
     let mut headers2 = axum::http::HeaderMap::new();
     headers2.insert("Authorization", "some-raw-token".parse().unwrap());
 
     let result2 = stophammer::api::extract_bearer_token(&headers2);
-    assert!(result2.is_none(), "PROTECTED: raw token without Bearer prefix not accepted");
+    assert!(
+        result2.is_none(),
+        "PROTECTED: raw token without Bearer prefix not accepted"
+    );
 }

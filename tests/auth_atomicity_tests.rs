@@ -51,8 +51,16 @@ fn insert_feed(
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
-            feed_guid, feed_url, title, title.to_lowercase(),
-            credit_id, "A test feed", 0, 0, now, now,
+            feed_guid,
+            feed_url,
+            title,
+            title.to_lowercase(),
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -71,8 +79,15 @@ fn insert_track(
          description, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
-            track_guid, feed_guid, credit_id, title,
-            title.to_lowercase(), "A test track", 0, now, now,
+            track_guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            "A test track",
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert track");
@@ -88,10 +103,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -102,13 +117,25 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
     let now = common::now();
     insert_artist(conn, "artist-1", "Test Artist", now);
     let credit_id = insert_artist_credit(conn, "artist-1", "Test Artist", now);
-    insert_feed(conn, "feed-1", "https://example.com/feed.xml", "Test Album", credit_id, now);
+    insert_feed(
+        conn,
+        "feed-1",
+        "https://example.com/feed.xml",
+        "Test Album",
+        credit_id,
+        now,
+    );
     (credit_id, now)
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
-        .expect("issue token")
+    stophammer::proof::issue_token(
+        conn,
+        "feed:write",
+        feed_guid,
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .expect("issue token")
 }
 
 // ---------------------------------------------------------------------------
@@ -132,7 +159,11 @@ fn check_admin_or_bearer_with_conn_accepts_admin_token() {
     headers.insert("X-Admin-Token", "my-secret".parse().expect("header value"));
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "my-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "my-secret",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_ok(), "admin token should be accepted");
 }
@@ -145,10 +176,17 @@ fn check_admin_or_bearer_with_conn_accepts_admin_token() {
 fn check_admin_or_bearer_with_conn_rejects_bad_admin_token() {
     let conn = common::test_db();
     let mut headers = axum::http::HeaderMap::new();
-    headers.insert("X-Admin-Token", "wrong-token".parse().expect("header value"));
+    headers.insert(
+        "X-Admin-Token",
+        "wrong-token".parse().expect("header value"),
+    );
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "my-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "my-secret",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_err(), "wrong admin token should be rejected");
 }
@@ -173,7 +211,11 @@ fn check_admin_or_bearer_with_conn_accepts_valid_bearer() {
     );
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_ok(), "valid bearer token should be accepted");
 }
@@ -194,7 +236,11 @@ fn check_admin_or_bearer_with_conn_rejects_wrong_feed() {
     );
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-OTHER",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-OTHER",
     );
     assert!(result.is_err(), "bearer for wrong feed should be rejected");
 }
@@ -209,7 +255,11 @@ fn check_admin_or_bearer_with_conn_rejects_missing_auth() {
     let headers = axum::http::HeaderMap::new();
 
     let result = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-1",
     );
     assert!(result.is_err(), "missing auth should be rejected");
 }
@@ -239,13 +289,21 @@ async fn retire_feed_admin_atomic() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "retire with admin token should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "retire with admin token should return 204"
+    );
 
     // Verify feed actually deleted.
     let count: i64 = {
         let conn = db.lock().expect("lock db");
-        conn.query_row("SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-1'", [], |r| r.get(0))
-            .expect("count feeds")
+        conn.query_row(
+            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count feeds")
     };
     assert_eq!(count, 0, "feed should be deleted after retire");
 }
@@ -274,7 +332,11 @@ async fn retire_feed_bearer_atomic() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "retire with bearer token should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "retire with bearer token should return 204"
+    );
 }
 
 // ============================================================================
@@ -302,12 +364,20 @@ async fn remove_track_bearer_atomic() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "remove track with bearer token should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "remove track with bearer token should return 204"
+    );
 
     let count: i64 = {
         let conn = db.lock().expect("lock db");
-        conn.query_row("SELECT COUNT(*) FROM tracks WHERE track_guid = 'track-1'", [], |r| r.get(0))
-            .expect("count tracks")
+        conn.query_row(
+            "SELECT COUNT(*) FROM tracks WHERE track_guid = 'track-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count tracks")
     };
     assert_eq!(count, 0, "track should be deleted");
 }
@@ -347,8 +417,12 @@ async fn patch_feed_bearer_atomic() {
 
     let url: String = {
         let conn = db.lock().expect("lock db");
-        conn.query_row("SELECT feed_url FROM feeds WHERE feed_guid = 'feed-1'", [], |r| r.get(0))
-            .expect("get feed_url")
+        conn.query_row(
+            "SELECT feed_url FROM feeds WHERE feed_guid = 'feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("get feed_url")
     };
     assert_eq!(url, "https://new-url.example.com/feed.xml");
 }
@@ -389,8 +463,12 @@ async fn patch_track_bearer_atomic() {
 
     let url: String = {
         let conn = db.lock().expect("lock db");
-        conn.query_row("SELECT enclosure_url FROM tracks WHERE track_guid = 'track-1'", [], |r| r.get(0))
-            .expect("get enclosure_url")
+        conn.query_row(
+            "SELECT enclosure_url FROM tracks WHERE track_guid = 'track-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("get enclosure_url")
     };
     assert_eq!(url, "https://cdn.example.com/new-song.mp3");
 }
@@ -403,7 +481,10 @@ async fn patch_track_bearer_atomic() {
 // ============================================================================
 
 #[tokio::test]
-#[expect(clippy::significant_drop_tightening, reason = "conn is needed until issue_token_for_feed completes")]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "conn is needed until issue_token_for_feed completes"
+)]
 async fn retire_feed_bearer_wrong_feed_returns_403() {
     let db = common::test_db_arc();
     let token;
@@ -412,8 +493,22 @@ async fn retire_feed_bearer_wrong_feed_returns_403() {
         let now = common::now();
         insert_artist(&conn, "artist-1", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-1", "Test Artist", now);
-        insert_feed(&conn, "feed-1", "https://example.com/a.xml", "Feed A", credit_id, now);
-        insert_feed(&conn, "feed-2", "https://example.com/b.xml", "Feed B", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-1",
+            "https://example.com/a.xml",
+            "Feed A",
+            credit_id,
+            now,
+        );
+        insert_feed(
+            &conn,
+            "feed-2",
+            "https://example.com/b.xml",
+            "Feed B",
+            credit_id,
+            now,
+        );
         // Token is scoped to feed-2, but we try to delete feed-1.
         token = issue_token_for_feed(&conn, "feed-2");
     }
@@ -428,13 +523,21 @@ async fn retire_feed_bearer_wrong_feed_returns_403() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 403, "bearer for wrong feed should return 403");
+    assert_eq!(
+        resp.status(),
+        403,
+        "bearer for wrong feed should return 403"
+    );
 
     // Verify feed-1 was NOT deleted.
     let count: i64 = {
         let conn = db.lock().expect("lock db");
-        conn.query_row("SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-1'", [], |r| r.get(0))
-            .expect("count feeds")
+        conn.query_row(
+            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count feeds")
     };
     assert_eq!(count, 1, "feed should still exist after rejected auth");
 }

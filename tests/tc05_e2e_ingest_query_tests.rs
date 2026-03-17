@@ -34,14 +34,14 @@ fn test_app_state_with_crawl_token(
 
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain:            Arc::new(chain),
+        chain: Arc::new(chain),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     })
 }
@@ -56,7 +56,12 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<Bo
 }
 
 async fn body_json(resp: axum::response::Response) -> serde_json::Value {
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     serde_json::from_slice(&bytes).expect("parse json")
 }
 
@@ -65,7 +70,10 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "integration test exercises full ingest-to-query golden path")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test exercises full ingest-to-query golden path"
+)]
 async fn test_e2e_ingest_to_query_golden_path() {
     let crawl_token = "tc05-crawl-token-secret";
     let db = common::test_db_arc();
@@ -165,13 +173,19 @@ async fn test_e2e_ingest_to_query_golden_path() {
         .expect("ingest request should not panic");
 
     let status = resp.status().as_u16();
-    let raw_bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let raw_bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let raw_text = String::from_utf8_lossy(&raw_bytes);
     assert!(
         status == 200 || status == 207,
         "ingest should return 200 or 207, got {status}: {raw_text}"
     );
-    let ingest_body: serde_json::Value = serde_json::from_slice(&raw_bytes).expect("parse ingest json");
+    let ingest_body: serde_json::Value =
+        serde_json::from_slice(&raw_bytes).expect("parse ingest json");
     assert!(
         ingest_body["accepted"].as_bool().expect("accepted field"),
         "ingest should be accepted"
@@ -247,8 +261,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
 
     // The feed should appear in the results with correct entity metadata.
     let feed_hit = search_data.iter().find(|r| {
-        r["entity_type"].as_str() == Some("feed")
-            && r["entity_id"].as_str() == Some(feed_guid)
+        r["entity_type"].as_str() == Some("feed") && r["entity_id"].as_str() == Some(feed_guid)
     });
     assert!(
         feed_hit.is_some(),

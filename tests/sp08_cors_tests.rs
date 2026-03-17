@@ -11,9 +11,7 @@ use tower::ServiceExt;
 fn test_app_state() -> Arc<stophammer::api::AppState> {
     let db = common::test_db_arc();
     let key_path = format!("/tmp/test-sp08-signer-{}.key", uuid::Uuid::new_v4());
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create(&key_path).unwrap(),
-    );
+    let signer = Arc::new(stophammer::signing::NodeSigner::load_or_create(&key_path).unwrap());
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -21,7 +19,7 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),

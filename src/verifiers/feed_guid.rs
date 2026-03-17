@@ -16,12 +16,12 @@ pub struct FeedGuidVerifier;
 ///
 /// Add new entries here as they are discovered in the wild. Each entry should
 /// be the exact lowercase UUID string as it appears in the `podcast:guid` tag.
-const BAD_GUIDS: &[&str] = &[
-    "c9c7bad3-4712-514e-9ebd-d1e208fa1b76",
-];
+const BAD_GUIDS: &[&str] = &["c9c7bad3-4712-514e-9ebd-d1e208fa1b76"];
 
 impl Verifier for FeedGuidVerifier {
-    fn name(&self) -> &'static str { "feed_guid" }
+    fn name(&self) -> &'static str {
+        "feed_guid"
+    }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
         let Some(guid) = ctx.request.feed_data.as_ref().map(|f| f.feed_guid.as_str()) else {

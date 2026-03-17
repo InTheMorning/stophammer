@@ -16,9 +16,7 @@ use tower::ServiceExt;
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn test_app_state(
-    db: Arc<Mutex<rusqlite::Connection>>,
-) -> Arc<stophammer::api::AppState> {
+fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sse-exhaustion.key")
             .expect("create signer"),
@@ -57,7 +55,11 @@ async fn fake_artist_id_does_not_create_channel() {
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(Arc::clone(&state));
 
-    assert_eq!(state.sse_registry.artist_count(), 0, "registry starts empty");
+    assert_eq!(
+        state.sse_registry.artist_count(),
+        0,
+        "registry starts empty"
+    );
 
     let req = Request::builder()
         .method("GET")
@@ -66,7 +68,11 @@ async fn fake_artist_id_does_not_create_channel() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200, "SSE endpoint returns 200 even with unknown IDs");
+    assert_eq!(
+        resp.status(),
+        200,
+        "SSE endpoint returns 200 even with unknown IDs"
+    );
 
     // The registry must NOT have created channels for the fake artist IDs.
     assert_eq!(
@@ -92,7 +98,11 @@ async fn real_artist_id_creates_channel() {
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(Arc::clone(&state));
 
-    assert_eq!(state.sse_registry.artist_count(), 0, "registry starts empty");
+    assert_eq!(
+        state.sse_registry.artist_count(),
+        0,
+        "registry starts empty"
+    );
 
     let req = Request::builder()
         .method("GET")
@@ -101,7 +111,11 @@ async fn real_artist_id_creates_channel() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200, "SSE endpoint returns 200 for real artist");
+    assert_eq!(
+        resp.status(),
+        200,
+        "SSE endpoint returns 200 for real artist"
+    );
 
     // The registry should have created a channel for the real artist.
     assert_eq!(

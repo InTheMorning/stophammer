@@ -46,9 +46,9 @@
 
 use std::fmt;
 
-use rusqlite::Connection;
 use crate::ingest::IngestFeedRequest;
 use crate::model::Feed;
+use rusqlite::Connection;
 
 // ── Error type ──────────────────────────────────────────────────────────────
 
@@ -80,12 +80,12 @@ impl std::error::Error for VerifierError {}
 #[derive(Debug)]
 pub struct IngestContext<'a> {
     /// The ingest request being validated, including the parsed feed data.
-    pub request:  &'a IngestFeedRequest,
+    pub request: &'a IngestFeedRequest,
     /// **Read-only** database connection (reader pool, `query_only = ON`).
     ///
     /// Verifiers may query prior state (e.g. crawl cache) but must NOT attempt
     /// writes — they will fail at the SQLite level.
-    pub db:       &'a Connection,
+    pub db: &'a Connection,
     /// The feed row already stored for this URL, if one exists.
     ///
     /// Available for verifiers that need to diff against prior state; not yet
@@ -197,9 +197,11 @@ impl VerifierChain {
         let mut warnings = Vec::new();
         for v in &self.verifiers {
             match v.verify(ctx) {
-                VerifyResult::Pass       => {}
-                VerifyResult::Warn(msg)  => warnings.push(format!("[{}] {}", v.name(), msg)),
-                VerifyResult::Fail(msg)  => return Err(VerifierError(format!("[{}] {}", v.name(), msg))),
+                VerifyResult::Pass => {}
+                VerifyResult::Warn(msg) => warnings.push(format!("[{}] {}", v.name(), msg)),
+                VerifyResult::Fail(msg) => {
+                    return Err(VerifierError(format!("[{}] {}", v.name(), msg)));
+                }
             }
         }
         Ok(warnings)
@@ -283,15 +285,15 @@ impl ChainSpec {
 /// than silently running with a broken security gate.
 // Finding-7 verifier fails-closed — 2026-03-13
 #[must_use]
-#[expect(clippy::needless_pass_by_value, reason = "takes ownership so callers can move the token into the chain")]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "takes ownership so callers can move the token into the chain"
+)]
 pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
     use crate::verifiers::{
-        content_hash::ContentHashVerifier,
-        crawl_token::CrawlTokenVerifier,
-        enclosure_type::EnclosureTypeVerifier,
-        feed_guid::FeedGuidVerifier,
-        medium_music::MediumMusicVerifier,
-        payment_route_sum::PaymentRouteSumVerifier,
+        content_hash::ContentHashVerifier, crawl_token::CrawlTokenVerifier,
+        enclosure_type::EnclosureTypeVerifier, feed_guid::FeedGuidVerifier,
+        medium_music::MediumMusicVerifier, payment_route_sum::PaymentRouteSumVerifier,
         v4v_payment::V4VPaymentVerifier,
     };
 
@@ -299,13 +301,15 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
 
     for name in &spec.names {
         let v: Box<dyn Verifier> = match name.as_str() {
-            "crawl_token"       => Box::new(CrawlTokenVerifier { expected: crawl_token.clone() }),
-            "content_hash"      => Box::new(ContentHashVerifier),
-            "medium_music"      => Box::new(MediumMusicVerifier),
-            "feed_guid"         => Box::new(FeedGuidVerifier),
-            "v4v_payment"       => Box::new(V4VPaymentVerifier),
+            "crawl_token" => Box::new(CrawlTokenVerifier {
+                expected: crawl_token.clone(),
+            }),
+            "content_hash" => Box::new(ContentHashVerifier),
+            "medium_music" => Box::new(MediumMusicVerifier),
+            "feed_guid" => Box::new(FeedGuidVerifier),
+            "v4v_payment" => Box::new(V4VPaymentVerifier),
             "payment_route_sum" => Box::new(PaymentRouteSumVerifier),
-            "enclosure_type"    => Box::new(EnclosureTypeVerifier),
+            "enclosure_type" => Box::new(EnclosureTypeVerifier),
             unknown => {
                 panic!(
                     "FATAL: unknown verifier '{unknown}' in VERIFIER_CHAIN. \
@@ -363,7 +367,9 @@ mod tests {
 
     struct AlwaysFail;
     impl Verifier for AlwaysFail {
-        fn name(&self) -> &'static str { "always_fail" }
+        fn name(&self) -> &'static str {
+            "always_fail"
+        }
         fn verify(&self, _ctx: &IngestContext) -> VerifyResult {
             VerifyResult::Fail("boom".into())
         }
@@ -371,7 +377,9 @@ mod tests {
 
     struct AlwaysPass;
     impl Verifier for AlwaysPass {
-        fn name(&self) -> &'static str { "always_pass" }
+        fn name(&self) -> &'static str {
+            "always_pass"
+        }
         fn verify(&self, _ctx: &IngestContext) -> VerifyResult {
             VerifyResult::Pass
         }
@@ -382,14 +390,18 @@ mod tests {
         let chain = VerifierChain::new(vec![Box::new(AlwaysFail)]);
         let conn = rusqlite::Connection::open_in_memory().expect("open db");
         let req = crate::ingest::IngestFeedRequest {
-            crawl_token:   String::new(),
+            crawl_token: String::new(),
             canonical_url: String::new(),
-            source_url:    String::new(),
-            http_status:   200,
-            content_hash:  String::new(),
-            feed_data:     None,
+            source_url: String::new(),
+            http_status: 200,
+            content_hash: String::new(),
+            feed_data: None,
         };
-        let ctx = IngestContext { request: &req, db: &conn, existing: None };
+        let ctx = IngestContext {
+            request: &req,
+            db: &conn,
+            existing: None,
+        };
         let err = chain.run(&ctx).unwrap_err();
         assert_eq!(err.0, "[always_fail] boom");
         // Verify it implements Error trait
@@ -401,14 +413,18 @@ mod tests {
         let chain = VerifierChain::new(vec![Box::new(AlwaysPass)]);
         let conn = rusqlite::Connection::open_in_memory().expect("open db");
         let req = crate::ingest::IngestFeedRequest {
-            crawl_token:   String::new(),
+            crawl_token: String::new(),
             canonical_url: String::new(),
-            source_url:    String::new(),
-            http_status:   200,
-            content_hash:  String::new(),
-            feed_data:     None,
+            source_url: String::new(),
+            http_status: 200,
+            content_hash: String::new(),
+            feed_data: None,
         };
-        let ctx = IngestContext { request: &req, db: &conn, existing: None };
+        let ctx = IngestContext {
+            request: &req,
+            db: &conn,
+            existing: None,
+        };
         chain.run(&ctx).unwrap();
     }
 
@@ -421,28 +437,42 @@ mod tests {
         // Safety: single-threaded test, no other thread reads VERIFIER_CHAIN.
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
-        unsafe { std::env::set_var("VERIFIER_CHAIN", ",") };
+        unsafe {
+            std::env::set_var("VERIFIER_CHAIN", ",")
+        };
         let spec = ChainSpec::from_env();
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
-        unsafe { std::env::remove_var("VERIFIER_CHAIN") };
+        unsafe {
+            std::env::remove_var("VERIFIER_CHAIN")
+        };
         let default_names: Vec<String> = ChainSpec::DEFAULT
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        assert_eq!(spec.names, default_names, "empty result should fall back to DEFAULT");
+        assert_eq!(
+            spec.names, default_names,
+            "empty result should fall back to DEFAULT"
+        );
     }
 
     #[test]
     fn chain_spec_whitespace_commas_falls_back_to_default() {
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
-        unsafe { std::env::set_var("VERIFIER_CHAIN", " , , ") };
+        unsafe {
+            std::env::set_var("VERIFIER_CHAIN", " , , ")
+        };
         let spec = ChainSpec::from_env();
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
-        unsafe { std::env::remove_var("VERIFIER_CHAIN") };
-        assert!(!spec.names.is_empty(), "empty result should fall back to DEFAULT");
+        unsafe {
+            std::env::remove_var("VERIFIER_CHAIN")
+        };
+        assert!(
+            !spec.names.is_empty(),
+            "empty result should fall back to DEFAULT"
+        );
     }
 }

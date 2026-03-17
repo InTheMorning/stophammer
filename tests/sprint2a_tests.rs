@@ -23,10 +23,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -58,8 +58,16 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
-            "feed-1", "https://example.com/feed.xml", "Test Album",
-            "test album", credit_id, "A test feed", 0, 0, now, now,
+            "feed-1",
+            "https://example.com/feed.xml",
+            "Test Album",
+            "test album",
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -79,16 +87,28 @@ fn insert_track(
          description, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         rusqlite::params![
-            track_guid, feed_guid, credit_id, title,
-            title.to_lowercase(), "A test track", 0, now, now,
+            track_guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            "A test track",
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert track");
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
-        .expect("issue token")
+    stophammer::proof::issue_token(
+        conn,
+        "feed:write",
+        feed_guid,
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .expect("issue token")
 }
 
 fn rss_with_podcast_txt(txt_content: &str) -> String {
@@ -128,8 +148,16 @@ fn seed_feed_at_url(conn: &rusqlite::Connection, feed_url: &str) -> (i64, i64) {
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
-            "feed-abc", feed_url, "Test Album",
-            "test album", credit_id, "A test feed", 0, 0, now, now,
+            "feed-abc",
+            feed_url,
+            "Test Album",
+            "test album",
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -161,7 +189,11 @@ async fn delete_feed_at_v1_prefix_returns_204() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "DELETE /v1/feeds/feed-1 should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "DELETE /v1/feeds/feed-1 should return 204"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -194,7 +226,11 @@ async fn patch_feed_at_v1_prefix_returns_204() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "PATCH /v1/feeds/feed-1 should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "PATCH /v1/feeds/feed-1 should return 204"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +264,11 @@ async fn patch_track_at_v1_prefix_returns_204() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "PATCH /v1/tracks/track-1 should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "PATCH /v1/tracks/track-1 should return 204"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +295,11 @@ async fn proofs_challenge_at_v1_prefix_returns_201() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 201, "POST /v1/proofs/challenge should return 201");
+    assert_eq!(
+        resp.status(),
+        201,
+        "POST /v1/proofs/challenge should return 201"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -295,7 +339,12 @@ async fn proofs_assert_at_v1_prefix_returns_200() {
         .expect("call handler");
     assert_eq!(resp.status(), 201);
 
-    let bytes = resp.into_body().collect().await.expect("collect body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("collect body")
+        .to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse JSON");
     let challenge_id = body["challenge_id"].as_str().expect("challenge_id");
     let token_binding = body["token_binding"].as_str().expect("token_binding");
@@ -321,7 +370,11 @@ async fn proofs_assert_at_v1_prefix_returns_200() {
         .expect("build request");
 
     let resp2 = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp2.status(), 200, "POST /v1/proofs/assert should return 200");
+    assert_eq!(
+        resp2.status(),
+        200,
+        "POST /v1/proofs/assert should return 200"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +399,11 @@ async fn delete_track_at_v1_prefix_returns_204() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "DELETE /v1/feeds/feed-1/tracks/track-1 should return 204");
+    assert_eq!(
+        resp.status(),
+        204,
+        "DELETE /v1/feeds/feed-1/tracks/track-1 should return 204"
+    );
 }
 
 // ============================================================================
@@ -374,17 +431,17 @@ fn content_hash_skip_returns_no_change_when_cached_hash_matches() {
     // Build a request with the same hash — should trigger skip.
     let request = stophammer::ingest::IngestFeedRequest {
         canonical_url: feed_url.to_string(),
-        source_url:    feed_url.to_string(),
-        crawl_token:   String::new(),
-        http_status:   304,
-        content_hash:  hash.to_string(),
-        feed_data:     None,
+        source_url: feed_url.to_string(),
+        crawl_token: String::new(),
+        http_status: 304,
+        content_hash: hash.to_string(),
+        feed_data: None,
     };
 
     let verifier = stophammer::verifiers::content_hash::ContentHashVerifier;
     let ctx = stophammer::verify::IngestContext {
-        request:  &request,
-        db:       &conn,
+        request: &request,
+        db: &conn,
         existing: None,
     };
 
@@ -421,17 +478,17 @@ fn content_hash_passes_when_hash_differs() {
     // Build a request with a different hash — should NOT skip.
     let request = stophammer::ingest::IngestFeedRequest {
         canonical_url: feed_url.to_string(),
-        source_url:    feed_url.to_string(),
-        crawl_token:   String::new(),
-        http_status:   200,
-        content_hash:  "new-hash-value".to_string(),
-        feed_data:     None,
+        source_url: feed_url.to_string(),
+        crawl_token: String::new(),
+        http_status: 200,
+        content_hash: "new-hash-value".to_string(),
+        feed_data: None,
     };
 
     let verifier = stophammer::verifiers::content_hash::ContentHashVerifier;
     let ctx = stophammer::verify::IngestContext {
-        request:  &request,
-        db:       &conn,
+        request: &request,
+        db: &conn,
         existing: None,
     };
 
@@ -452,17 +509,17 @@ fn content_hash_passes_on_first_crawl() {
     // No crawl cache entry — first time crawling this feed.
     let request = stophammer::ingest::IngestFeedRequest {
         canonical_url: "https://example.com/new-feed.xml".to_string(),
-        source_url:    "https://example.com/new-feed.xml".to_string(),
-        crawl_token:   String::new(),
-        http_status:   200,
-        content_hash:  "first-hash".to_string(),
-        feed_data:     None,
+        source_url: "https://example.com/new-feed.xml".to_string(),
+        crawl_token: String::new(),
+        http_status: 200,
+        content_hash: "first-hash".to_string(),
+        feed_data: None,
     };
 
     let verifier = stophammer::verifiers::content_hash::ContentHashVerifier;
     let ctx = stophammer::verify::IngestContext {
-        request:  &request,
-        db:       &conn,
+        request: &request,
+        db: &conn,
         existing: None,
     };
 

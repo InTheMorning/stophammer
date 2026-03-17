@@ -20,16 +20,17 @@ async fn main() {
                 .unwrap_or_else(|_| "stophammer=info".parse().expect("valid filter")),
         )
         .init();
-    let db_path   = std::env::var("DB_PATH").unwrap_or_else(|_| "stophammer.db".into());
-    let key_path  = std::env::var("KEY_PATH").unwrap_or_else(|_| "signing.key".into());
+    let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "stophammer.db".into());
+    let key_path = std::env::var("KEY_PATH").unwrap_or_else(|_| "signing.key".into());
     let bind_addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8008".into());
     let node_mode = std::env::var("NODE_MODE").unwrap_or_else(|_| "primary".into());
 
     // Issue-WAL-POOL — 2026-03-14: use DbPool (writer + reader pool) instead of
     // single Arc<Mutex<Connection>>.
-    let pool   = db_pool::DbPool::open(std::path::Path::new(&db_path))
+    let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
         .expect("failed to open database pool");
-    let signer = signing::NodeSigner::load_or_create(&key_path).expect("failed to load signing key");
+    let signer =
+        signing::NodeSigner::load_or_create(&key_path).expect("failed to load signing key");
     let pubkey = signer.pubkey_hex().to_string();
 
     // SP-02 pruner interval — 2026-03-13
@@ -38,32 +39,34 @@ async fn main() {
 
     match node_mode.as_str() {
         "community" => run_community(pool, signer, pubkey, bind_addr).await,
-        _           => run_primary(pool, signer, pubkey, bind_addr).await,
+        _ => run_primary(pool, signer, pubkey, bind_addr).await,
     }
 }
 
 // ── Primary mode ─────────────────────────────────────────────────────────────
 
 async fn run_primary(
-    db:         db_pool::DbPool,
-    signer:     signing::NodeSigner,
-    pubkey:     String,
-    bind_addr:  String,
+    db: db_pool::DbPool,
+    signer: signing::NodeSigner,
+    pubkey: String,
+    bind_addr: String,
 ) {
     let crawl_token = std::env::var("CRAWL_TOKEN").expect("CRAWL_TOKEN env var required");
     let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
     // Finding-3 separate sync token — 2026-03-13
-    let sync_token  = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
-    let chain       = verify::build_chain(&verify::ChainSpec::from_env(), crawl_token);
+    let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
+    let chain = verify::build_chain(&verify::ChainSpec::from_env(), crawl_token);
 
     // Seed push_subscribers from DB at startup.
     // Issue-WAL-POOL — 2026-03-14: use writer for startup reads (pool not yet shared)
     let push_subscribers = {
-        let conn  = db.writer().lock().expect("db mutex poisoned at startup");
+        let conn = db.writer().lock().expect("db mutex poisoned at startup");
         let peers = db::get_push_peers(&conn).unwrap_or_default();
         drop(conn);
-        let map: std::collections::HashMap<String, String> =
-            peers.into_iter().map(|p| (p.node_pubkey, p.node_url)).collect();
+        let map: std::collections::HashMap<String, String> = peers
+            .into_iter()
+            .map(|p| (p.node_pubkey, p.node_url))
+            .collect();
         std::sync::Arc::new(std::sync::RwLock::new(map))
     };
 
@@ -74,15 +77,15 @@ async fn run_primary(
 
     let state = std::sync::Arc::new(api::AppState {
         db,
-        chain:            std::sync::Arc::new(chain),
-        signer:           std::sync::Arc::new(signer),
-        node_pubkey_hex:  pubkey,
+        chain: std::sync::Arc::new(chain),
+        signer: std::sync::Arc::new(signer),
+        node_pubkey_hex: pubkey,
         admin_token,
         // Finding-3 separate sync token — 2026-03-13
         sync_token,
         push_client,
         push_subscribers,
-        sse_registry:     std::sync::Arc::new(api::SseRegistry::new()),
+        sse_registry: std::sync::Arc::new(api::SseRegistry::new()),
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });
@@ -94,17 +97,17 @@ async fn run_primary(
 // ── Community mode ───────────────────────────────────────────────────────────
 
 async fn run_community(
-    db:        db_pool::DbPool,
-    signer:    signing::NodeSigner,
-    pubkey:    String,
+    db: db_pool::DbPool,
+    signer: signing::NodeSigner,
+    pubkey: String,
     bind_addr: String,
 ) {
-    let primary_url = std::env::var("PRIMARY_URL")
-        .expect("PRIMARY_URL env var required in community mode");
+    let primary_url =
+        std::env::var("PRIMARY_URL").expect("PRIMARY_URL env var required in community mode");
     let tracker_url = std::env::var("TRACKER_URL")
         .unwrap_or_else(|_| "https://stophammer-tracker.workers.dev".into());
-    let node_address = std::env::var("NODE_ADDRESS")
-        .expect("NODE_ADDRESS env var required in community mode");
+    let node_address =
+        std::env::var("NODE_ADDRESS").expect("NODE_ADDRESS env var required in community mode");
     let poll_interval_secs: u64 = std::env::var("POLL_INTERVAL_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -137,7 +140,7 @@ async fn run_community(
             .expect(
                 "FATAL: cannot determine primary node public key. Set PRIMARY_PUBKEY env var \
                  with the hex pubkey of the primary node, or ensure the primary is reachable \
-                 at TRACKER_URL."
+                 at TRACKER_URL.",
             )
     };
 
@@ -147,10 +150,10 @@ async fn run_community(
     let shared_sse_registry = std::sync::Arc::new(api::SseRegistry::new());
 
     let community_state = std::sync::Arc::new(community::CommunityState {
-        db:                 db.clone(),
+        db: db.clone(),
         primary_pubkey_hex: primary_pubkey_hex.clone(),
-        last_push_at:       std::sync::Arc::clone(&last_push_at),
-        sse_registry:       Some(std::sync::Arc::clone(&shared_sse_registry)),
+        last_push_at: std::sync::Arc::clone(&last_push_at),
+        sse_registry: Some(std::sync::Arc::clone(&shared_sse_registry)),
     });
 
     let config = community::CommunityConfig {
@@ -162,10 +165,10 @@ async fn run_community(
     };
 
     // Fire-and-forget sync task.
-    let db_for_sync     = db.clone();
+    let db_for_sync = db.clone();
     let pubkey_for_sync = pubkey.clone();
-    let lpa_for_sync    = std::sync::Arc::clone(&last_push_at);
-    let sse_for_sync    = Some(std::sync::Arc::clone(&shared_sse_registry));
+    let lpa_for_sync = std::sync::Arc::clone(&last_push_at);
+    let sse_for_sync = Some(std::sync::Arc::clone(&shared_sse_registry));
     drop(tokio::spawn(community::run_community_sync(
         config,
         db_for_sync,
@@ -182,17 +185,17 @@ async fn run_community(
         .expect("failed to build push HTTP client");
     let readonly_state = std::sync::Arc::new(api::AppState {
         db,
-        chain:            std::sync::Arc::new(dummy_chain),
-        signer:           std::sync::Arc::new(signer),
-        node_pubkey_hex:  pubkey,
-        admin_token:      String::new(),
+        chain: std::sync::Arc::new(dummy_chain),
+        signer: std::sync::Arc::new(signer),
+        node_pubkey_hex: pubkey,
+        admin_token: String::new(),
         // Finding-3 separate sync token — 2026-03-13
-        sync_token:       None,
+        sync_token: None,
         push_client,
         push_subscribers: std::sync::Arc::new(std::sync::RwLock::new(
             std::collections::HashMap::new(),
         )),
-        sse_registry:     shared_sse_registry,
+        sse_registry: shared_sse_registry,
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });
@@ -247,8 +250,7 @@ fn apply_rate_limit(router: axum::Router) -> axum::Router {
         .unwrap_or(false);
 
     router.layer(axum::middleware::from_fn(
-        move |request: axum::http::Request<axum::body::Body>,
-              next: axum::middleware::Next| {
+        move |request: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
             let limiter = Arc::clone(&limiter);
             async move {
                 // Skip rate limiting for /health
@@ -284,9 +286,7 @@ fn apply_rate_limit(router: axum::Router) -> axum::Router {
                     Err(_) => axum::http::Response::builder()
                         .status(axum::http::StatusCode::TOO_MANY_REQUESTS)
                         .header("content-type", "application/json")
-                        .body(axum::body::Body::from(
-                            r#"{"error":"rate limit exceeded"}"#,
-                        ))
+                        .body(axum::body::Body::from(r#"{"error":"rate limit exceeded"}"#))
                         .expect("static response is valid"),
                 }
             }
@@ -303,10 +303,8 @@ async fn serve_with_optional_tls(router: axum::Router, bind_addr: &str) {
     if let Ok(tls_domain) = std::env::var("TLS_DOMAIN") {
         let acme_email = std::env::var("TLS_ACME_EMAIL")
             .expect("TLS_ACME_EMAIL required when TLS_DOMAIN is set");
-        let cert_path = std::env::var("TLS_CERT_PATH")
-            .unwrap_or_else(|_| "./tls/cert.pem".into());
-        let key_path = std::env::var("TLS_KEY_PATH")
-            .unwrap_or_else(|_| "./tls/key.pem".into());
+        let cert_path = std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "./tls/cert.pem".into());
+        let key_path = std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "./tls/key.pem".into());
         let staging = std::env::var("TLS_ACME_STAGING")
             .map(|v| v == "true")
             .unwrap_or(false);
@@ -352,15 +350,20 @@ async fn serve_with_optional_tls(router: axum::Router, bind_addr: &str) {
             .expect("failed to bind/serve HTTP — port may be in use or permission denied");
     } else {
         // Plain HTTP fallback.
-        tracing::warn!("TLS_DOMAIN not set — node is serving plain HTTP. Bearer tokens and crawl tokens are transmitted unencrypted. Set TLS_DOMAIN and TLS_ACME_EMAIL for production use.");
+        tracing::warn!(
+            "TLS_DOMAIN not set — node is serving plain HTTP. Bearer tokens and crawl tokens are transmitted unencrypted. Set TLS_DOMAIN and TLS_ACME_EMAIL for production use."
+        );
 
         // Issue-15 expect messages — 2026-03-13
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
             .expect("failed to bind/serve HTTP — port may be in use or permission denied");
         tracing::info!(bind = %bind_addr, "stophammer listening (plain HTTP)");
-        axum::serve(listener, router.into_make_service_with_connect_info::<std::net::SocketAddr>())
-            .await
-            .expect("failed to bind/serve HTTP — port may be in use or permission denied");
+        axum::serve(
+            listener,
+            router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .expect("failed to bind/serve HTTP — port may be in use or permission denied");
     }
 }

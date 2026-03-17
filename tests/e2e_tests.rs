@@ -97,7 +97,10 @@ fn insert_track(
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test exercises full ingest-to-query pipeline")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test exercises full ingest-to-query pipeline"
+)]
 fn ingest_to_query_pipeline() {
     let conn = common::test_db();
     let now = common::now();
@@ -309,14 +312,24 @@ fn search_index_population() {
     // Populate via the library function so both FTS5 + search_entities stay in
     // sync.
     stophammer::search::populate_search_index(
-        &conn, "feed", "feed-fts",
-        "FTS Artist", "Test Feed", "A searchable feed", "electronic",
+        &conn,
+        "feed",
+        "feed-fts",
+        "FTS Artist",
+        "Test Feed",
+        "A searchable feed",
+        "electronic",
     )
     .unwrap();
 
     stophammer::search::populate_search_index(
-        &conn, "track", "track-fts",
-        "FTS Artist", "Test Track", "A searchable track", "rock",
+        &conn,
+        "track",
+        "track-fts",
+        "FTS Artist",
+        "Test Track",
+        "A searchable track",
+        "rock",
     )
     .unwrap();
 
@@ -364,8 +377,13 @@ fn search_index_population() {
     assert_eq!(results[0].entity_id, "track-fts");
 
     // Filtered search: only feeds
-    let results = stophammer::search::search(&conn, "FTS Artist", Some("feed"), 10, None, None).unwrap();
-    assert_eq!(results.len(), 1, "only the feed should match when filtered to 'feed'");
+    let results =
+        stophammer::search::search(&conn, "FTS Artist", Some("feed"), 10, None, None).unwrap();
+    assert_eq!(
+        results.len(),
+        1,
+        "only the feed should match when filtered to 'feed'"
+    );
     assert_eq!(results[0].entity_type, "feed");
     assert_eq!(results[0].entity_id, "feed-fts");
 }

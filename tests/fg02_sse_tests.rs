@@ -26,7 +26,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -83,7 +83,9 @@ async fn sse_registry_publish_and_subscribe() {
     let registry = stophammer::api::SseRegistry::new();
 
     // Subscribe to artist-1
-    let mut rx = registry.subscribe("artist-1").expect("subscribe should succeed");
+    let mut rx = registry
+        .subscribe("artist-1")
+        .expect("subscribe should succeed");
 
     // Publish an event for artist-1
     let frame = stophammer::api::SseFrame {
@@ -107,8 +109,12 @@ async fn sse_registry_publish_and_subscribe() {
 async fn sse_registry_no_cross_pollination() {
     let registry = stophammer::api::SseRegistry::new();
 
-    let mut rx_a = registry.subscribe("artist-a").expect("subscribe should succeed");
-    let _rx_b = registry.subscribe("artist-b").expect("subscribe should succeed");
+    let mut rx_a = registry
+        .subscribe("artist-a")
+        .expect("subscribe should succeed");
+    let _rx_b = registry
+        .subscribe("artist-b")
+        .expect("subscribe should succeed");
 
     // Publish to artist-b only
     let frame = stophammer::api::SseFrame {
@@ -121,7 +127,10 @@ async fn sse_registry_no_cross_pollination() {
 
     // artist-a should NOT receive the event (try_recv should error)
     let result = rx_a.try_recv();
-    assert!(result.is_err(), "artist-a should not receive artist-b events");
+    assert!(
+        result.is_err(),
+        "artist-a should not receive artist-b events"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -190,7 +199,11 @@ async fn sse_endpoint_on_readonly_router() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200, "SSE endpoint should return 200 on readonly router");
+    assert_eq!(
+        resp.status(),
+        200,
+        "SSE endpoint should return 200 on readonly router"
+    );
 }
 
 // ---------------------------------------------------------------------------

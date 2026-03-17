@@ -11,7 +11,10 @@ fn crawl_token_rejects_empty() {
     let empty_token = "";
     let expected_token = "s3cr3t-crawl-token";
 
-    assert_ne!(empty_token, expected_token, "empty token must not match a real token");
+    assert_ne!(
+        empty_token, expected_token,
+        "empty token must not match a real token"
+    );
 
     // Even whitespace-only tokens should be treated as invalid.
     let whitespace_token = "   ";
@@ -79,13 +82,22 @@ fn medium_music_only() {
 #[test]
 fn feed_guid_format() {
     let valid = "917393e3-1b1e-5f2c-a927-9e29e2d26b32";
-    assert!(uuid::Uuid::parse_str(valid).is_ok(), "valid UUID should parse");
+    assert!(
+        uuid::Uuid::parse_str(valid).is_ok(),
+        "valid UUID should parse"
+    );
 
     let invalid = "not-a-uuid";
-    assert!(uuid::Uuid::parse_str(invalid).is_err(), "invalid string should fail");
+    assert!(
+        uuid::Uuid::parse_str(invalid).is_err(),
+        "invalid string should fail"
+    );
 
     let empty = "";
-    assert!(uuid::Uuid::parse_str(empty).is_err(), "empty string should fail");
+    assert!(
+        uuid::Uuid::parse_str(empty).is_err(),
+        "empty string should fail"
+    );
 
     // Known bad GUID (platform default) should be flagged.
     let bad_guid = "c9c7bad3-4712-514e-9ebd-d1e208fa1b76";
@@ -106,7 +118,8 @@ fn feed_guid_format() {
 
 #[test]
 fn v4v_payment_required() {
-    let valid_address: String = "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad".to_string();
+    let valid_address: String =
+        "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad".to_string();
     let valid_split: i64 = 95;
     assert!(!valid_address.is_empty() && valid_split > 0, "valid route");
 
@@ -120,11 +133,13 @@ fn v4v_payment_required() {
 
     // At least one valid route among many is sufficient.
     let mixed_routes: Vec<(&str, i64)> = vec![
-        ("", 50),                          // invalid: empty address
-        ("some-node-pubkey", 0),           // invalid: zero split
-        ("valid-lightning-address", 100),   // valid
+        ("", 50),                         // invalid: empty address
+        ("some-node-pubkey", 0),          // invalid: zero split
+        ("valid-lightning-address", 100), // valid
     ];
-    let has_valid = mixed_routes.iter().any(|(addr, split)| !addr.is_empty() && *split > 0);
+    let has_valid = mixed_routes
+        .iter()
+        .any(|(addr, split)| !addr.is_empty() && *split > 0);
     assert!(has_valid, "at least one valid route is sufficient");
 }
 
@@ -151,7 +166,10 @@ fn enclosure_type_video_warns() {
     }
 
     let none_type: Option<&str> = None;
-    assert!(none_type.is_none(), "absent MIME type is not a video concern");
+    assert!(
+        none_type.is_none(),
+        "absent MIME type is not a video concern"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -161,7 +179,11 @@ fn enclosure_type_video_warns() {
 #[test]
 fn payment_route_sum() {
     let valid_splits: Vec<i64> = vec![60, 25, 10, 5];
-    assert_eq!(valid_splits.iter().sum::<i64>(), 100, "splits must sum to 100");
+    assert_eq!(
+        valid_splits.iter().sum::<i64>(),
+        100,
+        "splits must sum to 100"
+    );
 
     let solo: Vec<i64> = vec![100];
     assert_eq!(solo.iter().sum::<i64>(), 100);
@@ -170,10 +192,18 @@ fn payment_route_sum() {
     assert_eq!(even.iter().sum::<i64>(), 100);
 
     let over: Vec<i64> = vec![60, 50];
-    assert_ne!(over.iter().sum::<i64>(), 100, "sum > 100 should be rejected");
+    assert_ne!(
+        over.iter().sum::<i64>(),
+        100,
+        "sum > 100 should be rejected"
+    );
 
     let under: Vec<i64> = vec![30, 20];
-    assert_ne!(under.iter().sum::<i64>(), 100, "sum < 100 should be rejected");
+    assert_ne!(
+        under.iter().sum::<i64>(),
+        100,
+        "sum < 100 should be rejected"
+    );
 
     let empty: Vec<i64> = vec![];
     assert!(empty.is_empty(), "empty routes are skipped, not checked");

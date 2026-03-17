@@ -8,7 +8,10 @@
 //! - Verifiers: trait-level pass/fail through `IngestContext`
 //! - Community push: duplicate event, bad-signature event
 
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test setup")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
+)]
 
 mod common;
 
@@ -32,32 +35,34 @@ fn make_artist_event(
     use stophammer::model::Artist;
 
     let artist = Artist {
-        artist_id:  artist_id.into(),
-        name:       format!("Artist {artist_id}"),
+        artist_id: artist_id.into(),
+        name: format!("Artist {artist_id}"),
         name_lower: format!("artist {artist_id}"),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
-    let inner = ArtistUpsertedPayload { artist: artist.clone() };
+    let inner = ArtistUpsertedPayload {
+        artist: artist.clone(),
+    };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
     Event {
-        event_id:     event_id.into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(ArtistUpsertedPayload { artist }),
+        event_id: event_id.into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(ArtistUpsertedPayload { artist }),
         subject_guid: artist_id.into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
         seq,
-        created_at:   now,
-        warnings:     vec![],
+        created_at: now,
+        warnings: vec![],
         payload_json,
     }
 }
@@ -68,7 +73,7 @@ fn make_artist_event(
 
 #[test]
 fn cursor_monotonic_through_apply_single_event() {
-    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
@@ -113,10 +118,7 @@ fn cursor_monotonic_through_apply_single_event() {
         )
         .expect("query cursor after advance")
     };
-    assert_eq!(
-        cursor2, 25,
-        "cursor must advance from 20 to 25"
-    );
+    assert_eq!(cursor2, 25, "cursor must advance from 20 to 25");
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +127,7 @@ fn cursor_monotonic_through_apply_single_event() {
 
 #[test]
 fn cursor_survives_simulated_restart() {
-    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
@@ -147,7 +149,10 @@ fn cursor_survives_simulated_restart() {
         stophammer::db::get_node_sync_cursor(&conn, stophammer::apply::SYNC_CURSOR_KEY)
             .expect("get cursor")
     };
-    assert_eq!(cursor, 15, "cursor should be 15 after applying seq 5, 10, 15");
+    assert_eq!(
+        cursor, 15,
+        "cursor should be 15 after applying seq 5, 10, 15"
+    );
 
     // Apply a seq=12 event (out-of-order, lower than persisted cursor).
     let ev4 = make_artist_event("restart-evt-4", "restart-art-4", 12, now);
@@ -181,22 +186,24 @@ fn proof_happy_path_token_issued_and_valid() {
 
     // Create challenge.
     let (challenge_id, _token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-happy", "feed:write", nonce)
-            .unwrap();
+        stophammer::proof::create_challenge(&conn, "feed-happy", "feed:write", nonce).unwrap();
 
     // Resolve as valid (simulating successful RSS verification).
-    let rows = stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid")
-        .unwrap();
+    let rows = stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
     assert_eq!(rows, 1, "challenge should transition to valid");
 
     // Issue token.
-    let token = stophammer::proof::issue_token(&conn, "feed:write", "feed-happy", &stophammer::proof::ProofLevel::RssOnly)
-        .unwrap();
+    let token = stophammer::proof::issue_token(
+        &conn,
+        "feed:write",
+        "feed-happy",
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .unwrap();
     assert!(!token.is_empty(), "token should be non-empty");
 
     // Validate token — must succeed with correct scope and feed.
-    let result = stophammer::proof::validate_token(&conn, &token, "feed:write")
-        .unwrap();
+    let result = stophammer::proof::validate_token(&conn, &token, "feed:write").unwrap();
     assert_eq!(
         result,
         Some("feed-happy".to_string()),
@@ -269,7 +276,13 @@ fn test_search_app_state() -> Arc<stophammer::api::AppState> {
     {
         let conn = db.lock().unwrap();
         stophammer::search::populate_search_index(
-            &conn, "feed", "f-cursor-test", "podcast cursor test", "", "", "",
+            &conn,
+            "feed",
+            "f-cursor-test",
+            "podcast cursor test",
+            "",
+            "",
+            "",
         )
         .unwrap();
     }
@@ -452,8 +465,7 @@ fn recompute_binding_valid_input() {
     let conn = common::test_db();
     let nonce = "recompute-nonce-1";
     let (_cid, token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-rc", "feed:write", nonce)
-            .unwrap();
+        stophammer::proof::create_challenge(&conn, "feed-rc", "feed:write", nonce).unwrap();
 
     // Recompute with the same nonce should produce the same binding.
     let recomputed = stophammer::proof::recompute_binding(&token_binding, nonce);
@@ -473,8 +485,7 @@ fn recompute_binding_wrong_nonce_differs() {
     let conn = common::test_db();
     let nonce = "recompute-nonce-2";
     let (_cid, token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-rc2", "feed:write", nonce)
-            .unwrap();
+        stophammer::proof::create_challenge(&conn, "feed-rc2", "feed:write", nonce).unwrap();
 
     let recomputed = stophammer::proof::recompute_binding(&token_binding, "wrong-nonce-val");
     assert!(recomputed.is_some(), "should still produce a binding");
@@ -492,7 +503,10 @@ fn recompute_binding_wrong_nonce_differs() {
 #[test]
 fn recompute_binding_malformed_no_dot() {
     let result = stophammer::proof::recompute_binding("nodothere", "any-nonce");
-    assert!(result.is_none(), "malformed binding with no dot should return None");
+    assert!(
+        result.is_none(),
+        "malformed binding with no dot should return None"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -537,39 +551,43 @@ const fn verifier_ctx<'a>(
 
 #[test]
 fn crawl_token_verifier_pass() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::crawl_token::CrawlTokenVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   "secret-token".into(),
+        crawl_token: "secret-token".into(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
-    let v = CrawlTokenVerifier { expected: "secret-token".into() };
+    let v = CrawlTokenVerifier {
+        expected: "secret-token".into(),
+    };
     assert!(matches!(v.verify(&ctx), VerifyResult::Pass));
 }
 
 #[test]
 fn crawl_token_verifier_fail() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::crawl_token::CrawlTokenVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   "wrong-token".into(),
+        crawl_token: "wrong-token".into(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
-    let v = CrawlTokenVerifier { expected: "correct-token".into() };
+    let v = CrawlTokenVerifier {
+        expected: "correct-token".into(),
+    };
     assert!(matches!(v.verify(&ctx), VerifyResult::Fail(_)));
 }
 
@@ -579,17 +597,17 @@ fn crawl_token_verifier_fail() {
 
 #[test]
 fn content_hash_verifier_pass_new_hash() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::content_hash::ContentHashVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: "https://example.com/feed.xml".into(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  "newhash123".into(),
-        feed_data:     None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: "newhash123".into(),
+        feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
     let v = ContentHashVerifier;
@@ -599,8 +617,8 @@ fn content_hash_verifier_pass_new_hash() {
 
 #[test]
 fn content_hash_verifier_fail_unchanged() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::content_hash::{ContentHashVerifier, NO_CHANGE_SENTINEL};
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let now = common::now();
@@ -614,12 +632,12 @@ fn content_hash_verifier_fail_unchanged() {
     .unwrap();
 
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: "https://example.com/cached.xml".into(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  "samehash".into(),
-        feed_data:     None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: "samehash".into(),
+        feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
     let v = ContentHashVerifier;
@@ -637,30 +655,30 @@ fn content_hash_verifier_fail_unchanged() {
 
 #[test]
 fn medium_music_verifier_pass() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-1".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          Some("music".into()),
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-1".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("music".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -670,30 +688,30 @@ fn medium_music_verifier_pass() {
 
 #[test]
 fn medium_music_verifier_fail_podcast() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-2".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          Some("podcast".into()),
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-2".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("podcast".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -703,30 +721,30 @@ fn medium_music_verifier_fail_podcast() {
 
 #[test]
 fn medium_music_verifier_fail_absent() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-3".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-3".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -740,30 +758,30 @@ fn medium_music_verifier_fail_absent() {
 
 #[test]
 fn feed_guid_verifier_pass() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::feed_guid::FeedGuidVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "917393e3-1b1e-5f2c-a927-9e29e2d26b32".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "917393e3-1b1e-5f2c-a927-9e29e2d26b32".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -773,30 +791,30 @@ fn feed_guid_verifier_pass() {
 
 #[test]
 fn feed_guid_verifier_fail_bad_guid() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::feed_guid::FeedGuidVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "c9c7bad3-4712-514e-9ebd-d1e208fa1b76".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "c9c7bad3-4712-514e-9ebd-d1e208fa1b76".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -806,30 +824,30 @@ fn feed_guid_verifier_fail_bad_guid() {
 
 #[test]
 fn feed_guid_verifier_fail_invalid_uuid() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::feed_guid::FeedGuidVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "not-a-valid-uuid".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "not-a-valid-uuid".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -844,38 +862,38 @@ fn feed_guid_verifier_fail_invalid_uuid() {
 #[test]
 fn v4v_payment_verifier_pass() {
     use stophammer::model::RouteType;
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::v4v_payment::V4VPaymentVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-v4v".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-v4v".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![stophammer::ingest::IngestPaymentRoute {
                 recipient_name: Some("Artist".into()),
-                route_type:     RouteType::Keysend,
-                address:        "03e7156ae33b0a208d".into(),
-                custom_key:     None,
-                custom_value:   None,
-                split:          100,
-                fee:            false,
+                route_type: RouteType::Keysend,
+                address: "03e7156ae33b0a208d".into(),
+                custom_key: None,
+                custom_value: None,
+                split: 100,
+                fee: false,
             }],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -885,30 +903,30 @@ fn v4v_payment_verifier_pass() {
 
 #[test]
 fn v4v_payment_verifier_fail_no_routes() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::v4v_payment::V4VPaymentVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-v4v-fail".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-v4v-fail".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![],
+            tracks: vec![],
         }),
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -922,43 +940,43 @@ fn v4v_payment_verifier_fail_no_routes() {
 
 #[test]
 fn enclosure_type_verifier_pass_audio() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::enclosure_type::EnclosureTypeVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-enc".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-enc".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![stophammer::ingest::IngestTrackData {
-                track_guid:        "t1".into(),
-                title:             "Song".into(),
-                pub_date:          None,
-                duration_secs:     None,
-                enclosure_url:     None,
-                enclosure_type:    Some("audio/mpeg".into()),
-                enclosure_bytes:   None,
-                track_number:      None,
-                season:            None,
-                explicit:          false,
-                description:       None,
-                author_name:       None,
-                payment_routes:    vec![],
+            tracks: vec![stophammer::ingest::IngestTrackData {
+                track_guid: "t1".into(),
+                title: "Song".into(),
+                pub_date: None,
+                duration_secs: None,
+                enclosure_url: None,
+                enclosure_type: Some("audio/mpeg".into()),
+                enclosure_bytes: None,
+                track_number: None,
+                season: None,
+                explicit: false,
+                description: None,
+                author_name: None,
+                payment_routes: vec![],
                 value_time_splits: vec![],
             }],
         }),
@@ -970,43 +988,43 @@ fn enclosure_type_verifier_pass_audio() {
 
 #[test]
 fn enclosure_type_verifier_warn_video() {
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::enclosure_type::EnclosureTypeVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-enc-vid".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-enc-vid".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![stophammer::ingest::IngestTrackData {
-                track_guid:        "t-vid".into(),
-                title:             "Video Song".into(),
-                pub_date:          None,
-                duration_secs:     None,
-                enclosure_url:     None,
-                enclosure_type:    Some("video/mp4".into()),
-                enclosure_bytes:   None,
-                track_number:      None,
-                season:            None,
-                explicit:          false,
-                description:       None,
-                author_name:       None,
-                payment_routes:    vec![],
+            tracks: vec![stophammer::ingest::IngestTrackData {
+                track_guid: "t-vid".into(),
+                title: "Video Song".into(),
+                pub_date: None,
+                duration_secs: None,
+                enclosure_url: None,
+                enclosure_type: Some("video/mp4".into()),
+                enclosure_bytes: None,
+                track_number: None,
+                season: None,
+                explicit: false,
+                description: None,
+                author_name: None,
+                payment_routes: vec![],
                 value_time_splits: vec![],
             }],
         }),
@@ -1023,60 +1041,60 @@ fn enclosure_type_verifier_warn_video() {
 #[test]
 fn payment_route_sum_verifier_pass() {
     use stophammer::model::RouteType;
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::payment_route_sum::PaymentRouteSumVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-prs".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-prs".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![stophammer::ingest::IngestTrackData {
-                track_guid:        "t-prs".into(),
-                title:             "Song".into(),
-                pub_date:          None,
-                duration_secs:     None,
-                enclosure_url:     None,
-                enclosure_type:    None,
-                enclosure_bytes:   None,
-                track_number:      None,
-                season:            None,
-                explicit:          false,
-                description:       None,
-                author_name:       None,
-                payment_routes:    vec![
+            tracks: vec![stophammer::ingest::IngestTrackData {
+                track_guid: "t-prs".into(),
+                title: "Song".into(),
+                pub_date: None,
+                duration_secs: None,
+                enclosure_url: None,
+                enclosure_type: None,
+                enclosure_bytes: None,
+                track_number: None,
+                season: None,
+                explicit: false,
+                description: None,
+                author_name: None,
+                payment_routes: vec![
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
-                        route_type:     RouteType::Keysend,
-                        address:        "addr1".into(),
-                        custom_key:     None,
-                        custom_value:   None,
-                        split:          60,
-                        fee:            false,
+                        route_type: RouteType::Keysend,
+                        address: "addr1".into(),
+                        custom_key: None,
+                        custom_value: None,
+                        split: 60,
+                        fee: false,
                     },
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
-                        route_type:     RouteType::Keysend,
-                        address:        "addr2".into(),
-                        custom_key:     None,
-                        custom_value:   None,
-                        split:          40,
-                        fee:            false,
+                        route_type: RouteType::Keysend,
+                        address: "addr2".into(),
+                        custom_key: None,
+                        custom_value: None,
+                        split: 40,
+                        fee: false,
                     },
                 ],
                 value_time_splits: vec![],
@@ -1091,60 +1109,60 @@ fn payment_route_sum_verifier_pass() {
 #[test]
 fn payment_route_sum_verifier_fail_not_100() {
     use stophammer::model::RouteType;
-    use stophammer::verify::{Verifier, VerifyResult};
     use stophammer::verifiers::payment_route_sum::PaymentRouteSumVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
 
     let conn = common::test_db();
     let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token:   String::new(),
+        crawl_token: String::new(),
         canonical_url: String::new(),
-        source_url:    String::new(),
-        http_status:   200,
-        content_hash:  String::new(),
-        feed_data:     Some(stophammer::ingest::IngestFeedData {
-            feed_guid:           "guid-prs-fail".into(),
-            title:               "Test".into(),
-            description:         None,
-            image_url:           None,
-            language:            None,
-            explicit:            false,
-            itunes_type:         None,
-            raw_medium:          None,
-            author_name:         None,
-            owner_name:          None,
-            pub_date:            None,
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-prs-fail".into(),
+            title: "Test".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: None,
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
             feed_payment_routes: vec![],
-            tracks:              vec![stophammer::ingest::IngestTrackData {
-                track_guid:        "t-prs-fail".into(),
-                title:             "Song".into(),
-                pub_date:          None,
-                duration_secs:     None,
-                enclosure_url:     None,
-                enclosure_type:    None,
-                enclosure_bytes:   None,
-                track_number:      None,
-                season:            None,
-                explicit:          false,
-                description:       None,
-                author_name:       None,
-                payment_routes:    vec![
+            tracks: vec![stophammer::ingest::IngestTrackData {
+                track_guid: "t-prs-fail".into(),
+                title: "Song".into(),
+                pub_date: None,
+                duration_secs: None,
+                enclosure_url: None,
+                enclosure_type: None,
+                enclosure_bytes: None,
+                track_number: None,
+                season: None,
+                explicit: false,
+                description: None,
+                author_name: None,
+                payment_routes: vec![
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
-                        route_type:     RouteType::Keysend,
-                        address:        "addr1".into(),
-                        custom_key:     None,
-                        custom_value:   None,
-                        split:          60,
-                        fee:            false,
+                        route_type: RouteType::Keysend,
+                        address: "addr1".into(),
+                        custom_key: None,
+                        custom_value: None,
+                        split: 60,
+                        fee: false,
                     },
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
-                        route_type:     RouteType::Keysend,
-                        address:        "addr2".into(),
-                        custom_key:     None,
-                        custom_value:   None,
-                        split:          60,
-                        fee:            false,
+                        route_type: RouteType::Keysend,
+                        address: "addr2".into(),
+                        custom_key: None,
+                        custom_value: None,
+                        split: 60,
+                        fee: false,
                     },
                 ],
                 value_time_splits: vec![],
@@ -1220,10 +1238,10 @@ async fn community_push_duplicate_event_returns_duplicate() {
     });
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 common::wrap_pool(Arc::clone(&db)),
+        db: common::wrap_pool(Arc::clone(&db)),
         primary_pubkey_hex: primary_pubkey,
-        last_push_at:       Arc::new(AtomicI64::new(0)),
-        sse_registry:       None,
+        last_push_at: Arc::new(AtomicI64::new(0)),
+        sse_registry: None,
     });
 
     let app = stophammer::community::build_community_push_router(state);
@@ -1233,7 +1251,9 @@ async fn community_push_duplicate_event_returns_duplicate() {
         .method("POST")
         .uri("/sync/push")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&push_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&push_body).unwrap(),
+        ))
         .unwrap();
     let resp1 = app.clone().oneshot(req1).await.unwrap();
     assert_eq!(resp1.status(), 200);
@@ -1246,15 +1266,29 @@ async fn community_push_duplicate_event_returns_duplicate() {
         .method("POST")
         .uri("/sync/push")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&push_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&push_body).unwrap(),
+        ))
         .unwrap();
     let resp2 = app.oneshot(req2).await.unwrap();
     assert_eq!(resp2.status(), 200);
     let bytes2 = resp2.into_body().collect().await.unwrap().to_bytes();
     let body2: serde_json::Value = serde_json::from_slice(&bytes2).unwrap();
-    assert_eq!(body2["applied"].as_u64().unwrap(), 0, "duplicate should not be applied");
-    assert_eq!(body2["duplicate"].as_u64().unwrap(), 1, "should be counted as duplicate");
-    assert_eq!(body2["rejected"].as_u64().unwrap(), 0, "should not be rejected");
+    assert_eq!(
+        body2["applied"].as_u64().unwrap(),
+        0,
+        "duplicate should not be applied"
+    );
+    assert_eq!(
+        body2["duplicate"].as_u64().unwrap(),
+        1,
+        "should be counted as duplicate"
+    );
+    assert_eq!(
+        body2["rejected"].as_u64().unwrap(),
+        0,
+        "should not be rejected"
+    );
 }
 
 // ============================================================================
@@ -1275,8 +1309,9 @@ async fn community_push_bad_signature_rejected() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-badsig-push-signer.key")
-        .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-badsig-push-signer.key")
+            .expect("create signer");
     let primary_pubkey = signer.pubkey_hex().to_string();
     let now = stophammer::db::unix_now();
 
@@ -1312,10 +1347,10 @@ async fn community_push_bad_signature_rejected() {
     });
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 common::wrap_pool(Arc::clone(&db)),
+        db: common::wrap_pool(Arc::clone(&db)),
         primary_pubkey_hex: primary_pubkey,
-        last_push_at:       Arc::new(AtomicI64::new(0)),
-        sse_registry:       None,
+        last_push_at: Arc::new(AtomicI64::new(0)),
+        sse_registry: None,
     });
 
     let app = stophammer::community::build_community_push_router(state);
@@ -1324,15 +1359,25 @@ async fn community_push_bad_signature_rejected() {
         .method("POST")
         .uri("/sync/push")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&push_body).unwrap()))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&push_body).unwrap(),
+        ))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), 200);
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
 
-    assert_eq!(body["applied"].as_u64().unwrap(), 0, "bad signature should not be applied");
-    assert_eq!(body["rejected"].as_u64().unwrap(), 1, "bad signature should be rejected");
+    assert_eq!(
+        body["applied"].as_u64().unwrap(),
+        0,
+        "bad signature should not be applied"
+    );
+    assert_eq!(
+        body["rejected"].as_u64().unwrap(),
+        1,
+        "bad signature should be rejected"
+    );
 
     // Verify artist was NOT inserted.
     let conn = db.lock().expect("lock");
@@ -1343,7 +1388,10 @@ async fn community_push_bad_signature_rejected() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 0, "artist from bad-signature event must not be in DB");
+    assert_eq!(
+        count, 0,
+        "artist from bad-signature event must not be in DB"
+    );
 }
 
 // ============================================================================

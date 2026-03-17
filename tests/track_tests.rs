@@ -38,13 +38,7 @@ fn insert_credit(conn: &rusqlite::Connection, artist_id: &str, name: &str) -> i6
 }
 
 /// Insert a test feed.
-fn insert_feed(
-    conn: &rusqlite::Connection,
-    guid: &str,
-    url: &str,
-    title: &str,
-    credit_id: i64,
-) {
+fn insert_feed(conn: &rusqlite::Connection, guid: &str, url: &str, title: &str, credit_id: i64) {
     let now = common::now();
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
@@ -69,7 +63,16 @@ fn insert_track(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          pub_date, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, ?8)",
-        params![guid, feed_guid, credit_id, title, title.to_lowercase(), pub_date, now, now],
+        params![
+            guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            pub_date,
+            now,
+            now
+        ],
     )
     .unwrap();
 }
@@ -255,7 +258,14 @@ fn track_value_time_splits() {
 
     let rows: Vec<(String, i64, Option<i64>, String, String, i64)> = stmt
         .query_map(params![track_guid], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            Ok((
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+            ))
         })
         .unwrap()
         .collect::<Result<_, _>>()
@@ -300,9 +310,30 @@ fn tracks_ordered_by_pub_date() {
     let track2 = uuid::Uuid::new_v4().to_string();
     let track3 = uuid::Uuid::new_v4().to_string();
 
-    insert_track(&conn, &track1, &feed_guid, credit_id, "Chivalry Is Not Dead", Some(base_date + 100));
-    insert_track(&conn, &track2, &feed_guid, credit_id, "Get Sun", Some(base_date + 300));
-    insert_track(&conn, &track3, &feed_guid, credit_id, "Red Room", Some(base_date + 200));
+    insert_track(
+        &conn,
+        &track1,
+        &feed_guid,
+        credit_id,
+        "Chivalry Is Not Dead",
+        Some(base_date + 100),
+    );
+    insert_track(
+        &conn,
+        &track2,
+        &feed_guid,
+        credit_id,
+        "Get Sun",
+        Some(base_date + 300),
+    );
+    insert_track(
+        &conn,
+        &track3,
+        &feed_guid,
+        credit_id,
+        "Red Room",
+        Some(base_date + 200),
+    );
 
     let mut stmt = conn
         .prepare(
@@ -346,9 +377,27 @@ fn recent_feeds_ordering() {
     let feed3 = uuid::Uuid::new_v4().to_string();
 
     // Insert feeds with no newest_item_at first, then update them
-    insert_feed(&conn, &feed1, "https://example.com/f1.xml", "Feed Alpha", credit_id);
-    insert_feed(&conn, &feed2, "https://example.com/f2.xml", "Feed Beta", credit_id);
-    insert_feed(&conn, &feed3, "https://example.com/f3.xml", "Feed Gamma", credit_id);
+    insert_feed(
+        &conn,
+        &feed1,
+        "https://example.com/f1.xml",
+        "Feed Alpha",
+        credit_id,
+    );
+    insert_feed(
+        &conn,
+        &feed2,
+        "https://example.com/f2.xml",
+        "Feed Beta",
+        credit_id,
+    );
+    insert_feed(
+        &conn,
+        &feed3,
+        "https://example.com/f3.xml",
+        "Feed Gamma",
+        credit_id,
+    );
 
     // Set different newest_item_at values
     conn.execute(
@@ -382,11 +431,20 @@ fn recent_feeds_ordering() {
         .unwrap();
 
     assert_eq!(rows.len(), 3);
-    assert_eq!(rows[0].0, feed2, "Feed Beta (newest_item_at=+300) should be first");
+    assert_eq!(
+        rows[0].0, feed2,
+        "Feed Beta (newest_item_at=+300) should be first"
+    );
     assert_eq!(rows[0].2, base_date + 300);
-    assert_eq!(rows[1].0, feed3, "Feed Gamma (newest_item_at=+200) should be second");
+    assert_eq!(
+        rows[1].0, feed3,
+        "Feed Gamma (newest_item_at=+200) should be second"
+    );
     assert_eq!(rows[1].2, base_date + 200);
-    assert_eq!(rows[2].0, feed1, "Feed Alpha (newest_item_at=+100) should be third");
+    assert_eq!(
+        rows[2].0, feed1,
+        "Feed Alpha (newest_item_at=+100) should be third"
+    );
     assert_eq!(rows[2].2, base_date + 100);
 }
 
@@ -431,7 +489,16 @@ fn feed_payment_routes_stored() {
         "INSERT INTO feed_payment_routes \
          (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![feed_guid, "Band Fund", "keysend", "wallet-aaa-111", "7629169", "podcast_id_1234", 80, 0],
+        params![
+            feed_guid,
+            "Band Fund",
+            "keysend",
+            "wallet-aaa-111",
+            "7629169",
+            "podcast_id_1234",
+            80,
+            0
+        ],
     )
     .unwrap();
 
@@ -439,7 +506,16 @@ fn feed_payment_routes_stored() {
         "INSERT INTO feed_payment_routes \
          (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![feed_guid, "Hosting Service", "keysend", "wallet-bbb-222", rusqlite::types::Null, rusqlite::types::Null, 20, 1],
+        params![
+            feed_guid,
+            "Hosting Service",
+            "keysend",
+            "wallet-bbb-222",
+            rusqlite::types::Null,
+            rusqlite::types::Null,
+            20,
+            1
+        ],
     )
     .unwrap();
 

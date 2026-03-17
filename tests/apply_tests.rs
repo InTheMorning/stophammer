@@ -52,7 +52,17 @@ fn insert_feed(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
          explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params![feed_guid, feed_url, title, title.to_lowercase(), credit_id, 0, 0, now, now],
+        params![
+            feed_guid,
+            feed_url,
+            title,
+            title.to_lowercase(),
+            credit_id,
+            0,
+            0,
+            now,
+            now
+        ],
     )
     .unwrap();
 }
@@ -69,7 +79,16 @@ fn insert_track(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params![track_guid, feed_guid, credit_id, title, title.to_lowercase(), 0, now, now],
+        params![
+            track_guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            0,
+            now,
+            now
+        ],
     )
     .unwrap();
 }
@@ -162,9 +181,15 @@ fn apply_track_upserted() {
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, \
          address, split, fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params!["track-1", "feed-1", "Artist Wallet", "node",
-                "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad",
-                95, 0],
+        params![
+            "track-1",
+            "feed-1",
+            "Artist Wallet",
+            "node",
+            "03e7156ae33b0a208d0744199163177e909e80176e55d97a2f221ede0f934dd9ad",
+            95,
+            0
+        ],
     )
     .unwrap();
 
@@ -219,14 +244,29 @@ fn apply_routes_replaced() {
 
     insert_artist(&conn, "artist-1", "Artist", now);
     let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
-    insert_feed(&conn, "feed-1", "https://example.com/f.xml", "Album", credit_id, now);
+    insert_feed(
+        &conn,
+        "feed-1",
+        "https://example.com/f.xml",
+        "Album",
+        credit_id,
+        now,
+    );
     insert_track(&conn, "track-1", "feed-1", credit_id, "Song", now);
 
     // Insert original route.
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, \
          address, split, fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params!["track-1", "feed-1", "Old Wallet", "node", "old-address", 100, 0],
+        params![
+            "track-1",
+            "feed-1",
+            "Old Wallet",
+            "node",
+            "old-address",
+            100,
+            0
+        ],
     )
     .unwrap();
 
@@ -239,13 +279,29 @@ fn apply_routes_replaced() {
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, \
          address, split, fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params!["track-1", "feed-1", "New Wallet", "lnaddress", "new@address.com", 60, 0],
+        params![
+            "track-1",
+            "feed-1",
+            "New Wallet",
+            "lnaddress",
+            "new@address.com",
+            60,
+            0
+        ],
     )
     .unwrap();
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, \
          address, split, fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params!["track-1", "feed-1", "Producer", "lnaddress", "producer@pay.com", 40, 0],
+        params![
+            "track-1",
+            "feed-1",
+            "Producer",
+            "lnaddress",
+            "producer@pay.com",
+            40,
+            0
+        ],
     )
     .unwrap();
 
@@ -321,11 +377,8 @@ fn apply_artist_merged() {
         params![now],
     )
     .unwrap();
-    conn.execute(
-        "DELETE FROM artists WHERE artist_id = 'artist-src'",
-        [],
-    )
-    .unwrap();
+    conn.execute("DELETE FROM artists WHERE artist_id = 'artist-src'", [])
+        .unwrap();
 
     // Verify: source artist is gone.
     let src_count: i64 = conn
@@ -398,8 +451,8 @@ fn merge_artists_transfers_and_deduplicates_aliases() {
     .expect("insert target alias");
 
     // Call the PRODUCTION merge function.
-    let transferred = stophammer::db::merge_artists(&mut conn, "src", "tgt")
-        .expect("merge_artists must succeed");
+    let transferred =
+        stophammer::db::merge_artists(&mut conn, "src", "tgt").expect("merge_artists must succeed");
 
     // A and C should have been transferred (B already existed on target).
     let mut transferred = transferred;
@@ -412,14 +465,20 @@ fn merge_artists_transfers_and_deduplicates_aliases() {
 
     // Target must now own exactly {a, b, c}.
     let mut aliases: Vec<String> = conn
-        .prepare("SELECT alias_lower FROM artist_aliases WHERE artist_id = 'tgt' ORDER BY alias_lower")
+        .prepare(
+            "SELECT alias_lower FROM artist_aliases WHERE artist_id = 'tgt' ORDER BY alias_lower",
+        )
         .expect("prepare")
         .query_map([], |row| row.get(0))
         .expect("query")
         .collect::<Result<_, _>>()
         .expect("collect");
     aliases.sort();
-    assert_eq!(aliases, vec!["a", "b", "c"], "target must own all three aliases after merge");
+    assert_eq!(
+        aliases,
+        vec!["a", "b", "c"],
+        "target must own all three aliases after merge"
+    );
 
     // Source must have zero remaining aliases.
     let src_alias_count: i64 = conn
@@ -429,7 +488,10 @@ fn merge_artists_transfers_and_deduplicates_aliases() {
             |r| r.get(0),
         )
         .expect("count source aliases");
-    assert_eq!(src_alias_count, 0, "source aliases must be fully cleaned up");
+    assert_eq!(
+        src_alias_count, 0,
+        "source aliases must be fully cleaned up"
+    );
 
     // Source artist row must be deleted.
     let src_count: i64 = conn
@@ -453,7 +515,14 @@ fn apply_feed_routes_replaced() {
 
     insert_artist(&conn, "artist-1", "Artist", now);
     let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
-    insert_feed(&conn, "feed-1", "https://example.com/f.xml", "Album", credit_id, now);
+    insert_feed(
+        &conn,
+        "feed-1",
+        "https://example.com/f.xml",
+        "Album",
+        credit_id,
+        now,
+    );
 
     // Insert original feed-level route.
     conn.execute(
@@ -694,7 +763,7 @@ fn apply_creates_artist_credit() {
 /// `last_seen_at` is within a tight tolerance (no lock-induced delay).
 #[test]
 fn timestamp_captured_before_lock() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
@@ -703,36 +772,36 @@ fn timestamp_captured_before_lock() {
 
     // Build a minimal ArtistUpserted event.
     let artist = Artist {
-        artist_id:  "ts-artist-1".into(),
-        name:       "Timestamp Artist".into(),
+        artist_id: "ts-artist-1".into(),
+        name: "Timestamp Artist".into(),
         name_lower: "timestamp artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
-    let inner = ArtistUpsertedPayload { artist: artist.clone() };
-    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
-        artist,
-    });
+    let inner = ArtistUpsertedPayload {
+        artist: artist.clone(),
+    };
+    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload { artist });
     // payload_json must contain only the inner struct (not the tagged enum),
     // matching production usage where the DB stores the inner payload.
     let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
     let ev = Event {
-        event_id:     "ts-evt-001".into(),
-        event_type:   EventType::ArtistUpserted,
+        event_id: "ts-evt-001".into(),
+        event_type: EventType::ArtistUpserted,
         payload,
         subject_guid: "ts-artist-1".into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
-        seq:          1,
-        created_at:   now,
-        warnings:     vec![],
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
         payload_json,
     };
 
@@ -790,7 +859,7 @@ fn timestamp_captured_before_lock() {
 // Issue-PAYLOAD-INTEGRITY — 2026-03-14
 #[test]
 fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
@@ -799,36 +868,38 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
 
     // The "real" (signed) artist — what payload_json contains.
     let signed_artist = Artist {
-        artist_id:  "integrity-artist-1".into(),
-        name:       "Signed Artist".into(),
+        artist_id: "integrity-artist-1".into(),
+        name: "Signed Artist".into(),
         name_lower: "signed artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
 
     // payload_json is the inner struct, matching production format.
-    let inner = ArtistUpsertedPayload { artist: signed_artist };
+    let inner = ArtistUpsertedPayload {
+        artist: signed_artist,
+    };
     let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
 
     // The tampered payload struct — what an attacker puts in ev.payload.
     let tampered_artist = Artist {
-        artist_id:  "integrity-artist-1".into(),
-        name:       "Tampered Artist".into(),
+        artist_id: "integrity-artist-1".into(),
+        name: "Tampered Artist".into(),
         name_lower: "tampered artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
@@ -837,20 +908,23 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
     });
 
     let ev = Event {
-        event_id:     "integrity-evt-001".into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      tampered_payload,   // TAMPERED — must be ignored
+        event_id: "integrity-evt-001".into(),
+        event_type: EventType::ArtistUpserted,
+        payload: tampered_payload, // TAMPERED — must be ignored
         subject_guid: "integrity-artist-1".into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
-        seq:          1,
-        created_at:   now,
-        warnings:     vec![],
-        payload_json,                     // SIGNED — must be authoritative
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json, // SIGNED — must be authoritative
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
-    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
 
     // Verify the DB contains the signed name, NOT the tampered name.
     let stored_name: String = {
@@ -878,7 +952,7 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
 // Issue-PAYLOAD-INTEGRITY — 2026-03-14
 #[test]
 fn malformed_payload_json_is_rejected() {
-    use stophammer::event::{Event, EventPayload, EventType, ArtistUpsertedPayload};
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
@@ -886,34 +960,32 @@ fn malformed_payload_json_is_rejected() {
     let now = common::now();
 
     let artist = Artist {
-        artist_id:  "bad-json-artist".into(),
-        name:       "Bad Artist".into(),
+        artist_id: "bad-json-artist".into(),
+        name: "Bad Artist".into(),
         name_lower: "bad artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
-    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
-        artist,
-    });
+    let payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload { artist });
 
     let ev = Event {
-        event_id:     "bad-json-evt-001".into(),
-        event_type:   EventType::ArtistUpserted,
+        event_id: "bad-json-evt-001".into(),
+        event_type: EventType::ArtistUpserted,
         payload,
         subject_guid: "bad-json-artist".into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
-        seq:          1,
-        created_at:   now,
-        warnings:     vec![],
-        payload_json: "NOT VALID JSON".into(),  // garbage
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json: "NOT VALID JSON".into(), // garbage
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
@@ -921,6 +993,155 @@ fn malformed_payload_json_is_rejected() {
         result.is_err(),
         "apply_single_event must reject events with malformed payload_json"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 12. apply_feed_remote_items_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_feed_remote_items_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, FeedRemoteItemsReplacedPayload};
+    use stophammer::model::FeedRemoteItemRaw;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-remote-1",
+            "https://example.com/feed.xml",
+            "Remote Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = FeedRemoteItemsReplacedPayload {
+        feed_guid: "feed-remote-1".into(),
+        remote_items: vec![FeedRemoteItemRaw {
+            id: None,
+            feed_guid: "feed-remote-1".into(),
+            position: 0,
+            medium: Some("music".into()),
+            remote_feed_guid: "artist-feed-guid".into(),
+            remote_feed_url: Some("https://example.com/artist.xml".into()),
+            source: "podcast_remote_item".into(),
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-remote-items-1".into(),
+        event_type: EventType::FeedRemoteItemsReplaced,
+        payload: EventPayload::FeedRemoteItemsReplaced(payload_inner),
+        subject_guid: "feed-remote-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
+
+    let stored: (String, Option<String>) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT remote_feed_guid, medium \
+             FROM feed_remote_items_raw WHERE feed_guid = 'feed-remote-1' AND position = 0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("remote item row should exist")
+    };
+
+    assert_eq!(stored.0, "artist-feed-guid");
+    assert_eq!(stored.1.as_deref(), Some("music"));
+}
+
+// ---------------------------------------------------------------------------
+// 13. apply_live_events_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_live_events_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, LiveEventsReplacedPayload};
+    use stophammer::model::LiveEvent;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-live-1",
+            "https://example.com/live.xml",
+            "Live Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = LiveEventsReplacedPayload {
+        feed_guid: "feed-live-1".into(),
+        live_events: vec![LiveEvent {
+            live_item_guid: "live-item-1".into(),
+            feed_guid: "feed-live-1".into(),
+            title: "Tonight Live".into(),
+            content_link: Some("https://stream.example.com/live".into()),
+            status: "live".into(),
+            scheduled_start: Some(now + 3600),
+            scheduled_end: Some(now + 7200),
+            created_at: now,
+            updated_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-live-events-1".into(),
+        event_type: EventType::LiveEventsReplaced,
+        payload: EventPayload::LiveEventsReplaced(payload_inner),
+        subject_guid: "feed-live-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
+
+    let stored: (String, String) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT title, status FROM live_events WHERE live_item_guid = 'live-item-1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("live event row should exist")
+    };
+
+    assert_eq!(stored.0, "Tonight Live");
+    assert_eq!(stored.1, "live");
 }
 
 // ---------------------------------------------------------------------------
@@ -940,65 +1161,69 @@ fn make_feed_upserted_event(
     use stophammer::model::{Artist, ArtistCredit, ArtistCreditName, Feed};
 
     let artist = Artist {
-        artist_id:  format!("{artist_prefix}-artist"),
-        name:       format!("{artist_prefix} Artist"),
+        artist_id: format!("{artist_prefix}-artist"),
+        name: format!("{artist_prefix} Artist"),
         name_lower: format!("{artist_prefix} artist"),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
     let credit = ArtistCredit {
-        id:           1,
+        id: 1,
         display_name: format!("{artist_prefix} Artist"),
-        feed_guid:    None,
-        created_at:   now,
-        names:        vec![ArtistCreditName {
-            id:               0,
+        feed_guid: None,
+        created_at: now,
+        names: vec![ArtistCreditName {
+            id: 0,
             artist_credit_id: 1,
-            artist_id:        format!("{artist_prefix}-artist"),
-            position:         0,
-            name:             format!("{artist_prefix} Artist"),
-            join_phrase:      String::new(),
+            artist_id: format!("{artist_prefix}-artist"),
+            position: 0,
+            name: format!("{artist_prefix} Artist"),
+            join_phrase: String::new(),
         }],
     };
     let feed = Feed {
-        feed_guid:        feed_guid.into(),
-        feed_url:         format!("https://example.com/{feed_guid}.xml"),
-        title:            feed_title.into(),
-        title_lower:      feed_title.to_lowercase(),
+        feed_guid: feed_guid.into(),
+        feed_url: format!("https://example.com/{feed_guid}.xml"),
+        title: feed_title.into(),
+        title_lower: feed_title.to_lowercase(),
         artist_credit_id: 1,
-        description:      None,
-        image_url:        None,
-        language:         None,
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    0,
-        newest_item_at:   None,
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       None,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: None,
     };
 
-    let inner = FeedUpsertedPayload { feed, artist, artist_credit: credit };
+    let inner = FeedUpsertedPayload {
+        feed,
+        artist,
+        artist_credit: credit,
+    };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
     Event {
-        event_id:     event_id.into(),
-        event_type:   EventType::FeedUpserted,
-        payload:      EventPayload::FeedUpserted(inner),
+        event_id: event_id.into(),
+        event_type: EventType::FeedUpserted,
+        payload: EventPayload::FeedUpserted(inner),
         subject_guid: feed_guid.into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
         seq,
-        created_at:   now,
-        warnings:     vec![],
+        created_at: now,
+        warnings: vec![],
         payload_json,
     }
 }
@@ -1012,18 +1237,26 @@ fn make_feed_upserted_event(
 // Issue-DEDUP-ORDER — 2026-03-14
 #[test]
 fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
-    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
     let ev = make_feed_upserted_event(
-        "dedup-evt-feed-001", "dedup-feed-1", "Original Title", "dedup", 1, now,
+        "dedup-evt-feed-001",
+        "dedup-feed-1",
+        "Original Title",
+        "dedup",
+        1,
+        now,
     );
 
     // First apply — should succeed.
     let r1 = apply_single_event(&pool, &ev).expect("first apply");
-    assert!(matches!(r1, ApplyOutcome::Applied(_)), "first apply must be Applied");
+    assert!(
+        matches!(r1, ApplyOutcome::Applied(_)),
+        "first apply must be Applied"
+    );
 
     // Simulate newer data arriving via a different event.
     {
@@ -1079,15 +1312,14 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
 // Issue-DEDUP-ORDER — 2026-03-14
 #[test]
 fn out_of_order_event_is_rejected() {
-    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
     use stophammer::event::Event;
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
-    let ev10 = make_feed_upserted_event(
-        "ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now,
-    );
+    let ev10 =
+        make_feed_upserted_event("ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now);
 
     // Apply the seq=10 event first.
     let r1 = apply_single_event(&pool, &ev10).expect("apply seq=10");
@@ -1111,7 +1343,10 @@ fn out_of_order_event_is_rejected() {
         )
         .expect("query title")
     };
-    assert_eq!(title, "Title Seq 10", "feed data must reflect seq=10 event only");
+    assert_eq!(
+        title, "Title Seq 10",
+        "feed data must reflect seq=10 event only"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1161,8 +1396,7 @@ fn cursor_advances_when_new_event_applied() {
     let now = common::now();
 
     // Seed cursor at seq=5.
-    stophammer::db::upsert_node_sync_state(&conn, "peer-mono-2", 5, now)
-        .expect("seed cursor at 5");
+    stophammer::db::upsert_node_sync_state(&conn, "peer-mono-2", 5, now).expect("seed cursor at 5");
 
     // Advance to seq=10.
     stophammer::db::upsert_node_sync_state(&conn, "peer-mono-2", 10, now + 1)
@@ -1176,8 +1410,5 @@ fn cursor_advances_when_new_event_applied() {
         )
         .expect("query last_seq");
 
-    assert_eq!(
-        stored, 10,
-        "cursor must advance from 5 to 10"
-    );
+    assert_eq!(stored, 10, "cursor must advance from 5 to 10");
 }

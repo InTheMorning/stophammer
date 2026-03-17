@@ -55,7 +55,7 @@
 - Base64url encoding eliminates dot-separator ambiguity in `recompute_binding`
 - Event IDs are UUIDv4 (122 bits entropy) with PRIMARY KEY constraint preventing duplicates
 - Community node push filtering: pubkey check + ed25519 verification (defense-in-depth)
-- CRITICAL FINDING: Proof-of-possession issues tokens without RSS `podcast:txt` verification (acknowledged Phase 2 TODO at api.rs line 1593)
+- Historical v1 finding closed: proof-of-possession now fetches the RSS feed and verifies the `podcast:txt` token binding before issuing write tokens. See [docs/security/crypto-blackbox-report-v2.md](crypto-blackbox-report-v2.md) for the current assessment.
 
 **Availability researcher (tests/availability_tests.rs -- 12 tests):**
 - 7 DoS vectors identified and remediated
@@ -71,7 +71,7 @@
 
 ### Remaining Known Gaps (for future work)
 
-- **Proof-of-possession feed verification (podcast:txt):** The assert handler must fetch the feed's RSS and verify that the `token_binding` appears in a `podcast:txt` tag before issuing access tokens. Acknowledged as Phase 2 TODO (api.rs line 1593). Until implemented, the admin token (`X-Admin-Token`) is the only safe authorization mechanism for mutations.
+- **Proof-of-possession feed verification (podcast:txt):** Implemented. This report originally called it out as the critical open gap; that finding is now closed and documented in `crypto-blackbox-report-v2.md` and `auth-blackbox-report-v2.md`.
 
 - **Admin token constant-time comparison:** The `check_admin_token` function uses `==` (non-constant-time). Switching to `subtle::ConstantTimeEq` or `ring::constant_time::verify_slices_are_equal` would be a defense-in-depth improvement. Not practically exploitable given network jitter and token entropy.
 

@@ -58,7 +58,15 @@ fn insert_track(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
-        params![guid, feed_guid, credit_id, title, title.to_lowercase(), now, now],
+        params![
+            guid,
+            feed_guid,
+            credit_id,
+            title,
+            title.to_lowercase(),
+            now,
+            now
+        ],
     )
     .unwrap();
 }
@@ -158,14 +166,16 @@ fn artist_rels_bidirectional() {
         .unwrap();
 
     let rows: Vec<(String, String, i64)> = stmt
-        .query_map(params![artist_b], |r| {
-            Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-        })
+        .query_map(params![artist_b], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(rows.len(), 1, "artist B should find exactly one relationship");
+    assert_eq!(
+        rows.len(),
+        1,
+        "artist B should find exactly one relationship"
+    );
     assert_eq!(rows[0].0, artist_a);
     assert_eq!(rows[0].1, artist_b);
     assert_eq!(rows[0].2, 20);
@@ -196,8 +206,20 @@ fn track_rel_created() {
 
     let track_a = uuid::Uuid::new_v4().to_string();
     let track_b = uuid::Uuid::new_v4().to_string();
-    insert_track(&conn, &track_a, &feed_guid, credit_id, "Everything In Its Right Place");
-    insert_track(&conn, &track_b, &feed_guid, credit_id, "Everything In Its Right Place (Remix)");
+    insert_track(
+        &conn,
+        &track_a,
+        &feed_guid,
+        credit_id,
+        "Everything In Its Right Place",
+    );
+    insert_track(
+        &conn,
+        &track_b,
+        &feed_guid,
+        credit_id,
+        "Everything In Its Right Place (Remix)",
+    );
 
     conn.execute(
         "INSERT INTO track_rel (track_guid_a, track_guid_b, rel_type_id, created_at) \
@@ -221,11 +243,7 @@ fn track_rel_created() {
 
     // Verify rel_type_id=12 is 'remixer'.
     let rel_name: String = conn
-        .query_row(
-            "SELECT name FROM rel_type WHERE id = 12",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT name FROM rel_type WHERE id = 12", [], |r| r.get(0))
         .unwrap();
     assert_eq!(rel_name, "remixer");
 }

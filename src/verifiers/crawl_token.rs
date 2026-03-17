@@ -2,7 +2,7 @@
 
 //! Verifier: crawl token gate.
 
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
 use crate::verify::{IngestContext, Verifier, VerifyResult};
@@ -17,7 +17,9 @@ pub struct CrawlTokenVerifier {
 }
 
 impl Verifier for CrawlTokenVerifier {
-    fn name(&self) -> &'static str { "crawl_token" }
+    fn name(&self) -> &'static str {
+        "crawl_token"
+    }
 
     // Issue-1 constant-time crawl token — 2026-03-13
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {

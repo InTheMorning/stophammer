@@ -79,15 +79,19 @@ fn same_artist_two_tracks_same_feed() {
 fn artist_credits_are_feed_scoped() {
     let conn = common::test_db();
 
-    let artist_a = stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-eee"))
-        .expect("artist a");
-    let artist_b = stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-fff"))
-        .expect("artist b");
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-eee")).expect("artist a");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-fff")).expect("artist b");
 
     let credit_a = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-eee"),
     )
     .expect("credit a");
@@ -95,7 +99,11 @@ fn artist_credits_are_feed_scoped() {
     let credit_b = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_b.name,
-        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
         Some("feed-fff"),
     )
     .expect("credit b");
@@ -118,8 +126,8 @@ fn artist_credits_are_feed_scoped() {
 fn artist_credit_idempotent_within_feed() {
     let conn = common::test_db();
 
-    let artist = stophammer::db::resolve_artist(&conn, "Alice", Some("feed-ggg"))
-        .expect("resolve alice");
+    let artist =
+        stophammer::db::resolve_artist(&conn, "Alice", Some("feed-ggg")).expect("resolve alice");
 
     let credit1 = stophammer::db::get_or_create_artist_credit(
         &conn,
@@ -172,8 +180,8 @@ fn case_insensitive_within_feed() {
 fn unscoped_fallback_works() {
     let conn = common::test_db();
 
-    let artist = stophammer::db::resolve_artist(&conn, "Global Artist", None)
-        .expect("unscoped resolve");
+    let artist =
+        stophammer::db::resolve_artist(&conn, "Global Artist", None).expect("unscoped resolve");
     let again = stophammer::db::resolve_artist(&conn, "Global Artist", None)
         .expect("unscoped resolve again");
 
@@ -189,44 +197,49 @@ fn unscoped_fallback_works() {
 
 /// Two `ingest_transaction` calls with same name but different `feed_guids`.
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test constructing full model structs")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test constructing full model structs"
+)]
 fn ingest_transaction_feeds_get_distinct_artists() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/artist-identity-test.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/artist-identity-test.key")
+        .expect("signer");
 
     // Feed A: owner = "John Smith"
-    let artist_a = stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-x1"))
-        .expect("resolve a");
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-x1")).expect("resolve a");
     let credit_a = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-x1"),
     )
     .expect("credit a");
 
     let feed_a = stophammer::model::Feed {
-        feed_guid:        "feed-x1".into(),
-        feed_url:         "https://a.example.com/feed.xml".into(),
-        title:            "Feed A".into(),
-        title_lower:      "feed a".into(),
+        feed_guid: "feed-x1".into(),
+        feed_url: "https://a.example.com/feed.xml".into(),
+        title: "Feed A".into(),
+        title_lower: "feed a".into(),
         artist_credit_id: credit_a.id,
-        description:      None,
-        image_url:        None,
-        language:         None,
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    0,
-        newest_item_at:   None,
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       None,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: None,
     };
 
     let result_a = stophammer::db::ingest_transaction(
@@ -242,33 +255,37 @@ fn ingest_transaction_feeds_get_distinct_artists() {
     assert!(result_a.is_ok(), "ingest feed A should succeed");
 
     // Feed B: also owner = "John Smith" but different feed_guid
-    let artist_b = stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-x2"))
-        .expect("resolve b");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "John Smith", Some("feed-x2")).expect("resolve b");
     let credit_b = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_b.name,
-        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
         Some("feed-x2"),
     )
     .expect("credit b");
 
     let feed_b = stophammer::model::Feed {
-        feed_guid:        "feed-x2".into(),
-        feed_url:         "https://b.example.com/feed.xml".into(),
-        title:            "Feed B".into(),
-        title_lower:      "feed b".into(),
+        feed_guid: "feed-x2".into(),
+        feed_url: "https://b.example.com/feed.xml".into(),
+        title: "Feed B".into(),
+        title_lower: "feed b".into(),
         artist_credit_id: credit_b.id,
-        description:      None,
-        image_url:        None,
-        language:         None,
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    0,
-        newest_item_at:   None,
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       None,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: None,
     };
 
     let result_b = stophammer::db::ingest_transaction(

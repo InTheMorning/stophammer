@@ -24,7 +24,7 @@ fn test_app_state_with_token(
         signer,
         node_pubkey_hex: pubkey,
         admin_token: admin_token.into(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),

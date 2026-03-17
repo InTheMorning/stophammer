@@ -20,10 +20,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -95,10 +95,10 @@ async fn sse_delivers_broadcast_message() {
 
     // Publish an event so the channel and ring buffer are populated
     let frame = stophammer::api::SseFrame {
-        event_type:   "feed_upserted".to_string(),
+        event_type: "feed_upserted".to_string(),
         subject_guid: "feed-sse-1".to_string(),
-        payload:      serde_json::json!({"feed_guid": "feed-sse-1"}),
-        seq:          1,
+        payload: serde_json::json!({"feed_guid": "feed-sse-1"}),
+        seq: 1,
     };
     state.sse_registry.publish("a-sse", frame);
 

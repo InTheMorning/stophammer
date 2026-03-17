@@ -19,7 +19,7 @@
 
 The stophammer cryptographic layer is well-designed. Ed25519 signatures correctly cover all security-relevant fields (event_id, event_type, payload_json, subject_guid, created_at). The signing payload serialization is deterministic and uses declaration-order field serialization. Token binding uses 128-bit entropy with CSPRNG. Base64url encoding eliminates dot-separator ambiguity in `recompute_binding`.
 
-One **critical design gap** was identified: the proof-of-possession flow (`/v1/proofs/challenge` and `/v1/proofs/assert`) issues write tokens without verifying that the requester controls the feed via `podcast:txt` DNS/RSS records. This is acknowledged in the codebase as a Phase 2 TODO (api.rs line 1593). Until implemented, any party who knows a `feed_guid` can obtain a `feed:write` token.
+This report contains one historical finding that has since been fixed: proof-of-possession now verifies the RSS feed's `podcast:txt` binding before issuing a write token. The current security posture is documented in [docs/security/crypto-blackbox-report-v2.md](crypto-blackbox-report-v2.md).
 
 One **low-severity observation** was noted: the `requester_nonce` is not checked for uniqueness across challenges at the server side. This is acceptable because each challenge generates a fresh 128-bit server token, making the token_binding unique regardless of nonce reuse.
 
@@ -110,29 +110,13 @@ Ed25519 is a well-studied curve with no known practical forgery attacks. The imp
 
 **Evidence:** Test `nonce_with_non_base64_chars_does_not_crash` sends various adversarial nonces including null bytes, unicode emoji, special characters, and a 10,000-character string. All succeed without panic.
 
-### 8. Proof-of-Possession Bypass (Missing RSS Verification)
+### 8. Proof-of-Possession Bypass (Historical V1 Finding)
 
-**Finding: VULNERABLE**
+**Finding: CLOSED IN V2**
 
-**Severity: Critical (design gap, acknowledged as Phase 2)**
+This report originally identified a critical design gap: the proof-of-possession flow issued `feed:write` tokens without verifying that the requester controlled the feed's RSS document.
 
-The proof-of-possession flow issues `feed:write` tokens without verifying that the requester actually controls the feed. The intended verification step -- fetching the feed's RSS and checking for a `podcast:txt` record containing the token_binding -- is not yet implemented.
-
-**Code reference:** `src/api.rs` line 1593:
-```
-// TODO: fetch RSS at feed_url and verify podcast:txt token before issuing -- Phase 2
-```
-
-**Attack scenario:**
-1. Attacker sends `POST /v1/proofs/challenge` with `feed_guid` = victim's feed GUID and any nonce.
-2. Server returns `challenge_id` and `token_binding`.
-3. Attacker sends `POST /v1/proofs/assert` with the `challenge_id` and the same nonce.
-4. Server issues an `access_token` scoped to `feed:write` for the victim's feed.
-5. Attacker uses the token to `PATCH /v1/feeds/{guid}` or `PATCH /v1/tracks/{guid}`.
-
-**Mitigation:** The `handle_proofs_assert` handler must, before marking the challenge as valid, fetch the feed's RSS and verify that the `token_binding` appears in a `podcast:txt` tag. Until then, the admin token (`X-Admin-Token`) is the only safe authorization mechanism for mutations.
-
-**Evidence:** Test `proof_of_possession_issues_token_without_feed_verification` proves end-to-end that an attacker can obtain a write token for any feed_guid without proving ownership.
+That gap is now closed. `handle_proofs_assert` validates the feed URL, fetches the RSS document, and verifies that a channel-level `<podcast:txt>` element contains the expected token binding before issuing the token. Current analysis and test coverage live in `crypto-blackbox-report-v2.md` and `auth-blackbox-report-v2.md`.
 
 ### 9. Challenge Replay
 
@@ -168,7 +152,7 @@ The proof-of-possession flow issues `feed:write` tokens without verifying that t
 | 5 | Signed Payload Injection | PROTECTED | N/A |
 | 6 | Content Hash Collision | PROTECTED | N/A |
 | 7 | Base64 Decoding Attacks | PROTECTED | N/A |
-| 8 | Proof-of-Possession Bypass | VULNERABLE | Critical |
+| 8 | Proof-of-Possession Bypass | CLOSED IN V2 | Historical |
 | 9 | Challenge Replay | PROTECTED | N/A |
 | 10 | Community Node Filtering | PROTECTED | N/A |
 
@@ -176,7 +160,7 @@ The proof-of-possession flow issues `feed:write` tokens without verifying that t
 
 ## Recommendations
 
-1. **Implement `podcast:txt` RSS verification (Phase 2 TODO)** -- This is the only critical finding. The assert handler must fetch the feed RSS and verify the token_binding before issuing an access token.
+1. **Treat this report as historical for proof-of-possession** -- the `podcast:txt` verification finding is closed; use `crypto-blackbox-report-v2.md` for the current assessment.
 
 2. **Consider rate-limiting `/v1/proofs/challenge`** -- Without RSS verification, an attacker can create unlimited challenges. Even after RSS verification is implemented, rate-limiting prevents abuse of the challenge creation endpoint.
 

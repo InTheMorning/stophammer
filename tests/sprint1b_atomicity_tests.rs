@@ -1,7 +1,10 @@
 // Sprint 1B — Issue #17 & Issue #5 atomicity tests — 2026-03-13
 
 #![recursion_limit = "256"]
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
 
 mod common;
 
@@ -12,23 +15,19 @@ use std::sync::{Arc, Mutex};
 // Helpers: build events for apply_single_event
 // ---------------------------------------------------------------------------
 
-fn make_artist_event(
-    artist_id: &str,
-    name: &str,
-    now: i64,
-) -> stophammer::event::Event {
+fn make_artist_event(artist_id: &str, name: &str, now: i64) -> stophammer::event::Event {
     let inner = stophammer::event::ArtistUpsertedPayload {
         artist: stophammer::model::Artist {
-            artist_id:  artist_id.into(),
-            name:       name.into(),
+            artist_id: artist_id.into(),
+            name: name.into(),
             name_lower: name.to_lowercase(),
-            sort_name:  None,
-            type_id:    None,
-            area:       None,
-            img_url:    None,
-            url:        None,
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
             begin_year: None,
-            end_year:   None,
+            end_year: None,
             created_at: now,
             updated_at: now,
         },
@@ -38,15 +37,15 @@ fn make_artist_event(
     let payload_json = serde_json::to_string(&inner).expect("serialize inner");
     let payload = stophammer::event::EventPayload::ArtistUpserted(inner);
     stophammer::event::Event {
-        event_id:     format!("evt-{artist_id}"),
-        event_type:   stophammer::event::EventType::ArtistUpserted,
+        event_id: format!("evt-{artist_id}"),
+        event_type: stophammer::event::EventType::ArtistUpserted,
         payload,
         subject_guid: artist_id.into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
-        seq:          1,
-        created_at:   now,
-        warnings:     vec![],
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
         payload_json,
     }
 }
@@ -102,7 +101,10 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
             |r| r.get(0),
         )
         .expect("search query");
-    assert!(search_exists, "search index entry must exist after atomic apply");
+    assert!(
+        search_exists,
+        "search index entry must exist after atomic apply"
+    );
 
     // 4. Quality score
     let quality_exists: bool = conn
@@ -112,7 +114,10 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
             |r| r.get(0),
         )
         .expect("quality query");
-    assert!(quality_exists, "quality score must exist after atomic apply");
+    assert!(
+        quality_exists,
+        "quality score must exist after atomic apply"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +152,10 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
     let result = stophammer::apply::apply_single_event(&pool, &ev);
 
     // The apply should fail because the events table is missing
-    assert!(result.is_err(), "apply should fail when events table is missing");
+    assert!(
+        result.is_err(),
+        "apply should fail when events table is missing"
+    );
 
     // Restore the events table
     {
@@ -222,7 +230,10 @@ fn apply_single_event_rolls_back_entity_on_search_failure() {
     let result = stophammer::apply::apply_single_event(&pool, &ev);
 
     // The apply should fail because the search_index table is missing
-    assert!(result.is_err(), "apply should fail when search_index is missing");
+    assert!(
+        result.is_err(),
+        "apply should fail when search_index is missing"
+    );
 
     // Rebuild the search_index table for cleanup (not needed for assertion)
     // The key assertion: the artist must NOT have been persisted
@@ -273,15 +284,15 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     let state = Arc::new(stophammer::api::AppState {
-        db:               stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db)),
-        chain:            Arc::new(chain),
+        db: stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db)),
+        chain: Arc::new(chain),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     });
     let app = stophammer::api::build_router(state);
@@ -347,12 +358,19 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
         .method("POST")
         .uri("/ingest/feed")
         .header("Content-Type", "application/json")
-        .body(Body::from(serde_json::to_vec(&ingest_payload).expect("serialize")))
+        .body(Body::from(
+            serde_json::to_vec(&ingest_payload).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("ingest should not panic");
     let status = resp.status().as_u16();
-    let raw_bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let raw_bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let raw_text = String::from_utf8_lossy(&raw_bytes);
     assert!(
         status == 200 || status == 207,
@@ -381,7 +399,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed search query");
-    assert!(feed_search, "feed search index must be populated atomically with ingest");
+    assert!(
+        feed_search,
+        "feed search index must be populated atomically with ingest"
+    );
 
     // 3. Feed quality score
     let feed_quality: bool = conn
@@ -391,7 +412,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed quality query");
-    assert!(feed_quality, "feed quality score must be stored atomically with ingest");
+    assert!(
+        feed_quality,
+        "feed quality score must be stored atomically with ingest"
+    );
 
     // 4. Track search index
     let track_rowid = stophammer::search::rowid_for("track", track_guid);
@@ -402,7 +426,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("track search query");
-    assert!(track_search, "track search index must be populated atomically with ingest");
+    assert!(
+        track_search,
+        "track search index must be populated atomically with ingest"
+    );
 
     // 5. Track quality score
     let track_quality: bool = conn
@@ -412,7 +439,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("track quality query");
-    assert!(track_quality, "track quality score must be stored atomically with ingest");
+    assert!(
+        track_quality,
+        "track quality score must be stored atomically with ingest"
+    );
 
     // 6. Crawl cache
     let crawl_cached: bool = conn
@@ -422,7 +452,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("crawl cache query");
-    assert!(crawl_cached, "crawl cache must be written atomically with ingest");
+    assert!(
+        crawl_cached,
+        "crawl cache must be written atomically with ingest"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -437,90 +470,93 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test sets up full ingest data and verifies all search/quality artifacts")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test sets up full ingest data and verifies all search/quality artifacts"
+)]
 fn ingest_transaction_writes_search_and_quality_atomically() {
     let mut conn = common::test_db();
     let now = common::now();
 
     let artist = stophammer::model::Artist {
-        artist_id:  "art-atomic-s1b".into(),
-        name:       "Atomic S1B Artist".into(),
+        artist_id: "art-atomic-s1b".into(),
+        name: "Atomic S1B Artist".into(),
         name_lower: "atomic s1b artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
 
     let artist_credit = stophammer::model::ArtistCredit {
-        id:           0,
+        id: 0,
         display_name: "Atomic S1B Artist".into(),
-        feed_guid:    None,
-        created_at:   now,
-        names:        vec![stophammer::model::ArtistCreditName {
-            id:               0,
+        feed_guid: None,
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
             artist_credit_id: 0,
-            artist_id:        "art-atomic-s1b".into(),
-            position:         0,
-            name:             "Atomic S1B Artist".into(),
-            join_phrase:      String::new(),
+            artist_id: "art-atomic-s1b".into(),
+            position: 0,
+            name: "Atomic S1B Artist".into(),
+            join_phrase: String::new(),
         }],
     };
 
     let feed = stophammer::model::Feed {
-        feed_guid:        "feed-atomic-s1b".into(),
-        feed_url:         "https://example.com/atomic.xml".into(),
-        title:            "Atomic S1B Album".into(),
-        title_lower:      "atomic s1b album".into(),
+        feed_guid: "feed-atomic-s1b".into(),
+        feed_url: "https://example.com/atomic.xml".into(),
+        title: "Atomic S1B Album".into(),
+        title_lower: "atomic s1b album".into(),
         artist_credit_id: 0,
-        description:      Some("Test atomicity".into()),
-        image_url:        Some("https://img.example.com/at.jpg".into()),
-        language:         Some("en".into()),
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    1,
-        newest_item_at:   Some(now),
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       Some("music".into()),
+        description: Some("Test atomicity".into()),
+        image_url: Some("https://img.example.com/at.jpg".into()),
+        language: Some("en".into()),
+        explicit: false,
+        itunes_type: None,
+        episode_count: 1,
+        newest_item_at: Some(now),
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
     };
 
     let track = stophammer::model::Track {
-        track_guid:       "track-atomic-s1b-01".into(),
-        feed_guid:        "feed-atomic-s1b".into(),
+        track_guid: "track-atomic-s1b-01".into(),
+        feed_guid: "feed-atomic-s1b".into(),
         artist_credit_id: 0,
-        title:            "Atomic Track One".into(),
-        title_lower:      "atomic track one".into(),
-        pub_date:         Some(now),
-        duration_secs:    Some(240),
-        enclosure_url:    Some("https://cdn.example.com/at-01.mp3".into()),
-        enclosure_type:   Some("audio/mpeg".into()),
-        enclosure_bytes:  Some(5_000_000),
-        track_number:     Some(1),
-        season:           None,
-        explicit:         false,
-        description:      Some("First atomic track".into()),
-        created_at:       now,
-        updated_at:       now,
+        title: "Atomic Track One".into(),
+        title_lower: "atomic track one".into(),
+        pub_date: Some(now),
+        duration_secs: Some(240),
+        enclosure_url: Some("https://cdn.example.com/at-01.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(5_000_000),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: Some("First atomic track".into()),
+        created_at: now,
+        updated_at: now,
     };
 
     let route = stophammer::model::PaymentRoute {
-        id:              None,
-        track_guid:      "track-atomic-s1b-01".into(),
-        feed_guid:       "feed-atomic-s1b".into(),
-        recipient_name:  Some("Atomic Artist".into()),
-        route_type:      stophammer::model::RouteType::Node,
-        address:         "03atomicrouteaddress".into(),
-        custom_key:      None,
-        custom_value:    None,
-        split:           95,
-        fee:             false,
+        id: None,
+        track_guid: "track-atomic-s1b-01".into(),
+        feed_guid: "feed-atomic-s1b".into(),
+        recipient_name: Some("Atomic Artist".into()),
+        route_type: stophammer::model::RouteType::Node,
+        address: "03atomicrouteaddress".into(),
+        custom_key: None,
+        custom_value: None,
+        split: 95,
+        fee: false,
     };
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.
@@ -537,20 +573,20 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         // search/quality is computed for the track (diff-aware gating).
         vec![
             stophammer::db::EventRow {
-                event_id:     "evt-atomic-s1b-1".into(),
-                event_type:   stophammer::event::EventType::FeedUpserted,
+                event_id: "evt-atomic-s1b-1".into(),
+                event_type: stophammer::event::EventType::FeedUpserted,
                 payload_json: "{}".into(),
                 subject_guid: "feed-atomic-s1b".into(),
-                created_at:   now,
-                warnings:     vec![],
+                created_at: now,
+                warnings: vec![],
             },
             stophammer::db::EventRow {
-                event_id:     "evt-atomic-s1b-2".into(),
-                event_type:   stophammer::event::EventType::TrackUpserted,
+                event_id: "evt-atomic-s1b-2".into(),
+                event_type: stophammer::event::EventType::TrackUpserted,
                 payload_json: "{}".into(),
                 subject_guid: "track-atomic-s1b-01".into(),
-                created_at:   now,
-                warnings:     vec![],
+                created_at: now,
+                warnings: vec![],
             },
         ],
         &signer,
@@ -651,58 +687,61 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test sets up full ingest data and verifies rollback of all artifacts")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test sets up full ingest data and verifies rollback of all artifacts"
+)]
 fn ingest_transaction_rolls_back_search_quality_on_failure() {
     let mut conn = common::test_db();
     let now = common::now();
 
     let artist = stophammer::model::Artist {
-        artist_id:  "art-rollback-s1b".into(),
-        name:       "Rollback S1B Artist".into(),
+        artist_id: "art-rollback-s1b".into(),
+        name: "Rollback S1B Artist".into(),
         name_lower: "rollback s1b artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
 
     let artist_credit = stophammer::model::ArtistCredit {
-        id:           0,
+        id: 0,
         display_name: "Rollback S1B Artist".into(),
-        feed_guid:    None,
-        created_at:   now,
-        names:        vec![stophammer::model::ArtistCreditName {
-            id:               0,
+        feed_guid: None,
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
             artist_credit_id: 0,
-            artist_id:        "art-rollback-s1b".into(),
-            position:         0,
-            name:             "Rollback S1B Artist".into(),
-            join_phrase:      String::new(),
+            artist_id: "art-rollback-s1b".into(),
+            position: 0,
+            name: "Rollback S1B Artist".into(),
+            join_phrase: String::new(),
         }],
     };
 
     let feed = stophammer::model::Feed {
-        feed_guid:        "feed-rollback-s1b".into(),
-        feed_url:         "https://example.com/rollback.xml".into(),
-        title:            "Rollback S1B Album".into(),
-        title_lower:      "rollback s1b album".into(),
+        feed_guid: "feed-rollback-s1b".into(),
+        feed_url: "https://example.com/rollback.xml".into(),
+        title: "Rollback S1B Album".into(),
+        title_lower: "rollback s1b album".into(),
         artist_credit_id: 0,
-        description:      Some("Test rollback".into()),
-        image_url:        Some("https://img.example.com/rb.jpg".into()),
-        language:         Some("en".into()),
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    0,
-        newest_item_at:   None,
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       Some("music".into()),
+        description: Some("Test rollback".into()),
+        image_url: Some("https://img.example.com/rb.jpg".into()),
+        language: Some("en".into()),
+        explicit: false,
+        itunes_type: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
     };
 
     // Drop the events table to force a failure during event insertion
@@ -720,12 +759,12 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         vec![],
         vec![],
         vec![stophammer::db::EventRow {
-            event_id:     "evt-rollback-s1b".into(),
-            event_type:   stophammer::event::EventType::ArtistUpserted,
+            event_id: "evt-rollback-s1b".into(),
+            event_type: stophammer::event::EventType::ArtistUpserted,
             payload_json: "{}".into(),
             subject_guid: "art-rollback-s1b".into(),
-            created_at:   now,
-            warnings:     vec![],
+            created_at: now,
+            warnings: vec![],
         }],
         &signer2,
     );
@@ -735,7 +774,10 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         .expect("restore events table");
 
     // The transaction should have failed
-    assert!(result.is_err(), "ingest should fail when events table is missing");
+    assert!(
+        result.is_err(),
+        "ingest should fail when events table is missing"
+    );
 
     // Verify the feed was NOT inserted (transaction rolled back)
     let feed_exists: bool = conn

@@ -75,7 +75,10 @@ fn no_podcast_txt_returns_empty() {
 </rss>"#;
 
     let values = extract_podcast_txt_values(xml);
-    assert!(values.is_empty(), "expected empty result when no <podcast:txt> present");
+    assert!(
+        values.is_empty(),
+        "expected empty result when no <podcast:txt> present"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +90,10 @@ fn malformed_xml_returns_empty() {
     let xml = r#"<rss version="2.0" xmlns:podcast="not closed"#;
 
     let values = extract_podcast_txt_values(xml);
-    assert!(values.is_empty(), "malformed XML should return empty vec, not panic");
+    assert!(
+        values.is_empty(),
+        "malformed XML should return empty vec, not panic"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +113,11 @@ fn multiple_txt_elements_all_returned() {
 </rss>"#;
 
     let values = extract_podcast_txt_values(xml);
-    assert_eq!(values.len(), 3, "should return all three <podcast:txt> values");
+    assert_eq!(
+        values.len(),
+        3,
+        "should return all three <podcast:txt> values"
+    );
     assert_eq!(values[0], "stophammer-proof first.token");
     assert_eq!(values[1], "stophammer-proof second.token");
     assert_eq!(values[2], "other-verification xyz");

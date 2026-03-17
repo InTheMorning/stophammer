@@ -36,11 +36,11 @@ pub enum ApplyOutcome {
 // Issue-BATCH-APPLY — 2026-03-16: promoted to pub for integration testing
 #[derive(Debug)]
 pub struct ApplySummary {
-    pub applied:   usize,
+    pub applied: usize,
     pub duplicate: usize,
-    pub rejected:  usize,
+    pub rejected: usize,
     /// Highest seq applied during this batch (0 if nothing was applied).
-    pub max_seq:   i64,
+    pub max_seq: i64,
 }
 
 // ── apply_single_event_inner ────────────────────────────────────────────────
@@ -57,7 +57,10 @@ pub struct ApplySummary {
 ///
 /// Returns `DbError` if any database operation fails.
 // Issue-BATCH-APPLY — 2026-03-16
-#[expect(clippy::too_many_lines, reason = "single event-application match covering all EventPayload variants")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "single event-application match covering all EventPayload variants"
+)]
 fn apply_single_event_inner(
     conn: &rusqlite::Connection,
     ev: &event::Event,
@@ -99,8 +102,11 @@ fn apply_single_event_inner(
             let score = crate::quality::compute_artist_quality(conn, &p.artist.artist_id)?;
             crate::quality::store_quality(conn, "artist", &p.artist.artist_id, score)?;
             crate::search::populate_search_index(
-                conn, "artist", &p.artist.artist_id,
-                &p.artist.name, "",
+                conn,
+                "artist",
+                &p.artist.artist_id,
+                &p.artist.name,
+                "",
                 "",
                 "",
             )?;
@@ -114,8 +120,11 @@ fn apply_single_event_inner(
             let score = crate::quality::compute_feed_quality(conn, &p.feed.feed_guid)?;
             crate::quality::store_quality(conn, "feed", &p.feed.feed_guid, score)?;
             crate::search::populate_search_index(
-                conn, "feed", &p.feed.feed_guid,
-                "", &p.feed.title,
+                conn,
+                "feed",
+                &p.feed.feed_guid,
+                "",
+                &p.feed.title,
                 p.feed.description.as_deref().unwrap_or(""),
                 p.feed.raw_medium.as_deref().unwrap_or(""),
             )?;
@@ -130,8 +139,11 @@ fn apply_single_event_inner(
             let score = crate::quality::compute_track_quality(conn, &p.track.track_guid)?;
             crate::quality::store_quality(conn, "track", &p.track.track_guid, score)?;
             crate::search::populate_search_index(
-                conn, "track", &p.track.track_guid,
-                "", &p.track.title,
+                conn,
+                "track",
+                &p.track.track_guid,
+                "",
+                &p.track.title,
                 p.track.description.as_deref().unwrap_or(""),
                 "",
             )?;
@@ -150,6 +162,12 @@ fn apply_single_event_inner(
             // Recompute feed quality (routes affect score)
             let score = crate::quality::compute_feed_quality(conn, &p.feed_guid)?;
             crate::quality::store_quality(conn, "feed", &p.feed_guid, score)?;
+        }
+        event::EventPayload::FeedRemoteItemsReplaced(p) => {
+            db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
+        }
+        event::EventPayload::LiveEventsReplaced(p) => {
+            db::replace_live_events_for_feed(conn, &p.feed_guid, &p.live_events)?;
         }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
@@ -204,11 +222,7 @@ fn apply_single_event_inner(
         }
         event::EventPayload::ArtistMerged(p) => {
             // Use inner _sql variant that works on &Connection within our tx.
-            db::merge_artists_sql(
-                conn,
-                &p.source_artist_id,
-                &p.target_artist_id,
-            )?;
+            db::merge_artists_sql(conn, &p.source_artist_id, &p.target_artist_id)?;
         }
     }
 
@@ -234,7 +248,10 @@ fn apply_single_event_inner(
 // Issue-CURSOR-IDENTITY — 2026-03-14
 // Issue-WAL-POOL — 2026-03-14: accepts DbPool, uses writer for mutations
 // Issue-BATCH-APPLY — 2026-03-16
-#[expect(clippy::significant_drop_tightening, reason = "conn is used across the entire event-application scope")]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "conn is used across the entire event-application scope"
+)]
 pub fn apply_single_event(
     db: &db_pool::DbPool,
     ev: &event::Event,
@@ -243,7 +260,10 @@ pub fn apply_single_event(
     let now = db::unix_now();
 
     // Issue-WAL-POOL — 2026-03-14: use writer for event application
-    let mut conn = db.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
+    let mut conn = db
+        .writer()
+        .lock()
+        .map_err(|_poison| db::DbError::Poisoned)?;
 
     // Wrap the ENTIRE body in a single transaction so all writes (entity
     // upsert + quality computation + search index + event record) are
@@ -272,14 +292,25 @@ fn upsert_artist_credit_if_absent(
     conn.execute(
         "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
          VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![credit.id, credit.display_name, credit.feed_guid, credit.created_at],
+        rusqlite::params![
+            credit.id,
+            credit.display_name,
+            credit.feed_guid,
+            credit.created_at
+        ],
     )?;
     for acn in &credit.names {
         conn.execute(
             "INSERT OR IGNORE INTO artist_credit_name \
              (artist_credit_id, artist_id, position, name, join_phrase) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![acn.artist_credit_id, acn.artist_id, acn.position, acn.name, acn.join_phrase],
+            rusqlite::params![
+                acn.artist_credit_id,
+                acn.artist_id,
+                acn.position,
+                acn.name,
+                acn.join_phrase
+            ],
         )?;
     }
     Ok(())
@@ -314,11 +345,16 @@ struct BatchedApplyResult {
 // Issue-WAL-POOL — 2026-03-14: accepts DbPool instead of db::Db
 // Issue-BATCH-APPLY — 2026-03-16
 pub async fn apply_events(
-    db:           db_pool::DbPool,
-    events:       Vec<event::Event>,
+    db: db_pool::DbPool,
+    events: Vec<event::Event>,
     sse_registry: Option<&Arc<api::SseRegistry>>,
 ) -> ApplySummary {
-    let mut summary = ApplySummary { applied: 0, duplicate: 0, rejected: 0, max_seq: 0 };
+    let mut summary = ApplySummary {
+        applied: 0,
+        duplicate: 0,
+        rejected: 0,
+        max_seq: 0,
+    };
 
     // Phase 1: verify signatures on the async side (CPU-bound but no DB I/O).
     // Partition into verified events and rejected events.
@@ -349,62 +385,72 @@ pub async fn apply_events(
     // and per-event transaction commit latency.
     // Issue-BATCH-APPLY — 2026-03-16
     let db2 = db.clone();
-    let batch_result = tokio::task::spawn_blocking(move || -> Result<(ApplySummary, Vec<BatchedApplyResult>), db::DbError> {
-        let now = db::unix_now();
-        let mut conn = db2.writer().lock().map_err(|_poison| db::DbError::Poisoned)?;
-        // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-        let tx = conn.transaction()?;
+    let batch_result = tokio::task::spawn_blocking(
+        move || -> Result<(ApplySummary, Vec<BatchedApplyResult>), db::DbError> {
+            let now = db::unix_now();
+            let mut conn = db2
+                .writer()
+                .lock()
+                .map_err(|_poison| db::DbError::Poisoned)?;
+            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
+            let tx = conn.transaction()?;
 
-        let mut applied: Vec<BatchedApplyResult> = Vec::new();
-        let mut batch_summary = ApplySummary { applied: 0, duplicate: 0, rejected: 0, max_seq: 0 };
-        let mut max_primary_seq: i64 = 0;
+            let mut applied: Vec<BatchedApplyResult> = Vec::new();
+            let mut batch_summary = ApplySummary {
+                applied: 0,
+                duplicate: 0,
+                rejected: 0,
+                max_seq: 0,
+            };
+            let mut max_primary_seq: i64 = 0;
 
-        for ev in &verified {
-            match apply_single_event_inner(&tx, ev) {
-                Ok(ApplyOutcome::Applied(local_seq)) => {
-                    batch_summary.applied += 1;
-                    if local_seq > batch_summary.max_seq {
-                        batch_summary.max_seq = local_seq;
+            for ev in &verified {
+                match apply_single_event_inner(&tx, ev) {
+                    Ok(ApplyOutcome::Applied(local_seq)) => {
+                        batch_summary.applied += 1;
+                        if local_seq > batch_summary.max_seq {
+                            batch_summary.max_seq = local_seq;
+                        }
+                        if ev.seq > batch_summary.max_seq {
+                            batch_summary.max_seq = ev.seq;
+                        }
+                        if ev.seq > max_primary_seq {
+                            max_primary_seq = ev.seq;
+                        }
+                        applied.push(BatchedApplyResult {
+                            event: ev.clone(),
+                            local_seq,
+                        });
                     }
-                    if ev.seq > batch_summary.max_seq {
-                        batch_summary.max_seq = ev.seq;
+                    Ok(ApplyOutcome::Duplicate) => {
+                        batch_summary.duplicate += 1;
+                        // Track max primary seq even for duplicates so the cursor
+                        // advances past already-seen events.
+                        if ev.seq > max_primary_seq {
+                            max_primary_seq = ev.seq;
+                        }
                     }
-                    if ev.seq > max_primary_seq {
-                        max_primary_seq = ev.seq;
+                    Err(db_err) => {
+                        tracing::error!(
+                            event_id = %ev.event_id, error = %db_err,
+                            "apply: DB error in batch"
+                        );
+                        batch_summary.rejected += 1;
                     }
-                    applied.push(BatchedApplyResult {
-                        event: ev.clone(),
-                        local_seq,
-                    });
-                }
-                Ok(ApplyOutcome::Duplicate) => {
-                    batch_summary.duplicate += 1;
-                    // Track max primary seq even for duplicates so the cursor
-                    // advances past already-seen events.
-                    if ev.seq > max_primary_seq {
-                        max_primary_seq = ev.seq;
-                    }
-                }
-                Err(db_err) => {
-                    tracing::error!(
-                        event_id = %ev.event_id, error = %db_err,
-                        "apply: DB error in batch"
-                    );
-                    batch_summary.rejected += 1;
                 }
             }
-        }
 
-        // Update the sync cursor once for the entire batch, using the max
-        // primary-side seq seen (including duplicates).
-        // Issue-BATCH-APPLY — 2026-03-16
-        if max_primary_seq > 0 {
-            db::upsert_node_sync_state(&tx, SYNC_CURSOR_KEY, max_primary_seq, now)?;
-        }
+            // Update the sync cursor once for the entire batch, using the max
+            // primary-side seq seen (including duplicates).
+            // Issue-BATCH-APPLY — 2026-03-16
+            if max_primary_seq > 0 {
+                db::upsert_node_sync_state(&tx, SYNC_CURSOR_KEY, max_primary_seq, now)?;
+            }
 
-        tx.commit()?;
-        Ok((batch_summary, applied))
-    })
+            tx.commit()?;
+            Ok((batch_summary, applied))
+        },
+    )
     .await;
 
     // Phase 3: merge batch results and publish SSE events after commit.
@@ -447,7 +493,10 @@ pub async fn apply_events(
 
 // Issue-CURSOR-IDENTITY — 2026-03-14
 #[cfg(test)]
-#[expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
 mod tests {
     use super::*;
 
@@ -467,16 +516,16 @@ mod tests {
     /// Build a properly signed `ArtistUpserted` event.
     fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64) -> event::Event {
         let artist = Artist {
-            artist_id:  "artist-1".into(),
-            name:       "Test Artist".into(),
+            artist_id: "artist-1".into(),
+            name: "Test Artist".into(),
             name_lower: "test artist".into(),
-            sort_name:  None,
-            type_id:    None,
-            area:       None,
-            img_url:    None,
-            url:        None,
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
             begin_year: None,
-            end_year:   None,
+            end_year: None,
             created_at: 1_000_000,
             updated_at: 1_000_000,
         };
@@ -494,16 +543,16 @@ mod tests {
         );
 
         event::Event {
-            event_id:     event_id.into(),
-            event_type:   EventType::ArtistUpserted,
-            payload:      EventPayload::ArtistUpserted(inner),
+            event_id: event_id.into(),
+            event_type: EventType::ArtistUpserted,
+            payload: EventPayload::ArtistUpserted(inner),
             payload_json,
             subject_guid: "artist-1".into(),
             signed_by,
             signature,
             seq,
-            created_at:   1_000_000,
-            warnings:     vec![],
+            created_at: 1_000_000,
+            warnings: vec![],
         }
     }
 

@@ -82,16 +82,15 @@ impl DbPool {
         let writer = crate::db::open_db(path);
 
         // Reader pool — r2d2_sqlite opens separate connections.
-        let manager = SqliteConnectionManager::file(path)
-            .with_init(|conn| {
-                conn.execute_batch(
-                    "PRAGMA journal_mode=WAL;\
+        let manager = SqliteConnectionManager::file(path).with_init(|conn| {
+            conn.execute_batch(
+                "PRAGMA journal_mode=WAL;\
                      PRAGMA synchronous=NORMAL;\
                      PRAGMA foreign_keys=ON;\
-                     PRAGMA query_only=ON;"
-                )?;
-                Ok(())
-            });
+                     PRAGMA query_only=ON;",
+            )?;
+            Ok(())
+        });
         let readers = Pool::builder()
             .max_size(8)
             .connection_timeout(Duration::from_secs(5))

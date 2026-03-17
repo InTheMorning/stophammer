@@ -11,11 +11,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn seed_peer(
-    db: &Arc<Mutex<rusqlite::Connection>>,
-    pubkey: &str,
-    push_url: &str,
-) {
+fn seed_peer(db: &Arc<Mutex<rusqlite::Connection>>, pubkey: &str, push_url: &str) {
     let conn = db.lock().unwrap();
     let now = stophammer::db::unix_now();
     conn.execute(
@@ -38,20 +34,20 @@ fn get_failures(db: &Arc<Mutex<rusqlite::Connection>>, pubkey: &str) -> i64 {
 
 fn make_test_event() -> stophammer::event::Event {
     stophammer::event::Event {
-        event_id:     "evt-push-bounds-001".into(),
-        event_type:   stophammer::event::EventType::FeedRetired,
-        payload:      stophammer::event::EventPayload::FeedRetired(
+        event_id: "evt-push-bounds-001".into(),
+        event_type: stophammer::event::EventType::FeedRetired,
+        payload: stophammer::event::EventPayload::FeedRetired(
             stophammer::event::FeedRetiredPayload {
                 feed_guid: "feed-bounds-guid".into(),
-                reason:    None,
+                reason: None,
             },
         ),
         subject_guid: "feed-bounds-guid".into(),
-        signed_by:    "test-node-pubkey".into(),
-        signature:    "deadbeef".into(),
-        seq:          1,
-        created_at:   stophammer::db::unix_now(),
-        warnings:     vec![],
+        signed_by: "test-node-pubkey".into(),
+        signature: "deadbeef".into(),
+        seq: 1,
+        created_at: stophammer::db::unix_now(),
+        warnings: vec![],
         payload_json: "{}".into(),
     }
 }
@@ -68,14 +64,11 @@ async fn push_batch_shared_across_peers() {
 
     Mock::given(method("POST"))
         .and(path("/sync/push"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({
-                    "applied": 1,
-                    "rejected": 0,
-                    "duplicate": 0
-                })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "applied": 1,
+            "rejected": 0,
+            "duplicate": 0
+        })))
         .expect(3)
         .mount(&mock_server)
         .await;
@@ -103,13 +96,8 @@ async fn push_batch_shared_across_peers() {
 
     let events = vec![make_test_event()];
 
-    stophammer::api::fan_out_push_public(
-        pool.clone(),
-        client,
-        Arc::clone(&subscribers),
-        events,
-    )
-    .await;
+    stophammer::api::fan_out_push_public(pool.clone(), client, Arc::clone(&subscribers), events)
+        .await;
 
     // Give spawned tasks time to complete.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -152,14 +140,11 @@ async fn push_concurrency_limit_allows_all_peers_to_complete() {
 
     Mock::given(method("POST"))
         .and(path("/sync/push"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({
-                    "applied": 1,
-                    "rejected": 0,
-                    "duplicate": 0
-                })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "applied": 1,
+            "rejected": 0,
+            "duplicate": 0
+        })))
         .expect(peer_count as u64)
         .mount(&mock_server)
         .await;
@@ -186,13 +171,8 @@ async fn push_concurrency_limit_allows_all_peers_to_complete() {
 
     let events = vec![make_test_event()];
 
-    stophammer::api::fan_out_push_public(
-        pool.clone(),
-        client,
-        Arc::clone(&subscribers),
-        events,
-    )
-    .await;
+    stophammer::api::fan_out_push_public(pool.clone(), client, Arc::clone(&subscribers), events)
+        .await;
 
     // Wait for all spawned tasks to complete.
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -220,7 +200,8 @@ async fn push_concurrency_limit_allows_all_peers_to_complete() {
 #[test]
 fn push_concurrency_limit_is_16() {
     assert_eq!(
-        stophammer::api::MAX_CONCURRENT_PUSHES, 16,
+        stophammer::api::MAX_CONCURRENT_PUSHES,
+        16,
         "MAX_CONCURRENT_PUSHES should be 16"
     );
 }
@@ -236,14 +217,11 @@ async fn push_rejected_events_increment_failures() {
     // Peer returns 200 but with rejected events.
     Mock::given(method("POST"))
         .and(path("/sync/push"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({
-                    "applied": 0,
-                    "rejected": 5,
-                    "duplicate": 0
-                })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "applied": 0,
+            "rejected": 5,
+            "duplicate": 0
+        })))
         .mount(&mock_server)
         .await;
 
@@ -264,13 +242,8 @@ async fn push_rejected_events_increment_failures() {
 
     let events = vec![make_test_event()];
 
-    stophammer::api::fan_out_push_public(
-        pool.clone(),
-        client,
-        Arc::clone(&subscribers),
-        events,
-    )
-    .await;
+    stophammer::api::fan_out_push_public(pool.clone(), client, Arc::clone(&subscribers), events)
+        .await;
 
     // Give spawned task time to complete.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
@@ -296,14 +269,11 @@ async fn push_no_rejections_no_failure_increment() {
 
     Mock::given(method("POST"))
         .and(path("/sync/push"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({
-                    "applied": 1,
-                    "rejected": 0,
-                    "duplicate": 0
-                })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "applied": 1,
+            "rejected": 0,
+            "duplicate": 0
+        })))
         .mount(&mock_server)
         .await;
 
@@ -324,13 +294,8 @@ async fn push_no_rejections_no_failure_increment() {
 
     let events = vec![make_test_event()];
 
-    stophammer::api::fan_out_push_public(
-        pool.clone(),
-        client,
-        Arc::clone(&subscribers),
-        events,
-    )
-    .await;
+    stophammer::api::fan_out_push_public(pool.clone(), client, Arc::clone(&subscribers), events)
+        .await;
 
     // Give spawned task time to complete.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;

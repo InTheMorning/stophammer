@@ -11,11 +11,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-fn seed_peer(
-    db: &Arc<Mutex<rusqlite::Connection>>,
-    pubkey: &str,
-    push_url: &str,
-) {
+fn seed_peer(db: &Arc<Mutex<rusqlite::Connection>>, pubkey: &str, push_url: &str) {
     let conn = db.lock().unwrap();
     let now = stophammer::db::unix_now();
     conn.execute(
@@ -38,20 +34,20 @@ fn get_failures(db: &Arc<Mutex<rusqlite::Connection>>, pubkey: &str) -> i64 {
 
 fn make_test_event() -> stophammer::event::Event {
     stophammer::event::Event {
-        event_id:     "evt-retry-test-001".into(),
-        event_type:   stophammer::event::EventType::FeedRetired,
-        payload:      stophammer::event::EventPayload::FeedRetired(
+        event_id: "evt-retry-test-001".into(),
+        event_type: stophammer::event::EventType::FeedRetired,
+        payload: stophammer::event::EventPayload::FeedRetired(
             stophammer::event::FeedRetiredPayload {
                 feed_guid: "feed-retry-guid".into(),
-                reason:    None,
+                reason: None,
             },
         ),
         subject_guid: "feed-retry-guid".into(),
-        signed_by:    "test-node-pubkey".into(),
-        signature:    "deadbeef".into(),
-        seq:          1,
-        created_at:   stophammer::db::unix_now(),
-        warnings:     vec![],
+        signed_by: "test-node-pubkey".into(),
+        signature: "deadbeef".into(),
+        seq: 1,
+        created_at: stophammer::db::unix_now(),
+        warnings: vec![],
         payload_json: "{}".into(),
     }
 }
@@ -97,22 +93,23 @@ async fn push_retry_recovers_on_second_attempt() {
 
     let events = vec![make_test_event()];
 
-    stophammer::api::fan_out_push_public(
-        pool.clone(),
-        client,
-        Arc::clone(&subscribers),
-        events,
-    )
-    .await;
+    stophammer::api::fan_out_push_public(pool.clone(), client, Arc::clone(&subscribers), events)
+        .await;
 
     // Give spawned tasks time to complete
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
     let failures = get_failures(&db, pubkey);
-    assert_eq!(failures, 0, "peer should have 0 failures after retry success, got {failures}");
+    assert_eq!(
+        failures, 0,
+        "peer should have 0 failures after retry success, got {failures}"
+    );
 
     // Peer should still be in subscribers
-    assert!(subscribers.read().unwrap().contains_key(pubkey), "peer should not be evicted");
+    assert!(
+        subscribers.read().unwrap().contains_key(pubkey),
+        "peer should not be evicted"
+    );
 }
 
 /// A push target that ALWAYS fails should eventually be evicted — but only

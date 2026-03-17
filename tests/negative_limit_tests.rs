@@ -12,9 +12,7 @@ use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
 
-fn test_app_state(
-    db: Arc<Mutex<rusqlite::Connection>>,
-) -> Arc<stophammer::api::AppState> {
+fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-negative-limit.key")
             .expect("create signer"),
@@ -49,9 +47,18 @@ async fn sync_events_negative_limit_is_clamped() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200, "GET /sync/events?limit=-1 must return 200");
+    assert_eq!(
+        resp.status(),
+        200,
+        "GET /sync/events?limit=-1 must return 200"
+    );
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
 
     let events = json["events"].as_array().expect("events must be an array");
@@ -77,9 +84,18 @@ async fn sync_events_zero_limit_is_clamped() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200, "GET /sync/events?limit=0 must return 200");
+    assert_eq!(
+        resp.status(),
+        200,
+        "GET /sync/events?limit=0 must return 200"
+    );
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
 
     let events = json["events"].as_array().expect("events must be an array");
@@ -113,8 +129,7 @@ fn db_get_events_since_negative_limit_returns_bounded() {
     }
 
     // Call with limit = -1 — should be floored to 1 by the defense-in-depth guard.
-    let events = stophammer::db::get_events_since(&conn, 0, -1)
-        .expect("query should succeed");
+    let events = stophammer::db::get_events_since(&conn, 0, -1).expect("query should succeed");
     assert!(
         events.len() <= 1,
         "get_events_since with limit=-1 should return at most 1 row, got {}",

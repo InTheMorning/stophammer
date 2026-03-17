@@ -37,16 +37,16 @@ fn truncate_fts_field(s: &str) -> Cow<'_, str> {
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct SearchResult {
-    pub entity_type:     String,
-    pub entity_id:       String,
-    pub rank:            f64,
-    pub quality_score:   i64,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub rank: f64,
+    pub quality_score: i64,
     /// Quality-adjusted rank used as the primary sort key for keyset pagination.
     // Issue-SEARCH-KEYSET — 2026-03-14
-    pub effective_rank:  f64,
+    pub effective_rank: f64,
     /// FTS5 rowid, used as tiebreaker in keyset pagination cursors.
     // Issue-SEARCH-KEYSET — 2026-03-14
-    pub rowid:           i64,
+    pub rowid: i64,
 }
 
 // SP-01 stable FTS5 hash — 2026-03-13
@@ -98,20 +98,22 @@ pub fn populate_search_index(
     let rowid = rowid_for(entity_type, entity_id);
 
     // Truncate fields to prevent FTS5 index bombs from oversized input.
-    let name        = truncate_fts_field(name);
-    let title       = truncate_fts_field(title);
+    let name = truncate_fts_field(name);
+    let title = truncate_fts_field(title);
     let description = truncate_fts_field(description);
-    let tags        = truncate_fts_field(tags);
+    let tags = truncate_fts_field(tags);
 
     // Issue-HASH-COLLISION — 2026-03-14
     // Before touching FTS5 or the companion table, check whether the rowid is
     // already occupied by a *different* entity. If so, we have a hash collision
     // and must skip this entity to avoid corrupting the existing entry.
-    let existing: Option<(String, String)> = conn.query_row(
-        "SELECT entity_type, entity_id FROM search_entities WHERE rowid = ?1",
-        params![rowid],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).optional()?;
+    let existing: Option<(String, String)> = conn
+        .query_row(
+            "SELECT entity_type, entity_id FROM search_entities WHERE rowid = ?1",
+            params![rowid],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
 
     if let Some((ref existing_type, ref existing_id)) = existing
         && (existing_type != entity_type || existing_id != entity_id)
@@ -145,7 +147,15 @@ pub fn populate_search_index(
     conn.execute(
         "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
          VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![rowid, entity_type, entity_id, &*name, &*title, &*description, &*tags],
+        params![
+            rowid,
+            entity_type,
+            entity_id,
+            &*name,
+            &*title,
+            &*description,
+            &*tags
+        ],
     )?;
 
     // Issue-FTS5-CONTENT — 2026-03-14
@@ -283,8 +293,7 @@ pub fn search(
     // Positional parameters: ?1 = MATCH query
     // When cursor is present: ?2 = cursor_rank, ?3 = cursor_rowid
     // Type filter and limit params shift accordingly.
-    let eff_rank_expr =
-        "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0))";
+    let eff_rank_expr = "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0))";
 
     let mut where_parts = Vec::new();
     let mut next_param: u8 = 2;
@@ -331,12 +340,12 @@ pub fn search(
 
     let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<SearchResult> {
         Ok(SearchResult {
-            entity_type:    row.get(0)?,
-            entity_id:      row.get(1)?,
-            rank:           row.get(2)?,
-            quality_score:  row.get(3)?,
+            entity_type: row.get(0)?,
+            entity_id: row.get(1)?,
+            rank: row.get(2)?,
+            quality_score: row.get(3)?,
             effective_rank: row.get(4)?,
-            rowid:          row.get(5)?,
+            rowid: row.get(5)?,
         })
     };
 
@@ -357,14 +366,12 @@ pub fn search(
             stmt.query_map(params![safe_query, cr, crid, limit], map_row)?
                 .collect::<Result<Vec<_>, _>>()?
         }
-        (false, true) => {
-            stmt.query_map(params![safe_query, filter, limit], map_row)?
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        (false, false) => {
-            stmt.query_map(params![safe_query, limit], map_row)?
-                .collect::<Result<Vec<_>, _>>()?
-        }
+        (false, true) => stmt
+            .query_map(params![safe_query, filter, limit], map_row)?
+            .collect::<Result<Vec<_>, _>>()?,
+        (false, false) => stmt
+            .query_map(params![safe_query, limit], map_row)?
+            .collect::<Result<Vec<_>, _>>()?,
     };
 
     Ok(rows)

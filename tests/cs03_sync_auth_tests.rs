@@ -27,7 +27,7 @@ fn test_app_state_with_token(
         signer,
         node_pubkey_hex: pubkey,
         admin_token: admin_token.into(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -55,7 +55,9 @@ async fn sync_register_without_auth_returns_403() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -80,7 +82,9 @@ async fn sync_register_with_valid_token_returns_200() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "my-secret-admin-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -91,7 +95,12 @@ async fn sync_register_with_valid_token_returns_200() {
     );
 
     // Verify the response body indicates success
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let json: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
     assert_eq!(json["ok"], true);
 }
@@ -110,7 +119,9 @@ async fn sync_register_with_invalid_token_returns_403() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "wrong-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
@@ -136,7 +147,9 @@ async fn sync_register_misconfigured_server_returns_403() {
         .uri("/sync/register")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "any-token")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");

@@ -10,16 +10,16 @@
 //! [`verify_event_signature`] reconstructs the same payload from an [`Event`]
 //! and verifies the signature without requiring access to a `NodeSigner`.
 
-use std::fmt;
-use ed25519_dalek::{Signer, Verifier, SigningKey, VerifyingKey, Signature};
+use crate::event::{Event, EventSigningPayload, EventType};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use rand_core::OsRng;
-use sha2::{Sha256, Digest};
-use crate::event::{EventSigningPayload, EventType, Event};
+use sha2::{Digest, Sha256};
+use std::fmt;
 
 /// Holds the node's ed25519 signing key and its hex-encoded public key.
 pub struct NodeSigner {
     signing_key: SigningKey,
-    pubkey_hex:  String,
+    pubkey_hex: String,
 }
 
 // CRIT-03 custom Debug (redacts key material) — 2026-03-13
@@ -51,7 +51,7 @@ impl fmt::Debug for SigningError {
 impl fmt::Display for SigningError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Io(e)         => write!(f, "IO error: {e}"),
+            Self::Io(e) => write!(f, "IO error: {e}"),
             Self::InvalidKey(e) => write!(f, "Invalid key: {e}"),
         }
     }
@@ -72,7 +72,7 @@ impl From<ed25519_dalek::SignatureError> for SigningError {
 impl std::error::Error for SigningError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            Self::Io(e)         => Some(e),
+            Self::Io(e) => Some(e),
             Self::InvalidKey(e) => Some(e),
         }
     }
@@ -94,8 +94,9 @@ impl NodeSigner {
         let path = path.as_ref();
         let signing_key = if path.exists() {
             let bytes = std::fs::read(path)?;
-            let arr: [u8; 32] = bytes.try_into()
-                .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "key file must be 32 bytes"))?;
+            let arr: [u8; 32] = bytes.try_into().map_err(|_vec| {
+                std::io::Error::new(std::io::ErrorKind::InvalidData, "key file must be 32 bytes")
+            })?;
             SigningKey::from_bytes(&arr)
         } else {
             let key = SigningKey::generate(&mut OsRng);
@@ -113,7 +114,10 @@ impl NodeSigner {
         // signing_key.verifying_key(), so there is no need to store it.
         let pubkey_hex = hex::encode(signing_key.verifying_key().to_bytes());
 
-        Ok(Self { signing_key, pubkey_hex })
+        Ok(Self {
+            signing_key,
+            pubkey_hex,
+        })
     }
 
     /// Returns the hex-encoded ed25519 public key for this node.
@@ -135,12 +139,12 @@ impl NodeSigner {
     #[must_use]
     pub fn sign_event(
         &self,
-        event_id:     &str,
-        event_type:   &EventType,
+        event_id: &str,
+        event_type: &EventType,
         payload_json: &str,
         subject_guid: &str,
-        created_at:   i64,
-        seq:          i64,
+        created_at: i64,
+        seq: i64,
     ) -> (String, String) {
         let payload = EventSigningPayload {
             event_id,
@@ -150,7 +154,8 @@ impl NodeSigner {
             created_at,
             seq, // Issue-SEQ-INTEGRITY — 2026-03-14
         };
-        let serialized = serde_json::to_string(&payload).expect("EventSigningPayload serialization failed");
+        let serialized =
+            serde_json::to_string(&payload).expect("EventSigningPayload serialization failed");
         let digest = Sha256::digest(serialized.as_bytes());
         let sig: Signature = self.signing_key.sign(&digest);
         (self.pubkey_hex.clone(), hex::encode(sig.to_bytes()))
@@ -172,8 +177,9 @@ impl NodeSigner {
 pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
     let pubkey_bytes = hex::decode(&event.signed_by)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-    let pubkey_arr: [u8; 32] = pubkey_bytes.try_into()
-        .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes"))?;
+    let pubkey_arr: [u8; 32] = pubkey_bytes.try_into().map_err(|_vec| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes")
+    })?;
     let verifying_key = VerifyingKey::from_bytes(&pubkey_arr)?;
 
     // Use the canonical payload_json string set at sign time.
@@ -190,12 +196,12 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
 
     // Issue-SEQ-INTEGRITY — 2026-03-14
     let payload = EventSigningPayload {
-        event_id:     &event.event_id,
-        event_type:   &event.event_type,
+        event_id: &event.event_id,
+        event_type: &event.event_type,
         payload_json: &event.payload_json,
         subject_guid: &event.subject_guid,
-        created_at:   event.created_at,
-        seq:          event.seq, // Issue-SEQ-INTEGRITY — 2026-03-14
+        created_at: event.created_at,
+        seq: event.seq, // Issue-SEQ-INTEGRITY — 2026-03-14
     };
     let serialized = serde_json::to_string(&payload)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
@@ -203,8 +209,12 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
 
     let sig_bytes = hex::decode(&event.signature)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
-    let sig_arr: [u8; 64] = sig_bytes.try_into()
-        .map_err(|_vec| std::io::Error::new(std::io::ErrorKind::InvalidData, "signature must be 64 bytes"))?;
+    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_vec| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "signature must be 64 bytes",
+        )
+    })?;
     let sig = Signature::from_bytes(&sig_arr);
 
     verifying_key.verify(&digest, &sig)?;
@@ -214,7 +224,7 @@ pub fn verify_event_signature(event: &Event) -> Result<(), SigningError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{EventPayload, ArtistUpsertedPayload};
+    use crate::event::{ArtistUpsertedPayload, EventPayload};
     use crate::model::Artist;
 
     #[test]
@@ -222,16 +232,16 @@ mod tests {
         let signer = NodeSigner::load_or_create("/tmp/sign-roundtrip.key").unwrap();
 
         let artist = Artist {
-            artist_id:  "artist-1".into(),
-            name:       "Test Artist".into(),
+            artist_id: "artist-1".into(),
+            name: "Test Artist".into(),
             name_lower: "test artist".into(),
-            sort_name:  None,
-            type_id:    None,
-            area:       None,
-            img_url:    None,
-            url:        None,
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
             begin_year: None,
-            end_year:   None,
+            end_year: None,
             created_at: 1_000_000,
             updated_at: 1_000_000,
         };
@@ -240,20 +250,25 @@ mod tests {
         let payload_json = serde_json::to_string(&inner).unwrap();
 
         let (signed_by, signature) = signer.sign_event(
-            "evt-1", &EventType::ArtistUpserted, &payload_json, "subj-1", 9999, 1,
+            "evt-1",
+            &EventType::ArtistUpserted,
+            &payload_json,
+            "subj-1",
+            9999,
+            1,
         );
 
         let event = crate::event::Event {
-            event_id:     "evt-1".into(),
-            event_type:   EventType::ArtistUpserted,
-            payload:      EventPayload::ArtistUpserted(inner),
+            event_id: "evt-1".into(),
+            event_type: EventType::ArtistUpserted,
+            payload: EventPayload::ArtistUpserted(inner),
             payload_json,
             subject_guid: "subj-1".into(),
             signed_by,
             signature,
-            seq:        1,
+            seq: 1,
             created_at: 9999,
-            warnings:   vec![],
+            warnings: vec![],
         };
 
         verify_event_signature(&event).expect("signature verification failed");

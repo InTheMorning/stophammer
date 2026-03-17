@@ -24,47 +24,68 @@ fn has_raw_print_macros(source: &str) -> Vec<(usize, String)> {
 fn no_eprintln_or_println_in_main_rs() {
     let source = include_str!("../src/main.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "main.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "main.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_api_rs() {
     let source = include_str!("../src/api.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "api.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "api.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_community_rs() {
     let source = include_str!("../src/community.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "community.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "community.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_apply_rs() {
     let source = include_str!("../src/apply.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "apply.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "apply.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_tls_rs() {
     let source = include_str!("../src/tls.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "tls.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "tls.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_search_rs() {
     let source = include_str!("../src/search.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "search.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "search.rs still contains raw print macros:\n{hits:#?}"
+    );
 }
 
 #[test]
 fn no_eprintln_or_println_in_verify_rs() {
     let source = include_str!("../src/verify.rs");
     let hits = has_raw_print_macros(source);
-    assert!(hits.is_empty(), "verify.rs still contains raw print macros:\n{hits:#?}");
+    assert!(
+        hits.is_empty(),
+        "verify.rs still contains raw print macros:\n{hits:#?}"
+    );
 }

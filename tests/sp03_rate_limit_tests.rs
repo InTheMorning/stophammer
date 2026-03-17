@@ -16,7 +16,10 @@ fn governor_rejects_after_burst() {
     assert!(limiter.check_key(&key).is_ok(), "request 2 should pass");
 
     // 3rd should fail (burst exhausted, no time for replenish).
-    assert!(limiter.check_key(&key).is_err(), "request 3 should be rate-limited");
+    assert!(
+        limiter.check_key(&key).is_err(),
+        "request 3 should be rate-limited"
+    );
 }
 
 /// Different IPs should have independent rate limit buckets.
@@ -27,11 +30,20 @@ fn governor_per_ip_isolation() {
     let ip_a = "10.0.0.1".to_string();
     let ip_b = "10.0.0.2".to_string();
 
-    assert!(limiter.check_key(&ip_a).is_ok(), "ip_a request 1 should pass");
-    assert!(limiter.check_key(&ip_a).is_err(), "ip_a request 2 should be limited");
+    assert!(
+        limiter.check_key(&ip_a).is_ok(),
+        "ip_a request 1 should pass"
+    );
+    assert!(
+        limiter.check_key(&ip_a).is_err(),
+        "ip_a request 2 should be limited"
+    );
 
     // ip_b is independent — should still pass.
-    assert!(limiter.check_key(&ip_b).is_ok(), "ip_b request 1 should pass");
+    assert!(
+        limiter.check_key(&ip_b).is_ok(),
+        "ip_b request 1 should pass"
+    );
 }
 
 /// `rate_limit_config()` returns defaults when env vars are absent.
@@ -62,10 +74,10 @@ async fn health_endpoint_not_rate_limited_in_router() {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      String::new(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: String::new(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -86,6 +98,11 @@ async fn health_endpoint_not_rate_limited_in_router() {
             )
             .await
             .unwrap();
-        assert_eq!(resp.status(), 200, "health check #{i} failed with {}", resp.status());
+        assert_eq!(
+            resp.status(),
+            200,
+            "health check #{i} failed with {}",
+            resp.status()
+        );
     }
 }

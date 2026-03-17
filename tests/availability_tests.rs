@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test setup")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
+)]
 
 mod common;
 
@@ -81,10 +84,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -101,7 +104,11 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<ax
 }
 
 // Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires sync/admin auth.
-fn json_request_authed(method: &str, uri: &str, body: &serde_json::Value) -> Request<axum::body::Body> {
+fn json_request_authed(
+    method: &str,
+    uri: &str,
+    body: &serde_json::Value,
+) -> Request<axum::body::Body> {
     Request::builder()
         .method(method)
         .uri(uri)
@@ -278,10 +285,7 @@ async fn proof_challenge_rejects_oversized_nonce() {
     );
     let body = body_json(resp).await;
     assert!(
-        body["error"]
-            .as_str()
-            .unwrap()
-            .contains("maximum length"),
+        body["error"].as_str().unwrap().contains("maximum length"),
         "error message should mention maximum length"
     );
 }
@@ -415,10 +419,7 @@ fn fts5_truncates_large_field_to_limit() {
         "",
     );
 
-    assert!(
-        result.is_ok(),
-        "should not error on oversized field"
-    );
+    assert!(result.is_ok(), "should not error on oversized field");
 }
 
 // ==========================================================================
@@ -524,11 +525,7 @@ async fn body_within_limit_accepted() {
         .await
         .unwrap();
 
-    assert_eq!(
-        resp.status(),
-        201,
-        "normal-sized body should be accepted"
-    );
+    assert_eq!(resp.status(), 201, "normal-sized body should be accepted");
 }
 
 // ==========================================================================
@@ -589,7 +586,14 @@ async fn resolved_challenges_dont_count_towards_rate_limit() {
         let now = common::now();
         insert_artist(&conn, "artist-resolve", "Resolve Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-resolve", "Resolve Artist", now);
-        insert_feed(&conn, "resolve-feed", &mock_server.uri(), "Resolve Feed", credit_id, now);
+        insert_feed(
+            &conn,
+            "resolve-feed",
+            &mock_server.uri(),
+            "Resolve Feed",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -679,17 +683,11 @@ async fn rss_body_size_limit_rejects_oversized_response() {
         .await;
 
     let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(
-        &client,
-        &mock_server.uri(),
-        "irrelevant-binding",
-    )
-    .await;
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "irrelevant-binding")
+            .await;
 
-    assert!(
-        result.is_err(),
-        "oversized RSS response should return Err"
-    );
+    assert!(result.is_err(), "oversized RSS response should return Err");
     let err = result.unwrap_err();
     assert!(
         err.contains("too large"),
@@ -710,22 +708,15 @@ async fn rss_body_within_limit_accepted() {
         .await;
 
     let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(
-        &client,
-        &mock_server.uri(),
-        "test-binding",
-    )
-    .await;
+    let result =
+        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "test-binding").await;
 
     assert!(
         result.is_ok(),
         "normal RSS response should succeed: {:?}",
         result.err()
     );
-    assert!(
-        result.unwrap(),
-        "should find the matching podcast:txt"
-    );
+    assert!(result.unwrap(), "should find the matching podcast:txt");
 }
 
 // ==========================================================================
@@ -740,10 +731,7 @@ fn sse_registry_limits_artist_entries() {
     for i in 0..10_000 {
         let id = format!("artist-{i}");
         let result = registry.subscribe(&id);
-        assert!(
-            result.is_some(),
-            "subscribe to artist {i} should succeed"
-        );
+        assert!(result.is_some(), "subscribe to artist {i} should succeed");
     }
 
     assert_eq!(registry.artist_count(), 10_000);

@@ -1,4 +1,7 @@
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test setup")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
+)]
 
 mod common;
 
@@ -107,10 +110,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -135,14 +138,7 @@ fn seed_feed_at_url(conn: &rusqlite::Connection, feed_url: &str) -> (i64, i64) {
     let now = common::now();
     insert_artist(conn, "artist-1", "Test Artist", now);
     let credit_id = insert_artist_credit(conn, "artist-1", "Test Artist", now);
-    insert_feed(
-        conn,
-        "feed-1",
-        feed_url,
-        "Test Album",
-        credit_id,
-        now,
-    );
+    insert_feed(conn, "feed-1", feed_url, "Test Album", credit_id, now);
     (credit_id, now)
 }
 
@@ -213,7 +209,10 @@ fn create_challenge_stores_pending() {
         stophammer::proof::create_challenge(&conn, "feed-abc", "feed:write", "my-nonce").unwrap();
 
     assert!(!challenge_id.is_empty());
-    assert!(token_binding.contains('.'), "binding should have token.hash format");
+    assert!(
+        token_binding.contains('.'),
+        "binding should have token.hash format"
+    );
 
     let ch = stophammer::proof::get_challenge(&conn, &challenge_id)
         .unwrap()
@@ -288,8 +287,13 @@ fn resolve_challenge_invalid() {
 #[test]
 fn issue_token_valid() {
     let conn = common::test_db();
-    let token =
-        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc", &stophammer::proof::ProofLevel::RssOnly).unwrap();
+    let token = stophammer::proof::issue_token(
+        &conn,
+        "feed:write",
+        "feed-abc",
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .unwrap();
 
     let result = stophammer::proof::validate_token(&conn, &token, "feed:write").unwrap();
     assert_eq!(result, Some("feed-abc".to_string()));
@@ -302,8 +306,13 @@ fn issue_token_valid() {
 #[test]
 fn issue_token_wrong_scope() {
     let conn = common::test_db();
-    let token =
-        stophammer::proof::issue_token(&conn, "feed:write", "feed-abc", &stophammer::proof::ProofLevel::RssOnly).unwrap();
+    let token = stophammer::proof::issue_token(
+        &conn,
+        "feed:write",
+        "feed-abc",
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .unwrap();
 
     let result = stophammer::proof::validate_token(&conn, &token, "feed:admin").unwrap();
     assert!(result.is_none(), "wrong scope should not validate");
@@ -367,7 +376,14 @@ async fn assert_endpoint_issues_token() {
         let now = common::now();
         insert_artist(&conn, "artist-abc", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-abc", "Test Artist", now);
-        insert_feed(&conn, "feed-abc", &mock_server.uri(), "Test Album", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-abc",
+            &mock_server.uri(),
+            "Test Album",
+            credit_id,
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -530,8 +546,22 @@ async fn patch_feed_with_wrong_guid_returns_403() {
         let now = common::now();
         insert_artist(&conn, "artist-1", "Test Artist", now);
         let credit_id = insert_artist_credit(&conn, "artist-1", "Test Artist", now);
-        insert_feed(&conn, "feed-a", &mock_server.uri(), "Feed A", credit_id, now);
-        insert_feed(&conn, "feed-b", "https://example.com/b.xml", "Feed B", credit_id, now);
+        insert_feed(
+            &conn,
+            "feed-a",
+            &mock_server.uri(),
+            "Feed A",
+            credit_id,
+            now,
+        );
+        insert_feed(
+            &conn,
+            "feed-b",
+            "https://example.com/b.xml",
+            "Feed B",
+            credit_id,
+            now,
+        );
         drop(conn);
     }
     let state = test_app_state(Arc::clone(&db));
@@ -757,22 +787,32 @@ fn prune_expired_deletes_expired_rows() {
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('expired-tok-1', 'feed:write', 'feed-x', ?1, ?2)",
         params![past, past - 3600],
-    ).unwrap();
+    )
+    .unwrap();
 
     let deleted = stophammer::proof::prune_expired(&mut conn).unwrap();
-    assert!(deleted >= 2, "should have deleted at least 2 expired rows, got {deleted}");
+    assert!(
+        deleted >= 2,
+        "should have deleted at least 2 expired rows, got {deleted}"
+    );
 
     // Verify the rows are gone.
-    let ch_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_challenges WHERE challenge_id = 'expired-ch-1'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let ch_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_challenges WHERE challenge_id = 'expired-ch-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(ch_count, 0, "expired challenge should be deleted");
 
-    let tok_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_tokens WHERE access_token = 'expired-tok-1'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let tok_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_tokens WHERE access_token = 'expired-tok-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(tok_count, 0, "expired token should be deleted");
 }
 
@@ -797,22 +837,32 @@ fn prune_expired_keeps_unexpired_rows() {
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('valid-tok-1', 'feed:write', 'feed-y', ?1, ?2)",
         params![future, now],
-    ).unwrap();
+    )
+    .unwrap();
 
     let deleted = stophammer::proof::prune_expired(&mut conn).unwrap();
-    assert_eq!(deleted, 0, "no rows should be deleted when all are unexpired");
+    assert_eq!(
+        deleted, 0,
+        "no rows should be deleted when all are unexpired"
+    );
 
     // Verify the rows still exist.
-    let ch_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_challenges WHERE challenge_id = 'valid-ch-1'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let ch_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_challenges WHERE challenge_id = 'valid-ch-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(ch_count, 1, "unexpired challenge should still exist");
 
-    let tok_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_tokens WHERE access_token = 'valid-tok-1'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let tok_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_tokens WHERE access_token = 'valid-tok-1'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(tok_count, 1, "unexpired token should still exist");
 }
 
@@ -848,15 +898,20 @@ fn prune_expired_returns_correct_count() {
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('exp-tok-a', 'feed:write', 'feed-z', ?1, ?2)",
         params![past, past - 3600],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('live-tok-a', 'feed:write', 'feed-z', ?1, ?2)",
         params![future, now],
-    ).unwrap();
+    )
+    .unwrap();
 
     let deleted = stophammer::proof::prune_expired(&mut conn).unwrap();
-    assert_eq!(deleted, 3, "should have deleted 2 challenges + 1 token = 3 total");
+    assert_eq!(
+        deleted, 3,
+        "should have deleted 2 challenges + 1 token = 3 total"
+    );
 }
 
 // ============================================================================
@@ -868,14 +923,24 @@ fn prune_expired_returns_correct_count() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[expect(clippy::too_many_lines, reason = "integration test exercises full challenge-assert-patch round-trip")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test exercises full challenge-assert-patch round-trip"
+)]
 async fn full_roundtrip_challenge_assert_patch_feed_and_track() {
     let mock_server = MockServer::start().await;
     let db = common::test_db_arc();
     {
         let conn = db.lock().expect("lock for seeding");
         let (credit_id, now) = seed_feed_at_url(&conn, &mock_server.uri());
-        insert_track(&conn, "track-rt-1", "feed-1", credit_id, "Round-trip Song", now);
+        insert_track(
+            &conn,
+            "track-rt-1",
+            "feed-1",
+            credit_id,
+            "Round-trip Song",
+            now,
+        );
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -897,7 +962,11 @@ async fn full_roundtrip_challenge_assert_patch_feed_and_track() {
         .await
         .expect("challenge request should not panic");
 
-    assert_eq!(resp_challenge.status(), 201, "challenge should return 201 Created");
+    assert_eq!(
+        resp_challenge.status(),
+        201,
+        "challenge should return 201 Created"
+    );
     let challenge_body = body_json(resp_challenge).await;
     let challenge_id = challenge_body["challenge_id"]
         .as_str()
@@ -957,7 +1026,9 @@ async fn full_roundtrip_challenge_assert_patch_feed_and_track() {
         "feed:write"
     );
     assert_eq!(
-        assert_body["subject_feed_guid"].as_str().expect("subject_feed_guid field"),
+        assert_body["subject_feed_guid"]
+            .as_str()
+            .expect("subject_feed_guid field"),
         "feed-1"
     );
     assert!(
@@ -972,7 +1043,10 @@ async fn full_roundtrip_challenge_assert_patch_feed_and_track() {
             .expect("DB query should succeed")
             .expect("challenge should still exist");
         drop(conn);
-        assert_eq!(ch.state, "valid", "challenge should be resolved to valid after assert");
+        assert_eq!(
+            ch.state, "valid",
+            "challenge should be resolved to valid after assert"
+        );
     }
 
     // ── Step 3: PATCH /v1/feeds/feed-1 with Bearer token ───────────────────
@@ -1104,33 +1178,42 @@ fn revoke_tokens_for_feed_deletes_matching_tokens() {
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('tok-a1', 'feed:write', 'feed-a', ?1, ?2)",
         params![future, now],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('tok-a2', 'feed:write', 'feed-a', ?1, ?2)",
         params![future, now],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO proof_tokens (access_token, scope, subject_feed_guid, expires_at, created_at) \
          VALUES ('tok-b1', 'feed:write', 'feed-b', ?1, ?2)",
         params![future, now],
-    ).unwrap();
+    )
+    .unwrap();
 
     let deleted = stophammer::proof::revoke_tokens_for_feed(&conn, "feed-a").unwrap();
     assert_eq!(deleted, 2, "should delete exactly 2 tokens for feed-a");
 
     // feed-a tokens are gone.
-    let count_a: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-a'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let count_a: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-a'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count_a, 0, "no tokens should remain for feed-a");
 
     // feed-b token is untouched.
-    let count_b: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-b'",
-        [], |r| r.get(0),
-    ).unwrap();
+    let count_b: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-b'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(count_b, 1, "feed-b token should be untouched");
 }
 
@@ -1193,12 +1276,17 @@ async fn patch_feed_url_revokes_proof_tokens() {
     // Count remaining tokens for feed-1 — should be zero.
     {
         let conn = db.lock().unwrap();
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-1'",
-            [],
-            |r| r.get(0),
-        ).unwrap();
-        assert_eq!(count, 0, "all tokens for feed-1 should be revoked after feed_url PATCH");
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM proof_tokens WHERE subject_feed_guid = 'feed-1'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            count, 0,
+            "all tokens for feed-1 should be revoked after feed_url PATCH"
+        );
     }
 }
 
@@ -1261,7 +1349,10 @@ fn proof_race_rejects_token_when_feed_url_changed() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 0, "no token should be issued when feed URL changed during verification");
+    assert_eq!(
+        count, 0,
+        "no token should be issued when feed URL changed during verification"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1325,9 +1416,7 @@ async fn assert_rejects_token_when_feed_url_changed_during_verification() {
         tokio::task::yield_now().await;
         let conn = db_race.lock().unwrap();
         conn.execute(
-            &format!(
-                "UPDATE feeds SET feed_url = '{new_uri}' WHERE feed_guid = 'feed-1'"
-            ),
+            &format!("UPDATE feeds SET feed_url = '{new_uri}' WHERE feed_guid = 'feed-1'"),
             [],
         )
         .unwrap();

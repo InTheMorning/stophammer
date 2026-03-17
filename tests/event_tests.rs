@@ -3,7 +3,7 @@ mod common;
 use ed25519_dalek::{Signer, SigningKey};
 use rand_core::OsRng;
 use rusqlite::params;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 /// Helper: sign an event and insert it into the DB, returning the assigned seq.
 fn insert_signed_event(
@@ -19,9 +19,11 @@ fn insert_signed_event(
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
     // We pre-compute the seq to match the DB's COALESCE(MAX(seq),0)+1 logic.
-    let next_seq: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| r.get(0),
-    ).unwrap();
+    let next_seq: i64 = conn
+        .query_row("SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
 
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
@@ -50,9 +52,17 @@ fn insert_signed_event(
 fn event_type_snake_case() {
     // These are the expected snake_case values from serde rename_all
     let types = vec![
-        "feed_upserted", "feed_retired", "track_upserted", "track_removed",
-        "artist_upserted", "routes_replaced", "artist_merged",
-        "artist_credit_created", "feed_routes_replaced",
+        "feed_upserted",
+        "feed_retired",
+        "track_upserted",
+        "track_removed",
+        "artist_upserted",
+        "routes_replaced",
+        "artist_merged",
+        "artist_credit_created",
+        "feed_routes_replaced",
+        "feed_remote_items_replaced",
+        "live_events_replaced",
     ];
     // Verify each can be deserialized from quoted JSON
     for t in &types {
@@ -84,9 +94,33 @@ fn event_seq_monotonic() {
 
     let payload = r#"{"artist":{"artist_id":"a1","name":"A","name_lower":"a","created_at":1,"updated_at":1}}"#;
 
-    let seq1 = insert_signed_event(&conn, "evt-seq-1", "artist_upserted", payload, "subj-1", now, &key);
-    let seq2 = insert_signed_event(&conn, "evt-seq-2", "artist_upserted", payload, "subj-1", now, &key);
-    let seq3 = insert_signed_event(&conn, "evt-seq-3", "artist_upserted", payload, "subj-1", now, &key);
+    let seq1 = insert_signed_event(
+        &conn,
+        "evt-seq-1",
+        "artist_upserted",
+        payload,
+        "subj-1",
+        now,
+        &key,
+    );
+    let seq2 = insert_signed_event(
+        &conn,
+        "evt-seq-2",
+        "artist_upserted",
+        payload,
+        "subj-1",
+        now,
+        &key,
+    );
+    let seq3 = insert_signed_event(
+        &conn,
+        "evt-seq-3",
+        "artist_upserted",
+        payload,
+        "subj-1",
+        now,
+        &key,
+    );
 
     assert_eq!(seq1, 1);
     assert_eq!(seq2, 2);
@@ -106,9 +140,11 @@ fn event_idempotent_insert() {
     let subject_guid = "subj-idem";
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: seq included in signing payload.
-    let next_seq: i64 = conn.query_row(
-        "SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| r.get(0),
-    ).unwrap();
+    let next_seq: i64 = conn
+        .query_row("SELECT COALESCE(MAX(seq),0)+1 FROM events", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
 
     let signing_payload = serde_json::json!({
         "event_id":     event_id,
@@ -139,7 +175,10 @@ fn event_idempotent_insert() {
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, '[]')",
         params![event_id, event_type, payload, subject_guid, pubkey_hex, sig_hex, now],
     ).unwrap();
-    assert_eq!(changed_2, 0, "duplicate event_id should return 0 changed rows");
+    assert_eq!(
+        changed_2, 0,
+        "duplicate event_id should return 0 changed rows"
+    );
 }
 
 #[test]
@@ -153,34 +192,54 @@ fn event_pagination() {
     // Insert 5 events
     for i in 1..=5 {
         let eid = format!("evt-page-{i}");
-        insert_signed_event(&conn, &eid, "artist_upserted", payload, "subj-page", now, &key);
+        insert_signed_event(
+            &conn,
+            &eid,
+            "artist_upserted",
+            payload,
+            "subj-page",
+            now,
+            &key,
+        );
     }
 
     // Get events since seq 0 with limit 2
-    let mut stmt = conn.prepare(
-        "SELECT event_id, seq FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2",
-    ).unwrap();
-    let page1: Vec<(String, i64)> = stmt.query_map(params![0_i64, 2_i64], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }).unwrap().map(|r| r.unwrap()).collect();
+    let mut stmt = conn
+        .prepare("SELECT event_id, seq FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2")
+        .unwrap();
+    let page1: Vec<(String, i64)> = stmt
+        .query_map(params![0_i64, 2_i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
 
     assert_eq!(page1.len(), 2);
     assert_eq!(page1[0].1, 1); // seq 1
     assert_eq!(page1[1].1, 2); // seq 2
 
     // Get next page starting after seq 2
-    let page2: Vec<(String, i64)> = stmt.query_map(params![2_i64, 2_i64], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }).unwrap().map(|r| r.unwrap()).collect();
+    let page2: Vec<(String, i64)> = stmt
+        .query_map(params![2_i64, 2_i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
 
     assert_eq!(page2.len(), 2);
     assert_eq!(page2[0].1, 3); // seq 3
     assert_eq!(page2[1].1, 4); // seq 4
 
     // Final page with only 1 remaining
-    let page3: Vec<(String, i64)> = stmt.query_map(params![4_i64, 2_i64], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-    }).unwrap().map(|r| r.unwrap()).collect();
+    let page3: Vec<(String, i64)> = stmt
+        .query_map(params![4_i64, 2_i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .unwrap()
+        .map(|r| r.unwrap())
+        .collect();
 
     assert_eq!(page3.len(), 1);
     assert_eq!(page3[0].1, 5); // seq 5

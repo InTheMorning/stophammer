@@ -15,22 +15,22 @@ mod common;
 
 /// Track descriptor used by the test helper.
 struct TestTrack {
-    guid:  &'static str,
+    guid: &'static str,
     title: &'static str,
 }
 
 /// Feed descriptor used by the test helper.
 struct TestFeed {
-    feed_guid:   &'static str,
-    title:       &'static str,
+    feed_guid: &'static str,
+    title: &'static str,
     description: Option<&'static str>,
 }
 
 impl Default for TestFeed {
     fn default() -> Self {
         Self {
-            feed_guid:   "feed-wa-1",
-            title:       "Test Feed",
+            feed_guid: "feed-wa-1",
+            title: "Test Feed",
             description: Some("A test feed"),
         }
     }
@@ -39,7 +39,10 @@ impl Default for TestFeed {
 /// Calls `ingest_transaction` directly, then queries the events table to
 /// count how many `track_upserted` events were produced by this particular
 /// call. Returns `(total_events, track_upserted_count)`.
-#[expect(clippy::too_many_lines, reason = "test helper building full model objects")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "test helper building full model objects"
+)]
 fn ingest_and_count_track_events(
     conn: &mut rusqlite::Connection,
     feed: &TestFeed,
@@ -61,53 +64,56 @@ fn ingest_and_count_track_events(
     let fixed_pub_date: i64 = 1_700_000_000;
 
     let artist = stophammer::model::Artist {
-        artist_id:  format!("art-{}", feed.feed_guid),
-        name:       "Test Artist".into(),
+        artist_id: format!("art-{}", feed.feed_guid),
+        name: "Test Artist".into(),
         name_lower: "test artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
 
     let artist_credit = stophammer::model::ArtistCredit {
-        id:           0,
+        id: 0,
         display_name: "Test Artist".into(),
-        feed_guid:    None,
-        created_at:   now,
-        names:        vec![stophammer::model::ArtistCreditName {
-            id:               0,
+        feed_guid: None,
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
             artist_credit_id: 0,
-            artist_id:        format!("art-{}", feed.feed_guid),
-            position:         0,
-            name:             "Test Artist".into(),
-            join_phrase:      String::new(),
+            artist_id: format!("art-{}", feed.feed_guid),
+            position: 0,
+            name: "Test Artist".into(),
+            join_phrase: String::new(),
         }],
     };
 
-    #[expect(clippy::cast_possible_wrap, reason = "test: track counts never approach i64::MAX")]
+    #[expect(
+        clippy::cast_possible_wrap,
+        reason = "test: track counts never approach i64::MAX"
+    )]
     let feed_model = stophammer::model::Feed {
-        feed_guid:        feed.feed_guid.into(),
-        feed_url:         format!("https://example.com/{}.xml", feed.feed_guid),
-        title:            feed.title.into(),
-        title_lower:      feed.title.to_lowercase(),
+        feed_guid: feed.feed_guid.into(),
+        feed_url: format!("https://example.com/{}.xml", feed.feed_guid),
+        title: feed.title.into(),
+        title_lower: feed.title.to_lowercase(),
         artist_credit_id: 0,
-        description:      feed.description.map(String::from),
-        image_url:        None,
-        language:         Some("en".into()),
-        explicit:         false,
-        itunes_type:      None,
-        episode_count:    tracks.len() as i64,
-        newest_item_at:   Some(now),
-        oldest_item_at:   None,
-        created_at:       now,
-        updated_at:       now,
-        raw_medium:       Some("music".into()),
+        description: feed.description.map(String::from),
+        image_url: None,
+        language: Some("en".into()),
+        explicit: false,
+        itunes_type: None,
+        episode_count: tracks.len() as i64,
+        newest_item_at: Some(now),
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
     };
 
     let track_tuples: Vec<(
@@ -119,22 +125,22 @@ fn ingest_and_count_track_events(
         .enumerate()
         .map(|(i, t)| {
             let track = stophammer::model::Track {
-                track_guid:       t.guid.into(),
-                feed_guid:        feed.feed_guid.into(),
+                track_guid: t.guid.into(),
+                feed_guid: feed.feed_guid.into(),
                 artist_credit_id: 0,
-                title:            t.title.into(),
-                title_lower:      t.title.to_lowercase(),
-                pub_date:         Some(fixed_pub_date),
-                duration_secs:    Some(180),
-                enclosure_url:    Some(format!("https://cdn.example.com/{}.mp3", t.guid)),
-                enclosure_type:   Some("audio/mpeg".into()),
-                enclosure_bytes:  Some(3_000_000),
-                track_number:     Some(i64::try_from(i + 1).unwrap()),
-                season:           None,
-                explicit:         false,
-                description:      Some(format!("Description for {}", t.guid)),
-                created_at:       now,
-                updated_at:       now,
+                title: t.title.into(),
+                title_lower: t.title.to_lowercase(),
+                pub_date: Some(fixed_pub_date),
+                duration_secs: Some(180),
+                enclosure_url: Some(format!("https://cdn.example.com/{}.mp3", t.guid)),
+                enclosure_type: Some("audio/mpeg".into()),
+                enclosure_bytes: Some(3_000_000),
+                track_number: Some(i64::try_from(i + 1).unwrap()),
+                season: None,
+                explicit: false,
+                description: Some(format!("Description for {}", t.guid)),
+                created_at: now,
+                updated_at: now,
             };
             (track, vec![], vec![])
         })
@@ -147,11 +153,11 @@ fn ingest_and_count_track_events(
         &artist,
         &artist_credit,
         &feed_model,
-        &[],    // no feed routes
+        &[], // no feed routes
         &track_tuples,
-        &[],    // no track credits override — use the same one
+        &[], // no track credits override — use the same one
         now,
-        &[],    // no warnings
+        &[], // no warnings
     )
     .expect("build_diff_events");
 
@@ -190,21 +196,27 @@ fn ingest_and_count_track_events(
 #[test]
 fn reingest_unchanged_tracks_emits_zero_track_events() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/write-amp-test-1.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-1.key")
+        .expect("signer");
 
     let feed = TestFeed::default();
     let tracks = [
-        TestTrack { guid: "wa-t1", title: "Song One" },
-        TestTrack { guid: "wa-t2", title: "Song Two" },
-        TestTrack { guid: "wa-t3", title: "Song Three" },
+        TestTrack {
+            guid: "wa-t1",
+            title: "Song One",
+        },
+        TestTrack {
+            guid: "wa-t2",
+            title: "Song Two",
+        },
+        TestTrack {
+            guid: "wa-t3",
+            title: "Song Three",
+        },
     ];
 
     // First ingest: all 3 tracks are new → 3 TrackUpserted
-    let (_, first_track_events) =
-        ingest_and_count_track_events(&mut conn, &feed, &tracks, &signer);
+    let (_, first_track_events) = ingest_and_count_track_events(&mut conn, &feed, &tracks, &signer);
     assert_eq!(
         first_track_events, 3,
         "first ingest should emit 3 TrackUpserted events"
@@ -226,19 +238,26 @@ fn reingest_unchanged_tracks_emits_zero_track_events() {
 #[test]
 fn reingest_one_changed_track_emits_one_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/write-amp-test-2.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-2.key")
+        .expect("signer");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-2",
         ..TestFeed::default()
     };
     let tracks = [
-        TestTrack { guid: "wa2-t1", title: "Song Alpha" },
-        TestTrack { guid: "wa2-t2", title: "Song Beta" },
-        TestTrack { guid: "wa2-t3", title: "Song Gamma" },
+        TestTrack {
+            guid: "wa2-t1",
+            title: "Song Alpha",
+        },
+        TestTrack {
+            guid: "wa2-t2",
+            title: "Song Beta",
+        },
+        TestTrack {
+            guid: "wa2-t3",
+            title: "Song Gamma",
+        },
     ];
 
     // First ingest
@@ -246,13 +265,21 @@ fn reingest_one_changed_track_emits_one_event() {
 
     // Second ingest: change title of track 2 only
     let tracks_v2 = [
-        TestTrack { guid: "wa2-t1", title: "Song Alpha" },
-        TestTrack { guid: "wa2-t2", title: "Song Beta REMIX" },
-        TestTrack { guid: "wa2-t3", title: "Song Gamma" },
+        TestTrack {
+            guid: "wa2-t1",
+            title: "Song Alpha",
+        },
+        TestTrack {
+            guid: "wa2-t2",
+            title: "Song Beta REMIX",
+        },
+        TestTrack {
+            guid: "wa2-t3",
+            title: "Song Gamma",
+        },
     ];
 
-    let (_, track_events) =
-        ingest_and_count_track_events(&mut conn, &feed, &tracks_v2, &signer);
+    let (_, track_events) = ingest_and_count_track_events(&mut conn, &feed, &tracks_v2, &signer);
     assert_eq!(
         track_events, 1,
         "re-ingest with 1 changed track title should emit exactly 1 TrackUpserted"
@@ -266,18 +293,22 @@ fn reingest_one_changed_track_emits_one_event() {
 #[test]
 fn reingest_one_new_track_emits_one_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/write-amp-test-3.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-3.key")
+        .expect("signer");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-3",
         ..TestFeed::default()
     };
     let tracks = [
-        TestTrack { guid: "wa3-t1", title: "Song One" },
-        TestTrack { guid: "wa3-t2", title: "Song Two" },
+        TestTrack {
+            guid: "wa3-t1",
+            title: "Song One",
+        },
+        TestTrack {
+            guid: "wa3-t2",
+            title: "Song Two",
+        },
     ];
 
     // First ingest
@@ -285,13 +316,21 @@ fn reingest_one_new_track_emits_one_event() {
 
     // Second ingest: add 1 new track, keep existing 2 unchanged
     let tracks_v2 = [
-        TestTrack { guid: "wa3-t1", title: "Song One" },
-        TestTrack { guid: "wa3-t2", title: "Song Two" },
-        TestTrack { guid: "wa3-t3", title: "Song Three NEW" },
+        TestTrack {
+            guid: "wa3-t1",
+            title: "Song One",
+        },
+        TestTrack {
+            guid: "wa3-t2",
+            title: "Song Two",
+        },
+        TestTrack {
+            guid: "wa3-t3",
+            title: "Song Three NEW",
+        },
     ];
 
-    let (_, track_events) =
-        ingest_and_count_track_events(&mut conn, &feed, &tracks_v2, &signer);
+    let (_, track_events) = ingest_and_count_track_events(&mut conn, &feed, &tracks_v2, &signer);
     assert_eq!(
         track_events, 1,
         "re-ingest with 1 new track should emit exactly 1 TrackUpserted for the new track"
@@ -305,16 +344,17 @@ fn reingest_one_new_track_emits_one_event() {
 #[test]
 fn reingest_unchanged_feed_emits_no_feed_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/write-amp-test-4.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-4.key")
+        .expect("signer");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-4",
         ..TestFeed::default()
     };
-    let tracks = [TestTrack { guid: "wa4-t1", title: "Song" }];
+    let tracks = [TestTrack {
+        guid: "wa4-t1",
+        title: "Song",
+    }];
 
     // First ingest
     let _ = ingest_and_count_track_events(&mut conn, &feed, &tracks, &signer);
@@ -352,17 +392,18 @@ fn reingest_unchanged_feed_emits_no_feed_event() {
 #[test]
 fn reingest_changed_feed_title_emits_feed_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create(
-        "/tmp/write-amp-test-5.key",
-    )
-    .expect("signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-5.key")
+        .expect("signer");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-5",
-        title:     "Original Title",
+        title: "Original Title",
         ..TestFeed::default()
     };
-    let tracks = [TestTrack { guid: "wa5-t1", title: "Song" }];
+    let tracks = [TestTrack {
+        guid: "wa5-t1",
+        title: "Song",
+    }];
 
     // First ingest
     let _ = ingest_and_count_track_events(&mut conn, &feed, &tracks, &signer);
@@ -378,7 +419,7 @@ fn reingest_changed_feed_title_emits_feed_event() {
     // Second ingest: changed title
     let feed_v2 = TestFeed {
         feed_guid: "feed-wa-5",
-        title:     "Updated Title",
+        title: "Updated Title",
         ..TestFeed::default()
     };
     let _ = ingest_and_count_track_events(&mut conn, &feed_v2, &tracks, &signer);

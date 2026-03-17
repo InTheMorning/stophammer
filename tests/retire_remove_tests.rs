@@ -98,7 +98,15 @@ fn insert_payment_route(conn: &rusqlite::Connection, track_guid: &str, feed_guid
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, \
          address, split, fee) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![track_guid, feed_guid, "Artist Wallet", "node", "some-address", 95, 0],
+        params![
+            track_guid,
+            feed_guid,
+            "Artist Wallet",
+            "node",
+            "some-address",
+            95,
+            0
+        ],
     )
     .unwrap();
 }
@@ -117,7 +125,15 @@ fn insert_value_time_split(conn: &rusqlite::Connection, track_guid: &str, now: i
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, \
          remote_feed_guid, remote_item_guid, split, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![track_guid, 30, 60, "remote-feed-1", "remote-item-1", 50, now],
+        params![
+            track_guid,
+            30,
+            60,
+            "remote-feed-1",
+            "remote-item-1",
+            50,
+            now
+        ],
     )
     .unwrap();
 }
@@ -136,11 +152,7 @@ fn insert_entity_quality(
     .unwrap();
 }
 
-fn insert_entity_field_status(
-    conn: &rusqlite::Connection,
-    entity_type: &str,
-    entity_id: &str,
-) {
+fn insert_entity_field_status(conn: &rusqlite::Connection, entity_type: &str, entity_id: &str) {
     conn.execute(
         "INSERT INTO entity_field_status (entity_type, entity_id, field_name, status) \
          VALUES (?1, ?2, ?3, ?4)",
@@ -173,11 +185,9 @@ fn insert_feed_tag(conn: &rusqlite::Connection, feed_guid: &str, now: i64) -> i6
     )
     .unwrap();
     let tag_id: i64 = conn
-        .query_row(
-            "SELECT id FROM tags WHERE name = 'electronic'",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT id FROM tags WHERE name = 'electronic'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     conn.execute(
         "INSERT INTO feed_tag (feed_guid, tag_id, created_at) VALUES (?1, ?2, ?3)",
@@ -268,7 +278,10 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test exercises full feed deletion with all child rows")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test exercises full feed deletion with all child rows"
+)]
 fn delete_feed_removes_all_children() {
     let mut conn = common::test_db();
     populate_feed_with_tracks(&conn);
@@ -276,10 +289,7 @@ fn delete_feed_removes_all_children() {
     // Verify data exists before deletion.
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-1'"), 1);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-1'"), 2);
-    assert_eq!(
-        count(&conn, "payment_routes", "feed_guid = 'feed-1'"),
-        2
-    );
+    assert_eq!(count(&conn, "payment_routes", "feed_guid = 'feed-1'"), 2);
     assert_eq!(
         count(
             &conn,
@@ -289,23 +299,12 @@ fn delete_feed_removes_all_children() {
         2
     );
     assert_eq!(
-        count(
-            &conn,
-            "track_tag",
-            "track_guid IN ('track-1', 'track-2')"
-        ),
+        count(&conn, "track_tag", "track_guid IN ('track-1', 'track-2')"),
         2
     );
+    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-1'"), 1);
     assert_eq!(
-        count(&conn, "feed_tag", "feed_guid = 'feed-1'"),
-        1
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "feed_payment_routes",
-            "feed_guid = 'feed-1'"
-        ),
+        count(&conn, "feed_payment_routes", "feed_guid = 'feed-1'"),
         1
     );
     assert_eq!(
@@ -331,10 +330,7 @@ fn delete_feed_removes_all_children() {
     // Verify everything is gone.
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-1'"), 0);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-1'"), 0);
-    assert_eq!(
-        count(&conn, "payment_routes", "feed_guid = 'feed-1'"),
-        0
-    );
+    assert_eq!(count(&conn, "payment_routes", "feed_guid = 'feed-1'"), 0);
     assert_eq!(
         count(
             &conn,
@@ -344,23 +340,12 @@ fn delete_feed_removes_all_children() {
         0
     );
     assert_eq!(
-        count(
-            &conn,
-            "track_tag",
-            "track_guid IN ('track-1', 'track-2')"
-        ),
+        count(&conn, "track_tag", "track_guid IN ('track-1', 'track-2')"),
         0
     );
+    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-1'"), 0);
     assert_eq!(
-        count(&conn, "feed_tag", "feed_guid = 'feed-1'"),
-        0
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "feed_payment_routes",
-            "feed_guid = 'feed-1'"
-        ),
+        count(&conn, "feed_payment_routes", "feed_guid = 'feed-1'"),
         0
     );
     assert_eq!(
@@ -411,22 +396,12 @@ fn delete_track_removes_all_children() {
 
     // Verify track-1 data exists.
     assert_eq!(count(&conn, "tracks", "track_guid = 'track-1'"), 1);
+    assert_eq!(count(&conn, "payment_routes", "track_guid = 'track-1'"), 1);
     assert_eq!(
-        count(&conn, "payment_routes", "track_guid = 'track-1'"),
+        count(&conn, "value_time_splits", "source_track_guid = 'track-1'"),
         1
     );
-    assert_eq!(
-        count(
-            &conn,
-            "value_time_splits",
-            "source_track_guid = 'track-1'"
-        ),
-        1
-    );
-    assert_eq!(
-        count(&conn, "track_tag", "track_guid = 'track-1'"),
-        1
-    );
+    assert_eq!(count(&conn, "track_tag", "track_guid = 'track-1'"), 1);
     assert_eq!(
         count(
             &conn,
@@ -449,22 +424,12 @@ fn delete_track_removes_all_children() {
 
     // Verify track-1 is gone.
     assert_eq!(count(&conn, "tracks", "track_guid = 'track-1'"), 0);
+    assert_eq!(count(&conn, "payment_routes", "track_guid = 'track-1'"), 0);
     assert_eq!(
-        count(&conn, "payment_routes", "track_guid = 'track-1'"),
+        count(&conn, "value_time_splits", "source_track_guid = 'track-1'"),
         0
     );
-    assert_eq!(
-        count(
-            &conn,
-            "value_time_splits",
-            "source_track_guid = 'track-1'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(&conn, "track_tag", "track_guid = 'track-1'"),
-        0
-    );
+    assert_eq!(count(&conn, "track_tag", "track_guid = 'track-1'"), 0);
     assert_eq!(
         count(
             &conn,
@@ -484,10 +449,7 @@ fn delete_track_removes_all_children() {
 
     // Verify track-2 is still there.
     assert_eq!(count(&conn, "tracks", "track_guid = 'track-2'"), 1);
-    assert_eq!(
-        count(&conn, "payment_routes", "track_guid = 'track-2'"),
-        1
-    );
+    assert_eq!(count(&conn, "payment_routes", "track_guid = 'track-2'"), 1);
 
     // Verify feed is still there.
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-1'"), 1);
@@ -515,10 +477,7 @@ fn delete_track_idempotent() {
 
 /// Populate a feed with N tracks, each having payment routes, VTS, tags,
 /// `entity_quality`, and `entity_field_status` rows. Returns (`credit_id`, `track_guids`).
-fn populate_feed_with_n_tracks(
-    conn: &rusqlite::Connection,
-    n: usize,
-) -> (i64, Vec<String>) {
+fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, Vec<String>) {
     let now = common::now();
     insert_artist(conn, "artist-n", "N-Track Artist", now);
     let credit_id = insert_artist_credit(conn, "artist-n", "N-Track Artist", now);
@@ -589,20 +548,10 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         5
     );
+    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 5);
+    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-n'"), 1);
     assert_eq!(
-        count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"),
-        5
-    );
-    assert_eq!(
-        count(&conn, "feed_tag", "feed_guid = 'feed-n'"),
-        1
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "feed_payment_routes",
-            "feed_guid = 'feed-n'"
-        ),
+        count(&conn, "feed_payment_routes", "feed_guid = 'feed-n'"),
         1
     );
     assert_eq!(
@@ -637,20 +586,10 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         0
     );
+    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 0);
+    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-n'"), 0);
     assert_eq!(
-        count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"),
-        0
-    );
-    assert_eq!(
-        count(&conn, "feed_tag", "feed_guid = 'feed-n'"),
-        0
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "feed_payment_routes",
-            "feed_guid = 'feed-n'"
-        ),
+        count(&conn, "feed_payment_routes", "feed_guid = 'feed-n'"),
         0
     );
     assert_eq!(
@@ -721,10 +660,7 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"),
-        0
-    );
+    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 0);
     assert_eq!(
         count(
             &conn,
@@ -762,8 +698,8 @@ fn apply_feed_retired_event() {
     let pool = common::wrap_pool(db.clone());
 
     // Build a FeedRetired event.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-feed.key")
-        .unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-feed.key").unwrap();
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::FeedRetiredPayload {
         feed_guid: "feed-1".to_string(),
@@ -780,11 +716,8 @@ fn apply_feed_retired_event() {
         0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
-    let tagged = format!(
-        r#"{{"type":"feed_retired","data":{payload_json}}}"#
-    );
-    let event_payload: stophammer::event::EventPayload =
-        serde_json::from_str(&tagged).unwrap();
+    let tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
+    let event_payload: stophammer::event::EventPayload = serde_json::from_str(&tagged).unwrap();
 
     let event = stophammer::event::Event {
         event_id,
@@ -799,10 +732,7 @@ fn apply_feed_retired_event() {
         warnings: vec![],
     };
 
-    let result = stophammer::apply::apply_single_event(
-        &pool,
-        &event,
-    );
+    let result = stophammer::apply::apply_single_event(&pool, &event);
     assert!(result.is_ok());
 
     let conn = db.lock().unwrap();
@@ -825,8 +755,8 @@ fn apply_track_removed_event() {
     let pool = common::wrap_pool(db.clone());
 
     // Build a TrackRemoved event.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-track.key")
-        .unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-track.key").unwrap();
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::TrackRemovedPayload {
         track_guid: "track-1".to_string(),
@@ -843,11 +773,8 @@ fn apply_track_removed_event() {
         0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
-    let tagged = format!(
-        r#"{{"type":"track_removed","data":{payload_json}}}"#
-    );
-    let event_payload: stophammer::event::EventPayload =
-        serde_json::from_str(&tagged).unwrap();
+    let tagged = format!(r#"{{"type":"track_removed","data":{payload_json}}}"#);
+    let event_payload: stophammer::event::EventPayload = serde_json::from_str(&tagged).unwrap();
 
     let event = stophammer::event::Event {
         event_id,
@@ -862,10 +789,7 @@ fn apply_track_removed_event() {
         warnings: vec![],
     };
 
-    let result = stophammer::apply::apply_single_event(
-        &pool,
-        &event,
-    );
+    let result = stophammer::apply::apply_single_event(&pool, &event);
     assert!(result.is_ok());
 
     let conn = db.lock().unwrap();
@@ -887,8 +811,8 @@ fn apply_feed_retired_unknown_guid_is_noop() {
     let db = Arc::new(Mutex::new(conn));
     let pool = common::wrap_pool(db.clone());
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-unknown.key")
-        .unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-unknown.key").unwrap();
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::FeedRetiredPayload {
         feed_guid: "nonexistent-feed".to_string(),
@@ -905,11 +829,8 @@ fn apply_feed_retired_unknown_guid_is_noop() {
         0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
-    let tagged = format!(
-        r#"{{"type":"feed_retired","data":{payload_json}}}"#
-    );
-    let event_payload: stophammer::event::EventPayload =
-        serde_json::from_str(&tagged).unwrap();
+    let tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
+    let event_payload: stophammer::event::EventPayload = serde_json::from_str(&tagged).unwrap();
 
     let event = stophammer::event::Event {
         event_id,
@@ -925,10 +846,7 @@ fn apply_feed_retired_unknown_guid_is_noop() {
     };
 
     // Should not error even though the feed does not exist.
-    let result = stophammer::apply::apply_single_event(
-        &pool,
-        &event,
-    );
+    let result = stophammer::apply::apply_single_event(&pool, &event);
     assert!(result.is_ok());
 }
 
@@ -942,8 +860,8 @@ fn apply_track_removed_unknown_guid_is_noop() {
     let db = Arc::new(Mutex::new(conn));
     let pool = common::wrap_pool(db.clone());
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-unknown.key")
-        .unwrap();
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-unknown.key").unwrap();
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::TrackRemovedPayload {
         track_guid: "nonexistent-track".to_string(),
@@ -960,11 +878,8 @@ fn apply_track_removed_unknown_guid_is_noop() {
         0, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
 
-    let tagged = format!(
-        r#"{{"type":"track_removed","data":{payload_json}}}"#
-    );
-    let event_payload: stophammer::event::EventPayload =
-        serde_json::from_str(&tagged).unwrap();
+    let tagged = format!(r#"{{"type":"track_removed","data":{payload_json}}}"#);
+    let event_payload: stophammer::event::EventPayload = serde_json::from_str(&tagged).unwrap();
 
     let event = stophammer::event::Event {
         event_id,
@@ -980,9 +895,6 @@ fn apply_track_removed_unknown_guid_is_noop() {
     };
 
     // Should not error even though the track does not exist.
-    let result = stophammer::apply::apply_single_event(
-        &pool,
-        &event,
-    );
+    let result = stophammer::apply::apply_single_event(&pool, &event);
     assert!(result.is_ok());
 }

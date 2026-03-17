@@ -8,12 +8,15 @@
 //! failures. `api.rs` pattern-matches on the variants to produce appropriate
 //! HTTP status codes, so the typed error is intentional.
 
-use std::fmt;
-use std::sync::{Arc, Mutex};
-use rusqlite::{Connection, OptionalExtension, params};
-use crate::model::{Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, PaymentRoute, RouteType, Track, ValueTimeSplit};
 use crate::event::{Event, EventPayload, EventType};
-use crate::signing::NodeSigner; // Issue-SEQ-INTEGRITY — 2026-03-14
+use crate::model::{
+    Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
+    PaymentRoute, RouteType, Track, ValueTimeSplit,
+};
+use crate::signing::NodeSigner;
+use rusqlite::{Connection, OptionalExtension, params};
+use std::fmt;
+use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
 
 pub type Db = Arc<Mutex<Connection>>;
 
@@ -49,9 +52,9 @@ impl fmt::Display for DbError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Rusqlite(e) => write!(f, "SQLite error: {e}"),
-            Self::Json(e)     => write!(f, "JSON error: {e}"),
-            Self::Poisoned    => write!(f, "database mutex poisoned"),
-            Self::Other(msg)  => write!(f, "{msg}"),
+            Self::Json(e) => write!(f, "JSON error: {e}"),
+            Self::Poisoned => write!(f, "database mutex poisoned"),
+            Self::Other(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -66,9 +69,9 @@ impl std::error::Error for DbError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Rusqlite(e) => Some(e),
-            Self::Json(e)     => Some(e),
-            Self::Poisoned    => None,
-            Self::Other(_)    => None,
+            Self::Json(e) => Some(e),
+            Self::Poisoned => None,
+            Self::Other(_) => None,
         }
     }
 }
@@ -86,17 +89,17 @@ impl std::error::Error for DbError {
 #[derive(Debug)]
 pub struct EventRow {
     /// Globally unique identifier for this event (UUID v4).
-    pub event_id:     String,
+    pub event_id: String,
     /// Discriminant describing the kind of state change this event records.
-    pub event_type:   EventType,
+    pub event_type: EventType,
     /// Canonical JSON representation of the event-specific payload.
     pub payload_json: String,
     /// GUID of the primary entity this event concerns (feed, track, etc.).
     pub subject_guid: String,
     /// Unix timestamp (seconds) at which the event was created.
-    pub created_at:   i64,
+    pub created_at: i64,
     /// Human-readable warnings produced by the verifier chain, if any.
-    pub warnings:     Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 // ── ExternalIdRow ──────────────────────────────────────────────────────────────
@@ -105,9 +108,9 @@ pub struct EventRow {
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct ExternalIdRow {
-    pub id:     i64,
+    pub id: i64,
     pub scheme: String,
-    pub value:  String,
+    pub value: String,
 }
 
 // ── EntitySourceRow ────────────────────────────────────────────────────────────
@@ -116,11 +119,11 @@ pub struct ExternalIdRow {
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct EntitySourceRow {
-    pub id:          i64,
+    pub id: i64,
     pub source_type: String,
-    pub source_url:  Option<String>,
+    pub source_url: Option<String>,
     pub trust_level: i64,
-    pub created_at:  i64,
+    pub created_at: i64,
 }
 
 // ── Migrations ───────────────────────────────────────────────────────────────
@@ -139,6 +142,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0003_search_entities_unique.sql"),
     // Migration 4: add proof_level to proof_tokens (Issue-PROOF-LEVEL — 2026-03-14)
     include_str!("../migrations/0004_proof_level.sql"),
+    // Migration 5: add live-events and feed-level remote-item staging tables.
+    include_str!("../migrations/0005_live_events_and_remote_items.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -157,7 +162,7 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
         "CREATE TABLE IF NOT EXISTS schema_migrations (
             version    INTEGER PRIMARY KEY,
             applied_at INTEGER NOT NULL
-        );"
+        );",
     )?;
 
     let current: i64 = conn.query_row(
@@ -208,8 +213,9 @@ pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;\n\
          PRAGMA foreign_keys = ON;\n\
-         PRAGMA synchronous = NORMAL;"
-    ).expect("failed to set PRAGMAs");
+         PRAGMA synchronous = NORMAL;",
+    )
+    .expect("failed to set PRAGMAs");
     run_migrations(&mut conn).expect("failed to apply migrations");
     conn
 }
@@ -280,21 +286,22 @@ pub fn resolve_artist(
             params![name_lower, fg],
             |row| {
                 Ok(Artist {
-                    artist_id:  row.get(0)?,
-                    name:       row.get(1)?,
+                    artist_id: row.get(0)?,
+                    name: row.get(1)?,
                     name_lower: row.get(2)?,
-                    sort_name:  row.get(3)?,
-                    type_id:    row.get(4)?,
-                    area:       row.get(5)?,
-                    img_url:    row.get(6)?,
-                    url:        row.get(7)?,
+                    sort_name: row.get(3)?,
+                    type_id: row.get(4)?,
+                    area: row.get(5)?,
+                    img_url: row.get(6)?,
+                    url: row.get(7)?,
                     begin_year: row.get(8)?,
-                    end_year:   row.get(9)?,
+                    end_year: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
                 })
             },
-        ).optional()?
+        )
+        .optional()?
     } else {
         conn.query_row(
             "SELECT a.artist_id, a.name, a.name_lower, a.sort_name, a.type_id, a.area, \
@@ -306,21 +313,22 @@ pub fn resolve_artist(
             params![name_lower],
             |row| {
                 Ok(Artist {
-                    artist_id:  row.get(0)?,
-                    name:       row.get(1)?,
+                    artist_id: row.get(0)?,
+                    name: row.get(1)?,
                     name_lower: row.get(2)?,
-                    sort_name:  row.get(3)?,
-                    type_id:    row.get(4)?,
-                    area:       row.get(5)?,
-                    img_url:    row.get(6)?,
-                    url:        row.get(7)?,
+                    sort_name: row.get(3)?,
+                    type_id: row.get(4)?,
+                    area: row.get(5)?,
+                    img_url: row.get(6)?,
+                    url: row.get(7)?,
                     begin_year: row.get(8)?,
-                    end_year:   row.get(9)?,
+                    end_year: row.get(9)?,
                     created_at: row.get(10)?,
                     updated_at: row.get(11)?,
                 })
             },
-        ).optional()?
+        )
+        .optional()?
     };
 
     if let Some(a) = via_alias {
@@ -344,13 +352,13 @@ pub fn resolve_artist(
         artist_id,
         name: name.to_string(),
         name_lower,
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     })
@@ -365,28 +373,30 @@ pub fn resolve_artist(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_artist_by_id(conn: &Connection, artist_id: &str) -> Result<Option<Artist>, DbError> {
-    let result = conn.query_row(
-        "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
+    let result = conn
+        .query_row(
+            "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
          img_url, url, begin_year, end_year, created_at, updated_at \
          FROM artists WHERE artist_id = ?1",
-        params![artist_id],
-        |row| {
-            Ok(Artist {
-                artist_id:  row.get(0)?,
-                name:       row.get(1)?,
-                name_lower: row.get(2)?,
-                sort_name:  row.get(3)?,
-                type_id:    row.get(4)?,
-                area:       row.get(5)?,
-                img_url:    row.get(6)?,
-                url:        row.get(7)?,
-                begin_year: row.get(8)?,
-                end_year:   row.get(9)?,
-                created_at: row.get(10)?,
-                updated_at: row.get(11)?,
-            })
-        },
-    ).optional()?;
+            params![artist_id],
+            |row| {
+                Ok(Artist {
+                    artist_id: row.get(0)?,
+                    name: row.get(1)?,
+                    name_lower: row.get(2)?,
+                    sort_name: row.get(3)?,
+                    type_id: row.get(4)?,
+                    area: row.get(5)?,
+                    img_url: row.get(6)?,
+                    url: row.get(7)?,
+                    begin_year: row.get(8)?,
+                    end_year: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .optional()?;
     Ok(result)
 }
 
@@ -402,12 +412,11 @@ pub fn get_artist_by_id(conn: &Connection, artist_id: &str) -> Result<Option<Art
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn artist_exists(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
-    let exists: bool = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM artists WHERE artist_id = ?1)",
-            params![artist_id],
-            |row| row.get(0),
-        )?;
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM artists WHERE artist_id = ?1)",
+        params![artist_id],
+        |row| row.get(0),
+    )?;
     Ok(exists)
 }
 
@@ -419,7 +428,10 @@ pub fn artist_exists(conn: &Connection, artist_id: &str) -> Result<bool, DbError
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_payment_routes_for_track(conn: &Connection, track_guid: &str) -> Result<Vec<PaymentRoute>, DbError> {
+pub fn get_payment_routes_for_track(
+    conn: &Connection,
+    track_guid: &str,
+) -> Result<Vec<PaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
          custom_key, custom_value, split, fee \
@@ -429,16 +441,16 @@ pub fn get_payment_routes_for_track(conn: &Connection, track_guid: &str) -> Resu
         let rt_str: String = row.get(4)?;
         let fee_i: i64 = row.get(9)?;
         Ok(PaymentRoute {
-            id:             row.get(0)?,
-            track_guid:     row.get(1)?,
-            feed_guid:      row.get(2)?,
+            id: row.get(0)?,
+            track_guid: row.get(1)?,
+            feed_guid: row.get(2)?,
             recipient_name: row.get(3)?,
-            route_type:     serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
-            address:        row.get(5)?,
-            custom_key:     row.get(6)?,
-            custom_value:   row.get(7)?,
-            split:          row.get(8)?,
-            fee:            fee_i != 0,
+            route_type: serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
+            address: row.get(5)?,
+            custom_key: row.get(6)?,
+            custom_value: row.get(7)?,
+            split: row.get(8)?,
+            fee: fee_i != 0,
         })
     })?;
     let mut result = Vec::new();
@@ -456,7 +468,10 @@ pub fn get_payment_routes_for_track(conn: &Connection, track_guid: &str) -> Resu
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_value_time_splits_for_track(conn: &Connection, track_guid: &str) -> Result<Vec<ValueTimeSplit>, DbError> {
+pub fn get_value_time_splits_for_track(
+    conn: &Connection,
+    track_guid: &str,
+) -> Result<Vec<ValueTimeSplit>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
          remote_item_guid, split, created_at \
@@ -464,14 +479,14 @@ pub fn get_value_time_splits_for_track(conn: &Connection, track_guid: &str) -> R
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
         Ok(ValueTimeSplit {
-            id:                row.get(0)?,
+            id: row.get(0)?,
             source_track_guid: row.get(1)?,
-            start_time_secs:   row.get(2)?,
-            duration_secs:     row.get(3)?,
-            remote_feed_guid:  row.get(4)?,
-            remote_item_guid:  row.get(5)?,
-            split:             row.get(6)?,
-            created_at:        row.get(7)?,
+            start_time_secs: row.get(2)?,
+            duration_secs: row.get(3)?,
+            remote_feed_guid: row.get(4)?,
+            remote_item_guid: row.get(5)?,
+            split: row.get(6)?,
+            created_at: row.get(7)?,
         })
     })?;
     let mut result = Vec::new();
@@ -541,7 +556,9 @@ pub(crate) fn merge_artists_sql(
            )",
     )?;
     let transferred: Vec<String> = stmt
-        .query_map(params![source_artist_id, target_artist_id], |row| row.get(0))?
+        .query_map(params![source_artist_id, target_artist_id], |row| {
+            row.get(0)
+        })?
         .collect::<Result<_, _>>()?;
     drop(stmt);
 
@@ -599,10 +616,18 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
          img_url, url, begin_year, end_year, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
         params![
-            artist.artist_id, artist.name, artist.name_lower,
-            artist.sort_name, artist.type_id, artist.area,
-            artist.img_url, artist.url, artist.begin_year, artist.end_year,
-            artist.created_at, artist.updated_at,
+            artist.artist_id,
+            artist.name,
+            artist.name_lower,
+            artist.sort_name,
+            artist.type_id,
+            artist.area,
+            artist.img_url,
+            artist.url,
+            artist.begin_year,
+            artist.end_year,
+            artist.created_at,
+            artist.updated_at,
         ],
     )?;
     Ok(())
@@ -620,7 +645,7 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
 pub fn create_artist_credit(
     conn: &Connection,
     display_name: &str,
-    names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
     feed_guid: Option<&str>,
 ) -> Result<ArtistCredit, DbError> {
     let now = unix_now();
@@ -633,7 +658,10 @@ pub fn create_artist_credit(
 
     let mut credit_names = Vec::with_capacity(names.len());
     for (pos, (artist_id, name, join_phrase)) in names.iter().enumerate() {
-        #[expect(clippy::cast_possible_wrap, reason = "artist credit position count never approaches i64::MAX")]
+        #[expect(
+            clippy::cast_possible_wrap,
+            reason = "artist credit position count never approaches i64::MAX"
+        )]
         let position = pos as i64;
         conn.execute(
             "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
@@ -642,21 +670,21 @@ pub fn create_artist_credit(
         )?;
         let acn_id = conn.last_insert_rowid();
         credit_names.push(ArtistCreditName {
-            id:               acn_id,
+            id: acn_id,
             artist_credit_id: credit_id,
-            artist_id:        artist_id.clone(),
+            artist_id: artist_id.clone(),
             position,
-            name:             name.clone(),
-            join_phrase:      join_phrase.clone(),
+            name: name.clone(),
+            join_phrase: join_phrase.clone(),
         });
     }
 
     Ok(ArtistCredit {
-        id:           credit_id,
+        id: credit_id,
         display_name: display_name.to_string(),
-        feed_guid:    feed_guid.map(String::from),
-        created_at:   now,
-        names:        credit_names,
+        feed_guid: feed_guid.map(String::from),
+        created_at: now,
+        names: credit_names,
     })
 }
 
@@ -685,12 +713,17 @@ pub fn create_single_artist_credit(
 ///
 /// Returns [`DbError`] if any SQL query fails.
 // Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<ArtistCredit>, DbError> {
-    let credit: Option<(i64, String, Option<String>, i64)> = conn.query_row(
-        "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id = ?1",
-        params![credit_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-    ).optional()?;
+pub fn get_artist_credit(
+    conn: &Connection,
+    credit_id: i64,
+) -> Result<Option<ArtistCredit>, DbError> {
+    let credit: Option<(i64, String, Option<String>, i64)> = conn
+        .query_row(
+            "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id = ?1",
+            params![credit_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
 
     let Some((id, display_name, feed_guid, created_at)) = credit else {
         return Ok(None);
@@ -700,18 +733,26 @@ pub fn get_artist_credit(conn: &Connection, credit_id: i64) -> Result<Option<Art
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
          FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
     )?;
-    let names: Vec<ArtistCreditName> = stmt.query_map(params![id], |row| {
-        Ok(ArtistCreditName {
-            id:               row.get(0)?,
-            artist_credit_id: row.get(1)?,
-            artist_id:        row.get(2)?,
-            position:         row.get(3)?,
-            name:             row.get(4)?,
-            join_phrase:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let names: Vec<ArtistCreditName> = stmt
+        .query_map(params![id], |row| {
+            Ok(ArtistCreditName {
+                id: row.get(0)?,
+                artist_credit_id: row.get(1)?,
+                artist_id: row.get(2)?,
+                position: row.get(3)?,
+                name: row.get(4)?,
+                join_phrase: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, feed_guid, created_at, names }))
+    Ok(Some(ArtistCredit {
+        id,
+        display_name,
+        feed_guid,
+        created_at,
+        names,
+    }))
 }
 
 // Issue-6 batch credits — 2026-03-13
@@ -750,16 +791,39 @@ pub fn load_credits_batch(
         "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id IN ({placeholders})"
     );
     let mut stmt = conn.prepare(&sql_credits)?;
-    let params_credits: Vec<Box<dyn rusqlite::types::ToSql>> =
-        unique_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
-    let credit_rows = stmt.query_map(params_credits.iter().map(AsRef::as_ref).collect::<Vec<_>>().as_slice(), |row| {
-        Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?, row.get::<_, i64>(3)?))
-    })?;
+    let params_credits: Vec<Box<dyn rusqlite::types::ToSql>> = unique_ids
+        .iter()
+        .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+        .collect();
+    let credit_rows = stmt.query_map(
+        params_credits
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        },
+    )?;
 
     let mut map: HashMap<i64, ArtistCredit> = HashMap::new();
     for row in credit_rows {
         let (id, display_name, feed_guid, created_at) = row?;
-        map.insert(id, ArtistCredit { id, display_name, feed_guid, created_at, names: Vec::new() });
+        map.insert(
+            id,
+            ArtistCredit {
+                id,
+                display_name,
+                feed_guid,
+                created_at,
+                names: Vec::new(),
+            },
+        );
     }
 
     if map.is_empty() {
@@ -772,18 +836,27 @@ pub fn load_credits_batch(
          FROM artist_credit_name WHERE artist_credit_id IN ({placeholders}) ORDER BY artist_credit_id, position"
     );
     let mut stmt_names = conn.prepare(&sql_names)?;
-    let params_names: Vec<Box<dyn rusqlite::types::ToSql>> =
-        unique_ids.iter().map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>).collect();
-    let name_rows = stmt_names.query_map(params_names.iter().map(AsRef::as_ref).collect::<Vec<_>>().as_slice(), |row| {
-        Ok(ArtistCreditName {
-            id:               row.get(0)?,
-            artist_credit_id: row.get(1)?,
-            artist_id:        row.get(2)?,
-            position:         row.get(3)?,
-            name:             row.get(4)?,
-            join_phrase:      row.get(5)?,
-        })
-    })?;
+    let params_names: Vec<Box<dyn rusqlite::types::ToSql>> = unique_ids
+        .iter()
+        .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
+        .collect();
+    let name_rows = stmt_names.query_map(
+        params_names
+            .iter()
+            .map(AsRef::as_ref)
+            .collect::<Vec<_>>()
+            .as_slice(),
+        |row| {
+            Ok(ArtistCreditName {
+                id: row.get(0)?,
+                artist_credit_id: row.get(1)?,
+                artist_id: row.get(2)?,
+                position: row.get(3)?,
+                name: row.get(4)?,
+                join_phrase: row.get(5)?,
+            })
+        },
+    )?;
 
     for row in name_rows {
         let acn = row?;
@@ -815,14 +888,16 @@ pub fn get_artist_credit_by_display_name(
              WHERE LOWER(display_name) = ?1 AND feed_guid = ?2",
             params![lower, fg],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).optional()?
+        )
+        .optional()?
     } else {
         conn.query_row(
             "SELECT id, display_name, feed_guid, created_at FROM artist_credit \
              WHERE LOWER(display_name) = ?1 AND feed_guid IS NULL",
             params![lower],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        ).optional()?
+        )
+        .optional()?
     };
 
     let Some((id, display_name, feed_guid_val, created_at)) = credit else {
@@ -833,18 +908,26 @@ pub fn get_artist_credit_by_display_name(
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
          FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
     )?;
-    let names: Vec<ArtistCreditName> = stmt.query_map(params![id], |row| {
-        Ok(ArtistCreditName {
-            id:               row.get(0)?,
-            artist_credit_id: row.get(1)?,
-            artist_id:        row.get(2)?,
-            position:         row.get(3)?,
-            name:             row.get(4)?,
-            join_phrase:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let names: Vec<ArtistCreditName> = stmt
+        .query_map(params![id], |row| {
+            Ok(ArtistCreditName {
+                id: row.get(0)?,
+                artist_credit_id: row.get(1)?,
+                artist_id: row.get(2)?,
+                position: row.get(3)?,
+                name: row.get(4)?,
+                join_phrase: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
-    Ok(Some(ArtistCredit { id, display_name, feed_guid: feed_guid_val, created_at, names }))
+    Ok(Some(ArtistCredit {
+        id,
+        display_name,
+        feed_guid: feed_guid_val,
+        created_at,
+        names,
+    }))
 }
 
 /// Idempotent artist credit retrieval, scoped by feed.
@@ -860,7 +943,7 @@ pub fn get_artist_credit_by_display_name(
 pub fn get_or_create_artist_credit(
     conn: &Connection,
     display_name: &str,
-    names: &[(String, String, String)],  // (artist_id, credited_name, join_phrase)
+    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
     feed_guid: Option<&str>,
 ) -> Result<ArtistCredit, DbError> {
     if let Some(existing) = get_artist_credit_by_display_name(conn, display_name, feed_guid)? {
@@ -887,9 +970,11 @@ pub fn get_artist_credits_for_artist(
          WHERE acn.artist_id = ?1 \
          ORDER BY ac.id",
     )?;
-    let credits: Vec<(i64, String, Option<String>, i64)> = credit_stmt.query_map(params![artist_id], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-    })?.collect::<Result<_, _>>()?;
+    let credits: Vec<(i64, String, Option<String>, i64)> = credit_stmt
+        .query_map(params![artist_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<Result<_, _>>()?;
 
     let mut name_stmt = conn.prepare(
         "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
@@ -898,17 +983,25 @@ pub fn get_artist_credits_for_artist(
 
     let mut result = Vec::with_capacity(credits.len());
     for (id, display_name, feed_guid, created_at) in credits {
-        let names: Vec<ArtistCreditName> = name_stmt.query_map(params![id], |row| {
-            Ok(ArtistCreditName {
-                id:               row.get(0)?,
-                artist_credit_id: row.get(1)?,
-                artist_id:        row.get(2)?,
-                position:         row.get(3)?,
-                name:             row.get(4)?,
-                join_phrase:      row.get(5)?,
-            })
-        })?.collect::<Result<_, _>>()?;
-        result.push(ArtistCredit { id, display_name, feed_guid, created_at, names });
+        let names: Vec<ArtistCreditName> = name_stmt
+            .query_map(params![id], |row| {
+                Ok(ArtistCreditName {
+                    id: row.get(0)?,
+                    artist_credit_id: row.get(1)?,
+                    artist_id: row.get(2)?,
+                    position: row.get(3)?,
+                    name: row.get(4)?,
+                    join_phrase: row.get(5)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        result.push(ArtistCredit {
+            id,
+            display_name,
+            feed_guid,
+            created_at,
+            names,
+        });
     }
 
     Ok(result)
@@ -1026,7 +1119,10 @@ pub fn replace_payment_routes(
     track_guid: &str,
     routes: &[PaymentRoute],
 ) -> Result<(), DbError> {
-    conn.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track_guid])?;
+    conn.execute(
+        "DELETE FROM payment_routes WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
     for r in routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -1062,7 +1158,10 @@ pub fn replace_feed_payment_routes(
     feed_guid: &str,
     routes: &[FeedPaymentRoute],
 ) -> Result<(), DbError> {
-    conn.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed_guid])?;
+    conn.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
     for r in routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -1114,6 +1213,130 @@ pub fn replace_value_time_splits(
                 s.remote_item_guid,
                 s.split,
                 s.created_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+// ── feed_remote_items_raw ───────────────────────────────────────────────────
+
+/// Returns the raw feed-level `podcast:remoteItem` refs for a feed ordered by position.
+pub fn get_feed_remote_items_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<FeedRemoteItemRaw>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+         FROM feed_remote_items_raw WHERE feed_guid = ?1 ORDER BY position",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(FeedRemoteItemRaw {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            position: row.get(2)?,
+            medium: row.get(3)?,
+            remote_feed_guid: row.get(4)?,
+            remote_feed_url: row.get(5)?,
+            source: row.get(6)?,
+        })
+    })?;
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+/// Replaces the raw feed-level `podcast:remoteItem` refs for a feed.
+pub fn replace_feed_remote_items_raw(
+    conn: &Connection,
+    feed_guid: &str,
+    remote_items: &[FeedRemoteItemRaw],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for item in remote_items {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                &item.feed_guid,
+                item.position,
+                &item.medium,
+                &item.remote_feed_guid,
+                &item.remote_feed_url,
+                &item.source,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+// ── live_events ─────────────────────────────────────────────────────────────
+
+/// Returns the current ephemeral live-event rows for a feed.
+pub fn get_live_events_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<LiveEvent>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT live_item_guid, feed_guid, title, content_link, status, scheduled_start, \
+         scheduled_end, created_at, updated_at \
+         FROM live_events WHERE feed_guid = ?1 ORDER BY COALESCE(scheduled_start, created_at), live_item_guid",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(LiveEvent {
+            live_item_guid: row.get(0)?,
+            feed_guid: row.get(1)?,
+            title: row.get(2)?,
+            content_link: row.get(3)?,
+            status: row.get(4)?,
+            scheduled_start: row.get(5)?,
+            scheduled_end: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    })?;
+
+    let mut events = Vec::new();
+    for row in rows {
+        events.push(row?);
+    }
+    Ok(events)
+}
+
+/// Replaces the current ephemeral live-event rows for a feed.
+pub fn replace_live_events_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    live_events: &[LiveEvent],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for live_event in live_events {
+        conn.execute(
+            "INSERT INTO live_events \
+             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &live_event.live_item_guid,
+                &live_event.feed_guid,
+                &live_event.title,
+                &live_event.content_link,
+                &live_event.status,
+                live_event.scheduled_start,
+                live_event.scheduled_end,
+                live_event.created_at,
+                live_event.updated_at,
             ],
         )?;
     }
@@ -1269,10 +1492,7 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
 
     // 10. feeds
-    conn.execute(
-        "DELETE FROM feeds WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
+    conn.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
 
     Ok(())
 }
@@ -1291,16 +1511,19 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
 /// transaction commit fails.
 // DB performance compliant (subqueries) — 2026-03-12
 // Issue-SEQ-INTEGRITY — 2026-03-14
-#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all event fields are required for a complete atomic delete+event"
+)]
 pub fn delete_feed_with_event(
-    conn:         &mut Connection,
-    feed_guid:    &str,
-    event_id:     &str,
+    conn: &mut Connection,
+    feed_guid: &str,
+    event_id: &str,
     payload_json: &str,
     subject_guid: &str,
-    signer:       &NodeSigner,
-    created_at:   i64,
-    warnings:     &[String],
+    signer: &NodeSigner,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
@@ -1309,7 +1532,10 @@ pub fn delete_feed_with_event(
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
         params![feed_guid],
     )?;
-    tx.execute("DELETE FROM feed_tag WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM feed_tag WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
     tx.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
@@ -1320,7 +1546,10 @@ pub fn delete_feed_with_event(
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
         params![feed_guid],
     )?;
-    tx.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
     tx.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
@@ -1340,10 +1569,19 @@ pub fn delete_feed_with_event(
         params![feed_guid],
     )?;
     // proof_tokens & proof_challenges (SG-07)
-    tx.execute("DELETE FROM proof_tokens WHERE subject_feed_guid = ?1", params![feed_guid])?;
-    tx.execute("DELETE FROM proof_challenges WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM proof_challenges WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
 
-    tx.execute("DELETE FROM tracks WHERE feed_guid = ?1", params![feed_guid])?;
+    tx.execute(
+        "DELETE FROM tracks WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
     tx.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
 
     let et_str = event_type_str(&crate::event::EventType::FeedRetired)?;
@@ -1358,7 +1596,12 @@ pub fn delete_feed_with_event(
         |row| row.get::<_, i64>(0),
     )?;
     let (signed_by, signature) = signer.sign_event(
-        event_id, &crate::event::EventType::FeedRetired, payload_json, subject_guid, created_at, seq,
+        event_id,
+        &crate::event::EventType::FeedRetired,
+        payload_json,
+        subject_guid,
+        created_at,
+        seq,
     );
     update_event_signature(&tx, event_id, &signed_by, &signature)?;
 
@@ -1376,22 +1619,34 @@ pub fn delete_feed_with_event(
 /// Returns [`DbError`] if any SQL statement, JSON serialisation, or the
 /// transaction commit fails.
 // Issue-SEQ-INTEGRITY — 2026-03-14
-#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic delete+event")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all event fields are required for a complete atomic delete+event"
+)]
 pub fn delete_track_with_event(
-    conn:         &mut Connection,
-    track_guid:   &str,
-    event_id:     &str,
+    conn: &mut Connection,
+    track_guid: &str,
+    event_id: &str,
     payload_json: &str,
     subject_guid: &str,
-    signer:       &NodeSigner,
-    created_at:   i64,
-    warnings:     &[String],
+    signer: &NodeSigner,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
-    tx.execute("DELETE FROM track_tag WHERE track_guid = ?1", params![track_guid])?;
-    tx.execute("DELETE FROM value_time_splits WHERE source_track_guid = ?1", params![track_guid])?;
-    tx.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track_guid])?;
+    tx.execute(
+        "DELETE FROM track_tag WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
+        params![track_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM payment_routes WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
     tx.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
         params![track_guid],
@@ -1400,7 +1655,10 @@ pub fn delete_track_with_event(
         "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id = ?1",
         params![track_guid],
     )?;
-    tx.execute("DELETE FROM tracks WHERE track_guid = ?1", params![track_guid])?;
+    tx.execute(
+        "DELETE FROM tracks WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
 
     let et_str = event_type_str(&crate::event::EventType::TrackRemoved)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -1414,7 +1672,12 @@ pub fn delete_track_with_event(
         |row| row.get::<_, i64>(0),
     )?;
     let (signed_by, signature) = signer.sign_event(
-        event_id, &crate::event::EventType::TrackRemoved, payload_json, subject_guid, created_at, seq,
+        event_id,
+        &crate::event::EventType::TrackRemoved,
+        payload_json,
+        subject_guid,
+        created_at,
+        seq,
     );
     update_event_signature(&tx, event_id, &signed_by, &signature)?;
 
@@ -1432,26 +1695,35 @@ pub fn delete_track_with_event(
 /// Returns [`DbError`] if any SQL statement or the transaction commit fails.
 // Finding-2 atomic mutation+event — 2026-03-13
 // Issue-SEQ-INTEGRITY — 2026-03-14
-#[expect(clippy::too_many_arguments, reason = "all event fields are required for a complete atomic merge+event")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all event fields are required for a complete atomic merge+event"
+)]
 pub fn merge_artists_with_event(
-    conn:            &mut Connection,
+    conn: &mut Connection,
     source_artist_id: &str,
     target_artist_id: &str,
-    event_id:        &str,
-    event_type:      &EventType,
-    payload_json:    &str,
-    subject_guid:    &str,
-    signer:          &NodeSigner,
-    created_at:      i64,
-    warnings:        &[String],
+    event_id: &str,
+    event_type: &EventType,
+    payload_json: &str,
+    subject_guid: &str,
+    signer: &NodeSigner,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<(Vec<String>, i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
     let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
 
     let (seq, signed_by, signature) = insert_event(
-        &tx, event_id, event_type, payload_json, subject_guid,
-        signer, created_at, warnings,
+        &tx,
+        event_id,
+        event_type,
+        payload_json,
+        subject_guid,
+        signer,
+        created_at,
+        warnings,
     )?;
 
     tx.commit()?;
@@ -1465,10 +1737,7 @@ pub fn merge_artists_with_event(
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_feed_by_guid(
-    conn:      &Connection,
-    feed_guid: &str,
-) -> Result<Option<Feed>, DbError> {
+pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbError> {
     let result = conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          language, explicit, itunes_type, episode_count, newest_item_at, oldest_item_at, \
@@ -1508,38 +1777,37 @@ pub fn get_feed_by_guid(
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_track_by_guid(
-    conn:       &Connection,
-    track_guid: &str,
-) -> Result<Option<Track>, DbError> {
-    let result = conn.query_row(
-        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<Track>, DbError> {
+    let result = conn
+        .query_row(
+            "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
          duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, created_at, updated_at \
          FROM tracks WHERE track_guid = ?1",
-        params![track_guid],
-        |row| {
-            let explicit_i: i64 = row.get(12)?;
-            Ok(Track {
-                track_guid:       row.get(0)?,
-                feed_guid:        row.get(1)?,
-                artist_credit_id: row.get(2)?,
-                title:            row.get(3)?,
-                title_lower:      row.get(4)?,
-                pub_date:         row.get(5)?,
-                duration_secs:    row.get(6)?,
-                enclosure_url:    row.get(7)?,
-                enclosure_type:   row.get(8)?,
-                enclosure_bytes:  row.get(9)?,
-                track_number:     row.get(10)?,
-                season:           row.get(11)?,
-                explicit:         explicit_i != 0,
-                description:      row.get(13)?,
-                created_at:       row.get(14)?,
-                updated_at:       row.get(15)?,
-            })
-        },
-    ).optional()?;
+            params![track_guid],
+            |row| {
+                let explicit_i: i64 = row.get(12)?;
+                Ok(Track {
+                    track_guid: row.get(0)?,
+                    feed_guid: row.get(1)?,
+                    artist_credit_id: row.get(2)?,
+                    title: row.get(3)?,
+                    title_lower: row.get(4)?,
+                    pub_date: row.get(5)?,
+                    duration_secs: row.get(6)?,
+                    enclosure_url: row.get(7)?,
+                    enclosure_type: row.get(8)?,
+                    enclosure_bytes: row.get(9)?,
+                    track_number: row.get(10)?,
+                    season: row.get(11)?,
+                    explicit: explicit_i != 0,
+                    description: row.get(13)?,
+                    created_at: row.get(14)?,
+                    updated_at: row.get(15)?,
+                })
+            },
+        )
+        .optional()?;
 
     Ok(result)
 }
@@ -1551,10 +1819,7 @@ pub fn get_track_by_guid(
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_tracks_for_feed(
-    conn:      &Connection,
-    feed_guid: &str,
-) -> Result<Vec<Track>, DbError> {
+pub fn get_tracks_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec<Track>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
          duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
@@ -1565,22 +1830,22 @@ pub fn get_tracks_for_feed(
     let rows = stmt.query_map(params![feed_guid], |row| {
         let explicit_i: i64 = row.get(12)?;
         Ok(Track {
-            track_guid:       row.get(0)?,
-            feed_guid:        row.get(1)?,
+            track_guid: row.get(0)?,
+            feed_guid: row.get(1)?,
             artist_credit_id: row.get(2)?,
-            title:            row.get(3)?,
-            title_lower:      row.get(4)?,
-            pub_date:         row.get(5)?,
-            duration_secs:    row.get(6)?,
-            enclosure_url:    row.get(7)?,
-            enclosure_type:   row.get(8)?,
-            enclosure_bytes:  row.get(9)?,
-            track_number:     row.get(10)?,
-            season:           row.get(11)?,
-            explicit:         explicit_i != 0,
-            description:      row.get(13)?,
-            created_at:       row.get(14)?,
-            updated_at:       row.get(15)?,
+            title: row.get(3)?,
+            title_lower: row.get(4)?,
+            pub_date: row.get(5)?,
+            duration_secs: row.get(6)?,
+            enclosure_url: row.get(7)?,
+            enclosure_type: row.get(8)?,
+            enclosure_bytes: row.get(9)?,
+            track_number: row.get(10)?,
+            season: row.get(11)?,
+            explicit: explicit_i != 0,
+            description: row.get(13)?,
+            created_at: row.get(14)?,
+            updated_at: row.get(15)?,
         })
     })?;
 
@@ -1600,7 +1865,7 @@ pub fn get_tracks_for_feed(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_feed_payment_routes_for_feed(
-    conn:      &Connection,
+    conn: &Connection,
     feed_guid: &str,
 ) -> Result<Vec<FeedPaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
@@ -1612,16 +1877,15 @@ pub fn get_feed_payment_routes_for_feed(
         let rt_str: String = row.get(3)?;
         let fee_i: i64 = row.get(8)?;
         Ok(FeedPaymentRoute {
-            id:             row.get(0)?,
-            feed_guid:      row.get(1)?,
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
             recipient_name: row.get(2)?,
-            route_type:     serde_json::from_str(&format!("\"{rt_str}\""))
-                                .unwrap_or(RouteType::Node),
-            address:        row.get(4)?,
-            custom_key:     row.get(5)?,
-            custom_value:   row.get(6)?,
-            split:          row.get(7)?,
-            fee:            fee_i != 0,
+            route_type: serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
+            address: row.get(4)?,
+            custom_key: row.get(5)?,
+            custom_value: row.get(6)?,
+            split: row.get(7)?,
+            fee: fee_i != 0,
         })
     })?;
     let mut result = Vec::new();
@@ -1637,62 +1901,82 @@ pub fn get_feed_payment_routes_for_feed(
 /// Compares two feeds by their content fields (ignoring timestamps and
 /// computed fields like `episode_count`, `newest_item_at`, `oldest_item_at`).
 fn feed_fields_changed(existing: &Feed, new: &Feed) -> bool {
-    existing.title       != new.title
-    || existing.description != new.description
-    || existing.image_url   != new.image_url
-    || existing.language    != new.language
-    || existing.explicit    != new.explicit
-    || existing.itunes_type != new.itunes_type
-    || existing.raw_medium  != new.raw_medium
-    || existing.feed_url    != new.feed_url
+    existing.title != new.title
+        || existing.description != new.description
+        || existing.image_url != new.image_url
+        || existing.language != new.language
+        || existing.explicit != new.explicit
+        || existing.itunes_type != new.itunes_type
+        || existing.raw_medium != new.raw_medium
+        || existing.feed_url != new.feed_url
 }
 
 /// Compares two tracks by their content fields (ignoring timestamps).
 fn track_fields_changed(existing: &Track, new: &Track) -> bool {
-    existing.title            != new.title
-    || existing.artist_credit_id != new.artist_credit_id
-    || existing.pub_date         != new.pub_date
-    || existing.duration_secs    != new.duration_secs
-    || existing.enclosure_url    != new.enclosure_url
-    || existing.enclosure_type   != new.enclosure_type
-    || existing.enclosure_bytes  != new.enclosure_bytes
-    || existing.track_number     != new.track_number
-    || existing.season           != new.season
-    || existing.explicit         != new.explicit
-    || existing.description      != new.description
+    existing.title != new.title
+        || existing.artist_credit_id != new.artist_credit_id
+        || existing.pub_date != new.pub_date
+        || existing.duration_secs != new.duration_secs
+        || existing.enclosure_url != new.enclosure_url
+        || existing.enclosure_type != new.enclosure_type
+        || existing.enclosure_bytes != new.enclosure_bytes
+        || existing.track_number != new.track_number
+        || existing.season != new.season
+        || existing.explicit != new.explicit
+        || existing.description != new.description
 }
 
 /// Compares two artists by their content fields (ignoring timestamps).
 fn artist_fields_changed(existing: &Artist, new: &Artist) -> bool {
-    existing.name       != new.name
-    || existing.sort_name  != new.sort_name
-    || existing.type_id    != new.type_id
-    || existing.area       != new.area
-    || existing.img_url    != new.img_url
-    || existing.url        != new.url
-    || existing.begin_year != new.begin_year
-    || existing.end_year   != new.end_year
+    existing.name != new.name
+        || existing.sort_name != new.sort_name
+        || existing.type_id != new.type_id
+        || existing.area != new.area
+        || existing.img_url != new.img_url
+        || existing.url != new.url
+        || existing.begin_year != new.begin_year
+        || existing.end_year != new.end_year
 }
 
 /// Compares two sets of feed payment routes by their content fields
 /// (ignoring `id` which is DB-assigned).
-fn feed_routes_changed(
-    existing: &[FeedPaymentRoute],
-    new: &[FeedPaymentRoute],
-) -> bool {
+fn feed_routes_changed(existing: &[FeedPaymentRoute], new: &[FeedPaymentRoute]) -> bool {
     if existing.len() != new.len() {
         return true;
     }
     // Compare route-by-route; order matters.
     existing.iter().zip(new.iter()).any(|(a, b)| {
         a.recipient_name != b.recipient_name
-        || a.route_type     != b.route_type
-        || a.address        != b.address
-        || a.custom_key     != b.custom_key
-        || a.custom_value   != b.custom_value
-        || a.split          != b.split
-        || a.fee            != b.fee
+            || a.route_type != b.route_type
+            || a.address != b.address
+            || a.custom_key != b.custom_key
+            || a.custom_value != b.custom_value
+            || a.split != b.split
+            || a.fee != b.fee
     })
+}
+
+fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteItemRaw]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.position != b.position
+                || a.medium != b.medium
+                || a.remote_feed_guid != b.remote_feed_guid
+                || a.remote_feed_url != b.remote_feed_url
+                || a.source != b.source
+        })
+}
+
+fn live_events_changed(existing: &[LiveEvent], new: &[LiveEvent]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.live_item_guid != b.live_item_guid
+                || a.title != b.title
+                || a.content_link != b.content_link
+                || a.status != b.status
+                || a.scheduled_start != b.scheduled_start
+                || a.scheduled_end != b.scheduled_end
+        })
 }
 
 // ── build_diff_events ───────────────────────────────────────────────────────
@@ -1707,17 +1991,22 @@ fn feed_routes_changed(
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query or JSON serialisation fails.
-#[expect(clippy::too_many_arguments, reason = "mirrors the data needed to build events")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors the data needed to build events"
+)]
 pub fn build_diff_events(
-    conn:           &Connection,
-    artist:         &Artist,
-    artist_credit:  &ArtistCredit,
-    feed:           &Feed,
-    feed_routes:    &[FeedPaymentRoute],
-    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
-    track_credits:  &[ArtistCredit],
-    now:            i64,
-    warnings:       &[String],
+    conn: &Connection,
+    artist: &Artist,
+    artist_credit: &ArtistCredit,
+    feed: &Feed,
+    remote_items: &[FeedRemoteItemRaw],
+    feed_routes: &[FeedPaymentRoute],
+    live_events: &[LiveEvent],
+    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits: &[ArtistCredit],
+    now: i64,
+    warnings: &[String],
 ) -> Result<Vec<EventRow>, DbError> {
     // Use feed existence as the primary gate: if the feed is not yet in the
     // DB, this is a first ingest and all events must be emitted. Note: the
@@ -1726,42 +2015,87 @@ pub fn build_diff_events(
     let existing_feed = get_feed_by_guid(conn, &feed.feed_guid)?;
 
     existing_feed.map_or_else(
-        || build_all_events(
-            artist, artist_credit, feed, feed_routes, tracks,
-            track_credits, now, warnings,
-        ),
-        |ef| build_changed_events(
-            conn, artist, artist_credit, feed, feed_routes, tracks,
-            track_credits, now, warnings, &ef,
-        ),
+        || {
+            build_all_events(
+                artist,
+                artist_credit,
+                feed,
+                remote_items,
+                feed_routes,
+                live_events,
+                tracks,
+                track_credits,
+                now,
+                warnings,
+            )
+        },
+        |ef| {
+            build_changed_events(
+                conn,
+                artist,
+                artist_credit,
+                feed,
+                remote_items,
+                feed_routes,
+                live_events,
+                tracks,
+                track_credits,
+                now,
+                warnings,
+                &ef,
+            )
+        },
     )
 }
 
 /// Emits all events unconditionally (first ingest of a feed).
-#[expect(clippy::too_many_arguments, reason = "mirrors build_diff_events params")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors build_diff_events params"
+)]
 fn build_all_events(
-    artist:         &Artist,
-    artist_credit:  &ArtistCredit,
-    feed:           &Feed,
-    feed_routes:    &[FeedPaymentRoute],
-    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
-    track_credits:  &[ArtistCredit],
-    now:            i64,
-    warnings:       &[String],
+    artist: &Artist,
+    artist_credit: &ArtistCredit,
+    feed: &Feed,
+    remote_items: &[FeedRemoteItemRaw],
+    feed_routes: &[FeedPaymentRoute],
+    live_events: &[LiveEvent],
+    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits: &[ArtistCredit],
+    now: i64,
+    warnings: &[String],
 ) -> Result<Vec<EventRow>, DbError> {
     let mut event_rows: Vec<EventRow> = Vec::new();
     let warn_vec: Vec<String> = warnings.to_vec();
 
     event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
     event_rows.push(build_artist_credit_event(
-        artist_credit, artist, now, &warn_vec,
+        artist_credit,
+        artist,
+        now,
+        &warn_vec,
     )?);
     event_rows.push(build_feed_upserted_event(
-        feed, artist, artist_credit, now, &warn_vec,
+        feed,
+        artist,
+        artist_credit,
+        now,
+        &warn_vec,
     )?);
 
     if !feed_routes.is_empty() {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+    if !remote_items.is_empty() {
+        event_rows.push(build_feed_remote_items_event(
+            feed,
+            remote_items,
+            now,
+            &warn_vec,
+        )?);
+    }
+    if !live_events.is_empty() {
+        event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
 
     for (i, (track, routes, vts)) in tracks.iter().enumerate() {
@@ -1779,18 +2113,23 @@ fn build_all_events(
 }
 
 /// Emits events only for entities that differ from the stored DB state.
-#[expect(clippy::too_many_arguments, reason = "mirrors build_diff_events params")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "mirrors build_diff_events params"
+)]
 fn build_changed_events(
-    conn:           &Connection,
-    artist:         &Artist,
-    artist_credit:  &ArtistCredit,
-    feed:           &Feed,
-    feed_routes:    &[FeedPaymentRoute],
-    tracks:         &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
-    track_credits:  &[ArtistCredit],
-    now:            i64,
-    warnings:       &[String],
-    existing_feed:  &Feed,
+    conn: &Connection,
+    artist: &Artist,
+    artist_credit: &ArtistCredit,
+    feed: &Feed,
+    remote_items: &[FeedRemoteItemRaw],
+    feed_routes: &[FeedPaymentRoute],
+    live_events: &[LiveEvent],
+    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    track_credits: &[ArtistCredit],
+    now: i64,
+    warnings: &[String],
+    existing_feed: &Feed,
 ) -> Result<Vec<EventRow>, DbError> {
     let mut event_rows: Vec<EventRow> = Vec::new();
     let warn_vec: Vec<String> = warnings.to_vec();
@@ -1800,14 +2139,21 @@ fn build_changed_events(
     if artist_changed {
         event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
         event_rows.push(build_artist_credit_event(
-            artist_credit, artist, now, &warn_vec,
+            artist_credit,
+            artist,
+            now,
+            &warn_vec,
         )?);
     }
 
     // --- Feed diff ---
     if feed_fields_changed(existing_feed, feed) {
         event_rows.push(build_feed_upserted_event(
-            feed, artist, artist_credit, now, &warn_vec,
+            feed,
+            artist,
+            artist_credit,
+            now,
+            &warn_vec,
         )?);
     }
 
@@ -1815,6 +2161,23 @@ fn build_changed_events(
     let existing_routes = get_feed_payment_routes_for_feed(conn, &feed.feed_guid)?;
     if !feed_routes.is_empty() && feed_routes_changed(&existing_routes, feed_routes) {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+
+    // --- Feed remote-item diff ---
+    let existing_remote_items = get_feed_remote_items_for_feed(conn, &feed.feed_guid)?;
+    if !remote_items.is_empty() && feed_remote_items_changed(&existing_remote_items, remote_items) {
+        event_rows.push(build_feed_remote_items_event(
+            feed,
+            remote_items,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Live-event snapshot diff ---
+    let existing_live_events = get_live_events_for_feed(conn, &feed.feed_guid)?;
+    if live_events_changed(&existing_live_events, live_events) {
+        event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
 
     // --- Track diff ---
@@ -1852,8 +2215,8 @@ fn diff_artist(conn: &Connection, artist: &Artist) -> Result<bool, DbError> {
 }
 
 fn build_artist_upserted_event(
-    artist:   &Artist,
-    now:      i64,
+    artist: &Artist,
+    now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::ArtistUpsertedPayload {
@@ -1861,19 +2224,19 @@ fn build_artist_upserted_event(
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
-        event_id:     uuid::Uuid::new_v4().to_string(),
-        event_type:   EventType::ArtistUpserted,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::ArtistUpserted,
         payload_json,
         subject_guid: artist.artist_id.clone(),
-        created_at:   now,
-        warnings:     warnings.to_vec(),
+        created_at: now,
+        warnings: warnings.to_vec(),
     })
 }
 
 fn build_artist_credit_event(
-    credit:   &ArtistCredit,
-    artist:   &Artist,
-    now:      i64,
+    credit: &ArtistCredit,
+    artist: &Artist,
+    now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::ArtistCreditCreatedPayload {
@@ -1881,81 +2244,123 @@ fn build_artist_credit_event(
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
-        event_id:     uuid::Uuid::new_v4().to_string(),
-        event_type:   EventType::ArtistCreditCreated,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::ArtistCreditCreated,
         payload_json,
         subject_guid: artist.artist_id.clone(),
-        created_at:   now,
-        warnings:     warnings.to_vec(),
+        created_at: now,
+        warnings: warnings.to_vec(),
     })
 }
 
 fn build_feed_upserted_event(
-    feed:     &Feed,
-    artist:   &Artist,
-    credit:   &ArtistCredit,
-    now:      i64,
+    feed: &Feed,
+    artist: &Artist,
+    credit: &ArtistCredit,
+    now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::FeedUpsertedPayload {
-        feed:          feed.clone(),
-        artist:        artist.clone(),
+        feed: feed.clone(),
+        artist: artist.clone(),
         artist_credit: credit.clone(),
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
-        event_id:     uuid::Uuid::new_v4().to_string(),
-        event_type:   EventType::FeedUpserted,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::FeedUpserted,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
-        created_at:   now,
-        warnings:     warnings.to_vec(),
+        created_at: now,
+        warnings: warnings.to_vec(),
     })
 }
 
 fn build_feed_routes_event(
-    feed:     &Feed,
-    routes:   &[FeedPaymentRoute],
-    now:      i64,
+    feed: &Feed,
+    routes: &[FeedPaymentRoute],
+    now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::FeedRoutesReplacedPayload {
         feed_guid: feed.feed_guid.clone(),
-        routes:    routes.to_vec(),
+        routes: routes.to_vec(),
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
-        event_id:     uuid::Uuid::new_v4().to_string(),
-        event_type:   EventType::FeedRoutesReplaced,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::FeedRoutesReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
-        created_at:   now,
-        warnings:     warnings.to_vec(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_feed_remote_items_event(
+    feed: &Feed,
+    remote_items: &[FeedRemoteItemRaw],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::FeedRemoteItemsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        remote_items: remote_items.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::FeedRemoteItemsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_live_events_event(
+    feed: &Feed,
+    live_events: &[LiveEvent],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::LiveEventsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        live_events: live_events.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::LiveEventsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
     })
 }
 
 fn build_track_upserted_event(
-    track:    &Track,
-    routes:   &[PaymentRoute],
-    vts:      &[ValueTimeSplit],
-    credit:   &ArtistCredit,
-    now:      i64,
+    track: &Track,
+    routes: &[PaymentRoute],
+    vts: &[ValueTimeSplit],
+    credit: &ArtistCredit,
+    now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::TrackUpsertedPayload {
-        track:             track.clone(),
-        routes:            routes.to_vec(),
+        track: track.clone(),
+        routes: routes.to_vec(),
         value_time_splits: vts.to_vec(),
-        artist_credit:     credit.clone(),
+        artist_credit: credit.clone(),
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
-        event_id:     uuid::Uuid::new_v4().to_string(),
-        event_type:   EventType::TrackUpserted,
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::TrackUpserted,
         payload_json,
         subject_guid: track.track_guid.clone(),
-        created_at:   now,
-        warnings:     warnings.to_vec(),
+        created_at: now,
+        warnings: warnings.to_vec(),
     })
 }
 
@@ -1972,16 +2377,19 @@ fn build_track_upserted_event(
 ///
 /// Returns [`DbError`] if the SQL insert, update, or JSON serialisation fails.
 // Issue-SEQ-INTEGRITY — 2026-03-14
-#[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all fields are required for a complete event row"
+)]
 pub fn insert_event(
-    conn:         &Connection,
-    event_id:     &str,
-    event_type:   &EventType,
+    conn: &Connection,
+    event_id: &str,
+    event_type: &EventType,
     payload_json: &str,
     subject_guid: &str,
-    signer:       &NodeSigner,
-    created_at:   i64,
-    warnings:     &[String],
+    signer: &NodeSigner,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<(i64, String, String), DbError> {
     let et_str = event_type_str(event_type)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -1995,13 +2403,27 @@ pub fn insert_event(
 
     let seq = conn.query_row(
         sql,
-        params![event_id, et_str, payload_json, subject_guid, signer.pubkey_hex(), "", created_at, warnings_json],
+        params![
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signer.pubkey_hex(),
+            "",
+            created_at,
+            warnings_json
+        ],
         |row| row.get::<_, i64>(0),
     )?;
 
     // Sign with the assigned seq and update the row.
     let (signed_by, signature) = signer.sign_event(
-        event_id, event_type, payload_json, subject_guid, created_at, seq,
+        event_id,
+        event_type,
+        payload_json,
+        subject_guid,
+        created_at,
+        seq,
     );
     update_event_signature(conn, event_id, &signed_by, &signature)?;
 
@@ -2020,8 +2442,8 @@ pub fn insert_event(
 /// Returns [`DbError`] if the SQL update fails.
 // Issue-SEQ-INTEGRITY — 2026-03-14
 pub fn update_event_signature(
-    conn:      &Connection,
-    event_id:  &str,
+    conn: &Connection,
+    event_id: &str,
     signed_by: &str,
     signature: &str,
 ) -> Result<(), DbError> {
@@ -2040,10 +2462,10 @@ pub fn update_event_signature(
 ///
 /// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_feed_crawl_cache(
-    conn:         &Connection,
-    feed_url:     &str,
+    conn: &Connection,
+    feed_url: &str,
     content_hash: &str,
-    crawled_at:   i64,
+    crawled_at: i64,
 ) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO feed_crawl_cache (feed_url, content_hash, crawled_at) \
@@ -2064,9 +2486,9 @@ pub fn upsert_feed_crawl_cache(
 ///
 /// Returns [`DbError`] if a SQL query fails or event JSON cannot be deserialised.
 pub fn get_events_since(
-    conn:       &Connection,
-    after_seq:  i64,
-    limit:      i64,
+    conn: &Connection,
+    after_seq: i64,
+    limit: i64,
 ) -> Result<Vec<Event>, DbError> {
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let safe_limit = limit.max(1);
@@ -2077,21 +2499,31 @@ pub fn get_events_since(
 
     let rows = stmt.query_map(params![after_seq, safe_limit], |row| {
         Ok((
-            row.get::<_, String>(0)?,   // event_id
-            row.get::<_, String>(1)?,   // event_type string
-            row.get::<_, String>(2)?,   // payload_json
-            row.get::<_, String>(3)?,   // subject_guid
-            row.get::<_, String>(4)?,   // signed_by
-            row.get::<_, String>(5)?,   // signature
-            row.get::<_, i64>(6)?,      // seq
-            row.get::<_, i64>(7)?,      // created_at
-            row.get::<_, String>(8)?,   // warnings_json
+            row.get::<_, String>(0)?, // event_id
+            row.get::<_, String>(1)?, // event_type string
+            row.get::<_, String>(2)?, // payload_json
+            row.get::<_, String>(3)?, // subject_guid
+            row.get::<_, String>(4)?, // signed_by
+            row.get::<_, String>(5)?, // signature
+            row.get::<_, i64>(6)?,    // seq
+            row.get::<_, i64>(7)?,    // created_at
+            row.get::<_, String>(8)?, // warnings_json
         ))
     })?;
 
     let mut events = Vec::new();
     for row in rows {
-        let (event_id, et_str, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json) = row?;
+        let (
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signed_by,
+            signature,
+            seq,
+            created_at,
+            warnings_json,
+        ) = row?;
 
         let et_quoted = format!("\"{et_str}\"");
         let event_type: EventType = serde_json::from_str(&et_quoted)?;
@@ -2130,22 +2562,21 @@ pub fn get_events_since(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_event_refs_since(
-    conn:      &Connection,
+    conn: &Connection,
     since_seq: i64,
-    limit:     i64,
+    limit: i64,
 ) -> Result<(Vec<crate::sync::EventRef>, bool), DbError> {
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = limit.max(1);
     // Fetch limit + 1 to detect truncation without a separate COUNT query.
     let fetch_limit = limit.saturating_add(1);
-    let mut stmt = conn.prepare(
-        "SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC LIMIT ?2",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT event_id, seq FROM events WHERE seq >= ?1 ORDER BY seq ASC LIMIT ?2")?;
 
     let rows = stmt.query_map(params![since_seq, fetch_limit], |row| {
         Ok(crate::sync::EventRef {
             event_id: row.get(0)?,
-            seq:      row.get(1)?,
+            seq: row.get(1)?,
         })
     })?;
 
@@ -2175,9 +2606,9 @@ pub fn get_event_refs_since(
 /// Returns [`DbError`] if the SQL upsert fails.
 // Issue-CURSOR-MONOTONIC — 2026-03-14
 pub fn upsert_node_sync_state(
-    conn:         &Connection,
-    node_pubkey:  &str,
-    last_seq:     i64,
+    conn: &Connection,
+    node_pubkey: &str,
+    last_seq: i64,
     last_seen_at: i64,
 ) -> Result<(), DbError> {
     conn.execute(
@@ -2201,10 +2632,10 @@ pub const MAX_PEER_FAILURES: i64 = 10;
 /// A peer node registered for push fan-out.
 #[derive(Debug)]
 pub struct PeerNode {
-    pub node_pubkey:          String,
-    pub node_url:             String,
-    pub discovered_at:        i64,
-    pub last_push_at:         Option<i64>,
+    pub node_pubkey: String,
+    pub node_url: String,
+    pub discovered_at: i64,
+    pub last_push_at: Option<i64>,
     pub consecutive_failures: i64,
 }
 
@@ -2222,10 +2653,10 @@ pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
 
     let rows = stmt.query_map(rusqlite::params![MAX_PEER_FAILURES], |row| {
         Ok(PeerNode {
-            node_pubkey:          row.get(0)?,
-            node_url:             row.get(1)?,
-            discovered_at:        row.get(2)?,
-            last_push_at:         row.get(3)?,
+            node_pubkey: row.get(0)?,
+            node_url: row.get(1)?,
+            discovered_at: row.get(2)?,
+            last_push_at: row.get(3)?,
             consecutive_failures: row.get(4)?,
         })
     })?;
@@ -2243,10 +2674,10 @@ pub fn get_push_peers(conn: &Connection) -> Result<Vec<PeerNode>, DbError> {
 ///
 /// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_peer_node(
-    conn:        &Connection,
+    conn: &Connection,
     node_pubkey: &str,
-    node_url:    &str,
-    now:         i64,
+    node_url: &str,
+    now: i64,
 ) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO peer_nodes (node_pubkey, node_url, discovered_at) \
@@ -2306,17 +2737,20 @@ pub fn reset_peer_failures(conn: &Connection, node_pubkey: &str) -> Result<(), D
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL insert or JSON serialisation fails.
-#[expect(clippy::too_many_arguments, reason = "all fields are required for a complete event row")]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "all fields are required for a complete event row"
+)]
 pub fn insert_event_idempotent(
-    conn:         &Connection,
-    event_id:     &str,
-    event_type:   &crate::event::EventType,
+    conn: &Connection,
+    event_id: &str,
+    event_type: &crate::event::EventType,
     payload_json: &str,
     subject_guid: &str,
-    signed_by:    &str,
-    signature:    &str,
-    created_at:   i64,
-    warnings:     &[String],
+    signed_by: &str,
+    signature: &str,
+    created_at: i64,
+    warnings: &[String],
 ) -> Result<Option<i64>, DbError> {
     // Issue-3 RETURNING seq — 2026-03-13
     let et_str = event_type_str(event_type)?;
@@ -2327,11 +2761,22 @@ pub fn insert_event_idempotent(
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, (SELECT COALESCE(MAX(seq),0)+1 FROM events), ?7, ?8) \
         RETURNING seq";
 
-    let seq: Option<i64> = conn.query_row(
-        sql,
-        rusqlite::params![event_id, et_str, payload_json, subject_guid, signed_by, signature, created_at, warnings_json],
-        |row| row.get::<_, i64>(0),
-    ).optional()?;
+    let seq: Option<i64> = conn
+        .query_row(
+            sql,
+            rusqlite::params![
+                event_id,
+                et_str,
+                payload_json,
+                subject_guid,
+                signed_by,
+                signature,
+                created_at,
+                warnings_json
+            ],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()?;
 
     Ok(seq)
 }
@@ -2344,11 +2789,13 @@ pub fn insert_event_idempotent(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64, DbError> {
-    let seq: Option<i64> = conn.query_row(
-        "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
-        params![node_pubkey],
-        |row| row.get(0),
-    ).optional()?;
+    let seq: Option<i64> = conn
+        .query_row(
+            "SELECT last_seq FROM node_sync_state WHERE node_pubkey = ?1",
+            params![node_pubkey],
+            |row| row.get(0),
+        )
+        .optional()?;
     Ok(seq.unwrap_or(0))
 }
 
@@ -2384,7 +2831,12 @@ pub fn get_or_create_tag(conn: &Connection, name: &str) -> Result<i64, DbError> 
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL insert fails.
-pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
+pub fn apply_tag(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    tag_id: i64,
+) -> Result<(), DbError> {
     let now = unix_now();
     match entity_type {
         "artist" => {
@@ -2415,7 +2867,12 @@ pub fn apply_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: 
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL delete fails.
-pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id: i64) -> Result<(), DbError> {
+pub fn remove_tag(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    tag_id: i64,
+) -> Result<(), DbError> {
     match entity_type {
         "artist" => {
             conn.execute(
@@ -2445,37 +2902,38 @@ pub fn remove_tag(conn: &Connection, entity_type: &str, entity_id: &str, tag_id:
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
-pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str) -> Result<Vec<(i64, String)>, DbError> {
+pub fn get_tags_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<(i64, String)>, DbError> {
     let result = match entity_type {
         "artist" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN artist_tag at ON at.tag_id = t.id \
-                 WHERE at.artist_id = ?1 ORDER BY t.name"
+                 WHERE at.artist_id = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         "feed" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN feed_tag ft ON ft.tag_id = t.id \
-                 WHERE ft.feed_guid = ?1 ORDER BY t.name"
+                 WHERE ft.feed_guid = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         "track" => {
             let mut stmt = conn.prepare(
                 "SELECT t.id, t.name FROM tags t \
                  JOIN track_tag tt ON tt.tag_id = t.id \
-                 WHERE tt.track_guid = ?1 ORDER BY t.name"
+                 WHERE tt.track_guid = ?1 ORDER BY t.name",
             )?;
-            stmt.query_map(params![entity_id], |row| {
-                Ok((row.get(0)?, row.get(1)?))
-            })?.collect::<Result<Vec<_>, _>>()?
+            stmt.query_map(params![entity_id], |row| Ok((row.get(0)?, row.get(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?
         }
         _ => Vec::new(),
     };
@@ -2487,12 +2945,12 @@ pub fn get_tags_for_entity(conn: &Connection, entity_type: &str, entity_id: &str
 /// Row returned by [`get_artist_rels`].
 #[derive(Debug)]
 pub struct ArtistRelRow {
-    pub id:            i64,
-    pub artist_id_a:   String,
-    pub artist_id_b:   String,
+    pub id: i64,
+    pub artist_id_a: String,
+    pub artist_id_b: String,
     pub rel_type_name: String,
-    pub begin_year:    Option<i64>,
-    pub end_year:      Option<i64>,
+    pub begin_year: Option<i64>,
+    pub end_year: Option<i64>,
 }
 
 /// Checks whether a `rel_type_id` exists in the `rel_type` lookup table.
@@ -2501,11 +2959,13 @@ pub struct ArtistRelRow {
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, DbError> {
-    let exists: Option<i64> = conn.query_row(
-        "SELECT id FROM rel_type WHERE id = ?1",
-        params![rel_type_id],
-        |row| row.get(0),
-    ).optional()?;
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM rel_type WHERE id = ?1",
+            params![rel_type_id],
+            |row| row.get(0),
+        )
+        .optional()?;
     Ok(exists.is_some())
 }
 
@@ -2517,12 +2977,12 @@ pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, Db
 ///
 /// Returns [`DbError`] if the rel type is invalid or the SQL insert fails.
 pub fn create_artist_artist_rel(
-    conn:        &Connection,
+    conn: &Connection,
     artist_id_a: &str,
     artist_id_b: &str,
     rel_type_id: i64,
-    begin_year:  Option<i64>,
-    end_year:    Option<i64>,
+    begin_year: Option<i64>,
+    end_year: Option<i64>,
 ) -> Result<i64, DbError> {
     // Validate rel_type_id exists.
     let valid = validate_rel_type(conn, rel_type_id)?;
@@ -2555,16 +3015,18 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
          ORDER BY aar.id",
     )?;
 
-    let rows: Vec<ArtistRelRow> = stmt.query_map(params![artist_id], |row| {
-        Ok(ArtistRelRow {
-            id:            row.get(0)?,
-            artist_id_a:   row.get(1)?,
-            artist_id_b:   row.get(2)?,
-            rel_type_name: row.get(3)?,
-            begin_year:    row.get(4)?,
-            end_year:      row.get(5)?,
-        })
-    })?.collect::<Result<_, _>>()?;
+    let rows: Vec<ArtistRelRow> = stmt
+        .query_map(params![artist_id], |row| {
+            Ok(ArtistRelRow {
+                id: row.get(0)?,
+                artist_id_a: row.get(1)?,
+                artist_id_b: row.get(2)?,
+                rel_type_name: row.get(3)?,
+                begin_year: row.get(4)?,
+                end_year: row.get(5)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
 
     Ok(rows)
 }
@@ -2575,10 +3037,10 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
 ///
 /// Returns [`DbError`] if the SQL insert fails.
 pub fn create_track_rel(
-    conn:         &Connection,
+    conn: &Connection,
     track_guid_a: &str,
     track_guid_b: &str,
-    rel_type_id:  i64,
+    rel_type_id: i64,
 ) -> Result<i64, DbError> {
     let now = unix_now();
     conn.execute(
@@ -2595,7 +3057,7 @@ pub fn create_track_rel(
 ///
 /// Returns [`DbError`] if the SQL insert fails.
 pub fn create_feed_rel(
-    conn:        &Connection,
+    conn: &Connection,
     feed_guid_a: &str,
     feed_guid_b: &str,
     rel_type_id: i64,
@@ -2616,10 +3078,7 @@ pub fn create_feed_rel(
 /// # Errors
 ///
 /// Returns [`DbError`] if the SQL query fails.
-pub fn get_existing_feed(
-    conn:     &Connection,
-    feed_url: &str,
-) -> Result<Option<Feed>, DbError> {
+pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Feed>, DbError> {
     let result = conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          language, explicit, itunes_type, episode_count, newest_item_at, oldest_item_at, \
@@ -2675,18 +3134,29 @@ pub fn get_existing_feed(
 /// transaction commit fails.
 // Issue-SEQ-INTEGRITY — 2026-03-14
 // Issue-STALE-TRACKS — 2026-03-14
-#[expect(clippy::too_many_lines, reason = "single atomic transaction — splitting would obscure the transactional boundary")]
-#[expect(clippy::needless_pass_by_value, reason = "takes ownership to make the transaction boundary clear at call sites")]
-#[expect(clippy::too_many_arguments, reason = "Issue-SEQ-INTEGRITY added signer param; grouping into a struct would obscure the call-site types")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "single atomic transaction — splitting would obscure the transactional boundary"
+)]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "takes ownership to make the transaction boundary clear at call sites"
+)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Issue-SEQ-INTEGRITY added signer param; grouping into a struct would obscure the call-site types"
+)]
 pub fn ingest_transaction(
-    conn:               &mut Connection,
-    artist:             Artist,
-    artist_credit:      ArtistCredit,
-    feed:               Feed,
-    feed_routes:        Vec<FeedPaymentRoute>,
-    tracks:             Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
-    event_rows:         Vec<EventRow>,
-    signer:             &NodeSigner,
+    conn: &mut Connection,
+    artist: Artist,
+    artist_credit: ArtistCredit,
+    feed: Feed,
+    remote_items: Vec<FeedRemoteItemRaw>,
+    feed_routes: Vec<FeedPaymentRoute>,
+    live_events: Vec<LiveEvent>,
+    tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
+    event_rows: Vec<EventRow>,
+    signer: &NodeSigner,
 ) -> Result<Vec<(i64, String, String)>, DbError> {
     let tx = conn.transaction()?;
 
@@ -2697,11 +3167,13 @@ pub fn ingest_transaction(
         let feed_guid_ref = Some(feed.feed_guid.as_str());
 
         // Check if this artist already exists (by artist_id PK, not by name).
-        let existing: Option<String> = tx.query_row(
-            "SELECT artist_id FROM artists WHERE artist_id = ?1",
-            params![artist.artist_id],
-            |row| row.get(0),
-        ).optional()?;
+        let existing: Option<String> = tx
+            .query_row(
+                "SELECT artist_id FROM artists WHERE artist_id = ?1",
+                params![artist.artist_id],
+                |row| row.get(0),
+            )
+            .optional()?;
 
         if existing.is_none() {
             tx.execute(
@@ -2709,17 +3181,30 @@ pub fn ingest_transaction(
                  img_url, url, begin_year, end_year, created_at, updated_at) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![
-                    artist.artist_id, artist.name, name_lower,
-                    artist.sort_name, artist.type_id, artist.area,
-                    artist.img_url, artist.url, artist.begin_year, artist.end_year,
-                    artist.created_at, artist.updated_at,
+                    artist.artist_id,
+                    artist.name,
+                    name_lower,
+                    artist.sort_name,
+                    artist.type_id,
+                    artist.area,
+                    artist.img_url,
+                    artist.url,
+                    artist.begin_year,
+                    artist.end_year,
+                    artist.created_at,
+                    artist.updated_at,
                 ],
             )?;
         }
         tx.execute(
             "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) \
              VALUES (?1, ?2, ?3, ?4)",
-            params![name_lower, artist.artist_id, feed_guid_ref, artist.created_at],
+            params![
+                name_lower,
+                artist.artist_id,
+                feed_guid_ref,
+                artist.created_at
+            ],
         )?;
     }
 
@@ -2729,14 +3214,25 @@ pub fn ingest_transaction(
         tx.execute(
             "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
              VALUES (?1, ?2, ?3, ?4)",
-            params![artist_credit.id, artist_credit.display_name, artist_credit.feed_guid, artist_credit.created_at],
+            params![
+                artist_credit.id,
+                artist_credit.display_name,
+                artist_credit.feed_guid,
+                artist_credit.created_at
+            ],
         )?;
         for acn in &artist_credit.names {
             tx.execute(
                 "INSERT OR IGNORE INTO artist_credit_name \
                  (artist_credit_id, artist_id, position, name, join_phrase) \
                  VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![acn.artist_credit_id, acn.artist_id, acn.position, acn.name, acn.join_phrase],
+                params![
+                    acn.artist_credit_id,
+                    acn.artist_id,
+                    acn.position,
+                    acn.name,
+                    acn.join_phrase
+                ],
             )?;
         }
     }
@@ -2783,7 +3279,10 @@ pub fn ingest_transaction(
     )?;
 
     // 3b. Replace feed-level payment routes
-    tx.execute("DELETE FROM feed_payment_routes WHERE feed_guid = ?1", params![feed.feed_guid])?;
+    tx.execute(
+        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
     for r in &feed_routes {
         let route_type = serde_json::to_string(&r.route_type)?;
         let route_type = route_type.trim_matches('"');
@@ -2804,12 +3303,55 @@ pub fn ingest_transaction(
         )?;
     }
 
+    // 3c. Replace feed-level raw remote-item refs
+    tx.execute(
+        "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for item in &remote_items {
+        tx.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                &item.feed_guid,
+                item.position,
+                &item.medium,
+                &item.remote_feed_guid,
+                &item.remote_feed_url,
+                &item.source,
+            ],
+        )?;
+    }
+
+    // 3d. Replace live-event snapshot rows for this feed
+    tx.execute(
+        "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for live_event in &live_events {
+        tx.execute(
+            "INSERT INTO live_events \
+             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &live_event.live_item_guid,
+                &live_event.feed_guid,
+                &live_event.title,
+                &live_event.content_link,
+                &live_event.status,
+                live_event.scheduled_start,
+                live_event.scheduled_end,
+                live_event.created_at,
+                live_event.updated_at,
+            ],
+        )?;
+    }
+
     // 4a. Collect existing track GUIDs for this feed before upserting.
     // Issue-STALE-TRACKS — 2026-03-14
     let existing_guids: std::collections::HashSet<String> = {
-        let mut stmt = tx.prepare(
-            "SELECT track_guid FROM tracks WHERE feed_guid = ?1",
-        )?;
+        let mut stmt = tx.prepare("SELECT track_guid FROM tracks WHERE feed_guid = ?1")?;
         let rows = stmt.query_map(params![feed.feed_guid], |row| row.get::<_, String>(0))?;
         let mut set = std::collections::HashSet::new();
         for row in rows {
@@ -2861,7 +3403,10 @@ pub fn ingest_transaction(
         )?;
 
         // replace payment routes
-        tx.execute("DELETE FROM payment_routes WHERE track_guid = ?1", params![track.track_guid])?;
+        tx.execute(
+            "DELETE FROM payment_routes WHERE track_guid = ?1",
+            params![track.track_guid],
+        )?;
         for r in routes {
             let route_type = serde_json::to_string(&r.route_type)?;
             let route_type = route_type.trim_matches('"');
@@ -2936,16 +3481,16 @@ pub fn ingest_transaction(
         // Build a TrackRemoved event row.
         let payload = crate::event::TrackRemovedPayload {
             track_guid: removed_guid.clone(),
-            feed_guid:  feed.feed_guid.clone(),
+            feed_guid: feed.feed_guid.clone(),
         };
         let payload_json = serde_json::to_string(&payload)?;
         removal_event_rows.push(EventRow {
-            event_id:     uuid::Uuid::new_v4().to_string(),
-            event_type:   EventType::TrackRemoved,
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_type: EventType::TrackRemoved,
             payload_json,
             subject_guid: removed_guid.clone(),
-            created_at:   feed.updated_at,
-            warnings:     vec![],
+            created_at: feed.updated_at,
+            warnings: vec![],
         });
     }
 
@@ -2979,7 +3524,12 @@ pub fn ingest_transaction(
         )?;
         // Sign with the assigned seq and update the row.
         let (signed_by, signature) = signer.sign_event(
-            &er.event_id, &er.event_type, &er.payload_json, &er.subject_guid, er.created_at, seq,
+            &er.event_id,
+            &er.event_type,
+            &er.payload_json,
+            &er.subject_guid,
+            er.created_at,
+            seq,
         );
         update_event_signature(&tx, &er.event_id, &signed_by, &signature)?;
         seqs.push((seq, signed_by, signature));
@@ -3002,8 +3552,11 @@ pub fn ingest_transaction(
 
         // Feed search index + quality (always — single entity, negligible)
         crate::search::populate_search_index(
-            &tx, "feed", &feed.feed_guid,
-            "", &feed.title,
+            &tx,
+            "feed",
+            &feed.feed_guid,
+            "",
+            &feed.title,
             feed.description.as_deref().unwrap_or(""),
             feed.raw_medium.as_deref().unwrap_or(""),
         )?;
@@ -3014,8 +3567,11 @@ pub fn ingest_transaction(
         let artist_score = crate::quality::compute_artist_quality(&tx, &artist.artist_id)?;
         crate::quality::store_quality(&tx, "artist", &artist.artist_id, artist_score)?;
         crate::search::populate_search_index(
-            &tx, "artist", &artist.artist_id,
-            &artist.name, "",
+            &tx,
+            "artist",
+            &artist.artist_id,
+            &artist.name,
+            "",
             "",
             "",
         )?;
@@ -3026,8 +3582,11 @@ pub fn ingest_transaction(
         for (track, _, _) in &tracks {
             if changed_track_guids.contains(track.track_guid.as_str()) {
                 crate::search::populate_search_index(
-                    &tx, "track", &track.track_guid,
-                    "", &track.title,
+                    &tx,
+                    "track",
+                    &track.track_guid,
+                    "",
+                    &track.title,
                     track.description.as_deref().unwrap_or(""),
                     "",
                 )?;
@@ -3054,11 +3613,11 @@ pub fn ingest_transaction(
 ///
 /// Returns [`DbError`] if the SQL upsert fails.
 pub fn link_external_id(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
-    scheme:      &str,
-    value:       &str,
+    entity_id: &str,
+    scheme: &str,
+    value: &str,
 ) -> Result<i64, DbError> {
     let now = unix_now();
     conn.execute(
@@ -3075,9 +3634,9 @@ pub fn link_external_id(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_external_ids(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
 ) -> Result<Vec<ExternalIdRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, scheme, value FROM external_ids \
@@ -3086,9 +3645,9 @@ pub fn get_external_ids(
     )?;
     let rows = stmt.query_map(params![entity_type, entity_id], |row| {
         Ok(ExternalIdRow {
-            id:     row.get(0)?,
+            id: row.get(0)?,
             scheme: row.get(1)?,
-            value:  row.get(2)?,
+            value: row.get(2)?,
         })
     })?;
     let mut result = Vec::new();
@@ -3105,16 +3664,18 @@ pub fn get_external_ids(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn reverse_lookup_external_id(
-    conn:   &Connection,
+    conn: &Connection,
     scheme: &str,
-    value:  &str,
+    value: &str,
 ) -> Result<Option<(String, String)>, DbError> {
-    let result = conn.query_row(
-        "SELECT entity_type, entity_id FROM external_ids \
+    let result = conn
+        .query_row(
+            "SELECT entity_type, entity_id FROM external_ids \
          WHERE scheme = ?1 AND value = ?2",
-        params![scheme, value],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    ).optional()?;
+            params![scheme, value],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?;
     Ok(result)
 }
 
@@ -3130,11 +3691,11 @@ pub fn reverse_lookup_external_id(
 ///
 /// Returns [`DbError`] if the SQL insert fails.
 pub fn record_entity_source(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
     source_type: &str,
-    source_url:  Option<&str>,
+    source_url: Option<&str>,
     trust_level: i64,
 ) -> Result<i64, DbError> {
     let now = unix_now();
@@ -3152,9 +3713,9 @@ pub fn record_entity_source(
 ///
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_entity_sources(
-    conn:        &Connection,
+    conn: &Connection,
     entity_type: &str,
-    entity_id:   &str,
+    entity_id: &str,
 ) -> Result<Vec<EntitySourceRow>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, source_type, source_url, trust_level, created_at \
@@ -3164,11 +3725,11 @@ pub fn get_entity_sources(
     )?;
     let rows = stmt.query_map(params![entity_type, entity_id], |row| {
         Ok(EntitySourceRow {
-            id:          row.get(0)?,
+            id: row.get(0)?,
             source_type: row.get(1)?,
-            source_url:  row.get(2)?,
+            source_url: row.get(2)?,
             trust_level: row.get(3)?,
-            created_at:  row.get(4)?,
+            created_at: row.get(4)?,
         })
     })?;
     let mut result = Vec::new();

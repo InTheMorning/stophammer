@@ -99,7 +99,10 @@ fn artist_with_no_feeds() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "art-lonely");
-    assert!(results[0].1.is_none(), "feed_guid should be NULL for artist with no feeds");
+    assert!(
+        results[0].1.is_none(),
+        "feed_guid should be NULL for artist with no feeds"
+    );
 
     // Direct feed query returns nothing.
     let feed_count: i64 = conn
@@ -161,7 +164,10 @@ fn feed_with_no_tracks() {
 
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "feed-empty");
-    assert!(results[0].1.is_none(), "track_guid should be NULL for feed with no tracks");
+    assert!(
+        results[0].1.is_none(),
+        "track_guid should be NULL for feed with no tracks"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +197,11 @@ fn duplicate_event_idempotent() {
 
     // Only one event should exist.
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM events WHERE event_id = 'evt-dup-reg'", [], |r| r.get(0))
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_id = 'evt-dup-reg'",
+            [],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(count, 1);
 
@@ -243,7 +253,10 @@ fn artist_credit_display_name_not_unique() {
     .unwrap();
     let cid2 = conn.last_insert_rowid();
 
-    assert_ne!(cid1, cid2, "IDs should be different for credits with same display_name");
+    assert_ne!(
+        cid1, cid2,
+        "IDs should be different for credits with same display_name"
+    );
 
     // Both should be retrievable.
     let count: i64 = conn
@@ -404,21 +417,17 @@ fn tag_case_normalization() {
 
     // Should be exactly one tag row.
     let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tags WHERE name = 'rock'",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT COUNT(*) FROM tags WHERE name = 'rock'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(count, 1, "all case variants should collapse to one tag");
 
     // Retrieve the tag.
     let tag_name: String = conn
-        .query_row(
-            "SELECT name FROM tags WHERE name = 'rock'",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT name FROM tags WHERE name = 'rock'", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(tag_name, "rock");
 }
@@ -484,7 +493,10 @@ fn external_id_cross_entity() {
          VALUES ('artist', 'art-ext-1', 'isrc', 'DIFFERENT_VALUE', ?1)",
         params![now],
     );
-    assert!(dup_result.is_err(), "duplicate entity_type+entity_id+scheme should fail");
+    assert!(
+        dup_result.is_err(),
+        "duplicate entity_type+entity_id+scheme should fail"
+    );
 }
 
 // ---------------------------------------------------------------------------

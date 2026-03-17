@@ -24,12 +24,12 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:       None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     })
 }
@@ -41,12 +41,19 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<ax
         .header("Content-Type", "application/json")
         // Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires auth.
         .header("X-Admin-Token", "test-admin-token")
-        .body(axum::body::Body::from(serde_json::to_vec(body).expect("serialize")))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(body).expect("serialize"),
+        ))
         .expect("build request")
 }
 
 async fn body_json(resp: axum::response::Response) -> serde_json::Value {
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     serde_json::from_slice(&bytes).expect("parse json")
 }
 
@@ -54,8 +61,8 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
 fn insert_dummy_event(conn: &rusqlite::Connection, event_id: &str, created_at: i64) -> i64 {
     let payload_json = r#"{"artist":{"artist_id":"a-1","name":"Test","name_lower":"test","created_at":0,"updated_at":0}}"#;
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/finding5-test.key")
-        .expect("signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/finding5-test.key").expect("signer");
     let (seq, _, _) = stophammer::db::insert_event(
         conn,
         event_id,
@@ -205,11 +212,14 @@ fn get_event_refs_since_respects_limit() {
     }
 
     // Request with a small limit
-    let (refs, truncated) = stophammer::db::get_event_refs_since(&conn, 0, 10)
-        .expect("get_event_refs_since");
+    let (refs, truncated) =
+        stophammer::db::get_event_refs_since(&conn, 0, 10).expect("get_event_refs_since");
 
     assert_eq!(refs.len(), 10, "should return at most the limit");
-    assert!(truncated, "should indicate truncation when there are more rows");
+    assert!(
+        truncated,
+        "should indicate truncation when there are more rows"
+    );
 }
 
 #[test]
@@ -221,9 +231,12 @@ fn get_event_refs_since_not_truncated_when_all_fit() {
         insert_dummy_event(&conn, &format!("fit-{i}"), 1_700_000_000 + i);
     }
 
-    let (refs, truncated) = stophammer::db::get_event_refs_since(&conn, 0, 100)
-        .expect("get_event_refs_since");
+    let (refs, truncated) =
+        stophammer::db::get_event_refs_since(&conn, 0, 100).expect("get_event_refs_since");
 
     assert_eq!(refs.len(), 5, "should return all events");
-    assert!(!truncated, "should not indicate truncation when all rows fit");
+    assert!(
+        !truncated,
+        "should not indicate truncation when all rows fit"
+    );
 }

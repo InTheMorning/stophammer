@@ -83,7 +83,10 @@ fn test_compute_track_quality_all_fields() {
     .unwrap();
 
     let score = quality::compute_track_quality(&conn, "track-1").unwrap();
-    assert_eq!(score, 100, "fully populated track with routes and VTS should score 100");
+    assert_eq!(
+        score, 100,
+        "fully populated track with routes and VTS should score 100"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -102,14 +105,26 @@ fn test_compute_track_quality_minimal() {
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          enclosure_url, explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        params!["track-min", "feed-1", 0, "Minimal Track", "minimal track",
-                "https://example.com/min.mp3", 0, now, now],
+        params![
+            "track-min",
+            "feed-1",
+            0,
+            "Minimal Track",
+            "minimal track",
+            "https://example.com/min.mp3",
+            0,
+            now,
+            now
+        ],
     )
     .unwrap();
 
     let score = quality::compute_track_quality(&conn, "track-min").unwrap();
     // title (10) + enclosure_url (15) = 25
-    assert_eq!(score, 25, "track with only title and enclosure_url should score 25");
+    assert_eq!(
+        score, 25,
+        "track with only title and enclosure_url should score 25"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +156,10 @@ fn test_compute_track_quality_with_routes_no_vts() {
     let score = quality::compute_track_quality(&conn, "track-routes").unwrap();
     // title(10) + enclosure_url(15) + enclosure_type(5) + duration(10) + pub_date(5) +
     // description(10) + artist_credit(5) + track_number(5) + season(5) + routes(20) = 90
-    assert_eq!(score, 90, "track with all fields and routes but no VTS should score 90");
+    assert_eq!(
+        score, 90,
+        "track with all fields and routes but no VTS should score 90"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +189,16 @@ fn test_compute_feed_quality() {
         "UPDATE feeds SET description = ?1, image_url = ?2, language = ?3, \
          episode_count = ?4, newest_item_at = ?5, explicit = ?6, itunes_type = ?7 \
          WHERE feed_guid = ?8",
-        params!["A test feed", "https://example.com/img.jpg", "en", 5, now, 1, "music", "feed-1"],
+        params![
+            "A test feed",
+            "https://example.com/img.jpg",
+            "en",
+            5,
+            now,
+            1,
+            "music",
+            "feed-1"
+        ],
     )
     .unwrap();
 

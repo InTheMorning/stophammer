@@ -35,14 +35,14 @@ fn test_app_state_with_crawl_token(
 
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain:            Arc::new(chain),
+        chain: Arc::new(chain),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:       None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
-        sse_registry:     Arc::new(stophammer::api::SseRegistry::new()),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     })
 }
@@ -57,7 +57,12 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<Bo
 }
 
 async fn body_json(resp: axum::response::Response) -> serde_json::Value {
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     serde_json::from_slice(&bytes).expect("parse json")
 }
 
@@ -121,7 +126,10 @@ async fn ingest_feed_publishes_to_sse() {
     assert_eq!(resp.status(), 200, "ingest should succeed");
 
     let body = body_json(resp).await;
-    assert!(body["accepted"].as_bool().unwrap_or(false), "ingest should be accepted");
+    assert!(
+        body["accepted"].as_bool().unwrap_or(false),
+        "ingest should be accepted"
+    );
 
     // Now find the artist_id that was created. We look it up via the DB.
     let artist_id = {
@@ -134,7 +142,8 @@ async fn ingest_feed_publishes_to_sse() {
              WHERE f.feed_guid = ?1",
             rusqlite::params![feed_guid],
             |row| row.get::<_, String>(0),
-        ).expect("find artist_id for feed")
+        )
+        .expect("find artist_id for feed")
     };
 
     // Check the SSE registry has events for this artist.
@@ -162,7 +171,11 @@ async fn ingest_feed_publishes_to_sse() {
 
     // All frames should have seq > 0.
     for frame in &recent {
-        assert!(frame.seq > 0, "SSE frame seq should be > 0, got {}", frame.seq);
+        assert!(
+            frame.seq > 0,
+            "SSE frame seq should be > 0, got {}",
+            frame.seq
+        );
     }
 }
 
@@ -225,11 +238,14 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
              WHERE f.feed_guid = ?1",
             rusqlite::params!["feed-sse-live-001"],
             |row| row.get::<_, String>(0),
-        ).expect("find artist_id")
+        )
+        .expect("find artist_id")
     };
 
     // Now subscribe and do a second ingest. The subscriber should receive events.
-    let mut rx = state.sse_registry.subscribe(&artist_id)
+    let mut rx = state
+        .sse_registry
+        .subscribe(&artist_id)
         .expect("subscribe should succeed");
 
     // Do a second ingest (different content_hash so it's not rejected as no-change).
@@ -273,7 +289,10 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
 
     // The subscriber should have received at least one event via the broadcast channel.
     let received = rx.try_recv();
-    assert!(received.is_ok(), "subscriber should receive events via broadcast, got: {received:?}");
+    assert!(
+        received.is_ok(),
+        "subscriber should receive events via broadcast, got: {received:?}"
+    );
     let frame = received.unwrap();
     assert!(frame.seq > 0, "received frame should have seq > 0");
 }
@@ -288,21 +307,23 @@ async fn last_event_id_seq_replay() {
     // Publish 5 events with increasing seq values.
     for i in 1..=5 {
         let frame = stophammer::api::SseFrame {
-            event_type:   "track_upserted".to_string(),
+            event_type: "track_upserted".to_string(),
             subject_guid: format!("track-{i}"),
-            payload:      serde_json::json!({"n": i}),
-            seq:          i,
+            payload: serde_json::json!({"n": i}),
+            seq: i,
         };
         registry.publish("artist-replay-seq", frame);
     }
 
     // Get recent events and filter by seq > 3 (simulating Last-Event-ID: 3).
     let recent = registry.recent_events("artist-replay-seq");
-    let replayed: Vec<&stophammer::api::SseFrame> = recent.iter()
-        .filter(|f| f.seq > 3)
-        .collect();
+    let replayed: Vec<&stophammer::api::SseFrame> = recent.iter().filter(|f| f.seq > 3).collect();
 
-    assert_eq!(replayed.len(), 2, "should replay exactly 2 events with seq > 3");
+    assert_eq!(
+        replayed.len(),
+        2,
+        "should replay exactly 2 events with seq > 3"
+    );
     assert_eq!(replayed[0].seq, 4);
     assert_eq!(replayed[1].seq, 5);
 }
@@ -316,18 +337,16 @@ async fn last_event_id_zero_replays_all() {
 
     for i in 1..=3 {
         let frame = stophammer::api::SseFrame {
-            event_type:   "feed_upserted".to_string(),
+            event_type: "feed_upserted".to_string(),
             subject_guid: format!("feed-{i}"),
-            payload:      serde_json::json!({}),
-            seq:          i,
+            payload: serde_json::json!({}),
+            seq: i,
         };
         registry.publish("artist-zero", frame);
     }
 
     let recent = registry.recent_events("artist-zero");
-    let replayed_count = recent.iter()
-        .filter(|f| f.seq > 0)
-        .count();
+    let replayed_count = recent.iter().filter(|f| f.seq > 0).count();
 
     assert_eq!(replayed_count, 3, "seq > 0 should replay all 3 events");
 }
@@ -340,69 +359,70 @@ async fn publish_events_to_sse_routes_to_artist() {
     let registry = stophammer::api::SseRegistry::new();
 
     // Subscribe to the target artist.
-    let mut rx = registry.subscribe("artist-pub-test")
+    let mut rx = registry
+        .subscribe("artist-pub-test")
         .expect("subscribe should succeed");
 
     // Build a FeedUpserted event that references artist-pub-test.
     let ev = stophammer::event::Event {
-        event_id:     "ev-pub-test-1".to_string(),
-        event_type:   stophammer::event::EventType::FeedUpserted,
-        payload:      stophammer::event::EventPayload::FeedUpserted(
+        event_id: "ev-pub-test-1".to_string(),
+        event_type: stophammer::event::EventType::FeedUpserted,
+        payload: stophammer::event::EventPayload::FeedUpserted(
             stophammer::event::FeedUpsertedPayload {
                 feed: stophammer::model::Feed {
-                    feed_guid:        "feed-pub-test".to_string(),
-                    feed_url:         "https://example.com/feed.xml".to_string(),
-                    title:            "Test Feed".to_string(),
-                    title_lower:      "test feed".to_string(),
+                    feed_guid: "feed-pub-test".to_string(),
+                    feed_url: "https://example.com/feed.xml".to_string(),
+                    title: "Test Feed".to_string(),
+                    title_lower: "test feed".to_string(),
                     artist_credit_id: 1,
-                    description:      None,
-                    image_url:        None,
-                    language:         None,
-                    explicit:         false,
-                    itunes_type:      None,
-                    episode_count:    1,
-                    newest_item_at:   None,
-                    oldest_item_at:   None,
-                    created_at:       0,
-                    updated_at:       0,
-                    raw_medium:       None,
+                    description: None,
+                    image_url: None,
+                    language: None,
+                    explicit: false,
+                    itunes_type: None,
+                    episode_count: 1,
+                    newest_item_at: None,
+                    oldest_item_at: None,
+                    created_at: 0,
+                    updated_at: 0,
+                    raw_medium: None,
                 },
                 artist: stophammer::model::Artist {
-                    artist_id:   "artist-pub-test".to_string(),
-                    name:        "Pub Test Artist".to_string(),
-                    name_lower:  "pub test artist".to_string(),
-                    sort_name:   Some("Pub Test Artist".to_string()),
-                    type_id:     Some(1),
-                    area:        None,
-                    img_url:     None,
-                    url:         None,
-                    begin_year:  None,
-                    end_year:    None,
-                    created_at:  0,
-                    updated_at:  0,
+                    artist_id: "artist-pub-test".to_string(),
+                    name: "Pub Test Artist".to_string(),
+                    name_lower: "pub test artist".to_string(),
+                    sort_name: Some("Pub Test Artist".to_string()),
+                    type_id: Some(1),
+                    area: None,
+                    img_url: None,
+                    url: None,
+                    begin_year: None,
+                    end_year: None,
+                    created_at: 0,
+                    updated_at: 0,
                 },
                 artist_credit: stophammer::model::ArtistCredit {
-                    id:           1,
+                    id: 1,
                     display_name: "Pub Test Artist".to_string(),
-                    feed_guid:    None,
-                    created_at:   0,
-                    names:        vec![stophammer::model::ArtistCreditName {
-                        id:               1,
+                    feed_guid: None,
+                    created_at: 0,
+                    names: vec![stophammer::model::ArtistCreditName {
+                        id: 1,
                         artist_credit_id: 1,
-                        artist_id:        "artist-pub-test".to_string(),
-                        position:         0,
-                        name:             "Pub Test Artist".to_string(),
-                        join_phrase:      String::new(),
+                        artist_id: "artist-pub-test".to_string(),
+                        position: 0,
+                        name: "Pub Test Artist".to_string(),
+                        join_phrase: String::new(),
                     }],
                 },
-            }
+            },
         ),
         subject_guid: "feed-pub-test".to_string(),
-        signed_by:    "deadbeef".to_string(),
-        signature:    "cafebabe".to_string(),
-        seq:          42,
-        created_at:   0,
-        warnings:     vec![],
+        signed_by: "deadbeef".to_string(),
+        signature: "cafebabe".to_string(),
+        seq: 42,
+        created_at: 0,
+        warnings: vec![],
         payload_json: "{}".to_string(),
     };
 
@@ -424,10 +444,10 @@ async fn publish_events_to_sse_routes_to_artist() {
 async fn sse_frame_seq_used_as_id_field() {
     // Verify the SSE frame's seq is serialized into the id field.
     let frame = stophammer::api::SseFrame {
-        event_type:   "track_upserted".to_string(),
+        event_type: "track_upserted".to_string(),
         subject_guid: "track-id-test".to_string(),
-        payload:      serde_json::json!({"title": "ID Test"}),
-        seq:          99,
+        payload: serde_json::json!({"title": "ID Test"}),
+        seq: 99,
     };
 
     // seq should be accessible and correct.

@@ -141,7 +141,11 @@ fn search_no_results() {
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(rows.len(), 0, "should return no results for a nonexistent term");
+    assert_eq!(
+        rows.len(),
+        0,
+        "should return no results for a nonexistent term"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -184,7 +188,11 @@ fn search_multiple_results() {
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(rows.len(), 3, "all 3 artists with 'rock' in tags should be returned");
+    assert_eq!(
+        rows.len(),
+        3,
+        "all 3 artists with 'rock' in tags should be returned"
+    );
 
     let mut sorted = rows;
     sorted.sort_unstable();
@@ -239,7 +247,11 @@ fn keyset_pagination() {
 
     // Page 1: limit=2+1 (fetch one extra to detect has_more)
     let page1 = search::search(&conn, "podcast", None, 3, None, None).unwrap();
-    assert_eq!(page1.len(), 3, "all 3 results should be returned when limit=3");
+    assert_eq!(
+        page1.len(),
+        3,
+        "all 3 results should be returned when limit=3"
+    );
 
     // Now fetch with limit=2 (the real page size)
     let page1 = search::search(&conn, "podcast", None, 2, None, None).unwrap();
@@ -251,15 +263,31 @@ fn keyset_pagination() {
     let cursor_rowid = last.rowid;
 
     // Page 2: pass cursor
-    let page2 = search::search(&conn, "podcast", None, 2, Some(cursor_rank), Some(cursor_rowid)).unwrap();
-    assert_eq!(page2.len(), 1, "page 2 should return the remaining 1 result");
+    let page2 = search::search(
+        &conn,
+        "podcast",
+        None,
+        2,
+        Some(cursor_rank),
+        Some(cursor_rowid),
+    )
+    .unwrap();
+    assert_eq!(
+        page2.len(),
+        1,
+        "page 2 should return the remaining 1 result"
+    );
 
     // Verify no duplicates: collect all entity_ids from both pages
     let mut all_ids: Vec<&str> = page1.iter().map(|r| r.entity_id.as_str()).collect();
     all_ids.extend(page2.iter().map(|r| r.entity_id.as_str()));
     all_ids.sort_unstable();
     all_ids.dedup();
-    assert_eq!(all_ids.len(), 3, "all 3 unique entities should appear across both pages");
+    assert_eq!(
+        all_ids.len(),
+        3,
+        "all 3 unique entities should appear across both pages"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -292,7 +320,15 @@ fn keyset_cursor_stable_after_insert() {
     let cursor_rowid = last.rowid;
 
     // Fetch page 2 with the cursor from page 1
-    let page2 = search::search(&conn, "music", None, 10, Some(cursor_rank), Some(cursor_rowid)).unwrap();
+    let page2 = search::search(
+        &conn,
+        "music",
+        None,
+        10,
+        Some(cursor_rank),
+        Some(cursor_rowid),
+    )
+    .unwrap();
 
     // Page 2 must NOT contain any items that were already on page 1
     for r in &page2 {

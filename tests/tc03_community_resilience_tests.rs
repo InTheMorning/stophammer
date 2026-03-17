@@ -1,11 +1,14 @@
 // TC-03 community resilience — 2026-03-13
 
-#![expect(clippy::significant_drop_tightening, reason = "MutexGuard<Connection> must be held for the full scope in test assertions")]
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
 
 mod common;
 
-use std::sync::atomic::AtomicI64;
 use std::sync::Arc;
+use std::sync::atomic::AtomicI64;
 
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -35,11 +38,11 @@ async fn test_community_poll_handles_empty_response() {
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
-        primary_url:       mock_server.uri(),
-        tracker_url:       mock_server.uri(),
-        node_address:      "http://localhost:9999".into(),
+        primary_url: mock_server.uri(),
+        tracker_url: mock_server.uri(),
+        node_address: "http://localhost:9999".into(),
         poll_interval_secs: 1,
-        push_timeout_secs:  0, // immediately trigger poll
+        push_timeout_secs: 0, // immediately trigger poll
     };
 
     // Run the sync loop in a background task; it should not panic.
@@ -59,9 +62,7 @@ async fn test_community_poll_handles_empty_response() {
         .await;
 
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(
-            config, db2, "deadbeef".into(), lp, None,
-        ).await;
+        stophammer::community::run_community_sync(config, db2, "deadbeef".into(), lp, None).await;
     });
 
     // Let it run briefly, then abort (it's an infinite loop).
@@ -79,7 +80,10 @@ async fn test_community_poll_handles_empty_response() {
             |row| row.get(0),
         )
         .expect("query cursor");
-    assert_eq!(cursor, 0, "cursor should stay at 0 when no events are returned");
+    assert_eq!(
+        cursor, 0,
+        "cursor should stay at 0 when no events are returned"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -114,11 +118,11 @@ async fn test_community_poll_handles_503_gracefully() {
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
-        primary_url:       mock_server.uri(),
-        tracker_url:       mock_server.uri(),
-        node_address:      "http://localhost:9999".into(),
+        primary_url: mock_server.uri(),
+        tracker_url: mock_server.uri(),
+        node_address: "http://localhost:9999".into(),
         poll_interval_secs: 1,
-        push_timeout_secs:  0,
+        push_timeout_secs: 0,
     };
 
     let db2 = pool.clone();
@@ -126,9 +130,8 @@ async fn test_community_poll_handles_503_gracefully() {
 
     // The sync loop should log the error and keep going, not panic.
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(
-            config, db2, "deadbeef503".into(), lp, None,
-        ).await;
+        stophammer::community::run_community_sync(config, db2, "deadbeef503".into(), lp, None)
+            .await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -136,10 +139,7 @@ async fn test_community_poll_handles_503_gracefully() {
     let result = handle.await;
 
     // The task should have been aborted (JoinError::Cancelled), NOT panicked.
-    assert!(
-        result.is_err(),
-        "task should have been aborted"
-    );
+    assert!(result.is_err(), "task should have been aborted");
     let err = result.unwrap_err();
     assert!(
         err.is_cancelled(),
@@ -163,10 +163,10 @@ async fn test_community_push_handler_rejects_wrong_signer() {
     let primary_pubkey = "aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222";
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 pool.clone(),
+        db: pool.clone(),
         primary_pubkey_hex: primary_pubkey.to_string(),
-        last_push_at:       Arc::new(AtomicI64::new(0)),
-        sse_registry:       None,
+        last_push_at: Arc::new(AtomicI64::new(0)),
+        sse_registry: None,
     });
 
     let app = stophammer::community::build_community_push_router(state);
@@ -209,7 +209,12 @@ async fn test_community_push_handler_rejects_wrong_signer() {
     let resp = app.oneshot(req).await.expect("request should not panic");
     assert_eq!(resp.status(), 200);
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
 
     // The event should be rejected (wrong signer), not applied.
@@ -225,7 +230,10 @@ async fn test_community_push_handler_rejects_wrong_signer() {
             |row| row.get(0),
         )
         .expect("query artists");
-    assert_eq!(count, 0, "artist from wrong-signer event should not be in DB");
+    assert_eq!(
+        count, 0,
+        "artist from wrong-signer event should not be in DB"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -289,10 +297,10 @@ async fn test_community_push_handler_accepts_valid_events() {
     });
 
     let state = Arc::new(stophammer::community::CommunityState {
-        db:                 pool.clone(),
+        db: pool.clone(),
         primary_pubkey_hex: primary_pubkey,
-        last_push_at:       Arc::new(AtomicI64::new(0)),
-        sse_registry:       None,
+        last_push_at: Arc::new(AtomicI64::new(0)),
+        sse_registry: None,
     });
 
     let app = stophammer::community::build_community_push_router(state);
@@ -301,13 +309,20 @@ async fn test_community_push_handler_accepts_valid_events() {
         .method("POST")
         .uri("/sync/push")
         .header("Content-Type", "application/json")
-        .body(Body::from(serde_json::to_vec(&push_body).expect("serialize")))
+        .body(Body::from(
+            serde_json::to_vec(&push_body).expect("serialize"),
+        ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("request should not panic");
     assert_eq!(resp.status(), 200);
 
-    let bytes = resp.into_body().collect().await.expect("read body").to_bytes();
+    let bytes = resp
+        .into_body()
+        .collect()
+        .await
+        .expect("read body")
+        .to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
 
     assert_eq!(body["applied"].as_u64().expect("applied"), 1);

@@ -8,8 +8,11 @@
 //! `seq` is included in the signing payload to prevent MITM inflation of
 //! the delivery-ordering cursor (Issue-SEQ-INTEGRITY).
 
+use crate::model::{
+    Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
+    Track, ValueTimeSplit,
+};
 use serde::{Deserialize, Serialize};
-use crate::model::{Artist, ArtistCredit, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit};
 
 /// Discriminant identifying which domain action produced an [`Event`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -33,6 +36,10 @@ pub enum EventType {
     ArtistCreditCreated,
     /// Feed-level payment routes were replaced.
     FeedRoutesReplaced,
+    /// Feed-level remote-item references were replaced.
+    FeedRemoteItemsReplaced,
+    /// The ephemeral live-event snapshot for a feed was replaced.
+    LiveEventsReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -57,6 +64,10 @@ pub enum EventPayload {
     ArtistCreditCreated(ArtistCreditCreatedPayload),
     /// Payload for a feed-level payment route replacement event.
     FeedRoutesReplaced(FeedRoutesReplacedPayload),
+    /// Payload for replacing feed-level `podcast:remoteItem` references.
+    FeedRemoteItemsReplaced(FeedRemoteItemsReplacedPayload),
+    /// Payload for replacing ephemeral live-event rows for a feed.
+    LiveEventsReplaced(LiveEventsReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -74,15 +85,15 @@ pub enum EventPayload {
 /// `verify_event_signature`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
-    pub event_id:     String,
-    pub event_type:   EventType,
-    pub payload:      EventPayload,
+    pub event_id: String,
+    pub event_type: EventType,
+    pub payload: EventPayload,
     pub subject_guid: String,
-    pub signed_by:    String,       // hex ed25519 pubkey
-    pub signature:    String,       // hex ed25519 sig over sha256(EventSigningPayload)
-    pub seq:          i64,          // monotonic, assigned by primary at commit
-    pub created_at:   i64,          // unix seconds
-    pub warnings:     Vec<String>,  // verifier warnings stored for audit
+    pub signed_by: String,     // hex ed25519 pubkey
+    pub signature: String,     // hex ed25519 sig over sha256(EventSigningPayload)
+    pub seq: i64,              // monotonic, assigned by primary at commit
+    pub created_at: i64,       // unix seconds
+    pub warnings: Vec<String>, // verifier warnings stored for audit
     /// Canonical inner-payload JSON string used when computing the ed25519 signature.
     ///
     /// Transmitted over the wire so community nodes can verify the signature
@@ -104,12 +115,12 @@ pub struct Event {
 // Issue-SEQ-INTEGRITY — 2026-03-14
 #[derive(Debug, Serialize)]
 pub struct EventSigningPayload<'a> {
-    pub event_id:     &'a str,
-    pub event_type:   &'a EventType,
+    pub event_id: &'a str,
+    pub event_type: &'a EventType,
     pub payload_json: &'a str,
     pub subject_guid: &'a str,
-    pub created_at:   i64,
-    pub seq:          i64, // Issue-SEQ-INTEGRITY — 2026-03-14
+    pub created_at: i64,
+    pub seq: i64, // Issue-SEQ-INTEGRITY — 2026-03-14
 }
 
 // ── Payload types ──────────────────────────────────────────────────────────
@@ -117,8 +128,8 @@ pub struct EventSigningPayload<'a> {
 /// Emitted when a feed is created or any of its metadata fields change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUpsertedPayload {
-    pub feed:          Feed,
-    pub artist:        Artist,
+    pub feed: Feed,
+    pub artist: Artist,
     pub artist_credit: ArtistCredit,
 }
 
@@ -126,23 +137,23 @@ pub struct FeedUpsertedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedRetiredPayload {
     pub feed_guid: String,
-    pub reason:    Option<String>,
+    pub reason: Option<String>,
 }
 
 /// Emitted when a track is created or its metadata, routes, or time-splits change.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackUpsertedPayload {
-    pub track:             Track,
-    pub routes:            Vec<PaymentRoute>,
+    pub track: Track,
+    pub routes: Vec<PaymentRoute>,
     pub value_time_splits: Vec<ValueTimeSplit>,
-    pub artist_credit:     ArtistCredit,
+    pub artist_credit: ArtistCredit,
 }
 
 /// Emitted when a track is deleted from its parent feed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackRemovedPayload {
     pub track_guid: String,
-    pub feed_guid:  String,
+    pub feed_guid: String,
 }
 
 /// Emitted when an artist record is created or its display name changes.
@@ -155,7 +166,7 @@ pub struct ArtistUpsertedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutesReplacedPayload {
     pub track_guid: String,
-    pub routes:     Vec<PaymentRoute>,
+    pub routes: Vec<PaymentRoute>,
 }
 
 /// Emitted when two artist records are merged: `source_artist_id` is absorbed
@@ -180,5 +191,19 @@ pub struct ArtistCreditCreatedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedRoutesReplacedPayload {
     pub feed_guid: String,
-    pub routes:    Vec<FeedPaymentRoute>,
+    pub routes: Vec<FeedPaymentRoute>,
+}
+
+/// Emitted when the full set of feed-level `podcast:remoteItem` refs is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedRemoteItemsReplacedPayload {
+    pub feed_guid: String,
+    pub remote_items: Vec<FeedRemoteItemRaw>,
+}
+
+/// Emitted when the current in-progress live items for a feed are replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LiveEventsReplacedPayload {
+    pub feed_guid: String,
+    pub live_events: Vec<LiveEvent>,
 }

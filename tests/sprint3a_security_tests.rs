@@ -17,7 +17,9 @@ mod common;
 fn issue4_require_https_for_discovery() {
     // Safety: test-only single-threaded access to this env var; no other
     // thread reads ALLOW_INSECURE_PUBKEY_DISCOVERY concurrently.
-    unsafe { std::env::remove_var("ALLOW_INSECURE_PUBKEY_DISCOVERY"); }
+    unsafe {
+        std::env::remove_var("ALLOW_INSECURE_PUBKEY_DISCOVERY");
+    }
 
     // 1. HTTPS URL always passes.
     let result = stophammer::community::require_https_for_discovery("https://primary:8008");
@@ -34,13 +36,20 @@ fn issue4_require_https_for_discovery() {
 
     // 3. HTTP URL passes with ALLOW_INSECURE_PUBKEY_DISCOVERY=true.
     // SAFETY: test runs single-threaded; no other thread reads this env var.
-    unsafe { std::env::set_var("ALLOW_INSECURE_PUBKEY_DISCOVERY", "true"); }
+    unsafe {
+        std::env::set_var("ALLOW_INSECURE_PUBKEY_DISCOVERY", "true");
+    }
     let result = stophammer::community::require_https_for_discovery("http://primary:8008");
-    assert!(result.is_ok(), "HTTP must be allowed when ALLOW_INSECURE_PUBKEY_DISCOVERY=true");
+    assert!(
+        result.is_ok(),
+        "HTTP must be allowed when ALLOW_INSECURE_PUBKEY_DISCOVERY=true"
+    );
 
     // Cleanup.
     // SAFETY: test runs single-threaded; no other thread reads this env var.
-    unsafe { std::env::remove_var("ALLOW_INSECURE_PUBKEY_DISCOVERY"); }
+    unsafe {
+        std::env::remove_var("ALLOW_INSECURE_PUBKEY_DISCOVERY");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,14 +93,17 @@ fn issue22_validate_feed_url_wrapped_in_spawn_blocking() {
 fn issue15_no_bare_unwrap_in_main_serve() {
     let src = include_str!("../src/main.rs");
     // The serve_with_optional_tls function must not have `.unwrap()` calls.
-    let fn_start = src.find("async fn serve_with_optional_tls")
+    let fn_start = src
+        .find("async fn serve_with_optional_tls")
         .expect("serve_with_optional_tls function must exist");
     let fn_body = &src[fn_start..];
     // Count braces to find the end of the function.
     let mut depth = 0i32;
     let mut fn_end = 0;
     for (i, ch) in fn_body.char_indices() {
-        if ch == '{' { depth += 1; }
+        if ch == '{' {
+            depth += 1;
+        }
         if ch == '}' {
             depth -= 1;
             if depth == 0 {

@@ -20,10 +20,10 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         db: stophammer::db_pool::DbPool::from_writer_only(db),
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
-        node_pubkey_hex:  pubkey,
-        admin_token:      "test-admin-token".into(),
-        sync_token:      None,
-        push_client:      reqwest::Client::new(),
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
@@ -55,8 +55,16 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
          description, explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         rusqlite::params![
-            "feed-1", "https://example.com/feed.xml", "Test Album",
-            "test album", credit_id, "A test feed", 0, 0, now, now,
+            "feed-1",
+            "https://example.com/feed.xml",
+            "Test Album",
+            "test album",
+            credit_id,
+            "A test feed",
+            0,
+            0,
+            now,
+            now,
         ],
     )
     .expect("insert feed");
@@ -64,8 +72,13 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
 }
 
 fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(conn, "feed:write", feed_guid, &stophammer::proof::ProofLevel::RssOnly)
-        .expect("issue token")
+    stophammer::proof::issue_token(
+        conn,
+        "feed:write",
+        feed_guid,
+        &stophammer::proof::ProofLevel::RssOnly,
+    )
+    .expect("issue token")
 }
 
 fn response_header(resp: &axum::response::Response, name: &str) -> Option<String> {
@@ -171,7 +184,10 @@ async fn invalid_token_returns_www_authenticate_with_invalid_token_error() {
 // ============================================================================
 
 #[tokio::test]
-#[expect(clippy::significant_drop_tightening, reason = "conn is needed until issue_token_for_feed completes")]
+#[expect(
+    clippy::significant_drop_tightening,
+    reason = "conn is needed until issue_token_for_feed completes"
+)]
 async fn wrong_feed_returns_www_authenticate_with_insufficient_scope() {
     let db = common::test_db_arc();
     let token;
@@ -201,8 +217,16 @@ async fn wrong_feed_returns_www_authenticate_with_insufficient_scope() {
              description, explicit, episode_count, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
-                "feed-a", "https://example.com/a.xml", "Feed A",
-                "feed a", credit_id, "A", 0, 0, now, now,
+                "feed-a",
+                "https://example.com/a.xml",
+                "Feed A",
+                "feed a",
+                credit_id,
+                "A",
+                0,
+                0,
+                now,
+                now,
             ],
         )
         .expect("insert feed a");
@@ -211,8 +235,16 @@ async fn wrong_feed_returns_www_authenticate_with_insufficient_scope() {
              description, explicit, episode_count, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
-                "feed-b", "https://example.com/b.xml", "Feed B",
-                "feed b", credit_id, "B", 0, 0, now, now,
+                "feed-b",
+                "https://example.com/b.xml",
+                "Feed B",
+                "feed b",
+                credit_id,
+                "B",
+                0,
+                0,
+                now,
+                now,
             ],
         )
         .expect("insert feed b");
@@ -287,7 +319,8 @@ async fn bearer_token_with_whitespace_is_accepted() {
     let resp = app.oneshot(req).await.expect("call handler");
     // REST semantics compliant (RFC 7396) — 2026-03-12
     assert_eq!(
-        resp.status(), 204,
+        resp.status(),
+        204,
         "token with surrounding whitespace should be accepted after trimming"
     );
 }
@@ -304,7 +337,11 @@ fn check_auth_missing_bearer_uses_rfc6750_error() {
     let headers = axum::http::HeaderMap::new();
 
     let err = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-1",
     )
     .expect_err("missing auth should fail");
 
@@ -321,7 +358,11 @@ fn check_auth_invalid_bearer_uses_invalid_token_error() {
     );
 
     let err = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-1",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-1",
     )
     .expect_err("invalid token should fail");
 
@@ -340,7 +381,11 @@ fn check_auth_wrong_feed_uses_insufficient_scope_error() {
     );
 
     let err = stophammer::api::check_admin_or_bearer_with_conn(
-        &conn, &headers, "admin-secret", "feed:write", "feed-OTHER",
+        &conn,
+        &headers,
+        "admin-secret",
+        "feed:write",
+        "feed-OTHER",
     )
     .expect_err("wrong feed should fail");
 
@@ -394,8 +439,7 @@ fn extract_bearer_token_trims_whitespace() {
         "Bearer  my-token-value  ".parse().expect("header value"),
     );
 
-    let token = stophammer::api::extract_bearer_token(&headers)
-        .expect("should extract token");
+    let token = stophammer::api::extract_bearer_token(&headers).expect("should extract token");
     assert_eq!(token, "my-token-value", "token must be trimmed");
 }
 
@@ -421,5 +465,8 @@ fn www_authenticate_challenge_with_error() {
 fn www_authenticate_challenge_insufficient_scope() {
     let val = stophammer::api::www_authenticate_challenge(Some("insufficient_scope"));
     let s = val.to_str().expect("valid header value");
-    assert_eq!(s, r#"Bearer realm="stophammer", error="insufficient_scope""#);
+    assert_eq!(
+        s,
+        r#"Bearer realm="stophammer", error="insufficient_scope""#
+    );
 }

@@ -22,10 +22,13 @@ pub struct ContentHashVerifier;
 pub const NO_CHANGE_SENTINEL: &str = "NO_CHANGE";
 
 impl Verifier for ContentHashVerifier {
-    fn name(&self) -> &'static str { "content_hash" }
+    fn name(&self) -> &'static str {
+        "content_hash"
+    }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
-        let last_hash: Option<String> = ctx.db
+        let last_hash: Option<String> = ctx
+            .db
             .query_row(
                 "SELECT content_hash FROM feed_crawl_cache WHERE feed_url = ?1",
                 [&ctx.request.canonical_url],

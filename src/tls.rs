@@ -8,10 +8,10 @@ use std::io::Write;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::Path;
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::get;
-use axum::Router;
 use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
     NewAccount, NewOrder, RetryPolicy,
@@ -48,15 +48,13 @@ impl TlsConfig {
     /// the `staging` flag.
     #[must_use]
     pub fn resolved_directory_url(&self) -> &str {
-        self.acme_directory_url
-            .as_deref()
-            .unwrap_or_else(|| {
-                if self.staging {
-                    LetsEncrypt::Staging.url()
-                } else {
-                    LetsEncrypt::Production.url()
-                }
-            })
+        self.acme_directory_url.as_deref().unwrap_or_else(|| {
+            if self.staging {
+                LetsEncrypt::Staging.url()
+            } else {
+                LetsEncrypt::Production.url()
+            }
+        })
     }
 }
 
@@ -135,7 +133,9 @@ pub async fn provision_certificate(
     };
 
     // Build the identifier — domain or IP.
-    let identifier = config.domain.parse::<std::net::IpAddr>()
+    let identifier = config
+        .domain
+        .parse::<std::net::IpAddr>()
         .map_or_else(|_| Identifier::Dns(config.domain.clone()), Identifier::Ip);
 
     let identifiers = [identifier];
@@ -152,8 +152,12 @@ pub async fn provision_certificate(
     let (shutdown_tx, challenge_handle) = match challenge_info {
         Some((token, key_auth)) => {
             let (tx, rx) = oneshot::channel::<()>();
-            let handle =
-                tokio::spawn(run_challenge_server(token, key_auth, config.domain.clone(), rx));
+            let handle = tokio::spawn(run_challenge_server(
+                token,
+                key_auth,
+                config.domain.clone(),
+                rx,
+            ));
             (Some(tx), Some(handle))
         }
         None => {
@@ -275,7 +279,10 @@ async fn run_challenge_server(
 
     let app = Router::new()
         .route(
-            #[expect(clippy::literal_string_with_formatting_args, reason = "{token} is an Axum path parameter, not a format argument")]
+            #[expect(
+                clippy::literal_string_with_formatting_args,
+                reason = "{token} is an Axum path parameter, not a format argument"
+            )]
             "/.well-known/acme-challenge/{token}",
             get({
                 let state = Arc::clone(&state);

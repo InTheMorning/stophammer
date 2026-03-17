@@ -15,39 +15,36 @@ fn make_artist_event(
     seq: i64,
     now: i64,
 ) -> stophammer::event::Event {
-    use stophammer::event::{
-        ArtistUpsertedPayload, Event, EventPayload, EventType,
-    };
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
     let artist = Artist {
-        artist_id:  artist_id.into(),
-        name:       format!("Artist {artist_id}"),
+        artist_id: artist_id.into(),
+        name: format!("Artist {artist_id}"),
         name_lower: format!("artist {artist_id}"),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: now,
         updated_at: now,
     };
     let inner = ArtistUpsertedPayload { artist };
-    let payload_json =
-        serde_json::to_string(&inner).expect("serialize inner payload");
+    let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
 
     Event {
-        event_id:     event_id.into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(inner),
+        event_id: event_id.into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(inner),
         subject_guid: artist_id.into(),
-        signed_by:    "deadbeef".into(),
-        signature:    "cafebabe".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
         seq,
-        created_at:   now,
-        warnings:     vec![],
+        created_at: now,
+        warnings: vec![],
         payload_json,
     }
 }
@@ -64,12 +61,12 @@ fn event_signing_payload_includes_seq() {
     use stophammer::event::{EventSigningPayload, EventType};
 
     let payload = EventSigningPayload {
-        event_id:     "evt-1",
-        event_type:   &EventType::ArtistUpserted,
+        event_id: "evt-1",
+        event_type: &EventType::ArtistUpserted,
         payload_json: "{}",
         subject_guid: "subj-1",
-        created_at:   1000,
-        seq:          42,
+        created_at: 1000,
+        seq: 42,
     };
 
     let json = serde_json::to_string(&payload).expect("serialize");
@@ -88,26 +85,23 @@ fn event_signing_payload_includes_seq() {
 // Issue-SEQ-INTEGRITY — 2026-03-14
 #[test]
 fn inflated_seq_breaks_signature() {
-    use stophammer::event::{
-        ArtistUpsertedPayload, Event, EventPayload, EventType,
-    };
+    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
     use stophammer::signing::NodeSigner;
 
-    let signer =
-        NodeSigner::load_or_create("/tmp/seq-integrity-test.key").unwrap();
+    let signer = NodeSigner::load_or_create("/tmp/seq-integrity-test.key").unwrap();
 
     let artist = Artist {
-        artist_id:  "seq-artist-1".into(),
-        name:       "Seq Artist".into(),
+        artist_id: "seq-artist-1".into(),
+        name: "Seq Artist".into(),
         name_lower: "seq artist".into(),
-        sort_name:  None,
-        type_id:    None,
-        area:       None,
-        img_url:    None,
-        url:        None,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
         begin_year: None,
-        end_year:   None,
+        end_year: None,
         created_at: 1_000_000,
         updated_at: 1_000_000,
     };
@@ -126,16 +120,16 @@ fn inflated_seq_breaks_signature() {
 
     // Verify with seq=5 — must succeed.
     let good_event = Event {
-        event_id:     "evt-seq-1".into(),
-        event_type:   EventType::ArtistUpserted,
-        payload:      EventPayload::ArtistUpserted(inner),
+        event_id: "evt-seq-1".into(),
+        event_type: EventType::ArtistUpserted,
+        payload: EventPayload::ArtistUpserted(inner),
         payload_json,
         subject_guid: "seq-artist-1".into(),
         signed_by,
         signature,
-        seq:          5,
-        created_at:   1_000_000,
-        warnings:     vec![],
+        seq: 5,
+        created_at: 1_000_000,
+        warnings: vec![],
     };
     stophammer::signing::verify_event_signature(&good_event)
         .expect("signature must verify with correct seq");
@@ -161,7 +155,7 @@ fn inflated_seq_breaks_signature() {
 // Issue-SEQ-INTEGRITY — 2026-03-14
 #[test]
 fn apply_uses_wire_seq_for_cursor_after_verification() {
-    use stophammer::apply::{apply_single_event, ApplyOutcome};
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
@@ -203,14 +197,23 @@ fn sign_event_produces_different_signatures_for_different_seq() {
     use stophammer::event::EventType;
     use stophammer::signing::NodeSigner;
 
-    let signer =
-        NodeSigner::load_or_create("/tmp/seq-integrity-diff.key").unwrap();
+    let signer = NodeSigner::load_or_create("/tmp/seq-integrity-diff.key").unwrap();
 
     let (_, sig_a) = signer.sign_event(
-        "evt-diff", &EventType::ArtistUpserted, "{}", "subj", 1000, 1,
+        "evt-diff",
+        &EventType::ArtistUpserted,
+        "{}",
+        "subj",
+        1000,
+        1,
     );
     let (_, sig_b) = signer.sign_event(
-        "evt-diff", &EventType::ArtistUpserted, "{}", "subj", 1000, 2,
+        "evt-diff",
+        &EventType::ArtistUpserted,
+        "{}",
+        "subj",
+        1000,
+        2,
     );
 
     assert_ne!(

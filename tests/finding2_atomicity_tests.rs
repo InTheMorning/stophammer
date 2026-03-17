@@ -114,7 +114,10 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
             |r| r.get(0),
         )
         .expect("query");
-    assert!(source_exists_before, "source artist must exist before merge");
+    assert!(
+        source_exists_before,
+        "source artist must exist before merge"
+    );
 
     // Corrupt the events table to force event insert failure.
     conn.execute_batch("ALTER TABLE events RENAME TO events_backup")
@@ -122,8 +125,8 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
 
     // Attempt the atomic merge+event operation.
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/finding2-test.key")
-        .expect("signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/finding2-test.key").expect("signer");
     let result = stophammer::db::merge_artists_with_event(
         &mut conn,
         "art-src",
@@ -142,7 +145,10 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
         .expect("restore events table");
 
     // The operation must have failed.
-    assert!(result.is_err(), "merge_artists_with_event must fail when events table is missing");
+    assert!(
+        result.is_err(),
+        "merge_artists_with_event must fail when events table is missing"
+    );
 
     // The source artist must STILL exist (merge was rolled back).
     let source_exists_after: bool = conn
@@ -220,7 +226,10 @@ fn patch_feed_inline_rolls_back_when_event_insert_fails() {
     conn.execute_batch("ALTER TABLE events_backup RENAME TO events")
         .expect("restore events table");
 
-    assert!(result.is_err(), "transaction must fail when events table is missing");
+    assert!(
+        result.is_err(),
+        "transaction must fail when events table is missing"
+    );
 
     // The feed_url must be UNCHANGED (UPDATE was rolled back).
     let url_after: String = conn
@@ -282,7 +291,10 @@ fn patch_track_inline_rolls_back_when_event_insert_fails() {
     conn.execute_batch("ALTER TABLE events_backup RENAME TO events")
         .expect("restore events table");
 
-    assert!(result.is_err(), "transaction must fail when events table is missing");
+    assert!(
+        result.is_err(),
+        "transaction must fail when events table is missing"
+    );
 
     // The enclosure_url must be UNCHANGED (UPDATE was rolled back).
     let url_after: String = conn

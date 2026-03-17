@@ -14,7 +14,10 @@ use stophammer::search::rowid_for;
 fn test_rowid_deterministic_across_calls() {
     let a = rowid_for("feed", "some-guid-abc");
     let b = rowid_for("feed", "some-guid-abc");
-    assert_eq!(a, b, "rowid_for must return the same value for identical inputs");
+    assert_eq!(
+        a, b,
+        "rowid_for must return the same value for identical inputs"
+    );
 }
 
 // ── TC-06b: known vector (stability test) ───────────────────────────────────

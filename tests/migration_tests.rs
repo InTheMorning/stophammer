@@ -68,12 +68,15 @@ fn migration_runs_only_once() {
             |r| r.get(0),
         )
         .expect("applied_at should be set");
-    assert!(applied_at > 0, "applied_at must be a positive unix timestamp");
+    assert!(
+        applied_at > 0,
+        "applied_at must be a positive unix timestamp"
+    );
 
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 4, "exactly four migrations should be recorded");
+    assert_eq!(count, 5, "exactly five migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +90,14 @@ fn no_drop_table_in_migrations() {
     let feed_scope = include_str!("../migrations/0002_artist_credit_feed_scope.sql");
     let search_unique = include_str!("../migrations/0003_search_entities_unique.sql");
     let proof_level = include_str!("../migrations/0004_proof_level.sql");
-    let all_migrations = [baseline, feed_scope, search_unique, proof_level];
+    let live_events = include_str!("../migrations/0005_live_events_and_remote_items.sql");
+    let all_migrations = [
+        baseline,
+        feed_scope,
+        search_unique,
+        proof_level,
+        live_events,
+    ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {
             let trimmed = line.trim();

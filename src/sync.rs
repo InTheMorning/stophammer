@@ -8,14 +8,14 @@
 //! rejoins after downtime: the node sends what it has, the primary returns
 //! what it is missing and flags any event IDs unknown to the primary.
 
-use serde::{Deserialize, Serialize};
 use crate::event::Event;
+use serde::{Deserialize, Serialize};
 
 /// Response for `GET /sync/events?after_seq={n}&limit={m}`.
 /// Community nodes poll this to stay current.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SyncEventsResponse {
-    pub events:   Vec<Event>,
+    pub events: Vec<Event>,
     pub has_more: bool,
     pub next_seq: i64,
 }
@@ -29,14 +29,14 @@ pub struct SyncEventsResponse {
 #[derive(Debug, Deserialize)]
 pub struct ReconcileRequest {
     pub node_pubkey: String,
-    pub have:        Vec<EventRef>,
-    pub since_seq:   i64,
+    pub have: Vec<EventRef>,
+    pub since_seq: i64,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct EventRef {
     pub event_id: String,
-    pub seq:      i64,
+    pub seq: i64,
 }
 
 // Finding-5 reconcile pagination — 2026-03-13
@@ -48,7 +48,7 @@ pub struct EventRef {
 #[derive(Debug, Serialize)]
 pub struct ReconcileResponse {
     /// Events the requesting node is missing; the node should apply these in order.
-    pub send_to_node:  Vec<Event>,
+    pub send_to_node: Vec<Event>,
     /// Event refs the node reported that the primary does not recognise.
     ///
     /// A non-empty list is an anomaly: it means the node has events that never
@@ -73,8 +73,8 @@ pub struct PushRequest {
 /// Response from `POST /sync/push` on community nodes.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PushResponse {
-    pub applied:   usize,
-    pub rejected:  usize,
+    pub applied: usize,
+    pub rejected: usize,
     pub duplicate: usize,
 }
 
@@ -82,7 +82,7 @@ pub struct PushResponse {
 #[derive(Debug, Deserialize, Serialize)]
 pub struct RegisterRequest {
     pub node_pubkey: String,
-    pub node_url:    String,
+    pub node_url: String,
 }
 
 /// Response from `POST /sync/register` on the primary.
@@ -95,7 +95,7 @@ pub struct RegisterResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PeerEntry {
     pub node_pubkey: String,
-    pub node_url:    String,
+    pub node_url: String,
     pub last_push_at: Option<i64>,
 }
 

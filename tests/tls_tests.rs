@@ -23,7 +23,9 @@ use stophammer::tls;
 /// `cert_needs_renewal` returns true when the cert file does not exist.
 #[test]
 fn cert_needs_renewal_missing_file() {
-    assert!(tls::cert_needs_renewal("/tmp/stophammer_test_nonexistent.pem"));
+    assert!(tls::cert_needs_renewal(
+        "/tmp/stophammer_test_nonexistent.pem"
+    ));
 }
 
 /// `cert_needs_renewal` returns true when the cert expires in < 30 days.
@@ -109,7 +111,10 @@ fn tls_acme_directory_url_env_var_is_read() {
     };
 
     let resolved = config.resolved_directory_url();
-    assert_eq!(resolved, custom_url, "custom directory URL should override production/staging");
+    assert_eq!(
+        resolved, custom_url,
+        "custom directory URL should override production/staging"
+    );
     assert_ne!(
         resolved,
         instant_acme::LetsEncrypt::Production.url(),
@@ -178,8 +183,7 @@ fn unique_tempdir(name: &str) -> std::path::PathBuf {
 fn generate_test_cert(days: u32) -> (String, String) {
     let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
     params.not_before = time::OffsetDateTime::now_utc();
-    params.not_after =
-        time::OffsetDateTime::now_utc() + time::Duration::days(i64::from(days));
+    params.not_after = time::OffsetDateTime::now_utc() + time::Duration::days(i64::from(days));
     let key_pair = rcgen::KeyPair::generate().unwrap();
     let cert = params.self_signed(&key_pair).unwrap();
     (cert.pem(), key_pair.serialize_pem())
@@ -193,10 +197,9 @@ fn generate_generalized_time_cert() -> (String, String) {
     let mut params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
     params.not_before = time::OffsetDateTime::now_utc();
     // 2055-01-01 00:00:00 UTC — well past the 2049 boundary.
-    let not_after = time::Date::from_calendar_date(2055, time::Month::January, 1)
-        .expect("valid date");
-    params.not_after =
-        time::PrimitiveDateTime::new(not_after, time::Time::MIDNIGHT).assume_utc();
+    let not_after =
+        time::Date::from_calendar_date(2055, time::Month::January, 1).expect("valid date");
+    params.not_after = time::PrimitiveDateTime::new(not_after, time::Time::MIDNIGHT).assume_utc();
     let key_pair = rcgen::KeyPair::generate().unwrap();
     let cert = params.self_signed(&key_pair).unwrap();
     (cert.pem(), key_pair.serialize_pem())

@@ -35,9 +35,11 @@ fn schema_creates_all_tables() {
         "external_ids",
         "feed_crawl_cache",
         "feed_payment_routes",
+        "feed_remote_items_raw",
         "feed_rel",
         "feed_tag",
         "feeds",
+        "live_events",
         "node_sync_state",
         "payment_routes",
         "peer_nodes",
@@ -45,6 +47,7 @@ fn schema_creates_all_tables() {
         "proof_tokens",
         "rel_type",
         "schema_migrations",
+        "search_index",
         "search_entities",
         "tags",
         "track_rel",
@@ -53,10 +56,7 @@ fn schema_creates_all_tables() {
         "value_time_splits",
     ];
     for name in &expected {
-        assert!(
-            tables.contains(&name.to_string()),
-            "missing table: {name}"
-        );
+        assert!(tables.contains(&name.to_string()), "missing table: {name}");
     }
 }
 
@@ -966,7 +966,10 @@ fn peer_node_eviction() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(clippy::too_many_lines, reason = "integration test exercises full transaction atomicity")]
+#[expect(
+    clippy::too_many_lines,
+    reason = "integration test exercises full transaction atomicity"
+)]
 fn ingest_transaction_atomicity() {
     let conn = common::test_db();
     let now = common::now();

@@ -21,7 +21,7 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),
-        sync_token:      None,
+        sync_token: None,
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -88,7 +88,9 @@ async fn readonly_router_serves_node_info() {
 
     let bytes = resp.into_body().collect().await.unwrap().to_bytes();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-    let returned_pubkey = body["node_pubkey"].as_str().expect("should have node_pubkey");
+    let returned_pubkey = body["node_pubkey"]
+        .as_str()
+        .expect("should have node_pubkey");
     assert_eq!(
         returned_pubkey, pubkey,
         "node_pubkey should match the state's pubkey"
