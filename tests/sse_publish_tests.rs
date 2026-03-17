@@ -116,7 +116,9 @@ async fn ingest_feed_publishes_to_sse() {
                     "value_time_splits": []
                 }
             ],
-            "feed_payment_routes": []
+            "remote_items": [],
+            "feed_payment_routes": [],
+            "live_items": []
         }
     });
 
@@ -218,7 +220,9 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
                     "value_time_splits": []
                 }
             ],
-            "feed_payment_routes": []
+            "remote_items": [],
+            "feed_payment_routes": [],
+            "live_items": []
         }
     });
 
@@ -278,7 +282,9 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
                     "value_time_splits": []
                 }
             ],
-            "feed_payment_routes": []
+            "remote_items": [],
+            "feed_payment_routes": [],
+            "live_items": []
         }
     });
 
@@ -295,6 +301,153 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
     );
     let frame = received.unwrap();
     assert!(frame.seq > 0, "received frame should have seq > 0");
+}
+
+// ---------------------------------------------------------------------------
+// Test: live-item transitions emit live_event_started / live_event_ended
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn live_item_transitions_publish_live_sse_frames() {
+    let crawl_token = "sse-live-transition-token";
+    let db = common::test_db_arc();
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(Arc::clone(&state));
+
+    let ingest = |content_hash: &str, live_item: serde_json::Value| {
+        json_request(
+            "POST",
+            "/ingest/feed",
+            &serde_json::json!({
+                "canonical_url": "https://example.com/live-transition-feed.xml",
+                "source_url": "https://example.com/live-transition-feed.xml",
+                "http_status": 200,
+                "content_hash": content_hash,
+                "crawl_token": crawl_token,
+                "feed_data": {
+                    "feed_guid": "feed-live-transition-001",
+                    "title": "Live Transition Feed",
+                    "owner_name": "Live Transition Artist",
+                    "explicit": false,
+                    "raw_medium": "music",
+                    "tracks": [],
+                    "remote_items": [],
+                    "feed_payment_routes": [],
+                    "live_items": [live_item]
+                }
+            }),
+        )
+    };
+
+    let pending_resp = app
+        .clone()
+        .oneshot(ingest(
+            "live-transition-1",
+            serde_json::json!({
+                "live_item_guid": "live-item-001",
+                "title": "Listening Party",
+                "status": "pending",
+                "start_at": 1710291600,
+                "end_at": 1710298800,
+                "content_link": "https://stream.example.com/live",
+                "explicit": false,
+                "payment_routes": [],
+                "value_time_splits": []
+            }),
+        ))
+        .await
+        .expect("pending ingest");
+    assert_eq!(pending_resp.status(), 200);
+
+    let artist_id = {
+        let conn = db.lock().unwrap();
+        conn.query_row(
+            "SELECT a.artist_id FROM artists a
+             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+             JOIN feeds f ON f.artist_credit_id = ac.id
+             WHERE f.feed_guid = ?1",
+            rusqlite::params!["feed-live-transition-001"],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("find artist_id")
+    };
+
+    let after_pending = state.sse_registry.recent_events(&artist_id);
+    assert!(
+        after_pending.iter().all(|frame| {
+            frame.event_type != "live_event_started" && frame.event_type != "live_event_ended"
+        }),
+        "pending live item should not emit started/ended SSE frames: {after_pending:?}"
+    );
+
+    let live_resp = app
+        .clone()
+        .oneshot(ingest(
+            "live-transition-2",
+            serde_json::json!({
+                "live_item_guid": "live-item-001",
+                "title": "Listening Party",
+                "status": "live",
+                "start_at": 1710291600,
+                "end_at": 1710298800,
+                "content_link": "https://stream.example.com/live",
+                "explicit": false,
+                "payment_routes": [],
+                "value_time_splits": []
+            }),
+        ))
+        .await
+        .expect("live ingest");
+    assert_eq!(live_resp.status(), 200);
+
+    let recent_after_live = state.sse_registry.recent_events(&artist_id);
+    let started = recent_after_live
+        .iter()
+        .find(|frame| frame.event_type == "live_event_started")
+        .expect("live transition should emit live_event_started");
+    assert_eq!(started.subject_guid, "live-item-001");
+    assert_eq!(started.payload["feed_guid"], "feed-live-transition-001");
+    assert_eq!(started.payload["status"], "live");
+
+    let ended_resp = app
+        .oneshot(ingest(
+            "live-transition-3",
+            serde_json::json!({
+                "live_item_guid": "live-item-001",
+                "title": "Listening Party Replay",
+                "status": "ended",
+                "start_at": 1710291600,
+                "end_at": 1710298800,
+                "content_link": "https://stream.example.com/live",
+                "pub_date": 1710298800,
+                "duration_secs": 3600,
+                "enclosure_url": "https://cdn.example.com/replay.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 12345678,
+                "explicit": false,
+                "payment_routes": [],
+                "value_time_splits": []
+            }),
+        ))
+        .await
+        .expect("ended ingest");
+    assert_eq!(ended_resp.status(), 200);
+
+    let recent_after_ended = state.sse_registry.recent_events(&artist_id);
+    let ended = recent_after_ended
+        .iter()
+        .find(|frame| frame.event_type == "live_event_ended")
+        .expect("ended transition should emit live_event_ended");
+    assert_eq!(ended.subject_guid, "live-item-001");
+    assert_eq!(ended.payload["feed_guid"], "feed-live-transition-001");
+    assert_eq!(ended.payload["status"], "ended");
+    assert!(
+        recent_after_ended
+            .iter()
+            .any(|frame| frame.event_type == "track_upserted"
+                && frame.subject_guid == "live-item-001"),
+        "ended live item should also promote into track_upserted"
+    );
 }
 
 // ---------------------------------------------------------------------------

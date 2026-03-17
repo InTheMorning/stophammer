@@ -75,9 +75,10 @@ Event types emitted on this stream:
 | `live_event_started` | A `podcast:liveItem` transitioned to `status="live"` |
 | `live_event_ended` | A `podcast:liveItem` transitioned to `status="ended"` |
 
-`live_event_started` and `live_event_ended` depend on live event support (not yet
-specified). They are listed here to establish that the SSE stream is the intended
-delivery channel for live event notifications.
+`live_event_started` and `live_event_ended` are synthesized from the replicated
+live snapshot state: nodes diff `LiveEventsReplaced` snapshots and emit
+artist-scoped SSE frames for `pending -> live` and `pending|live -> ended`
+transitions.
 
 ### Frame `id:` field
 

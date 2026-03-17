@@ -296,6 +296,133 @@ fn extract_artist_ids(ev: &event::Event) -> Vec<String> {
     }
 }
 
+fn artist_ids_for_feed(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Vec<String>, db::DbError> {
+    let Some(feed) = db::get_feed_by_guid(conn, feed_guid)? else {
+        return Ok(vec![]);
+    };
+    let Some(credit) = db::get_artist_credit(conn, feed.artist_credit_id)? else {
+        return Ok(vec![]);
+    };
+    let mut artist_ids: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for name in credit.names {
+        if seen.insert(name.artist_id.clone()) {
+            artist_ids.push(name.artist_id);
+        }
+    }
+    Ok(artist_ids)
+}
+
+fn live_sse_payload(
+    feed_guid: &str,
+    live_event: &model::LiveEvent,
+    status: &str,
+) -> serde_json::Value {
+    serde_json::json!({
+        "feed_guid": feed_guid,
+        "live_item_guid": live_event.live_item_guid,
+        "title": live_event.title,
+        "content_link": live_event.content_link,
+        "status": status,
+        "scheduled_start": live_event.scheduled_start,
+        "scheduled_end": live_event.scheduled_end,
+    })
+}
+
+pub fn build_live_sse_frames_for_feed(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    old_live_events: &[model::LiveEvent],
+    new_live_events: &[model::LiveEvent],
+    events: &[event::Event],
+) -> Result<Vec<(String, SseFrame)>, db::DbError> {
+    let artist_ids = artist_ids_for_feed(conn, feed_guid)?;
+    if artist_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let live_snapshot_seq = events
+        .iter()
+        .filter_map(|ev| match &ev.payload {
+            event::EventPayload::LiveEventsReplaced(p) if p.feed_guid == feed_guid => Some(ev.seq),
+            _ => None,
+        })
+        .max();
+
+    let ended_track_seqs: HashMap<String, i64> = events
+        .iter()
+        .filter_map(|ev| match &ev.payload {
+            event::EventPayload::TrackUpserted(p) if p.track.feed_guid == feed_guid => {
+                Some((p.track.track_guid.clone(), ev.seq))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let old_by_guid: HashMap<&str, &model::LiveEvent> = old_live_events
+        .iter()
+        .map(|live_event| (live_event.live_item_guid.as_str(), live_event))
+        .collect();
+    let new_by_guid: HashMap<&str, &model::LiveEvent> = new_live_events
+        .iter()
+        .map(|live_event| (live_event.live_item_guid.as_str(), live_event))
+        .collect();
+
+    let mut frames: Vec<(String, SseFrame)> = Vec::new();
+
+    if let Some(seq) = live_snapshot_seq {
+        for live_event in new_live_events
+            .iter()
+            .filter(|live_event| live_event.status == "live")
+        {
+            let was_live = old_by_guid
+                .get(live_event.live_item_guid.as_str())
+                .is_some_and(|old_live_event| old_live_event.status == "live");
+            if was_live {
+                continue;
+            }
+            let frame = SseFrame {
+                event_type: "live_event_started".to_string(),
+                subject_guid: live_event.live_item_guid.clone(),
+                payload: live_sse_payload(feed_guid, live_event, "live"),
+                seq,
+            };
+            for artist_id in &artist_ids {
+                frames.push((artist_id.clone(), frame.clone()));
+            }
+        }
+    }
+
+    for old_live_event in old_live_events {
+        if new_by_guid.contains_key(old_live_event.live_item_guid.as_str()) {
+            continue;
+        }
+        let Some(&seq) = ended_track_seqs.get(&old_live_event.live_item_guid) else {
+            continue;
+        };
+        let frame = SseFrame {
+            event_type: "live_event_ended".to_string(),
+            subject_guid: old_live_event.live_item_guid.clone(),
+            payload: live_sse_payload(feed_guid, old_live_event, "ended"),
+            seq,
+        };
+        for artist_id in &artist_ids {
+            frames.push((artist_id.clone(), frame.clone()));
+        }
+    }
+
+    Ok(frames)
+}
+
+pub fn publish_sse_frames(registry: &SseRegistry, frames: &[(String, SseFrame)]) {
+    for (artist_id, frame) in frames {
+        registry.publish(artist_id, frame.clone());
+    }
+}
+
 /// Fire-and-forget SSE publish for a batch of events.
 ///
 /// For each event, extracts the relevant artist ID(s) and publishes an
@@ -680,7 +807,7 @@ async fn handle_ingest_feed(
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
     let result = tokio::task::spawn_blocking(
-        move || -> Result<(ingest::IngestResponse, Vec<event::Event>), ApiError> {
+        move || -> Result<(ingest::IngestResponse, Vec<event::Event>, Vec<(String, SseFrame)>), ApiError> {
             // Issue-VERIFY-READER — 2026-03-16
             // Phase 1: verify against a READ-ONLY connection (reader pool).
             // This avoids holding the writer mutex during verification, so
@@ -713,6 +840,7 @@ async fn handle_ingest_feed(
                                 warnings: vec![],
                             },
                             vec![],
+                            vec![],
                         ));
                     }
                     Err(e) => {
@@ -724,6 +852,7 @@ async fn handle_ingest_feed(
                                 events_emitted: vec![],
                                 warnings: vec![],
                             },
+                            vec![],
                             vec![],
                         ));
                     }
@@ -781,6 +910,8 @@ async fn handle_ingest_feed(
                 )],
                 Some(feed_guid_str),
             )?;
+            let existing_live_events = db::get_live_events_for_feed(&conn, feed_guid_str)
+                .map_err(ApiError::from)?;
 
             // 6. Get current time
             let now = db::unix_now();
@@ -875,6 +1006,7 @@ async fn handle_ingest_feed(
                     updated_at: now,
                 })
                 .collect();
+            let live_events_for_sse = live_events.clone();
 
             // 9. Build track tuples
             let mut track_tuples: Vec<(
@@ -1139,6 +1271,15 @@ async fn handle_ingest_feed(
                 })
                 .collect::<Result<Vec<_>, ApiError>>()?;
 
+            let live_sse_frames = build_live_sse_frames_for_feed(
+                &conn,
+                &feed_data.feed_guid,
+                &existing_live_events,
+                &live_events_for_sse,
+                &fanout_events,
+            )
+            .map_err(ApiError::from)?;
+
             Ok((
                 ingest::IngestResponse {
                     accepted: true,
@@ -1148,6 +1289,7 @@ async fn handle_ingest_feed(
                     warnings,
                 },
                 fanout_events,
+                live_sse_frames,
             ))
         },
     )
@@ -1158,12 +1300,13 @@ async fn handle_ingest_feed(
         www_authenticate: None,
     })?;
 
-    let (response, fanout_events) = result?;
+    let (response, fanout_events, live_sse_frames) = result?;
 
     // Fire-and-forget fan-out to push subscribers.
     if !fanout_events.is_empty() {
         // Issue-SSE-PUBLISH — 2026-03-14
         publish_events_to_sse(&state.sse_registry, &fanout_events);
+        publish_sse_frames(&state.sse_registry, &live_sse_frames);
 
         let db_fanout = state.db.clone();
         let client_fanout = state.push_client.clone();
@@ -1174,6 +1317,8 @@ async fn handle_ingest_feed(
             subscribers_fanout,
             fanout_events,
         ));
+    } else if !live_sse_frames.is_empty() {
+        publish_sse_frames(&state.sse_registry, &live_sse_frames);
     }
 
     Ok(Json(response))

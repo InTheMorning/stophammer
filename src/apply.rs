@@ -90,10 +90,7 @@ fn apply_single_event_inner(
     // trusting `ev.payload`.  This closes a MITM vector where an attacker
     // could alter the deserialized struct without breaking the signature,
     // which only covers `payload_json`.
-    let et_str = serde_json::to_string(&ev.event_type)?;
-    let et_str = et_str.trim_matches('"');
-    let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, ev.payload_json);
-    let verified_payload: event::EventPayload = serde_json::from_str(&tagged)?;
+    let verified_payload = deserialize_verified_payload(ev)?;
 
     match &verified_payload {
         event::EventPayload::ArtistUpserted(p) => {
@@ -229,6 +226,13 @@ fn apply_single_event_inner(
     Ok(ApplyOutcome::Applied(seq))
 }
 
+fn deserialize_verified_payload(ev: &event::Event) -> Result<event::EventPayload, db::DbError> {
+    let et_str = serde_json::to_string(&ev.event_type)?;
+    let et_str = et_str.trim_matches('"');
+    let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, ev.payload_json);
+    Ok(serde_json::from_str(&tagged)?)
+}
+
 // ── apply_single_event ───────────────────────────────────────────────────────
 
 /// Applies a single **pre-verified** event to the local DB idempotently.
@@ -328,6 +332,12 @@ struct BatchedApplyResult {
     local_seq: i64,
 }
 
+struct PendingLiveSseDiff {
+    feed_guid: String,
+    old_live_events: Vec<crate::model::LiveEvent>,
+    new_live_events: Vec<crate::model::LiveEvent>,
+}
+
 // ── apply_events ─────────────────────────────────────────────────────────────
 
 /// Verify and apply a batch of events to the local DB.
@@ -386,7 +396,7 @@ pub async fn apply_events(
     // Issue-BATCH-APPLY — 2026-03-16
     let db2 = db.clone();
     let batch_result = tokio::task::spawn_blocking(
-        move || -> Result<(ApplySummary, Vec<BatchedApplyResult>), db::DbError> {
+        move || -> Result<(ApplySummary, Vec<BatchedApplyResult>, Vec<(String, api::SseFrame)>), db::DbError> {
             let now = db::unix_now();
             let mut conn = db2
                 .writer()
@@ -396,6 +406,7 @@ pub async fn apply_events(
             let tx = conn.transaction()?;
 
             let mut applied: Vec<BatchedApplyResult> = Vec::new();
+            let mut pending_live_sse_diffs: Vec<PendingLiveSseDiff> = Vec::new();
             let mut batch_summary = ApplySummary {
                 applied: 0,
                 duplicate: 0,
@@ -405,6 +416,16 @@ pub async fn apply_events(
             let mut max_primary_seq: i64 = 0;
 
             for ev in &verified {
+                if let event::EventPayload::LiveEventsReplaced(payload) =
+                    deserialize_verified_payload(ev)?
+                {
+                    let old_live_events = db::get_live_events_for_feed(&tx, &payload.feed_guid)?;
+                    pending_live_sse_diffs.push(PendingLiveSseDiff {
+                        feed_guid: payload.feed_guid,
+                        old_live_events,
+                        new_live_events: payload.live_events,
+                    });
+                }
                 match apply_single_event_inner(&tx, ev) {
                     Ok(ApplyOutcome::Applied(local_seq)) => {
                         batch_summary.applied += 1;
@@ -447,8 +468,27 @@ pub async fn apply_events(
                 db::upsert_node_sync_state(&tx, SYNC_CURSOR_KEY, max_primary_seq, now)?;
             }
 
+            let local_events: Vec<event::Event> = applied
+                .iter()
+                .map(|result| {
+                    let mut local_ev = result.event.clone();
+                    local_ev.seq = result.local_seq;
+                    local_ev
+                })
+                .collect();
+            let mut live_sse_frames: Vec<(String, api::SseFrame)> = Vec::new();
+            for diff in &pending_live_sse_diffs {
+                live_sse_frames.extend(api::build_live_sse_frames_for_feed(
+                    &tx,
+                    &diff.feed_guid,
+                    &diff.old_live_events,
+                    &diff.new_live_events,
+                    &local_events,
+                )?);
+            }
+
             tx.commit()?;
-            Ok((batch_summary, applied))
+            Ok((batch_summary, applied, live_sse_frames))
         },
     )
     .await;
@@ -466,7 +506,7 @@ pub async fn apply_events(
             // All verified events are considered rejected on DB error.
             summary.rejected += verified_count;
         }
-        Ok(Ok((batch_summary, applied_events))) => {
+        Ok(Ok((batch_summary, applied_events, live_sse_frames))) => {
             summary.applied += batch_summary.applied;
             summary.duplicate += batch_summary.duplicate;
             summary.rejected += batch_summary.rejected;
@@ -484,6 +524,7 @@ pub async fn apply_events(
                     local_ev.seq = result.local_seq;
                     api::publish_events_to_sse(registry, &[local_ev]);
                 }
+                api::publish_sse_frames(registry, &live_sse_frames);
             }
         }
     }

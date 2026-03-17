@@ -1,7 +1,7 @@
 # ADR 0021: Live Event Support
 
 ## Status
-Accepted (parser/storage replication implemented; scheduler and SSE follow-up remain)
+Accepted (parser/storage replication and SSE delivery implemented; scheduler follow-up remains)
 
 ## Context
 
@@ -20,7 +20,7 @@ The current implementation is intentionally simpler than the original proposal:
   per-transition `LiveEventStarted` / `LiveEventEnded` events
 - feed-level `podcast:remoteItem` references are also staged in
   `feed_remote_items_raw` via `FeedRemoteItemsReplaced`
-- aggressive scheduler polling and SSE fanout for live events are still follow-up work
+- aggressive scheduler polling for live events is still follow-up work
 
 This creates a specific gap: the two stages of a live event have fundamentally
 different time constraints.
@@ -135,9 +135,16 @@ event, not to all feeds.
 
 ### SSE delivery (ADR 0020)
 
-Not implemented yet for live-event-specific payloads. The current work focuses on
-parsing, storage, and replication so primary and community nodes share the same live
-snapshot state.
+Implemented. Nodes derive live SSE notifications from the replicated snapshot state:
+
+- `live_event_started` is emitted when a `LiveEventsReplaced` snapshot changes a
+  `liveItem` from absent or `pending` to `live`
+- `live_event_ended` is emitted when a previously tracked live item disappears
+  from the snapshot and a matching `TrackUpserted` recording was created for the
+  same `live_item_guid`
+
+This keeps replication simple while still giving clients the transition-oriented
+SSE stream defined in ADR 0020.
 
 ### What is not in scope
 
@@ -175,4 +182,4 @@ node where the gossip event stream already flows. Rejected.
   successful ingest.
 - Live items that transition to `ended` with a valid enclosure are indexed as permanent
   tracks — no change to the existing track indexing path.
-- Fast-poll scheduling and live-specific SSE delivery remain follow-up work.
+- Fast-poll scheduling remains follow-up work.
