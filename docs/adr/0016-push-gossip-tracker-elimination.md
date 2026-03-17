@@ -1,7 +1,9 @@
-# ADR 0016 — Push-Based Gossip and Tracker Elimination
+# ADR 0016: Push-Based Gossip and Tracker Elimination
 
-**Date:** 2026-03-09
-**Status:** Accepted
+## Status
+Accepted
+
+Date: 2026-03-09
 
 ## Context
 

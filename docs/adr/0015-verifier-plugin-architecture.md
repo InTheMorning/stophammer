@@ -1,7 +1,9 @@
-# ADR 0015 — Verifier Plugin Architecture
+# ADR 0015: Verifier Plugin Architecture
 
-**Status:** Accepted
-**Date:** 2026-03-09
+## Status
+Accepted
+
+Date: 2026-03-09
 
 ## Context
 

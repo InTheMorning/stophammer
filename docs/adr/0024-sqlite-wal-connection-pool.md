@@ -1,10 +1,9 @@
-# 24. SQLite WAL Connection Pool
-
-Date: 2026-03-14
+# ADR 0024: SQLite WAL Connection Pool
 
 ## Status
-
 Accepted
+
+Date: 2026-03-14
 
 ## Context
 
