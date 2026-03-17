@@ -31,6 +31,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 ///   └── T has own routes?  yes → pay T's routes
 ///                          no  → pay feed-level routes
 /// ```
+#[derive(Debug)]
 pub struct V4VPaymentVerifier;
 
 impl Verifier for V4VPaymentVerifier {

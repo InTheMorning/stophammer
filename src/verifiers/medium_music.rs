@@ -10,6 +10,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 /// because adoption of the tag is near-zero in the wild. Operators that want
 /// strict enforcement should pair this with a classifier verifier that
 /// scores feeds without the tag.
+#[derive(Debug)]
 pub struct MediumMusicVerifier;
 
 impl Verifier for MediumMusicVerifier {

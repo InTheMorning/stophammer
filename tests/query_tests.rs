@@ -19,7 +19,7 @@ fn insert_test_artist(conn: &rusqlite::Connection, name: &str) -> String {
     id
 }
 
-/// Insert an artist credit for a single artist and return the credit_id.
+/// Insert an artist credit for a single artist and return the `credit_id`.
 fn insert_credit(conn: &rusqlite::Connection, artist_id: &str, name: &str) -> i64 {
     let now = common::now();
     conn.execute(
@@ -270,6 +270,7 @@ fn get_feeds_for_artist() {
 
 // ---------------------------------------------------------------------------
 // 6. get_feeds_pagination — insert 5 feeds, paginate with limit=2 via cursor
+//    Uses (title_lower, feed_guid) composite cursor for stable ordering.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -285,77 +286,146 @@ fn get_feeds_pagination() {
             &conn,
             &format!("page-feed-{i:02}"),
             &format!("https://example.com/page{i}.xml"),
-            &format!("Page Feed {:02}", i),
+            &format!("Page Feed {i:02}"),
             credit_id,
         );
     }
 
-    // Page 1: no cursor (title_lower > '' simulates start).
-    let page1: Vec<String> = {
+    // Page 1: no cursor — fetch first 2.
+    let page1: Vec<(String, String)> = {
         let mut stmt = conn
             .prepare(
-                "SELECT feed_guid FROM feeds WHERE title_lower > ?1 \
-                 ORDER BY title_lower ASC LIMIT ?2",
+                "SELECT feed_guid, title_lower FROM feeds \
+                 ORDER BY title_lower ASC, feed_guid ASC LIMIT ?1",
             )
             .unwrap();
-        stmt.query_map(params!["", 2], |r| r.get(0))
+        stmt.query_map(params![2], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap()
     };
     assert_eq!(page1.len(), 2);
-    assert_eq!(page1[0], "page-feed-01");
-    assert_eq!(page1[1], "page-feed-02");
+    assert_eq!(page1[0].0, "page-feed-01");
+    assert_eq!(page1[1].0, "page-feed-02");
 
-    // Find cursor for page 2: title_lower of the last item on page 1.
-    let cursor: String = conn
-        .query_row(
-            "SELECT title_lower FROM feeds WHERE feed_guid = ?1",
-            params![page1.last().unwrap()],
-            |r| r.get(0),
-        )
-        .unwrap();
+    // Build composite cursor from last item on page 1: title_lower:feed_guid
+    let cursor_title = &page1.last().unwrap().1;
+    let cursor_guid = &page1.last().unwrap().0;
 
     // Page 2.
-    let page2: Vec<String> = {
+    let page2: Vec<(String, String)> = {
         let mut stmt = conn
             .prepare(
-                "SELECT feed_guid FROM feeds WHERE title_lower > ?1 \
-                 ORDER BY title_lower ASC LIMIT ?2",
+                "SELECT feed_guid, title_lower FROM feeds \
+                 WHERE (title_lower > ?1 OR (title_lower = ?1 AND feed_guid > ?2)) \
+                 ORDER BY title_lower ASC, feed_guid ASC LIMIT ?3",
             )
             .unwrap();
-        stmt.query_map(params![cursor, 2], |r| r.get(0))
+        stmt.query_map(params![cursor_title, cursor_guid, 2], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap()
     };
     assert_eq!(page2.len(), 2);
-    assert_eq!(page2[0], "page-feed-03");
-    assert_eq!(page2[1], "page-feed-04");
+    assert_eq!(page2[0].0, "page-feed-03");
+    assert_eq!(page2[1].0, "page-feed-04");
 
     // Page 3: only one item remaining.
-    let cursor2: String = conn
-        .query_row(
-            "SELECT title_lower FROM feeds WHERE feed_guid = ?1",
-            params![page2.last().unwrap()],
-            |r| r.get(0),
-        )
-        .unwrap();
+    let cursor_title2 = &page2.last().unwrap().1;
+    let cursor_guid2 = &page2.last().unwrap().0;
 
-    let page3: Vec<String> = {
+    let page3: Vec<(String, String)> = {
         let mut stmt = conn
             .prepare(
-                "SELECT feed_guid FROM feeds WHERE title_lower > ?1 \
-                 ORDER BY title_lower ASC LIMIT ?2",
+                "SELECT feed_guid, title_lower FROM feeds \
+                 WHERE (title_lower > ?1 OR (title_lower = ?1 AND feed_guid > ?2)) \
+                 ORDER BY title_lower ASC, feed_guid ASC LIMIT ?3",
             )
             .unwrap();
-        stmt.query_map(params![cursor2, 2], |r| r.get(0))
+        stmt.query_map(params![cursor_title2, cursor_guid2, 2], |r| Ok((r.get(0)?, r.get(1)?)))
             .unwrap()
             .collect::<Result<_, _>>()
             .unwrap()
     };
     assert_eq!(page3.len(), 1);
-    assert_eq!(page3[0], "page-feed-05");
+    assert_eq!(page3[0].0, "page-feed-05");
+}
+
+// ---------------------------------------------------------------------------
+// 6b. cursor_stability_duplicate_titles — 3 feeds with same title_lower,
+//     paginate with limit=2, verify no skips or duplicates.
+//     Issue-CURSOR-STABILITY — 2026-03-14
+// ---------------------------------------------------------------------------
+
+#[test]
+fn cursor_stability_duplicate_titles() {
+    let conn = common::test_db();
+
+    let artist_id = insert_test_artist(&conn, "Cursor Band");
+    let credit_id = insert_credit(&conn, &artist_id, "Cursor Band");
+
+    // All three feeds share the same title_lower = "ep".
+    // feed_guids are chosen so their sort order is deterministic: aaa < bbb < ccc
+    insert_feed(&conn, "aaa-guid", "https://example.com/aaa.xml", "EP", credit_id);
+    insert_feed(&conn, "bbb-guid", "https://example.com/bbb.xml", "EP", credit_id);
+    insert_feed(&conn, "ccc-guid", "https://example.com/ccc.xml", "EP", credit_id);
+
+    // Page 1: fetch first 2, ordered by (title_lower, feed_guid).
+    let page1: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT f.feed_guid FROM feeds f \
+                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+                 WHERE acn.artist_id = ?1 \
+                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
+                 LIMIT ?2",
+            )
+            .unwrap();
+        stmt.query_map(params![artist_id, 2], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(page1.len(), 2, "page 1 should have 2 feeds");
+    assert_eq!(page1[0], "aaa-guid");
+    assert_eq!(page1[1], "bbb-guid");
+
+    // Build composite cursor from last item: title_lower:feed_guid
+    let last_guid = page1.last().unwrap();
+    let cursor_title: String = conn
+        .query_row(
+            "SELECT title_lower FROM feeds WHERE feed_guid = ?1",
+            params![last_guid],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    // Page 2: use composite cursor to fetch next page.
+    let page2: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT f.feed_guid FROM feeds f \
+                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+                 WHERE acn.artist_id = ?1 \
+                   AND (f.title_lower > ?2 OR (f.title_lower = ?2 AND f.feed_guid > ?3)) \
+                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
+                 LIMIT ?4",
+            )
+            .unwrap();
+        stmt.query_map(params![artist_id, cursor_title, last_guid, 2], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap()
+    };
+    assert_eq!(page2.len(), 1, "page 2 should have the remaining 1 feed");
+    assert_eq!(page2[0], "ccc-guid");
+
+    // Verify no duplicates across all pages.
+    let mut all_guids = page1;
+    all_guids.extend(page2);
+    all_guids.sort();
+    all_guids.dedup();
+    assert_eq!(all_guids.len(), 3, "exactly 3 unique feeds across both pages");
 }
 
 // ---------------------------------------------------------------------------

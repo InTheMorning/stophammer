@@ -35,7 +35,7 @@ fn insert_single_credit(conn: &rusqlite::Connection, artist_id: &str, display: &
     credit_id
 }
 
-/// Insert a feed with full control over guid, url, title, and credit_id.
+/// Insert a feed with full control over guid, url, title, and `credit_id`.
 fn insert_feed_full(
     conn: &rusqlite::Connection,
     guid: &str,
@@ -53,7 +53,7 @@ fn insert_feed_full(
     guid.to_string()
 }
 
-/// Insert a minimal feed and return its feed_guid.
+/// Insert a minimal feed and return its `feed_guid`.
 fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> String {
     insert_feed_full(
         conn,
@@ -64,7 +64,7 @@ fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> Strin
     )
 }
 
-/// Insert a track with full control over title.
+/// Insert a track with full control over `title`.
 fn insert_track_full(
     conn: &rusqlite::Connection,
     track_guid: &str,
@@ -82,7 +82,7 @@ fn insert_track_full(
     track_guid.to_string()
 }
 
-/// Insert a minimal track and return its track_guid.
+/// Insert a minimal track and return its `track_guid`.
 fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,
@@ -97,6 +97,7 @@ fn insert_track(
 // ---------------------------------------------------------------------------
 
 #[test]
+#[expect(clippy::too_many_lines, reason = "integration test exercises full ingest-to-query pipeline")]
 fn ingest_to_query_pipeline() {
     let conn = common::test_db();
     let now = common::now();
@@ -287,10 +288,12 @@ fn ingest_to_query_pipeline() {
 // ---------------------------------------------------------------------------
 // 2. FTS5 search index population
 //
-// NOTE: The search_index uses content='' (contentless FTS5), which means
-// column values are not stored and return NULL when selected. We use rowid
-// and COUNT(*) to verify matches, and maintain a separate lookup for
-// entity_type/entity_id mapping.
+// Issue-FTS5-CONTENT — 2026-03-14
+// The search_index uses content='' (contentless FTS5).  Column values cannot
+// be read back via SELECT on the FTS5 table itself.  The companion table
+// `search_entities` maps each FTS5 rowid to (entity_type, entity_id).
+// We use `populate_search_index` (which maintains both tables) and then
+// verify that `search::search()` returns correct entity metadata.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -303,19 +306,17 @@ fn search_index_population() {
     insert_feed(&conn, "feed-fts", cid);
     insert_track(&conn, "track-fts", "feed-fts", cid);
 
-    // Populate search index for the feed (rowid=1).
-    conn.execute(
-        "INSERT INTO search_index (rowid, entity_type, entity_id, name, title, description, tags)
-         VALUES (1, 'feed', 'feed-fts', 'FTS Artist', 'Test Feed', 'A searchable feed', 'electronic')",
-        [],
+    // Populate via the library function so both FTS5 + search_entities stay in
+    // sync.
+    stophammer::search::populate_search_index(
+        &conn, "feed", "feed-fts",
+        "FTS Artist", "Test Feed", "A searchable feed", "electronic",
     )
     .unwrap();
 
-    // Populate search index for the track (rowid=2).
-    conn.execute(
-        "INSERT INTO search_index (rowid, entity_type, entity_id, name, title, description, tags)
-         VALUES (2, 'track', 'track-fts', 'FTS Artist', 'Test Track', 'A searchable track', 'rock')",
-        [],
+    stophammer::search::populate_search_index(
+        &conn, "track", "track-fts",
+        "FTS Artist", "Test Track", "A searchable track", "rock",
     )
     .unwrap();
 
@@ -349,26 +350,24 @@ fn search_index_population() {
         .unwrap();
     assert_eq!(name_match_count, 2);
 
-    // Verify rowids returned by MATCH correspond to the correct entities.
-    let mut stmt = conn
-        .prepare("SELECT rowid FROM search_index WHERE search_index MATCH 'tags:electronic'")
-        .unwrap();
-    let rowids: Vec<i64> = stmt
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert_eq!(rowids, vec![1], "only the feed row (rowid=1) has 'electronic' tag");
+    // Issue-FTS5-CONTENT — 2026-03-14
+    // Verify that search::search() returns correct entity_type and entity_id
+    // by joining through search_entities (not reading contentless FTS5 columns).
+    let results = stophammer::search::search(&conn, "electronic", None, 10, None, None).unwrap();
+    assert_eq!(results.len(), 1, "only one entity has 'electronic'");
+    assert_eq!(results[0].entity_type, "feed");
+    assert_eq!(results[0].entity_id, "feed-fts");
 
-    let mut stmt2 = conn
-        .prepare("SELECT rowid FROM search_index WHERE search_index MATCH 'tags:rock'")
-        .unwrap();
-    let rowids2: Vec<i64> = stmt2
-        .query_map([], |r| r.get(0))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-    assert_eq!(rowids2, vec![2], "only the track row (rowid=2) has 'rock' tag");
+    let results = stophammer::search::search(&conn, "rock", None, 10, None, None).unwrap();
+    assert_eq!(results.len(), 1, "only one entity has 'rock'");
+    assert_eq!(results[0].entity_type, "track");
+    assert_eq!(results[0].entity_id, "track-fts");
+
+    // Filtered search: only feeds
+    let results = stophammer::search::search(&conn, "FTS Artist", Some("feed"), 10, None, None).unwrap();
+    assert_eq!(results.len(), 1, "only the feed should match when filtered to 'feed'");
+    assert_eq!(results[0].entity_type, "feed");
+    assert_eq!(results[0].entity_id, "feed-fts");
 }
 
 // ---------------------------------------------------------------------------
@@ -518,7 +517,7 @@ fn pagination_with_cursors() {
     assert_eq!(page3, vec!["feed-page-05"]);
 
     // has_more logic: page3 has only 1 item (less than limit 2), so no more pages.
-    let has_more = page3.len() as i64 == 2;
+    let has_more = i64::try_from(page3.len()).unwrap_or(0) == 2;
     assert!(!has_more, "should be no more pages after page3");
 
     // Page 4: past end.
@@ -746,5 +745,6 @@ fn sql_injection_prevention() {
             |r| r.get(0),
         )
         .unwrap();
-    assert!(table_count > 20, "all tables should still exist");
+    // Dead schema removed — 2026-03-13: feed_type, artist_location, manifest_source
+    assert!(table_count > 17, "all tables should still exist");
 }

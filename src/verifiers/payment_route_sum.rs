@@ -8,6 +8,7 @@ use crate::verify::{IngestContext, Verifier, VerifyResult};
 ///
 /// A split total other than 100 indicates a malformed `podcast:value` block
 /// and would result in incorrect Lightning payment routing at play time.
+#[derive(Debug)]
 pub struct PaymentRouteSumVerifier;
 
 impl Verifier for PaymentRouteSumVerifier {

@@ -5,8 +5,8 @@
 //! variants), an ed25519 signature over [`EventSigningPayload`], and a
 //! monotonic `seq` assigned by the primary at commit time.
 //!
-//! `seq` is intentionally excluded from the signing payload — it is a
-//! delivery-ordering field and does not affect content integrity.
+//! `seq` is included in the signing payload to prevent MITM inflation of
+//! the delivery-ordering cursor (Issue-SEQ-INTEGRITY).
 
 use serde::{Deserialize, Serialize};
 use crate::model::{Artist, ArtistCredit, Feed, FeedPaymentRoute, PaymentRoute, Track, ValueTimeSplit};
@@ -72,7 +72,6 @@ pub enum EventPayload {
 /// Callers that construct `Event` from the wire (community sync) must populate
 /// `payload_json` using [`Event::payload_json_from_payload`] before calling
 /// `verify_event_signature`.
-#[expect(clippy::struct_field_names, reason = "event_id and event_type are canonical field names in the protocol")]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Event {
     pub event_id:     String,
@@ -98,10 +97,11 @@ pub struct Event {
 /// `payload_json` is pre-serialized to avoid any re-encoding ambiguity that
 /// could arise from round-tripping through a typed value.
 ///
-/// `seq` is intentionally **excluded**: it is a delivery-ordering cursor
-/// assigned by the primary at commit time and may legitimately differ between
-/// replicas.  Including it would tie the signature to one replica's ordering
-/// rather than to the content itself, making cross-node verification impossible.
+/// `seq` is included so that a MITM cannot inflate the delivery-ordering
+/// cursor by altering the unsigned wire value.  The primary assigns `seq`
+/// at commit time and signs it; replicas verify the signature before
+/// advancing their sync cursor, closing the seq-inflation attack vector.
+// Issue-SEQ-INTEGRITY — 2026-03-14
 #[derive(Debug, Serialize)]
 pub struct EventSigningPayload<'a> {
     pub event_id:     &'a str,
@@ -109,6 +109,7 @@ pub struct EventSigningPayload<'a> {
     pub payload_json: &'a str,
     pub subject_guid: &'a str,
     pub created_at:   i64,
+    pub seq:          i64, // Issue-SEQ-INTEGRITY — 2026-03-14
 }
 
 // ── Payload types ──────────────────────────────────────────────────────────

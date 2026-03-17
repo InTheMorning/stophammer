@@ -1,26 +1,53 @@
 use rusqlite::Connection;
 use std::sync::{Arc, Mutex};
 
-/// Opens an in-memory SQLite database with the stophammer schema applied.
-/// Uses the same schema.sql that the production code uses (via include_str!).
+/// Opens an in-memory `SQLite` database with the stophammer schema applied.
+/// Uses `open_db(":memory:")` so that the migration system is exercised
+/// identically to production.
 pub fn test_db() -> Connection {
-    let conn = Connection::open_in_memory().expect("failed to open in-memory database");
-    // Apply the schema exactly as production does
-    const SCHEMA: &str = include_str!("../../src/schema.sql");
-    conn.execute_batch(SCHEMA).expect("failed to apply schema");
-    conn
+    stophammer::db::open_db(":memory:")
 }
 
-/// Returns the DB as an Arc<Mutex<Connection>> matching the `db::Db` type.
+/// Returns the DB as an `Arc<Mutex<Connection>>` matching the legacy `db::Db` type.
 #[allow(dead_code)]
 pub fn test_db_arc() -> Arc<Mutex<Connection>> {
     Arc::new(Mutex::new(test_db()))
 }
 
+/// Returns a `DbPool` backed by a temporary file.
+///
+/// The returned `TempDir` must be kept alive for the lifetime of the pool —
+/// dropping it removes the underlying database file.
+// Issue-WAL-POOL — 2026-03-14
+#[expect(dead_code, reason = "used conditionally across test files")]
+pub fn test_db_pool() -> (stophammer::db_pool::DbPool, tempfile::TempDir) {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let db_path = dir.path().join("test.db");
+    let pool = stophammer::db_pool::DbPool::open(&db_path)
+        .expect("failed to open test db pool");
+    (pool, dir)
+}
+
+/// Returns a `DbPool` wrapping an in-memory writer connection (test-util mode).
+///
+/// Both reads and writes go through the single writer. Use this when tests
+/// need to seed data via raw SQL on a `Connection` reference.
+// Issue-WAL-POOL — 2026-03-14
+#[expect(dead_code, reason = "used conditionally across test files")]
+pub fn test_db_pool_memory() -> stophammer::db_pool::DbPool {
+    stophammer::db_pool::DbPool::from_writer_only(test_db_arc())
+}
+
+/// Wraps an `Arc<Mutex<Connection>>` into a `DbPool` for test compatibility.
+// Issue-WAL-POOL — 2026-03-14
+#[expect(dead_code, reason = "used conditionally across test files")]
+pub fn wrap_pool(db: Arc<Mutex<rusqlite::Connection>>) -> stophammer::db_pool::DbPool {
+    stophammer::db_pool::DbPool::from_writer_only(db)
+}
+
+// SP-05 epoch guard — 2026-03-12
 /// Returns current unix timestamp as i64.
+#[expect(dead_code, reason = "used conditionally across test files")]
 pub fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs() as i64
+    stophammer::db::unix_now()
 }

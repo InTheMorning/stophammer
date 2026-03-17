@@ -22,7 +22,7 @@ fn insert_artist(conn: &rusqlite::Connection, name: &str) -> String {
 // 1. external_id_linked
 // ---------------------------------------------------------------------------
 
-/// Insert an external_id for an artist (scheme="musicbrainz", value="some-mbid"),
+/// Insert an `external_id` for an artist (scheme="musicbrainz", value="some-mbid"),
 /// query back, verify fields.
 #[test]
 fn external_id_linked() {
@@ -58,7 +58,7 @@ fn external_id_linked() {
 // 2. external_id_uniqueness
 // ---------------------------------------------------------------------------
 
-/// INSERT two external IDs with same (entity_type, entity_id, scheme), second
+/// INSERT two external IDs with same (`entity_type`, `entity_id`, `scheme`), second
 /// should conflict (UNIQUE constraint). Use INSERT OR REPLACE to update, verify
 /// only one row.
 #[test]
@@ -112,7 +112,7 @@ fn external_id_uniqueness() {
 // 3. external_id_reverse_lookup
 // ---------------------------------------------------------------------------
 
-/// Insert external_id, query by scheme+value to find the entity.
+/// Insert `external_id`, query by scheme+value to find the entity.
 #[test]
 fn external_id_reverse_lookup() {
     let conn = common::test_db();
@@ -145,8 +145,8 @@ fn external_id_reverse_lookup() {
 // 4. entity_source_recorded
 // ---------------------------------------------------------------------------
 
-/// Insert into entity_source table, query back, verify source_type, trust_level,
-/// and source_url.
+/// Insert into `entity_source` table, query back, verify `source_type`, `trust_level`,
+/// and `source_url`.
 #[test]
 fn entity_source_recorded() {
     let conn = common::test_db();

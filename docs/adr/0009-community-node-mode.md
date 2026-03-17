@@ -25,7 +25,7 @@ A new `src/community.rs` module owns the sync logic. `src/main.rs` branches on `
 ### `CommunityConfig`
 All community-specific parameters are grouped in `CommunityConfig`:
 - `primary_url` — base URL of the primary node
-- `tracker_url` — base URL of the Cloudflare tracker (default: `https://stophammer-tracker.workers.dev`)
+- `tracker_url` — base URL of the Cloudflare tracker (default: `https://stophammer-tracker.workers.dev`). Optional — set to an empty string or a local URL to remove the external dependency. Tracker registration is best-effort and not required for sync
 - `node_address` — this node's public address registered with the tracker
 - `poll_interval_secs` — seconds between polls (default: 30)
 
@@ -35,11 +35,17 @@ All community-specific parameters are grouped in `CommunityConfig`:
 2. Reads `last_seq` from `node_sync_state` table, keyed by this node's pubkey.
 3. Polls `GET {primary_url}/sync/events?after_seq={last_seq}&limit=500` every `poll_interval_secs`.
 4. For each received event: verifies the ed25519 signature via `signing::verify_event_signature`, then calls `apply_single_event`.
-5. `apply_single_event` dispatches on `EventPayload` variant: upsert artist, feed, track/routes/splits, or replace routes. `FeedRetired` and `TrackRemoved` are logged and skipped (not yet implemented).
-6. After applying, inserts the event row into the local `events` table (so the community node can serve it) and advances the cursor via `upsert_node_sync_state`.
+5. `apply_single_event` opens a single transaction and inserts the event row via `INSERT OR IGNORE` as the **first** operation (dedup guard). If the event already exists, the transaction commits (no-op) and returns `ApplyOutcome::Duplicate` immediately -- no entity mutations are executed. This dedup-first invariant guarantees that a duplicate event can never produce partial side-effects.
+6. For new events, `apply_single_event` re-derives the `EventPayload` from the signed `payload_json` bytes (closing a MITM vector where the deserialized struct could differ from the signed content), then dispatches on the payload variant: upsert artist, feed, track/routes/splits, replace routes, feed retire (cascade delete), track remove (cascade delete), or artist merge.
+7. After all mutations succeed, advances the cursor via `upsert_node_sync_state` and commits the transaction.
 
 ### Read-only API
-`api::build_readonly_router` exposes only `GET /sync/events` and `GET /health`. The ingest and reconcile write-paths are absent by construction, not by runtime guard. Community mode passes a dummy `VerifierChain` (empty crawl token) because the ingest handler is never reachable.
+`api::build_readonly_router` exposes the sync endpoints (`GET /sync/events`,
+`GET /sync/peers`), the full `v1` query API (`/v1/search`, `/v1/artists`, etc.), the SSE
+stream (`GET /v1/events` — see ADR 0020), `GET /node/info`, and `GET /health`. The
+ingest, reconcile, and admin write-paths are absent by construction, not by runtime
+guard. Community mode passes a dummy `VerifierChain` (empty crawl token) because the
+ingest handler is never reachable.
 
 ### Cursor identity
 The community node's own ed25519 pubkey is used as the `node_pubkey` key in `node_sync_state`. This means the same key file that identifies the node to the tracker also identifies its sync position in the DB — no additional identity concept is needed.
@@ -56,6 +62,7 @@ A new read helper returns `last_seq` for the node's pubkey, or 0 if no cursor ex
 ## Consequences
 - A community node can be bootstrapped against any primary URL and will self-heal across network interruptions.
 - Event ordering on the community node may differ from the primary (different `seq` values) because `seq` is assigned by the local DB at insert time. This is consistent with ADR 0004 — `seq` is a delivery-ordering field excluded from the signature.
-- `FeedRetired` and `TrackRemoved` events are silently skipped. A future ADR should implement soft-delete semantics before these event types are used in production.
+- Duplicate events (received via both push and fallback poll, or replayed during recovery) are detected at the top of the transaction via the `INSERT OR IGNORE` dedup guard and returned as `ApplyOutcome::Duplicate`. No entity mutations are attempted for duplicates, eliminating a class of partial-write bugs where the event row insert could succeed but entity mutations had already been applied.
+- `FeedRetired` and `TrackRemoved` events are fully implemented with cascade hard-deletes. `FeedRetired` removes the feed, all child tracks, payment routes, and search index entries. `TrackRemoved` removes the track, its child rows, and search index entry. Both use `INSERT OR IGNORE` / idempotent semantics consistent with the rest of `apply_single_event`.
 - The read-only router eliminates the ingest surface area on community nodes without any runtime flag checks — the routes simply do not exist.
 - A community node holds its own signing key (loaded from `KEY_PATH`) even though it never signs. This simplifies `AppState` reuse; the key is present but dormant.

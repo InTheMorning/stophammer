@@ -6,7 +6,7 @@ use rusqlite::params;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Insert a test artist and return its artist_id.
+/// Insert a test artist and return its `artist_id`.
 fn insert_artist(conn: &rusqlite::Connection, name: &str) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     let now = common::now();
@@ -19,7 +19,7 @@ fn insert_artist(conn: &rusqlite::Connection, name: &str) -> String {
     id
 }
 
-/// Insert an artist credit for a single artist and return the credit_id.
+/// Insert an artist credit for a single artist and return the `credit_id`.
 fn insert_credit(conn: &rusqlite::Connection, artist_id: &str, name: &str) -> i64 {
     let now = common::now();
     conn.execute(
@@ -391,6 +391,24 @@ fn recent_feeds_ordering() {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers for Value extraction
+// ---------------------------------------------------------------------------
+
+const fn val_str(v: &rusqlite::types::Value) -> Option<&str> {
+    match v {
+        rusqlite::types::Value::Text(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
+fn val_i64(v: &rusqlite::types::Value) -> i64 {
+    match v {
+        rusqlite::types::Value::Integer(n) => *n,
+        _ => panic!("expected integer"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // 6. feed_payment_routes_stored — insert a feed + 2 feed_payment_routes, verify
 // ---------------------------------------------------------------------------
 
@@ -451,20 +469,6 @@ fn feed_payment_routes_stored() {
         .unwrap();
 
     assert_eq!(rows.len(), 2, "should return both feed payment routes");
-
-    // Helper to extract string from Value
-    fn val_str(v: &rusqlite::types::Value) -> Option<&str> {
-        match v {
-            rusqlite::types::Value::Text(s) => Some(s.as_str()),
-            _ => None,
-        }
-    }
-    fn val_i64(v: &rusqlite::types::Value) -> i64 {
-        match v {
-            rusqlite::types::Value::Integer(n) => *n,
-            _ => panic!("expected integer"),
-        }
-    }
 
     // First route (split=80)
     assert_eq!(val_str(&rows[0][0]).unwrap(), feed_guid);

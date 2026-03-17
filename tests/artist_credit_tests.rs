@@ -18,7 +18,7 @@ fn insert_artist(conn: &rusqlite::Connection, name: &str) -> String {
     id
 }
 
-/// Insert an artist_credit row with an explicit integer id and return that id.
+/// Insert an `artist_credit` row with an explicit integer id and return that id.
 fn insert_credit(conn: &rusqlite::Connection, id: i64, display_name: &str) {
     let now = common::now();
     conn.execute(
@@ -28,7 +28,7 @@ fn insert_credit(conn: &rusqlite::Connection, id: i64, display_name: &str) {
     .unwrap();
 }
 
-/// Insert an artist_credit_name row.
+/// Insert an `artist_credit_name` row.
 fn insert_credit_name(
     conn: &rusqlite::Connection,
     artist_credit_id: i64,
@@ -50,8 +50,8 @@ fn insert_credit_name(
 // 1. artist_credit_single_creation
 // ---------------------------------------------------------------------------
 
-/// Creating a single-artist credit produces one artist_credit row and one
-/// artist_credit_name row with the correct display_name and artist_id.
+/// Creating a single-artist credit produces one `artist_credit` row and one
+/// `artist_credit_name` row with the correct `display_name` and `artist_id`.
 #[test]
 fn artist_credit_single_creation() {
     let conn = common::test_db();
@@ -94,7 +94,7 @@ fn artist_credit_single_creation() {
 // 2. artist_credit_multi_creation
 // ---------------------------------------------------------------------------
 
-/// A two-artist credit ("Alice & Bob") stores both artist_credit_name rows
+/// A two-artist credit ("Alice & Bob") stores both `artist_credit_name` rows
 /// with the expected positions and join phrases.
 #[test]
 fn artist_credit_multi_creation() {
@@ -145,8 +145,8 @@ fn artist_credit_multi_creation() {
 // 3. artist_credit_appears_on_feed
 // ---------------------------------------------------------------------------
 
-/// A feed created with a given artist_credit_id stores that id and can be
-/// joined back to the artist_credit table.
+/// A feed created with a given `artist_credit_id` stores that id and can be
+/// joined back to the `artist_credit` table.
 #[test]
 fn artist_credit_appears_on_feed() {
     let conn = common::test_db();
@@ -197,8 +197,8 @@ fn artist_credit_appears_on_feed() {
 // 4. artist_credit_appears_on_track
 // ---------------------------------------------------------------------------
 
-/// A track created with a given artist_credit_id stores that id and the join
-/// to artist_credit returns the expected display_name.
+/// A track created with a given `artist_credit_id` stores that id and the join
+/// to `artist_credit` returns the expected `display_name`.
 #[test]
 fn artist_credit_appears_on_track() {
     let conn = common::test_db();
@@ -293,7 +293,7 @@ fn artist_credit_idempotent_by_display_name() {
 // 6. artist_credit_names_ordered_by_position
 // ---------------------------------------------------------------------------
 
-/// Inserting three artist_credit_name rows at positions 2, 0, 1 (out of order)
+/// Inserting three `artist_credit_name` rows at positions 2, 0, 1 (out of order)
 /// and querying them back ORDER BY position returns the names in the correct
 /// positional order.
 #[test]

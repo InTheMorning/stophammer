@@ -1,0 +1,198 @@
+# Schema Reference
+
+Source: `src/schema.sql`
+
+---
+
+## Lookup tables
+
+### `artist_type`
+**Purpose:** Enumerates the kinds of artist entity (person, group, orchestra, choir, character, other).
+**Key columns:** `id` (integer PK), `name` (unique label such as `person` or `group`).
+**Notes:** Seeded at schema creation. Referenced by `artists.type_id`.
+
+### `feed_type`
+**Purpose:** Enumerates release types for feeds (album, ep, single, compilation, soundtrack, live, remix, other).
+**Key columns:** `id` (integer PK), `name` (unique label).
+**Notes:** Seeded at schema creation. Not yet referenced by a FK in `feeds` -- the column that will use it is `raw_medium`, which currently stores the raw string from the RSS.
+
+### `rel_type`
+**Purpose:** Defines every relationship kind in the system (performer, songwriter, member_of, cover_art, label, etc.).
+**Key columns:** `id` (integer PK), `name` (unique machine name), `entity_pair` (which entity combination this type applies to, e.g. `artist-track`, `artist-artist`, `artist-feed`).
+**Notes:** Seeded with 35 rows. Used as FK by `artist_artist_rel`, `track_rel`, and `feed_rel`.
+
+---
+
+## Core entities
+
+### `artists`
+**Purpose:** Canonical record for every artist known to the index.
+**Key columns:** `artist_id` (text PK, typically a UUID), `name` / `name_lower` (display and search names), `type_id` (FK to `artist_type`).
+**Notes:** `name_lower` is indexed for case-insensitive lookup. Related tables: `artist_aliases`, `artist_credit_name`, `artist_location`, `artist_artist_rel`, `artist_tag`, `external_ids`. See ADR 0014 for alias resolution rules.
+
+### `artist_aliases`
+**Purpose:** Alternate names for an artist used during ingest-time resolution.
+**Key columns:** `alias_lower` (lowercased alias text), `artist_id` (FK to `artists`).
+**Notes:** Composite PK `(alias_lower, artist_id)`. One artist may have many aliases; one alias may map to multiple artists. See ADR 0014.
+
+### `artist_credit`
+**Purpose:** A MusicBrainz-style artist credit representing one or more artists combined into a display string (e.g. "Artist A feat. Artist B").
+**Key columns:** `id` (integer PK), `display_name` (the fully rendered credit string).
+**Notes:** Referenced by `feeds.artist_credit_id` and `tracks.artist_credit_id`. The individual artist contributions are stored in `artist_credit_name`.
+
+### `artist_credit_name`
+**Purpose:** Junction table linking individual artists to positions within an artist credit.
+**Key columns:** `artist_credit_id` (FK to `artist_credit`), `artist_id` (FK to `artists`), `position` (ordering), `join_phrase` (text like " feat. " that glues names together).
+**Notes:** Unique on `(artist_credit_id, position)`. Indexed on both `artist_credit_id` and `artist_id` for reverse lookups.
+
+### `feeds`
+**Purpose:** A podcast/music feed (album, EP, single, etc.) identified by its `podcast:guid`.
+**Key columns:** `feed_guid` (text PK), `feed_url` (unique RSS URL), `title` / `title_lower`, `artist_credit_id` (FK to `artist_credit`).
+**Notes:** `episode_count`, `newest_item_at`, `oldest_item_at` are denormalized counters/dates maintained during ingest. `raw_medium` stores the unprocessed `<podcast:medium>` value from RSS. Indexed on `newest_item_at DESC` for "recently updated" queries.
+
+### `tracks`
+**Purpose:** An individual item (song / episode) within a feed.
+**Key columns:** `track_guid` (text PK), `feed_guid` (FK to `feeds`), `artist_credit_id` (FK to `artist_credit`), `enclosure_url` (audio file location).
+**Notes:** Indexed on `feed_guid`, `pub_date DESC`, and `title_lower`. Payment information lives in `payment_routes` and `value_time_splits`.
+
+### `payment_routes`
+**Purpose:** Track-level `<podcast:value>` payment split destinations.
+**Key columns:** `track_guid` (FK to `tracks`), `route_type` (e.g. `node`, `lnaddress`), `address` (Lightning address or node pubkey), `split` (proportional share).
+**Notes:** Also carries `custom_key` / `custom_value` for TLV record routing. `fee` flag indicates whether the split is a fee deducted before proportional splitting. Indexed on both `track_guid` and `feed_guid`.
+
+### `feed_payment_routes`
+**Purpose:** Feed-level payment split destinations, applied when a track has no track-level routes.
+**Key columns:** `feed_guid` (FK to `feeds`), `route_type`, `address`, `split`.
+**Notes:** Same structure as `payment_routes` but scoped to the feed. Indexed on `feed_guid`.
+
+### `value_time_splits`
+**Purpose:** Time-ranged payment splits that override the default route during a segment of a track (the `<podcast:valueTimeSplit>` tag).
+**Key columns:** `source_track_guid` (FK to `tracks`), `start_time_secs` / `duration_secs` (the segment window), `remote_feed_guid` / `remote_item_guid` (the destination item receiving the split).
+**Notes:** Indexed on `source_track_guid`. Used to credit sampled or guest content within a track.
+
+---
+
+## Events & sync
+
+### `events`
+**Purpose:** Append-only signed event log that records every mutation and replicates across nodes.
+**Key columns:** `event_id` (text PK), `event_type` (e.g. `FeedUpserted`, `TrackRemoved`), `payload_json` (full event payload), `seq` (monotonically increasing sequence number for sync cursors).
+**Notes:** `signed_by` and `signature` authenticate the originating node. `warnings_json` captures non-fatal issues encountered during ingest. Indexed on `seq`, `subject_guid`, `event_type`, and `created_at DESC`. Central to ADR 0004 (signed event log) and ADR 0016 (push-gossip replication).
+
+### `feed_crawl_cache`
+**Purpose:** Deduplication cache for the RSS crawler -- avoids re-processing a feed whose content has not changed.
+**Key columns:** `feed_url` (text PK), `content_hash` (hash of the last-seen feed body), `crawled_at` (epoch timestamp).
+**Notes:** See ADR 0011 (RSS crawler).
+
+### `node_sync_state`
+**Purpose:** Tracks the last event sequence number received from each peer node.
+**Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).
+**Notes:** Used by the push-gossip protocol (ADR 0016) to request only new events from each peer.
+
+### `peer_nodes`
+**Purpose:** Registry of known peer nodes in the gossip network.
+**Key columns:** `node_pubkey` (text PK), `node_url` (reachable endpoint), `consecutive_failures` (tracks unreachable peers for back-off).
+**Notes:** `last_push_at` records the last successful push to that peer. See ADR 0016 and ADR 0009 (community node mode).
+
+---
+
+## Relationships & metadata
+
+### `artist_location`
+**Purpose:** Geographic coordinates and place name for an artist, enabling map-based discovery.
+**Key columns:** `artist_id` (text PK, FK to `artists`), `latitude` / `longitude` (REAL), `country`.
+**Notes:** One location per artist. `city` and `region` are optional.
+
+### `artist_artist_rel`
+**Purpose:** Directed relationships between two artists (member_of, collaboration, booking, management).
+**Key columns:** `artist_id_a` / `artist_id_b` (FKs to `artists`), `rel_type_id` (FK to `rel_type`).
+**Notes:** `begin_year` / `end_year` scope the relationship in time. Indexed on both artist columns.
+
+### `artist_id_redirect`
+**Purpose:** Redirect table for merged artists -- maps a retired artist ID to its canonical replacement.
+**Key columns:** `old_artist_id` (text PK), `new_artist_id` (FK to `artists`).
+**Notes:** `merged_at` records when the merge happened. Clients and internal lookups should follow redirects.
+
+### `track_rel`
+**Purpose:** Relationships between two tracks (e.g. remix_of, cover_of, featuring).
+**Key columns:** `track_guid_a` / `track_guid_b` (FKs to `tracks`), `rel_type_id` (FK to `rel_type`).
+**Notes:** Indexed on both track columns.
+
+### `feed_rel`
+**Purpose:** Relationships between two feeds (e.g. companion releases, deluxe editions).
+**Key columns:** `feed_guid_a` / `feed_guid_b` (FKs to `feeds`), `rel_type_id` (FK to `rel_type`).
+**Notes:** Indexed on both feed columns.
+
+---
+
+## Tags
+
+### `tags`
+**Purpose:** Normalized tag/genre dictionary.
+**Key columns:** `id` (integer PK), `name` (unique tag string).
+**Notes:** Created as tags are encountered during ingest.
+
+### `artist_tag`
+**Purpose:** Many-to-many join between artists and tags.
+**Key columns:** `artist_id` (FK to `artists`), `tag_id` (FK to `tags`).
+**Notes:** Composite PK `(artist_id, tag_id)`.
+
+### `feed_tag`
+**Purpose:** Many-to-many join between feeds and tags.
+**Key columns:** `feed_guid` (FK to `feeds`), `tag_id` (FK to `tags`).
+**Notes:** Composite PK `(feed_guid, tag_id)`.
+
+### `track_tag`
+**Purpose:** Many-to-many join between tracks and tags.
+**Key columns:** `track_guid` (FK to `tracks`), `tag_id` (FK to `tags`).
+**Notes:** Composite PK `(track_guid, tag_id)`.
+
+---
+
+## External IDs & provenance
+
+### `external_ids`
+**Purpose:** Maps entities to identifiers in external systems (MusicBrainz, ISRC, UPC, Spotify, etc.).
+**Key columns:** `entity_type` / `entity_id` (polymorphic reference to any entity), `scheme` (identifier namespace, e.g. `musicbrainz`, `isrc`), `value` (the external identifier).
+**Notes:** Unique on `(entity_type, entity_id, scheme)`. Indexed for both entity lookup and reverse lookup by scheme + value.
+
+### `entity_source`
+**Purpose:** Records where an entity's data came from and how much to trust it.
+**Key columns:** `entity_type` / `entity_id` (polymorphic reference), `source_type` (e.g. `rss_crawl`, `bulk_import`, `manual`), `trust_level` (integer ranking).
+**Notes:** See ADR 0006 (crawlers as untrusted clients) and ADR 0005 (pluggable verifier chain) for how trust levels influence acceptance.
+
+### `manifest_source`
+**Purpose:** Tracks `stophammer.json` manifest files discovered at well-known URLs for a feed.
+**Key columns:** `feed_guid` (FK to `feeds`), `manifest_url` (unique URL where the manifest was found), `signed_by` / `verified_at` (optional signature verification).
+**Notes:** Manifests provide an out-of-band trust anchor linking a feed to an artist's web presence.
+
+---
+
+## Quality scoring
+
+### `entity_quality`
+**Purpose:** Stores a computed completeness/quality score for any entity.
+**Key columns:** `entity_type` / `entity_id` (composite PK), `score` (integer 0-100), `computed_at` (epoch timestamp of last computation).
+**Notes:** Scores are recomputed periodically and used for ranking in search results and API responses.
+
+### `entity_field_status`
+**Purpose:** Per-field status tracking for entity completeness (which fields are present, missing, or invalid).
+**Key columns:** `entity_type` / `entity_id` / `field_name` (composite PK), `status` (default `present`).
+**Notes:** Companion to `entity_quality` -- provides the breakdown behind the aggregate score.
+
+---
+
+## Search
+
+### `search_index`
+**Purpose:** FTS5 virtual table providing full-text search across all entity types.
+**Key columns:** `entity_type`, `entity_id` (identify the source row), `name` / `title` / `description` / `tags` (searchable text fields).
+**Notes:** Contentless (`content=''`) -- the table stores only the inverted index, not the original text. Tokenized with `unicode61`. Populated and updated by `search.rs` during event application.
+
+---
+
+## Tables referenced in ADRs but not yet in schema
+
+- **`proof_challenges`** (ADR 0018) -- Stores pending, valid, and invalid proof-of-possession challenges used to authorize feed/track mutations (delete, relocate) without an account system.
+- **`proof_tokens`** (ADR 0018) -- Stores short-lived access tokens (scoped to a feed, 1-hour expiry) issued after a successful proof-of-possession assertion.
+- **`live_events`** (ADR 0021) -- Ephemeral table tracking `<podcast:liveItem>` elements in `pending` or `live` state, deleted once the item transitions to `ended` and is promoted to a permanent track.

@@ -17,10 +17,34 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::{extract::State, routing::post, Json, Router};
+use axum::{
+    extract::{DefaultBodyLimit, State},
+    http::StatusCode,
+    routing::post,
+    Json, Router,
+};
 use serde::Serialize;
 
-use crate::{apply, db, sync};
+use crate::{apply, db, db_pool, sync};
+
+/// Seconds between retry attempts when polling for the primary's pubkey.
+///
+/// The primary may still be starting when the community node boots.
+/// 2 seconds is short enough for fast startup but long enough to avoid
+/// hammering a booting primary.
+const RETRY_BACKOFF_SECS: u64 = 2;
+
+/// Maximum number of events accepted in a single `POST /sync/push` request.
+const MAX_PUSH_EVENTS: usize = 1_000;
+
+/// Maximum request body size (bytes) for the push endpoint.
+const MAX_PUSH_BODY_BYTES: usize = 2 * 1024 * 1024;
+
+/// Maximum pages to drain in a single catch-up burst before yielding to a
+/// sleep cycle. Prevents a runaway drain loop when the primary is
+/// misbehaving or the node is astronomically behind.
+// Issue-CATCHUP-DRAIN — 2026-03-15
+const MAX_DRAIN_PAGES: u32 = 100;
 
 // ── CommunityConfig ──────────────────────────────────────────────────────────
 
@@ -32,6 +56,8 @@ use crate::{apply, db, sync};
 /// is constructed exactly once in `main.rs` from environment variables; a
 /// builder would add boilerplate with no safety or usability benefit for an
 /// application binary. Plain struct initialisation is the idiomatic choice.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct CommunityConfig {
     /// Base URL of the primary node, e.g. `"http://primary.example.com:8008"`.
     pub primary_url: String,
@@ -48,15 +74,21 @@ pub struct CommunityConfig {
 // ── CommunityState ───────────────────────────────────────────────────────────
 
 /// Shared state for the push-receive endpoint.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug)]
 pub struct CommunityState {
-    /// Local database handle.
-    pub db:                 db::Db,
+    /// Local database handle (WAL pool: writer + readers).
+    // Issue-WAL-POOL — 2026-03-14
+    pub db:                 db_pool::DbPool,
     /// Hex-encoded ed25519 public key of the authoritative primary node.
     pub primary_pubkey_hex: String,
     /// Unix timestamp (seconds) of the last successfully received push.
     /// Stored as i64 with `Relaxed` ordering (monotonic read, no cross-thread
     /// happens-before needed — a stale read at most delays one poll cycle).
     pub last_push_at:       Arc<AtomicI64>,
+    /// Issue-SSE-PUBLISH — 2026-03-14: SSE registry shared with the readonly
+    /// router so that events applied via push are published to SSE clients.
+    pub sse_registry:       Option<Arc<crate::api::SseRegistry>>,
 }
 
 // ── Tracker registration body ────────────────────────────────────────────────
@@ -73,12 +105,17 @@ struct RegisterBody<'a> {
 /// the process exits.
 ///
 /// `pubkey_hex` is the hex-encoded ed25519 pubkey of this node's key, used
-/// as the cursor identity in `node_sync_state` and in tracker registration.
+/// in tracker and primary registration.
+///
+/// # Panics
+///
+/// Panics if the `reqwest::Client` cannot be built (TLS backend unavailable).
 pub async fn run_community_sync(
     config:       CommunityConfig,
-    db:           db::Db,
+    db:           db_pool::DbPool,
     pubkey_hex:   String,
     last_push_at: Arc<AtomicI64>,
+    sse_registry: Option<Arc<crate::api::SseRegistry>>,
 ) {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -97,21 +134,28 @@ pub async fn run_community_sync(
     ).await;
 
     // 3. Load persisted cursor.
-    let initial_seq = {
-        let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match db::get_node_sync_cursor(&conn, &pubkey_hex) {
-            Ok(seq) => seq,
-            Err(e) => {
-                eprintln!("[community] failed to read sync cursor: {e}; starting from 0");
-                0
-            }
+    // Mutex safety compliant — 2026-03-12
+    // Issue-CURSOR-IDENTITY — 2026-03-14
+    // Issue-WAL-POOL — 2026-03-14: use reader for cursor lookups
+    let initial_seq = db.reader().map_or_else(|_| {
+        tracing::error!("community: db reader pool error; starting from seq 0");
+        0
+    }, |conn| match db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY) {
+        Ok(seq) => seq,
+        Err(e) => {
+            tracing::error!(error = %e, "community: failed to read sync cursor; starting from 0");
+            0
         }
-    };
+    });
 
     let mut last_seq = initial_seq;
-    println!("[community] sync started — primary={} cursor={last_seq}", config.primary_url);
+    tracing::info!(primary = %config.primary_url, cursor = last_seq, "community: sync started");
 
-    // 4. Poll-loop fallback.
+    // 4. Poll-loop fallback with catch-up drain.
+    //
+    // Issue-CATCHUP-DRAIN — 2026-03-15: the inner drain loop fetches all
+    // available pages before sleeping, so a node thousands of events behind
+    // converges in seconds rather than sleeping between every page.
     //
     // Yield strategy (M-YIELD-POINTS): each iteration contains at least one
     // async await that surrenders control to the runtime:
@@ -119,46 +163,121 @@ pub async fn run_community_sync(
     //   - `apply::apply_events` dispatches each DB write via `spawn_blocking`.
     //   - `tokio::time::sleep` at the bottom yields for the configured interval.
     loop {
-        let now_secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
-            .cast_signed();
+        let now_secs = db::unix_now();
 
         let secs_since_push = now_secs - last_push_at.load(Ordering::Relaxed);
         if secs_since_push > config.push_timeout_secs {
-            println!("[community] fallback poll (no push for {secs_since_push}s)");
-            match poll_once(&client, &config.primary_url, last_seq).await {
-                Err(e) => {
-                    eprintln!("[community] poll error: {e}");
-                }
-                Ok(response) => {
-                    let fetched = response.events.len();
-                    if fetched > 0 {
-                        let summary =
-                            apply::apply_events(Arc::clone(&db), &pubkey_hex, response.events)
-                                .await;
-                        if summary.applied > 0 {
-                            // Advance last_seq from the primary's seq values.
-                            let new_seq = {
-                                let conn = db.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                                db::get_node_sync_cursor(&conn, &pubkey_hex).unwrap_or(last_seq)
-                            };
-                            if new_seq > last_seq {
-                                last_seq = new_seq;
+            tracing::info!(seconds_since_push = secs_since_push, "community: fallback poll triggered");
+
+            // Issue-CATCHUP-DRAIN — 2026-03-15: drain all available pages (fast catch-up)
+            let mut pages_drained: u32 = 0;
+            loop {
+                match poll_once(&client, &config.primary_url, last_seq).await {
+                    Err(e) => {
+                        tracing::error!(error = %e, "community: poll error");
+                        break; // exit drain loop on error, sleep then retry
+                    }
+                    Ok(response) => {
+                        let has_more = response.has_more;
+                        let next_seq = response.next_seq;
+                        let fetched = response.events.len();
+
+                        if fetched > 0 {
+                            // Issue-CURSOR-IDENTITY — 2026-03-14
+                            let summary =
+                                apply::apply_events(db.clone(), response.events, sse_registry.as_ref())
+                                    .await;
+                            if summary.applied > 0 {
+                                // Advance last_seq from the primary's seq values.
+                                // Mutex safety compliant — 2026-03-12
+                                // Issue-CURSOR-IDENTITY — 2026-03-14
+                                // Issue-WAL-POOL — 2026-03-14: use reader for cursor lookup
+                                let new_seq = db.reader().map_or_else(|_| {
+                                    tracing::error!(cursor = last_seq, "community: db reader pool error; keeping cursor");
+                                    last_seq
+                                }, |conn| db::get_node_sync_cursor(&conn, apply::SYNC_CURSOR_KEY).unwrap_or(last_seq));
+                                if new_seq > last_seq {
+                                    last_seq = new_seq;
+                                }
+                                tracing::info!(
+                                    applied = summary.applied, fetched, cursor = last_seq,
+                                    "community: poll applied events"
+                                );
+                            } else if next_seq > last_seq {
+                                // All events were duplicates but the primary
+                                // reports a higher cursor — advance to avoid
+                                // re-fetching the same page forever.
+                                last_seq = next_seq;
                             }
-                            println!(
-                                "[community] poll applied {}/{} events — cursor now {last_seq}",
-                                summary.applied, fetched
-                            );
+                        } else if next_seq > last_seq {
+                            last_seq = next_seq;
                         }
+
+                        pages_drained += 1;
+
+                        if !has_more {
+                            break; // caught up, exit drain loop
+                        }
+
+                        // Issue-CATCHUP-DRAIN — 2026-03-15: guard against runaway drain
+                        if pages_drained >= MAX_DRAIN_PAGES {
+                            tracing::warn!(
+                                pages = pages_drained,
+                                cursor = last_seq,
+                                "community: max drain pages reached, yielding to sleep"
+                            );
+                            break;
+                        }
+
+                        // continue inner loop immediately — no sleep
                     }
                 }
             }
         }
 
+        // Sleep only when caught up or after error
+        // Issue-CATCHUP-DRAIN — 2026-03-15
         tokio::time::sleep(Duration::from_secs(config.poll_interval_secs)).await;
     }
+}
+
+// ── Issue-4 HTTPS pubkey discovery — 2026-03-13 ─────────────────────────────
+
+/// Validates that `primary_url` uses HTTPS for pubkey auto-discovery.
+///
+/// Returns `Ok(())` if the URL scheme is `https`, or if the URL is `http`
+/// but `ALLOW_INSECURE_PUBKEY_DISCOVERY=true` is set (local dev/docker).
+///
+/// # Errors
+///
+/// Returns a human-readable error string if the URL is plain HTTP and the
+/// escape-hatch env var is not set.
+pub fn require_https_for_discovery(primary_url: &str) -> Result<(), String> {
+    if primary_url.starts_with("https://") {
+        return Ok(());
+    }
+
+    if primary_url.starts_with("http://") {
+        tracing::warn!(
+            url = %primary_url,
+            "PRIMARY_PUBKEY auto-discovery URL uses plain HTTP — vulnerable to MITM"
+        );
+
+        let allowed = std::env::var("ALLOW_INSECURE_PUBKEY_DISCOVERY")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+
+        if !allowed {
+            return Err(
+                "FATAL: PRIMARY_PUBKEY auto-discovery requires HTTPS. \
+                 Set PRIMARY_PUBKEY env var explicitly, use an HTTPS primary URL, \
+                 or set ALLOW_INSECURE_PUBKEY_DISCOVERY=true for local development."
+                    .to_string(),
+            );
+        }
+    }
+
+    Ok(())
 }
 
 // ── fetch_primary_pubkey ─────────────────────────────────────────────────────
@@ -187,11 +306,11 @@ pub async fn fetch_primary_pubkey(
             _ => {}
         }
         if attempt < max_attempts {
-            eprintln!("[community] waiting for primary node/info (attempt {attempt}/{max_attempts})…");
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tracing::info!(attempt, max_attempts, "community: waiting for primary node/info");
+            tokio::time::sleep(Duration::from_secs(RETRY_BACKOFF_SECS)).await;
         }
     }
-    eprintln!("[community] could not fetch primary pubkey from {url}; using configured value");
+    tracing::warn!(url = %url, "community: could not fetch primary pubkey; using configured value");
     None
 }
 
@@ -208,23 +327,27 @@ async fn register_with_tracker(
 
     match client.post(&url).json(&body).send().await {
         Ok(resp) if resp.status().is_success() => {
-            println!("[community] registered with tracker at {tracker_url}");
+            tracing::info!(tracker = %tracker_url, "community: registered with tracker");
         }
         Ok(resp) => {
-            eprintln!(
-                "[community] tracker registration returned HTTP {}: ignored",
-                resp.status()
+            tracing::warn!(
+                tracker = %tracker_url, status = %resp.status(),
+                "community: tracker registration returned non-success; ignored"
             );
         }
         Err(e) => {
-            eprintln!("[community] tracker registration failed (ignoring): {e}");
+            tracing::warn!(error = %e, "community: tracker registration failed (ignoring)");
         }
     }
 }
 
 // ── register_with_primary ────────────────────────────────────────────────────
 
+// CS-03 authenticated register — 2026-03-12
 /// Announces this node's push URL to the primary via `POST /sync/register`.
+///
+/// Reads the `ADMIN_TOKEN` environment variable and sends it as
+/// `X-Admin-Token` header so the primary can authenticate the request.
 ///
 /// Errors are logged and swallowed — the poll-loop fallback handles catch-up
 /// when the primary is unreachable at startup.
@@ -240,18 +363,39 @@ async fn register_with_primary(
         node_url:    format!("{node_address}/sync/push"),
     };
 
-    match client.post(&url).json(&body).send().await {
+    // Finding-3 separate sync token — 2026-03-13
+    // Prefer SYNC_TOKEN (new, least-privilege); fall back to ADMIN_TOKEN (legacy).
+    let sync_token  = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
+    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
+
+    let mut request = client.post(&url).json(&body);
+    if let Some(ref token) = sync_token {
+        request = request.header("X-Sync-Token", token.as_str());
+    } else if !admin_token.is_empty() {
+        tracing::warn!(
+            "DEPRECATED: registering with primary via ADMIN_TOKEN. \
+             Set SYNC_TOKEN env var for least-privilege sync registration."
+        );
+        request = request.header("X-Admin-Token", &admin_token);
+    } else {
+        tracing::warn!(
+            "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set — \
+             push registration with primary will be rejected with 403."
+        );
+    }
+
+    match request.send().await {
         Ok(resp) if resp.status().is_success() => {
-            println!("[community] registered push endpoint with primary at {primary_url}");
+            tracing::info!(primary = %primary_url, "community: registered push endpoint with primary");
         }
         Ok(resp) => {
-            eprintln!(
-                "[community] primary registration returned HTTP {}: ignored",
-                resp.status()
+            tracing::warn!(
+                primary = %primary_url, status = %resp.status(),
+                "community: primary registration returned non-success; ignored"
             );
         }
         Err(e) => {
-            eprintln!("[community] primary registration failed (ignoring): {e}");
+            tracing::warn!(error = %e, "community: primary registration failed (ignoring)");
         }
     }
 }
@@ -290,6 +434,7 @@ async fn poll_once(
 pub fn build_community_push_router(state: Arc<CommunityState>) -> Router {
     Router::new()
         .route("/sync/push", post(handle_sync_push))
+        .layer(DefaultBodyLimit::max(MAX_PUSH_BODY_BYTES))
         .with_state(state)
 }
 
@@ -300,12 +445,13 @@ pub fn build_community_push_router(state: Arc<CommunityState>) -> Router {
 async fn handle_sync_push(
     State(state): State<Arc<CommunityState>>,
     Json(req): Json<sync::PushRequest>,
-) -> Json<sync::PushResponse> {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs()
-        .cast_signed();
+) -> Result<Json<sync::PushResponse>, StatusCode> {
+    // Availability: reject oversized push batches to prevent resource exhaustion.
+    if req.events.len() > MAX_PUSH_EVENTS {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let now = db::unix_now();
 
     // Filter to events signed by the known primary pubkey before applying.
     // Events with unexpected signers are counted as rejected.
@@ -314,9 +460,10 @@ async fn handle_sync_push(
         if ev.signed_by == state.primary_pubkey_hex {
             true
         } else {
-            eprintln!(
-                "[push] event {} signed by unknown key {}; expected {}",
-                ev.event_id, ev.signed_by, state.primary_pubkey_hex
+            tracing::warn!(
+                event_id = %ev.event_id, signed_by = %ev.signed_by,
+                expected = %state.primary_pubkey_hex,
+                "push: event signed by unknown key"
             );
             pre_rejected += 1;
             false
@@ -324,11 +471,14 @@ async fn handle_sync_push(
     }).collect();
 
     // Signature verification + DB apply happens inside apply_events.
-    // Cursor is keyed on the primary pubkey, consistent with the poll-loop.
+    // Issue-CURSOR-IDENTITY — 2026-03-14: cursor is keyed on a fixed
+    // constant, consistent with the poll-loop fallback.
+    // Issue-SSE-PUBLISH — 2026-03-14: pass SSE registry so applied events
+    // are published to community-node SSE clients.
     let summary = apply::apply_events(
-        Arc::clone(&state.db),
-        &state.primary_pubkey_hex,
+        state.db.clone(),
         trusted,
+        state.sse_registry.as_ref(),
     ).await;
 
     if summary.applied > 0 || summary.duplicate > 0 {
@@ -336,18 +486,17 @@ async fn handle_sync_push(
     }
 
     if summary.applied > 0 || summary.rejected > 0 || pre_rejected > 0 {
-        println!(
-            "[push] applied={} duplicate={} rejected={}",
-            summary.applied,
-            summary.duplicate,
-            summary.rejected + pre_rejected,
+        tracing::info!(
+            applied = summary.applied, duplicate = summary.duplicate,
+            rejected = summary.rejected + pre_rejected,
+            "push: batch processed"
         );
     }
 
-    Json(sync::PushResponse {
+    Ok(Json(sync::PushResponse {
         applied:   summary.applied,
         rejected:  summary.rejected + pre_rejected,
         duplicate: summary.duplicate,
-    })
+    }))
 }
 

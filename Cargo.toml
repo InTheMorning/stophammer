@@ -1,8 +1,12 @@
 [package]
-name    = "stophammer"
-version = "0.1.0"
-edition = "2024"
-license = "AGPL-3.0-only"
+name        = "stophammer"
+version     = "0.1.0"
+edition     = "2024"
+license     = "AGPL-3.0-only"
+description = "Decentralised music feed index with value-for-value verification"
+repository  = "https://github.com/v4v-tools/stophammer"
+keywords    = ["podcast", "v4v", "music", "rss"]
+categories  = ["web-programming"]
 
 [dependencies]
 mimalloc      = { version = "0.1" }
@@ -16,8 +20,91 @@ tokio         = { version = "1",    features = ["full"] }
 sha2          = "0.10"
 hex           = "0.4"
 rand_core     = { version = "0.6",  features = ["getrandom"] }
-reqwest       = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest       = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 base64 = "0.22.1"
+instant-acme   = "0.8"
+tokio-rustls   = "0.26"
+rustls-pemfile = "2"
+rcgen          = { version = "0.13", features = ["pem"] }
+axum-server    = { version = "0.7", features = ["tls-rustls"] }
+time           = "0.3"
+subtle         = "2"
+quick-xml      = "0.36"
+roxmltree      = "0.20"
+siphasher      = "1"
+governor       = "0.7"
+tower-http     = { version = "0.6", features = ["cors"] }
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tokio-stream       = { version = "0.1", features = ["sync"] }
+async-stream       = "0.3"
+futures-core       = "0.3"
+futures-util       = "0.3"
+url                = "2"
+r2d2               = "0.8"
+r2d2_sqlite        = "0.24"
+
+# CRIT-02 test-util feature gate — 2026-03-13
+[features]
+test-util = []
+
+[dev-dependencies]
+stophammer     = { path = ".", features = ["test-util"] }
+tower          = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+http           = "1"
+wiremock        = "0.6"
+tempfile        = "3"
+
+# Rust guideline compliant (M-STATIC-VERIFICATION) — 2026-03-13
+[lints.rust]
+ambiguous_negative_literals    = "warn"
+missing_debug_implementations  = "warn"
+redundant_imports              = "warn"
+redundant_lifetimes            = "warn"
+trivial_numeric_casts          = "warn"
+unsafe_op_in_unsafe_fn         = "warn"
+unused_lifetimes               = "warn"
+
+[lints.clippy]
+cargo      = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+pedantic   = { level = "warn", priority = -1 }
+perf       = { level = "warn", priority = -1 }
+style      = { level = "warn", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+
+# restriction lints for consistency and quality
+allow_attributes_without_reason    = "warn"
+as_pointer_underscore              = "warn"
+# assertions_on_result_states conflicts with idiomatic test patterns (assert!(x.is_ok()))
+# assertions_on_result_states        = "warn"
+clone_on_ref_ptr                   = "warn"
+deref_by_slicing                   = "warn"
+disallowed_script_idents           = "warn"
+empty_drop                         = "warn"
+empty_enum_variants_with_brackets  = "warn"
+empty_structs_with_brackets        = "warn"
+fn_to_numeric_cast_any             = "warn"
+if_then_some_else_none             = "warn"
+map_err_ignore                     = "warn"
+redundant_type_annotations         = "warn"
+renamed_function_params            = "warn"
+# semicolon_outside_block conflicts with pedantic::semicolon_if_nothing_returned
+# semicolon_outside_block            = "warn"
+# string_to_string removed from clippy; implicit_clone covers it
+undocumented_unsafe_blocks         = "warn"
+unnecessary_safety_comment         = "warn"
+unnecessary_safety_doc             = "warn"
+unneeded_field_pattern             = "warn"
+unused_result_ok                   = "warn"
+
+# May cause issues with structured logging otherwise.
+literal_string_with_formatting_args = "allow"
+
+# Project-specific opt-outs
+multiple_crate_versions = { level = "allow", priority = 1 }
 
 [profile.release]
 opt-level = 3
