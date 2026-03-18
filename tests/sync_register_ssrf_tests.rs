@@ -60,8 +60,9 @@ fn state_with_ssrf_disabled(
 }
 
 async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum::body::Body> {
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-body.key")
-        .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-body.key")
+            .expect("create signer");
     let body = common::signed_sync_register_body(&signer, node_url);
     let req = Request::builder()
         .method("POST")
@@ -198,9 +199,10 @@ async fn register_signed_request_with_bad_signature_rejected() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-bad-signature.key")
-            .expect("create signer");
+    let signer = stophammer::signing::NodeSigner::load_or_create(
+        "/tmp/test-sync-register-bad-signature.key",
+    )
+    .expect("create signer");
 
     let mut body = common::signed_sync_register_body(&signer, "https://example.com/events");
     body["signature"] = serde_json::Value::String("deadbeef".into());
@@ -313,6 +315,15 @@ fn validate_node_url_accepts_https_public_ip() {
     assert!(result.is_ok(), "public IP over HTTPS must be accepted");
 }
 
+#[test]
+fn validate_node_url_rejects_unresolvable_hostname() {
+    let result = stophammer::proof::validate_node_url("https://nonexistent.invalid/events");
+    assert!(
+        result.is_err(),
+        "unresolvable hostnames must be rejected during SSRF validation"
+    );
+}
+
 // ── Unit tests: is_url_ssrf_safe directly ────────────────────────────────────
 
 #[test]
@@ -337,4 +348,13 @@ fn is_url_ssrf_safe_rejects_ftp() {
 fn is_url_ssrf_safe_accepts_public_ip() {
     let url = url::Url::parse("http://93.184.216.34:8080/events").expect("parse");
     assert!(stophammer::proof::is_url_ssrf_safe(&url));
+}
+
+#[test]
+fn is_url_ssrf_safe_rejects_unresolvable_hostname() {
+    let url = url::Url::parse("https://nonexistent.invalid/events").expect("parse");
+    assert!(
+        !stophammer::proof::is_url_ssrf_safe(&url),
+        "DNS failure must fail closed for peer URL SSRF checks"
+    );
 }

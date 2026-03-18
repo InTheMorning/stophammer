@@ -105,10 +105,19 @@ struct SyncAuth {
     admin_token: Option<String>,
 }
 
+/// Loads sync credentials from the environment.
+///
+/// Returns `(sync_token, admin_token)` with empty strings filtered out.
+#[must_use]
+pub fn load_sync_auth_from_env() -> (Option<String>, Option<String>) {
+    let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
+    let admin_token = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+    (sync_token, admin_token)
+}
+
 impl SyncAuth {
     fn from_env() -> Self {
-        let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
-        let admin_token = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+        let (sync_token, admin_token) = load_sync_auth_from_env();
         Self {
             sync_token,
             admin_token,

@@ -501,15 +501,20 @@ pub fn is_url_ssrf_safe(url: &url::Url) -> bool {
     // validate_feed_url which runs inside spawn_blocking.
     let port = url.port_or_known_default().unwrap_or(443);
     let socket_addr = format!("{host}:{port}");
-    if let Ok(addrs) = socket_addr.to_socket_addrs() {
-        for addr in addrs {
-            if is_private_ip(addr.ip()) {
-                return false;
-            }
+    let Ok(addrs_iter) = socket_addr.to_socket_addrs() else {
+        return false;
+    };
+
+    let addrs: Vec<_> = addrs_iter.collect();
+    if addrs.is_empty() {
+        return false;
+    }
+
+    for addr in addrs {
+        if is_private_ip(addr.ip()) {
+            return false;
         }
     }
-    // If DNS fails, allow the redirect — reqwest will surface the connection
-    // error. Blocking the redirect on DNS failure would be overly strict.
     true
 }
 

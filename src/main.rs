@@ -52,9 +52,10 @@ async fn run_primary(
     bind_addr: String,
 ) {
     let crawl_token = std::env::var("CRAWL_TOKEN").expect("CRAWL_TOKEN env var required");
-    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
+    let (_sync_token_env, admin_token_env) = community::load_sync_auth_from_env();
+    let admin_token = admin_token_env.unwrap_or_default();
     // Finding-3 separate sync token — 2026-03-13
-    let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
+    let sync_token = _sync_token_env;
     let chain = verify::build_chain(&verify::ChainSpec::from_env(), crawl_token);
 
     // Seed push_subscribers from DB at startup.
@@ -71,6 +72,7 @@ async fn run_primary(
     };
 
     let push_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .expect("failed to build push HTTP client");
@@ -117,6 +119,7 @@ async fn run_community(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(90);
+    let (sync_token, admin_token) = community::load_sync_auth_from_env();
 
     // Shared atomic timestamp updated by the push handler.
     let last_push_at = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
@@ -189,9 +192,9 @@ async fn run_community(
         chain: std::sync::Arc::new(dummy_chain),
         signer,
         node_pubkey_hex: pubkey,
-        admin_token: String::new(),
+        admin_token: admin_token.unwrap_or_default(),
         // Finding-3 separate sync token — 2026-03-13
-        sync_token: None,
+        sync_token,
         push_client,
         push_subscribers: std::sync::Arc::new(std::sync::RwLock::new(
             std::collections::HashMap::new(),
