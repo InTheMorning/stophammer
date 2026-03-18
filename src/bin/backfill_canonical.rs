@@ -66,9 +66,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (idx, feed_guid) in feed_guids.iter().enumerate() {
         let tx = conn.transaction()?;
-        stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)?;
-        stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)?;
-        tx.commit()?;
+        stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)
+            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+        stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
+            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+        tx.commit()
+            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
 
         if (idx + 1) % 100 == 0 || idx + 1 == feed_guids.len() {
             println!(

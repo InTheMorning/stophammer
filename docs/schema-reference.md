@@ -122,27 +122,27 @@ Source: `src/schema.sql`
 ### `releases`
 **Purpose:** Deterministic canonical release layer built above source feeds.
 **Key columns:** `release_id` (text PK), `artist_credit_id` (FK to `artist_credit`), `title`, `release_date`.
-**Notes:** Current policy is intentionally conservative: one canonical `release` is derived from one source feed. This gives the system a stable canonical anchor without prematurely merging mirrored feeds across platforms.
+**Notes:** Current policy is intentionally conservative but no longer 1:1. Releases cluster only when source feeds have the same artist evidence, the same normalized release title, and the same exact ordered tracklist signature. When that evidence is incomplete, the resolver falls back to an identity mapping for that feed.
 
 ### `recordings`
 **Purpose:** Deterministic canonical recording layer built above source tracks.
 **Key columns:** `recording_id` (text PK), `artist_credit_id` (FK to `artist_credit`), `title`, `duration_secs`.
-**Notes:** Current policy is also conservative here: one canonical `recording` is derived from one source track. This preserves a clean upgrade path toward cross-feed recording clustering later.
+**Notes:** Current policy clusters only exact matches: same artist evidence, same normalized track title, same exact duration. When duration is missing, the resolver falls back to an identity mapping for that source track.
 
 ### `release_recordings`
 **Purpose:** Ordered tracklist rows connecting canonical `releases` to canonical `recordings`.
 **Key columns:** `release_id`, `recording_id`, `position`, `source_track_guid`.
-**Notes:** Rebuilt deterministically from the current tracks in a feed. Ordering currently prefers `track_number`, then publication timestamp, then title/GUID as a stable fallback.
+**Notes:** Rebuilt deterministically from the representative source feed in a release cluster. The representative is chosen by the smallest `feed_guid` in the cluster. Ordering prefers `track_number`, then publication timestamp, then title/GUID as a stable fallback.
 
 ### `source_feed_release_map`
 **Purpose:** Explicit mapping from a source feed (`feeds`) to its current canonical `release`.
 **Key columns:** `feed_guid` (PK/FK to `feeds`), `release_id`, `match_type`, `confidence`.
-**Notes:** Today this is always an identity mapping with `match_type = 'feed_guid_identity'` and `confidence = 100`. The table exists so future clustering can replace identity mappings with real multi-platform release resolution.
+**Notes:** Current mappings use two deterministic modes: `exact_release_signature_v1` for exact mirror clustering, and `feed_guid_identity_v1` when the evidence is too weak to merge safely. `confidence` is `95` for the exact signature rule and `100` for identity fallback.
 
 ### `source_item_recording_map`
 **Purpose:** Explicit mapping from a source track (`tracks`) to its current canonical `recording`.
 **Key columns:** `track_guid` (PK/FK to `tracks`), `recording_id`, `match_type`, `confidence`.
-**Notes:** Today this is always an identity mapping with `match_type = 'track_guid_identity'` and `confidence = 100`. It is intentionally additive so later recording dedupe can swap in stronger mappings without losing source rows.
+**Notes:** Current mappings use `exact_recording_signature_v1` when the source data gives an exact match on artist evidence, title, and duration, and `track_guid_identity_v1` otherwise. The table remains additive so stronger future resolvers can replace today’s exact-match rules without losing source rows.
 
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.

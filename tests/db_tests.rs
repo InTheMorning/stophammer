@@ -261,15 +261,25 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
     )
     .expect("ingest transaction");
 
+    let feed_map: (String, String, i64) = conn
+        .query_row(
+            "SELECT release_id, match_type, confidence FROM source_feed_release_map WHERE feed_guid = ?1",
+            params![feed.feed_guid],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("feed map");
+    assert_eq!(feed_map.1, "exact_release_signature_v1");
+    assert_eq!(feed_map.2, 95);
+
     let release_row: (String, String, i64, Option<i64>) = conn
         .query_row(
             "SELECT release_id, title, artist_credit_id, release_date \
              FROM releases WHERE release_id = ?1",
-            params!["release:feed:feed-canon-1"],
+            params![feed_map.0.clone()],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .expect("release row");
-    assert_eq!(release_row.0, "release:feed:feed-canon-1");
+    assert_eq!(release_row.0, feed_map.0);
     assert_eq!(release_row.1, "Release Title");
     assert_eq!(release_row.2, 9001);
     assert_eq!(release_row.3, feed.oldest_item_at);
@@ -279,16 +289,6 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         .expect("count recordings");
     assert_eq!(recording_count, 2);
 
-    let feed_map: (String, i64) = conn
-        .query_row(
-            "SELECT release_id, confidence FROM source_feed_release_map WHERE feed_guid = ?1",
-            params![feed.feed_guid],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .expect("feed map");
-    assert_eq!(feed_map.0, "release:feed:feed-canon-1");
-    assert_eq!(feed_map.1, 100);
-
     let release_tracks: Vec<(i64, String)> = {
         let mut stmt = conn
             .prepare(
@@ -296,7 +296,7 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
                  WHERE release_id = ?1 ORDER BY position",
             )
             .expect("prepare release_recordings");
-        stmt.query_map(params!["release:feed:feed-canon-1"], |row| {
+        stmt.query_map(params![release_row.0.clone()], |row| {
             Ok((row.get(0)?, row.get(1)?))
         })
         .expect("query release_recordings")
@@ -308,6 +308,26 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         vec![
             (1, "track-canon-b".to_string()),
             (2, "track-canon-a".to_string())
+        ]
+    );
+
+    let recording_maps: Vec<(String, String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT track_guid, match_type, confidence FROM source_item_recording_map \
+                 ORDER BY track_guid",
+            )
+            .expect("prepare recording maps");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query recording maps")
+            .collect::<Result<_, _>>()
+            .expect("collect recording maps")
+    };
+    assert_eq!(
+        recording_maps,
+        vec![
+            ("track-canon-a".to_string(), "exact_recording_signature_v1".to_string(), 95),
+            ("track-canon-b".to_string(), "exact_recording_signature_v1".to_string(), 95),
         ]
     );
 }
@@ -492,15 +512,30 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         .expect("promoted artist npub");
     assert_eq!(artist_npub, "npub1promoteartist");
 
+    let release_id: String = conn
+        .query_row(
+            "SELECT release_id FROM source_feed_release_map WHERE feed_guid = ?1",
+            params![feed.feed_guid],
+            |row| row.get(0),
+        )
+        .expect("release id");
+    let recording_id: String = conn
+        .query_row(
+            "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
+            params![track.track_guid],
+            |row| row.get(0),
+        )
+        .expect("recording id");
+
     let release_sources: Vec<(String, Option<String>)> = {
         let mut stmt = conn
             .prepare(
                 "SELECT source_type, source_url FROM entity_source \
-                 WHERE entity_type = 'release' AND entity_id = 'release:feed:feed-promote-1' \
+                 WHERE entity_type = 'release' AND entity_id = ?1 \
                  ORDER BY source_type, source_url",
             )
             .expect("prepare release sources");
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        stmt.query_map(params![release_id], |row| Ok((row.get(0)?, row.get(1)?)))
             .expect("query release sources")
             .collect::<Result<_, _>>()
             .expect("collect release sources")
@@ -523,11 +558,11 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         let mut stmt = conn
             .prepare(
                 "SELECT source_type, source_url FROM entity_source \
-                 WHERE entity_type = 'recording' AND entity_id = 'recording:track:track-promote-1' \
+                 WHERE entity_type = 'recording' AND entity_id = ?1 \
                  ORDER BY source_type, source_url",
             )
             .expect("prepare recording sources");
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        stmt.query_map(params![recording_id], |row| Ok((row.get(0)?, row.get(1)?)))
             .expect("query recording sources")
             .collect::<Result<_, _>>()
             .expect("collect recording sources")
@@ -545,6 +580,212 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
             )
         ]
     );
+}
+
+#[test]
+fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
+    let mut conn = common::test_db();
+    let now = common::now();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("mirror-cluster.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    for (feed_guid, credit_id, feed_url, release_page_suffix, track_suffix) in [
+        (
+            "feed-mirror-a",
+            9101,
+            "https://wavlake.com/feed/music/mirror-a",
+            "https://wavlake.com/mirror-artist",
+            "a",
+        ),
+        (
+            "feed-mirror-b",
+            9102,
+            "https://feeds.fountain.fm/mirror-b",
+            "https://fountain.fm/mirror-artist",
+            "b",
+        ),
+    ] {
+        let artist = stophammer::model::Artist {
+            artist_id: "artist-mirror-1".into(),
+            name: "Mirror Artist".into(),
+            name_lower: "mirror artist".into(),
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
+            begin_year: None,
+            end_year: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let artist_credit = stophammer::model::ArtistCredit {
+            id: credit_id,
+            display_name: "Mirror Artist".into(),
+            feed_guid: Some(feed_guid.into()),
+            created_at: now,
+            names: vec![stophammer::model::ArtistCreditName {
+                id: 0,
+                artist_credit_id: credit_id,
+                artist_id: "artist-mirror-1".into(),
+                position: 0,
+                name: "Mirror Artist".into(),
+                join_phrase: String::new(),
+            }],
+        };
+        let feed = stophammer::model::Feed {
+            feed_guid: feed_guid.into(),
+            feed_url: feed_url.into(),
+            title: "Mirror Release".into(),
+            title_lower: "mirror release".into(),
+            artist_credit_id: credit_id,
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            episode_count: 2,
+            newest_item_at: Some(now),
+            oldest_item_at: Some(now - 120),
+            created_at: now,
+            updated_at: now,
+            raw_medium: Some("music".into()),
+        };
+        let tracks = vec![
+            (
+                stophammer::model::Track {
+                    track_guid: format!("track-mirror-{track_suffix}-1"),
+                    feed_guid: feed_guid.into(),
+                    artist_credit_id: credit_id,
+                    title: "Shared Song A".into(),
+                    title_lower: "shared song a".into(),
+                    pub_date: Some(now),
+                    duration_secs: Some(180),
+                    enclosure_url: Some(format!(
+                        "https://cdn.example.com/{track_suffix}/shared-song-a.mp3"
+                    )),
+                    enclosure_type: Some("audio/mpeg".into()),
+                    enclosure_bytes: Some(1000),
+                    track_number: Some(1),
+                    season: None,
+                    explicit: false,
+                    description: None,
+                    created_at: now,
+                    updated_at: now,
+                },
+                vec![],
+                vec![],
+            ),
+            (
+                stophammer::model::Track {
+                    track_guid: format!("track-mirror-{track_suffix}-2"),
+                    feed_guid: feed_guid.into(),
+                    artist_credit_id: credit_id,
+                    title: "Shared Song B".into(),
+                    title_lower: "shared song b".into(),
+                    pub_date: Some(now),
+                    duration_secs: Some(240),
+                    enclosure_url: Some(format!(
+                        "https://cdn.example.com/{track_suffix}/shared-song-b.mp3"
+                    )),
+                    enclosure_type: Some("audio/mpeg".into()),
+                    enclosure_bytes: Some(2000),
+                    track_number: Some(2),
+                    season: None,
+                    explicit: false,
+                    description: None,
+                    created_at: now,
+                    updated_at: now,
+                },
+                vec![],
+                vec![],
+            ),
+        ];
+        let source_entity_links = vec![stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.into(),
+            position: 0,
+            link_type: "website".into(),
+            url: release_page_suffix.into(),
+            source: "rss_link".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        }];
+
+        let event_rows = stophammer::db::build_diff_events(
+            &conn,
+            &artist,
+            &artist_credit,
+            &feed,
+            &[],
+            &[],
+            &[],
+            &source_entity_links,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &tracks,
+            &[],
+            now,
+            &[],
+        )
+        .expect("build diff events");
+
+        stophammer::db::ingest_transaction(
+            &mut conn,
+            artist,
+            artist_credit,
+            feed,
+            vec![],
+            vec![],
+            vec![],
+            source_entity_links,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            tracks,
+            event_rows,
+            &signer,
+        )
+        .expect("ingest transaction");
+    }
+
+    let release_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM releases", [], |row| row.get(0))
+        .expect("count releases");
+    let recording_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM recordings", [], |row| row.get(0))
+        .expect("count recordings");
+    assert_eq!(release_count, 1);
+    assert_eq!(recording_count, 2);
+
+    let release_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT release_id FROM source_feed_release_map ORDER BY feed_guid")
+            .expect("prepare release ids");
+        stmt.query_map([], |row| row.get(0))
+            .expect("query release ids")
+            .collect::<Result<_, _>>()
+            .expect("collect release ids")
+    };
+    assert_eq!(release_ids.len(), 2);
+    assert_eq!(release_ids[0], release_ids[1]);
+
+    let distinct_recording_ids: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT recording_id) FROM source_item_recording_map",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count distinct recording ids");
+    assert_eq!(distinct_recording_ids, 2);
 }
 
 // ---------------------------------------------------------------------------

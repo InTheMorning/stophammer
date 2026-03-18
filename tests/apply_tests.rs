@@ -1906,14 +1906,22 @@ fn canonical_release_rows_track_apply_and_remove() {
         assert_eq!(release_count, 1);
         assert_eq!(recording_count, 2);
 
+        let release_id: String = conn
+            .query_row(
+                "SELECT release_id FROM source_feed_release_map WHERE feed_guid = 'canon-feed-apply'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("lookup release_id");
+
         let ordered: Vec<(i64, String)> = {
             let mut stmt = conn
                 .prepare(
                     "SELECT position, source_track_guid FROM release_recordings \
-                     WHERE release_id = 'release:feed:canon-feed-apply' ORDER BY position",
+                     WHERE release_id = ?1 ORDER BY position",
                 )
                 .expect("prepare release_recordings");
-            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            stmt.query_map([release_id], |row| Ok((row.get(0)?, row.get(1)?)))
                 .expect("query release_recordings")
                 .collect::<Result<_, _>>()
                 .expect("collect release_recordings")
@@ -1956,14 +1964,22 @@ fn canonical_release_rows_track_apply_and_remove() {
         .expect("count recordings after remove");
     assert_eq!(recording_count, 1);
 
+    let release_id: String = conn
+        .query_row(
+            "SELECT release_id FROM source_feed_release_map WHERE feed_guid = 'canon-feed-apply'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("lookup release_id after remove");
+
     let ordered: Vec<(i64, String)> = {
         let mut stmt = conn
             .prepare(
                 "SELECT position, source_track_guid FROM release_recordings \
-                 WHERE release_id = 'release:feed:canon-feed-apply' ORDER BY position",
+                 WHERE release_id = ?1 ORDER BY position",
             )
             .expect("prepare release_recordings");
-        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        stmt.query_map([release_id], |row| Ok((row.get(0)?, row.get(1)?)))
             .expect("query release_recordings")
             .collect::<Result<_, _>>()
             .expect("collect release_recordings")
