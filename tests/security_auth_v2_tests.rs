@@ -1294,16 +1294,17 @@ async fn v2_sp08_cors_allows_any_origin() {
 }
 
 // ============================================================================
-// NEW ATTACK SURFACE: Pending challenge flooding (per-feed cap)
+// NEW ATTACK SURFACE: Pending challenge flooding (replacement semantics)
 //
 // FINDING: PROTECTED
 //
-// MAX_PENDING_CHALLENGES_PER_FEED (20) prevents an attacker from flooding
-// the proof_challenges table for a single feed.
+// A fresh challenge for a feed now invalidates any prior pending challenge for
+// that same feed, so attackers cannot hold a feed hostage by consuming
+// multiple pending slots on it.
 // ============================================================================
 
 #[tokio::test]
-async fn v2_challenge_flooding_capped_per_feed() {
+async fn v2_challenge_flooding_replaced_for_same_feed() {
     let db = common::test_db_arc();
     {
         let conn = db.lock().unwrap();
@@ -1322,40 +1323,56 @@ async fn v2_challenge_flooding_capped_per_feed() {
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
-    // Create 20 challenges (the maximum)
-    for i in 0..20 {
-        let resp = app
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/v1/proofs/challenge",
-                &serde_json::json!({
-                    "feed_guid": "feed-flood",
-                    "scope": "feed:write",
-                    "requester_nonce": format!("flood-nonce-{i:02}-pad"),
-                }),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), 201, "challenge {i} should succeed");
-    }
-
-    // 21st challenge should be rate-limited
-    let resp = app
+    let first = app
+        .clone()
         .oneshot(json_request(
             "POST",
             "/v1/proofs/challenge",
             &serde_json::json!({
                 "feed_guid": "feed-flood",
                 "scope": "feed:write",
-                "requester_nonce": "flood-nonce-20-padd",
+                "requester_nonce": "flood-nonce-00-pad",
             }),
         ))
         .await
         .unwrap();
-    assert_eq!(
-        resp.status(),
-        429,
-        "PROTECTED: 21st challenge returns 429 (per-feed cap)"
-    );
+    assert_eq!(first.status(), 201);
+    let first_body = body_json(first).await;
+    let first_id = first_body["challenge_id"]
+        .as_str()
+        .expect("first challenge_id")
+        .to_string();
+
+    let second = app
+        .oneshot(json_request(
+            "POST",
+            "/v1/proofs/challenge",
+            &serde_json::json!({
+                "feed_guid": "feed-flood",
+                "scope": "feed:write",
+                "requester_nonce": "flood-nonce-01-pad",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(second.status(), 201, "fresh challenge should replace prior pending one");
+
+    let conn = db.lock().unwrap();
+    let pending_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = 'feed-flood' AND state = 'pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending_count, 1, "only one pending challenge should remain");
+
+    let first_state: String = conn
+        .query_row(
+            "SELECT state FROM proof_challenges WHERE challenge_id = ?1",
+            params![first_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(first_state, "invalid", "older challenge should be invalidated");
 }

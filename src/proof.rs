@@ -104,6 +104,30 @@ pub fn create_challenge(
     Ok((challenge_id, token_binding))
 }
 
+/// Marks any existing pending challenges for a feed+scope as invalid.
+///
+/// This lets callers replace stale or attacker-created pending challenges
+/// instead of being blocked by per-feed slot exhaustion.
+///
+/// Returns the number of rows transitioned out of `pending`.
+///
+/// # Errors
+///
+/// Returns `DbError` if the UPDATE fails.
+pub fn invalidate_pending_challenges_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    scope: &str,
+) -> Result<usize, DbError> {
+    let rows = conn.execute(
+        "UPDATE proof_challenges \
+         SET state = 'invalid' \
+         WHERE feed_guid = ?1 AND scope = ?2 AND state = 'pending'",
+        params![feed_guid, scope],
+    )?;
+    Ok(rows)
+}
+
 /// Transition a challenge to `valid` or `invalid` state.
 ///
 /// Challenges are single-use: once resolved they cannot be reused.

@@ -511,9 +511,6 @@ const MAX_RECONCILE_REFS: i64 = 50_000;
 /// Maximum number of full events returned in a single reconcile response.
 const MAX_RECONCILE_EVENTS: i64 = 10_000;
 
-/// Maximum number of pending proof challenges allowed per `feed_guid`.
-/// Prevents an attacker from flooding the `proof_challenges` table.
-const MAX_PENDING_CHALLENGES_PER_FEED: i64 = 20;
 /// Maximum number of pending proof challenges allowed across the whole node.
 /// Prevents unbounded table growth by cycling through many valid feed GUIDs.
 const MAX_PENDING_CHALLENGES_TOTAL: i64 = 5_000;
@@ -3409,11 +3406,15 @@ async fn handle_proofs_challenge(
     // Mutex safety compliant — 2026-03-12
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || -> Result<ProofsChallengeResponse, ApiError> {
-        let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status:  StatusCode::INTERNAL_SERVER_ERROR,
             message: "database mutex poisoned".into(),
             www_authenticate: None,
         })?;
+
+        // Reclaim expired slots eagerly so stale rows do not block legitimate
+        // challenge creation until the background pruner runs.
+        proof::prune_expired(&mut conn).map_err(ApiError::from)?;
 
         if db::get_feed_by_guid(&conn, &req.feed_guid)
             .map_err(ApiError::from)?
@@ -3424,6 +3425,19 @@ async fn handle_proofs_challenge(
                 message: "feed not found in database".into(),
                 www_authenticate: None,
             });
+        }
+
+        // A fresh challenge for the same feed should replace any existing
+        // pending challenge rather than being blocked by it.
+        let superseded =
+            proof::invalidate_pending_challenges_for_feed(&conn, &req.feed_guid, &req.scope)
+                .map_err(ApiError::from)?;
+        if superseded > 0 {
+            tracing::debug!(
+                feed_guid = %req.feed_guid,
+                superseded,
+                "proof-challenge: invalidated prior pending challenges for feed"
+            );
         }
 
         let total_pending_count: i64 = conn
@@ -3439,23 +3453,6 @@ async fn handle_proofs_challenge(
                 status:  StatusCode::TOO_MANY_REQUESTS,
                 message: format!(
                     "too many pending challenges globally (limit: {MAX_PENDING_CHALLENGES_TOTAL})"
-                ),
-                www_authenticate: None,
-            });
-        }
-
-        // Rate limit: cap pending challenges per feed_guid to prevent table exhaustion.
-        let pending_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = ?1 AND state = 'pending'",
-            params![req.feed_guid],
-            |row| row.get(0),
-        ).map_err(ApiError::from)?;
-
-        if pending_count >= MAX_PENDING_CHALLENGES_PER_FEED {
-            return Err(ApiError {
-                status:  StatusCode::TOO_MANY_REQUESTS,
-                message: format!(
-                    "too many pending challenges for this feed (limit: {MAX_PENDING_CHALLENGES_PER_FEED})"
                 ),
                 www_authenticate: None,
             });

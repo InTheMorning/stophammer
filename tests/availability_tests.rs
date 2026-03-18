@@ -152,11 +152,11 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
 }
 
 // ==========================================================================
-// VULN-01: Proof challenge table exhaustion (rate limit)
+// VULN-01: Proof challenge table exhaustion (replacement semantics)
 // ==========================================================================
 
 #[tokio::test]
-async fn proof_challenge_rate_limit_enforced() {
+async fn proof_challenge_replaces_existing_pending_for_same_feed() {
     let db = common::test_db_arc();
     {
         let conn = db.lock().unwrap();
@@ -175,49 +175,59 @@ async fn proof_challenge_rate_limit_enforced() {
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
-    // Create 20 challenges for the same feed_guid (the limit).
-    for i in 0..20 {
-        let nonce = format!("rate-limit-nonce-{i:03}");
-        let resp = app
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/v1/proofs/challenge",
-                &serde_json::json!({
-                    "feed_guid": "flood-feed",
-                    "scope": "feed:write",
-                    "requester_nonce": nonce,
-                }),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            201,
-            "challenge {i} should succeed, got {}",
-            resp.status()
-        );
-    }
-
-    // The 21st challenge should be rejected with 429 Too Many Requests.
-    let resp = app
+    let first = app
+        .clone()
         .oneshot(json_request(
             "POST",
             "/v1/proofs/challenge",
             &serde_json::json!({
                 "feed_guid": "flood-feed",
                 "scope": "feed:write",
-                "requester_nonce": "rate-limit-final-x",
+                "requester_nonce": "rate-limit-nonce-000",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(first.status(), 201);
+    let first_body = body_json(first).await;
+    let first_id = first_body["challenge_id"].as_str().unwrap().to_string();
+
+    let second = app
+        .oneshot(json_request(
+            "POST",
+            "/v1/proofs/challenge",
+            &serde_json::json!({
+                "feed_guid": "flood-feed",
+                "scope": "feed:write",
+                "requester_nonce": "rate-limit-nonce-001",
             }),
         ))
         .await
         .unwrap();
 
-    assert_eq!(
-        resp.status(),
-        429,
-        "21st challenge should be rejected with 429 Too Many Requests"
-    );
+    assert_eq!(second.status(), 201, "fresh challenge should replace prior pending one");
+    let second_body = body_json(second).await;
+    let second_id = second_body["challenge_id"].as_str().unwrap().to_string();
+    assert_ne!(first_id, second_id, "replacement should mint a new challenge");
+
+    let conn = db.lock().unwrap();
+    let pending_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = 'flood-feed' AND state = 'pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(pending_count, 1, "only one pending challenge should remain");
+
+    let first_state: String = conn
+        .query_row(
+            "SELECT state FROM proof_challenges WHERE challenge_id = ?1",
+            params![first_id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(first_state, "invalid", "older pending challenge should be invalidated");
 }
 
 // Challenges for different feed_guids should not interfere with each other.
@@ -249,24 +259,20 @@ async fn proof_challenge_rate_limit_per_feed() {
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
-    // Fill up challenges for feed-a.
-    for i in 0..20 {
-        let nonce = format!("feed-a-nonce-{i:05}");
-        let resp = app
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/v1/proofs/challenge",
-                &serde_json::json!({
-                    "feed_guid": "per-feed-a",
-                    "scope": "feed:write",
-                    "requester_nonce": nonce,
-                }),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), 201);
-    }
+    let resp = app
+        .clone()
+        .oneshot(json_request(
+            "POST",
+            "/v1/proofs/challenge",
+            &serde_json::json!({
+                "feed_guid": "per-feed-a",
+                "scope": "feed:write",
+                "requester_nonce": "feed-a-nonce-00001",
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 201);
 
     // Creating a challenge for a different feed should still work.
     let resp = app
