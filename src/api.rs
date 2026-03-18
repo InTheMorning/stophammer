@@ -1396,14 +1396,50 @@ async fn handle_ingest_feed(
                 });
             }
 
-            // 4. Resolve artist (scoped to feed_guid)
-            // Issue-ARTIST-IDENTITY — 2026-03-14
-            let artist_name = derive_feed_artist_name(&feed_data);
-
+            // 4. Build feed-scoped source claims needed for identity resolution.
+            let now = db::unix_now();
             let feed_guid_str = feed_data.feed_guid.as_str();
-            let feed_artist = db::resolve_artist(&conn, &artist_name, Some(feed_guid_str))?;
+            let feed_remote_items: Vec<model::FeedRemoteItemRaw> = feed_data
+                .remote_items
+                .iter()
+                .map(|item| model::FeedRemoteItemRaw {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
+                    position: item.position,
+                    medium: item.medium.clone(),
+                    remote_feed_guid: item.remote_feed_guid.clone(),
+                    remote_feed_url: item.remote_feed_url.clone(),
+                    source: "podcast_remote_item".to_string(),
+                })
+                .collect();
+            let mut source_entity_ids = build_source_entity_id_claims(
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                &feed_data.entity_ids,
+                now,
+            );
+            let mut source_entity_links = build_source_entity_links(
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                &feed_data.links,
+                now,
+            );
 
-            // 5. Get or create artist credit for the feed artist (idempotent, feed-scoped)
+            // 5. Resolve artist from high-confidence source claims before the
+            // legacy feed-scoped alias fallback.
+            let artist_name = derive_feed_artist_name(&feed_data);
+            let feed_artist = db::resolve_feed_artist_from_source_claims(
+                &conn,
+                &artist_name,
+                feed_guid_str,
+                &source_entity_ids,
+                &feed_remote_items,
+                &source_entity_links,
+            )?;
+
+            // 6. Get or create artist credit for the feed artist (idempotent, feed-scoped)
             let feed_artist_credit = db::get_or_create_artist_credit(
                 &conn,
                 &feed_artist.name,
@@ -1416,9 +1452,6 @@ async fn handle_ingest_feed(
             )?;
             let existing_live_events = db::get_live_events_for_feed(&conn, feed_guid_str)
                 .map_err(ApiError::from)?;
-
-            // 6. Get current time
-            let now = db::unix_now();
 
             // 7. Compute newest_item_at and oldest_item_at from track pub_dates
             let pub_dates: Vec<i64> = feed_data
@@ -1480,20 +1513,6 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            let feed_remote_items: Vec<model::FeedRemoteItemRaw> = feed_data
-                .remote_items
-                .iter()
-                .map(|item| model::FeedRemoteItemRaw {
-                    id: None,
-                    feed_guid: feed_data.feed_guid.clone(),
-                    position: item.position,
-                    medium: item.medium.clone(),
-                    remote_feed_guid: item.remote_feed_guid.clone(),
-                    remote_feed_url: item.remote_feed_url.clone(),
-                    source: "podcast_remote_item".to_string(),
-                })
-                .collect();
-
             let live_events: Vec<model::LiveEvent> = feed_data
                 .live_items
                 .iter()
@@ -1517,20 +1536,6 @@ async fn handle_ingest_feed(
                 "feed",
                 &feed_data.feed_guid,
                 &feed_data.persons,
-                now,
-            );
-            let mut source_entity_ids = build_source_entity_id_claims(
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                &feed_data.entity_ids,
-                now,
-            );
-            let mut source_entity_links = build_source_entity_links(
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                &feed_data.links,
                 now,
             );
             let mut source_release_claims = Vec::new();

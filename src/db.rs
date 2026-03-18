@@ -378,6 +378,170 @@ pub fn resolve_artist(
     })
 }
 
+fn artist_feed_count(conn: &Connection, artist_id: &str) -> Result<i64, DbError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(DISTINCT f.feed_guid) \
+         FROM artist_credit_name acn \
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+         JOIN feeds f ON f.artist_credit_id = ac.id \
+         WHERE acn.artist_id = ?1",
+        params![artist_id],
+        |row| row.get(0),
+    )?)
+}
+
+fn canonical_artist_for_query(
+    conn: &Connection,
+    sql: &str,
+    params: &[&dyn rusqlite::ToSql],
+) -> Result<Option<Artist>, DbError> {
+    let mut stmt = conn.prepare(sql)?;
+    let artist_ids: Vec<String> = stmt
+        .query_map(params, |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    let mut unique_ids = artist_ids;
+    unique_ids.sort();
+    unique_ids.dedup();
+    if unique_ids.is_empty() {
+        return Ok(None);
+    }
+
+    let mut ranked: Vec<(i64, i64, String)> = Vec::with_capacity(unique_ids.len());
+    for artist_id in unique_ids {
+        if let Some(artist) = get_artist_by_id(conn, &artist_id)? {
+            ranked.push((artist_feed_count(conn, &artist_id)?, artist.created_at, artist.artist_id));
+        }
+    }
+    ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    let Some((_, _, artist_id)) = ranked.into_iter().next() else {
+        return Ok(None);
+    };
+    get_artist_by_id(conn, &artist_id)
+}
+
+fn find_existing_artist_by_npub_and_name(
+    conn: &Connection,
+    npub: &str,
+    artist_name_lower: &str,
+) -> Result<Option<Artist>, DbError> {
+    canonical_artist_for_query(
+        conn,
+        "SELECT DISTINCT a.artist_id \
+         FROM external_ids ei \
+         JOIN artists a ON a.artist_id = ei.entity_id \
+         WHERE ei.entity_type = 'artist' \
+           AND ei.scheme = 'nostr_npub' \
+           AND ei.value = ?1 \
+           AND a.name_lower = ?2",
+        &[&npub, &artist_name_lower],
+    )
+}
+
+fn find_existing_artist_by_publisher_guid_and_name(
+    conn: &Connection,
+    remote_feed_guid: &str,
+    artist_name_lower: &str,
+) -> Result<Option<Artist>, DbError> {
+    canonical_artist_for_query(
+        conn,
+        "SELECT DISTINCT a.artist_id \
+         FROM feed_remote_items_raw fri \
+         JOIN feeds f ON f.feed_guid = fri.feed_guid \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+         JOIN artists a ON a.artist_id = acn.artist_id \
+         WHERE fri.medium = 'publisher' \
+           AND fri.remote_feed_guid = ?1 \
+           AND a.name_lower = ?2",
+        &[&remote_feed_guid, &artist_name_lower],
+    )
+}
+
+fn find_existing_artist_by_website_url_and_name(
+    conn: &Connection,
+    url: &str,
+    artist_name_lower: &str,
+) -> Result<Option<Artist>, DbError> {
+    canonical_artist_for_query(
+        conn,
+        "SELECT DISTINCT a.artist_id \
+         FROM source_entity_links sel \
+         JOIN feeds f ON f.feed_guid = sel.feed_guid \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+         JOIN artists a ON a.artist_id = acn.artist_id \
+         WHERE sel.entity_type = 'feed' \
+           AND sel.link_type = 'website' \
+           AND sel.url = ?1 \
+           AND a.name_lower = ?2",
+        &[&url, &artist_name_lower],
+    )
+}
+
+/// Resolves a feed artist using high-confidence source claims before falling
+/// back to feed-scoped alias resolution.
+pub fn resolve_feed_artist_from_source_claims(
+    conn: &Connection,
+    name: &str,
+    feed_guid: &str,
+    source_entity_ids: &[SourceEntityIdClaim],
+    remote_items: &[FeedRemoteItemRaw],
+    source_entity_links: &[SourceEntityLink],
+) -> Result<Artist, DbError> {
+    let artist_name_lower = name.to_lowercase();
+
+    let npubs: std::collections::BTreeSet<String> = source_entity_ids
+        .iter()
+        .filter(|claim| {
+            claim.entity_type == "feed" && claim.entity_id == feed_guid && claim.scheme == "nostr_npub"
+        })
+        .map(|claim| claim.value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    if npubs.len() == 1
+        && let Some(artist) =
+            find_existing_artist_by_npub_and_name(conn, npubs.first().expect("len checked"), &artist_name_lower)?
+    {
+        return Ok(artist);
+    }
+
+    let publisher_guids: std::collections::BTreeSet<String> = remote_items
+        .iter()
+        .filter(|item| item.medium.as_deref() == Some("publisher"))
+        .map(|item| item.remote_feed_guid.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    if publisher_guids.len() == 1
+        && let Some(artist) = find_existing_artist_by_publisher_guid_and_name(
+            conn,
+            publisher_guids.first().expect("len checked"),
+            &artist_name_lower,
+        )?
+    {
+        return Ok(artist);
+    }
+
+    let website_urls: std::collections::BTreeSet<String> = source_entity_links
+        .iter()
+        .filter(|link| {
+            link.entity_type == "feed"
+                && link.entity_id == feed_guid
+                && link.link_type == "website"
+        })
+        .map(|link| link.url.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    if website_urls.len() == 1
+        && let Some(artist) = find_existing_artist_by_website_url_and_name(
+            conn,
+            website_urls.first().expect("len checked"),
+            &artist_name_lower,
+        )?
+    {
+        return Ok(artist);
+    }
+
+    resolve_artist(conn, name, Some(feed_guid))
+}
+
 // ── get_artist_by_id ─────────────────────────────────────────────────────────
 // Issue-12 PATCH emits events — 2026-03-13
 

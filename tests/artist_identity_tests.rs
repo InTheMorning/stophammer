@@ -191,6 +191,254 @@ fn unscoped_fallback_works() {
     );
 }
 
+#[test]
+fn feed_artist_resolution_reuses_existing_artist_by_npub() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let existing = stophammer::db::resolve_artist(&conn, "Signal Artist", Some("feed-existing"))
+        .expect("existing artist");
+    conn.execute(
+        "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at) \
+         VALUES ('artist', ?1, 'nostr_npub', 'npub1signalartist', ?2)",
+        rusqlite::params![existing.artist_id, now],
+    )
+    .expect("insert external id");
+
+    let source_entity_ids = vec![stophammer::model::SourceEntityIdClaim {
+        id: None,
+        feed_guid: "feed-new".into(),
+        entity_type: "feed".into(),
+        entity_id: "feed-new".into(),
+        position: 0,
+        scheme: "nostr_npub".into(),
+        value: "npub1signalartist".into(),
+        source: "podcast_txt".into(),
+        extraction_path: "feed.podcast:txt[@purpose='npub']".into(),
+        observed_at: now,
+    }];
+
+    let resolved = stophammer::db::resolve_feed_artist_from_source_claims(
+        &conn,
+        "Signal Artist",
+        "feed-new",
+        &source_entity_ids,
+        &[],
+        &[],
+    )
+    .expect("resolve via npub");
+
+    assert_eq!(resolved.artist_id, existing.artist_id);
+}
+
+#[test]
+fn feed_artist_resolution_reuses_existing_artist_by_publisher_guid() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let existing =
+        stophammer::db::resolve_artist(&conn, "Publisher Artist", Some("feed-existing"))
+            .expect("existing artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &existing.name,
+        &[(existing.artist_id.clone(), existing.name.clone(), String::new())],
+        Some("feed-existing"),
+    )
+    .expect("artist credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        rusqlite::params![
+            "feed-existing",
+            "https://example.com/feed-existing.xml",
+            "Publisher Artist Release",
+            "publisher artist release",
+            credit.id,
+            now,
+        ],
+    )
+    .expect("insert feed");
+    conn.execute(
+        "INSERT INTO feed_remote_items_raw \
+         (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+         VALUES (?1, 0, 'publisher', ?2, ?3, 'podcast_remote_item')",
+        rusqlite::params![
+            "feed-existing",
+            "publisher-guid-1",
+            "https://wavlake.com/publisher-artist",
+        ],
+    )
+    .expect("insert remote item");
+
+    let remote_items = vec![stophammer::model::FeedRemoteItemRaw {
+        id: None,
+        feed_guid: "feed-new".into(),
+        position: 0,
+        medium: Some("publisher".into()),
+        remote_feed_guid: "publisher-guid-1".into(),
+        remote_feed_url: Some("https://wavlake.com/publisher-artist".into()),
+        source: "podcast_remote_item".into(),
+    }];
+
+    let resolved = stophammer::db::resolve_feed_artist_from_source_claims(
+        &conn,
+        "Publisher Artist",
+        "feed-new",
+        &[],
+        &remote_items,
+        &[],
+    )
+    .expect("resolve via publisher guid");
+
+    assert_eq!(resolved.artist_id, existing.artist_id);
+}
+
+#[test]
+fn feed_artist_resolution_reuses_existing_artist_by_website_url() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let existing = stophammer::db::resolve_artist(&conn, "Website Artist", Some("feed-existing"))
+        .expect("existing artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &existing.name,
+        &[(existing.artist_id.clone(), existing.name.clone(), String::new())],
+        Some("feed-existing"),
+    )
+    .expect("artist credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        rusqlite::params![
+            "feed-existing",
+            "https://example.com/feed-existing.xml",
+            "Website Artist Release",
+            "website artist release",
+            credit.id,
+            now,
+        ],
+    )
+    .expect("insert feed");
+    conn.execute(
+        "INSERT INTO source_entity_links \
+         (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+         VALUES (?1, 'feed', ?1, 0, 'website', ?2, 'rss_link', 'feed.link', ?3)",
+        rusqlite::params!["feed-existing", "https://wavlake.com/website-artist", now],
+    )
+    .expect("insert website link");
+
+    let source_entity_links = vec![stophammer::model::SourceEntityLink {
+        id: None,
+        feed_guid: "feed-new".into(),
+        entity_type: "feed".into(),
+        entity_id: "feed-new".into(),
+        position: 0,
+        link_type: "website".into(),
+        url: "https://wavlake.com/website-artist".into(),
+        source: "rss_link".into(),
+        extraction_path: "feed.link".into(),
+        observed_at: now,
+    }];
+
+    let resolved = stophammer::db::resolve_feed_artist_from_source_claims(
+        &conn,
+        "Website Artist",
+        "feed-new",
+        &[],
+        &[],
+        &source_entity_links,
+    )
+    .expect("resolve via website url");
+
+    assert_eq!(resolved.artist_id, existing.artist_id);
+}
+
+#[test]
+fn feed_artist_resolution_prefers_canonical_artist_when_source_claim_is_split() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let artist_a = stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-a1"))
+        .expect("artist a");
+    let credit_a1 = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_a.name,
+        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        Some("feed-a1"),
+    )
+    .expect("credit a1");
+    let credit_a2 = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_a.name,
+        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        Some("feed-a2"),
+    )
+    .expect("credit a2");
+    let artist_b = stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-b1"))
+        .expect("artist b");
+    let credit_b1 = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_b.name,
+        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        Some("feed-b1"),
+    )
+    .expect("credit b1");
+
+    for (feed_guid, credit_id) in [
+        ("feed-a1", credit_a1.id),
+        ("feed-a2", credit_a2.id),
+        ("feed-b1", credit_b1.id),
+    ] {
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            rusqlite::params![
+                feed_guid,
+                format!("https://example.com/{feed_guid}.xml"),
+                format!("Release {feed_guid}"),
+                format!("release {feed_guid}"),
+                credit_id,
+                now,
+            ],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, 'feed', ?1, 0, 'website', ?2, 'rss_link', 'feed.link', ?3)",
+            rusqlite::params![feed_guid, "https://wavlake.com/split-artist", now],
+        )
+        .expect("insert website link");
+    }
+
+    let source_entity_links = vec![stophammer::model::SourceEntityLink {
+        id: None,
+        feed_guid: "feed-new".into(),
+        entity_type: "feed".into(),
+        entity_id: "feed-new".into(),
+        position: 0,
+        link_type: "website".into(),
+        url: "https://wavlake.com/split-artist".into(),
+        source: "rss_link".into(),
+        extraction_path: "feed.link".into(),
+        observed_at: now,
+    }];
+
+    let resolved = stophammer::db::resolve_feed_artist_from_source_claims(
+        &conn,
+        "Split Artist",
+        "feed-new",
+        &[],
+        &[],
+        &source_entity_links,
+    )
+    .expect("resolve split website url");
+
+    assert_eq!(resolved.artist_id, artist_a.artist_id);
+}
+
 // ---------------------------------------------------------------------------
 // 8. Full `ingest_transaction` with feed-scoped credits
 // ---------------------------------------------------------------------------
