@@ -173,6 +173,16 @@ struct FeedResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    source_links: Option<Vec<SourceEntityLinkResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_ids: Option<Vec<SourceEntityIdResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_contributors: Option<Vec<SourceContributorClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_platforms: Option<Vec<SourcePlatformClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     canonical: Option<CanonicalReleaseRef>,
 }
 
@@ -219,6 +229,16 @@ struct TrackResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    source_links: Option<Vec<SourceEntityLinkResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_ids: Option<Vec<SourceEntityIdResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_contributors: Option<Vec<SourceContributorClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_enclosures: Option<Vec<SourceItemEnclosureResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     canonical: Option<CanonicalRecordingRef>,
 }
 
@@ -236,6 +256,84 @@ struct PeerResponse {
     node_pubkey: String,
     node_url: String,
     last_push_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceContributorClaimResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    name: String,
+    role: Option<String>,
+    role_norm: Option<String>,
+    group_name: Option<String>,
+    href: Option<String>,
+    img: Option<String>,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceEntityIdResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    scheme: String,
+    value: String,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceEntityLinkResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    link_type: String,
+    url: String,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceReleaseClaimResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    claim_type: String,
+    claim_value: String,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourcePlatformClaimResponse {
+    platform_key: String,
+    url: Option<String>,
+    owner_name: Option<String>,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceItemEnclosureResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    url: String,
+    mime_type: Option<String>,
+    bytes: Option<i64>,
+    rel: Option<String>,
+    title: Option<String>,
+    is_primary: bool,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -674,6 +772,11 @@ async fn handle_get_artist_feeds(
                 tracks: None,
                 payment_routes: None,
                 tags: None,
+                source_links: None,
+                source_ids: None,
+                source_contributors: None,
+                source_platforms: None,
+                source_release_claims: None,
                 canonical: None,
             });
         }
@@ -767,6 +870,11 @@ async fn handle_get_feed(
             tracks: None,
             payment_routes: None,
             tags: None,
+            source_links: None,
+            source_ids: None,
+            source_contributors: None,
+            source_platforms: None,
+            source_release_claims: None,
             canonical: None,
         };
 
@@ -811,6 +919,51 @@ async fn handle_get_feed(
 
         if params.includes("tags") {
             resp.tags = Some(load_tags(&conn, "feed", &feed_guid)?);
+        }
+
+        if params.includes("source_links") {
+            resp.source_links = Some(
+                db::get_source_entity_links_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_ids") {
+            resp.source_ids = Some(
+                db::get_source_entity_ids_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_contributors") {
+            resp.source_contributors = Some(
+                db::get_source_contributor_claims_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(contributor_claim_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_platforms") {
+            resp.source_platforms = Some(
+                db::get_source_platform_claims_for_feed(&conn, &feed_guid)?
+                    .into_iter()
+                    .map(platform_claim_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_release_claims") {
+            resp.source_release_claims = Some(
+                db::get_source_release_claims_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(release_claim_response)
+                    .collect(),
+            );
         }
 
         if params.includes("canonical") {
@@ -971,6 +1124,98 @@ fn load_entity_link_urls(
         .into_iter()
         .map(|link| link.url)
         .collect())
+}
+
+fn contributor_claim_response(
+    claim: crate::model::SourceContributorClaim,
+) -> SourceContributorClaimResponse {
+    SourceContributorClaimResponse {
+        entity_type: claim.entity_type,
+        entity_id: claim.entity_id,
+        position: claim.position,
+        name: claim.name,
+        role: claim.role,
+        role_norm: claim.role_norm,
+        group_name: claim.group_name,
+        href: claim.href,
+        img: claim.img,
+        source: claim.source,
+        extraction_path: claim.extraction_path,
+        observed_at: claim.observed_at,
+    }
+}
+
+fn entity_id_response(claim: crate::model::SourceEntityIdClaim) -> SourceEntityIdResponse {
+    SourceEntityIdResponse {
+        entity_type: claim.entity_type,
+        entity_id: claim.entity_id,
+        position: claim.position,
+        scheme: claim.scheme,
+        value: claim.value,
+        source: claim.source,
+        extraction_path: claim.extraction_path,
+        observed_at: claim.observed_at,
+    }
+}
+
+fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLinkResponse {
+    SourceEntityLinkResponse {
+        entity_type: link.entity_type,
+        entity_id: link.entity_id,
+        position: link.position,
+        link_type: link.link_type,
+        url: link.url,
+        source: link.source,
+        extraction_path: link.extraction_path,
+        observed_at: link.observed_at,
+    }
+}
+
+fn release_claim_response(
+    claim: crate::model::SourceReleaseClaim,
+) -> SourceReleaseClaimResponse {
+    SourceReleaseClaimResponse {
+        entity_type: claim.entity_type,
+        entity_id: claim.entity_id,
+        position: claim.position,
+        claim_type: claim.claim_type,
+        claim_value: claim.claim_value,
+        source: claim.source,
+        extraction_path: claim.extraction_path,
+        observed_at: claim.observed_at,
+    }
+}
+
+fn platform_claim_response(
+    claim: crate::model::SourcePlatformClaim,
+) -> SourcePlatformClaimResponse {
+    SourcePlatformClaimResponse {
+        platform_key: claim.platform_key,
+        url: claim.url,
+        owner_name: claim.owner_name,
+        source: claim.source,
+        extraction_path: claim.extraction_path,
+        observed_at: claim.observed_at,
+    }
+}
+
+fn enclosure_response(
+    enclosure: crate::model::SourceItemEnclosure,
+) -> SourceItemEnclosureResponse {
+    SourceItemEnclosureResponse {
+        entity_type: enclosure.entity_type,
+        entity_id: enclosure.entity_id,
+        position: enclosure.position,
+        url: enclosure.url,
+        mime_type: enclosure.mime_type,
+        bytes: enclosure.bytes,
+        rel: enclosure.rel,
+        title: enclosure.title,
+        is_primary: enclosure.is_primary,
+        source: enclosure.source,
+        extraction_path: enclosure.extraction_path,
+        observed_at: enclosure.observed_at,
+    }
 }
 
 // ── GET /v1/releases/{id} ──────────────────────────────────────────────────
@@ -1391,6 +1636,11 @@ async fn handle_get_track(
             payment_routes: None,
             value_time_splits: None,
             tags: None,
+            source_links: None,
+            source_ids: None,
+            source_contributors: None,
+            source_release_claims: None,
+            source_enclosures: None,
             canonical: None,
         };
 
@@ -1436,6 +1686,51 @@ async fn handle_get_track(
 
         if params.includes("tags") {
             resp.tags = Some(load_tags(&conn, "track", &track_guid)?);
+        }
+
+        if params.includes("source_links") {
+            resp.source_links = Some(
+                db::get_source_entity_links_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_ids") {
+            resp.source_ids = Some(
+                db::get_source_entity_ids_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_contributors") {
+            resp.source_contributors = Some(
+                db::get_source_contributor_claims_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(contributor_claim_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_release_claims") {
+            resp.source_release_claims = Some(
+                db::get_source_release_claims_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(release_claim_response)
+                    .collect(),
+            );
+        }
+
+        if params.includes("source_enclosures") {
+            resp.source_enclosures = Some(
+                db::get_source_item_enclosures_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(enclosure_response)
+                    .collect(),
+            );
         }
 
         if params.includes("canonical") {
@@ -1611,6 +1906,11 @@ async fn handle_get_recent(
                 tracks: None,
                 payment_routes: None,
                 tags: None,
+                source_links: None,
+                source_ids: None,
+                source_contributors: None,
+                source_platforms: None,
+                source_release_claims: None,
                 canonical: None,
             });
         }
@@ -1769,8 +2069,34 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         "artist",
         vec!["aliases", "credits", "tags", "relationships"],
     );
-    include_params.insert("feed", vec!["tracks", "payment_routes", "tags", "canonical"]);
-    include_params.insert("track", vec!["payment_routes", "value_time_splits", "tags", "canonical"]);
+    include_params.insert(
+        "feed",
+        vec![
+            "tracks",
+            "payment_routes",
+            "tags",
+            "source_links",
+            "source_ids",
+            "source_contributors",
+            "source_platforms",
+            "source_release_claims",
+            "canonical",
+        ],
+    );
+    include_params.insert(
+        "track",
+        vec![
+            "payment_routes",
+            "value_time_splits",
+            "tags",
+            "source_links",
+            "source_ids",
+            "source_contributors",
+            "source_release_claims",
+            "source_enclosures",
+            "canonical",
+        ],
+    );
     include_params.insert("release", vec!["tracks", "sources"]);
     include_params.insert("recording", vec!["sources", "releases"]);
 

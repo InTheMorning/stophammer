@@ -184,7 +184,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/feeds/{feed_guid}?include=canonical"))
+                .uri(format!("/v1/feeds/{feed_guid}?include=canonical,source_links,source_ids,source_platforms,source_release_claims"))
                 .body(Body::empty())
                 .expect("feed request"),
         )
@@ -193,13 +193,23 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(feed_resp.status(), 200);
     let feed_json = body_json(feed_resp).await;
     assert_eq!(feed_json["data"]["canonical"]["release_id"], release_id);
+    assert_eq!(feed_json["data"]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
+    assert_eq!(feed_json["data"]["source_ids"][0]["scheme"], "nostr_npub");
+    assert_eq!(feed_json["data"]["source_platforms"][0]["platform_key"], "wavlake");
+    let feed_claim_types = feed_json["data"]["source_release_claims"]
+        .as_array()
+        .expect("feed source release claims array")
+        .iter()
+        .filter_map(|claim| claim["claim_type"].as_str())
+        .collect::<Vec<_>>();
+    assert!(feed_claim_types.contains(&"release_date"));
 
     let track_resp = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/tracks/{track_guid}?include=canonical"))
+                .uri(format!("/v1/tracks/{track_guid}?include=canonical,source_links,source_contributors,source_enclosures"))
                 .body(Body::empty())
                 .expect("track request"),
         )
@@ -208,6 +218,15 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(track_resp.status(), 200);
     let track_json = body_json(track_resp).await;
     assert_eq!(track_json["data"]["canonical"]["recording_id"], recording_id);
+    assert_eq!(track_json["data"]["source_links"][0]["link_type"], "web_page");
+    assert_eq!(track_json["data"]["source_contributors"][0]["role_norm"], "vocals");
+    let track_enclosure_urls = track_json["data"]["source_enclosures"]
+        .as_array()
+        .expect("track source enclosures array")
+        .iter()
+        .filter_map(|enclosure| enclosure["url"].as_str())
+        .collect::<Vec<_>>();
+    assert!(track_enclosure_urls.contains(&"https://cdn.example.com/canonical-query.flac"));
 
     let release_resp = app
         .clone()
