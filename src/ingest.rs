@@ -155,6 +155,8 @@ pub struct IngestLink {
     pub position: i64,
     pub link_type: String,
     pub url: String,
+    #[serde(default)]
+    pub extraction_path: String,
 }
 
 /// Ingest-time payment route before a DB row ID is assigned.

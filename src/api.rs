@@ -598,7 +598,8 @@ fn normalize_role(role: Option<&str>) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_role;
+    use super::{build_source_entity_links, normalize_role};
+    use crate::ingest::IngestLink;
 
     #[test]
     fn normalize_role_lowercases_and_collapses_whitespace() {
@@ -609,6 +610,20 @@ mod tests {
             Some("music contributor")
         );
         assert_eq!(normalize_role(Some("Host")).as_deref(), Some("host"));
+    }
+
+    #[test]
+    fn source_link_claims_preserve_payload_extraction_paths() {
+        let links = vec![IngestLink {
+            position: 0,
+            link_type: "website".into(),
+            url: "https://example.com/artist".into(),
+            extraction_path: "feed.atom:link[@rel='alternate']".into(),
+        }];
+
+        let claims = build_source_entity_links("feed-1", "feed", "feed-1", &links, 123);
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].extraction_path, "feed.atom:link[@rel='alternate']");
     }
 }
 
@@ -649,12 +664,17 @@ fn build_source_entity_links(
     links.iter()
         .filter(|link| seen.insert((link.link_type.clone(), link.url.clone())))
         .map(|link| {
-            let extraction_path = match link.link_type.as_str() {
-                "self_feed" => "feed.atom:link[@rel='self']",
-                "website" => "feed.link[*]",
-                "web_page" => "entity.link[*]",
-                "content_stream" => "live_item.@contentLink",
-                _ => "entity.link",
+            let extraction_path = if link.extraction_path.trim().is_empty() {
+                match link.link_type.as_str() {
+                    "self_feed" => "feed.atom:link[@rel='self']",
+                    "website" => "feed.link[*]",
+                    "web_page" => "entity.link[*]",
+                    "content_stream" => "live_item.@contentLink",
+                    _ => "entity.link",
+                }
+                .to_string()
+            } else {
+                link.extraction_path.clone()
             };
             model::SourceEntityLink {
                 id: None,
@@ -665,7 +685,7 @@ fn build_source_entity_links(
                 link_type: link.link_type.clone(),
                 url: link.url.clone(),
                 source: "rss_link".to_string(),
-                extraction_path: extraction_path.to_string(),
+                extraction_path,
                 observed_at: now,
             }
         })
