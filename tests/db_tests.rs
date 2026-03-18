@@ -998,6 +998,339 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
     assert_eq!(recording_maps[1].2, 92);
 }
 
+#[test]
+fn canonical_read_helpers_return_release_recording_and_source_evidence() {
+    let mut conn = common::test_db();
+    let now = common::now();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("canonical-read-helpers.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    for (feed_guid, credit_id, feed_url, track_suffix, website_url) in [
+        (
+            "feed-canon-read-a",
+            9301,
+            "https://feeds.rssblue.com/canon-read-a",
+            "a",
+            "https://artist.example.com/releases/canon-read",
+        ),
+        (
+            "feed-canon-read-b",
+            9302,
+            "https://wavlake.com/feed/music/canon-read-b",
+            "b",
+            "https://artist.example.com/releases/canon-read",
+        ),
+    ] {
+        let artist = stophammer::model::Artist {
+            artist_id: "artist-canon-read-1".into(),
+            name: "Canon Read Artist".into(),
+            name_lower: "canon read artist".into(),
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
+            begin_year: None,
+            end_year: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let artist_credit = stophammer::model::ArtistCredit {
+            id: credit_id,
+            display_name: "Canon Read Artist".into(),
+            feed_guid: Some(feed_guid.into()),
+            created_at: now,
+            names: vec![stophammer::model::ArtistCreditName {
+                id: 0,
+                artist_credit_id: credit_id,
+                artist_id: "artist-canon-read-1".into(),
+                position: 0,
+                name: "Canon Read Artist".into(),
+                join_phrase: String::new(),
+            }],
+        };
+        let feed = stophammer::model::Feed {
+            feed_guid: feed_guid.into(),
+            feed_url: feed_url.into(),
+            title: "Canon Read Release".into(),
+            title_lower: "canon read release".into(),
+            artist_credit_id: credit_id,
+            description: Some("A canonical read test release".into()),
+            image_url: Some("https://cdn.example.com/canon-read-cover.jpg".into()),
+            language: Some("en".into()),
+            explicit: false,
+            itunes_type: None,
+            episode_count: 1,
+            newest_item_at: Some(now),
+            oldest_item_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            raw_medium: Some("music".into()),
+        };
+        let source_entity_links = vec![stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.into(),
+            position: 0,
+            link_type: "website".into(),
+            url: website_url.into(),
+            source: "rss_link".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        }];
+        let source_platform_claims = vec![stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.into(),
+            platform_key: if feed_guid.ends_with('a') {
+                "rss_blue".into()
+            } else {
+                "wavlake".into()
+            },
+            url: Some(feed_url.into()),
+            owner_name: None,
+            source: "feed_url".into(),
+            extraction_path: "request.canonical_url".into(),
+            observed_at: now,
+        }];
+        let source_item_enclosures = vec![stophammer::model::SourceItemEnclosure {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "track".into(),
+            entity_id: format!("track-canon-read-{track_suffix}"),
+            position: 0,
+            url: format!("https://cdn.example.com/{track_suffix}/canon-read-song.mp3"),
+            mime_type: Some("audio/mpeg".into()),
+            bytes: Some(2048),
+            rel: None,
+            title: None,
+            is_primary: true,
+            source: "enclosure".into(),
+            extraction_path: "track.enclosure".into(),
+            observed_at: now,
+        }];
+        let source_contributor_claims = vec![stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "track".into(),
+            entity_id: format!("track-canon-read-{track_suffix}"),
+            position: 0,
+            name: "Canon Read Artist".into(),
+            role: Some("Vocals".into()),
+            role_norm: Some("vocals".into()),
+            group_name: None,
+            href: None,
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "track.podcast:person[0]".into(),
+            observed_at: now,
+        }];
+        let source_entity_ids = vec![stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1canonreadartist".into(),
+            source: "podcast_txt".into(),
+            extraction_path: "feed.podcast:txt[@purpose='npub']".into(),
+            observed_at: now,
+        }];
+        let source_release_claims = vec![stophammer::model::SourceReleaseClaim {
+            id: None,
+            feed_guid: feed_guid.into(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.into(),
+            position: 0,
+            claim_type: "release_date".into(),
+            claim_value: now.to_string(),
+            source: "rss_pub_date".into(),
+            extraction_path: "feed.pubDate".into(),
+            observed_at: now,
+        }];
+        let tracks = vec![(
+            stophammer::model::Track {
+                track_guid: format!("track-canon-read-{track_suffix}"),
+                feed_guid: feed_guid.into(),
+                artist_credit_id: credit_id,
+                title: "Canon Read Song".into(),
+                title_lower: "canon read song".into(),
+                pub_date: Some(now),
+                duration_secs: Some(201),
+                enclosure_url: Some(format!("https://cdn.example.com/{track_suffix}/canon-read-song.mp3")),
+                enclosure_type: Some("audio/mpeg".into()),
+                enclosure_bytes: Some(2048),
+                track_number: Some(1),
+                season: None,
+                explicit: false,
+                description: Some("A test song".into()),
+                created_at: now,
+                updated_at: now,
+            },
+            vec![],
+            vec![],
+        )];
+
+        let event_rows = stophammer::db::build_diff_events(
+            &conn,
+            &artist,
+            &artist_credit,
+            &feed,
+            &[],
+            &source_contributor_claims,
+            &source_entity_ids,
+            &source_entity_links,
+            &source_release_claims,
+            &source_item_enclosures,
+            &source_platform_claims,
+            &[],
+            &[],
+            &tracks,
+            &[],
+            now,
+            &[],
+        )
+        .expect("build diff events");
+
+        stophammer::db::ingest_transaction(
+            &mut conn,
+            artist,
+            artist_credit,
+            feed,
+            vec![],
+            source_contributor_claims,
+            source_entity_ids,
+            source_entity_links,
+            source_release_claims,
+            source_item_enclosures,
+            source_platform_claims,
+            vec![],
+            vec![],
+            tracks,
+            event_rows,
+            &signer,
+        )
+        .expect("ingest transaction");
+    }
+
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-canon-read-a")
+        .expect("sync canonical state a");
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-canon-read-b")
+        .expect("sync canonical state b");
+    stophammer::db::sync_canonical_promotions_for_feed(&conn, "feed-canon-read-a")
+        .expect("sync canonical promotions a");
+    stophammer::db::sync_canonical_promotions_for_feed(&conn, "feed-canon-read-b")
+        .expect("sync canonical promotions b");
+
+    let release_id: String = conn
+        .query_row(
+            "SELECT DISTINCT release_id FROM source_feed_release_map WHERE feed_guid = 'feed-canon-read-a'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("release id");
+    let recording_id: String = conn
+        .query_row(
+            "SELECT DISTINCT recording_id FROM source_item_recording_map WHERE track_guid = 'track-canon-read-a'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("recording id");
+
+    let release = stophammer::db::get_release(&conn, &release_id)
+        .expect("get release")
+        .expect("release exists");
+    assert_eq!(release.title, "Canon Read Release");
+
+    let recording = stophammer::db::get_recording(&conn, &recording_id)
+        .expect("get recording")
+        .expect("recording exists");
+    assert_eq!(recording.title, "Canon Read Song");
+
+    let release_tracks =
+        stophammer::db::get_release_recordings(&conn, &release_id).expect("release tracks");
+    assert_eq!(release_tracks.len(), 1);
+    assert_eq!(release_tracks[0].recording_id, recording_id);
+
+    let release_maps = stophammer::db::get_source_feed_release_maps_for_release(&conn, &release_id)
+        .expect("release maps");
+    assert_eq!(release_maps.len(), 2);
+
+    let recording_maps = stophammer::db::get_source_item_recording_maps_for_recording(
+        &conn,
+        &recording_id,
+    )
+    .expect("recording maps");
+    assert_eq!(recording_maps.len(), 2);
+
+    let mapped_feed = stophammer::db::get_feed(&conn, &release_maps[0].feed_guid)
+        .expect("get feed")
+        .expect("feed exists");
+    assert_eq!(mapped_feed.title, "Canon Read Release");
+
+    let mapped_track = stophammer::db::get_track(&conn, &recording_maps[0].track_guid)
+        .expect("get track")
+        .expect("track exists");
+    assert_eq!(mapped_track.title, "Canon Read Song");
+
+    let feed_links = stophammer::db::get_source_entity_links_for_entity(
+        &conn,
+        "feed",
+        "feed-canon-read-a",
+    )
+    .expect("feed links");
+    assert_eq!(feed_links.len(), 1);
+    assert_eq!(feed_links[0].link_type, "website");
+
+    let feed_ids = stophammer::db::get_source_entity_ids_for_entity(
+        &conn,
+        "feed",
+        "feed-canon-read-a",
+    )
+    .expect("feed ids");
+    assert_eq!(feed_ids.len(), 1);
+    assert_eq!(feed_ids[0].scheme, "nostr_npub");
+
+    let track_contributors = stophammer::db::get_source_contributor_claims_for_entity(
+        &conn,
+        "track",
+        "track-canon-read-a",
+    )
+    .expect("track contributors");
+    assert_eq!(track_contributors.len(), 1);
+    assert_eq!(track_contributors[0].role_norm.as_deref(), Some("vocals"));
+
+    let feed_release_claims = stophammer::db::get_source_release_claims_for_entity(
+        &conn,
+        "feed",
+        "feed-canon-read-a",
+    )
+    .expect("feed release claims");
+    assert_eq!(feed_release_claims.len(), 1);
+    assert_eq!(feed_release_claims[0].claim_type, "release_date");
+
+    let track_enclosures = stophammer::db::get_source_item_enclosures_for_entity(
+        &conn,
+        "track",
+        "track-canon-read-a",
+    )
+    .expect("track enclosures");
+    assert_eq!(track_enclosures.len(), 1);
+    assert!(track_enclosures[0].is_primary);
+
+    let feed_platforms =
+        stophammer::db::get_source_platform_claims_for_feed(&conn, "feed-canon-read-a")
+            .expect("feed platforms");
+    assert_eq!(feed_platforms.len(), 1);
+    assert_eq!(feed_platforms[0].platform_key, "rss_blue");
+
+    let release_sources =
+        stophammer::db::get_entity_sources(&conn, "release", &release_id).expect("release sources");
+    assert!(!release_sources.is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // Helper: insert an artist and return its artist_id.
 // ---------------------------------------------------------------------------

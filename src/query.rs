@@ -19,7 +19,7 @@ use axum::{
     response::IntoResponse,
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{api, db};
@@ -172,6 +172,8 @@ struct FeedResponse {
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical: Option<CanonicalReleaseRef>,
 }
 
 #[derive(Debug, Serialize)]
@@ -216,6 +218,8 @@ struct TrackResponse {
     value_time_splits: Option<Vec<VtsResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tags: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    canonical: Option<CanonicalRecordingRef>,
 }
 
 #[derive(Debug, Serialize)]
@@ -232,6 +236,103 @@ struct PeerResponse {
     node_pubkey: String,
     node_url: String,
     last_push_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct CanonicalReleaseRef {
+    release_id: String,
+    match_type: String,
+    confidence: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct CanonicalRecordingRef {
+    recording_id: String,
+    match_type: String,
+    confidence: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseTrackResponse {
+    position: i64,
+    recording_id: String,
+    title: String,
+    duration_secs: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_track_guid: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseSourceSummary {
+    feed_guid: String,
+    feed_url: String,
+    title: String,
+    match_type: String,
+    confidence: i64,
+    platforms: Vec<String>,
+    links: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RecordingSourceSummary {
+    track_guid: String,
+    feed_guid: String,
+    title: String,
+    match_type: String,
+    confidence: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    primary_enclosure_url: Option<String>,
+    enclosure_urls: Vec<String>,
+    links: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseListItemResponse {
+    release_id: String,
+    title: String,
+    artist_credit: CreditResponse,
+    description: Option<String>,
+    image_url: Option<String>,
+    release_date: Option<i64>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseResponse {
+    release_id: String,
+    title: String,
+    artist_credit: CreditResponse,
+    description: Option<String>,
+    image_url: Option<String>,
+    release_date: Option<i64>,
+    created_at: i64,
+    updated_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tracks: Option<Vec<ReleaseTrackResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<ReleaseSourceSummary>>,
+}
+
+#[derive(Debug, Serialize)]
+struct RecordingReleaseSummary {
+    release_id: String,
+    title: String,
+    position: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct RecordingResponse {
+    recording_id: String,
+    title: String,
+    artist_credit: CreditResponse,
+    duration_secs: Option<i64>,
+    created_at: i64,
+    updated_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<RecordingSourceSummary>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    releases: Option<Vec<RecordingReleaseSummary>>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -266,6 +367,18 @@ struct FeedRow {
     episode_count: i64,
     newest_item_at: Option<i64>,
     oldest_item_at: Option<i64>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+struct ReleaseRow {
+    release_id: String,
+    title: String,
+    title_lower: String,
+    credit_id: i64,
+    description: Option<String>,
+    image_url: Option<String>,
+    release_date: Option<i64>,
     created_at: i64,
     updated_at: i64,
 }
@@ -561,6 +674,7 @@ async fn handle_get_artist_feeds(
                 tracks: None,
                 payment_routes: None,
                 tags: None,
+                canonical: None,
             });
         }
 
@@ -653,6 +767,7 @@ async fn handle_get_feed(
             tracks: None,
             payment_routes: None,
             tags: None,
+            canonical: None,
         };
 
         if params.includes("tracks") {
@@ -696,6 +811,23 @@ async fn handle_get_feed(
 
         if params.includes("tags") {
             resp.tags = Some(load_tags(&conn, "feed", &feed_guid)?);
+        }
+
+        if params.includes("canonical") {
+            resp.canonical = conn
+                .query_row(
+                    "SELECT release_id, match_type, confidence \
+                     FROM source_feed_release_map WHERE feed_guid = ?1",
+                    params![feed_guid],
+                    |row| {
+                        Ok(CanonicalReleaseRef {
+                            release_id: row.get(0)?,
+                            match_type: row.get(1)?,
+                            confidence: row.get(2)?,
+                        })
+                    },
+                )
+                .optional()?;
         }
 
         Ok::<_, api::ApiError>(QueryResponse {
@@ -820,6 +952,371 @@ fn load_tags(
     Ok(tags)
 }
 
+fn load_feed_platform_keys(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Vec<String>, api::ApiError> {
+    Ok(db::get_source_platform_claims_for_feed(conn, feed_guid)?
+        .into_iter()
+        .map(|claim| claim.platform_key)
+        .collect())
+}
+
+fn load_entity_link_urls(
+    conn: &rusqlite::Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<String>, api::ApiError> {
+    Ok(db::get_source_entity_links_for_entity(conn, entity_type, entity_id)?
+        .into_iter()
+        .map(|link| link.url)
+        .collect())
+}
+
+// ── GET /v1/releases/{id} ──────────────────────────────────────────────────
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "single canonical detail flow with optional expansions"
+)]
+async fn handle_get_release(
+    State(state): State<Arc<api::AppState>>,
+    Path(release_id): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let release = db::get_release(&conn, &release_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "release not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let credit = load_credit(&conn, release.artist_credit_id)?;
+        let mut resp = ReleaseResponse {
+            release_id: release.release_id.clone(),
+            title: release.title,
+            artist_credit: credit,
+            description: release.description,
+            image_url: release.image_url,
+            release_date: release.release_date,
+            created_at: release.created_at,
+            updated_at: release.updated_at,
+            tracks: None,
+            sources: None,
+        };
+
+        if params.includes("tracks") {
+            let mut items = Vec::new();
+            for rel in db::get_release_recordings(&conn, &release_id)? {
+                let recording = db::get_recording(&conn, &rel.recording_id)?
+                    .ok_or_else(|| api::ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: "release references missing recording".into(),
+                        www_authenticate: None,
+                    })?;
+                items.push(ReleaseTrackResponse {
+                    position: rel.position,
+                    recording_id: rel.recording_id,
+                    title: recording.title,
+                    duration_secs: recording.duration_secs,
+                    source_track_guid: rel.source_track_guid,
+                });
+            }
+            resp.tracks = Some(items);
+        }
+
+        if params.includes("sources") {
+            let mut items = Vec::new();
+            for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
+                let feed = db::get_feed(&conn, &map.feed_guid)?
+                    .ok_or_else(|| api::ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: "release source references missing feed".into(),
+                        www_authenticate: None,
+                    })?;
+                items.push(ReleaseSourceSummary {
+                    feed_guid: feed.feed_guid,
+                    feed_url: feed.feed_url,
+                    title: feed.title,
+                    match_type: map.match_type,
+                    confidence: map.confidence,
+                    platforms: load_feed_platform_keys(&conn, &map.feed_guid)?,
+                    links: load_entity_link_urls(&conn, "feed", &map.feed_guid)?,
+                });
+            }
+            resp.sources = Some(items);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/recordings/{id} ────────────────────────────────────────────────
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "single canonical detail flow with optional expansions"
+)]
+async fn handle_get_recording(
+    State(state): State<Arc<api::AppState>>,
+    Path(recording_id): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let recording = db::get_recording(&conn, &recording_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "recording not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let credit = load_credit(&conn, recording.artist_credit_id)?;
+        let mut resp = RecordingResponse {
+            recording_id: recording.recording_id.clone(),
+            title: recording.title,
+            artist_credit: credit,
+            duration_secs: recording.duration_secs,
+            created_at: recording.created_at,
+            updated_at: recording.updated_at,
+            sources: None,
+            releases: None,
+        };
+
+        if params.includes("sources") {
+            let mut items = Vec::new();
+            for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
+                let track = db::get_track(&conn, &map.track_guid)?
+                    .ok_or_else(|| api::ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: "recording source references missing track".into(),
+                        www_authenticate: None,
+                    })?;
+                let enclosure_urls = db::get_source_item_enclosures_for_entity(
+                    &conn,
+                    "track",
+                    &map.track_guid,
+                )?
+                .into_iter()
+                .map(|enclosure| enclosure.url)
+                .collect::<Vec<_>>();
+                items.push(RecordingSourceSummary {
+                    track_guid: track.track_guid.clone(),
+                    feed_guid: track.feed_guid.clone(),
+                    title: track.title,
+                    match_type: map.match_type,
+                    confidence: map.confidence,
+                    primary_enclosure_url: track.enclosure_url,
+                    enclosure_urls,
+                    links: load_entity_link_urls(&conn, "track", &map.track_guid)?,
+                });
+            }
+            resp.sources = Some(items);
+        }
+
+        if params.includes("releases") {
+            let mut stmt = conn.prepare(
+                "SELECT r.release_id, r.title, rr.position \
+                 FROM release_recordings rr \
+                 JOIN releases r ON r.release_id = rr.release_id \
+                 WHERE rr.recording_id = ?1 \
+                 ORDER BY r.title_lower, r.release_id, rr.position",
+            )?;
+            let releases: Vec<RecordingReleaseSummary> = stmt
+                .query_map(params![recording_id], |row| {
+                    Ok(RecordingReleaseSummary {
+                        release_id: row.get(0)?,
+                        title: row.get(1)?,
+                        position: row.get(2)?,
+                    })
+                })?
+                .collect::<Result<_, _>>()?;
+            resp.releases = Some(releases);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/artists/{id}/releases ──────────────────────────────────────────
+
+async fn handle_get_artist_releases(
+    State(state): State<Arc<api::AppState>>,
+    Path(artist_id): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+
+        let rows: Vec<ReleaseRow> = if let Some(ref cursor_str) = params.cursor {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor format".into(),
+                    www_authenticate: None,
+                });
+            }
+            let cursor_title = parts[0];
+            let cursor_release_id = parts[1];
+            let mut stmt = conn.prepare(
+                "SELECT r.release_id, r.title, r.title_lower, r.artist_credit_id, r.description, \
+                 r.image_url, r.release_date, r.created_at, r.updated_at \
+                 FROM releases r \
+                 WHERE EXISTS(SELECT 1 FROM artist_credit_name acn \
+                              WHERE acn.artist_credit_id = r.artist_credit_id AND acn.artist_id = ?1) \
+                   AND (r.title_lower, r.release_id) > (?2, ?3) \
+                 ORDER BY r.title_lower, r.release_id \
+                 LIMIT ?4",
+            )?;
+            stmt.query_map(params![artist_id, cursor_title, cursor_release_id, limit + 1], |row| {
+                Ok(ReleaseRow {
+                    release_id: row.get(0)?,
+                    title: row.get(1)?,
+                    title_lower: row.get(2)?,
+                    credit_id: row.get(3)?,
+                    description: row.get(4)?,
+                    image_url: row.get(5)?,
+                    release_date: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT r.release_id, r.title, r.title_lower, r.artist_credit_id, r.description, \
+                 r.image_url, r.release_date, r.created_at, r.updated_at \
+                 FROM releases r \
+                 WHERE EXISTS(SELECT 1 FROM artist_credit_name acn \
+                              WHERE acn.artist_credit_id = r.artist_credit_id AND acn.artist_id = ?1) \
+                 ORDER BY r.title_lower, r.release_id \
+                 LIMIT ?2",
+            )?;
+            stmt.query_map(params![artist_id, limit + 1], |row| {
+                Ok(ReleaseRow {
+                    release_id: row.get(0)?,
+                    title: row.get(1)?,
+                    title_lower: row.get(2)?,
+                    credit_id: row.get(3)?,
+                    description: row.get(4)?,
+                    image_url: row.get(5)?,
+                    release_date: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        };
+
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+        let items: Vec<_> = rows
+            .into_iter()
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect();
+
+        let next_cursor = if has_more {
+            items.last().map(|r| encode_cursor(&format!("{}\0{}", r.title_lower, r.release_id)))
+        } else {
+            None
+        };
+
+        let credit_ids: Vec<i64> = items.iter().map(|row| row.credit_id).collect();
+        let credit_map = db::load_credits_batch(&conn, &credit_ids)?
+            .into_iter()
+            .map(|(id, ac)| (id, credit_from_model(&ac)))
+            .collect::<HashMap<_, _>>();
+
+        let releases = items
+            .into_iter()
+            .map(|row| {
+                let credit = credit_map
+                    .get(&row.credit_id)
+                    .cloned()
+                    .map_or_else(|| load_credit(&conn, row.credit_id), Ok)?;
+                Ok::<_, api::ApiError>(ReleaseListItemResponse {
+                    release_id: row.release_id,
+                    title: row.title,
+                    artist_credit: credit,
+                    description: row.description,
+                    image_url: row.image_url,
+                    release_date: row.release_date,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: releases,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── GET /v1/tracks/{guid} ────────────────────────────────────────────────────
 
 #[expect(
@@ -894,6 +1391,7 @@ async fn handle_get_track(
             payment_routes: None,
             value_time_splits: None,
             tags: None,
+            canonical: None,
         };
 
         if params.includes("payment_routes") {
@@ -938,6 +1436,23 @@ async fn handle_get_track(
 
         if params.includes("tags") {
             resp.tags = Some(load_tags(&conn, "track", &track_guid)?);
+        }
+
+        if params.includes("canonical") {
+            resp.canonical = conn
+                .query_row(
+                    "SELECT recording_id, match_type, confidence \
+                     FROM source_item_recording_map WHERE track_guid = ?1",
+                    params![track_guid],
+                    |row| {
+                        Ok(CanonicalRecordingRef {
+                            recording_id: row.get(0)?,
+                            match_type: row.get(1)?,
+                            confidence: row.get(2)?,
+                        })
+                    },
+                )
+                .optional()?;
         }
 
         Ok::<_, api::ApiError>(QueryResponse {
@@ -1096,6 +1611,7 @@ async fn handle_get_recent(
                 tracks: None,
                 payment_routes: None,
                 tags: None,
+                canonical: None,
             });
         }
 
@@ -1253,14 +1769,16 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         "artist",
         vec!["aliases", "credits", "tags", "relationships"],
     );
-    include_params.insert("feed", vec!["tracks", "payment_routes", "tags"]);
-    include_params.insert("track", vec!["payment_routes", "value_time_splits", "tags"]);
+    include_params.insert("feed", vec!["tracks", "payment_routes", "tags", "canonical"]);
+    include_params.insert("track", vec!["payment_routes", "value_time_splits", "tags", "canonical"]);
+    include_params.insert("release", vec!["tracks", "sources"]);
+    include_params.insert("recording", vec!["sources", "releases"]);
 
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
         capabilities: vec!["query", "search", "sync", "push"],
-        entity_types: vec!["artist", "feed", "track"],
+        entity_types: vec!["artist", "feed", "track", "release", "recording"],
         include_params,
     })
 }
@@ -1309,7 +1827,10 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
     axum::Router::new()
         .route("/v1/artists/{id}", get(handle_get_artist))
         .route("/v1/artists/{id}/feeds", get(handle_get_artist_feeds))
+        .route("/v1/artists/{id}/releases", get(handle_get_artist_releases))
         .route("/v1/feeds/{guid}", get(handle_get_feed))
+        .route("/v1/releases/{id}", get(handle_get_release))
+        .route("/v1/recordings/{id}", get(handle_get_recording))
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/recent", get(handle_get_recent))
         .route("/v1/search", get(handle_search))

@@ -11,8 +11,9 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceItemEnclosure, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
+    PaymentRoute, Recording, Release, ReleaseRecording, RouteType, SourceContributorClaim,
+    SourceEntityIdClaim, SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure,
+    SourceItemRecordingMap, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -6182,6 +6183,376 @@ pub fn get_entity_sources(
             source_url: row.get(2)?,
             trust_level: row.get(3)?,
             created_at: row.get(4)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+// ── Canonical read helpers ──────────────────────────────────────────────────
+
+/// Returns one canonical release by ID, or `None` if it does not exist.
+pub fn get_release(conn: &Connection, release_id: &str) -> Result<Option<Release>, DbError> {
+    conn.query_row(
+        "SELECT release_id, title, title_lower, artist_credit_id, description, image_url, \
+         release_date, created_at, updated_at \
+         FROM releases WHERE release_id = ?1",
+        params![release_id],
+        |row| {
+            Ok(Release {
+                release_id: row.get(0)?,
+                title: row.get(1)?,
+                title_lower: row.get(2)?,
+                artist_credit_id: row.get(3)?,
+                description: row.get(4)?,
+                image_url: row.get(5)?,
+                release_date: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns one canonical recording by ID, or `None` if it does not exist.
+pub fn get_recording(conn: &Connection, recording_id: &str) -> Result<Option<Recording>, DbError> {
+    conn.query_row(
+        "SELECT recording_id, title, title_lower, artist_credit_id, duration_secs, \
+         created_at, updated_at \
+         FROM recordings WHERE recording_id = ?1",
+        params![recording_id],
+        |row| {
+            Ok(Recording {
+                recording_id: row.get(0)?,
+                title: row.get(1)?,
+                title_lower: row.get(2)?,
+                artist_credit_id: row.get(3)?,
+                duration_secs: row.get(4)?,
+                created_at: row.get(5)?,
+                updated_at: row.get(6)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns canonical track ordering for a release.
+pub fn get_release_recordings(
+    conn: &Connection,
+    release_id: &str,
+) -> Result<Vec<ReleaseRecording>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT release_id, recording_id, position, source_track_guid \
+         FROM release_recordings WHERE release_id = ?1 ORDER BY position, recording_id",
+    )?;
+    let rows = stmt.query_map(params![release_id], |row| {
+        Ok(ReleaseRecording {
+            release_id: row.get(0)?,
+            recording_id: row.get(1)?,
+            position: row.get(2)?,
+            source_track_guid: row.get(3)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns source-feed mappings for a canonical release.
+pub fn get_source_feed_release_maps_for_release(
+    conn: &Connection,
+    release_id: &str,
+) -> Result<Vec<SourceFeedReleaseMap>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, release_id, match_type, confidence, created_at \
+         FROM source_feed_release_map WHERE release_id = ?1 \
+         ORDER BY confidence DESC, feed_guid",
+    )?;
+    let rows = stmt.query_map(params![release_id], |row| {
+        Ok(SourceFeedReleaseMap {
+            feed_guid: row.get(0)?,
+            release_id: row.get(1)?,
+            match_type: row.get(2)?,
+            confidence: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns source-item mappings for a canonical recording.
+pub fn get_source_item_recording_maps_for_recording(
+    conn: &Connection,
+    recording_id: &str,
+) -> Result<Vec<SourceItemRecordingMap>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT track_guid, recording_id, match_type, confidence, created_at \
+         FROM source_item_recording_map WHERE recording_id = ?1 \
+         ORDER BY confidence DESC, track_guid",
+    )?;
+    let rows = stmt.query_map(params![recording_id], |row| {
+        Ok(SourceItemRecordingMap {
+            track_guid: row.get(0)?,
+            recording_id: row.get(1)?,
+            match_type: row.get(2)?,
+            confidence: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns a source feed by GUID, or `None` if it does not exist.
+pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbError> {
+    conn.query_row(
+        "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, \
+         image_url, language, explicit, itunes_type, episode_count, newest_item_at, \
+         oldest_item_at, created_at, updated_at, raw_medium \
+         FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| {
+            Ok(Feed {
+                feed_guid: row.get(0)?,
+                feed_url: row.get(1)?,
+                title: row.get(2)?,
+                title_lower: row.get(3)?,
+                artist_credit_id: row.get(4)?,
+                description: row.get(5)?,
+                image_url: row.get(6)?,
+                language: row.get(7)?,
+                explicit: row.get(8)?,
+                itunes_type: row.get(9)?,
+                episode_count: row.get(10)?,
+                newest_item_at: row.get(11)?,
+                oldest_item_at: row.get(12)?,
+                created_at: row.get(13)?,
+                updated_at: row.get(14)?,
+                raw_medium: row.get(15)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns a source track by GUID, or `None` if it does not exist.
+pub fn get_track(conn: &Connection, track_guid: &str) -> Result<Option<Track>, DbError> {
+    conn.query_row(
+        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+         duration_secs, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         season, explicit, description, created_at, updated_at \
+         FROM tracks WHERE track_guid = ?1",
+        params![track_guid],
+        |row| {
+            Ok(Track {
+                track_guid: row.get(0)?,
+                feed_guid: row.get(1)?,
+                artist_credit_id: row.get(2)?,
+                title: row.get(3)?,
+                title_lower: row.get(4)?,
+                pub_date: row.get(5)?,
+                duration_secs: row.get(6)?,
+                enclosure_url: row.get(7)?,
+                enclosure_type: row.get(8)?,
+                enclosure_bytes: row.get(9)?,
+                track_number: row.get(10)?,
+                season: row.get(11)?,
+                explicit: row.get(12)?,
+                description: row.get(13)?,
+                created_at: row.get(14)?,
+                updated_at: row.get(15)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns staged contributor claims for one entity.
+pub fn get_source_contributor_claims_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceContributorClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, \
+         group_name, href, img, source, extraction_path, observed_at \
+         FROM source_contributor_claims \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY position, name, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceContributorClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            name: row.get(5)?,
+            role: row.get(6)?,
+            role_norm: row.get(7)?,
+            group_name: row.get(8)?,
+            href: row.get(9)?,
+            img: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns staged entity-ID claims for one entity.
+pub fn get_source_entity_ids_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceEntityIdClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, scheme, value, source, \
+         extraction_path, observed_at \
+         FROM source_entity_ids \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY position, scheme, value, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceEntityIdClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            scheme: row.get(5)?,
+            value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns staged link claims for one entity.
+pub fn get_source_entity_links_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceEntityLink>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
+         extraction_path, observed_at \
+         FROM source_entity_links \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY position, link_type, url, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceEntityLink {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            link_type: row.get(5)?,
+            url: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns staged release claims for one entity.
+pub fn get_source_release_claims_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceReleaseClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, claim_type, claim_value, \
+         source, extraction_path, observed_at \
+         FROM source_release_claims \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY claim_type, position, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceReleaseClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            claim_type: row.get(5)?,
+            claim_value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns staged enclosure variants for one entity.
+pub fn get_source_item_enclosures_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceItemEnclosure>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, \
+         title, is_primary, source, extraction_path, observed_at \
+         FROM source_item_enclosures \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY position, url, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceItemEnclosure {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            bytes: row.get(7)?,
+            rel: row.get(8)?,
+            title: row.get(9)?,
+            is_primary: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
         })
     })?;
     let mut result = Vec::new();
