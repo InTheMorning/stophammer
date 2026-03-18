@@ -12,6 +12,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn test_app_state(
     db: Arc<Mutex<rusqlite::Connection>>,
@@ -37,11 +39,20 @@ fn test_app_state(
     })
 }
 
-fn register_request_body() -> serde_json::Value {
+async fn register_request_body() -> (MockServer, serde_json::Value) {
     let signer =
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-finding3-sync-token-body.key")
             .expect("create signer");
-    common::signed_sync_register_body(&signer, "http://community.example.com:8008/sync/push")
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "node_pubkey": signer.pubkey_hex()
+        })))
+        .mount(&mock_server)
+        .await;
+    let body = common::signed_sync_register_body(&signer, &format!("{}/sync/push", mock_server.uri()));
+    (mock_server, body)
 }
 
 // ── Test: POST /sync/register with valid X-Sync-Token returns 200 ───────────
@@ -52,7 +63,7 @@ async fn sync_register_with_valid_sync_token_returns_200() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
-    let body = register_request_body();
+    let (_mock_server, body) = register_request_body().await;
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -89,7 +100,7 @@ async fn sync_register_with_admin_token_legacy_returns_200() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", None);
     let app = stophammer::api::build_router(state);
 
-    let body = register_request_body();
+    let (_mock_server, body) = register_request_body().await;
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -116,7 +127,7 @@ async fn sync_register_with_invalid_sync_token_returns_403() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
-    let body = register_request_body();
+    let (_mock_server, body) = register_request_body().await;
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -208,7 +219,7 @@ async fn sync_register_no_tokens_configured_returns_403() {
     let state = test_app_state(Arc::clone(&db), "", None);
     let app = stophammer::api::build_router(state);
 
-    let body = register_request_body();
+    let (_mock_server, body) = register_request_body().await;
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -236,7 +247,7 @@ async fn sync_register_admin_token_rejected_when_sync_token_configured() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
-    let body = register_request_body();
+    let (_mock_server, body) = register_request_body().await;
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")

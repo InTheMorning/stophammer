@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex, RwLock};
 use http::Request;
 use http_body_util::BodyExt;
 use tower::ServiceExt;
+use wiremock::matchers::{method, path};
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -76,6 +78,21 @@ async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum
     app.oneshot(req).await.expect("call handler")
 }
 
+async fn start_peer_server(
+    signer: &stophammer::signing::NodeSigner,
+) -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "node_pubkey": signer.pubkey_hex()
+        })))
+        .mount(&mock_server)
+        .await;
+    let node_url = format!("{}/sync/push", mock_server.uri());
+    (mock_server, node_url)
+}
+
 // ── Integration tests: rejected URLs ─────────────────────────────────────────
 
 #[tokio::test]
@@ -137,9 +154,24 @@ async fn register_http_public_accepted() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-http.key")
+            .expect("create signer");
+    let (_mock_server, node_url) = start_peer_server(&signer).await;
 
-    let resp = post_register(app, "http://example.com/events").await;
-    assert_eq!(resp.status(), 200, "public HTTP URL must be accepted");
+    let body = common::signed_sync_register_body(&signer, &node_url);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 200, "reachable node_url must be accepted");
 
     let bytes = resp
         .into_body()
@@ -156,9 +188,24 @@ async fn register_https_public_accepted() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-https.key")
+            .expect("create signer");
+    let (_mock_server, node_url) = start_peer_server(&signer).await;
 
-    let resp = post_register(app, "https://example.com/events").await;
-    assert_eq!(resp.status(), 200, "public HTTPS URL must be accepted");
+    let body = common::signed_sync_register_body(&signer, &node_url);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 200, "reachable node_url must be accepted");
 
     let bytes = resp
         .into_body()
@@ -178,8 +225,9 @@ async fn register_signed_request_accepted() {
     let signer =
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-signed.key")
             .expect("create signer");
+    let (_mock_server, node_url) = start_peer_server(&signer).await;
 
-    let body = common::signed_sync_register_body(&signer, "https://example.com/events");
+    let body = common::signed_sync_register_body(&signer, &node_url);
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -203,8 +251,9 @@ async fn register_signed_request_with_bad_signature_rejected() {
         "/tmp/test-sync-register-bad-signature.key",
     )
     .expect("create signer");
+    let (_mock_server, node_url) = start_peer_server(&signer).await;
 
-    let mut body = common::signed_sync_register_body(&signer, "https://example.com/events");
+    let mut body = common::signed_sync_register_body(&signer, &node_url);
     body["signature"] = serde_json::Value::String("deadbeef".into());
 
     let req = Request::builder()
@@ -244,6 +293,105 @@ async fn register_unsigned_request_rejected() {
 
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(resp.status(), 400, "unsigned request must be rejected");
+}
+
+#[tokio::test]
+async fn register_stale_signed_at_rejected() {
+    let db = common::test_db_arc();
+    let state = state_with_ssrf_disabled(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-stale.key")
+            .expect("create signer");
+    let (_mock_server, node_url) = start_peer_server(&signer).await;
+
+    let body = common::signed_sync_register_body_with_signed_at(
+        &signer,
+        &node_url,
+        stophammer::db::unix_now() - 10_000,
+    );
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 400, "stale signed_at must be rejected");
+}
+
+#[tokio::test]
+async fn register_non_push_endpoint_rejected() {
+    let db = common::test_db_arc();
+    let state = state_with_ssrf_disabled(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-path.key")
+            .expect("create signer");
+
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "node_pubkey": signer.pubkey_hex()
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let body = common::signed_sync_register_body(&signer, &format!("{}/events", mock_server.uri()));
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 422, "node_url must end with /sync/push");
+}
+
+#[tokio::test]
+async fn register_node_info_pubkey_mismatch_rejected() {
+    let db = common::test_db_arc();
+    let state = state_with_ssrf_disabled(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-mismatch.key")
+            .expect("create signer");
+    let wrong_signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-wrong.key")
+            .expect("create signer");
+
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "node_pubkey": wrong_signer.pubkey_hex()
+        })))
+        .mount(&mock_server)
+        .await;
+    let node_url = format!("{}/sync/push", mock_server.uri());
+
+    let body = common::signed_sync_register_body(&signer, &node_url);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 422, "node/info pubkey mismatch must be rejected");
 }
 
 // ── Unit tests: validate_node_url directly ───────────────────────────────────

@@ -57,8 +57,16 @@ pub fn signed_sync_register_body(
     signer: &stophammer::signing::NodeSigner,
     node_url: &str,
 ) -> serde_json::Value {
+    signed_sync_register_body_with_signed_at(signer, node_url, stophammer::db::unix_now())
+}
+
+#[expect(dead_code, reason = "used conditionally across test files")]
+pub fn signed_sync_register_body_with_signed_at(
+    signer: &stophammer::signing::NodeSigner,
+    node_url: &str,
+    signed_at: i64,
+) -> serde_json::Value {
     let node_pubkey = signer.pubkey_hex().to_string();
-    let signed_at = stophammer::db::unix_now();
     let payload = stophammer::sync::RegisterSigningPayload {
         node_pubkey: &node_pubkey,
         node_url,

@@ -129,7 +129,10 @@ The community node:
 1. Fetch primary's pubkey from `GET {PRIMARY_URL}/node/info` (retries 10x with 2s delay)
 2. Register with the Cloudflare tracker (fire-and-forget)
 3. Register push URL with the primary via `POST {PRIMARY_URL}/sync/register`
-   and sign the registration payload with the community node key
+   and sign the registration payload with the community node key. The primary
+   requires the submitted URL to end with `/sync/push`, checks that `signed_at`
+   is fresh, and verifies same-origin `GET {NODE_ADDRESS}/node/info` returns
+   the same `node_pubkey`.
 4. Load persisted sync cursor from local DB
 5. Enter the push-receive + fallback-poll loop
 

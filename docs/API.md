@@ -283,6 +283,10 @@ Community nodes announce their push URL with the primary. The primary stores the
 
 - **Authentication:** `X-Sync-Token` when `SYNC_TOKEN` is configured on the primary; otherwise legacy `X-Admin-Token`
 - **Available on:** Primary only
+- **Validation:**
+  - `node_url` must end with `/sync/push`
+  - the primary fetches same-origin `GET /node/info` and requires its `node_pubkey` to match the signed payload
+  - `signed_at` must fall within the primary's allowed clock-skew window
 
 **Request body:**
 
@@ -298,8 +302,8 @@ Community nodes announce their push URL with the primary. The primary stores the
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `node_pubkey` | string | Yes | Ed25519 public key identifying the community node |
-| `node_url` | string | Yes | Push endpoint URL the primary will POST `/sync/push` events to |
-| `signed_at` | i64 | Yes | Unix timestamp included in the signed registration payload |
+| `node_url` | string | Yes | Push endpoint URL the primary will POST `/sync/push` events to. Must end with `/sync/push` |
+| `signed_at` | i64 | Yes | Unix timestamp included in the signed registration payload. Must be fresh enough to fall within the primary's allowed skew window |
 | `signature` | string | Yes | Ed25519 signature over `{node_pubkey,node_url,signed_at}` using the community node's signing key |
 
 **Response (`200 OK`):**
@@ -313,10 +317,10 @@ Community nodes announce their push URL with the primary. The primary stores the
 | Code | Meaning |
 |------|---------|
 | 200  | Registered successfully |
-| 400  | Missing `signed_at` / `signature` pair |
+| 400  | Missing `signed_at` / `signature` pair, or `signed_at` outside the allowed skew window |
 | 403  | Invalid or missing sync/admin token |
 | 403  | Invalid registration signature |
-| 422  | `node_url` rejected by SSRF validation |
+| 422  | `node_url` rejected by SSRF validation, does not end with `/sync/push`, or fails same-origin `GET /node/info` ownership verification |
 
 ---
 

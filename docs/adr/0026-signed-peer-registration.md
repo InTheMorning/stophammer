@@ -42,6 +42,9 @@ Rollout is now complete:
 1. community nodes sign registration requests
 2. the primary requires and verifies the signature
 3. unsigned registration is rejected
+4. the primary rejects stale `signed_at` values outside its allowed skew window
+5. the primary verifies URL ownership by fetching same-origin `GET /node/info`
+   from the submitted `node_url` and matching `node_pubkey`
 
 The signed registration payload is independent of sync-event signing. It does
 not enter the replicated event log; it only authenticates the registration
@@ -50,10 +53,11 @@ request itself.
 ## Consequences
 - A node can no longer impersonate another node's pubkey unless it controls the
   corresponding signing key.
+- A node can no longer register an arbitrary public URL unless it also controls
+  the same-origin `GET /node/info` response for that URL.
+- Short-lived signed payloads reduce replay lifetime for captured registration
+  bodies without adding nonce storage.
 - Push-route hijacking risk is materially reduced without changing the existing
   sync-token model.
-- Registration remains idempotent and replay-safe enough for current purposes,
-  because the operation is an upsert; exact anti-replay nonce tracking is not
-  required for the initial hardening step.
 - The temporary unsigned-compatibility branch is gone; old community nodes
   must upgrade before they can register successfully.

@@ -518,6 +518,12 @@ const MAX_PENDING_CHALLENGES_TOTAL: i64 = 5_000;
 /// Maximum length (bytes) for the `requester_nonce` field in proof challenge requests.
 const MAX_NONCE_BYTES: usize = 256;
 
+/// Maximum allowed wall-clock skew for signed sync/register requests.
+///
+/// Limits replay lifetime for captured registration payloads while tolerating
+/// modest clock skew between nodes.
+const SYNC_REGISTER_MAX_SKEW_SECS: i64 = 600;
+
 // ── AppState ────────────────────────────────────────────────────────────────
 
 /// Shared application state injected into every Axum handler.
@@ -2450,6 +2456,17 @@ async fn handle_sync_register(
         }
     };
 
+    let now = db::unix_now();
+    if (now - signed_at).abs() > SYNC_REGISTER_MAX_SKEW_SECS {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: format!(
+                "sync/register signed_at is outside the allowed skew window of {SYNC_REGISTER_MAX_SKEW_SECS} seconds"
+            ),
+            www_authenticate: None,
+        });
+    }
+
     let payload = sync::RegisterSigningPayload {
         node_pubkey: &req.node_pubkey,
         node_url: &req.node_url,
@@ -2485,7 +2502,7 @@ async fn handle_sync_register(
             })?;
     }
 
-    let now = db::unix_now();
+    verify_sync_register_target(&req.node_url, &req.node_pubkey).await?;
 
     let pubkey = req.node_pubkey.clone();
     let url = req.node_url.clone();
@@ -2540,7 +2557,7 @@ async fn handle_sync_peers(
 
 // ── GET /node/info ────────────────────────────────────────────────────────────
 
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct NodeInfoResponse {
     node_pubkey: String,
 }
@@ -2549,6 +2566,75 @@ async fn handle_node_info(State(state): State<Arc<AppState>>) -> Json<NodeInfoRe
     Json(NodeInfoResponse {
         node_pubkey: state.node_pubkey_hex.clone(),
     })
+}
+
+fn sync_register_node_info_url(node_url: &str) -> Result<String, String> {
+    let mut url = url::Url::parse(node_url).map_err(|e| format!("invalid node URL: {e}"))?;
+    let path = url.path().trim_end_matches('/');
+    let Some(base_path) = path.strip_suffix("/sync/push") else {
+        return Err("node URL must end with /sync/push".into());
+    };
+
+    let node_info_path = if base_path.is_empty() {
+        "/node/info".to_string()
+    } else {
+        format!("{base_path}/node/info")
+    };
+
+    url.set_path(&node_info_path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+async fn verify_sync_register_target(node_url: &str, expected_pubkey: &str) -> Result<(), ApiError> {
+    let node_info_url = sync_register_node_info_url(node_url).map_err(|e| ApiError {
+        status: StatusCode::UNPROCESSABLE_ENTITY,
+        message: e,
+        www_authenticate: None,
+    })?;
+
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("sync/register node-info client uses only safe options");
+
+    let resp = client.get(&node_info_url).send().await.map_err(|e| ApiError {
+        status: StatusCode::UNPROCESSABLE_ENTITY,
+        message: format!("failed to verify node URL ownership via {node_info_url}: {e}"),
+        www_authenticate: None,
+    })?;
+
+    if !resp.status().is_success() {
+        return Err(ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: format!(
+                "node URL ownership check returned HTTP {} from {node_info_url}",
+                resp.status()
+            ),
+            www_authenticate: None,
+        });
+    }
+
+    let info: NodeInfoResponse = resp.json().await.map_err(|e| ApiError {
+        status: StatusCode::UNPROCESSABLE_ENTITY,
+        message: format!("invalid node/info response from {node_info_url}: {e}"),
+        www_authenticate: None,
+    })?;
+
+    if info.node_pubkey != expected_pubkey {
+        return Err(ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: format!(
+                "node/info pubkey mismatch for {node_info_url}: expected {expected_pubkey}, got {}",
+                info.node_pubkey
+            ),
+            www_authenticate: None,
+        });
+    }
+
+    Ok(())
 }
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────────

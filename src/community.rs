@@ -445,7 +445,7 @@ async fn register_with_primary(
     let url = format!("{primary_url}/sync/register");
     let signed_at = db::unix_now();
     let node_pubkey = signer.pubkey_hex().to_string();
-    let node_url = format!("{node_address}/sync/push");
+    let node_url = format!("{}/sync/push", node_address.trim_end_matches('/'));
     let signing_payload = sync::RegisterSigningPayload {
         node_pubkey: &node_pubkey,
         node_url: &node_url,
