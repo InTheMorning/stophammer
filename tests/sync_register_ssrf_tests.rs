@@ -59,35 +59,10 @@ fn state_with_ssrf_disabled(
     })
 }
 
-fn register_body(node_url: &str) -> serde_json::Value {
-    serde_json::json!({
-        "node_pubkey": "deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345",
-        "node_url":    node_url
-    })
-}
-
-fn signed_register_body(
-    signer: &stophammer::signing::NodeSigner,
-    node_url: &str,
-) -> serde_json::Value {
-    let node_pubkey = signer.pubkey_hex().to_string();
-    let signed_at = stophammer::db::unix_now();
-    let payload = stophammer::sync::RegisterSigningPayload {
-        node_pubkey: &node_pubkey,
-        node_url,
-        signed_at,
-    };
-    let signature = signer.sign_json(&payload).expect("sign register payload");
-    serde_json::json!({
-        "node_pubkey": node_pubkey,
-        "node_url": node_url,
-        "signed_at": signed_at,
-        "signature": signature
-    })
-}
-
 async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum::body::Body> {
-    let body = register_body(node_url);
+    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-body.key")
+        .expect("create signer");
+    let body = common::signed_sync_register_body(&signer, node_url);
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -203,7 +178,7 @@ async fn register_signed_request_accepted() {
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-signed.key")
             .expect("create signer");
 
-    let body = signed_register_body(&signer, "https://example.com/events");
+    let body = common::signed_sync_register_body(&signer, "https://example.com/events");
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -227,7 +202,7 @@ async fn register_signed_request_with_bad_signature_rejected() {
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-bad-signature.key")
             .expect("create signer");
 
-    let mut body = signed_register_body(&signer, "https://example.com/events");
+    let mut body = common::signed_sync_register_body(&signer, "https://example.com/events");
     body["signature"] = serde_json::Value::String("deadbeef".into());
 
     let req = Request::builder()
@@ -242,6 +217,31 @@ async fn register_signed_request_with_bad_signature_rejected() {
 
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(resp.status(), 403, "bad signature must be rejected");
+}
+
+#[tokio::test]
+async fn register_unsigned_request_rejected() {
+    let db = common::test_db_arc();
+    let state = state_with_ssrf_disabled(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let body = serde_json::json!({
+        "node_pubkey": "deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345",
+        "node_url": "https://example.com/events"
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 400, "unsigned request must be rejected");
 }
 
 // ── Unit tests: validate_node_url directly ───────────────────────────────────

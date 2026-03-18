@@ -2428,35 +2428,29 @@ async fn handle_sync_register(
 ) -> Result<Json<sync::RegisterResponse>, ApiError> {
     check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
 
-    match (req.signed_at, req.signature.as_deref()) {
-        (Some(signed_at), Some(signature_hex)) => {
-            let payload = sync::RegisterSigningPayload {
-                node_pubkey: &req.node_pubkey,
-                node_url: &req.node_url,
-                signed_at,
-            };
-            signing::verify_json_signature(&req.node_pubkey, &payload, signature_hex).map_err(
-                |e| ApiError {
-                    status: StatusCode::FORBIDDEN,
-                    message: format!("invalid sync/register signature: {e}"),
-                    www_authenticate: None,
-                },
-            )?;
-        }
-        (None, None) => {
-            tracing::warn!(
-                peer = %req.node_pubkey,
-                "DEPRECATED: unsigned sync/register request accepted; upgrade community nodes to signed registration"
-            );
-        }
+    let (signed_at, signature_hex) = match (req.signed_at, req.signature.as_deref()) {
+        (Some(signed_at), Some(signature_hex)) => (signed_at, signature_hex),
         _ => {
             return Err(ApiError {
                 status: StatusCode::BAD_REQUEST,
-                message: "sync/register requires both signed_at and signature, or neither".into(),
+                message: "sync/register requires signed_at and signature".into(),
                 www_authenticate: None,
             });
         }
-    }
+    };
+
+    let payload = sync::RegisterSigningPayload {
+        node_pubkey: &req.node_pubkey,
+        node_url: &req.node_url,
+        signed_at,
+    };
+    signing::verify_json_signature(&req.node_pubkey, &payload, signature_hex).map_err(|e| {
+        ApiError {
+            status: StatusCode::FORBIDDEN,
+            message: format!("invalid sync/register signature: {e}"),
+            www_authenticate: None,
+        }
+    })?;
 
     // Issue-SYNC-SSRF — 2026-03-16: validate node_url against SSRF before storing.
     #[cfg(feature = "test-util")]

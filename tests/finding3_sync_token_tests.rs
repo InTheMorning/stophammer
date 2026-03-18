@@ -38,10 +38,10 @@ fn test_app_state(
 }
 
 fn register_request_body() -> serde_json::Value {
-    serde_json::json!({
-        "node_pubkey": "deadbeef01234567890abcdef01234567890abcdef01234567890abcdef012345",
-        "node_url":    "http://community.example.com:8008/sync/push"
-    })
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-finding3-sync-token-body.key")
+            .expect("create signer");
+    common::signed_sync_register_body(&signer, "http://community.example.com:8008/sync/push")
 }
 
 // ── Test: POST /sync/register with valid X-Sync-Token returns 200 ───────────

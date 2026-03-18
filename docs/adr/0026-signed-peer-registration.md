@@ -23,7 +23,7 @@ community node hijack push delivery for another peer and poison the primary's
 peer table until retries evict the real node.
 
 ## Decision
-`POST /sync/register` is extended with an optional signed payload:
+`POST /sync/register` is extended with a required signed payload:
 
 - `signed_at`
 - `signature`
@@ -37,13 +37,11 @@ The signature covers:
 and is verified against `node_pubkey` using the same Ed25519 key material the
 community node already uses for event signing.
 
-Rollout is additive:
+Rollout is now complete:
 
-1. new community nodes sign registration requests
-2. the primary verifies the signature when present
-3. legacy unsigned registration remains accepted temporarily, but is logged as
-   deprecated
-4. once all managed nodes have upgraded, unsigned registration can be removed
+1. community nodes sign registration requests
+2. the primary requires and verifies the signature
+3. unsigned registration is rejected
 
 The signed registration payload is independent of sync-event signing. It does
 not enter the replicated event log; it only authenticates the registration
@@ -57,5 +55,5 @@ request itself.
 - Registration remains idempotent and replay-safe enough for current purposes,
   because the operation is an upsert; exact anti-replay nonce tracking is not
   required for the initial hardening step.
-- The protocol gains a temporary compatibility branch that must eventually be
-  removed once all deployed nodes sign registration requests.
+- The temporary unsigned-compatibility branch is gone; old community nodes
+  must upgrade before they can register successfully.

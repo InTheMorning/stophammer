@@ -50,3 +50,28 @@ pub fn wrap_pool(db: Arc<Mutex<rusqlite::Connection>>) -> stophammer::db_pool::D
 pub fn now() -> i64 {
     stophammer::db::unix_now()
 }
+
+/// Builds a signed `POST /sync/register` request body for test callers.
+#[expect(dead_code, reason = "used conditionally across test files")]
+pub fn signed_sync_register_body(
+    signer: &stophammer::signing::NodeSigner,
+    node_url: &str,
+) -> serde_json::Value {
+    let node_pubkey = signer.pubkey_hex().to_string();
+    let signed_at = stophammer::db::unix_now();
+    let payload = stophammer::sync::RegisterSigningPayload {
+        node_pubkey: &node_pubkey,
+        node_url,
+        signed_at,
+    };
+    let signature = signer
+        .sign_json(&payload)
+        .expect("failed to sign sync/register payload");
+
+    serde_json::json!({
+        "node_pubkey": node_pubkey,
+        "node_url": node_url,
+        "signed_at": signed_at,
+        "signature": signature
+    })
+}

@@ -294,12 +294,8 @@ Community nodes announce their push URL with the primary. The primary stores the
 |-------|------|----------|-------------|
 | `node_pubkey` | string | Yes | Ed25519 public key identifying the community node |
 | `node_url` | string | Yes | Push endpoint URL the primary will POST `/sync/push` events to |
-| `signed_at` | i64 | Recommended | Unix timestamp included in the signed registration payload |
-| `signature` | string | Recommended | Ed25519 signature over `{node_pubkey,node_url,signed_at}` using the community node's signing key |
-
-Signed registration is now preferred. During rollout, the primary still accepts
-unsigned registration when both `signed_at` and `signature` are omitted, but
-that legacy path is deprecated.
+| `signed_at` | i64 | Yes | Unix timestamp included in the signed registration payload |
+| `signature` | string | Yes | Ed25519 signature over `{node_pubkey,node_url,signed_at}` using the community node's signing key |
 
 **Response (`200 OK`):**
 
@@ -312,7 +308,9 @@ that legacy path is deprecated.
 | Code | Meaning |
 |------|---------|
 | 200  | Registered successfully |
+| 400  | Missing `signed_at` / `signature` pair |
 | 403  | Invalid or missing sync/admin token |
+| 403  | Invalid registration signature |
 | 422  | `node_url` rejected by SSRF validation |
 
 ---
