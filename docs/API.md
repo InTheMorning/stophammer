@@ -485,6 +485,22 @@ Lists feeds attributed to an artist, paginated by title (ascending).
 
 ---
 
+### GET /v1/artists/{id}/releases
+
+Lists canonical releases attributed to an artist, paginated by normalized title
+(ascending).
+
+- **Authentication:** None
+
+**Response (`200 OK`):** Paginated array of canonical release objects (same
+top-level structure as `GET /v1/releases/{id}` without includes).
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+---
+
 ## 5. Queries -- Feeds
 
 ### GET /v1/feeds/{guid}
@@ -492,7 +508,7 @@ Lists feeds attributed to an artist, paginated by title (ascending).
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `tags`
+- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `canonical`
 
 **Response (`200 OK`):**
 
@@ -532,7 +548,59 @@ Returns a single feed by its `podcast:guid`.
         "fee": false
       }
     ],
-    "tags": ["rock"]
+    "tags": ["rock"],
+    "source_links": [
+      {
+        "entity_type": "feed",
+        "entity_id": "uuid",
+        "position": 0,
+        "link_type": "website",
+        "url": "https://artist.example.com",
+        "source": "rss_link",
+        "extraction_path": "feed.link",
+        "observed_at": 1710288000
+      }
+    ],
+    "source_ids": [
+      {
+        "entity_type": "feed",
+        "entity_id": "uuid",
+        "position": 0,
+        "scheme": "nostr_npub",
+        "value": "npub1...",
+        "source": "podcast_txt",
+        "extraction_path": "feed.podcast:txt[@purpose='npub']",
+        "observed_at": 1710288000
+      }
+    ],
+    "source_contributors": [],
+    "source_platforms": [
+      {
+        "platform_key": "wavlake",
+        "url": "https://wavlake.com/feed/...",
+        "owner_name": "Wavlake",
+        "source": "feed_url",
+        "extraction_path": "request.canonical_url",
+        "observed_at": 1710288000
+      }
+    ],
+    "source_release_claims": [
+      {
+        "entity_type": "feed",
+        "entity_id": "uuid",
+        "position": 0,
+        "claim_type": "release_date",
+        "claim_value": "1710288000",
+        "source": "rss_pub_date",
+        "extraction_path": "feed.pubDate",
+        "observed_at": 1710288000
+      }
+    ],
+    "canonical": {
+      "release_id": "release-uuid",
+      "match_type": "exact_release_signature_v1",
+      "confidence": 95
+    }
   },
   "pagination": { "cursor": null, "has_more": false },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
@@ -567,7 +635,7 @@ Lists feeds ordered by `newest_item_at` descending (most recently updated first)
 Returns a single track by its `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `tags`
+- **Include options:** `payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `canonical`
 
 **Response (`200 OK`):**
 
@@ -599,7 +667,72 @@ Returns a single track by its `track_guid`.
         "split": 50
       }
     ],
-    "tags": ["electronic"]
+    "tags": ["electronic"],
+    "source_links": [
+      {
+        "entity_type": "track",
+        "entity_id": "uuid",
+        "position": 0,
+        "link_type": "web_page",
+        "url": "https://artist.example.com/song",
+        "source": "rss_link",
+        "extraction_path": "entity.link",
+        "observed_at": 1710288000
+      }
+    ],
+    "source_ids": [],
+    "source_contributors": [
+      {
+        "entity_type": "track",
+        "entity_id": "uuid",
+        "position": 0,
+        "name": "Artist Name",
+        "role": "Vocals",
+        "role_norm": "vocals",
+        "group_name": null,
+        "href": null,
+        "img": null,
+        "source": "podcast_person",
+        "extraction_path": "track.podcast:person[0]",
+        "observed_at": 1710288000
+      }
+    ],
+    "source_release_claims": [],
+    "source_enclosures": [
+      {
+        "entity_type": "track",
+        "entity_id": "uuid",
+        "position": 0,
+        "url": "https://example.com/track.mp3",
+        "mime_type": "audio/mpeg",
+        "bytes": 3840000,
+        "rel": null,
+        "title": null,
+        "is_primary": true,
+        "source": "enclosure",
+        "extraction_path": "track.enclosure",
+        "observed_at": 1710288000
+      },
+      {
+        "entity_type": "track",
+        "entity_id": "uuid",
+        "position": 1,
+        "url": "https://example.com/track.flac",
+        "mime_type": "audio/flac",
+        "bytes": 12000000,
+        "rel": "alternate",
+        "title": "Lossless",
+        "is_primary": false,
+        "source": "podcast_alternate_enclosure",
+        "extraction_path": "track.podcast:alternateEnclosure[0]",
+        "observed_at": 1710288000
+      }
+    ],
+    "canonical": {
+      "recording_id": "recording-uuid",
+      "match_type": "exact_recording_signature_v1",
+      "confidence": 95
+    }
   },
   "pagination": { "cursor": null, "has_more": false },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
@@ -613,7 +746,115 @@ Returns a single track by its `track_guid`.
 
 ---
 
-## 7. Queries -- Search
+## 7. Queries -- Canonical Releases and Recordings
+
+### GET /v1/releases/{id}
+
+Returns a single canonical release by `release_id`.
+
+- **Authentication:** None
+- **Include options:** `tracks`, `sources`
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "release_id": "release-uuid",
+    "title": "Release Title",
+    "artist_credit": { "id": 1, "display_name": "Artist Name", "names": [...] },
+    "description": "...",
+    "image_url": "https://example.com/release.jpg",
+    "release_date": 1710288000,
+    "created_at": 1710288000,
+    "updated_at": 1710288000,
+    "tracks": [
+      {
+        "position": 1,
+        "recording_id": "recording-uuid",
+        "title": "Track Title",
+        "duration_secs": 240,
+        "source_track_guid": "track-guid"
+      }
+    ],
+    "sources": [
+      {
+        "feed_guid": "feed-guid",
+        "feed_url": "https://example.com/feed.xml",
+        "title": "Release Title",
+        "match_type": "exact_release_signature_v1",
+        "confidence": 95,
+        "platforms": ["wavlake"],
+        "links": ["https://artist.example.com/release"]
+      }
+    ]
+  },
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "..." }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Release not found |
+
+---
+
+### GET /v1/recordings/{id}
+
+Returns a single canonical recording by `recording_id`.
+
+- **Authentication:** None
+- **Include options:** `sources`, `releases`
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "recording_id": "recording-uuid",
+    "title": "Track Title",
+    "artist_credit": { "id": 1, "display_name": "Artist Name", "names": [...] },
+    "duration_secs": 240,
+    "created_at": 1710288000,
+    "updated_at": 1710288000,
+    "sources": [
+      {
+        "track_guid": "track-guid",
+        "feed_guid": "feed-guid",
+        "title": "Track Title",
+        "match_type": "exact_recording_signature_v1",
+        "confidence": 95,
+        "primary_enclosure_url": "https://example.com/track.mp3",
+        "enclosure_urls": [
+          "https://example.com/track.mp3",
+          "https://example.com/track.flac"
+        ],
+        "links": ["https://artist.example.com/song"]
+      }
+    ],
+    "releases": [
+      {
+        "release_id": "release-uuid",
+        "title": "Release Title",
+        "position": 1
+      }
+    ]
+  },
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "..." }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Recording not found |
+
+---
+
+## 8. Queries -- Search
 
 ### GET /v1/search
 
@@ -667,11 +908,13 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
   "capabilities": ["query", "search", "sync", "push"],
-  "entity_types": ["artist", "feed", "track"],
+  "entity_types": ["artist", "feed", "track", "release", "recording"],
   "include_params": {
     "artist": ["aliases", "credits", "tags", "relationships"],
-    "feed": ["tracks", "payment_routes", "tags"],
-    "track": ["payment_routes", "value_time_splits", "tags"]
+    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "canonical"],
+    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "canonical"],
+    "release": ["tracks", "sources"],
+    "recording": ["sources", "releases"]
   }
 }
 ```
@@ -698,7 +941,7 @@ Lists all known peer nodes from the `peer_nodes` table.
 
 ---
 
-## 8. Mutations -- Proof-of-Possession
+## 9. Mutations -- Proof-of-Possession
 
 The proof-of-possession flow allows feed owners to authorize mutations without an account system. It follows an ACME-inspired (RFC 8555) challenge-assert pattern. The feed owner publishes a `<podcast:txt>` element in their RSS feed containing a token binding, proving they control the feed URL.
 
@@ -790,7 +1033,7 @@ Access tokens expire after 1 hour.
 
 ---
 
-## 9. Mutations -- PATCH
+## 10. Mutations -- PATCH
 
 PATCH endpoints use RFC 7396 JSON Merge Patch semantics. They require either an admin token or a bearer token obtained through proof-of-possession.
 
@@ -846,7 +1089,7 @@ Updates a track's mutable fields. Currently supports `enclosure_url` only. Beare
 
 ---
 
-## 10. Admin
+## 11. Admin
 
 All admin endpoints require the `X-Admin-Token` header. The token is compared in constant time (SHA-256 hash comparison via `subtle::ConstantTimeEq`).
 
@@ -951,7 +1194,7 @@ Removes a single track from a feed. Emits a `TrackRemoved` event.
 
 ---
 
-## 11. SSE Events
+## 12. SSE Events
 
 ### GET /v1/events
 
