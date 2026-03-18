@@ -102,33 +102,24 @@ struct RegisterBody<'a> {
 #[derive(Clone, Debug)]
 struct SyncAuth {
     sync_token: Option<String>,
-    admin_token: Option<String>,
 }
 
-/// Loads sync credentials from the environment.
-///
-/// Returns `(sync_token, admin_token)` with empty strings filtered out.
+/// Loads the dedicated sync token from the environment.
 #[must_use]
-pub fn load_sync_auth_from_env() -> (Option<String>, Option<String>) {
-    let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
-    let admin_token = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
-    (sync_token, admin_token)
+pub fn load_sync_auth_from_env() -> Option<String> {
+    std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty())
 }
 
 impl SyncAuth {
     fn from_env() -> Self {
-        let (sync_token, admin_token) = load_sync_auth_from_env();
         Self {
-            sync_token,
-            admin_token,
+            sync_token: load_sync_auth_from_env(),
         }
     }
 
     fn apply(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
         if let Some(ref token) = self.sync_token {
             request.header("X-Sync-Token", token.as_str())
-        } else if let Some(ref token) = self.admin_token {
-            request.header("X-Admin-Token", token.as_str())
         } else {
             request
         }
@@ -138,17 +129,10 @@ impl SyncAuth {
         if self.sync_token.is_some() {
             return;
         }
-        if self.admin_token.is_some() {
-            tracing::warn!(
-                "DEPRECATED: community sync auth is falling back to ADMIN_TOKEN. \
-                 Set SYNC_TOKEN env var for least-privilege sync reads and registration."
-            );
-        } else {
-            tracing::warn!(
-                "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set — \
-                 sync/register and sync/events requests to the primary will be rejected with 403."
-            );
-        }
+        tracing::warn!(
+            "SYNC_TOKEN env var is not set — \
+             sync/register, sync/events, sync/peers, and sync/reconcile requests to the primary will be rejected with 403."
+        );
     }
 }
 

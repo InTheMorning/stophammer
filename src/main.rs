@@ -52,10 +52,13 @@ async fn run_primary(
     bind_addr: String,
 ) {
     let crawl_token = std::env::var("CRAWL_TOKEN").expect("CRAWL_TOKEN env var required");
-    let (_sync_token_env, admin_token_env) = community::load_sync_auth_from_env();
-    let admin_token = admin_token_env.unwrap_or_default();
-    // Finding-3 separate sync token — 2026-03-13
-    let sync_token = _sync_token_env;
+    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
+    let sync_token = community::load_sync_auth_from_env();
+    if sync_token.is_none() {
+        tracing::warn!(
+            "SYNC_TOKEN env var is not set — sync/events, sync/peers, sync/register, and sync/reconcile will return 403 on this primary."
+        );
+    }
     let chain = verify::build_chain(&verify::ChainSpec::from_env(), crawl_token);
 
     // Seed push_subscribers from DB at startup.
@@ -119,7 +122,8 @@ async fn run_community(
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(90);
-    let (sync_token, admin_token) = community::load_sync_auth_from_env();
+    let sync_token = community::load_sync_auth_from_env();
+    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
 
     // Shared atomic timestamp updated by the push handler.
     let last_push_at = std::sync::Arc::new(std::sync::atomic::AtomicI64::new(0));
@@ -192,7 +196,7 @@ async fn run_community(
         chain: std::sync::Arc::new(dummy_chain),
         signer,
         node_pubkey_hex: pubkey,
-        admin_token: admin_token.unwrap_or_default(),
+        admin_token,
         // Finding-3 separate sync token — 2026-03-13
         sync_token,
         push_client,

@@ -2,7 +2,7 @@
 //
 // POST /sync/register should use a separate SYNC_TOKEN, not ADMIN_TOKEN.
 // The sync token must NOT grant access to admin endpoints.
-// Backward compatibility: if SYNC_TOKEN is not set, fall back to ADMIN_TOKEN.
+// If SYNC_TOKEN is not configured, sync endpoints must reject requests.
 
 mod common;
 
@@ -91,12 +91,12 @@ async fn sync_register_with_valid_sync_token_returns_200() {
     assert_eq!(json["ok"], true);
 }
 
-// ── Test: POST /sync/register with X-Admin-Token (legacy fallback) → 200 ────
+// ── Test: POST /sync/register with X-Admin-Token and no SYNC_TOKEN → 403 ────
 
 #[tokio::test]
-async fn sync_register_with_admin_token_legacy_returns_200() {
+async fn sync_register_with_admin_token_and_no_sync_token_returns_403() {
     let db = common::test_db_arc();
-    // SYNC_TOKEN is not set (None) — should fall back to ADMIN_TOKEN
+    // SYNC_TOKEN is not set (None) — sync auth must still reject.
     let state = test_app_state(Arc::clone(&db), "admin-secret", None);
     let app = stophammer::api::build_router(state);
 
@@ -114,8 +114,8 @@ async fn sync_register_with_admin_token_legacy_returns_200() {
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
         resp.status(),
-        200,
-        "POST /sync/register with X-Admin-Token (legacy fallback) must return 200"
+        403,
+        "POST /sync/register with X-Admin-Token must return 403 when SYNC_TOKEN is not configured"
     );
 }
 
@@ -210,7 +210,7 @@ async fn admin_endpoint_with_admin_token_still_works() {
     );
 }
 
-// ── Test: Neither SYNC_TOKEN nor ADMIN_TOKEN set → registration rejected ────
+// ── Test: Missing SYNC_TOKEN on server → registration rejected ───────────────
 
 #[tokio::test]
 async fn sync_register_no_tokens_configured_returns_403() {
@@ -234,7 +234,7 @@ async fn sync_register_no_tokens_configured_returns_403() {
     assert_eq!(
         resp.status(),
         403,
-        "POST /sync/register must return 403 when neither SYNC_TOKEN nor ADMIN_TOKEN is configured"
+        "POST /sync/register must return 403 when SYNC_TOKEN is not configured"
     );
 }
 

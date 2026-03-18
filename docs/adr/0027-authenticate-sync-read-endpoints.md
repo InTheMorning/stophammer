@@ -6,6 +6,10 @@ Accepted
 Date: 2026-03-18
 
 ## Context
+Historical note: the fallback from `X-Sync-Token` to `X-Admin-Token` described
+below reflects the original accepted decision. ADR 0028 later tightened this to
+require `SYNC_TOKEN` on all sync endpoints.
+
 The sync replication surface currently exposes two unauthenticated read
 endpoints on both primary and community nodes:
 

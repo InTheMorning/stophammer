@@ -15,8 +15,8 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
 | `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
-| `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. Also used as the legacy fallback credential for sync registration/reconcile when `SYNC_TOKEN` is not configured. |
-| `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. When set, it replaces `ADMIN_TOKEN` for those sync endpoints. |
+| `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. It is not accepted on sync endpoints. |
+| `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. If unset, those sync endpoints return 403. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
 
 ### TLS (ACME / Let's Encrypt)
@@ -423,12 +423,11 @@ Pubkey auto-discovery requires HTTPS to prevent MITM attacks. Either:
 
 All admin endpoints return 403 when `ADMIN_TOKEN` is empty. Set `ADMIN_TOKEN` to enable admin operations.
 
-### "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set" (community node warning)
+### "SYNC_TOKEN env var is not set" (community node warning)
 
 Community nodes need `SYNC_TOKEN` to authenticate sync reads and writes with
 the primary: `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, and
-`POST /sync/reconcile`. If `SYNC_TOKEN` is unset on the primary, `ADMIN_TOKEN`
-still works as a deprecated fallback.
+`POST /sync/reconcile`. `ADMIN_TOKEN` is not accepted on these sync endpoints.
 
 ### Push fan-out failures / peer eviction
 

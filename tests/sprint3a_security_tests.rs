@@ -57,14 +57,14 @@ fn issue4_require_https_for_discovery() {
 // Finding-3 separate sync token — 2026-03-13
 // ---------------------------------------------------------------------------
 
-/// Static analysis: the `register_with_primary` function body must warn when
-/// neither `SYNC_TOKEN` nor `ADMIN_TOKEN` is configured.
+/// Static analysis: the `register_with_primary` path must warn when
+/// `SYNC_TOKEN` is not configured.
 #[test]
 fn issue16_admin_token_empty_warning_present_in_source() {
     let src = include_str!("../src/community.rs");
     assert!(
-        src.contains("Neither SYNC_TOKEN nor ADMIN_TOKEN"),
-        "community.rs must warn when neither SYNC_TOKEN nor ADMIN_TOKEN is set"
+        src.contains("SYNC_TOKEN env var is not set"),
+        "community.rs must warn when SYNC_TOKEN is not set"
     );
 }
 

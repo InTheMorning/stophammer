@@ -24,7 +24,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -43,7 +43,7 @@ async fn sync_events_negative_limit_is_clamped() {
     let req = Request::builder()
         .method("GET")
         .uri("/sync/events?limit=-1")
-        .header("X-Admin-Token", "test-admin-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::empty())
         .expect("build request");
 
@@ -81,7 +81,7 @@ async fn sync_events_zero_limit_is_clamped() {
     let req = Request::builder()
         .method("GET")
         .uri("/sync/events?limit=0")
-        .header("X-Admin-Token", "test-admin-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::empty())
         .expect("build request");
 

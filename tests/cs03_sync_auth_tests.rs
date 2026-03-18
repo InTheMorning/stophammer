@@ -1,6 +1,6 @@
 // CS-03 authenticated register — 2026-03-12
 //
-// POST /sync/register must require X-Admin-Token authentication.
+// POST /sync/register must require dedicated X-Sync-Token authentication.
 // Without it, any unauthenticated client can register as a push peer.
 
 mod common;
@@ -17,6 +17,7 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 fn test_app_state_with_token(
     db: Arc<Mutex<rusqlite::Connection>>,
     admin_token: &str,
+    sync_token: Option<&str>,
 ) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(
         stophammer::signing::NodeSigner::load_or_create("/tmp/test-cs03-sync-auth.key")
@@ -29,7 +30,7 @@ fn test_app_state_with_token(
         signer,
         node_pubkey_hex: pubkey,
         admin_token: admin_token.into(),
-        sync_token: None,
+        sync_token: sync_token.map(String::from),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -58,7 +59,11 @@ async fn register_request_body() -> (MockServer, serde_json::Value) {
 #[tokio::test]
 async fn sync_register_without_auth_returns_403() {
     let db = common::test_db_arc();
-    let state = test_app_state_with_token(Arc::clone(&db), "my-secret-admin-token");
+    let state = test_app_state_with_token(
+        Arc::clone(&db),
+        "my-secret-admin-token",
+        Some("my-secret-sync-token"),
+    );
     let app = stophammer::api::build_router(state);
 
     let (_mock_server, body) = register_request_body().await;
@@ -75,7 +80,7 @@ async fn sync_register_without_auth_returns_403() {
     assert_eq!(
         resp.status(),
         403,
-        "POST /sync/register without X-Admin-Token must return 403"
+        "POST /sync/register without X-Sync-Token must return 403"
     );
 }
 
@@ -84,7 +89,11 @@ async fn sync_register_without_auth_returns_403() {
 #[tokio::test]
 async fn sync_register_with_valid_token_returns_200() {
     let db = common::test_db_arc();
-    let state = test_app_state_with_token(Arc::clone(&db), "my-secret-admin-token");
+    let state = test_app_state_with_token(
+        Arc::clone(&db),
+        "my-secret-admin-token",
+        Some("my-secret-sync-token"),
+    );
     let app = stophammer::api::build_router(state);
 
     let (_mock_server, body) = register_request_body().await;
@@ -92,7 +101,7 @@ async fn sync_register_with_valid_token_returns_200() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "my-secret-admin-token")
+        .header("X-Sync-Token", "my-secret-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -102,7 +111,7 @@ async fn sync_register_with_valid_token_returns_200() {
     assert_eq!(
         resp.status(),
         200,
-        "POST /sync/register with valid X-Admin-Token must return 200"
+        "POST /sync/register with valid X-Sync-Token must return 200"
     );
 
     // Verify the response body indicates success
@@ -121,7 +130,11 @@ async fn sync_register_with_valid_token_returns_200() {
 #[tokio::test]
 async fn sync_register_with_invalid_token_returns_403() {
     let db = common::test_db_arc();
-    let state = test_app_state_with_token(Arc::clone(&db), "my-secret-admin-token");
+    let state = test_app_state_with_token(
+        Arc::clone(&db),
+        "my-secret-admin-token",
+        Some("my-secret-sync-token"),
+    );
     let app = stophammer::api::build_router(state);
 
     let (_mock_server, body) = register_request_body().await;
@@ -129,7 +142,7 @@ async fn sync_register_with_invalid_token_returns_403() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "wrong-token")
+        .header("X-Sync-Token", "wrong-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -139,7 +152,7 @@ async fn sync_register_with_invalid_token_returns_403() {
     assert_eq!(
         resp.status(),
         403,
-        "POST /sync/register with wrong X-Admin-Token must return 403"
+        "POST /sync/register with wrong X-Sync-Token must return 403"
     );
 }
 
@@ -149,7 +162,7 @@ async fn sync_register_with_invalid_token_returns_403() {
 async fn sync_register_misconfigured_server_returns_403() {
     let db = common::test_db_arc();
     // Server has no admin_token configured (empty string)
-    let state = test_app_state_with_token(Arc::clone(&db), "");
+    let state = test_app_state_with_token(Arc::clone(&db), "", None);
     let app = stophammer::api::build_router(state);
 
     let (_mock_server, body) = register_request_body().await;
@@ -157,7 +170,7 @@ async fn sync_register_misconfigured_server_returns_403() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "any-token")
+        .header("X-Sync-Token", "any-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -167,6 +180,6 @@ async fn sync_register_misconfigured_server_returns_403() {
     assert_eq!(
         resp.status(),
         403,
-        "POST /sync/register with unconfigured admin_token must return 403 (misconfigured)"
+        "POST /sync/register with unconfigured SYNC_TOKEN must return 403 (misconfigured)"
     );
 }

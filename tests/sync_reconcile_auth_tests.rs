@@ -1,7 +1,7 @@
 // Issue-RECONCILE-AUTH — 2026-03-16
 //
-// POST /sync/reconcile must require the same SYNC_TOKEN / ADMIN_TOKEN
-// authentication that POST /sync/register uses.  Without it, any
+// POST /sync/reconcile must require the same dedicated SYNC_TOKEN
+// authentication that POST /sync/register uses. Without it, any
 // unauthenticated caller can write to `node_sync_state` and force the
 // endpoint onto the writer lock.
 //
@@ -147,12 +147,12 @@ async fn reconcile_with_valid_sync_token_returns_200() {
     );
 }
 
-// ── Test 4: reconcile with valid admin token (legacy fallback) returns 200 ───
+// ── Test 4: reconcile with admin token and no sync token returns 403 ────────
 
 #[tokio::test]
-async fn reconcile_with_admin_token_legacy_returns_200() {
+async fn reconcile_with_admin_token_and_no_sync_token_returns_403() {
     let db = common::test_db_arc();
-    // sync_token is None — falls back to admin_token.
+    // sync_token is None — sync auth must still reject.
     let state = test_app_state(Arc::clone(&db), "admin-secret", None);
     let app = stophammer::api::build_router(state);
 
@@ -170,8 +170,8 @@ async fn reconcile_with_admin_token_legacy_returns_200() {
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
         resp.status(),
-        200,
-        "POST /sync/reconcile with valid X-Admin-Token (legacy) must return 200"
+        403,
+        "POST /sync/reconcile with X-Admin-Token must return 403 when SYNC_TOKEN is not configured"
     );
 }
 
@@ -180,7 +180,7 @@ async fn reconcile_with_admin_token_legacy_returns_200() {
 #[tokio::test]
 async fn reconcile_does_not_write_node_sync_state() {
     let db = common::test_db_arc();
-    let state = test_app_state(Arc::clone(&db), "admin-secret", None);
+    let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
     let body = serde_json::json!({
@@ -192,7 +192,7 @@ async fn reconcile_does_not_write_node_sync_state() {
         .method("POST")
         .uri("/sync/reconcile")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "admin-secret")
+        .header("X-Sync-Token", "sync-secret")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))

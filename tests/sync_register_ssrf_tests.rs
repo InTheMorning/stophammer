@@ -29,7 +29,7 @@ fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophamm
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-token".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -53,7 +53,7 @@ fn state_with_ssrf_disabled(
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-token".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -70,7 +70,7 @@ async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -164,7 +164,7 @@ async fn register_http_public_accepted() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -198,7 +198,7 @@ async fn register_https_public_accepted() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -232,7 +232,7 @@ async fn register_signed_request_accepted() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -260,7 +260,7 @@ async fn register_signed_request_with_bad_signature_rejected() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -285,7 +285,7 @@ async fn register_unsigned_request_rejected() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -314,7 +314,7 @@ async fn register_stale_signed_at_rejected() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -347,7 +347,7 @@ async fn register_non_push_endpoint_rejected() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))
@@ -384,7 +384,7 @@ async fn register_node_info_pubkey_mismatch_rejected() {
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&body).expect("serialize"),
         ))

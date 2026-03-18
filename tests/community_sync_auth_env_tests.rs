@@ -42,15 +42,14 @@ fn load_sync_auth_from_env_filters_empty_values() {
         std::env::set_var("ADMIN_TOKEN", "admin-secret");
     }
 
-    let (sync_token, admin_token) = stophammer::community::load_sync_auth_from_env();
+    let sync_token = stophammer::community::load_sync_auth_from_env();
     assert_eq!(sync_token, None);
-    assert_eq!(admin_token.as_deref(), Some("admin-secret"));
 
     restore_env(old_sync, old_admin);
 }
 
 #[test]
-fn load_sync_auth_from_env_prefers_explicit_sync_token() {
+fn load_sync_auth_from_env_reads_explicit_sync_token() {
     let _guard = lock_env();
     let old_sync = std::env::var("SYNC_TOKEN").ok();
     let old_admin = std::env::var("ADMIN_TOKEN").ok();
@@ -61,9 +60,8 @@ fn load_sync_auth_from_env_prefers_explicit_sync_token() {
         std::env::set_var("ADMIN_TOKEN", "admin-secret");
     }
 
-    let (sync_token, admin_token) = stophammer::community::load_sync_auth_from_env();
+    let sync_token = stophammer::community::load_sync_auth_from_env();
     assert_eq!(sync_token.as_deref(), Some("sync-secret"));
-    assert_eq!(admin_token.as_deref(), Some("admin-secret"));
 
     restore_env(old_sync, old_admin);
 }

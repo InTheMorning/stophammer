@@ -541,10 +541,9 @@ pub struct AppState {
     pub node_pubkey_hex: String,
     /// Token required in `X-Admin-Token` for admin endpoints.
     pub admin_token: String,
-    // Finding-3 separate sync token — 2026-03-13
     /// Optional dedicated token for sync endpoints (`X-Sync-Token` header).
     /// When `Some`, only this token is accepted for sync reads and writes.
-    /// When `None`, falls back to `admin_token` for backward compatibility.
+    /// When `None`, sync endpoints reject requests with 403.
     pub sync_token: Option<String>,
     /// HTTP client used for push fan-out to peer community nodes.
     pub push_client: reqwest::Client,
@@ -2076,7 +2075,7 @@ async fn handle_sync_events(
     headers: HeaderMap,
     Query(params): Query<SyncEventsQuery>,
 ) -> Result<Json<sync::SyncEventsResponse>, ApiError> {
-    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+    check_sync_token(&headers, state.sync_token.as_deref())?;
 
     let after_seq = params.after_seq;
     // Issue-NEGATIVE-LIMIT — 2026-03-15
@@ -2109,7 +2108,7 @@ async fn handle_sync_reconcile(
     Json(req): Json<sync::ReconcileRequest>,
 ) -> Result<Json<sync::ReconcileResponse>, ApiError> {
     // Issue-RECONCILE-AUTH — 2026-03-16: require same auth as /sync/register.
-    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+    check_sync_token(&headers, state.sync_token.as_deref())?;
 
     // Availability: cap the size of the `have` set to prevent memory exhaustion.
     if req.have.len() > MAX_RECONCILE_HAVE {
@@ -2443,7 +2442,7 @@ async fn handle_sync_register(
     headers: HeaderMap,
     Json(req): Json<sync::RegisterRequest>,
 ) -> Result<Json<sync::RegisterResponse>, ApiError> {
-    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+    check_sync_token(&headers, state.sync_token.as_deref())?;
 
     let (signed_at, signature_hex) = match (req.signed_at, req.signature.as_deref()) {
         (Some(signed_at), Some(signature_hex)) => (signed_at, signature_hex),
@@ -2535,7 +2534,7 @@ async fn handle_sync_peers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<sync::PeersResponse>, ApiError> {
-    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+    check_sync_token(&headers, state.sync_token.as_deref())?;
 
     // Mutex safety compliant — 2026-03-12
     let result = spawn_db(state.db.clone(), move |conn| {
@@ -2835,54 +2834,40 @@ fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError
 // CS-02 constant-time — 2026-03-12
 /// Checks authentication for sync endpoints.
 ///
-/// When `sync_token` is `Some`, only the `X-Sync-Token` header is accepted.
-/// When `sync_token` is `None` (backward compatibility), falls back to
-/// `X-Admin-Token` with a deprecation warning.
-/// If neither token is configured, returns 403.
-fn check_sync_or_admin_token(
-    headers: &HeaderMap,
-    sync_token: Option<&str>,
-    admin_token: &str,
-) -> Result<(), ApiError> {
-    if let Some(expected_sync) = sync_token {
-        // SYNC_TOKEN is configured — only accept X-Sync-Token.
-        if expected_sync.is_empty() {
-            return Err(ApiError {
-                status: StatusCode::FORBIDDEN,
-                message: "sync token not configured on this node".into(),
-                www_authenticate: None,
-            });
-        }
-        let provided = headers
-            .get("X-Sync-Token")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let h1 = Sha256::digest(provided.as_bytes());
-        let h2 = Sha256::digest(expected_sync.as_bytes());
-        if bool::from(h1.ct_eq(&h2)) {
-            return Ok(());
-        }
+/// Sync replication endpoints require a dedicated `SYNC_TOKEN` and never
+/// accept `X-Admin-Token`.
+fn check_sync_token(headers: &HeaderMap, sync_token: Option<&str>) -> Result<(), ApiError> {
+    let Some(expected_sync) = sync_token else {
         return Err(ApiError {
             status: StatusCode::FORBIDDEN,
-            message: "invalid or missing X-Sync-Token".into(),
+            message: "sync token not configured on this node".into(),
+            www_authenticate: None,
+        });
+    };
+
+    if expected_sync.is_empty() {
+        return Err(ApiError {
+            status: StatusCode::FORBIDDEN,
+            message: "sync token not configured on this node".into(),
             www_authenticate: None,
         });
     }
 
-    // No SYNC_TOKEN configured — fall back to ADMIN_TOKEN (backward compatibility).
-    if admin_token.is_empty() {
-        return Err(ApiError {
-            status: StatusCode::FORBIDDEN,
-            message: "neither sync token nor admin token configured on this node".into(),
-            www_authenticate: None,
-        });
+    let provided = headers
+        .get("X-Sync-Token")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let h1 = Sha256::digest(provided.as_bytes());
+    let h2 = Sha256::digest(expected_sync.as_bytes());
+    if bool::from(h1.ct_eq(&h2)) {
+        return Ok(());
     }
 
-    tracing::warn!(
-        "DEPRECATED: sync endpoint authenticated via ADMIN_TOKEN. \
-         Set SYNC_TOKEN env var for least-privilege sync reads and writes."
-    );
-    check_admin_token(headers, admin_token)
+    Err(ApiError {
+        status: StatusCode::FORBIDDEN,
+        message: "invalid or missing X-Sync-Token".into(),
+        www_authenticate: None,
+    })
 }
 
 // ── POST /admin/artists/merge ─────────────────────────────────────────────────

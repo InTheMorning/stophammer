@@ -138,7 +138,7 @@ fn test_app_state_inner(
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token-v2".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token-v2".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -877,16 +877,16 @@ fn v2_cs01_toctou_now_fixed_via_rows_check() {
 }
 
 // ============================================================================
-// NEW ATTACK SURFACE: CS-03 — sync/register requires admin token
+// NEW ATTACK SURFACE: CS-03 — sync/register requires dedicated sync token
 //
 // V1 STATUS: N/A (was unauthenticated)
 // V2 STATUS: CLOSED (CS-03 implemented)
 //
-// Verify that POST /sync/register without admin token returns 403.
+// Verify that POST /sync/register without sync token returns 403.
 // ============================================================================
 
 #[tokio::test]
-async fn v2_cs03_sync_register_requires_admin_token() {
+async fn v2_cs03_sync_register_requires_sync_token() {
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -908,7 +908,7 @@ async fn v2_cs03_sync_register_requires_admin_token() {
     assert_eq!(
         resp.status(),
         403,
-        "CS-03: register without admin token returns 403"
+        "CS-03: register without sync token returns 403"
     );
 
     // With wrong admin token
@@ -925,15 +925,15 @@ async fn v2_cs03_sync_register_requires_admin_token() {
     assert_eq!(
         resp.status(),
         403,
-        "CS-03: register with wrong admin token returns 403"
+        "CS-03: register with admin token returns 403"
     );
 
-    // With correct admin token
+    // With correct sync token
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-admin-token-v2")
+        .header("X-Sync-Token", "test-sync-token-v2")
         .body(axum::body::Body::from(
             serde_json::to_vec(&register_body).unwrap(),
         ))
@@ -942,30 +942,21 @@ async fn v2_cs03_sync_register_requires_admin_token() {
     assert_eq!(
         resp.status(),
         200,
-        "CS-03: register with correct admin token succeeds"
+        "CS-03: register with correct sync token succeeds"
     );
 }
 
 // ============================================================================
-// NEW ATTACK SURFACE: CS-03 — Admin token as single point of failure
+// NEW ATTACK SURFACE: CS-03 — admin token must not grant sync access
 //
-// FINDING: ACCEPTED_RISK
+// FINDING: CLOSED
 //
-// If the admin token is compromised, an attacker can:
-//   1. Register malicious push peers (receive all events)
-//   2. Delete feeds, patch feeds/tracks
-//   3. Merge artists, add aliases
-//
-// This is an accepted risk because:
-//   - Admin tokens are server-side secrets, not user-facing
-//   - The admin token is equivalent to database access
-//   - Rate limiting and TLS protect the transport layer
-//
-// This test verifies the blast radius of a leaked admin token.
+// Admin compromise is still bad, but it must not grant access to sync/register.
+// This test verifies the sync least-privilege boundary.
 // ============================================================================
 
 #[tokio::test]
-async fn v2_cs03_admin_token_blast_radius() {
+async fn v2_cs03_admin_token_cannot_register_push_peer() {
     let db = common::test_db_arc();
     {
         let conn = db.lock().unwrap();
@@ -988,7 +979,7 @@ async fn v2_cs03_admin_token_blast_radius() {
             .expect("create signer");
     let (_peer_server, register_body) = signed_register_body_for_mock_peer(&signer).await;
 
-    // With leaked admin token: can register push peer
+    // With leaked admin token: cannot register push peer
     let req = Request::builder()
         .method("POST")
         .uri("/sync/register")
@@ -1001,8 +992,8 @@ async fn v2_cs03_admin_token_blast_radius() {
     let resp = app.clone().oneshot(req).await.unwrap();
     assert_eq!(
         resp.status(),
-        200,
-        "leaked admin token can register push peer"
+        403,
+        "admin token must not register push peer"
     );
 
     // With leaked admin token: can delete feed
