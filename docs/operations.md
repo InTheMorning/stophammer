@@ -258,7 +258,8 @@ cp signing.key signing.key.bak
 
 ## Maintenance Utilities
 
-This repo ships two local maintenance binaries for derived-state rebuilds:
+This repo ships local maintenance binaries for derived-state rebuilds and
+review:
 
 ```bash
 # Rebuild canonical releases / recordings and source-to-canonical maps
@@ -266,6 +267,12 @@ cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run deterministic artist-identity merges from staged source evidence
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+
+# Review remaining duplicate artist-name groups with supporting source evidence
+cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
+
+# Narrow review to one lowercase artist-name key
+cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local

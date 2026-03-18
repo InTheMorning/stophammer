@@ -309,8 +309,8 @@ cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
 
 ## Maintenance utilities
 
-This repo also ships two local maintenance binaries for rebuilding derived state
-from an existing database:
+This repo also ships local maintenance binaries for rebuilding and reviewing
+derived state from an existing database:
 
 ```bash
 # Rebuild canonical releases / recordings and mapping tables
@@ -318,6 +318,12 @@ cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run artist identity merges from current source evidence
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+
+# Review unresolved duplicate artist-name groups and their source evidence
+cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
+
+# Inspect one duplicate-name group in detail
+cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 ```
 
 These do not fetch from the network. They operate on an existing local DB file.
