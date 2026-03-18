@@ -1653,28 +1653,96 @@ fn ensure_recording_row(
     Ok(())
 }
 
+fn has_non_blank_text(value: &Option<String>) -> i64 {
+    value
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|_| 1)
+        .unwrap_or(0)
+}
+
+fn feed_representative_rank(
+    map: &SourceFeedReleaseMap,
+    feed: &Feed,
+) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+    (
+        map.confidence,
+        has_non_blank_text(&feed.description),
+        has_non_blank_text(&feed.image_url),
+        feed.oldest_item_at.is_some() as i64,
+        feed.newest_item_at.is_some() as i64,
+        has_non_blank_text(&feed.language),
+        has_non_blank_text(&feed.itunes_type),
+        feed.newest_item_at.unwrap_or(i64::MIN),
+        feed.updated_at.max(feed.created_at),
+    )
+}
+
+fn track_representative_rank(
+    map: &SourceItemRecordingMap,
+    track: &Track,
+    feed: &Feed,
+) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+    (
+        map.confidence,
+        has_non_blank_text(&track.description),
+        has_non_blank_text(&track.enclosure_url),
+        has_non_blank_text(&track.enclosure_type),
+        track.enclosure_bytes.is_some() as i64,
+        track.pub_date.is_some() as i64,
+        track.duration_secs.is_some() as i64,
+        has_non_blank_text(&feed.description),
+        track.pub_date.unwrap_or(i64::MIN),
+        track.updated_at.max(track.created_at).max(feed.updated_at),
+    )
+}
+
 fn representative_feed_guid_for_release(
     conn: &Connection,
     release_id: &str,
 ) -> Result<Option<String>, DbError> {
-    conn.query_row(
-        "SELECT MIN(feed_guid) FROM source_feed_release_map WHERE release_id = ?1",
-        params![release_id],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
+    let maps = get_source_feed_release_maps_for_release(conn, release_id)?;
+    let mut best: Option<(String, (i64, i64, i64, i64, i64, i64, i64, i64, i64))> = None;
+
+    for map in maps {
+        let Some(feed) = get_feed_by_guid(conn, &map.feed_guid)? else {
+            continue;
+        };
+        let rank = feed_representative_rank(&map, &feed);
+        match &best {
+            Some((best_guid, best_rank))
+                if rank < *best_rank || (rank == *best_rank && map.feed_guid > *best_guid) => {}
+            _ => best = Some((map.feed_guid, rank)),
+        }
+    }
+
+    Ok(best.map(|(feed_guid, _)| feed_guid))
 }
 
 fn representative_track_guid_for_recording(
     conn: &Connection,
     recording_id: &str,
 ) -> Result<Option<String>, DbError> {
-    conn.query_row(
-        "SELECT MIN(track_guid) FROM source_item_recording_map WHERE recording_id = ?1",
-        params![recording_id],
-        |row| row.get(0),
-    )
-    .map_err(Into::into)
+    let maps = get_source_item_recording_maps_for_recording(conn, recording_id)?;
+    let mut best: Option<(String, (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64))> = None;
+
+    for map in maps {
+        let Some(track) = get_track_by_guid(conn, &map.track_guid)? else {
+            continue;
+        };
+        let Some(feed) = get_feed_by_guid(conn, &track.feed_guid)? else {
+            continue;
+        };
+        let rank = track_representative_rank(&map, &track, &feed);
+        match &best {
+            Some((best_guid, best_rank))
+                if rank < *best_rank || (rank == *best_rank && map.track_guid > *best_guid) => {}
+            _ => best = Some((map.track_guid, rank)),
+        }
+    }
+
+    Ok(best.map(|(track_guid, _)| track_guid))
 }
 
 fn rebuild_canonical_recording(conn: &Connection, recording_id: &str) -> Result<(), DbError> {

@@ -1319,6 +1319,198 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
     assert!(!release_sources.is_empty());
 }
 
+#[test]
+fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
+    let mut conn = common::test_db();
+    let now = common::now();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("canonical-representative.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    for (
+        feed_guid,
+        credit_id,
+        feed_description,
+        image_url,
+        oldest_item_at,
+        feed_updated_at,
+        track_guid,
+        track_description,
+        track_pub_date,
+        track_updated_at,
+    ) in [
+        (
+            "feed-meta-a",
+            9401,
+            None,
+            None,
+            None,
+            now - 500,
+            "track-meta-a",
+            None,
+            None,
+            now - 500,
+        ),
+        (
+            "feed-meta-z",
+            9402,
+            Some("Preferred release description"),
+            Some("https://cdn.example.com/preferred-cover.jpg"),
+            Some(now - 60),
+            now,
+            "track-meta-z",
+            Some("Preferred track description"),
+            Some(now - 30),
+            now,
+        ),
+    ] {
+        let artist = stophammer::model::Artist {
+            artist_id: format!("artist-meta-{credit_id}"),
+            name: "Metadata Artist".into(),
+            name_lower: "metadata artist".into(),
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
+            begin_year: None,
+            end_year: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let artist_credit = stophammer::model::ArtistCredit {
+            id: credit_id,
+            display_name: "Metadata Artist".into(),
+            feed_guid: Some(feed_guid.into()),
+            created_at: now,
+            names: vec![stophammer::model::ArtistCreditName {
+                id: 0,
+                artist_credit_id: credit_id,
+                artist_id: format!("artist-meta-{credit_id}"),
+                position: 0,
+                name: "Metadata Artist".into(),
+                join_phrase: String::new(),
+            }],
+        };
+        let feed = stophammer::model::Feed {
+            feed_guid: feed_guid.into(),
+            feed_url: format!("https://example.com/{feed_guid}.xml"),
+            title: "Representative Release".into(),
+            title_lower: "representative release".into(),
+            artist_credit_id: credit_id,
+            description: feed_description.map(str::to_string),
+            image_url: image_url.map(str::to_string),
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            episode_count: 1,
+            newest_item_at: oldest_item_at,
+            oldest_item_at,
+            created_at: now,
+            updated_at: feed_updated_at,
+            raw_medium: Some("music".into()),
+        };
+        let tracks = vec![(
+            stophammer::model::Track {
+                track_guid: track_guid.into(),
+                feed_guid: feed_guid.into(),
+                artist_credit_id: credit_id,
+                title: "Representative Song".into(),
+                title_lower: "representative song".into(),
+                pub_date: track_pub_date,
+                duration_secs: Some(200),
+                enclosure_url: Some(format!("https://cdn.example.com/{track_guid}.mp3")),
+                enclosure_type: Some("audio/mpeg".into()),
+                enclosure_bytes: Some(2048),
+                track_number: Some(1),
+                season: None,
+                explicit: false,
+                description: track_description.map(str::to_string),
+                created_at: now,
+                updated_at: track_updated_at,
+            },
+            vec![],
+            vec![],
+        )];
+
+        let event_rows = stophammer::db::build_diff_events(
+            &conn,
+            &artist,
+            &artist_credit,
+            &feed,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &tracks,
+            &[],
+            now,
+            &[],
+        )
+        .expect("build diff events");
+
+        stophammer::db::ingest_transaction(
+            &mut conn,
+            artist,
+            artist_credit,
+            feed,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            tracks,
+            event_rows,
+            &signer,
+        )
+        .expect("ingest transaction");
+    }
+
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-meta-a")
+        .expect("sync canonical state a");
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-meta-z")
+        .expect("sync canonical state z");
+
+    let release_id: String = conn
+        .query_row(
+            "SELECT DISTINCT release_id FROM source_feed_release_map WHERE feed_guid = 'feed-meta-a'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("release id");
+    let release = stophammer::db::get_release(&conn, &release_id)
+        .expect("get release")
+        .expect("release exists");
+    assert_eq!(release.artist_credit_id, 9402);
+    assert_eq!(release.description.as_deref(), Some("Preferred release description"));
+    assert_eq!(
+        release.image_url.as_deref(),
+        Some("https://cdn.example.com/preferred-cover.jpg")
+    );
+    assert_eq!(release.release_date, Some(now - 60));
+
+    let recording_id: String = conn
+        .query_row(
+            "SELECT DISTINCT recording_id FROM source_item_recording_map WHERE track_guid = 'track-meta-a'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("recording id");
+    let recording = stophammer::db::get_recording(&conn, &recording_id)
+        .expect("get recording")
+        .expect("recording exists");
+    assert_eq!(recording.artist_credit_id, 9402);
+}
+
 // ---------------------------------------------------------------------------
 // Helper: insert an artist and return its artist_id.
 // ---------------------------------------------------------------------------
