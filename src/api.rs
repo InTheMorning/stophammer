@@ -607,6 +607,66 @@ fn build_source_entity_id_claims(
         .collect()
 }
 
+fn build_source_entity_links(
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    links: &[ingest::IngestLink],
+    now: i64,
+) -> Vec<model::SourceEntityLink> {
+    let mut seen = HashSet::new();
+    links.iter()
+        .filter(|link| seen.insert((link.link_type.clone(), link.url.clone())))
+        .map(|link| {
+            let extraction_path = match link.link_type.as_str() {
+                "self_feed" => "feed.atom:link[@rel='self']",
+                "content_stream" => "live_item.@contentLink",
+                "website" => "feed.link",
+                _ => "entity.link",
+            };
+            model::SourceEntityLink {
+                id: None,
+                feed_guid: feed_guid.to_string(),
+                entity_type: entity_type.to_string(),
+                entity_id: entity_id.to_string(),
+                position: link.position,
+                link_type: link.link_type.clone(),
+                url: link.url.clone(),
+                source: "rss_link".to_string(),
+                extraction_path: extraction_path.to_string(),
+                observed_at: now,
+            }
+        })
+        .collect()
+}
+
+fn push_source_release_claim(
+    claims: &mut Vec<model::SourceReleaseClaim>,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    claim_type: &str,
+    claim_value: Option<String>,
+    extraction_path: &str,
+    now: i64,
+) {
+    let Some(claim_value) = claim_value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+        return;
+    };
+    claims.push(model::SourceReleaseClaim {
+        id: None,
+        feed_guid: feed_guid.to_string(),
+        entity_type: entity_type.to_string(),
+        entity_id: entity_id.to_string(),
+        position: 0,
+        claim_type: claim_type.to_string(),
+        claim_value,
+        source: "rss_metadata".to_string(),
+        extraction_path: extraction_path.to_string(),
+        observed_at: now,
+    });
+}
+
 // ── ApiError ─────────────────────────────────────────────────────────────────
 
 /// HTTP error response returned by all handlers; serializes to `{"error":"..."}`.
@@ -1075,6 +1135,74 @@ async fn handle_ingest_feed(
                 &feed_data.entity_ids,
                 now,
             );
+            let mut source_entity_links = build_source_entity_links(
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                &feed_data.links,
+                now,
+            );
+            let mut source_release_claims = Vec::new();
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "release_date",
+                feed_data.pub_date.map(|v| v.to_string()),
+                "feed.pub_date",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "description",
+                feed_data.description.clone(),
+                "feed.description",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "language",
+                feed_data.language.clone(),
+                "feed.language",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "image_url",
+                feed_data.image_url.clone(),
+                "feed.image_url",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "raw_medium",
+                feed_data.raw_medium.clone(),
+                "feed.raw_medium",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                "itunes_type",
+                feed_data.itunes_type.clone(),
+                "feed.itunes_type",
+                now,
+            );
 
             // 9. Build track tuples
             let mut track_tuples: Vec<(
@@ -1102,6 +1230,33 @@ async fn handle_ingest_feed(
                     &track_data.entity_ids,
                     now,
                 ));
+                source_entity_links.extend(build_source_entity_links(
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    &track_data.links,
+                    now,
+                ));
+                push_source_release_claim(
+                    &mut source_release_claims,
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    "release_date",
+                    track_data.pub_date.map(|v| v.to_string()),
+                    "track.pub_date",
+                    now,
+                );
+                push_source_release_claim(
+                    &mut source_release_claims,
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    "description",
+                    track_data.description.clone(),
+                    "track.description",
+                    now,
+                );
 
                 // Per-track artist resolution (feed-scoped)
                 // Issue-ARTIST-IDENTITY — 2026-03-14
@@ -1193,6 +1348,33 @@ async fn handle_ingest_feed(
                     &live_item.entity_ids,
                     now,
                 ));
+                source_entity_links.extend(build_source_entity_links(
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    &live_item.links,
+                    now,
+                ));
+                push_source_release_claim(
+                    &mut source_release_claims,
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    "release_date",
+                    live_item.pub_date.map(|v| v.to_string()),
+                    "live_item.pub_date",
+                    now,
+                );
+                push_source_release_claim(
+                    &mut source_release_claims,
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    "description",
+                    live_item.description.clone(),
+                    "live_item.description",
+                    now,
+                );
 
                 if !(live_item.status.eq_ignore_ascii_case("ended")
                     && live_item.enclosure_url.is_some())
@@ -1286,6 +1468,8 @@ async fn handle_ingest_feed(
                 &feed_remote_items,
                 &source_contributor_claims,
                 &source_entity_ids,
+                &source_entity_links,
+                &source_release_claims,
                 &feed_routes,
                 &live_events,
                 &track_tuples,
@@ -1326,6 +1510,8 @@ async fn handle_ingest_feed(
                 feed_remote_items,
                 source_contributor_claims,
                 source_entity_ids,
+                source_entity_links,
+                source_release_claims,
                 feed_routes,
                 live_events,
                 track_tuples,

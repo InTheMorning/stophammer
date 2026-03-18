@@ -10,7 +10,8 @@
 
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
-    SourceContributorClaim, SourceEntityIdClaim, Track, ValueTimeSplit,
+    SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceReleaseClaim, Track,
+    ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +45,10 @@ pub enum EventType {
     SourceContributorClaimsReplaced,
     /// The staged entity-ID snapshot for a feed was replaced.
     SourceEntityIdsReplaced,
+    /// The staged entity-link snapshot for a feed was replaced.
+    SourceEntityLinksReplaced,
+    /// The staged release-claim snapshot for a feed was replaced.
+    SourceReleaseClaimsReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -76,6 +81,10 @@ pub enum EventPayload {
     SourceContributorClaimsReplaced(SourceContributorClaimsReplacedPayload),
     /// Payload for replacing staged entity IDs for a feed.
     SourceEntityIdsReplaced(SourceEntityIdsReplacedPayload),
+    /// Payload for replacing staged entity links for a feed.
+    SourceEntityLinksReplaced(SourceEntityLinksReplacedPayload),
+    /// Payload for replacing staged release claims for a feed.
+    SourceReleaseClaimsReplaced(SourceReleaseClaimsReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -228,4 +237,18 @@ pub struct SourceContributorClaimsReplacedPayload {
 pub struct SourceEntityIdsReplacedPayload {
     pub feed_guid: String,
     pub claims: Vec<SourceEntityIdClaim>,
+}
+
+/// Emitted when the full set of staged entity links for a feed is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceEntityLinksReplacedPayload {
+    pub feed_guid: String,
+    pub links: Vec<SourceEntityLink>,
+}
+
+/// Emitted when the full set of staged release claims for a feed is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceReleaseClaimsReplacedPayload {
+    pub feed_guid: String,
+    pub claims: Vec<SourceReleaseClaim>,
 }

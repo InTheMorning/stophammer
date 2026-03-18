@@ -45,16 +45,25 @@ pub struct IngestFeedData {
     /// Publication date of the feed channel; drives `newest_item_at` tracking.
     pub pub_date: Option<i64>,
     /// Feed-level `podcast:remoteItem` references to artist/publisher feeds.
+    #[serde(default)]
     pub remote_items: Vec<IngestRemoteFeedRef>,
     /// Feed-level contributor claims from `podcast:person`.
+    #[serde(default)]
     pub persons: Vec<IngestPerson>,
     /// Feed-level staged identity claims from typed metadata such as `podcast:txt`.
+    #[serde(default)]
     pub entity_ids: Vec<IngestEntityId>,
+    /// Feed-level typed links such as websites or self-feed URLs.
+    #[serde(default)]
+    pub links: Vec<IngestLink>,
     /// Feed-level `podcast:value` recipients. Tracks that have no payment
     /// routes of their own fall back to these at play time.
+    #[serde(default)]
     pub feed_payment_routes: Vec<IngestPaymentRoute>,
     /// Parsed live items that should be staged in `live_events` until promoted.
+    #[serde(default)]
     pub live_items: Vec<IngestLiveItemData>,
+    #[serde(default)]
     pub tracks: Vec<IngestTrackData>,
 }
 
@@ -74,9 +83,15 @@ pub struct IngestTrackData {
     pub description: Option<String>,
     /// Per-track author override — some feeds have different artist per track
     pub author_name: Option<String>,
+    #[serde(default)]
     pub persons: Vec<IngestPerson>,
+    #[serde(default)]
     pub entity_ids: Vec<IngestEntityId>,
+    #[serde(default)]
+    pub links: Vec<IngestLink>,
+    #[serde(default)]
     pub payment_routes: Vec<IngestPaymentRoute>,
+    #[serde(default)]
     pub value_time_splits: Vec<IngestValueTimeSplit>,
 }
 
@@ -106,9 +121,15 @@ pub struct IngestLiveItemData {
     pub explicit: bool,
     pub description: Option<String>,
     pub author_name: Option<String>,
+    #[serde(default)]
     pub persons: Vec<IngestPerson>,
+    #[serde(default)]
     pub entity_ids: Vec<IngestEntityId>,
+    #[serde(default)]
+    pub links: Vec<IngestLink>,
+    #[serde(default)]
     pub payment_routes: Vec<IngestPaymentRoute>,
+    #[serde(default)]
     pub value_time_splits: Vec<IngestValueTimeSplit>,
 }
 
@@ -127,6 +148,13 @@ pub struct IngestEntityId {
     pub position: i64,
     pub scheme: String,
     pub value: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestLink {
+    pub position: i64,
+    pub link_type: String,
+    pub url: String,
 }
 
 /// Ingest-time payment route before a DB row ID is assigned.

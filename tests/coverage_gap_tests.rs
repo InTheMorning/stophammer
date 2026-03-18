@@ -680,6 +680,7 @@ fn medium_music_verifier_pass() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -717,6 +718,7 @@ fn medium_music_verifier_fail_podcast() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -754,6 +756,7 @@ fn medium_music_verifier_fail_absent() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -795,6 +798,7 @@ fn feed_guid_verifier_pass() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -832,6 +836,7 @@ fn feed_guid_verifier_fail_bad_guid() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -869,6 +874,7 @@ fn feed_guid_verifier_fail_invalid_uuid() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -911,6 +917,7 @@ fn v4v_payment_verifier_pass() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![stophammer::ingest::IngestPaymentRoute {
                 recipient_name: Some("Artist".into()),
                 route_type: RouteType::Keysend,
@@ -956,6 +963,7 @@ fn v4v_payment_verifier_fail_no_routes() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![],
@@ -997,6 +1005,7 @@ fn enclosure_type_verifier_pass_audio() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
@@ -1014,6 +1023,7 @@ fn enclosure_type_verifier_pass_audio() {
                 author_name: None,
                 persons: vec![],
                 entity_ids: vec![],
+                links: vec![],
                 payment_routes: vec![],
                 value_time_splits: vec![],
             }],
@@ -1051,6 +1061,7 @@ fn enclosure_type_verifier_warn_video() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
@@ -1068,6 +1079,7 @@ fn enclosure_type_verifier_warn_video() {
                 author_name: None,
                 persons: vec![],
                 entity_ids: vec![],
+                links: vec![],
                 payment_routes: vec![],
                 value_time_splits: vec![],
             }],
@@ -1110,6 +1122,7 @@ fn payment_route_sum_verifier_pass() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
@@ -1127,6 +1140,7 @@ fn payment_route_sum_verifier_pass() {
                 author_name: None,
                 persons: vec![],
                 entity_ids: vec![],
+                links: vec![],
                 payment_routes: vec![
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,
@@ -1184,6 +1198,7 @@ fn payment_route_sum_verifier_fail_not_100() {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
@@ -1201,6 +1216,7 @@ fn payment_route_sum_verifier_fail_not_100() {
                 author_name: None,
                 persons: vec![],
                 entity_ids: vec![],
+                links: vec![],
                 payment_routes: vec![
                     stophammer::ingest::IngestPaymentRoute {
                         recipient_name: None,

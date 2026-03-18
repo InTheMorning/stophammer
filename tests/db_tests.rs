@@ -50,7 +50,9 @@ fn schema_creates_all_tables() {
         "search_index",
         "search_entities",
         "source_contributor_claims",
+        "source_entity_links",
         "source_entity_ids",
+        "source_release_claims",
         "tags",
         "track_rel",
         "track_tag",
@@ -1255,6 +1257,94 @@ fn source_entity_ids_replace_round_trip() {
 }
 
 #[test]
+fn source_entity_links_replace_round_trip() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-links", "Source Links");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Links");
+    let feed_guid = insert_feed(&conn, "feed-src-links", credit_id);
+
+    let links = vec![
+        stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.clone(),
+            position: 0,
+            link_type: "website".into(),
+            url: "https://example.com/artist".into(),
+            source: "rss_link".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: common::now(),
+        },
+        stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: "track-src-links".into(),
+            position: 0,
+            link_type: "web_page".into(),
+            url: "https://example.com/release".into(),
+            source: "rss_link".into(),
+            extraction_path: "track.link".into(),
+            observed_at: common::now(),
+        },
+    ];
+
+    stophammer::db::replace_source_entity_links_for_feed(&conn, &feed_guid, &links)
+        .expect("replace source links");
+
+    let stored = stophammer::db::get_source_entity_links_for_feed(&conn, &feed_guid)
+        .expect("get source links");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].link_type, "website");
+    assert_eq!(stored[1].url, "https://example.com/release");
+}
+
+#[test]
+fn source_release_claims_replace_round_trip() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-release", "Source Release");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Release");
+    let feed_guid = insert_feed(&conn, "feed-src-release", credit_id);
+
+    let claims = vec![
+        stophammer::model::SourceReleaseClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.clone(),
+            position: 0,
+            claim_type: "release_date".into(),
+            claim_value: "1773703560".into(),
+            source: "rss_metadata".into(),
+            extraction_path: "feed.pub_date".into(),
+            observed_at: common::now(),
+        },
+        stophammer::model::SourceReleaseClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: "track-src-release".into(),
+            position: 0,
+            claim_type: "description".into(),
+            claim_value: "Track description".into(),
+            source: "rss_metadata".into(),
+            extraction_path: "track.description".into(),
+            observed_at: common::now(),
+        },
+    ];
+
+    stophammer::db::replace_source_release_claims_for_feed(&conn, &feed_guid, &claims)
+        .expect("replace source release claims");
+
+    let stored = stophammer::db::get_source_release_claims_for_feed(&conn, &feed_guid)
+        .expect("get source release claims");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].claim_type, "release_date");
+    assert_eq!(stored[1].claim_value, "Track description");
+}
+
+#[test]
 fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -1360,6 +1450,8 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &[],
         &[],
         &[],
+        &[],
+        &[],
         now,
         &[],
     )
@@ -1383,6 +1475,8 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         vec![],
         contributor_claims.clone(),
         entity_id_claims.clone(),
+        vec![],
+        vec![],
         vec![],
         vec![],
         vec![],

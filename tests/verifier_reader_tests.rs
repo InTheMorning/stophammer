@@ -35,6 +35,7 @@ fn sample_request() -> IngestFeedRequest {
             remote_items: vec![],
             persons: vec![],
             entity_ids: vec![],
+            links: vec![],
             feed_payment_routes: vec![IngestPaymentRoute {
                 recipient_name: Some("host".into()),
                 route_type: RouteType::Keysend,
@@ -62,6 +63,7 @@ fn sample_request() -> IngestFeedRequest {
                 payment_routes: vec![],
                 persons: vec![],
                 entity_ids: vec![],
+                links: vec![],
                 value_time_splits: vec![],
             }],
         }),

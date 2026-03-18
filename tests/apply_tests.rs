@@ -1304,6 +1304,154 @@ fn apply_source_entity_ids_replaced() {
 }
 
 // ---------------------------------------------------------------------------
+// 16. apply_source_entity_links_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_entity_links_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, SourceEntityLinksReplacedPayload};
+    use stophammer::model::SourceEntityLink;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-links-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-links-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-links-1",
+            "https://example.com/links.xml",
+            "Links Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourceEntityLinksReplacedPayload {
+        feed_guid: "feed-links-1".into(),
+        links: vec![SourceEntityLink {
+            id: None,
+            feed_guid: "feed-links-1".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-links-1".into(),
+            position: 0,
+            link_type: "website".into(),
+            url: "https://example.com/artist".into(),
+            source: "rss_link".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-links-1".into(),
+        event_type: EventType::SourceEntityLinksReplaced,
+        payload: EventPayload::SourceEntityLinksReplaced(payload_inner),
+        subject_guid: "feed-links-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+
+    let stored: (String, String) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT link_type, url FROM source_entity_links \
+             WHERE feed_guid = 'feed-links-1' AND entity_type = 'feed' AND position = 0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("source entity link row should exist")
+    };
+
+    assert_eq!(stored.0, "website");
+    assert_eq!(stored.1, "https://example.com/artist");
+}
+
+// ---------------------------------------------------------------------------
+// 17. apply_source_release_claims_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_release_claims_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, SourceReleaseClaimsReplacedPayload};
+    use stophammer::model::SourceReleaseClaim;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-release-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-release-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-release-1",
+            "https://example.com/release.xml",
+            "Release Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourceReleaseClaimsReplacedPayload {
+        feed_guid: "feed-release-1".into(),
+        claims: vec![SourceReleaseClaim {
+            id: None,
+            feed_guid: "feed-release-1".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-release-1".into(),
+            position: 0,
+            claim_type: "release_date".into(),
+            claim_value: "1773703560".into(),
+            source: "rss_metadata".into(),
+            extraction_path: "feed.pub_date".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-release-1".into(),
+        event_type: EventType::SourceReleaseClaimsReplaced,
+        payload: EventPayload::SourceReleaseClaimsReplaced(payload_inner),
+        subject_guid: "feed-release-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+
+    let stored: (String, String) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT claim_type, claim_value FROM source_release_claims \
+             WHERE feed_guid = 'feed-release-1' AND entity_type = 'feed' AND position = 0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("source release claim row should exist")
+    };
+
+    assert_eq!(stored.0, "release_date");
+    assert_eq!(stored.1, "1773703560");
+}
+
+// ---------------------------------------------------------------------------
 // Helpers for Issue-DEDUP-ORDER tests
 // ---------------------------------------------------------------------------
 

@@ -172,6 +172,12 @@ fn apply_single_event_inner(
         event::EventPayload::SourceEntityIdsReplaced(p) => {
             db::replace_source_entity_ids_for_feed(conn, &p.feed_guid, &p.claims)?;
         }
+        event::EventPayload::SourceEntityLinksReplaced(p) => {
+            db::replace_source_entity_links_for_feed(conn, &p.feed_guid, &p.links)?;
+        }
+        event::EventPayload::SourceReleaseClaimsReplaced(p) => {
+            db::replace_source_release_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

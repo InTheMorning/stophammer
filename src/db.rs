@@ -11,8 +11,8 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, Track,
-    ValueTimeSplit,
+    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
+    SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -147,6 +147,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0005_live_events_and_remote_items.sql"),
     // Migration 6: add staged source-claim tables for contributors and IDs.
     include_str!("../migrations/0006_source_claim_staging.sql"),
+    // Migration 7: add staged source-claim tables for links and release facts.
+    include_str!("../migrations/0007_source_link_and_release_claims.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1487,6 +1489,140 @@ pub fn replace_source_entity_ids_for_feed(
     Ok(())
 }
 
+// ── source_entity_links ─────────────────────────────────────────────────────
+
+/// Returns the staged entity-link claims for a feed ordered by entity + position.
+pub fn get_source_entity_links_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceEntityLink>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
+         extraction_path, observed_at \
+         FROM source_entity_links WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, position, link_type, url, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceEntityLink {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            link_type: row.get(5)?,
+            url: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+
+    let mut links = Vec::new();
+    for row in rows {
+        links.push(row?);
+    }
+    Ok(links)
+}
+
+/// Replaces the staged entity-link claims for a feed.
+pub fn replace_source_entity_links_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    links: &[SourceEntityLink],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_entity_links WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for link in links {
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &link.feed_guid,
+                &link.entity_type,
+                &link.entity_id,
+                link.position,
+                &link.link_type,
+                &link.url,
+                &link.source,
+                &link.extraction_path,
+                link.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+// ── source_release_claims ───────────────────────────────────────────────────
+
+/// Returns the staged release claims for a feed ordered by entity + position.
+pub fn get_source_release_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceReleaseClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, claim_type, claim_value, source, \
+         extraction_path, observed_at \
+         FROM source_release_claims WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, claim_type, position, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceReleaseClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            claim_type: row.get(5)?,
+            claim_value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+
+    let mut claims = Vec::new();
+    for row in rows {
+        claims.push(row?);
+    }
+    Ok(claims)
+}
+
+/// Replaces the staged release claims for a feed.
+pub fn replace_source_release_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    claims: &[SourceReleaseClaim],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_release_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for claim in claims {
+        conn.execute(
+            "INSERT INTO source_release_claims \
+             (feed_guid, entity_type, entity_id, position, claim_type, claim_value, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.claim_type,
+                &claim.claim_value,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── delete_track ────────────────────────────────────────────────────────────
 
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
@@ -2159,6 +2295,39 @@ fn source_entity_ids_changed(existing: &[SourceEntityIdClaim], new: &[SourceEnti
         })
 }
 
+fn source_entity_links_changed(existing: &[SourceEntityLink], new: &[SourceEntityLink]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.link_type != b.link_type
+                || a.url != b.url
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
+fn source_release_claims_changed(
+    existing: &[SourceReleaseClaim],
+    new: &[SourceReleaseClaim],
+) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.claim_type != b.claim_type
+                || a.claim_value != b.claim_value
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
 // ── build_diff_events ───────────────────────────────────────────────────────
 // Issue-WRITE-AMP — 2026-03-14
 
@@ -2183,6 +2352,8 @@ pub fn build_diff_events(
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
+    source_entity_links: &[SourceEntityLink],
+    source_release_claims: &[SourceReleaseClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2205,6 +2376,8 @@ pub fn build_diff_events(
                 remote_items,
                 source_contributor_claims,
                 source_entity_ids,
+                source_entity_links,
+                source_release_claims,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2222,6 +2395,8 @@ pub fn build_diff_events(
                 remote_items,
                 source_contributor_claims,
                 source_entity_ids,
+                source_entity_links,
+                source_release_claims,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2246,6 +2421,8 @@ fn build_all_events(
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
+    source_entity_links: &[SourceEntityLink],
+    source_release_claims: &[SourceReleaseClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2298,6 +2475,22 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
+    if !source_entity_links.is_empty() {
+        event_rows.push(build_source_entity_links_event(
+            feed,
+            source_entity_links,
+            now,
+            &warn_vec,
+        )?);
+    }
+    if !source_release_claims.is_empty() {
+        event_rows.push(build_source_release_claims_event(
+            feed,
+            source_release_claims,
+            now,
+            &warn_vec,
+        )?);
+    }
     if !live_events.is_empty() {
         event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
@@ -2329,6 +2522,8 @@ fn build_changed_events(
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
     source_entity_ids: &[SourceEntityIdClaim],
+    source_entity_links: &[SourceEntityLink],
+    source_release_claims: &[SourceReleaseClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2401,6 +2596,28 @@ fn build_changed_events(
         event_rows.push(build_source_entity_ids_event(
             feed,
             source_entity_ids,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged entity-link diff ---
+    let existing_source_entity_links = get_source_entity_links_for_feed(conn, &feed.feed_guid)?;
+    if source_entity_links_changed(&existing_source_entity_links, source_entity_links) {
+        event_rows.push(build_source_entity_links_event(
+            feed,
+            source_entity_links,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged release-claim diff ---
+    let existing_source_release_claims = get_source_release_claims_for_feed(conn, &feed.feed_guid)?;
+    if source_release_claims_changed(&existing_source_release_claims, source_release_claims) {
+        event_rows.push(build_source_release_claims_event(
+            feed,
+            source_release_claims,
             now,
             &warn_vec,
         )?);
@@ -2606,6 +2823,48 @@ fn build_source_entity_ids_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::SourceEntityIdsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_entity_links_event(
+    feed: &Feed,
+    links: &[SourceEntityLink],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceEntityLinksReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        links: links.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceEntityLinksReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_release_claims_event(
+    feed: &Feed,
+    claims: &[SourceReleaseClaim],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceReleaseClaimsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        claims: claims.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceReleaseClaimsReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -3428,6 +3687,8 @@ pub fn ingest_transaction(
     remote_items: Vec<FeedRemoteItemRaw>,
     source_contributor_claims: Vec<SourceContributorClaim>,
     source_entity_ids: Vec<SourceEntityIdClaim>,
+    source_entity_links: Vec<SourceEntityLink>,
+    source_release_claims: Vec<SourceReleaseClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
     tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
@@ -3669,6 +3930,54 @@ pub fn ingest_transaction(
                 claim.position,
                 &claim.scheme,
                 &claim.value,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
+            ],
+        )?;
+    }
+
+    // 3g. Replace staged source entity links for this feed
+    tx.execute(
+        "DELETE FROM source_entity_links WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for link in &source_entity_links {
+        tx.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &link.feed_guid,
+                &link.entity_type,
+                &link.entity_id,
+                link.position,
+                &link.link_type,
+                &link.url,
+                &link.source,
+                &link.extraction_path,
+                link.observed_at,
+            ],
+        )?;
+    }
+
+    // 3h. Replace staged release claims for this feed
+    tx.execute(
+        "DELETE FROM source_release_claims WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for claim in &source_release_claims {
+        tx.execute(
+            "INSERT INTO source_release_claims \
+             (feed_guid, entity_type, entity_id, position, claim_type, claim_value, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.claim_type,
+                &claim.claim_value,
                 &claim.source,
                 &claim.extraction_path,
                 claim.observed_at,

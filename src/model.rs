@@ -3,7 +3,8 @@
 //! Defines the persisted entities: [`Artist`], [`ArtistCredit`],
 //! [`ArtistCreditName`], [`Feed`], [`Track`], [`PaymentRoute`],
 //! [`FeedPaymentRoute`], [`ValueTimeSplit`], [`FeedRemoteItemRaw`],
-//! [`LiveEvent`], [`SourceContributorClaim`], and [`SourceEntityIdClaim`].
+//! [`LiveEvent`], [`SourceContributorClaim`], [`SourceEntityLink`],
+//! [`SourceEntityIdClaim`], and [`SourceReleaseClaim`].
 //! All types derive `Serialize` and `Deserialize` so they can be embedded in
 //! event payloads and returned from API endpoints without additional mapping.
 
@@ -205,6 +206,34 @@ pub struct SourceEntityIdClaim {
     pub position: i64,
     pub scheme: String,
     pub value: String,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceEntityLink {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub link_type: String,
+    pub url: String,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceReleaseClaim {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub claim_type: String,
+    pub claim_value: String,
     pub source: String,
     pub extraction_path: String,
     pub observed_at: i64,

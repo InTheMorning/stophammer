@@ -99,6 +99,16 @@ Source: `src/schema.sql`
 **Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `scheme`, `value`.
 **Notes:** This is distinct from `external_ids`: `source_entity_ids` stores raw evidence from source feeds, while `external_ids` remains canonical-facing.
 
+### `source_entity_links`
+**Purpose:** Staged source-level links such as artist websites, release pages, self-feed URLs, and live content stream links.
+**Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `position`, `link_type`, `url`.
+**Notes:** Replaced as a feed-scoped snapshot via `SourceEntityLinksReplaced`. This table stores typed source evidence, not canonical external links.
+
+### `source_release_claims`
+**Purpose:** Staged source-level release facts derived from feed, track, and live-item metadata before canonical release rows exist.
+**Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `claim_type`, `claim_value`.
+**Notes:** Replaced as a feed-scoped snapshot via `SourceReleaseClaimsReplaced`. Current claim families include release-date-like timestamps plus descriptive metadata such as description, language, image URL, medium, and iTunes type where available.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).
