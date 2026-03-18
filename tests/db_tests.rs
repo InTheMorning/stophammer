@@ -312,6 +312,241 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
     );
 }
 
+#[test]
+fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-promote-1".into(),
+        name: "Promote Artist".into(),
+        name_lower: "promote artist".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let artist_credit = stophammer::model::ArtistCredit {
+        id: 9002,
+        display_name: "Promote Artist".into(),
+        feed_guid: Some("feed-promote-1".into()),
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
+            artist_credit_id: 9002,
+            artist_id: artist.artist_id.clone(),
+            position: 0,
+            name: "Promote Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let feed = stophammer::model::Feed {
+        feed_guid: "feed-promote-1".into(),
+        feed_url: "https://example.com/feed-promote-1.xml".into(),
+        title: "Promote Release".into(),
+        title_lower: "promote release".into(),
+        artist_credit_id: artist_credit.id,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 1,
+        newest_item_at: Some(now),
+        oldest_item_at: Some(now - 60),
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
+    };
+    let track = stophammer::model::Track {
+        track_guid: "track-promote-1".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: artist_credit.id,
+        title: "Promote Track".into(),
+        title_lower: "promote track".into(),
+        pub_date: Some(now),
+        duration_secs: Some(180),
+        enclosure_url: Some("https://cdn.example.com/promote-track.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(1234),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let source_entity_ids = vec![stophammer::model::SourceEntityIdClaim {
+        id: None,
+        feed_guid: feed.feed_guid.clone(),
+        entity_type: "feed".into(),
+        entity_id: feed.feed_guid.clone(),
+        position: 0,
+        scheme: "nostr_npub".into(),
+        value: "npub1promoteartist".into(),
+        source: "podcast_txt".into(),
+        extraction_path: "feed.podcast:txt[@purpose='npub']".into(),
+        observed_at: now,
+    }];
+    let source_entity_links = vec![
+        stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed.feed_guid.clone(),
+            position: 0,
+            link_type: "website".into(),
+            url: "https://wavlake.com/promote-artist".into(),
+            source: "rss_link".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        },
+        stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: track.track_guid.clone(),
+            position: 0,
+            link_type: "web_page".into(),
+            url: "https://wavlake.com/track/promote-track".into(),
+            source: "rss_link".into(),
+            extraction_path: "entity.link".into(),
+            observed_at: now,
+        },
+    ];
+    let source_item_enclosures = vec![stophammer::model::SourceItemEnclosure {
+        id: None,
+        feed_guid: feed.feed_guid.clone(),
+        entity_type: "track".into(),
+        entity_id: track.track_guid.clone(),
+        position: 0,
+        url: "https://cdn.example.com/promote-track.mp3".into(),
+        mime_type: Some("audio/mpeg".into()),
+        bytes: Some(1234),
+        rel: None,
+        title: None,
+        is_primary: true,
+        source: "rss_enclosure".into(),
+        extraction_path: "track.enclosure".into(),
+        observed_at: now,
+    }];
+    let tracks = vec![(track.clone(), vec![], vec![])];
+
+    let event_rows = stophammer::db::build_diff_events(
+        &conn,
+        &artist,
+        &artist_credit,
+        &feed,
+        &[],
+        &[],
+        &source_entity_ids,
+        &source_entity_links,
+        &[],
+        &source_item_enclosures,
+        &[],
+        &[],
+        &[],
+        &tracks,
+        &[],
+        now,
+        &[],
+    )
+    .expect("build diff events");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("canonical-promote.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    stophammer::db::ingest_transaction(
+        &mut conn,
+        artist,
+        artist_credit,
+        feed.clone(),
+        vec![],
+        vec![],
+        source_entity_ids,
+        source_entity_links,
+        vec![],
+        source_item_enclosures,
+        vec![],
+        vec![],
+        vec![],
+        tracks,
+        event_rows,
+        &signer,
+    )
+    .expect("ingest transaction");
+
+    let artist_npub: String = conn
+        .query_row(
+            "SELECT value FROM external_ids \
+             WHERE entity_type = 'artist' AND entity_id = 'artist-promote-1' AND scheme = 'nostr_npub'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("promoted artist npub");
+    assert_eq!(artist_npub, "npub1promoteartist");
+
+    let release_sources: Vec<(String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT source_type, source_url FROM entity_source \
+                 WHERE entity_type = 'release' AND entity_id = 'release:feed:feed-promote-1' \
+                 ORDER BY source_type, source_url",
+            )
+            .expect("prepare release sources");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query release sources")
+            .collect::<Result<_, _>>()
+            .expect("collect release sources")
+    };
+    assert_eq!(
+        release_sources,
+        vec![
+            (
+                "source_feed".to_string(),
+                Some("https://example.com/feed-promote-1.xml".to_string())
+            ),
+            (
+                "source_release_page".to_string(),
+                Some("https://wavlake.com/promote-artist".to_string())
+            )
+        ]
+    );
+
+    let recording_sources: Vec<(String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT source_type, source_url FROM entity_source \
+                 WHERE entity_type = 'recording' AND entity_id = 'recording:track:track-promote-1' \
+                 ORDER BY source_type, source_url",
+            )
+            .expect("prepare recording sources");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query recording sources")
+            .collect::<Result<_, _>>()
+            .expect("collect recording sources")
+    };
+    assert_eq!(
+        recording_sources,
+        vec![
+            (
+                "source_primary_enclosure".to_string(),
+                Some("https://cdn.example.com/promote-track.mp3".to_string())
+            ),
+            (
+                "source_recording_page".to_string(),
+                Some("https://wavlake.com/track/promote-track".to_string())
+            )
+        ]
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Helper: insert an artist and return its artist_id.
 // ---------------------------------------------------------------------------

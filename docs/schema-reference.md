@@ -209,12 +209,12 @@ Source: `src/schema.sql`
 ### `external_ids`
 **Purpose:** Maps entities to identifiers in external systems (MusicBrainz, ISRC, UPC, Spotify, etc.).
 **Key columns:** `entity_type` / `entity_id` (polymorphic reference to any entity), `scheme` (identifier namespace, e.g. `musicbrainz`, `isrc`), `value` (the external identifier).
-**Notes:** Unique on `(entity_type, entity_id, scheme)`. Indexed for both entity lookup and reverse lookup by scheme + value.
+**Notes:** Unique on `(entity_type, entity_id, scheme)`. Indexed for both entity lookup and reverse lookup by scheme + value. The current canonical promotion layer only auto-populates a very narrow subset here: high-confidence single-artist feed-level `nostr_npub` claims are promoted from `source_entity_ids` onto canonical `artist` rows when no conflict exists.
 
 ### `entity_source`
 **Purpose:** Records where an entity's data came from and how much to trust it.
 **Key columns:** `entity_type` / `entity_id` (polymorphic reference), `source_type` (e.g. `rss_crawl`, `bulk_import`, `manual`), `trust_level` (integer ranking).
-**Notes:** See ADR 0006 (crawlers as untrusted clients) and ADR 0005 (pluggable verifier chain) for how trust levels influence acceptance.
+**Notes:** See ADR 0006 (crawlers as untrusted clients) and ADR 0005 (pluggable verifier chain) for how trust levels influence acceptance. The canonical promotion layer also uses this table for deterministic provenance on derived `release` and `recording` rows, such as `source_feed`, `source_release_page`, `source_recording_page`, and `source_primary_enclosure`.
 
 ---
 

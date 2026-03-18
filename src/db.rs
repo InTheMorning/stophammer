@@ -1237,6 +1237,18 @@ fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
          WHERE release_id NOT IN (SELECT release_id FROM source_feed_release_map)",
         [],
     )?;
+    conn.execute(
+        "DELETE FROM entity_source \
+         WHERE entity_type = 'recording' \
+           AND entity_id NOT IN (SELECT recording_id FROM recordings)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_source \
+         WHERE entity_type = 'release' \
+           AND entity_id NOT IN (SELECT release_id FROM releases)",
+        [],
+    )?;
     Ok(())
 }
 
@@ -1271,6 +1283,208 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
     }
 
     cleanup_orphaned_canonical_rows(conn)?;
+    Ok(())
+}
+
+fn single_artist_id_for_credit(
+    conn: &Connection,
+    artist_credit_id: i64,
+) -> Result<Option<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT artist_id FROM artist_credit_name \
+         WHERE artist_credit_id = ?1 ORDER BY position",
+    )?;
+    let artist_ids: Vec<String> = stmt
+        .query_map(params![artist_credit_id], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if artist_ids.len() == 1 {
+        Ok(artist_ids.into_iter().next())
+    } else {
+        Ok(None)
+    }
+}
+
+fn delete_promoted_entity_sources(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM entity_source \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+           AND source_type IN ('source_feed', 'source_release_page', 'source_recording_page', 'source_primary_enclosure')",
+        params![entity_type, entity_id],
+    )?;
+    Ok(())
+}
+
+fn record_promoted_entity_source(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+    source_type: &str,
+    source_url: &str,
+) -> Result<(), DbError> {
+    record_entity_source(conn, entity_type, entity_id, source_type, Some(source_url), 1)?;
+    Ok(())
+}
+
+fn promote_high_confidence_artist_ids_for_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
+    let Some(artist_id) = single_artist_id_for_credit(conn, feed.artist_credit_id)? else {
+        return Ok(());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT value FROM source_entity_ids \
+         WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND scheme = 'nostr_npub' \
+         ORDER BY value",
+    )?;
+    let values: Vec<String> = stmt
+        .query_map(params![feed.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if values.len() != 1 {
+        return Ok(());
+    }
+    let npub = &values[0];
+
+    let existing_for_artist: Option<String> = conn
+        .query_row(
+            "SELECT value FROM external_ids \
+             WHERE entity_type = 'artist' AND entity_id = ?1 AND scheme = 'nostr_npub'",
+            params![artist_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if existing_for_artist.as_deref().is_some_and(|value| value != npub) {
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT entity_type, entity_id FROM external_ids \
+         WHERE scheme = 'nostr_npub' AND value = ?1 \
+         ORDER BY entity_type, entity_id",
+    )?;
+    let existing_owners: Vec<(String, String)> = stmt
+        .query_map(params![npub], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    if existing_owners
+        .iter()
+        .any(|(entity_type, entity_id)| entity_type != "artist" || entity_id != &artist_id)
+    {
+        return Ok(());
+    }
+
+    link_external_id(conn, "artist", &artist_id, "nostr_npub", npub)?;
+    Ok(())
+}
+
+fn promote_release_sources_for_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
+    let release_id = canonical_release_id_for_feed_guid(&feed.feed_guid);
+    delete_promoted_entity_sources(conn, "release", &release_id)?;
+
+    record_promoted_entity_source(conn, "release", &release_id, "source_feed", &feed.feed_url)?;
+
+    let mut seen = std::collections::HashSet::from([feed.feed_url.clone()]);
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT url FROM source_entity_links \
+         WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND link_type = 'website' \
+         ORDER BY position, url",
+    )?;
+    let urls: Vec<String> = stmt
+        .query_map(params![feed.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for url in urls {
+        if seen.insert(url.clone()) {
+            record_promoted_entity_source(conn, "release", &release_id, "source_release_page", &url)?;
+        }
+    }
+    Ok(())
+}
+
+fn promote_recording_sources_for_feed(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    for track in get_tracks_for_feed(conn, feed_guid)? {
+        let recording_id = canonical_recording_id_for_track_guid(&track.track_guid);
+        delete_promoted_entity_sources(conn, "recording", &recording_id)?;
+
+        let mut seen = std::collections::HashSet::new();
+
+        let mut enclosure_stmt = conn.prepare(
+            "SELECT DISTINCT url FROM source_item_enclosures \
+             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND is_primary = 1 \
+             ORDER BY position, url",
+        )?;
+        let enclosure_urls: Vec<String> = enclosure_stmt
+            .query_map(params![feed_guid, track.track_guid], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+
+        if enclosure_urls.is_empty() {
+            if let Some(url) = &track.enclosure_url {
+                seen.insert(url.clone());
+                record_promoted_entity_source(
+                    conn,
+                    "recording",
+                    &recording_id,
+                    "source_primary_enclosure",
+                    url,
+                )?;
+            }
+        } else {
+            for url in enclosure_urls {
+                if seen.insert(url.clone()) {
+                    record_promoted_entity_source(
+                        conn,
+                        "recording",
+                        &recording_id,
+                        "source_primary_enclosure",
+                        &url,
+                    )?;
+                }
+            }
+        }
+
+        let mut link_stmt = conn.prepare(
+            "SELECT DISTINCT url FROM source_entity_links \
+             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND link_type = 'web_page' \
+             ORDER BY position, url",
+        )?;
+        let link_urls: Vec<String> = link_stmt
+            .query_map(params![feed_guid, track.track_guid], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        for url in link_urls {
+            if seen.insert(url.clone()) {
+                record_promoted_entity_source(
+                    conn,
+                    "recording",
+                    &recording_id,
+                    "source_recording_page",
+                    &url,
+                )?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Promotes a narrow set of high-confidence source claims onto canonical rows.
+///
+/// Current promotion policy is intentionally conservative:
+/// - a feed-level `nostr_npub` is promoted only when the feed resolves to a
+///   single canonical artist and there is no conflicting owner for that npub
+/// - release and recording provenance is promoted into `entity_source` rows so
+///   canonical entities retain stable page/feed/media URLs without flattening
+///   the underlying source claim tables
+pub fn sync_canonical_promotions_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<(), DbError> {
+    let Some(feed) = get_feed_by_guid(conn, feed_guid)? else {
+        cleanup_orphaned_canonical_rows(conn)?;
+        return Ok(());
+    };
+
+    promote_high_confidence_artist_ids_for_feed(conn, &feed)?;
+    promote_release_sources_for_feed(conn, &feed)?;
+    promote_recording_sources_for_feed(conn, feed_guid)?;
     Ok(())
 }
 
@@ -1961,6 +2175,10 @@ pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<()
         params![recording_id],
     )?;
     conn.execute(
+        "DELETE FROM entity_source WHERE entity_type = 'recording' AND entity_id = ?1",
+        params![recording_id],
+    )?;
+    conn.execute(
         "DELETE FROM track_tag WHERE track_guid = ?1",
         params![track_guid],
     )?;
@@ -2137,6 +2355,10 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
     conn.execute(
         "DELETE FROM releases WHERE release_id = ?1",
+        params![release_id],
+    )?;
+    conn.execute(
+        "DELETE FROM entity_source WHERE entity_type = 'release' AND entity_id = ?1",
         params![release_id],
     )?;
 
@@ -4694,6 +4916,7 @@ pub fn ingest_transaction(
     // 4c. Rebuild deterministic canonical release/recording state from the
     // final post-ingest feed/track rows before committing.
     sync_canonical_state_for_feed(&tx, &feed.feed_guid)?;
+    sync_canonical_promotions_for_feed(&tx, &feed.feed_guid)?;
 
     // 5. Insert events, collect seqs, sign with assigned seq, update signatures
     // Issue-SEQ-INTEGRITY — 2026-03-14

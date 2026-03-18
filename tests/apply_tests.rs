@@ -1303,6 +1303,18 @@ fn apply_source_entity_ids_replaced() {
 
     assert_eq!(stored.0, "nostr_npub");
     assert_eq!(stored.1, "npub1example");
+
+    let promoted_value: String = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT value FROM external_ids \
+             WHERE entity_type = 'artist' AND entity_id = 'artist-1' AND scheme = 'nostr_npub'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("promoted external id should exist")
+    };
+    assert_eq!(promoted_value, "npub1example");
 }
 
 // ---------------------------------------------------------------------------
