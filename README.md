@@ -100,6 +100,27 @@ Changing the chain on a primary does not affect community nodes.
 
 ## Running a primary node
 
+### Build or install the binary
+
+Choose one:
+
+```bash
+# Build from source
+cargo build --release
+./target/release/stophammer
+```
+
+```bash
+# Or install the latest published Linux binary
+sh install.sh
+stophammer
+```
+
+```bash
+# Or build a container image
+docker build -t stophammer .
+```
+
 ### Credentials
 
 The primary generates an ed25519 signing key at `KEY_PATH` on first start.
@@ -120,7 +141,7 @@ DB_PATH=./stophammer.db \
 KEY_PATH=./signing.key \
 CRAWL_TOKEN=change-me \
 BIND=0.0.0.0:8008 \
-./stophammer
+./target/release/stophammer
 ```
 
 The primary exposes:
@@ -164,7 +185,7 @@ BIND=0.0.0.0:8008 \
 PRIMARY_URL=http://your-primary:8008 \
 NODE_ADDRESS=http://this-node-public-url:8008 \
 SYNC_TOKEN=change-me \
-./stophammer
+./target/release/stophammer
 ```
 
 On startup, the community node:
@@ -269,14 +290,21 @@ that authenticate with `CRAWL_TOKEN` and POST to `/ingest/feed`.
 
 ### RSS crawler
 
-All crawling modes live in [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler):
+All crawling modes live in [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler).
+From this checkout, run them via the crawler submodule manifest:
 
 ```bash
 # One-shot: crawl specific feed URLs
-CRAWL_TOKEN=secret stophammer-crawler crawl https://feeds.rssblue.com/stereon-music
+CRAWL_TOKEN=secret \
+INGEST_URL=http://127.0.0.1:8008/ingest/feed \
+cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
+  crawl https://feeds.rssblue.com/stereon-music
 
 # From a file
-CRAWL_TOKEN=secret stophammer-crawler crawl feeds.txt
+CRAWL_TOKEN=secret \
+INGEST_URL=http://127.0.0.1:8008/ingest/feed \
+cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
+  crawl feeds.txt
 ```
 
 ## Maintenance utilities
@@ -305,7 +333,10 @@ Schedule with cron:
 Listens to the Podping WebSocket stream and submits music feeds in real time:
 
 ```bash
-CRAWL_TOKEN=secret stophammer-crawler podping --concurrency 3
+CRAWL_TOKEN=secret \
+INGEST_URL=http://127.0.0.1:8008/ingest/feed \
+cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
+  podping --concurrency 3
 ```
 
 ### PodcastIndex snapshot importer
@@ -313,7 +344,33 @@ CRAWL_TOKEN=secret stophammer-crawler podping --concurrency 3
 Bulk-imports from a PodcastIndex database snapshot:
 
 ```bash
-CRAWL_TOKEN=secret stophammer-crawler import --db /path/to/podcastindex_feeds.db
+CRAWL_TOKEN=secret \
+INGEST_URL=http://127.0.0.1:8008/ingest/feed \
+cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
+  import --db /path/to/podcastindex_feeds.db
+```
+
+### Cached corpus replay and analysis
+
+The crawler repo also ships local analysis binaries for replaying cached RSS data
+without refetching the internet:
+
+```bash
+# Audit feeds into NDJSON
+cargo run --manifest-path stophammer-crawler/Cargo.toml --bin feed_audit -- \
+  --db ./stophammer-crawler/analysis/data/stophammer-feeds.db \
+  --output ./stophammer-crawler/analysis/data/feed_audit.ndjson
+
+# Re-analyze the NDJSON corpus
+cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_analyzer -- \
+  --input ./stophammer-crawler/analysis/data/feed_audit.ndjson
+
+# Replay cached feeds into the primary without refetching them
+CRAWL_TOKEN=secret \
+INGEST_URL=http://127.0.0.1:8008/ingest/feed \
+cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_import -- \
+  --input ./stophammer-crawler/analysis/data/feed_audit.ndjson \
+  --reset
 ```
 
 ---

@@ -69,6 +69,28 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 
 ## Startup Modes
 
+## Build and Install
+
+### Build from source
+
+```bash
+cargo build --release
+./target/release/stophammer
+```
+
+### Install the published Linux binary
+
+```bash
+sh install.sh
+stophammer
+```
+
+### Container image
+
+```bash
+docker build -t stophammer .
+```
+
 ### Primary Mode (default)
 
 ```
@@ -231,6 +253,23 @@ cp signing.key signing.key.bak
 3. Replace `KEY_PATH` with the backed-up signing key
 4. Start the node
 5. Community nodes will catch up automatically via the fallback poll
+
+---
+
+## Maintenance Utilities
+
+This repo ships two local maintenance binaries for derived-state rebuilds:
+
+```bash
+# Rebuild canonical releases / recordings and source-to-canonical maps
+cargo run --bin backfill_canonical -- --db ./stophammer.db
+
+# Re-run deterministic artist-identity merges from staged source evidence
+cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+```
+
+These do not crawl or fetch from the network. They operate on an existing local
+SQLite database.
 
 ---
 
