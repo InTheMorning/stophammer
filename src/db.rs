@@ -758,6 +758,56 @@ pub(crate) fn merge_artists_sql(
         params![target_artist_id, source_artist_id],
     )?;
 
+    conn.execute(
+        "UPDATE artist_tag SET artist_id = ?1 \
+         WHERE artist_id = ?2 \
+           AND NOT EXISTS ( \
+               SELECT 1 FROM artist_tag existing \
+               WHERE existing.artist_id = ?1 \
+                 AND existing.tag_id = artist_tag.tag_id \
+           )",
+        params![target_artist_id, source_artist_id],
+    )?;
+    conn.execute(
+        "DELETE FROM artist_tag WHERE artist_id = ?1",
+        params![source_artist_id],
+    )?;
+
+    conn.execute(
+        "UPDATE external_ids SET entity_id = ?1 \
+         WHERE entity_type = 'artist' AND entity_id = ?2 \
+           AND NOT EXISTS ( \
+               SELECT 1 FROM external_ids existing \
+               WHERE existing.entity_type = 'artist' \
+                 AND existing.entity_id = ?1 \
+                 AND existing.scheme = external_ids.scheme \
+           )",
+        params![target_artist_id, source_artist_id],
+    )?;
+    conn.execute(
+        "DELETE FROM external_ids WHERE entity_type = 'artist' AND entity_id = ?1",
+        params![source_artist_id],
+    )?;
+
+    conn.execute(
+        "UPDATE entity_source SET entity_id = ?1 \
+         WHERE entity_type = 'artist' AND entity_id = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+
+    conn.execute(
+        "UPDATE artist_artist_rel SET artist_id_a = ?1 WHERE artist_id_a = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+    conn.execute(
+        "UPDATE artist_artist_rel SET artist_id_b = ?1 WHERE artist_id_b = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+    conn.execute(
+        "DELETE FROM artist_artist_rel WHERE artist_id_a = artist_id_b",
+        [],
+    )?;
+
     // Drop any remaining source aliases (those that conflicted).
     conn.execute(
         "DELETE FROM artist_aliases WHERE artist_id = ?1",
@@ -3211,6 +3261,293 @@ pub fn merge_artists_with_event(
 
     tx.commit()?;
     Ok((transferred, seq, signed_by, signature))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArtistIdentityBackfillStats {
+    pub groups_processed: usize,
+    pub merges_applied: usize,
+}
+
+fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String>, DbError> {
+    let mut current = artist_id.to_string();
+    for _ in 0..32 {
+        let redirect: Option<String> = conn
+            .query_row(
+                "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
+                params![current],
+                |row| row.get(0),
+            )
+            .optional()?;
+        match redirect {
+            Some(next) if next != current => current = next,
+            _ => break,
+        }
+    }
+    if get_artist_by_id(conn, &current)?.is_some() {
+        Ok(Some(current))
+    } else {
+        Ok(None)
+    }
+}
+
+fn collect_artist_groups_from_rows(
+    rows: Vec<(String, String, String)>,
+) -> Vec<std::collections::BTreeSet<String>> {
+    let mut grouped: std::collections::BTreeMap<(String, String), std::collections::BTreeSet<String>> =
+        std::collections::BTreeMap::new();
+    for (name_key, evidence_key, artist_id) in rows {
+        grouped
+            .entry((name_key, evidence_key))
+            .or_default()
+            .insert(artist_id);
+    }
+    grouped
+        .into_values()
+        .filter(|artist_ids| artist_ids.len() > 1)
+        .collect()
+}
+
+fn collect_artist_groups_by_npub(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), sid.value, acn.artist_id \
+         FROM source_entity_ids sid \
+         JOIN feeds f ON f.feed_guid = sid.feed_guid \
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE sid.entity_type = 'feed' \
+           AND sid.scheme = 'nostr_npub' \
+           AND TRIM(sid.value) <> '' \
+         ORDER BY LOWER(ac.display_name), sid.value, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows(rows))
+}
+
+fn collect_artist_groups_by_publisher_guid(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), fri.remote_feed_guid, acn.artist_id \
+         FROM feed_remote_items_raw fri \
+         JOIN feeds f ON f.feed_guid = fri.feed_guid \
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE fri.medium = 'publisher' \
+           AND TRIM(fri.remote_feed_guid) <> '' \
+         ORDER BY LOWER(ac.display_name), fri.remote_feed_guid, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows(rows))
+}
+
+fn collect_artist_groups_by_website(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), sel.url, acn.artist_id \
+         FROM source_entity_links sel \
+         JOIN feeds f ON f.feed_guid = sel.feed_guid \
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE sel.entity_type = 'feed' \
+           AND sel.link_type = 'website' \
+           AND TRIM(sel.url) <> '' \
+         ORDER BY LOWER(ac.display_name), sel.url, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows(rows))
+}
+
+fn collect_artist_groups_by_release_cluster(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), sfr.release_id, acn.artist_id \
+         FROM source_feed_release_map sfr \
+         JOIN feeds f ON f.feed_guid = sfr.feed_guid \
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE sfr.match_type IN ('exact_release_signature_v1', 'single_track_cross_platform_release_v1') \
+         ORDER BY LOWER(ac.display_name), sfr.release_id, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows(rows))
+}
+
+fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) \
+         FROM artist_credit_name acn \
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+         JOIN feeds f ON f.artist_credit_id = ac.id \
+         WHERE acn.artist_id = ?1 \
+           AND ( \
+                EXISTS(SELECT 1 FROM source_entity_ids sid \
+                       WHERE sid.entity_type = 'feed' \
+                         AND sid.entity_id = f.feed_guid \
+                         AND sid.scheme = 'nostr_npub') \
+             OR EXISTS(SELECT 1 FROM feed_remote_items_raw fri \
+                       WHERE fri.feed_guid = f.feed_guid \
+                         AND fri.medium = 'publisher' \
+                         AND TRIM(fri.remote_feed_guid) <> '') \
+             OR EXISTS(SELECT 1 FROM source_entity_links sel \
+                       WHERE sel.entity_type = 'feed' \
+                         AND sel.entity_id = f.feed_guid \
+                         AND sel.link_type = 'website' \
+                         AND TRIM(sel.url) <> '') \
+           )",
+        params![artist_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
+fn artist_platforms(conn: &Connection, artist_id: &str) -> Result<std::collections::BTreeSet<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT spc.platform_key \
+         FROM artist_credit_name acn \
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+         JOIN feeds f ON f.artist_credit_id = ac.id \
+         JOIN source_platform_claims spc ON spc.feed_guid = f.feed_guid \
+         WHERE acn.artist_id = ?1 \
+           AND TRIM(spc.platform_key) <> ''",
+    )?;
+    let rows = stmt
+        .query_map(params![artist_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows.into_iter().collect())
+}
+
+fn collect_artist_groups_by_anchored_name(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT LOWER(name), artist_id FROM artists ORDER BY LOWER(name), artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut names_to_artists: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
+    for (name_key, artist_id) in rows {
+        names_to_artists.entry(name_key).or_default().push(artist_id);
+    }
+
+    let mut groups = Vec::new();
+    for artist_ids in names_to_artists.into_values() {
+        if artist_ids.len() <= 1 {
+            continue;
+        }
+
+        let mut anchored = Vec::new();
+        let mut weak = Vec::new();
+        for artist_id in artist_ids {
+            let feed_count = artist_feed_count(conn, &artist_id)?;
+            let strong = artist_has_strong_identity_claims(conn, &artist_id)?;
+            if strong && feed_count >= 2 {
+                anchored.push(artist_id);
+                continue;
+            }
+
+            if strong || feed_count != 1 {
+                continue;
+            }
+
+            let platforms = artist_platforms(conn, &artist_id)?;
+            if platforms
+                .iter()
+                .all(|platform| matches!(platform.as_str(), "fountain" | "rss_blue"))
+            {
+                weak.push(artist_id);
+            }
+        }
+
+        if anchored.len() == 1 && !weak.is_empty() {
+            let mut group = std::collections::BTreeSet::new();
+            group.insert(anchored.remove(0));
+            group.extend(weak);
+            groups.push(group);
+        }
+    }
+
+    Ok(groups)
+}
+
+fn preferred_artist_target(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<Option<String>, DbError> {
+    let mut ranked = Vec::new();
+    for artist_id in artist_ids {
+        let Some(current_id) = current_artist_id(conn, artist_id)? else {
+            continue;
+        };
+        let Some(artist) = get_artist_by_id(conn, &current_id)? else {
+            continue;
+        };
+        ranked.push((artist_feed_count(conn, &current_id)?, artist.created_at, current_id));
+    }
+    ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    Ok(ranked.into_iter().next().map(|(_, _, artist_id)| artist_id))
+}
+
+pub fn backfill_artist_identity(
+    conn: &mut Connection,
+) -> Result<ArtistIdentityBackfillStats, DbError> {
+    let tx = conn.transaction()?;
+    let mut groups = Vec::new();
+    groups.extend(collect_artist_groups_by_npub(&tx)?);
+    groups.extend(collect_artist_groups_by_publisher_guid(&tx)?);
+    groups.extend(collect_artist_groups_by_website(&tx)?);
+    groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
+    groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
+
+    let mut stats = ArtistIdentityBackfillStats {
+        groups_processed: 0,
+        merges_applied: 0,
+    };
+
+    for group in groups {
+        let mut current_ids = std::collections::BTreeSet::new();
+        for artist_id in group {
+            if let Some(current_id) = current_artist_id(&tx, &artist_id)? {
+                current_ids.insert(current_id);
+            }
+        }
+        if current_ids.len() <= 1 {
+            continue;
+        }
+        let Some(target_artist_id) = preferred_artist_target(&tx, &current_ids)? else {
+            continue;
+        };
+        stats.groups_processed += 1;
+        for source_artist_id in current_ids {
+            if source_artist_id == target_artist_id {
+                continue;
+            }
+            if current_artist_id(&tx, &source_artist_id)?.as_deref() != Some(source_artist_id.as_str())
+            {
+                continue;
+            }
+            merge_artists_sql(&tx, &source_artist_id, &target_artist_id)?;
+            stats.merges_applied += 1;
+        }
+    }
+
+    tx.commit()?;
+    Ok(stats)
 }
 
 // ── get_feed_by_guid ────────────────────────────────────────────────────────
