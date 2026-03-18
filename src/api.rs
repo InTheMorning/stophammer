@@ -554,6 +554,59 @@ pub struct AppState {
     pub skip_ssrf_validation: bool,
 }
 
+fn build_source_contributor_claims(
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    persons: &[ingest::IngestPerson],
+    now: i64,
+) -> Vec<model::SourceContributorClaim> {
+    persons
+        .iter()
+        .map(|person| model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            position: person.position,
+            name: person.name.clone(),
+            role: person.role.clone(),
+            group_name: person.group_name.clone(),
+            href: person.href.clone(),
+            img: person.img.clone(),
+            source: "podcast_person".to_string(),
+            extraction_path: format!("{entity_type}.podcast:person"),
+            observed_at: now,
+        })
+        .collect()
+}
+
+fn build_source_entity_id_claims(
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    entity_ids: &[ingest::IngestEntityId],
+    now: i64,
+) -> Vec<model::SourceEntityIdClaim> {
+    let mut seen = HashSet::new();
+    entity_ids
+        .iter()
+        .filter(|claim| seen.insert((claim.scheme.clone(), claim.value.clone())))
+        .map(|claim| model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            position: claim.position,
+            scheme: claim.scheme.clone(),
+            value: claim.value.clone(),
+            source: "podcast_txt".to_string(),
+            extraction_path: format!("{entity_type}.podcast:txt"),
+            observed_at: now,
+        })
+        .collect()
+}
+
 // ── ApiError ─────────────────────────────────────────────────────────────────
 
 /// HTTP error response returned by all handlers; serializes to `{"error":"..."}`.
@@ -1008,6 +1061,21 @@ async fn handle_ingest_feed(
                 .collect();
             let live_events_for_sse = live_events.clone();
 
+            let mut source_contributor_claims = build_source_contributor_claims(
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                &feed_data.persons,
+                now,
+            );
+            let mut source_entity_ids = build_source_entity_id_claims(
+                &feed_data.feed_guid,
+                "feed",
+                &feed_data.feed_guid,
+                &feed_data.entity_ids,
+                now,
+            );
+
             // 9. Build track tuples
             let mut track_tuples: Vec<(
                 model::Track,
@@ -1020,6 +1088,21 @@ async fn handle_ingest_feed(
                 Vec::with_capacity(feed_data.tracks.len());
 
             for track_data in &feed_data.tracks {
+                source_contributor_claims.extend(build_source_contributor_claims(
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    &track_data.persons,
+                    now,
+                ));
+                source_entity_ids.extend(build_source_entity_id_claims(
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    &track_data.entity_ids,
+                    now,
+                ));
+
                 // Per-track artist resolution (feed-scoped)
                 // Issue-ARTIST-IDENTITY — 2026-03-14
                 let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name
@@ -1095,9 +1178,28 @@ async fn handle_ingest_feed(
                 track_credits.push(track_credit);
             }
 
-            for live_item in feed_data.live_items.iter().filter(|item| {
-                item.status.eq_ignore_ascii_case("ended") && item.enclosure_url.is_some()
-            }) {
+            for live_item in &feed_data.live_items {
+                source_contributor_claims.extend(build_source_contributor_claims(
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    &live_item.persons,
+                    now,
+                ));
+                source_entity_ids.extend(build_source_entity_id_claims(
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    &live_item.entity_ids,
+                    now,
+                ));
+
+                if !(live_item.status.eq_ignore_ascii_case("ended")
+                    && live_item.enclosure_url.is_some())
+                {
+                    continue;
+                }
+
                 let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
                     let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
                     let credit = db::get_or_create_artist_credit(
@@ -1182,6 +1284,8 @@ async fn handle_ingest_feed(
                 &feed_artist_credit,
                 &feed,
                 &feed_remote_items,
+                &source_contributor_claims,
+                &source_entity_ids,
                 &feed_routes,
                 &live_events,
                 &track_tuples,
@@ -1220,6 +1324,8 @@ async fn handle_ingest_feed(
                 feed_artist_credit,
                 feed,
                 feed_remote_items,
+                source_contributor_claims,
+                source_entity_ids,
                 feed_routes,
                 live_events,
                 track_tuples,

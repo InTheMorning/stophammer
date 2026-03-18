@@ -46,6 +46,10 @@ pub struct IngestFeedData {
     pub pub_date: Option<i64>,
     /// Feed-level `podcast:remoteItem` references to artist/publisher feeds.
     pub remote_items: Vec<IngestRemoteFeedRef>,
+    /// Feed-level contributor claims from `podcast:person`.
+    pub persons: Vec<IngestPerson>,
+    /// Feed-level staged identity claims from typed metadata such as `podcast:txt`.
+    pub entity_ids: Vec<IngestEntityId>,
     /// Feed-level `podcast:value` recipients. Tracks that have no payment
     /// routes of their own fall back to these at play time.
     pub feed_payment_routes: Vec<IngestPaymentRoute>,
@@ -70,6 +74,8 @@ pub struct IngestTrackData {
     pub description: Option<String>,
     /// Per-track author override — some feeds have different artist per track
     pub author_name: Option<String>,
+    pub persons: Vec<IngestPerson>,
+    pub entity_ids: Vec<IngestEntityId>,
     pub payment_routes: Vec<IngestPaymentRoute>,
     pub value_time_splits: Vec<IngestValueTimeSplit>,
 }
@@ -100,8 +106,27 @@ pub struct IngestLiveItemData {
     pub explicit: bool,
     pub description: Option<String>,
     pub author_name: Option<String>,
+    pub persons: Vec<IngestPerson>,
+    pub entity_ids: Vec<IngestEntityId>,
     pub payment_routes: Vec<IngestPaymentRoute>,
     pub value_time_splits: Vec<IngestValueTimeSplit>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestPerson {
+    pub position: i64,
+    pub name: String,
+    pub role: Option<String>,
+    pub group_name: Option<String>,
+    pub href: Option<String>,
+    pub img: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestEntityId {
+    pub position: i64,
+    pub scheme: String,
+    pub value: String,
 }
 
 /// Ingest-time payment route before a DB row ID is assigned.

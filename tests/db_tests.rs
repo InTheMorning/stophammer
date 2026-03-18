@@ -1253,3 +1253,153 @@ fn source_entity_ids_replace_round_trip() {
     assert_eq!(stored_again.len(), 1);
     assert_eq!(stored_again[0].scheme, "nostr_npub");
 }
+
+#[test]
+fn ingest_transaction_persists_source_claim_snapshots_and_events() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let artist = stophammer::db::resolve_artist(&conn, "Claim Artist", Some("feed-claim-ingest"))
+        .expect("resolve artist");
+    let artist_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist.name,
+        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        Some("feed-claim-ingest"),
+    )
+    .expect("artist credit");
+
+    let feed = stophammer::model::Feed {
+        feed_guid: "feed-claim-ingest".into(),
+        feed_url: "https://example.com/feed-claim-ingest.xml".into(),
+        title: "Claim Feed".into(),
+        title_lower: "claim feed".into(),
+        artist_credit_id: artist_credit.id,
+        description: None,
+        image_url: None,
+        language: Some("en".into()),
+        explicit: false,
+        itunes_type: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
+    };
+
+    let contributor_claims = vec![
+        stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed.feed_guid.clone(),
+            position: 0,
+            name: "Claim Artist".into(),
+            role: Some("bandleader".into()),
+            group_name: Some("music".into()),
+            href: Some("https://example.com/artist".into()),
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "feed.podcast:person".into(),
+            observed_at: now,
+        },
+        stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "live_item".into(),
+            entity_id: "live-claim-1".into(),
+            position: 0,
+            name: "Live Guest".into(),
+            role: Some("guest".into()),
+            group_name: Some("cast".into()),
+            href: None,
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "live_item.podcast:person".into(),
+            observed_at: now,
+        },
+    ];
+
+    let entity_id_claims = vec![
+        stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed.feed_guid.clone(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1claimfeed".into(),
+            source: "podcast_txt".into(),
+            extraction_path: "feed.podcast:txt".into(),
+            observed_at: now,
+        },
+        stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: "track-claim-1".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1claimtrack".into(),
+            source: "podcast_txt".into(),
+            extraction_path: "track.podcast:txt".into(),
+            observed_at: now,
+        },
+    ];
+
+    let event_rows = stophammer::db::build_diff_events(
+        &conn,
+        &artist,
+        &artist_credit,
+        &feed,
+        &[],
+        &contributor_claims,
+        &entity_id_claims,
+        &[],
+        &[],
+        &[],
+        &[],
+        now,
+        &[],
+    )
+    .expect("build diff events");
+
+    let event_types: Vec<_> = event_rows.iter().map(|e| e.event_type.clone()).collect();
+    assert!(
+        event_types.contains(&stophammer::event::EventType::SourceContributorClaimsReplaced)
+    );
+    assert!(event_types.contains(&stophammer::event::EventType::SourceEntityIdsReplaced));
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("signing.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    stophammer::db::ingest_transaction(
+        &mut conn,
+        artist,
+        artist_credit,
+        feed,
+        vec![],
+        contributor_claims.clone(),
+        entity_id_claims.clone(),
+        vec![],
+        vec![],
+        vec![],
+        event_rows,
+        &signer,
+    )
+    .expect("ingest transaction");
+
+    let stored_contributor_claims =
+        stophammer::db::get_source_contributor_claims_for_feed(&conn, "feed-claim-ingest")
+            .expect("stored contributor claims");
+    let stored_entity_id_claims =
+        stophammer::db::get_source_entity_ids_for_feed(&conn, "feed-claim-ingest")
+            .expect("stored entity ids");
+
+    assert_eq!(stored_contributor_claims.len(), 2);
+    assert_eq!(stored_entity_id_claims.len(), 2);
+    assert_eq!(stored_contributor_claims[1].entity_type, "live_item");
+    assert_eq!(stored_entity_id_claims[0].scheme, "nostr_npub");
+}

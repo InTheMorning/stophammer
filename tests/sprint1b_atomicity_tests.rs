@@ -328,6 +328,8 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
                 "split": 95,
                 "fee": false
             }],
+            "persons": [],
+            "entity_ids": [],
             "live_items": [],
             "tracks": [{
                 "track_guid": track_guid,
@@ -342,6 +344,8 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
                 "explicit": false,
                 "description": "First track for atomicity test",
                 "author_name": null,
+                "persons": [],
+                "entity_ids": [],
                 "payment_routes": [{
                     "recipient_name": "S1B Artist",
                     "route_type": "node",
@@ -572,6 +576,8 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         vec![],
         vec![],
         vec![],
+        vec![],
+        vec![],
         vec![(track, vec![route], vec![])],
         // Issue-WRITE-AMP — 2026-03-14: include TrackUpserted event so that
         // search/quality is computed for the track (diff-aware gating).
@@ -760,6 +766,8 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         artist,
         artist_credit,
         feed,
+        vec![],
+        vec![],
         vec![],
         vec![],
         vec![],

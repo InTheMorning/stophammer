@@ -2123,6 +2123,42 @@ fn live_events_changed(existing: &[LiveEvent], new: &[LiveEvent]) -> bool {
         })
 }
 
+fn source_contributor_claims_changed(
+    existing: &[SourceContributorClaim],
+    new: &[SourceContributorClaim],
+) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.name != b.name
+                || a.role != b.role
+                || a.group_name != b.group_name
+                || a.href != b.href
+                || a.img != b.img
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
+fn source_entity_ids_changed(existing: &[SourceEntityIdClaim], new: &[SourceEntityIdClaim]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.scheme != b.scheme
+                || a.value != b.value
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
 // ── build_diff_events ───────────────────────────────────────────────────────
 // Issue-WRITE-AMP — 2026-03-14
 
@@ -2145,6 +2181,8 @@ pub fn build_diff_events(
     artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    source_contributor_claims: &[SourceContributorClaim],
+    source_entity_ids: &[SourceEntityIdClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2165,6 +2203,8 @@ pub fn build_diff_events(
                 artist_credit,
                 feed,
                 remote_items,
+                source_contributor_claims,
+                source_entity_ids,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2180,6 +2220,8 @@ pub fn build_diff_events(
                 artist_credit,
                 feed,
                 remote_items,
+                source_contributor_claims,
+                source_entity_ids,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2202,6 +2244,8 @@ fn build_all_events(
     artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    source_contributor_claims: &[SourceContributorClaim],
+    source_entity_ids: &[SourceEntityIdClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2238,6 +2282,22 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
+    if !source_contributor_claims.is_empty() {
+        event_rows.push(build_source_contributor_claims_event(
+            feed,
+            source_contributor_claims,
+            now,
+            &warn_vec,
+        )?);
+    }
+    if !source_entity_ids.is_empty() {
+        event_rows.push(build_source_entity_ids_event(
+            feed,
+            source_entity_ids,
+            now,
+            &warn_vec,
+        )?);
+    }
     if !live_events.is_empty() {
         event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
@@ -2267,6 +2327,8 @@ fn build_changed_events(
     artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
+    source_contributor_claims: &[SourceContributorClaim],
+    source_entity_ids: &[SourceEntityIdClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2313,6 +2375,32 @@ fn build_changed_events(
         event_rows.push(build_feed_remote_items_event(
             feed,
             remote_items,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged contributor-claim diff ---
+    let existing_source_contributor_claims =
+        get_source_contributor_claims_for_feed(conn, &feed.feed_guid)?;
+    if source_contributor_claims_changed(
+        &existing_source_contributor_claims,
+        source_contributor_claims,
+    ) {
+        event_rows.push(build_source_contributor_claims_event(
+            feed,
+            source_contributor_claims,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged entity-ID diff ---
+    let existing_source_entity_ids = get_source_entity_ids_for_feed(conn, &feed.feed_guid)?;
+    if source_entity_ids_changed(&existing_source_entity_ids, source_entity_ids) {
+        event_rows.push(build_source_entity_ids_event(
+            feed,
+            source_entity_ids,
             now,
             &warn_vec,
         )?);
@@ -2476,6 +2564,48 @@ fn build_live_events_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::LiveEventsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_contributor_claims_event(
+    feed: &Feed,
+    claims: &[SourceContributorClaim],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceContributorClaimsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        claims: claims.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceContributorClaimsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_entity_ids_event(
+    feed: &Feed,
+    claims: &[SourceEntityIdClaim],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceEntityIdsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        claims: claims.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceEntityIdsReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -3296,6 +3426,8 @@ pub fn ingest_transaction(
     artist_credit: ArtistCredit,
     feed: Feed,
     remote_items: Vec<FeedRemoteItemRaw>,
+    source_contributor_claims: Vec<SourceContributorClaim>,
+    source_entity_ids: Vec<SourceEntityIdClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
     tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
@@ -3488,6 +3620,58 @@ pub fn ingest_transaction(
                 live_event.scheduled_end,
                 live_event.created_at,
                 live_event.updated_at,
+            ],
+        )?;
+    }
+
+    // 3e. Replace staged source contributor claims for this feed
+    tx.execute(
+        "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for claim in &source_contributor_claims {
+        tx.execute(
+            "INSERT INTO source_contributor_claims \
+             (feed_guid, entity_type, entity_id, position, name, role, group_name, href, img, \
+              source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.name,
+                &claim.role,
+                &claim.group_name,
+                &claim.href,
+                &claim.img,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
+            ],
+        )?;
+    }
+
+    // 3f. Replace staged source identity claims for this feed
+    tx.execute(
+        "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for claim in &source_entity_ids {
+        tx.execute(
+            "INSERT INTO source_entity_ids \
+             (feed_guid, entity_type, entity_id, position, scheme, value, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.scheme,
+                &claim.value,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
             ],
         )?;
     }

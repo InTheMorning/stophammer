@@ -33,6 +33,8 @@ fn sample_request() -> IngestFeedRequest {
             raw_medium: Some("music".into()),
             pub_date: None,
             remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
             feed_payment_routes: vec![IngestPaymentRoute {
                 recipient_name: Some("host".into()),
                 route_type: RouteType::Keysend,
@@ -58,6 +60,8 @@ fn sample_request() -> IngestFeedRequest {
                 explicit: false,
                 description: None,
                 payment_routes: vec![],
+                persons: vec![],
+                entity_ids: vec![],
                 value_time_splits: vec![],
             }],
         }),

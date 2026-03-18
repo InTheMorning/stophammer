@@ -154,6 +154,8 @@ fn ingest_and_count_track_events(
         &artist_credit,
         &feed_model,
         &[], // no remote items
+        &[], // no source contributor claims
+        &[], // no source entity IDs
         &[], // no feed routes
         &[], // no live events
         &track_tuples,
@@ -168,6 +170,8 @@ fn ingest_and_count_track_events(
         artist,
         artist_credit,
         feed_model,
+        vec![],
+        vec![],
         vec![],
         vec![],
         vec![],
