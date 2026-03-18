@@ -571,6 +571,7 @@ fn build_source_contributor_claims(
             position: person.position,
             name: person.name.clone(),
             role: person.role.clone(),
+            role_norm: normalize_role(person.role.as_deref()),
             group_name: person.group_name.clone(),
             href: person.href.clone(),
             img: person.img.clone(),
@@ -579,6 +580,36 @@ fn build_source_contributor_claims(
             observed_at: now,
         })
         .collect()
+}
+
+fn normalize_role(role: Option<&str>) -> Option<String> {
+    let role = role?.trim();
+    if role.is_empty() {
+        return None;
+    }
+
+    Some(
+        role.split_whitespace()
+            .map(|part| part.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join(" "),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_role;
+
+    #[test]
+    fn normalize_role_lowercases_and_collapses_whitespace() {
+        assert_eq!(normalize_role(None), None);
+        assert_eq!(normalize_role(Some("   ")), None);
+        assert_eq!(
+            normalize_role(Some("  Music   Contributor  ")).as_deref(),
+            Some("music contributor")
+        );
+        assert_eq!(normalize_role(Some("Host")).as_deref(), Some("host"));
+    }
 }
 
 fn build_source_entity_id_claims(
@@ -620,8 +651,9 @@ fn build_source_entity_links(
         .map(|link| {
             let extraction_path = match link.link_type.as_str() {
                 "self_feed" => "feed.atom:link[@rel='self']",
+                "website" => "feed.link[*]",
+                "web_page" => "entity.link[*]",
                 "content_stream" => "live_item.@contentLink",
-                "website" => "feed.link",
                 _ => "entity.link",
             };
             model::SourceEntityLink {

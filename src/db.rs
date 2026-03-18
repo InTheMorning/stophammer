@@ -149,6 +149,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0006_source_claim_staging.sql"),
     // Migration 7: add staged source-claim tables for links and release facts.
     include_str!("../migrations/0007_source_link_and_release_claims.sql"),
+    // Migration 8: preserve raw contributor roles and add a normalized copy.
+    include_str!("../migrations/0008_source_contributor_role_norm.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1356,7 +1358,7 @@ pub fn get_source_contributor_claims_for_feed(
     feed_guid: &str,
 ) -> Result<Vec<SourceContributorClaim>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, feed_guid, entity_type, entity_id, position, name, role, group_name, href, \
+        "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, \
          img, source, extraction_path, observed_at \
          FROM source_contributor_claims WHERE feed_guid = ?1 \
          ORDER BY entity_type, entity_id, position, id",
@@ -1371,12 +1373,13 @@ pub fn get_source_contributor_claims_for_feed(
             position: row.get(4)?,
             name: row.get(5)?,
             role: row.get(6)?,
-            group_name: row.get(7)?,
-            href: row.get(8)?,
-            img: row.get(9)?,
-            source: row.get(10)?,
-            extraction_path: row.get(11)?,
-            observed_at: row.get(12)?,
+            role_norm: row.get(7)?,
+            group_name: row.get(8)?,
+            href: row.get(9)?,
+            img: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
         })
     })?;
 
@@ -1400,9 +1403,9 @@ pub fn replace_source_contributor_claims_for_feed(
     for claim in claims {
         conn.execute(
             "INSERT INTO source_contributor_claims \
-             (feed_guid, entity_type, entity_id, position, name, role, group_name, href, img, \
+             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, \
               source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &claim.feed_guid,
                 &claim.entity_type,
@@ -1410,6 +1413,7 @@ pub fn replace_source_contributor_claims_for_feed(
                 claim.position,
                 &claim.name,
                 &claim.role,
+                &claim.role_norm,
                 &claim.group_name,
                 &claim.href,
                 &claim.img,
@@ -3893,9 +3897,9 @@ pub fn ingest_transaction(
     for claim in &source_contributor_claims {
         tx.execute(
             "INSERT INTO source_contributor_claims \
-             (feed_guid, entity_type, entity_id, position, name, role, group_name, href, img, \
+             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, \
               source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &claim.feed_guid,
                 &claim.entity_type,
@@ -3903,6 +3907,7 @@ pub fn ingest_transaction(
                 claim.position,
                 &claim.name,
                 &claim.role,
+                &claim.role_norm,
                 &claim.group_name,
                 &claim.href,
                 &claim.img,

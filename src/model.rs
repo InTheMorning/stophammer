@@ -188,7 +188,10 @@ pub struct SourceContributorClaim {
     pub entity_id: String,
     pub position: i64,
     pub name: String,
+    /// Published role text from the source feed, preserved verbatim.
     pub role: Option<String>,
+    /// Query-friendly normalized copy of `role` (trimmed, lowercase, collapsed whitespace).
+    pub role_norm: Option<String>,
     pub group_name: Option<String>,
     pub href: Option<String>,
     pub img: Option<String>,

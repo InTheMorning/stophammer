@@ -1163,6 +1163,7 @@ fn source_contributor_claims_replace_round_trip() {
             position: 0,
             name: "Alice".into(),
             role: Some("vocals".into()),
+            role_norm: Some("vocals".into()),
             group_name: Some("cast".into()),
             href: Some("https://example.com/alice".into()),
             img: None,
@@ -1178,6 +1179,7 @@ fn source_contributor_claims_replace_round_trip() {
             position: 0,
             name: "Bob".into(),
             role: Some("guitar".into()),
+            role_norm: Some("guitar".into()),
             group_name: None,
             href: None,
             img: None,
@@ -1196,6 +1198,7 @@ fn source_contributor_claims_replace_round_trip() {
     assert_eq!(stored[0].name, "Alice");
     assert_eq!(stored[1].entity_type, "track");
     assert_eq!(stored[1].role.as_deref(), Some("guitar"));
+    assert_eq!(stored[1].role_norm.as_deref(), Some("guitar"));
 
     stophammer::db::replace_source_contributor_claims_for_feed(&conn, &feed_guid, &claims[..1])
         .expect("replace contributor claims again");
@@ -1387,6 +1390,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
             position: 0,
             name: "Claim Artist".into(),
             role: Some("bandleader".into()),
+            role_norm: Some("bandleader".into()),
             group_name: Some("music".into()),
             href: Some("https://example.com/artist".into()),
             img: None,
@@ -1402,6 +1406,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
             position: 0,
             name: "Live Guest".into(),
             role: Some("guest".into()),
+            role_norm: Some("guest".into()),
             group_name: Some("cast".into()),
             href: None,
             img: None,

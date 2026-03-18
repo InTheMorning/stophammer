@@ -212,6 +212,7 @@ CREATE TABLE IF NOT EXISTS source_contributor_claims (
     position        INTEGER NOT NULL,
     name            TEXT NOT NULL,
     role            TEXT,
+    role_norm       TEXT,
     group_name      TEXT,
     href            TEXT,
     img             TEXT,
@@ -223,6 +224,7 @@ CREATE TABLE IF NOT EXISTS source_contributor_claims (
 
 CREATE INDEX IF NOT EXISTS idx_source_contrib_feed   ON source_contributor_claims(feed_guid);
 CREATE INDEX IF NOT EXISTS idx_source_contrib_entity ON source_contributor_claims(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_source_contrib_role_norm ON source_contributor_claims(role_norm);
 
 CREATE TABLE IF NOT EXISTS source_entity_ids (
     id              INTEGER PRIMARY KEY,

@@ -92,7 +92,7 @@ Source: `src/schema.sql`
 ### `source_contributor_claims`
 **Purpose:** Staged source-level contributor claims, intended for raw `podcast:person`-style data and other contributor evidence before canonical normalization.
 **Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id` (which feed, track, or live item the claim belongs to), `position`, `name`.
-**Notes:** This is a replicated source-claim table, not a canonical credit table. `role`, `group_name`, `href`, `img`, `source`, and `extraction_path` preserve source provenance.
+**Notes:** This is a replicated source-claim table, not a canonical credit table. `role` preserves the published text verbatim, while `role_norm` stores a lowercase, whitespace-normalized copy for grouping and analysis. `group_name`, `href`, `img`, `source`, and `extraction_path` preserve source provenance.
 
 ### `source_entity_ids`
 **Purpose:** Staged source-level identity claims such as Nostr IDs, MusicBrainz IDs, ISRCs, and platform-native identifiers.

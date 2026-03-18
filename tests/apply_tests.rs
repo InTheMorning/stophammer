@@ -1183,6 +1183,7 @@ fn apply_source_contributor_claims_replaced() {
             position: 0,
             name: "Alice".into(),
             role: Some("vocals".into()),
+            role_norm: Some("vocals".into()),
             group_name: Some("cast".into()),
             href: Some("https://example.com/alice".into()),
             img: None,
@@ -1211,19 +1212,20 @@ fn apply_source_contributor_claims_replaced() {
         "apply_single_event should succeed: {result:?}"
     );
 
-    let stored: (String, Option<String>) = {
+    let stored: (String, Option<String>, Option<String>) = {
         let conn = db.lock().expect("lock after apply");
         conn.query_row(
-            "SELECT name, role FROM source_contributor_claims \
+            "SELECT name, role, role_norm FROM source_contributor_claims \
              WHERE feed_guid = 'feed-contrib-1' AND entity_type = 'feed' AND position = 0",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .expect("contributor claim row should exist")
     };
 
     assert_eq!(stored.0, "Alice");
     assert_eq!(stored.1.as_deref(), Some("vocals"));
+    assert_eq!(stored.2.as_deref(), Some("vocals"));
 }
 
 // ---------------------------------------------------------------------------
