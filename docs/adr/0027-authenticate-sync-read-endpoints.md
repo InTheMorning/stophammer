@@ -34,6 +34,10 @@ This applies to:
 Community nodes use the same sync credentials for fallback polling that they
 already use for registration.
 
+This ADR narrows the operational assumptions in ADR 0009 and ADR 0016 without
+replacing their broader architectural decisions about community mode or
+push-based replication.
+
 ## Consequences
 - The signed event log and peer list are no longer publicly enumerable by
   default.

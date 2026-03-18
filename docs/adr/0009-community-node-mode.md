@@ -3,13 +3,18 @@
 ## Status
 Accepted
 
+Historical note: The authenticated sync-read requirement described by current
+runtime behavior was decided later in ADR 0027. References below to open
+`GET /sync/events` / `GET /sync/peers` reflect the original decision context
+for community-node mode.
+
 ## Context
 Stophammer's primary node accepts crawler ingest, signs events, and serves sync. Community nodes replicate the dataset for redundancy and client proximity but must not be trusted to ingest or sign data. They need to:
 
 1. Pull new events from the primary on a timer.
 2. Verify each event's ed25519 signature before writing to local DB.
 3. Register with the Cloudflare tracker so clients can discover them.
-4. Serve the same authenticated `GET /sync/events` and `GET /health` read API so they are useful to downstream clients and cascading community nodes.
+4. Serve the same `GET /sync/events` and `GET /health` read API so they are useful to downstream clients and cascading community nodes.
 5. Persist a sync cursor so restarts resume where they left off without re-applying the full history.
 
 Design constraints:
@@ -33,14 +38,14 @@ All community-specific parameters are grouped in `CommunityConfig`:
 `run_community_sync` is spawned as a `tokio::task` alongside the Axum server. It:
 1. Fires a `POST {tracker_url}/nodes/register` request on startup (fire-and-forget).
 2. Reads `last_seq` from `node_sync_state` table, keyed by this node's pubkey.
-3. Polls `GET {primary_url}/sync/events?after_seq={last_seq}&limit=500` with sync auth every `poll_interval_secs`.
+3. Polls `GET {primary_url}/sync/events?after_seq={last_seq}&limit=500` every `poll_interval_secs`.
 4. For each received event: verifies the ed25519 signature via `signing::verify_event_signature`, then calls `apply_single_event`.
 5. `apply_single_event` opens a single transaction and inserts the event row via `INSERT OR IGNORE` as the **first** operation (dedup guard). If the event already exists, the transaction commits (no-op) and returns `ApplyOutcome::Duplicate` immediately -- no entity mutations are executed. This dedup-first invariant guarantees that a duplicate event can never produce partial side-effects.
 6. For new events, `apply_single_event` re-derives the `EventPayload` from the signed `payload_json` bytes (closing a MITM vector where the deserialized struct could differ from the signed content), then dispatches on the payload variant: upsert artist, feed, track/routes/splits, replace routes, feed retire (cascade delete), track remove (cascade delete), or artist merge.
 7. After all mutations succeed, advances the cursor via `upsert_node_sync_state` and commits the transaction.
 
 ### Read-only API
-`api::build_readonly_router` exposes the authenticated sync endpoints (`GET /sync/events`,
+`api::build_readonly_router` exposes the sync endpoints (`GET /sync/events`,
 `GET /sync/peers`), the full `v1` query API (`/v1/search`, `/v1/artists`, etc.), the SSE
 stream (`GET /v1/events` — see ADR 0020), `GET /node/info`, and `GET /health`. The
 ingest, reconcile, and admin write-paths are absent by construction, not by runtime
