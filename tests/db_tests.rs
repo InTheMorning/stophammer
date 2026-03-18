@@ -788,6 +788,216 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
     assert_eq!(distinct_recording_ids, 2);
 }
 
+#[test]
+fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift() {
+    let mut conn = common::test_db();
+    let now = common::now();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("single-track-cluster.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    for (
+        feed_guid,
+        credit_id,
+        feed_url,
+        platform_key,
+        duration_secs,
+        remote_items,
+        platform_url,
+    ) in [
+        (
+            "feed-single-fountain",
+            9201,
+            "https://feeds.fountain.fm/relaxed-single",
+            "fountain",
+            237,
+            vec![],
+            Some("https://feeds.fountain.fm/relaxed-single".to_string()),
+        ),
+        (
+            "feed-single-wavlake",
+            9202,
+            "https://wavlake.com/feed/music/relaxed-single",
+            "wavlake",
+            238,
+            vec![stophammer::model::FeedRemoteItemRaw {
+                id: None,
+                feed_guid: "feed-single-wavlake".into(),
+                position: 0,
+                medium: Some("publisher".into()),
+                remote_feed_guid: "publisher-feed-guid-1".into(),
+                remote_feed_url: Some("https://wavlake.com/relaxed-artist".into()),
+                source: "podcast_remote_item".into(),
+            }],
+            Some("https://wavlake.com/relaxed-artist".to_string()),
+        ),
+    ] {
+        let artist = stophammer::model::Artist {
+            artist_id: "artist-relaxed-1".into(),
+            name: "Relaxed Artist".into(),
+            name_lower: "relaxed artist".into(),
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
+            begin_year: None,
+            end_year: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let artist_credit = stophammer::model::ArtistCredit {
+            id: credit_id,
+            display_name: "Relaxed Artist".into(),
+            feed_guid: Some(feed_guid.into()),
+            created_at: now,
+            names: vec![stophammer::model::ArtistCreditName {
+                id: 0,
+                artist_credit_id: credit_id,
+                artist_id: "artist-relaxed-1".into(),
+                position: 0,
+                name: "Relaxed Artist".into(),
+                join_phrase: String::new(),
+            }],
+        };
+        let feed = stophammer::model::Feed {
+            feed_guid: feed_guid.into(),
+            feed_url: feed_url.into(),
+            title: "Relaxed Single".into(),
+            title_lower: "relaxed single".into(),
+            artist_credit_id: credit_id,
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            episode_count: 1,
+            newest_item_at: Some(now),
+            oldest_item_at: Some(now - 60),
+            created_at: now,
+            updated_at: now,
+            raw_medium: Some("music".into()),
+        };
+        let track = stophammer::model::Track {
+            track_guid: format!("track-{feed_guid}"),
+            feed_guid: feed_guid.into(),
+            artist_credit_id: credit_id,
+            title: "Relaxed Single".into(),
+            title_lower: "relaxed single".into(),
+            pub_date: Some(now),
+            duration_secs: Some(duration_secs),
+            enclosure_url: Some(format!("https://cdn.example.com/{feed_guid}.mp3")),
+            enclosure_type: Some("audio/mpeg".into()),
+            enclosure_bytes: Some(1234),
+            track_number: Some(1),
+            season: None,
+            explicit: false,
+            description: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let source_platform_claims = vec![stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.into(),
+            platform_key: platform_key.into(),
+            url: platform_url,
+            owner_name: None,
+            source: "platform_detector".into(),
+            extraction_path: "request.canonical_url".into(),
+            observed_at: now,
+        }];
+        let tracks = vec![(track, vec![], vec![])];
+
+        let event_rows = stophammer::db::build_diff_events(
+            &conn,
+            &artist,
+            &artist_credit,
+            &feed,
+            &remote_items,
+            &[],
+            &[],
+            &[],
+            &[],
+            &[],
+            &source_platform_claims,
+            &[],
+            &[],
+            &tracks,
+            &[],
+            now,
+            &[],
+        )
+        .expect("build diff events");
+
+        stophammer::db::ingest_transaction(
+            &mut conn,
+            artist,
+            artist_credit,
+            feed,
+            remote_items,
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            vec![],
+            source_platform_claims,
+            vec![],
+            vec![],
+            tracks,
+            event_rows,
+            &signer,
+        )
+        .expect("ingest transaction");
+    }
+
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-single-fountain")
+        .expect("resync fountain feed");
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-single-wavlake")
+        .expect("resync wavlake feed");
+
+    let release_maps: Vec<(String, String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT release_id, match_type, confidence FROM source_feed_release_map ORDER BY feed_guid",
+            )
+            .expect("prepare release maps");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query release maps")
+            .collect::<Result<_, _>>()
+            .expect("collect release maps")
+    };
+    assert_eq!(release_maps.len(), 2);
+    assert_eq!(release_maps[0].0, release_maps[1].0);
+    assert_eq!(release_maps[0].1, "single_track_cross_platform_release_v1");
+    assert_eq!(release_maps[1].1, "single_track_cross_platform_release_v1");
+    assert_eq!(release_maps[0].2, 92);
+    assert_eq!(release_maps[1].2, 92);
+
+    let recording_maps: Vec<(String, String, i64)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT recording_id, match_type, confidence FROM source_item_recording_map ORDER BY track_guid",
+            )
+            .expect("prepare recording maps");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query recording maps")
+            .collect::<Result<_, _>>()
+            .expect("collect recording maps")
+    };
+    assert_eq!(recording_maps.len(), 2);
+    assert_eq!(recording_maps[0].0, recording_maps[1].0);
+    assert_eq!(
+        recording_maps[0].1,
+        "single_track_cross_platform_recording_v1"
+    );
+    assert_eq!(
+        recording_maps[1].1,
+        "single_track_cross_platform_recording_v1"
+    );
+    assert_eq!(recording_maps[0].2, 92);
+    assert_eq!(recording_maps[1].2, 92);
+}
+
 // ---------------------------------------------------------------------------
 // Helper: insert an artist and return its artist_id.
 // ---------------------------------------------------------------------------

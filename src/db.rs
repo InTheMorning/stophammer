@@ -1150,6 +1150,20 @@ fn get_artist_credit_display_name(conn: &Connection, artist_credit_id: i64) -> R
         .unwrap_or_else(|| format!("artist_credit_id:{artist_credit_id}")))
 }
 
+fn get_feed_platform_keys(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<std::collections::BTreeSet<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT platform_key FROM source_platform_claims \
+         WHERE feed_guid = ?1 ORDER BY platform_key",
+    )?;
+    let keys: Vec<String> = stmt
+        .query_map(params![feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    Ok(keys.into_iter().collect())
+}
+
 fn feed_artist_evidence_key(conn: &Connection, feed: &Feed) -> Result<String, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT value FROM source_entity_ids \
@@ -1181,11 +1195,98 @@ fn feed_artist_evidence_key(conn: &Connection, feed: &Feed) -> Result<String, Db
     ))
 }
 
+fn cross_platform_single_track_anchor(
+    conn: &Connection,
+    feed: &Feed,
+    track: &Track,
+) -> Result<Option<(String, i64)>, DbError> {
+    let Some(duration_secs) = track.duration_secs else {
+        return Ok(None);
+    };
+    let current_platforms = get_feed_platform_keys(conn, &feed.feed_guid)?;
+    if current_platforms.is_empty() {
+        return Ok(None);
+    }
+
+    let artist_display_key = get_artist_credit_display_name(conn, feed.artist_credit_id)?;
+    let mut corroborating_platforms = current_platforms;
+    let mut found_match = false;
+    let mut has_lower_neighbor = false;
+    let min_duration = duration_secs.saturating_sub(1);
+    let max_duration = duration_secs.saturating_add(1);
+
+    let mut stmt = conn.prepare(
+        "SELECT f.feed_guid, f.artist_credit_id, t.duration_secs \
+         FROM feeds f \
+         JOIN tracks t ON t.feed_guid = f.feed_guid \
+         WHERE f.feed_guid <> ?1 \
+           AND f.title_lower = ?2 \
+           AND t.title_lower = ?3 \
+           AND t.duration_secs BETWEEN ?4 AND ?5 \
+           AND (SELECT COUNT(*) FROM tracks t2 WHERE t2.feed_guid = f.feed_guid) = 1",
+    )?;
+    let candidates: Vec<(String, i64, i64)> = stmt
+        .query_map(
+            params![
+                feed.feed_guid,
+                feed.title_lower,
+                track.title_lower,
+                min_duration,
+                max_duration,
+            ],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?
+        .collect::<Result<_, _>>()?;
+
+    for (candidate_feed_guid, candidate_artist_credit_id, candidate_duration_secs) in candidates {
+        if get_artist_credit_display_name(conn, candidate_artist_credit_id)? != artist_display_key {
+            continue;
+        }
+        let candidate_platforms = get_feed_platform_keys(conn, &candidate_feed_guid)?;
+        if candidate_platforms.is_empty() {
+            continue;
+        }
+        found_match = true;
+        if candidate_duration_secs == duration_secs - 1 {
+            has_lower_neighbor = true;
+        }
+        corroborating_platforms.extend(candidate_platforms);
+    }
+
+    if !found_match || corroborating_platforms.len() < 2 {
+        return Ok(None);
+    }
+
+    let duration_anchor = if has_lower_neighbor {
+        duration_secs - 1
+    } else {
+        duration_secs
+    };
+    Ok(Some((artist_display_key, duration_anchor)))
+}
+
 fn release_cluster_target(
     conn: &Connection,
     feed: &Feed,
     tracks: &[Track],
 ) -> Result<(String, String, i64), DbError> {
+    if tracks.len() == 1 {
+        if let Some((artist_display_key, duration_anchor)) =
+            cross_platform_single_track_anchor(conn, feed, &tracks[0])?
+        {
+            let key = format!(
+                "single_track_cross_platform_release_v1|artist_display={artist_display_key}|release_title={}|track_title={}|duration_anchor={duration_anchor}",
+                feed.title_lower,
+                tracks[0].title_lower,
+            );
+            return Ok((
+                canonical_cluster_id("release", &key),
+                "single_track_cross_platform_release_v1".to_string(),
+                92,
+            ));
+        }
+    }
+
     if tracks.is_empty() || tracks.iter().any(|track| track.duration_secs.is_none()) {
         return Ok((
             identity_release_id_for_feed_guid(&feed.feed_guid),
@@ -1237,6 +1338,20 @@ fn recording_cluster_target(
     feed: &Feed,
     track: &Track,
 ) -> Result<(String, String, i64), DbError> {
+    if let Some((artist_display_key, duration_anchor)) =
+        cross_platform_single_track_anchor(conn, feed, track)?
+    {
+        let key = format!(
+            "single_track_cross_platform_recording_v1|artist_display={artist_display_key}|track_title={}|duration_anchor={duration_anchor}",
+            track.title_lower,
+        );
+        return Ok((
+            canonical_cluster_id("recording", &key),
+            "single_track_cross_platform_recording_v1".to_string(),
+            92,
+        ));
+    }
+
     let Some(duration_secs) = track.duration_secs else {
         return Ok((
             identity_recording_id_for_track_guid(&track.track_guid),

@@ -137,12 +137,12 @@ Source: `src/schema.sql`
 ### `source_feed_release_map`
 **Purpose:** Explicit mapping from a source feed (`feeds`) to its current canonical `release`.
 **Key columns:** `feed_guid` (PK/FK to `feeds`), `release_id`, `match_type`, `confidence`.
-**Notes:** Current mappings use two deterministic modes: `exact_release_signature_v1` for exact mirror clustering, and `feed_guid_identity_v1` when the evidence is too weak to merge safely. `confidence` is `95` for the exact signature rule and `100` for identity fallback.
+**Notes:** Current mappings use three deterministic modes: `single_track_cross_platform_release_v1` for corroborated one-track mirrors across distinct platforms with up to one second of duration drift, `exact_release_signature_v1` for exact mirror clustering, and `feed_guid_identity_v1` when the evidence is too weak to merge safely. `confidence` is `92` for the cross-platform single-track rule, `95` for the exact signature rule, and `100` for identity fallback.
 
 ### `source_item_recording_map`
 **Purpose:** Explicit mapping from a source track (`tracks`) to its current canonical `recording`.
 **Key columns:** `track_guid` (PK/FK to `tracks`), `recording_id`, `match_type`, `confidence`.
-**Notes:** Current mappings use `exact_recording_signature_v1` when the source data gives an exact match on artist evidence, title, and duration, and `track_guid_identity_v1` otherwise. The table remains additive so stronger future resolvers can replace today’s exact-match rules without losing source rows.
+**Notes:** Current mappings use `single_track_cross_platform_recording_v1` for corroborated one-track cross-platform mirrors with up to one second of duration drift, `exact_recording_signature_v1` when the source data gives an exact match on artist evidence, title, and duration, and `track_guid_identity_v1` otherwise. The table remains additive so stronger future resolvers can replace today’s conservative rules without losing source rows.
 
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
