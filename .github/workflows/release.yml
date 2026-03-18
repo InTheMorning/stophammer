@@ -10,7 +10,7 @@ jobs:
     name: Build x86_64 musl binary
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install musl target
         run: rustup target add x86_64-unknown-linux-musl
@@ -22,7 +22,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-musl
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stophammer-x86_64
           path: target/x86_64-unknown-linux-musl/release/stophammer
@@ -31,7 +31,7 @@ jobs:
     name: Build aarch64 musl binary
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -40,7 +40,7 @@ jobs:
         run: cross build --release --target aarch64-unknown-linux-musl
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stophammer-aarch64
           path: target/aarch64-unknown-linux-musl/release/stophammer
@@ -53,13 +53,13 @@ jobs:
       contents: write
     steps:
       - name: Download x86_64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: stophammer-x86_64
           path: dist/x86_64
 
       - name: Download aarch64 artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: stophammer-aarch64
           path: dist/aarch64
@@ -71,7 +71,7 @@ jobs:
           chmod +x dist/stophammer-linux-x86_64 dist/stophammer-linux-aarch64
 
       - name: Create release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/stophammer-linux-x86_64
