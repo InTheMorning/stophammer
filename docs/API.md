@@ -858,7 +858,17 @@ Returns a single canonical recording by `recording_id`.
 
 ### GET /v1/search
 
-Full-text search across feeds, tracks, and artists using SQLite FTS5.
+Full-text search using SQLite FTS5.
+
+Default search is canonical-first:
+
+- `artist`
+- `release`
+- `recording`
+
+Source `feed` and `track` rows remain directly readable by ID and can still be
+requested explicitly with `type=feed` or `type=track`, but they are no longer
+the default public search surface.
 
 - **Authentication:** None
 
@@ -867,9 +877,9 @@ Full-text search across feeds, tracks, and artists using SQLite FTS5.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `q` | string | **required** | Search query (FTS5 syntax) |
-| `type` | string | all | Filter by entity type: `artist`, `feed`, `track` |
+| `type` | string | canonical-first | Filter by entity type: `artist`, `release`, `recording`, `feed`, `track` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
-| `cursor` | string | none | Numeric offset for pagination |
+| `cursor` | string | none | Keyset pagination cursor |
 
 **Response (`200 OK`):**
 
@@ -877,13 +887,13 @@ Full-text search across feeds, tracks, and artists using SQLite FTS5.
 {
   "data": [
     {
-      "entity_type": "track",
-      "entity_id": "track-guid",
+      "entity_type": "recording",
+      "entity_id": "recording-guid",
       "rank": -1.5,
-      "quality_score": 85
+      "quality_score": 0
     }
   ],
-  "pagination": { "cursor": "20", "has_more": true },
+  "pagination": { "cursor": "cursor-token", "has_more": true },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
 }
 ```

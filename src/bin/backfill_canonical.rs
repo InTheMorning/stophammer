@@ -70,6 +70,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
         stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
             .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+        stophammer::db::sync_canonical_search_index_for_feed(&tx, feed_guid)
+            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
         tx.commit()
             .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
 

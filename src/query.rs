@@ -1986,14 +1986,40 @@ async fn handle_search(
     // Issue-WAL-POOL — 2026-03-14: use reader pool for search
     let results = tokio::task::spawn_blocking(move || {
         let conn = pool.reader()?;
-        crate::search::search(
-            &conn,
-            &q,
-            kind.as_deref(),
-            limit + 1,
-            cursor_rank,
-            cursor_rowid,
-        )
+        match kind.as_deref() {
+            Some("artist" | "release" | "recording" | "feed" | "track") => crate::search::search(
+                &conn,
+                &q,
+                kind.as_deref(),
+                limit + 1,
+                cursor_rank,
+                cursor_rowid,
+            ),
+            Some(other) => Err(db::DbError::Other(format!(
+                "unsupported search type filter: {other}"
+            ))),
+            None => {
+                let mut merged = Vec::new();
+                for entity_type in ["artist", "release", "recording"] {
+                    merged.extend(crate::search::search(
+                        &conn,
+                        &q,
+                        Some(entity_type),
+                        limit + 1,
+                        cursor_rank,
+                        cursor_rowid,
+                    )?);
+                }
+                merged.sort_by(|a, b| {
+                    a.effective_rank
+                        .partial_cmp(&b.effective_rank)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.rowid.cmp(&b.rowid))
+                });
+                merged.truncate(usize::try_from(limit + 1).unwrap_or(usize::MAX));
+                Ok(merged)
+            }
+        }
     })
     .await
     .map_err(|e| api::ApiError {
@@ -2005,7 +2031,13 @@ async fn handle_search(
     // Catch FTS5 parse errors and return 400 instead of 500.
     .map_err(|e| {
         let msg = e.to_string();
-        if msg.contains("fts5: syntax error") || msg.contains("fts5:") {
+        if msg.contains("unsupported search type filter:") {
+            api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: msg,
+                www_authenticate: None,
+            }
+        } else if msg.contains("fts5: syntax error") || msg.contains("fts5:") {
             api::ApiError {
                 status: StatusCode::BAD_REQUEST,
                 message: format!("invalid search query: {msg}"),

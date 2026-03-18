@@ -263,6 +263,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recording_json["data"]["releases"][0]["release_id"], release_id);
 
     let artist_releases_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -275,4 +276,44 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(artist_releases_resp.status(), 200);
     let artist_releases_json = body_json(artist_releases_resp).await;
     assert_eq!(artist_releases_json["data"][0]["release_id"], release_id);
+
+    let search_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=Canonical")
+                .body(Body::empty())
+                .expect("search request"),
+        )
+        .await
+        .expect("search response");
+    assert_eq!(search_resp.status(), 200);
+    let search_json = body_json(search_resp).await;
+    let search_results = search_json["data"]
+        .as_array()
+        .expect("search results array");
+    let search_types = search_results
+        .iter()
+        .filter_map(|row| row["entity_type"].as_str())
+        .collect::<Vec<_>>();
+    assert!(search_types.iter().all(|kind| matches!(*kind, "artist" | "release" | "recording")));
+    assert!(search_results.iter().any(|row| row["entity_type"] == "release" && row["entity_id"] == release_id));
+    assert!(search_results.iter().any(|row| row["entity_type"] == "recording" && row["entity_id"] == recording_id));
+
+    let release_search_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=Canonical&type=release")
+                .body(Body::empty())
+                .expect("release search request"),
+        )
+        .await
+        .expect("release search response");
+    assert_eq!(release_search_resp.status(), 200);
+    let release_search_json = body_json(release_search_resp).await;
+    assert_eq!(release_search_json["data"][0]["entity_type"], "release");
+    assert_eq!(release_search_json["data"][0]["entity_id"], release_id);
 }

@@ -2142,6 +2142,75 @@ pub fn sync_canonical_promotions_for_feed(
     Ok(())
 }
 
+fn cleanup_canonical_search_entities(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM search_entities \
+         WHERE entity_type = 'release' \
+           AND entity_id NOT IN (SELECT release_id FROM releases)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM search_entities \
+         WHERE entity_type = 'recording' \
+           AND entity_id NOT IN (SELECT recording_id FROM recordings)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Updates canonical search index rows for the release/recording objects
+/// currently mapped from one feed.
+///
+/// Search stays canonical-first at the API layer, but we keep the raw
+/// `feed`/`track` search rows for direct diagnostics and potential future
+/// source-oriented tooling.
+pub fn sync_canonical_search_index_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<(), DbError> {
+    cleanup_canonical_search_entities(conn)?;
+
+    if let Some(release_id) = release_id_for_feed_map(conn, feed_guid)?
+        && let Some(release) = get_release(conn, &release_id)?
+    {
+        crate::search::populate_search_index(
+            conn,
+            "release",
+            &release.release_id,
+            "",
+            &release.title,
+            release.description.as_deref().unwrap_or(""),
+            "",
+        )?;
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT sirm.recording_id \
+         FROM source_item_recording_map sirm \
+         JOIN tracks t ON t.track_guid = sirm.track_guid \
+         WHERE t.feed_guid = ?1 \
+         ORDER BY sirm.recording_id",
+    )?;
+    let recording_ids: Vec<String> = stmt
+        .query_map(params![feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for recording_id in recording_ids {
+        if let Some(recording) = get_recording(conn, &recording_id)? {
+            crate::search::populate_search_index(
+                conn,
+                "recording",
+                &recording.recording_id,
+                "",
+                &recording.title,
+                "",
+                "",
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
 // ── replace_payment_routes ────────────────────────────────────────────────────
 
 /// Deletes all payment routes for `track_guid` and inserts the new `routes`.
@@ -6047,6 +6116,8 @@ pub fn ingest_transaction(
                 crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
             }
         }
+
+        sync_canonical_search_index_for_feed(&tx, &feed.feed_guid)?;
     }
 
     // 7. Commit
