@@ -15,7 +15,8 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
 | `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
-| `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. Community nodes also use this to authenticate `POST /sync/register` with the primary. |
+| `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. Also used as the legacy fallback credential for sync registration/reconcile when `SYNC_TOKEN` is not configured. |
+| `SYNC_TOKEN` | unset | No | Dedicated token for `POST /sync/register` and `POST /sync/reconcile` (`X-Sync-Token` header). When set, it replaces `ADMIN_TOKEN` for those sync endpoints. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
 
 ### TLS (ACME / Let's Encrypt)
@@ -108,6 +109,10 @@ The community node:
 3. Register push URL with the primary via `POST {PRIMARY_URL}/sync/register`
 4. Load persisted sync cursor from local DB
 5. Enter the push-receive + fallback-poll loop
+
+If `PRIMARY_URL` uses plain HTTP, auto-discovery is rejected unless you either
+set `PRIMARY_PUBKEY` explicitly or set `ALLOW_INSECURE_PUBKEY_DISCOVERY=true`
+for local development.
 
 ---
 
@@ -366,9 +371,11 @@ Pubkey auto-discovery requires HTTPS to prevent MITM attacks. Either:
 
 All admin endpoints return 403 when `ADMIN_TOKEN` is empty. Set `ADMIN_TOKEN` to enable admin operations.
 
-### "ADMIN_TOKEN env var is not set" (community node warning)
+### "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set" (community node warning)
 
-Community nodes need `ADMIN_TOKEN` to authenticate `POST /sync/register` with the primary. Set it to match the primary's admin token.
+Community nodes need `SYNC_TOKEN` to authenticate `POST /sync/register` and
+`POST /sync/reconcile` with the primary. If `SYNC_TOKEN` is unset on the
+primary, `ADMIN_TOKEN` still works as a deprecated fallback.
 
 ### Push fan-out failures / peer eviction
 

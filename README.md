@@ -163,6 +163,7 @@ KEY_PATH=./signing.key \
 BIND=0.0.0.0:8008 \
 PRIMARY_URL=http://your-primary:8008 \
 NODE_ADDRESS=http://this-node-public-url:8008 \
+SYNC_TOKEN=change-me \
 ./stophammer
 ```
 
@@ -172,6 +173,13 @@ On startup, the community node:
 2. Registers its push URL with the primary: `POST {PRIMARY_URL}/sync/register`
 3. Does an initial fallback poll to catch up from the current cursor
 4. Enters the push-receive + fallback-poll loop
+
+If `PRIMARY_URL` is plain `http://`, auto-discovery is rejected unless you either:
+
+- set `PRIMARY_PUBKEY=...`, or
+- set `ALLOW_INSECURE_PUBKEY_DISCOVERY=true` for local development / Docker only
+
+In production, use HTTPS for `PRIMARY_URL` or pin `PRIMARY_PUBKEY` explicitly.
 
 ### Credentials
 
@@ -200,60 +208,56 @@ Without this, the pubkey is auto-discovered from `/node/info` at startup.
 
 ---
 
-## Running the full network locally (Docker)
+## Running local test environments (Docker)
 
 ```bash
-cd hey-v4v
+cd /path/to/stophammer
 
-# Bring up primary + 3 community nodes
-CRAWL_TOKEN=secret ADMIN_TOKEN=admintoken docker compose up -d
+# Plain-HTTP end-to-end test stack:
+# primary + 2 community nodes + mock RSS server
+docker compose -f docker-compose.e2e.yml up -d --build --wait
 
-# Run the crawler against some feeds (one-shot)
-CRAWL_TOKEN=secret ADMIN_TOKEN=admintoken \
-  FEED_URLS="https://feeds.rssblue.com/stereon-music
-https://feeds.rssblue.com/ainsley-costello-love-letter" \
-  docker compose run --rm crawler
+# Run the repo's end-to-end smoke script against that stack
+./tests/e2e_docker_compose_tests.sh
 
-# Watch push fan-out in real time
-docker compose logs -f primary community1 community2 community3
-
-# Check which peers are registered
-curl http://localhost:8008/sync/peers
-
-# Check event counts across all nodes
-for port in 8008 8009 8010 8011; do
-  echo -n "port $port: "
-  curl -s "http://localhost:$port/sync/events?after_seq=0&limit=1000" \
-    | bun -e "const d=await (await fetch('http://localhost:$port/sync/events?after_seq=0&limit=1000')).json(); console.log('seq='+d.next_seq)"
-done
+# Tear it down
+docker compose -f docker-compose.e2e.yml down -v
 ```
 
-The compose file runs no crawlers by default. Crawlers are one-shot containers
-you invoke manually or via a scheduler. Stophammer does not schedule them.
+For TLS/ACME testing against Pebble:
+
+```bash
+docker compose -f docker-compose.e2e-tls.yml up -d --build --wait
+curl -k https://localhost:14000/dir
+docker compose -f docker-compose.e2e-tls.yml down -v
+```
+
+These compose files are test environments, not a general production deployment stack.
+This repo does not ship a `docker-compose.yml` for day-to-day operation.
 
 ### Override the verifier chain (dev/test)
 
 ```bash
 # Skip medium_music for feeds that don't set podcast:medium yet
-CRAWL_TOKEN=secret ADMIN_TOKEN=admintoken \
+CRAWL_TOKEN=secret SYNC_TOKEN=test-sync-token \
   VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type \
-  docker compose up -d primary
+  docker compose -f docker-compose.e2e.yml up -d primary
 ```
 
 ### Persistent credentials across compose restarts
 
-By default, `docker compose up` preserves named volumes (`primary-data`,
-`community1-data`, etc.) across restarts — signing keys and databases survive
-`docker compose down` and `up` cycles.
+By default, `docker compose -f docker-compose.e2e.yml up` preserves named volumes
+(`primary-e2e`, `community1-e2e`, etc.) across restarts — signing keys and databases
+survive `down` and `up` cycles.
 
 To fully reset (wipe all state):
 ```bash
-docker compose down -v   # removes volumes too
+docker compose -f docker-compose.e2e.yml down -v   # removes volumes too
 ```
 
-To back up a signing key from a running container:
+To back up a signing key from a running E2E container:
 ```bash
-docker compose cp primary:/data/signing.key ./primary-signing.key.bak
+docker compose -f docker-compose.e2e.yml cp primary:/data/signing.key ./primary-signing.key.bak
 ```
 
 ---
@@ -274,6 +278,21 @@ CRAWL_TOKEN=secret stophammer-crawler crawl https://feeds.rssblue.com/stereon-mu
 # From a file
 CRAWL_TOKEN=secret stophammer-crawler crawl feeds.txt
 ```
+
+## Maintenance utilities
+
+This repo also ships two local maintenance binaries for rebuilding derived state
+from an existing database:
+
+```bash
+# Rebuild canonical releases / recordings and mapping tables
+cargo run --bin backfill_canonical -- --db ./stophammer.db
+
+# Re-run artist identity merges from current source evidence
+cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+```
+
+These do not fetch from the network. They operate on an existing local DB file.
 
 Schedule with cron:
 ```

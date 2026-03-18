@@ -86,10 +86,35 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "remote_feed_url": "https://example.com/artist.xml"
       }
     ],
+    "persons": [
+      {
+        "position": 0,
+        "name": "Artist Name",
+        "role": "vocals",
+        "group_name": null,
+        "href": "https://example.com/artist",
+        "img": null
+      }
+    ],
+    "entity_ids": [
+      {
+        "position": 0,
+        "scheme": "nostr_npub",
+        "value": "npub1..."
+      }
+    ],
+    "links": [
+      {
+        "position": 0,
+        "link_type": "website",
+        "url": "https://example.com/artist",
+        "extraction_path": "feed.link"
+      }
+    ],
     "feed_payment_routes": [
       {
         "recipient_name": "Artist Name",
-        "route_type": "keysend",
+        "route_type": "node",
         "address": "02abc...lightning-pubkey",
         "custom_key": "7629169",
         "custom_value": "podcast-guid",
@@ -106,11 +131,25 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "enclosure_url": "https://example.com/track.mp3",
         "enclosure_type": "audio/mpeg",
         "enclosure_bytes": 3840000,
+        "alternate_enclosures": [
+          {
+            "position": 1,
+            "url": "https://example.com/track.flac",
+            "mime_type": "audio/flac",
+            "bytes": 12000000,
+            "rel": "alternate",
+            "title": "Lossless",
+            "extraction_path": "track.podcast:alternateEnclosure[0]"
+          }
+        ],
         "track_number": 1,
         "season": 1,
         "explicit": false,
         "description": "A great track",
         "author_name": "Track Artist",
+        "persons": [],
+        "entity_ids": [],
+        "links": [],
         "payment_routes": [],
         "value_time_splits": []
       }
@@ -128,11 +167,15 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "enclosure_url": null,
         "enclosure_type": null,
         "enclosure_bytes": null,
+        "alternate_enclosures": [],
         "track_number": null,
         "season": null,
         "explicit": false,
         "description": "Live premiere stream",
         "author_name": "Artist Name",
+        "persons": [],
+        "entity_ids": [],
+        "links": [],
         "payment_routes": [],
         "value_time_splits": []
       }
@@ -143,9 +186,11 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
 
 `feed_data` is `null` when the crawler could not parse the feed (e.g. HTTP error). The verifier chain still runs to record the rejection.
 
-`remote_items` carries feed-level `podcast:remoteItem` references. `live_items`
-carries parsed `podcast:liveItem` entries; `pending` and `live` rows are staged in
-`live_events`, while `ended` rows with enclosures are promoted into normal tracks.
+`remote_items` carries feed-level `podcast:remoteItem` references. `persons`,
+`entity_ids`, and `links` carry staged source claims from the parser. Track and
+live-item payloads also support `alternate_enclosures`. `live_items` carries parsed
+`podcast:liveItem` entries; `pending` and `live` rows are staged in `live_events`,
+while `ended` rows with enclosures are promoted into normal tracks.
 
 **Response (`200 OK`):**
 
@@ -231,7 +276,7 @@ Paginated event log for community nodes to poll.
 
 Community nodes announce their push URL with the primary. The primary stores the peer and begins pushing new events to it.
 
-- **Authentication:** Admin token (`X-Admin-Token` header)
+- **Authentication:** `X-Sync-Token` when `SYNC_TOKEN` is configured on the primary; otherwise legacy `X-Admin-Token`
 - **Available on:** Primary only
 
 **Request body:**
@@ -254,7 +299,8 @@ Community nodes announce their push URL with the primary. The primary stores the
 | Code | Meaning |
 |------|---------|
 | 200  | Registered successfully |
-| 403  | Invalid or missing `X-Admin-Token` |
+| 403  | Invalid or missing sync/admin token |
+| 422  | `node_url` rejected by SSRF validation |
 
 ---
 
@@ -319,7 +365,7 @@ Returns all known active peer nodes. Acts as a built-in tracker -- a new node on
 
 Set-diff catch-up for nodes rejoining after downtime. The community node sends the event IDs it already holds; the primary returns only what it is missing and flags any events unknown to the primary.
 
-- **Authentication:** None
+- **Authentication:** Same as `POST /sync/register` (`X-Sync-Token` preferred, `X-Admin-Token` legacy fallback)
 - **Available on:** Primary only
 - **Max `have` entries:** 10,000
 
@@ -964,6 +1010,14 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 | `artist_merged` | target_artist_id | Two artists merged |
 | `artist_credit_created` | artist_id | Multi-artist credit created |
 | `feed_routes_replaced` | feed_guid | Feed-level payment routes replaced |
+| `feed_remote_items_replaced` | feed_guid | Feed-level `podcast:remoteItem` snapshot replaced |
+| `live_events_replaced` | feed_guid | Feed-level live-item snapshot replaced |
+| `source_contributor_claims_replaced` | feed_guid | Feed-level staged contributor claims replaced |
+| `source_entity_ids_replaced` | feed_guid | Feed-level staged entity IDs replaced |
+| `source_entity_links_replaced` | feed_guid | Feed-level staged entity links replaced |
+| `source_release_claims_replaced` | feed_guid | Feed-level staged release claims replaced |
+| `source_item_enclosures_replaced` | feed_guid | Feed-level staged item enclosure snapshot replaced |
+| `source_platform_claims_replaced` | feed_guid | Feed-level staged platform claims replaced |
 
 ---
 
@@ -972,7 +1026,8 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 | Method | Header / Field | Used By |
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
-| Admin token | `X-Admin-Token` header | `/admin/*`, `POST /sync/register`, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
+| Sync token | `X-Sync-Token` header | `POST /sync/register`, `POST /sync/reconcile` when `SYNC_TOKEN` is configured |
+| Admin token | `X-Admin-Token` header | `/admin/*`, legacy fallback for `POST /sync/register` and `POST /sync/reconcile` when `SYNC_TOKEN` is unset, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
 | Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}` |
 
 Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.
