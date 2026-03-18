@@ -379,6 +379,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recent_json["data"][0]["release_id"], release_id);
 
     let recent_feeds_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -391,4 +392,57 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recent_feeds_resp.status(), 200);
     let recent_feeds_json = body_json(recent_feeds_resp).await;
     assert_eq!(recent_feeds_json["data"][0]["feed_guid"], feed_guid);
+
+    let artist_resolution_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/artists/{artist_id}/resolution"))
+                .body(Body::empty())
+                .expect("artist resolution request"),
+        )
+        .await
+        .expect("artist resolution response");
+    assert_eq!(artist_resolution_resp.status(), 200);
+    let artist_resolution_json = body_json(artist_resolution_resp).await;
+    assert_eq!(artist_resolution_json["data"]["artist_id"], artist_id);
+    assert_eq!(artist_resolution_json["data"]["external_ids"][0]["scheme"], "nostr_npub");
+    assert_eq!(artist_resolution_json["data"]["feeds"][0]["feed_guid"], feed_guid);
+    assert_eq!(artist_resolution_json["data"]["feeds"][0]["source_platforms"][0]["platform_key"], "wavlake");
+
+    let release_resolution_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/releases/{release_id}/resolution"))
+                .body(Body::empty())
+                .expect("release resolution request"),
+        )
+        .await
+        .expect("release resolution response");
+    assert_eq!(release_resolution_resp.status(), 200);
+    let release_resolution_json = body_json(release_resolution_resp).await;
+    assert_eq!(release_resolution_json["data"]["release_id"], release_id);
+    assert_eq!(release_resolution_json["data"]["sources"][0]["feed_guid"], feed_guid);
+    assert_eq!(release_resolution_json["data"]["sources"][0]["source_ids"][0]["scheme"], "nostr_npub");
+    assert_eq!(release_resolution_json["data"]["sources"][0]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
+
+    let recording_resolution_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/recordings/{recording_id}/resolution"))
+                .body(Body::empty())
+                .expect("recording resolution request"),
+        )
+        .await
+        .expect("recording resolution response");
+    assert_eq!(recording_resolution_resp.status(), 200);
+    let recording_resolution_json = body_json(recording_resolution_resp).await;
+    assert_eq!(recording_resolution_json["data"]["recording_id"], recording_id);
+    assert_eq!(recording_resolution_json["data"]["sources"][0]["track_guid"], track_guid);
+    assert_eq!(recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["role_norm"], "vocals");
+    assert_eq!(recording_resolution_json["data"]["sources"][0]["source_enclosures"][0]["entity_type"], "track");
 }

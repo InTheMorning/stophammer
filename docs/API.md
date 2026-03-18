@@ -501,6 +501,26 @@ top-level structure as `GET /v1/releases/{id}` without includes).
 
 ---
 
+### GET /v1/artists/{id}/resolution
+
+Returns review/debug evidence for one canonical artist.
+
+This is an operator-facing inspection endpoint. It exposes:
+
+- canonical artist external IDs already promoted onto the artist row
+- source feeds currently credited to the artist
+- staged feed-level IDs, links, platform claims, and publisher `remoteItem` refs
+- canonical release mappings for those feeds when present
+
+- **Authentication:** None
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Artist not found |
+
+---
+
 ## 5. Queries -- Feeds
 
 ### GET /v1/feeds/{guid}
@@ -821,6 +841,30 @@ Returns a single canonical release by `release_id`.
 
 ---
 
+### GET /v1/releases/{id}/resolution
+
+Returns review/debug evidence for one canonical release.
+
+This is an operator-facing inspection endpoint. It exposes each mapped source
+feed together with:
+
+- `match_type`
+- `confidence`
+- staged source IDs
+- staged links
+- platform claims
+- staged release claims
+- feed-level `podcast:remoteItem` refs
+
+- **Authentication:** None
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Release not found |
+
+---
+
 ### GET /v1/releases/{id}/sources
 
 Returns the mapped source feeds for one canonical release.
@@ -885,6 +929,30 @@ Returns a single canonical recording by `recording_id`.
   "meta": { "api_version": "v1", "node_pubkey": "..." }
 }
 ```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Recording not found |
+
+---
+
+### GET /v1/recordings/{id}/resolution
+
+Returns review/debug evidence for one canonical recording.
+
+This is an operator-facing inspection endpoint. It exposes each mapped source
+track together with:
+
+- `match_type`
+- `confidence`
+- staged source IDs
+- staged links
+- staged contributor claims
+- staged release claims
+- all known enclosure variants
+
+- **Authentication:** None
 
 | Code | Meaning |
 |------|---------|

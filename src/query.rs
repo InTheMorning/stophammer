@@ -337,6 +337,86 @@ struct SourceItemEnclosureResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct ExternalIdResponse {
+    scheme: String,
+    value: String,
+}
+
+#[derive(Debug, Serialize)]
+struct FeedRemoteItemResponse {
+    position: i64,
+    medium: Option<String>,
+    remote_feed_guid: String,
+    remote_feed_url: Option<String>,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseResolutionSourceResponse {
+    feed_guid: String,
+    feed_url: String,
+    title: String,
+    match_type: String,
+    confidence: i64,
+    source_ids: Vec<SourceEntityIdResponse>,
+    source_links: Vec<SourceEntityLinkResponse>,
+    source_platforms: Vec<SourcePlatformClaimResponse>,
+    source_release_claims: Vec<SourceReleaseClaimResponse>,
+    remote_items: Vec<FeedRemoteItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReleaseResolutionResponse {
+    release_id: String,
+    title: String,
+    artist_credit: CreditResponse,
+    sources: Vec<ReleaseResolutionSourceResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RecordingResolutionSourceResponse {
+    track_guid: String,
+    feed_guid: String,
+    title: String,
+    match_type: String,
+    confidence: i64,
+    source_ids: Vec<SourceEntityIdResponse>,
+    source_links: Vec<SourceEntityLinkResponse>,
+    source_contributors: Vec<SourceContributorClaimResponse>,
+    source_release_claims: Vec<SourceReleaseClaimResponse>,
+    source_enclosures: Vec<SourceItemEnclosureResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct RecordingResolutionResponse {
+    recording_id: String,
+    title: String,
+    artist_credit: CreditResponse,
+    releases: Vec<RecordingReleaseSummary>,
+    sources: Vec<RecordingResolutionSourceResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct ArtistResolutionFeedEvidenceResponse {
+    feed_guid: String,
+    feed_url: String,
+    title: String,
+    canonical_release: Option<CanonicalReleaseRef>,
+    source_ids: Vec<SourceEntityIdResponse>,
+    source_links: Vec<SourceEntityLinkResponse>,
+    source_platforms: Vec<SourcePlatformClaimResponse>,
+    remote_items: Vec<FeedRemoteItemResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct ArtistResolutionResponse {
+    artist_id: String,
+    name: String,
+    external_ids: Vec<ExternalIdResponse>,
+    feeds: Vec<ArtistResolutionFeedEvidenceResponse>,
+}
+
+#[derive(Debug, Serialize)]
 struct CanonicalReleaseRef {
     release_id: String,
     match_type: String,
@@ -1385,6 +1465,23 @@ fn enclosure_response(
     }
 }
 
+fn external_id_response(id: crate::db::ExternalIdRow) -> ExternalIdResponse {
+    ExternalIdResponse {
+        scheme: id.scheme,
+        value: id.value,
+    }
+}
+
+fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemoteItemResponse {
+    FeedRemoteItemResponse {
+        position: item.position,
+        medium: item.medium,
+        remote_feed_guid: item.remote_feed_guid,
+        remote_feed_url: item.remote_feed_url,
+        source: item.source,
+    }
+}
+
 // ── GET /v1/releases/{id} ──────────────────────────────────────────────────
 
 #[expect(
@@ -1469,6 +1566,93 @@ async fn handle_get_release(
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/releases/{id}/resolution ───────────────────────────────────────
+
+async fn handle_get_release_resolution(
+    State(state): State<Arc<api::AppState>>,
+    Path(release_id): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let release = db::get_release(&conn, &release_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "release not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let artist_credit = load_credit(&conn, release.artist_credit_id)?;
+        let mut sources = Vec::new();
+        for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
+            let feed = db::get_feed(&conn, &map.feed_guid)?
+                .ok_or_else(|| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "release source references missing feed".into(),
+                    www_authenticate: None,
+                })?;
+            sources.push(ReleaseResolutionSourceResponse {
+                feed_guid: feed.feed_guid.clone(),
+                feed_url: feed.feed_url,
+                title: feed.title,
+                match_type: map.match_type,
+                confidence: map.confidence,
+                source_ids: db::get_source_entity_ids_for_entity(&conn, "feed", &feed.feed_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+                source_links: db::get_source_entity_links_for_entity(&conn, "feed", &feed.feed_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+                source_platforms: db::get_source_platform_claims_for_feed(&conn, &feed.feed_guid)?
+                    .into_iter()
+                    .map(platform_claim_response)
+                    .collect(),
+                source_release_claims: db::get_source_release_claims_for_entity(
+                    &conn,
+                    "feed",
+                    &feed.feed_guid,
+                )?
+                .into_iter()
+                .map(release_claim_response)
+                .collect(),
+                remote_items: db::get_feed_remote_items_for_feed(&conn, &feed.feed_guid)?
+                    .into_iter()
+                    .map(feed_remote_item_response)
+                    .collect(),
+            });
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: ReleaseResolutionResponse {
+                release_id: release.release_id,
+                title: release.title,
+                artist_credit,
+                sources,
+            },
             pagination: Pagination {
                 cursor: None,
                 has_more: false,
@@ -1644,6 +1828,119 @@ async fn handle_get_recording(
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/recordings/{id}/resolution ─────────────────────────────────────
+
+async fn handle_get_recording_resolution(
+    State(state): State<Arc<api::AppState>>,
+    Path(recording_id): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let recording = db::get_recording(&conn, &recording_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "recording not found".into(),
+                www_authenticate: None,
+            })?;
+        let artist_credit = load_credit(&conn, recording.artist_credit_id)?;
+
+        let mut stmt = conn.prepare(
+            "SELECT r.release_id, r.title, rr.position \
+             FROM release_recordings rr \
+             JOIN releases r ON r.release_id = rr.release_id \
+             WHERE rr.recording_id = ?1 \
+             ORDER BY r.title_lower, r.release_id, rr.position",
+        )?;
+        let releases: Vec<RecordingReleaseSummary> = stmt
+            .query_map(params![recording_id], |row| {
+                Ok(RecordingReleaseSummary {
+                    release_id: row.get(0)?,
+                    title: row.get(1)?,
+                    position: row.get(2)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut sources = Vec::new();
+        for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
+            let track = db::get_track(&conn, &map.track_guid)?
+                .ok_or_else(|| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "recording source references missing track".into(),
+                    www_authenticate: None,
+                })?;
+            sources.push(RecordingResolutionSourceResponse {
+                track_guid: track.track_guid.clone(),
+                feed_guid: track.feed_guid.clone(),
+                title: track.title,
+                match_type: map.match_type,
+                confidence: map.confidence,
+                source_ids: db::get_source_entity_ids_for_entity(&conn, "track", &track.track_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+                source_links: db::get_source_entity_links_for_entity(&conn, "track", &track.track_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+                source_contributors: db::get_source_contributor_claims_for_entity(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                )?
+                .into_iter()
+                .map(contributor_claim_response)
+                .collect(),
+                source_release_claims: db::get_source_release_claims_for_entity(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                )?
+                .into_iter()
+                .map(release_claim_response)
+                .collect(),
+                source_enclosures: db::get_source_item_enclosures_for_entity(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                )?
+                .into_iter()
+                .map(enclosure_response)
+                .collect(),
+            });
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: RecordingResolutionResponse {
+                recording_id: recording.recording_id,
+                title: recording.title,
+                artist_credit,
+                releases,
+                sources,
+            },
             pagination: Pagination {
                 cursor: None,
                 has_more: false,
@@ -1851,6 +2148,110 @@ async fn handle_get_artist_releases(
             pagination: Pagination {
                 cursor: next_cursor,
                 has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/artists/{id}/resolution ────────────────────────────────────────
+
+async fn handle_get_artist_resolution(
+    State(state): State<Arc<api::AppState>>,
+    Path(artist_id): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let artist = db::get_artist_by_id(&conn, &artist_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "artist not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let external_ids = db::get_external_ids(&conn, "artist", &artist_id)?
+            .into_iter()
+            .map(external_id_response)
+            .collect();
+
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT f.feed_guid, f.feed_url, f.title \
+             FROM artist_credit_name acn \
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+             JOIN feeds f ON f.artist_credit_id = ac.id \
+             WHERE acn.artist_id = ?1 \
+             ORDER BY f.title_lower, f.feed_guid",
+        )?;
+        let feed_rows: Vec<(String, String, String)> = stmt
+            .query_map(params![artist_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut feeds = Vec::new();
+        for (feed_guid, feed_url, title) in feed_rows {
+            let canonical_release = conn
+                .query_row(
+                    "SELECT release_id, match_type, confidence \
+                     FROM source_feed_release_map WHERE feed_guid = ?1",
+                    params![feed_guid],
+                    |row| {
+                        Ok(CanonicalReleaseRef {
+                            release_id: row.get(0)?,
+                            match_type: row.get(1)?,
+                            confidence: row.get(2)?,
+                        })
+                    },
+                )
+                .optional()?;
+            feeds.push(ArtistResolutionFeedEvidenceResponse {
+                feed_guid: feed_guid.clone(),
+                feed_url,
+                title,
+                canonical_release,
+                source_ids: db::get_source_entity_ids_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+                source_links: db::get_source_entity_links_for_entity(&conn, "feed", &feed_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+                source_platforms: db::get_source_platform_claims_for_feed(&conn, &feed_guid)?
+                    .into_iter()
+                    .map(platform_claim_response)
+                    .collect(),
+                remote_items: db::get_feed_remote_items_for_feed(&conn, &feed_guid)?
+                    .into_iter()
+                    .map(feed_remote_item_response)
+                    .collect(),
+            });
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: ArtistResolutionResponse {
+                artist_id: artist.artist_id,
+                name: artist.name,
+                external_ids,
+                feeds,
+            },
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
             },
             meta: meta(&state2),
         })
@@ -2502,11 +2903,14 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/artists/{id}", get(handle_get_artist))
         .route("/v1/artists/{id}/feeds", get(handle_get_artist_feeds))
         .route("/v1/artists/{id}/releases", get(handle_get_artist_releases))
+        .route("/v1/artists/{id}/resolution", get(handle_get_artist_resolution))
         .route("/v1/feeds/{guid}", get(handle_get_feed))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/releases/{id}", get(handle_get_release))
+        .route("/v1/releases/{id}/resolution", get(handle_get_release_resolution))
         .route("/v1/releases/{id}/sources", get(handle_get_release_sources))
         .route("/v1/recordings/{id}", get(handle_get_recording))
+        .route("/v1/recordings/{id}/resolution", get(handle_get_recording_resolution))
         .route("/v1/recordings/{id}/sources", get(handle_get_recording_sources))
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/recent", get(handle_get_recent))
