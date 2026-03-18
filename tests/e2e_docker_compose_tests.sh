@@ -19,6 +19,7 @@ COMMUNITY1_URL="http://localhost:8009"
 COMMUNITY2_URL="http://localhost:8010"
 CRAWL_TOKEN="test-token"
 ADMIN_TOKEN="test-admin-token"
+SYNC_TOKEN="test-sync-token"
 
 PASSED=0
 FAILED=0
@@ -207,6 +208,7 @@ sync_found=false
 
 for i in $(seq 1 $((MAX_SYNC_WAIT / SYNC_INTERVAL))); do
     status=$(curl -s -o /tmp/e2e_sync_response.json -w '%{http_code}' \
+        -H "X-Sync-Token: ${SYNC_TOKEN}" \
         "${COMMUNITY1_URL}/sync/events?after_seq=0&limit=100")
 
     if [ "$status" = "200" ]; then

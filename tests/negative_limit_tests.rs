@@ -43,6 +43,7 @@ async fn sync_events_negative_limit_is_clamped() {
     let req = Request::builder()
         .method("GET")
         .uri("/sync/events?limit=-1")
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::empty())
         .expect("build request");
 
@@ -80,6 +81,7 @@ async fn sync_events_zero_limit_is_clamped() {
     let req = Request::builder()
         .method("GET")
         .uri("/sync/events?limit=0")
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::empty())
         .expect("build request");
 
@@ -104,6 +106,22 @@ async fn sync_events_zero_limit_is_clamped() {
         "zero limit must not bypass the 1000-event cap, got {} events",
         events.len()
     );
+}
+
+#[tokio::test]
+async fn sync_events_requires_auth() {
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let req = Request::builder()
+        .method("GET")
+        .uri("/sync/events?limit=1")
+        .body(axum::body::Body::empty())
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 403, "GET /sync/events without sync auth must return 403");
 }
 
 // ── Test: DB-level defense — get_events_since floors negative limit ─────────

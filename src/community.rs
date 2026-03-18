@@ -99,6 +99,50 @@ struct RegisterBody<'a> {
     address: &'a str,
 }
 
+#[derive(Clone, Debug)]
+struct SyncAuth {
+    sync_token: Option<String>,
+    admin_token: Option<String>,
+}
+
+impl SyncAuth {
+    fn from_env() -> Self {
+        let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
+        let admin_token = std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty());
+        Self {
+            sync_token,
+            admin_token,
+        }
+    }
+
+    fn apply(&self, request: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(ref token) = self.sync_token {
+            request.header("X-Sync-Token", token.as_str())
+        } else if let Some(ref token) = self.admin_token {
+            request.header("X-Admin-Token", token.as_str())
+        } else {
+            request
+        }
+    }
+
+    fn log_registration_mode(&self) {
+        if self.sync_token.is_some() {
+            return;
+        }
+        if self.admin_token.is_some() {
+            tracing::warn!(
+                "DEPRECATED: community sync auth is falling back to ADMIN_TOKEN. \
+                 Set SYNC_TOKEN env var for least-privilege sync reads and registration."
+            );
+        } else {
+            tracing::warn!(
+                "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set — \
+                 sync/register and sync/events requests to the primary will be rejected with 403."
+            );
+        }
+    }
+}
+
 // ── run_community_sync ───────────────────────────────────────────────────────
 
 /// Spawn the background sync task. Returns immediately; the task runs until
@@ -118,6 +162,7 @@ pub async fn run_community_sync(
     sse_registry: Option<Arc<crate::api::SseRegistry>>,
 ) {
     let pubkey_hex = signer.pubkey_hex().to_string();
+    let sync_auth = SyncAuth::from_env();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -138,6 +183,7 @@ pub async fn run_community_sync(
         &config.primary_url,
         Arc::clone(&signer),
         &config.node_address,
+        &sync_auth,
     )
     .await;
 
@@ -183,7 +229,7 @@ pub async fn run_community_sync(
             // Issue-CATCHUP-DRAIN — 2026-03-15: drain all available pages (fast catch-up)
             let mut pages_drained: u32 = 0;
             loop {
-                match poll_once(&client, &config.primary_url, last_seq).await {
+                match poll_once(&client, &config.primary_url, last_seq, &sync_auth).await {
                     Err(e) => {
                         tracing::error!(error = %e, "community: poll error");
                         break; // exit drain loop on error, sleep then retry
@@ -378,9 +424,6 @@ async fn register_with_tracker(
 // CS-03 authenticated register — 2026-03-12
 /// Announces this node's push URL to the primary via `POST /sync/register`.
 ///
-/// Reads the `ADMIN_TOKEN` environment variable and sends it as
-/// `X-Admin-Token` header so the primary can authenticate the request.
-///
 /// Errors are logged and swallowed — the poll-loop fallback handles catch-up
 /// when the primary is unreachable at startup.
 async fn register_with_primary(
@@ -388,6 +431,7 @@ async fn register_with_primary(
     primary_url: &str,
     signer: Arc<signing::NodeSigner>,
     node_address: &str,
+    sync_auth: &SyncAuth,
 ) {
     let url = format!("{primary_url}/sync/register");
     let signed_at = db::unix_now();
@@ -412,26 +456,8 @@ async fn register_with_primary(
         signature,
     };
 
-    // Finding-3 separate sync token — 2026-03-13
-    // Prefer SYNC_TOKEN (new, least-privilege); fall back to ADMIN_TOKEN (legacy).
-    let sync_token = std::env::var("SYNC_TOKEN").ok().filter(|s| !s.is_empty());
-    let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
-
-    let mut request = client.post(&url).json(&body);
-    if let Some(ref token) = sync_token {
-        request = request.header("X-Sync-Token", token.as_str());
-    } else if !admin_token.is_empty() {
-        tracing::warn!(
-            "DEPRECATED: registering with primary via ADMIN_TOKEN. \
-             Set SYNC_TOKEN env var for least-privilege sync registration."
-        );
-        request = request.header("X-Admin-Token", &admin_token);
-    } else {
-        tracing::warn!(
-            "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set — \
-             push registration with primary will be rejected with 403."
-        );
-    }
+    sync_auth.log_registration_mode();
+    let request = sync_auth.apply(client.post(&url).json(&body));
 
     match request.send().await {
         Ok(resp) if resp.status().is_success() => {
@@ -455,11 +481,12 @@ async fn poll_once(
     client: &reqwest::Client,
     primary_url: &str,
     after_seq: i64,
+    sync_auth: &SyncAuth,
 ) -> Result<crate::sync::SyncEventsResponse, String> {
     let url = format!("{primary_url}/sync/events?after_seq={after_seq}&limit=500");
 
-    let resp = client
-        .get(&url)
+    let resp = sync_auth
+        .apply(client.get(&url))
         .send()
         .await
         .map_err(|e| format!("GET {url}: {e}"))?;

@@ -16,7 +16,7 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
 | `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
 | `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. Also used as the legacy fallback credential for sync registration/reconcile when `SYNC_TOKEN` is not configured. |
-| `SYNC_TOKEN` | unset | No | Dedicated token for `POST /sync/register` and `POST /sync/reconcile` (`X-Sync-Token` header). When set, it replaces `ADMIN_TOKEN` for those sync endpoints. |
+| `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. When set, it replaces `ADMIN_TOKEN` for those sync endpoints. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
 
 ### TLS (ACME / Let's Encrypt)
@@ -299,10 +299,12 @@ Check `GET /sync/events?after_seq=0&limit=1` on both the primary and community n
 
 ```bash
 # Primary
-curl -s http://primary:8008/sync/events?after_seq=999999&limit=1 | jq .next_seq
+curl -s -H "X-Sync-Token: $SYNC_TOKEN" \
+  http://primary:8008/sync/events?after_seq=999999&limit=1 | jq .next_seq
 
 # Community
-curl -s http://community:8009/sync/events?after_seq=999999&limit=1 | jq .next_seq
+curl -s -H "X-Sync-Token: $SYNC_TOKEN" \
+  http://community:8009/sync/events?after_seq=999999&limit=1 | jq .next_seq
 ```
 
 **Push failures**
@@ -320,7 +322,7 @@ Returns `ok` with status 200. Use as a liveness probe in Docker, Kubernetes, or 
 **Peer status**
 
 ```bash
-curl -s http://primary:8008/sync/peers | jq
+curl -s -H "X-Sync-Token: $SYNC_TOKEN" http://primary:8008/sync/peers | jq
 ```
 
 Check `last_push_at` timestamps. A peer with a stale `last_push_at` is either down or unreachable.
@@ -420,9 +422,10 @@ All admin endpoints return 403 when `ADMIN_TOKEN` is empty. Set `ADMIN_TOKEN` to
 
 ### "Neither SYNC_TOKEN nor ADMIN_TOKEN env var is set" (community node warning)
 
-Community nodes need `SYNC_TOKEN` to authenticate `POST /sync/register` and
-`POST /sync/reconcile` with the primary. If `SYNC_TOKEN` is unset on the
-primary, `ADMIN_TOKEN` still works as a deprecated fallback.
+Community nodes need `SYNC_TOKEN` to authenticate sync reads and writes with
+the primary: `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, and
+`POST /sync/reconcile`. If `SYNC_TOKEN` is unset on the primary, `ADMIN_TOKEN`
+still works as a deprecated fallback.
 
 ### Push fan-out failures / peer eviction
 

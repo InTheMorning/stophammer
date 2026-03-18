@@ -62,8 +62,9 @@ dependency on a central server.
   ed25519 signature, apply idempotently. Fall back to polling if no push
   arrives within `PUSH_TIMEOUT_SECS` (default 90s). Register their push URL
   with the primary on startup.
-- **Primary as tracker** — `GET /sync/peers` on the primary returns all known
-  community nodes. A new node only needs the primary URL to bootstrap.
+- **Primary as tracker** — authenticated `GET /sync/peers` on the primary
+  returns all known community nodes. A new node only needs the primary URL
+  plus sync credentials to bootstrap.
   The Cloudflare tracker worker is optional and only needed before the primary
   URL is publicly known.
 - **Crawlers** — independent untrusted processes, authenticated by `CRAWL_TOKEN`.
@@ -149,10 +150,10 @@ The primary exposes:
 | Endpoint | Description |
 |---|---|
 | `POST /ingest/feed` | Crawler submission |
-| `GET /sync/events` | Paginated event log |
+| `GET /sync/events` | Paginated event log (requires sync auth) |
 | `POST /sync/reconcile` | Set-diff catch-up for rejoining nodes |
 | `POST /sync/register` | Community nodes announce their push URL |
-| `GET /sync/peers` | Returns known active peers (primary-as-tracker) |
+| `GET /sync/peers` | Returns known active peers (requires sync auth) |
 | `GET /node/info` | Returns this node's pubkey |
 | `POST /admin/artists/merge` | Requires `X-Admin-Token` |
 | `POST /admin/artists/alias` | Requires `X-Admin-Token` |

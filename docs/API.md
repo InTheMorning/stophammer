@@ -231,7 +231,7 @@ while `ended` rows with enclosures are promoted into normal tracks.
 
 Paginated event log for community nodes to poll.
 
-- **Authentication:** None
+- **Authentication:** `X-Sync-Token` when `SYNC_TOKEN` is configured on the serving node; otherwise legacy `X-Admin-Token`
 - **Available on:** Primary and community
 
 **Query parameters:**
@@ -269,6 +269,11 @@ Paginated event log for community nodes to poll.
 | `events` | Event[] | Events after the cursor, ordered by `seq` |
 | `has_more` | bool | `true` if more events exist beyond this page |
 | `next_seq` | i64 | `seq` of the last returned event (use as next `after_seq`) |
+
+| Code | Meaning |
+|------|---------|
+| 200  | Events returned successfully |
+| 403  | Invalid or missing sync/admin token |
 
 ---
 
@@ -353,7 +358,7 @@ Receives pushed events from the primary. Community nodes expose this endpoint; t
 
 Returns all known active peer nodes. Acts as a built-in tracker -- a new node only needs the primary URL to discover the entire network.
 
-- **Authentication:** None
+- **Authentication:** `X-Sync-Token` when `SYNC_TOKEN` is configured on the serving node; otherwise legacy `X-Admin-Token`
 - **Available on:** Primary and community
 
 **Response (`200 OK`):**
@@ -369,6 +374,11 @@ Returns all known active peer nodes. Acts as a built-in tracker -- a new node on
   ]
 }
 ```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Peer list returned successfully |
+| 403  | Invalid or missing sync/admin token |
 
 ---
 
@@ -1416,8 +1426,8 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 | Method | Header / Field | Used By |
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
-| Sync token | `X-Sync-Token` header | `POST /sync/register`, `POST /sync/reconcile` when `SYNC_TOKEN` is configured |
-| Admin token | `X-Admin-Token` header | `/admin/*`, legacy fallback for `POST /sync/register` and `POST /sync/reconcile` when `SYNC_TOKEN` is unset, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
+| Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` when `SYNC_TOKEN` is configured |
+| Admin token | `X-Admin-Token` header | `/admin/*`, legacy fallback for `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, and `POST /sync/reconcile` when `SYNC_TOKEN` is unset, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
 | Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}` |
 
 Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.

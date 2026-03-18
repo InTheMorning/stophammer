@@ -20,8 +20,8 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
         chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
         signer,
         node_pubkey_hex: pubkey,
-        admin_token: String::new(),
-        sync_token: None,
+        admin_token: "test-admin-token".into(),
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -29,7 +29,27 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
     })
 }
 
-/// GET /sync/peers on the readonly router should return 200.
+/// GET /sync/peers on the readonly router should require auth.
+#[tokio::test]
+async fn readonly_router_sync_peers_requires_auth() {
+    let state = test_app_state();
+    let app = stophammer::api::build_readonly_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/sync/peers")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), 403, "GET /sync/peers without sync auth must return 403");
+}
+
+/// GET /sync/peers on the readonly router should return 200 with valid sync auth.
 #[tokio::test]
 async fn readonly_router_serves_sync_peers() {
     let state = test_app_state();
@@ -40,6 +60,7 @@ async fn readonly_router_serves_sync_peers() {
             Request::builder()
                 .method("GET")
                 .uri("/sync/peers")
+                .header("X-Sync-Token", "test-sync-token")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )
@@ -108,6 +129,7 @@ async fn primary_router_still_serves_sync_peers() {
             Request::builder()
                 .method("GET")
                 .uri("/sync/peers")
+                .header("X-Sync-Token", "test-sync-token")
                 .body(axum::body::Body::empty())
                 .unwrap(),
         )

@@ -539,8 +539,8 @@ pub struct AppState {
     /// Token required in `X-Admin-Token` for admin endpoints.
     pub admin_token: String,
     // Finding-3 separate sync token — 2026-03-13
-    /// Optional dedicated token for `POST /sync/register` (`X-Sync-Token` header).
-    /// When `Some`, only this token is accepted for sync registration.
+    /// Optional dedicated token for sync endpoints (`X-Sync-Token` header).
+    /// When `Some`, only this token is accepted for sync reads and writes.
     /// When `None`, falls back to `admin_token` for backward compatibility.
     pub sync_token: Option<String>,
     /// HTTP client used for push fan-out to peer community nodes.
@@ -2059,8 +2059,11 @@ struct SyncEventsQuery {
 // Mutex safety compliant — 2026-03-12
 async fn handle_sync_events(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Query(params): Query<SyncEventsQuery>,
 ) -> Result<Json<sync::SyncEventsResponse>, ApiError> {
+    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+
     let after_seq = params.after_seq;
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let capped_limit = params.limit.unwrap_or(500).clamp(1, 1000);
@@ -2505,7 +2508,10 @@ async fn handle_sync_register(
 
 async fn handle_sync_peers(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
 ) -> Result<Json<sync::PeersResponse>, ApiError> {
+    check_sync_or_admin_token(&headers, state.sync_token.as_deref(), &state.admin_token)?;
+
     // Mutex safety compliant — 2026-03-12
     let result = spawn_db(state.db.clone(), move |conn| {
         let peers = db::get_push_peers(conn)?;
@@ -2729,11 +2735,11 @@ fn check_admin_token(headers: &HeaderMap, expected: &str) -> Result<(), ApiError
     }
 }
 
-// ── Sync registration auth helper ──────────────────────────────────────────────
+// ── Sync endpoint auth helper ────────────────────────────────────────────────
 
 // Finding-3 separate sync token — 2026-03-13
 // CS-02 constant-time — 2026-03-12
-/// Checks authentication for `POST /sync/register`.
+/// Checks authentication for sync endpoints.
 ///
 /// When `sync_token` is `Some`, only the `X-Sync-Token` header is accepted.
 /// When `sync_token` is `None` (backward compatibility), falls back to
@@ -2779,8 +2785,8 @@ fn check_sync_or_admin_token(
     }
 
     tracing::warn!(
-        "DEPRECATED: POST /sync/register authenticated via ADMIN_TOKEN. \
-         Set SYNC_TOKEN env var for least-privilege sync registration."
+        "DEPRECATED: sync endpoint authenticated via ADMIN_TOKEN. \
+         Set SYNC_TOKEN env var for least-privilege sync reads and writes."
     );
     check_admin_token(headers, admin_token)
 }

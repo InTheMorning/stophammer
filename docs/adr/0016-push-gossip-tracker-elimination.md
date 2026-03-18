@@ -57,15 +57,17 @@ preserving the old behaviour exactly.
 
 The primary accumulates a peer list via `POST /sync/register` (called by community
 nodes on startup). `GET /sync/peers` on the primary returns the current active peer
-list (consecutive\_failures < 5). Any new community node that knows the primary URL
-can call `GET /sync/peers` instead of the Cloudflare tracker.
+list (consecutive\_failures < 5) to authenticated sync callers. Any new community
+node that knows the primary URL and sync credentials can call `GET /sync/peers`
+instead of the Cloudflare tracker.
 
 ### Cloudflare tracker demoted to optional bootstrap
 
 Community nodes still call `POST /nodes/register` on the Cloudflare tracker at
 startup (fire-and-forget, as before). The tracker remains useful only for nodes that
-do not know the primary URL in advance. Once a node knows the primary URL, it can
-derive the full peer list from `GET /sync/peers` and never needs the tracker again.
+do not know the primary URL in advance. Once a node knows the primary URL and sync
+credentials, it can derive the full peer list from `GET /sync/peers` and never
+needs the tracker again.
 
 ## Consequences
 
