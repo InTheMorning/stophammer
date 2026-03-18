@@ -193,9 +193,15 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(feed_resp.status(), 200);
     let feed_json = body_json(feed_resp).await;
     assert_eq!(feed_json["data"]["canonical"]["release_id"], release_id);
-    assert_eq!(feed_json["data"]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
+    assert_eq!(
+        feed_json["data"]["source_links"][0]["url"],
+        "https://artist.example.com/canonical-query"
+    );
     assert_eq!(feed_json["data"]["source_ids"][0]["scheme"], "nostr_npub");
-    assert_eq!(feed_json["data"]["source_platforms"][0]["platform_key"], "wavlake");
+    assert_eq!(
+        feed_json["data"]["source_platforms"][0]["platform_key"],
+        "wavlake"
+    );
     let feed_claim_types = feed_json["data"]["source_release_claims"]
         .as_array()
         .expect("feed source release claims array")
@@ -217,9 +223,18 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("track response");
     assert_eq!(track_resp.status(), 200);
     let track_json = body_json(track_resp).await;
-    assert_eq!(track_json["data"]["canonical"]["recording_id"], recording_id);
-    assert_eq!(track_json["data"]["source_links"][0]["link_type"], "web_page");
-    assert_eq!(track_json["data"]["source_contributors"][0]["role_norm"], "vocals");
+    assert_eq!(
+        track_json["data"]["canonical"]["recording_id"],
+        recording_id
+    );
+    assert_eq!(
+        track_json["data"]["source_links"][0]["link_type"],
+        "web_page"
+    );
+    assert_eq!(
+        track_json["data"]["source_contributors"][0]["role_norm"],
+        "vocals"
+    );
     let track_enclosure_urls = track_json["data"]["source_enclosures"]
         .as_array()
         .expect("track source enclosures array")
@@ -242,7 +257,10 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(release_resp.status(), 200);
     let release_json = body_json(release_resp).await;
     assert_eq!(release_json["data"]["title"], "Canonical Query Release");
-    assert_eq!(release_json["data"]["tracks"][0]["recording_id"], recording_id);
+    assert_eq!(
+        release_json["data"]["tracks"][0]["recording_id"],
+        recording_id
+    );
     assert_eq!(release_json["data"]["sources"][0]["feed_guid"], feed_guid);
 
     let release_sources_resp = app
@@ -261,16 +279,27 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(release_sources_resp.status(), 200);
     let release_sources_json = body_json(release_sources_resp).await;
     assert_eq!(release_sources_json["data"][0]["feed_guid"], feed_guid);
-    assert_eq!(release_sources_json["data"][0]["source_platforms"][0]["platform_key"], "wavlake");
-    assert_eq!(release_sources_json["data"][0]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
-    assert_eq!(release_sources_json["data"][0]["canonical"]["release_id"], release_id);
+    assert_eq!(
+        release_sources_json["data"][0]["source_platforms"][0]["platform_key"],
+        "wavlake"
+    );
+    assert_eq!(
+        release_sources_json["data"][0]["source_links"][0]["url"],
+        "https://artist.example.com/canonical-query"
+    );
+    assert_eq!(
+        release_sources_json["data"][0]["canonical"]["release_id"],
+        release_id
+    );
 
     let recording_resp = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/recordings/{recording_id}?include=sources,releases"))
+                .uri(format!(
+                    "/v1/recordings/{recording_id}?include=sources,releases"
+                ))
                 .body(Body::empty())
                 .expect("recording request"),
         )
@@ -279,8 +308,14 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recording_resp.status(), 200);
     let recording_json = body_json(recording_resp).await;
     assert_eq!(recording_json["data"]["title"], "Canonical Query Song");
-    assert_eq!(recording_json["data"]["sources"][0]["track_guid"], track_guid);
-    assert_eq!(recording_json["data"]["releases"][0]["release_id"], release_id);
+    assert_eq!(
+        recording_json["data"]["sources"][0]["track_guid"],
+        track_guid
+    );
+    assert_eq!(
+        recording_json["data"]["releases"][0]["release_id"],
+        release_id
+    );
 
     let recording_sources_resp = app
         .clone()
@@ -298,7 +333,10 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recording_sources_resp.status(), 200);
     let recording_sources_json = body_json(recording_sources_resp).await;
     assert_eq!(recording_sources_json["data"][0]["track_guid"], track_guid);
-    assert_eq!(recording_sources_json["data"][0]["source_contributors"][0]["role_norm"], "vocals");
+    assert_eq!(
+        recording_sources_json["data"][0]["source_contributors"][0]["role_norm"],
+        "vocals"
+    );
     let recording_source_enclosures = recording_sources_json["data"][0]["source_enclosures"]
         .as_array()
         .expect("recording source enclosures array")
@@ -306,7 +344,10 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .filter_map(|enclosure| enclosure["url"].as_str())
         .collect::<Vec<_>>();
     assert!(recording_source_enclosures.contains(&"https://cdn.example.com/canonical-query.flac"));
-    assert_eq!(recording_sources_json["data"][0]["canonical"]["recording_id"], recording_id);
+    assert_eq!(
+        recording_sources_json["data"][0]["canonical"]["recording_id"],
+        recording_id
+    );
 
     let artist_releases_resp = app
         .clone()
@@ -343,9 +384,21 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .iter()
         .filter_map(|row| row["entity_type"].as_str())
         .collect::<Vec<_>>();
-    assert!(search_types.iter().all(|kind| matches!(*kind, "artist" | "release" | "recording")));
-    assert!(search_results.iter().any(|row| row["entity_type"] == "release" && row["entity_id"] == release_id));
-    assert!(search_results.iter().any(|row| row["entity_type"] == "recording" && row["entity_id"] == recording_id));
+    assert!(
+        search_types
+            .iter()
+            .all(|kind| matches!(*kind, "artist" | "release" | "recording"))
+    );
+    assert!(
+        search_results
+            .iter()
+            .any(|row| row["entity_type"] == "release" && row["entity_id"] == release_id)
+    );
+    assert!(
+        search_results
+            .iter()
+            .any(|row| row["entity_type"] == "recording" && row["entity_id"] == recording_id)
+    );
 
     let release_search_resp = app
         .clone()
@@ -407,9 +460,18 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(artist_resolution_resp.status(), 200);
     let artist_resolution_json = body_json(artist_resolution_resp).await;
     assert_eq!(artist_resolution_json["data"]["artist_id"], artist_id);
-    assert_eq!(artist_resolution_json["data"]["external_ids"][0]["scheme"], "nostr_npub");
-    assert_eq!(artist_resolution_json["data"]["feeds"][0]["feed_guid"], feed_guid);
-    assert_eq!(artist_resolution_json["data"]["feeds"][0]["source_platforms"][0]["platform_key"], "wavlake");
+    assert_eq!(
+        artist_resolution_json["data"]["external_ids"][0]["scheme"],
+        "nostr_npub"
+    );
+    assert_eq!(
+        artist_resolution_json["data"]["feeds"][0]["feed_guid"],
+        feed_guid
+    );
+    assert_eq!(
+        artist_resolution_json["data"]["feeds"][0]["source_platforms"][0]["platform_key"],
+        "wavlake"
+    );
 
     let release_resolution_resp = app
         .clone()
@@ -425,9 +487,18 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(release_resolution_resp.status(), 200);
     let release_resolution_json = body_json(release_resolution_resp).await;
     assert_eq!(release_resolution_json["data"]["release_id"], release_id);
-    assert_eq!(release_resolution_json["data"]["sources"][0]["feed_guid"], feed_guid);
-    assert_eq!(release_resolution_json["data"]["sources"][0]["source_ids"][0]["scheme"], "nostr_npub");
-    assert_eq!(release_resolution_json["data"]["sources"][0]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
+    assert_eq!(
+        release_resolution_json["data"]["sources"][0]["feed_guid"],
+        feed_guid
+    );
+    assert_eq!(
+        release_resolution_json["data"]["sources"][0]["source_ids"][0]["scheme"],
+        "nostr_npub"
+    );
+    assert_eq!(
+        release_resolution_json["data"]["sources"][0]["source_links"][0]["url"],
+        "https://artist.example.com/canonical-query"
+    );
 
     let recording_resolution_resp = app
         .oneshot(
@@ -441,8 +512,20 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("recording resolution response");
     assert_eq!(recording_resolution_resp.status(), 200);
     let recording_resolution_json = body_json(recording_resolution_resp).await;
-    assert_eq!(recording_resolution_json["data"]["recording_id"], recording_id);
-    assert_eq!(recording_resolution_json["data"]["sources"][0]["track_guid"], track_guid);
-    assert_eq!(recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["role_norm"], "vocals");
-    assert_eq!(recording_resolution_json["data"]["sources"][0]["source_enclosures"][0]["entity_type"], "track");
+    assert_eq!(
+        recording_resolution_json["data"]["recording_id"],
+        recording_id
+    );
+    assert_eq!(
+        recording_resolution_json["data"]["sources"][0]["track_guid"],
+        track_guid
+    );
+    assert_eq!(
+        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["role_norm"],
+        "vocals"
+    );
+    assert_eq!(
+        recording_resolution_json["data"]["sources"][0]["source_enclosures"][0]["entity_type"],
+        "track"
+    );
 }

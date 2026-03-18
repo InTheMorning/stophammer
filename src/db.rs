@@ -410,10 +410,18 @@ fn canonical_artist_for_query(
     let mut ranked: Vec<(i64, i64, String)> = Vec::with_capacity(unique_ids.len());
     for artist_id in unique_ids {
         if let Some(artist) = get_artist_by_id(conn, &artist_id)? {
-            ranked.push((artist_feed_count(conn, &artist_id)?, artist.created_at, artist.artist_id));
+            ranked.push((
+                artist_feed_count(conn, &artist_id)?,
+                artist.created_at,
+                artist.artist_id,
+            ));
         }
     }
-    ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    ranked.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
     let Some((_, _, artist_id)) = ranked.into_iter().next() else {
         return Ok(None);
     };
@@ -492,14 +500,19 @@ pub fn resolve_feed_artist_from_source_claims(
     let npubs: std::collections::BTreeSet<String> = source_entity_ids
         .iter()
         .filter(|claim| {
-            claim.entity_type == "feed" && claim.entity_id == feed_guid && claim.scheme == "nostr_npub"
+            claim.entity_type == "feed"
+                && claim.entity_id == feed_guid
+                && claim.scheme == "nostr_npub"
         })
         .map(|claim| claim.value.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect();
     if npubs.len() == 1
-        && let Some(artist) =
-            find_existing_artist_by_npub_and_name(conn, npubs.first().expect("len checked"), &artist_name_lower)?
+        && let Some(artist) = find_existing_artist_by_npub_and_name(
+            conn,
+            npubs.first().expect("len checked"),
+            &artist_name_lower,
+        )?
     {
         return Ok(artist);
     }
@@ -523,9 +536,7 @@ pub fn resolve_feed_artist_from_source_claims(
     let website_urls: std::collections::BTreeSet<String> = source_entity_links
         .iter()
         .filter(|link| {
-            link.entity_type == "feed"
-                && link.entity_id == feed_guid
-                && link.link_type == "website"
+            link.entity_type == "feed" && link.entity_id == feed_guid && link.link_type == "website"
         })
         .map(|link| link.url.trim().to_string())
         .filter(|value| !value.is_empty())
@@ -1352,24 +1363,41 @@ fn canonical_cluster_id(kind: &str, key: &str) -> String {
 }
 
 fn identity_release_id_for_feed_guid(feed_guid: &str) -> String {
-    canonical_cluster_id("release", &format!("identity_release_feed_guid_v1|{feed_guid}"))
+    canonical_cluster_id(
+        "release",
+        &format!("identity_release_feed_guid_v1|{feed_guid}"),
+    )
 }
 
 fn identity_recording_id_for_track_guid(track_guid: &str) -> String {
-    canonical_cluster_id("recording", &format!("identity_recording_track_guid_v1|{track_guid}"))
+    canonical_cluster_id(
+        "recording",
+        &format!("identity_recording_track_guid_v1|{track_guid}"),
+    )
 }
 
 fn track_release_sort_key(a: &Track, b: &Track) -> std::cmp::Ordering {
     a.track_number
         .is_none()
         .cmp(&b.track_number.is_none())
-        .then_with(|| a.track_number.unwrap_or(i64::MAX).cmp(&b.track_number.unwrap_or(i64::MAX)))
-        .then_with(|| a.pub_date.unwrap_or(i64::MAX).cmp(&b.pub_date.unwrap_or(i64::MAX)))
+        .then_with(|| {
+            a.track_number
+                .unwrap_or(i64::MAX)
+                .cmp(&b.track_number.unwrap_or(i64::MAX))
+        })
+        .then_with(|| {
+            a.pub_date
+                .unwrap_or(i64::MAX)
+                .cmp(&b.pub_date.unwrap_or(i64::MAX))
+        })
         .then_with(|| a.title_lower.cmp(&b.title_lower))
         .then_with(|| a.track_guid.cmp(&b.track_guid))
 }
 
-fn get_artist_credit_display_name(conn: &Connection, artist_credit_id: i64) -> Result<String, DbError> {
+fn get_artist_credit_display_name(
+    conn: &Connection,
+    artist_credit_id: i64,
+) -> Result<String, DbError> {
     Ok(get_artist_credit(conn, artist_credit_id)?
         .map(|credit| credit.display_name.to_lowercase())
         .unwrap_or_else(|| format!("artist_credit_id:{artist_credit_id}")))
@@ -1501,8 +1529,7 @@ fn release_cluster_target(
         {
             let key = format!(
                 "single_track_cross_platform_release_v1|artist_display={artist_display_key}|release_title={}|track_title={}|duration_anchor={duration_anchor}",
-                feed.title_lower,
-                tracks[0].title_lower,
+                feed.title_lower, tracks[0].title_lower,
             );
             return Ok((
                 canonical_cluster_id("release", &key),
@@ -1523,7 +1550,13 @@ fn release_cluster_target(
     let artist_key = feed_artist_evidence_key(conn, feed)?;
     let track_signature = tracks
         .iter()
-        .map(|track| format!("{}@{}", track.title_lower, track.duration_secs.unwrap_or_default()))
+        .map(|track| {
+            format!(
+                "{}@{}",
+                track.title_lower,
+                track.duration_secs.unwrap_or_default()
+            )
+        })
         .collect::<Vec<_>>()
         .join("|");
     let key = format!(
@@ -1932,11 +1965,21 @@ fn record_promoted_entity_source(
     source_type: &str,
     source_url: &str,
 ) -> Result<(), DbError> {
-    record_entity_source(conn, entity_type, entity_id, source_type, Some(source_url), 1)?;
+    record_entity_source(
+        conn,
+        entity_type,
+        entity_id,
+        source_type,
+        Some(source_url),
+        1,
+    )?;
     Ok(())
 }
 
-fn promote_high_confidence_artist_ids_for_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
+fn promote_high_confidence_artist_ids_for_feed(
+    conn: &Connection,
+    feed: &Feed,
+) -> Result<(), DbError> {
     let Some(artist_id) = single_artist_id_for_credit(conn, feed.artist_credit_id)? else {
         return Ok(());
     };
@@ -1962,7 +2005,10 @@ fn promote_high_confidence_artist_ids_for_feed(conn: &Connection, feed: &Feed) -
             |row| row.get(0),
         )
         .optional()?;
-    if existing_for_artist.as_deref().is_some_and(|value| value != npub) {
+    if existing_for_artist
+        .as_deref()
+        .is_some_and(|value| value != npub)
+    {
         return Ok(());
     }
 
@@ -2046,7 +2092,9 @@ fn rebuild_recording_sources(conn: &Connection, recording_id: &str) -> Result<()
          ORDER BY t.track_guid",
     )?;
     let mapped_tracks: Vec<(String, String, Option<String>)> = track_stmt
-        .query_map(params![recording_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .query_map(params![recording_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
         .collect::<Result<_, _>>()?;
 
     for (track_guid, feed_guid, enclosure_url) in mapped_tracks {
@@ -3374,8 +3422,10 @@ fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String
 fn collect_artist_groups_from_rows(
     rows: Vec<(String, String, String)>,
 ) -> Vec<std::collections::BTreeSet<String>> {
-    let mut grouped: std::collections::BTreeMap<(String, String), std::collections::BTreeSet<String>> =
-        std::collections::BTreeMap::new();
+    let mut grouped: std::collections::BTreeMap<
+        (String, String),
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
     for (name_key, evidence_key, artist_id) in rows {
         grouped
             .entry((name_key, evidence_key))
@@ -3571,7 +3621,10 @@ fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Resu
     Ok(count > 0)
 }
 
-fn artist_platforms(conn: &Connection, artist_id: &str) -> Result<std::collections::BTreeSet<String>, DbError> {
+fn artist_platforms(
+    conn: &Connection,
+    artist_id: &str,
+) -> Result<std::collections::BTreeSet<String>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT spc.platform_key \
          FROM artist_credit_name acn \
@@ -3590,17 +3643,21 @@ fn artist_platforms(conn: &Connection, artist_id: &str) -> Result<std::collectio
 fn collect_artist_groups_by_anchored_name(
     conn: &Connection,
 ) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT LOWER(name), artist_id FROM artists ORDER BY LOWER(name), artist_id",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT LOWER(name), artist_id FROM artists ORDER BY LOWER(name), artist_id")?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
         .collect::<Result<Vec<_>, _>>()?;
 
     let mut names_to_artists: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
     for (name_key, artist_id) in rows {
-        names_to_artists.entry(name_key).or_default().push(artist_id);
+        names_to_artists
+            .entry(name_key)
+            .or_default()
+            .push(artist_id);
     }
 
     let mut groups = Vec::new();
@@ -3655,9 +3712,17 @@ fn preferred_artist_target(
         let Some(artist) = get_artist_by_id(conn, &current_id)? else {
             continue;
         };
-        ranked.push((artist_feed_count(conn, &current_id)?, artist.created_at, current_id));
+        ranked.push((
+            artist_feed_count(conn, &current_id)?,
+            artist.created_at,
+            current_id,
+        ));
     }
-    ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    ranked.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| a.2.cmp(&b.2))
+    });
     Ok(ranked.into_iter().next().map(|(_, _, artist_id)| artist_id))
 }
 
@@ -3696,7 +3761,8 @@ pub fn backfill_artist_identity(
             if source_artist_id == target_artist_id {
                 continue;
             }
-            if current_artist_id(&tx, &source_artist_id)?.as_deref() != Some(source_artist_id.as_str())
+            if current_artist_id(&tx, &source_artist_id)?.as_deref()
+                != Some(source_artist_id.as_str())
             {
                 continue;
             }
@@ -3979,7 +4045,10 @@ fn source_contributor_claims_changed(
         })
 }
 
-fn source_entity_ids_changed(existing: &[SourceEntityIdClaim], new: &[SourceEntityIdClaim]) -> bool {
+fn source_entity_ids_changed(
+    existing: &[SourceEntityIdClaim],
+    new: &[SourceEntityIdClaim],
+) -> bool {
     existing.len() != new.len()
         || existing.iter().zip(new.iter()).any(|(a, b)| {
             a.feed_guid != b.feed_guid
@@ -4387,7 +4456,8 @@ fn build_changed_events(
     }
 
     // --- Staged item-enclosure diff ---
-    let existing_source_item_enclosures = get_source_item_enclosures_for_feed(conn, &feed.feed_guid)?;
+    let existing_source_item_enclosures =
+        get_source_item_enclosures_for_feed(conn, &feed.feed_guid)?;
     if source_item_enclosures_changed(&existing_source_item_enclosures, source_item_enclosures) {
         event_rows.push(build_source_item_enclosures_event(
             feed,
@@ -4398,7 +4468,8 @@ fn build_changed_events(
     }
 
     // --- Staged platform-claim diff ---
-    let existing_source_platform_claims = get_source_platform_claims_for_feed(conn, &feed.feed_guid)?;
+    let existing_source_platform_claims =
+        get_source_platform_claims_for_feed(conn, &feed.feed_guid)?;
     if source_platform_claims_changed(&existing_source_platform_claims, source_platform_claims) {
         event_rows.push(build_source_platform_claims_event(
             feed,

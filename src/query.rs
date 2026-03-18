@@ -1082,10 +1082,12 @@ fn load_entity_link_urls(
     entity_type: &str,
     entity_id: &str,
 ) -> Result<Vec<String>, api::ApiError> {
-    Ok(db::get_source_entity_links_for_entity(conn, entity_type, entity_id)?
-        .into_iter()
-        .map(|link| link.url)
-        .collect())
+    Ok(
+        db::get_source_entity_links_for_entity(conn, entity_type, entity_id)?
+            .into_iter()
+            .map(|link| link.url)
+            .collect(),
+    )
 }
 
 fn build_feed_response(
@@ -1418,9 +1420,7 @@ fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLin
     }
 }
 
-fn release_claim_response(
-    claim: crate::model::SourceReleaseClaim,
-) -> SourceReleaseClaimResponse {
+fn release_claim_response(claim: crate::model::SourceReleaseClaim) -> SourceReleaseClaimResponse {
     SourceReleaseClaimResponse {
         entity_type: claim.entity_type,
         entity_id: claim.entity_id,
@@ -1446,9 +1446,7 @@ fn platform_claim_response(
     }
 }
 
-fn enclosure_response(
-    enclosure: crate::model::SourceItemEnclosure,
-) -> SourceItemEnclosureResponse {
+fn enclosure_response(enclosure: crate::model::SourceItemEnclosure) -> SourceItemEnclosureResponse {
     SourceItemEnclosureResponse {
         entity_type: enclosure.entity_type,
         entity_id: enclosure.entity_id,
@@ -1501,12 +1499,11 @@ async fn handle_get_release(
             www_authenticate: None,
         })?;
 
-        let release = db::get_release(&conn, &release_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "release not found".into(),
-                www_authenticate: None,
-            })?;
+        let release = db::get_release(&conn, &release_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "release not found".into(),
+            www_authenticate: None,
+        })?;
 
         let credit = load_credit(&conn, release.artist_credit_id)?;
         let mut resp = ReleaseResponse {
@@ -1525,8 +1522,8 @@ async fn handle_get_release(
         if params.includes("tracks") {
             let mut items = Vec::new();
             for rel in db::get_release_recordings(&conn, &release_id)? {
-                let recording = db::get_recording(&conn, &rel.recording_id)?
-                    .ok_or_else(|| api::ApiError {
+                let recording =
+                    db::get_recording(&conn, &rel.recording_id)?.ok_or_else(|| api::ApiError {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
                         message: "release references missing recording".into(),
                         www_authenticate: None,
@@ -1545,12 +1542,11 @@ async fn handle_get_release(
         if params.includes("sources") {
             let mut items = Vec::new();
             for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
-                let feed = db::get_feed(&conn, &map.feed_guid)?
-                    .ok_or_else(|| api::ApiError {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        message: "release source references missing feed".into(),
-                        www_authenticate: None,
-                    })?;
+                let feed = db::get_feed(&conn, &map.feed_guid)?.ok_or_else(|| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "release source references missing feed".into(),
+                    www_authenticate: None,
+                })?;
                 items.push(ReleaseSourceSummary {
                     feed_guid: feed.feed_guid,
                     feed_url: feed.feed_url,
@@ -1597,22 +1593,20 @@ async fn handle_get_release_resolution(
             www_authenticate: None,
         })?;
 
-        let release = db::get_release(&conn, &release_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "release not found".into(),
-                www_authenticate: None,
-            })?;
+        let release = db::get_release(&conn, &release_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "release not found".into(),
+            www_authenticate: None,
+        })?;
 
         let artist_credit = load_credit(&conn, release.artist_credit_id)?;
         let mut sources = Vec::new();
         for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
-            let feed = db::get_feed(&conn, &map.feed_guid)?
-                .ok_or_else(|| api::ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: "release source references missing feed".into(),
-                    www_authenticate: None,
-                })?;
+            let feed = db::get_feed(&conn, &map.feed_guid)?.ok_or_else(|| api::ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "release source references missing feed".into(),
+                www_authenticate: None,
+            })?;
             sources.push(ReleaseResolutionSourceResponse {
                 feed_guid: feed.feed_guid.clone(),
                 feed_url: feed.feed_url,
@@ -1623,10 +1617,14 @@ async fn handle_get_release_resolution(
                     .into_iter()
                     .map(entity_id_response)
                     .collect(),
-                source_links: db::get_source_entity_links_for_entity(&conn, "feed", &feed.feed_guid)?
-                    .into_iter()
-                    .map(entity_link_response)
-                    .collect(),
+                source_links: db::get_source_entity_links_for_entity(
+                    &conn,
+                    "feed",
+                    &feed.feed_guid,
+                )?
+                .into_iter()
+                .map(entity_link_response)
+                .collect(),
                 source_platforms: db::get_source_platform_claims_for_feed(&conn, &feed.feed_guid)?
                     .into_iter()
                     .map(platform_claim_response)
@@ -1685,21 +1683,19 @@ async fn handle_get_release_sources(
             www_authenticate: None,
         })?;
 
-        let _release = db::get_release(&conn, &release_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "release not found".into(),
-                www_authenticate: None,
-            })?;
+        let _release = db::get_release(&conn, &release_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "release not found".into(),
+            www_authenticate: None,
+        })?;
 
         let mut feeds = Vec::new();
         for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
-            let feed = db::get_feed(&conn, &map.feed_guid)?
-                .ok_or_else(|| api::ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: "release source references missing feed".into(),
-                    www_authenticate: None,
-                })?;
+            let feed = db::get_feed(&conn, &map.feed_guid)?.ok_or_else(|| api::ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "release source references missing feed".into(),
+                www_authenticate: None,
+            })?;
             let row = FeedRow {
                 feed_guid: feed.feed_guid,
                 feed_url: feed.feed_url,
@@ -1756,12 +1752,11 @@ async fn handle_get_recording(
             www_authenticate: None,
         })?;
 
-        let recording = db::get_recording(&conn, &recording_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "recording not found".into(),
-                www_authenticate: None,
-            })?;
+        let recording = db::get_recording(&conn, &recording_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "recording not found".into(),
+            www_authenticate: None,
+        })?;
 
         let credit = load_credit(&conn, recording.artist_credit_id)?;
         let mut resp = RecordingResponse {
@@ -1778,20 +1773,17 @@ async fn handle_get_recording(
         if params.includes("sources") {
             let mut items = Vec::new();
             for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
-                let track = db::get_track(&conn, &map.track_guid)?
-                    .ok_or_else(|| api::ApiError {
+                let track =
+                    db::get_track(&conn, &map.track_guid)?.ok_or_else(|| api::ApiError {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
                         message: "recording source references missing track".into(),
                         www_authenticate: None,
                     })?;
-                let enclosure_urls = db::get_source_item_enclosures_for_entity(
-                    &conn,
-                    "track",
-                    &map.track_guid,
-                )?
-                .into_iter()
-                .map(|enclosure| enclosure.url)
-                .collect::<Vec<_>>();
+                let enclosure_urls =
+                    db::get_source_item_enclosures_for_entity(&conn, "track", &map.track_guid)?
+                        .into_iter()
+                        .map(|enclosure| enclosure.url)
+                        .collect::<Vec<_>>();
                 items.push(RecordingSourceSummary {
                     track_guid: track.track_guid.clone(),
                     feed_guid: track.feed_guid.clone(),
@@ -1859,12 +1851,11 @@ async fn handle_get_recording_resolution(
             www_authenticate: None,
         })?;
 
-        let recording = db::get_recording(&conn, &recording_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "recording not found".into(),
-                www_authenticate: None,
-            })?;
+        let recording = db::get_recording(&conn, &recording_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "recording not found".into(),
+            www_authenticate: None,
+        })?;
         let artist_credit = load_credit(&conn, recording.artist_credit_id)?;
 
         let mut stmt = conn.prepare(
@@ -1886,26 +1877,33 @@ async fn handle_get_recording_resolution(
 
         let mut sources = Vec::new();
         for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
-            let track = db::get_track(&conn, &map.track_guid)?
-                .ok_or_else(|| api::ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: "recording source references missing track".into(),
-                    www_authenticate: None,
-                })?;
+            let track = db::get_track(&conn, &map.track_guid)?.ok_or_else(|| api::ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "recording source references missing track".into(),
+                www_authenticate: None,
+            })?;
             sources.push(RecordingResolutionSourceResponse {
                 track_guid: track.track_guid.clone(),
                 feed_guid: track.feed_guid.clone(),
                 title: track.title,
                 match_type: map.match_type,
                 confidence: map.confidence,
-                source_ids: db::get_source_entity_ids_for_entity(&conn, "track", &track.track_guid)?
-                    .into_iter()
-                    .map(entity_id_response)
-                    .collect(),
-                source_links: db::get_source_entity_links_for_entity(&conn, "track", &track.track_guid)?
-                    .into_iter()
-                    .map(entity_link_response)
-                    .collect(),
+                source_ids: db::get_source_entity_ids_for_entity(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                )?
+                .into_iter()
+                .map(entity_id_response)
+                .collect(),
+                source_links: db::get_source_entity_links_for_entity(
+                    &conn,
+                    "track",
+                    &track.track_guid,
+                )?
+                .into_iter()
+                .map(entity_link_response)
+                .collect(),
                 source_contributors: db::get_source_contributor_claims_for_entity(
                     &conn,
                     "track",
@@ -1973,21 +1971,19 @@ async fn handle_get_recording_sources(
             www_authenticate: None,
         })?;
 
-        let _recording = db::get_recording(&conn, &recording_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "recording not found".into(),
-                www_authenticate: None,
-            })?;
+        let _recording = db::get_recording(&conn, &recording_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "recording not found".into(),
+            www_authenticate: None,
+        })?;
 
         let mut tracks = Vec::new();
         for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
-            let track = db::get_track(&conn, &map.track_guid)?
-                .ok_or_else(|| api::ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: "recording source references missing track".into(),
-                    www_authenticate: None,
-                })?;
+            let track = db::get_track(&conn, &map.track_guid)?.ok_or_else(|| api::ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "recording source references missing track".into(),
+                www_authenticate: None,
+            })?;
             let row = TrackRow {
                 track_guid: track.track_guid,
                 feed_guid: track.feed_guid,
@@ -2176,12 +2172,11 @@ async fn handle_get_artist_resolution(
             www_authenticate: None,
         })?;
 
-        let artist = db::get_artist_by_id(&conn, &artist_id)?
-            .ok_or_else(|| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "artist not found".into(),
-                www_authenticate: None,
-            })?;
+        let artist = db::get_artist_by_id(&conn, &artist_id)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "artist not found".into(),
+            www_authenticate: None,
+        })?;
 
         let external_ids = db::get_external_ids(&conn, "artist", &artist_id)?
             .into_iter()
@@ -2903,15 +2898,27 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/artists/{id}", get(handle_get_artist))
         .route("/v1/artists/{id}/feeds", get(handle_get_artist_feeds))
         .route("/v1/artists/{id}/releases", get(handle_get_artist_releases))
-        .route("/v1/artists/{id}/resolution", get(handle_get_artist_resolution))
+        .route(
+            "/v1/artists/{id}/resolution",
+            get(handle_get_artist_resolution),
+        )
         .route("/v1/feeds/{guid}", get(handle_get_feed))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/releases/{id}", get(handle_get_release))
-        .route("/v1/releases/{id}/resolution", get(handle_get_release_resolution))
+        .route(
+            "/v1/releases/{id}/resolution",
+            get(handle_get_release_resolution),
+        )
         .route("/v1/releases/{id}/sources", get(handle_get_release_sources))
         .route("/v1/recordings/{id}", get(handle_get_recording))
-        .route("/v1/recordings/{id}/resolution", get(handle_get_recording_resolution))
-        .route("/v1/recordings/{id}/sources", get(handle_get_recording_sources))
+        .route(
+            "/v1/recordings/{id}/resolution",
+            get(handle_get_recording_resolution),
+        )
+        .route(
+            "/v1/recordings/{id}/sources",
+            get(handle_get_recording_sources),
+        )
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/recent", get(handle_get_recent))
         .route("/v1/search", get(handle_search))

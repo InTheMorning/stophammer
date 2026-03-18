@@ -236,13 +236,16 @@ fn feed_artist_resolution_reuses_existing_artist_by_publisher_guid() {
     let conn = common::test_db();
     let now = common::now();
 
-    let existing =
-        stophammer::db::resolve_artist(&conn, "Publisher Artist", Some("feed-existing"))
-            .expect("existing artist");
+    let existing = stophammer::db::resolve_artist(&conn, "Publisher Artist", Some("feed-existing"))
+        .expect("existing artist");
     let credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &existing.name,
-        &[(existing.artist_id.clone(), existing.name.clone(), String::new())],
+        &[(
+            existing.artist_id.clone(),
+            existing.name.clone(),
+            String::new(),
+        )],
         Some("feed-existing"),
     )
     .expect("artist credit");
@@ -304,7 +307,11 @@ fn feed_artist_resolution_reuses_existing_artist_by_website_url() {
     let credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &existing.name,
-        &[(existing.artist_id.clone(), existing.name.clone(), String::new())],
+        &[(
+            existing.artist_id.clone(),
+            existing.name.clone(),
+            String::new(),
+        )],
         Some("feed-existing"),
     )
     .expect("artist credit");
@@ -360,28 +367,40 @@ fn feed_artist_resolution_prefers_canonical_artist_when_source_claim_is_split() 
     let conn = common::test_db();
     let now = common::now();
 
-    let artist_a = stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-a1"))
-        .expect("artist a");
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-a1")).expect("artist a");
     let credit_a1 = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-a1"),
     )
     .expect("credit a1");
     let credit_a2 = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-a2"),
     )
     .expect("credit a2");
-    let artist_b = stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-b1"))
-        .expect("artist b");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "Split Artist", Some("feed-b1")).expect("artist b");
     let credit_b1 = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_b.name,
-        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
         Some("feed-b1"),
     )
     .expect("credit b1");
@@ -601,21 +620,29 @@ fn artist_identity_backfill_merges_split_artists_by_website_and_repoints_externa
     let mut conn = common::test_db();
     let now = common::now();
 
-    let artist_a = stophammer::db::resolve_artist(&conn, "Unified Artist", Some("feed-a"))
-        .expect("artist a");
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "Unified Artist", Some("feed-a")).expect("artist a");
     let credit_a = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-a"),
     )
     .expect("credit a");
-    let artist_b = stophammer::db::resolve_artist(&conn, "Unified Artist", Some("feed-b"))
-        .expect("artist b");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "Unified Artist", Some("feed-b")).expect("artist b");
     let credit_b = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_b.name,
-        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
         Some("feed-b"),
     )
     .expect("credit b");
@@ -777,14 +804,19 @@ fn artist_identity_backfill_merges_single_feed_platform_stragglers_into_anchored
             "INSERT INTO source_platform_claims \
              (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
              VALUES (?1, 'wavlake', ?2, 'Wavlake', 'derived', 'feed.link', ?3)",
-            rusqlite::params![feed_guid, format!("https://wavlake.com/feed/music/{feed_guid}"), now],
+            rusqlite::params![
+                feed_guid,
+                format!("https://wavlake.com/feed/music/{feed_guid}"),
+                now
+            ],
         )
         .expect("insert anchored platform");
     }
 
     for feed_guid in ["feed-fountain-a", "feed-rssblue-b"] {
-        let split_artist = stophammer::db::resolve_artist(&conn, "Anchored Artist", Some(feed_guid))
-            .expect("split artist");
+        let split_artist =
+            stophammer::db::resolve_artist(&conn, "Anchored Artist", Some(feed_guid))
+                .expect("split artist");
         let split_credit = stophammer::db::get_or_create_artist_credit(
             &conn,
             &split_artist.name,
@@ -844,11 +876,17 @@ fn artist_identity_backfill_merges_same_bandcamp_subdomain() {
     let now = common::now();
 
     for (feed_guid, website) in [
-        ("feed-bandcamp-a", "https://johnson-city.bandcamp.com/album/crazy-cloud"),
-        ("feed-bandcamp-b", "https://johnson-city.bandcamp.com/album/early-demos-i"),
+        (
+            "feed-bandcamp-a",
+            "https://johnson-city.bandcamp.com/album/crazy-cloud",
+        ),
+        (
+            "feed-bandcamp-b",
+            "https://johnson-city.bandcamp.com/album/early-demos-i",
+        ),
     ] {
-        let artist = stophammer::db::resolve_artist(&conn, "Johnson City", Some(feed_guid))
-            .expect("artist");
+        let artist =
+            stophammer::db::resolve_artist(&conn, "Johnson City", Some(feed_guid)).expect("artist");
         let credit = stophammer::db::get_or_create_artist_credit(
             &conn,
             &artist.name,
@@ -897,12 +935,12 @@ fn artist_identity_backfill_merges_same_bandcamp_subdomain() {
 fn merge_artists_repoints_existing_redirect_chains() {
     let mut conn = common::test_db();
 
-    let artist_a = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-a"))
-        .expect("artist a");
-    let artist_b = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-b"))
-        .expect("artist b");
-    let artist_c = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-c"))
-        .expect("artist c");
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-a")).expect("artist a");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-b")).expect("artist b");
+    let artist_c =
+        stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-c")).expect("artist c");
 
     stophammer::db::merge_artists(&mut conn, &artist_c.artist_id, &artist_b.artist_id)
         .expect("merge c into b");

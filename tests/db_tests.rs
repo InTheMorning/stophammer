@@ -326,8 +326,16 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
     assert_eq!(
         recording_maps,
         vec![
-            ("track-canon-a".to_string(), "exact_recording_signature_v1".to_string(), 95),
-            ("track-canon-b".to_string(), "exact_recording_signature_v1".to_string(), 95),
+            (
+                "track-canon-a".to_string(),
+                "exact_recording_signature_v1".to_string(),
+                95
+            ),
+            (
+                "track-canon-b".to_string(),
+                "exact_recording_signature_v1".to_string(),
+                95
+            ),
         ]
     );
 }
@@ -796,15 +804,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
     let signer_path = tmp.path().join("single-track-cluster.key");
     let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
 
-    for (
-        feed_guid,
-        credit_id,
-        feed_url,
-        platform_key,
-        duration_secs,
-        remote_items,
-        platform_url,
-    ) in [
+    for (feed_guid, credit_id, feed_url, platform_key, duration_secs, remote_items, platform_url) in [
         (
             "feed-single-fountain",
             9201,
@@ -1159,7 +1159,9 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
                 title_lower: "canon read song".into(),
                 pub_date: Some(now),
                 duration_secs: Some(201),
-                enclosure_url: Some(format!("https://cdn.example.com/{track_suffix}/canon-read-song.mp3")),
+                enclosure_url: Some(format!(
+                    "https://cdn.example.com/{track_suffix}/canon-read-song.mp3"
+                )),
                 enclosure_type: Some("audio/mpeg".into()),
                 enclosure_bytes: Some(2048),
                 track_number: Some(1),
@@ -1258,11 +1260,9 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
         .expect("release maps");
     assert_eq!(release_maps.len(), 2);
 
-    let recording_maps = stophammer::db::get_source_item_recording_maps_for_recording(
-        &conn,
-        &recording_id,
-    )
-    .expect("recording maps");
+    let recording_maps =
+        stophammer::db::get_source_item_recording_maps_for_recording(&conn, &recording_id)
+            .expect("recording maps");
     assert_eq!(recording_maps.len(), 2);
 
     let mapped_feed = stophammer::db::get_feed(&conn, &release_maps[0].feed_guid)
@@ -1275,21 +1275,15 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
         .expect("track exists");
     assert_eq!(mapped_track.title, "Canon Read Song");
 
-    let feed_links = stophammer::db::get_source_entity_links_for_entity(
-        &conn,
-        "feed",
-        "feed-canon-read-a",
-    )
-    .expect("feed links");
+    let feed_links =
+        stophammer::db::get_source_entity_links_for_entity(&conn, "feed", "feed-canon-read-a")
+            .expect("feed links");
     assert_eq!(feed_links.len(), 1);
     assert_eq!(feed_links[0].link_type, "website");
 
-    let feed_ids = stophammer::db::get_source_entity_ids_for_entity(
-        &conn,
-        "feed",
-        "feed-canon-read-a",
-    )
-    .expect("feed ids");
+    let feed_ids =
+        stophammer::db::get_source_entity_ids_for_entity(&conn, "feed", "feed-canon-read-a")
+            .expect("feed ids");
     assert_eq!(feed_ids.len(), 1);
     assert_eq!(feed_ids[0].scheme, "nostr_npub");
 
@@ -1302,21 +1296,15 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
     assert_eq!(track_contributors.len(), 1);
     assert_eq!(track_contributors[0].role_norm.as_deref(), Some("vocals"));
 
-    let feed_release_claims = stophammer::db::get_source_release_claims_for_entity(
-        &conn,
-        "feed",
-        "feed-canon-read-a",
-    )
-    .expect("feed release claims");
+    let feed_release_claims =
+        stophammer::db::get_source_release_claims_for_entity(&conn, "feed", "feed-canon-read-a")
+            .expect("feed release claims");
     assert_eq!(feed_release_claims.len(), 1);
     assert_eq!(feed_release_claims[0].claim_type, "release_date");
 
-    let track_enclosures = stophammer::db::get_source_item_enclosures_for_entity(
-        &conn,
-        "track",
-        "track-canon-read-a",
-    )
-    .expect("track enclosures");
+    let track_enclosures =
+        stophammer::db::get_source_item_enclosures_for_entity(&conn, "track", "track-canon-read-a")
+            .expect("track enclosures");
     assert_eq!(track_enclosures.len(), 1);
     assert!(track_enclosures[0].is_primary);
 
@@ -2459,16 +2447,16 @@ fn source_entity_ids_replace_round_trip() {
     stophammer::db::replace_source_entity_ids_for_feed(&conn, &feed_guid, &claims)
         .expect("replace source ids");
 
-    let stored = stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid)
-        .expect("get source ids");
+    let stored =
+        stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid).expect("get source ids");
     assert_eq!(stored.len(), 2);
     assert_eq!(stored[0].scheme, "nostr_npub");
     assert_eq!(stored[1].value, "USABC1234567");
 
     stophammer::db::replace_source_entity_ids_for_feed(&conn, &feed_guid, &claims[..1])
         .expect("replace source ids again");
-    let stored_again =
-        stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid).expect("get source ids again");
+    let stored_again = stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid)
+        .expect("get source ids again");
     assert_eq!(stored_again.len(), 1);
     assert_eq!(stored_again[0].scheme, "nostr_npub");
 }
@@ -2602,9 +2590,11 @@ fn source_platform_claims_replace_round_trip() {
         claim.url.as_deref() == Some("https://wavlake.com/feed/music/abc123")
             && claim.extraction_path == "request.canonical_url"
     }));
-    assert!(stored
-        .iter()
-        .any(|claim| claim.owner_name.as_deref() == Some("Wavlake")));
+    assert!(
+        stored
+            .iter()
+            .any(|claim| claim.owner_name.as_deref() == Some("Wavlake"))
+    );
 }
 
 #[test]
@@ -2725,9 +2715,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     .expect("build diff events");
 
     let event_types: Vec<_> = event_rows.iter().map(|e| e.event_type.clone()).collect();
-    assert!(
-        event_types.contains(&stophammer::event::EventType::SourceContributorClaimsReplaced)
-    );
+    assert!(event_types.contains(&stophammer::event::EventType::SourceContributorClaimsReplaced));
     assert!(event_types.contains(&stophammer::event::EventType::SourceEntityIdsReplaced));
 
     let tmp = tempfile::tempdir().expect("tempdir");

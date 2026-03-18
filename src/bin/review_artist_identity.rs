@@ -158,8 +158,10 @@ fn feed_rows_for_artist(
          WHERE acn.artist_id = ?1 \
          ORDER BY f.title_lower, f.feed_guid",
     )?;
-    stmt.query_map([artist_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<Vec<_>, _>>()
+    stmt.query_map([artist_id], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+    })?
+    .collect::<Result<Vec<_>, _>>()
 }
 
 fn external_ids_for_artist(
@@ -226,13 +228,14 @@ fn feed_evidence_row(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let website_links = stophammer::db::get_source_entity_links_for_entity(conn, "feed", feed_guid)?
-        .into_iter()
-        .filter(|claim| claim.link_type == "website")
-        .map(|claim| claim.url)
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let website_links =
+        stophammer::db::get_source_entity_links_for_entity(conn, "feed", feed_guid)?
+            .into_iter()
+            .filter(|claim| claim.link_type == "website")
+            .map(|claim| claim.url)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
 
     let npubs = stophammer::db::get_source_entity_ids_for_entity(conn, "feed", feed_guid)?
         .into_iter()
@@ -242,14 +245,15 @@ fn feed_evidence_row(
         .into_iter()
         .collect::<Vec<_>>();
 
-    let publisher_remote_feed_guids = stophammer::db::get_feed_remote_items_for_feed(conn, feed_guid)?
-        .into_iter()
-        .filter(|item| item.medium.as_deref() == Some("publisher"))
-        .map(|item| item.remote_feed_guid)
-        .filter(|value| !value.trim().is_empty())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>();
+    let publisher_remote_feed_guids =
+        stophammer::db::get_feed_remote_items_for_feed(conn, feed_guid)?
+            .into_iter()
+            .filter(|item| item.medium.as_deref() == Some("publisher"))
+            .map(|item| item.remote_feed_guid)
+            .filter(|value| !value.trim().is_empty())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
 
     Ok(FeedEvidenceRow {
         feed_guid: feed_guid.to_string(),
