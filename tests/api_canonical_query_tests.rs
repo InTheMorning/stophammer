@@ -245,6 +245,26 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(release_json["data"]["tracks"][0]["recording_id"], recording_id);
     assert_eq!(release_json["data"]["sources"][0]["feed_guid"], feed_guid);
 
+    let release_sources_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/releases/{release_id}/sources?include=source_links,source_ids,source_platforms,canonical"
+                ))
+                .body(Body::empty())
+                .expect("release sources request"),
+        )
+        .await
+        .expect("release sources response");
+    assert_eq!(release_sources_resp.status(), 200);
+    let release_sources_json = body_json(release_sources_resp).await;
+    assert_eq!(release_sources_json["data"][0]["feed_guid"], feed_guid);
+    assert_eq!(release_sources_json["data"][0]["source_platforms"][0]["platform_key"], "wavlake");
+    assert_eq!(release_sources_json["data"][0]["source_links"][0]["url"], "https://artist.example.com/canonical-query");
+    assert_eq!(release_sources_json["data"][0]["canonical"]["release_id"], release_id);
+
     let recording_resp = app
         .clone()
         .oneshot(
@@ -261,6 +281,32 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recording_json["data"]["title"], "Canonical Query Song");
     assert_eq!(recording_json["data"]["sources"][0]["track_guid"], track_guid);
     assert_eq!(recording_json["data"]["releases"][0]["release_id"], release_id);
+
+    let recording_sources_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/recordings/{recording_id}/sources?include=source_links,source_contributors,source_enclosures,canonical"
+                ))
+                .body(Body::empty())
+                .expect("recording sources request"),
+        )
+        .await
+        .expect("recording sources response");
+    assert_eq!(recording_sources_resp.status(), 200);
+    let recording_sources_json = body_json(recording_sources_resp).await;
+    assert_eq!(recording_sources_json["data"][0]["track_guid"], track_guid);
+    assert_eq!(recording_sources_json["data"][0]["source_contributors"][0]["role_norm"], "vocals");
+    let recording_source_enclosures = recording_sources_json["data"][0]["source_enclosures"]
+        .as_array()
+        .expect("recording source enclosures array")
+        .iter()
+        .filter_map(|enclosure| enclosure["url"].as_str())
+        .collect::<Vec<_>>();
+    assert!(recording_source_enclosures.contains(&"https://cdn.example.com/canonical-query.flac"));
+    assert_eq!(recording_sources_json["data"][0]["canonical"]["recording_id"], recording_id);
 
     let artist_releases_resp = app
         .clone()

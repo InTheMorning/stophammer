@@ -801,6 +801,25 @@ Returns a single canonical release by `release_id`.
 
 ---
 
+### GET /v1/releases/{id}/sources
+
+Returns the mapped source feeds for one canonical release.
+
+- **Authentication:** None
+- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `canonical`)
+
+Use this when a client wants the full source/platform rows behind one canonical
+release instead of the lighter `sources` summary embedded in `GET /v1/releases/{id}`.
+
+**Response:** paginated-style envelope with `data` as an array of feed objects.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Release not found |
+
+---
+
 ### GET /v1/recordings/{id}
 
 Returns a single canonical recording by `recording_id`.
@@ -846,6 +865,25 @@ Returns a single canonical recording by `recording_id`.
   "meta": { "api_version": "v1", "node_pubkey": "..." }
 }
 ```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Recording not found |
+
+---
+
+### GET /v1/recordings/{id}/sources
+
+Returns the mapped source tracks for one canonical recording.
+
+- **Authentication:** None
+- **Include options:** same as `GET /v1/tracks/{guid}` (`payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `canonical`)
+
+Use this when a client wants full source-track detail, including all known
+enclosure variants, for one canonical recording.
+
+**Response:** paginated-style envelope with `data` as an array of track objects.
 
 | Code | Meaning |
 |------|---------|

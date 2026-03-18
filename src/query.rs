@@ -820,7 +820,7 @@ async fn handle_get_feed(
             www_authenticate: None,
         })?;
 
-        let feed = conn
+        let row = conn
             .query_row(
                 "SELECT feed_guid, feed_url, title, artist_credit_id, description, image_url, \
              language, explicit, episode_count, newest_item_at, oldest_item_at, \
@@ -828,21 +828,21 @@ async fn handle_get_feed(
              FROM feeds WHERE feed_guid = ?1",
                 params![feed_guid],
                 |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, Option<String>>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                        row.get::<_, Option<String>>(6)?,
-                        row.get::<_, i64>(7)?,
-                        row.get::<_, i64>(8)?,
-                        row.get::<_, Option<i64>>(9)?,
-                        row.get::<_, Option<i64>>(10)?,
-                        row.get::<_, i64>(11)?,
-                        row.get::<_, i64>(12)?,
-                    ))
+                    Ok(FeedRow {
+                        feed_guid: row.get(0)?,
+                        feed_url: row.get(1)?,
+                        title: row.get(2)?,
+                        credit_id: row.get(3)?,
+                        description: row.get(4)?,
+                        image_url: row.get(5)?,
+                        language: row.get(6)?,
+                        explicit_int: row.get(7)?,
+                        episode_count: row.get(8)?,
+                        newest_item_at: row.get(9)?,
+                        oldest_item_at: row.get(10)?,
+                        created_at: row.get(11)?,
+                        updated_at: row.get(12)?,
+                    })
                 },
             )
             .map_err(|_err| api::ApiError {
@@ -851,137 +851,7 @@ async fn handle_get_feed(
                 www_authenticate: None,
             })?;
 
-        let credit = load_credit(&conn, feed.3)?;
-
-        let mut resp = FeedResponse {
-            feed_guid: feed.0,
-            feed_url: feed.1,
-            title: feed.2,
-            artist_credit: credit,
-            description: feed.4,
-            image_url: feed.5,
-            language: feed.6,
-            explicit: feed.7 != 0,
-            episode_count: feed.8,
-            newest_item_at: feed.9,
-            oldest_item_at: feed.10,
-            created_at: feed.11,
-            updated_at: feed.12,
-            tracks: None,
-            payment_routes: None,
-            tags: None,
-            source_links: None,
-            source_ids: None,
-            source_contributors: None,
-            source_platforms: None,
-            source_release_claims: None,
-            canonical: None,
-        };
-
-        if params.includes("tracks") {
-            let mut stmt = conn.prepare(
-                "SELECT track_guid, title, pub_date, duration_secs \
-                 FROM tracks WHERE feed_guid = ?1 ORDER BY pub_date DESC",
-            )?;
-            let tracks: Vec<TrackSummary> = stmt
-                .query_map(params![feed_guid], |row| {
-                    Ok(TrackSummary {
-                        track_guid: row.get(0)?,
-                        title: row.get(1)?,
-                        pub_date: row.get(2)?,
-                        duration_secs: row.get(3)?,
-                    })
-                })?
-                .collect::<Result<_, _>>()?;
-            resp.tracks = Some(tracks);
-        }
-
-        if params.includes("payment_routes") {
-            let mut stmt = conn.prepare(
-                "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
-                 FROM feed_payment_routes WHERE feed_guid = ?1",
-            )?;
-            let routes: Vec<RouteResponse> = stmt
-                .query_map(params![feed_guid], |row| {
-                    Ok(RouteResponse {
-                        recipient_name: row.get(0)?,
-                        route_type: row.get(1)?,
-                        address: row.get(2)?,
-                        custom_key: row.get(3)?,
-                        custom_value: row.get(4)?,
-                        split: row.get(5)?,
-                        fee: row.get::<_, i64>(6)? != 0,
-                    })
-                })?
-                .collect::<Result<_, _>>()?;
-            resp.payment_routes = Some(routes);
-        }
-
-        if params.includes("tags") {
-            resp.tags = Some(load_tags(&conn, "feed", &feed_guid)?);
-        }
-
-        if params.includes("source_links") {
-            resp.source_links = Some(
-                db::get_source_entity_links_for_entity(&conn, "feed", &feed_guid)?
-                    .into_iter()
-                    .map(entity_link_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_ids") {
-            resp.source_ids = Some(
-                db::get_source_entity_ids_for_entity(&conn, "feed", &feed_guid)?
-                    .into_iter()
-                    .map(entity_id_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_contributors") {
-            resp.source_contributors = Some(
-                db::get_source_contributor_claims_for_entity(&conn, "feed", &feed_guid)?
-                    .into_iter()
-                    .map(contributor_claim_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_platforms") {
-            resp.source_platforms = Some(
-                db::get_source_platform_claims_for_feed(&conn, &feed_guid)?
-                    .into_iter()
-                    .map(platform_claim_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_release_claims") {
-            resp.source_release_claims = Some(
-                db::get_source_release_claims_for_entity(&conn, "feed", &feed_guid)?
-                    .into_iter()
-                    .map(release_claim_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("canonical") {
-            resp.canonical = conn
-                .query_row(
-                    "SELECT release_id, match_type, confidence \
-                     FROM source_feed_release_map WHERE feed_guid = ?1",
-                    params![feed_guid],
-                    |row| {
-                        Ok(CanonicalReleaseRef {
-                            release_id: row.get(0)?,
-                            match_type: row.get(1)?,
-                            confidence: row.get(2)?,
-                        })
-                    },
-                )
-                .optional()?;
-        }
+        let resp = build_feed_response(&conn, row, &params)?;
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: resp,
@@ -1124,6 +994,291 @@ fn load_entity_link_urls(
         .into_iter()
         .map(|link| link.url)
         .collect())
+}
+
+fn build_feed_response(
+    conn: &rusqlite::Connection,
+    row: FeedRow,
+    params: &ListQuery,
+) -> Result<FeedResponse, api::ApiError> {
+    let feed_guid = row.feed_guid.clone();
+    let credit = load_credit(conn, row.credit_id)?;
+
+    let mut resp = FeedResponse {
+        feed_guid: row.feed_guid,
+        feed_url: row.feed_url,
+        title: row.title,
+        artist_credit: credit,
+        description: row.description,
+        image_url: row.image_url,
+        language: row.language,
+        explicit: row.explicit_int != 0,
+        episode_count: row.episode_count,
+        newest_item_at: row.newest_item_at,
+        oldest_item_at: row.oldest_item_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        tracks: None,
+        payment_routes: None,
+        tags: None,
+        source_links: None,
+        source_ids: None,
+        source_contributors: None,
+        source_platforms: None,
+        source_release_claims: None,
+        canonical: None,
+    };
+
+    if params.includes("tracks") {
+        let mut stmt = conn.prepare(
+            "SELECT track_guid, title, pub_date, duration_secs \
+             FROM tracks WHERE feed_guid = ?1 ORDER BY pub_date DESC",
+        )?;
+        let tracks: Vec<TrackSummary> = stmt
+            .query_map(params![feed_guid], |row| {
+                Ok(TrackSummary {
+                    track_guid: row.get(0)?,
+                    title: row.get(1)?,
+                    pub_date: row.get(2)?,
+                    duration_secs: row.get(3)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        resp.tracks = Some(tracks);
+    }
+
+    if params.includes("payment_routes") {
+        let mut stmt = conn.prepare(
+            "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+             FROM feed_payment_routes WHERE feed_guid = ?1",
+        )?;
+        let routes: Vec<RouteResponse> = stmt
+            .query_map(params![feed_guid], |row| {
+                Ok(RouteResponse {
+                    recipient_name: row.get(0)?,
+                    route_type: row.get(1)?,
+                    address: row.get(2)?,
+                    custom_key: row.get(3)?,
+                    custom_value: row.get(4)?,
+                    split: row.get(5)?,
+                    fee: row.get::<_, i64>(6)? != 0,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        resp.payment_routes = Some(routes);
+    }
+
+    if params.includes("tags") {
+        resp.tags = Some(load_tags(conn, "feed", &feed_guid)?);
+    }
+
+    if params.includes("source_links") {
+        resp.source_links = Some(
+            db::get_source_entity_links_for_entity(conn, "feed", &feed_guid)?
+                .into_iter()
+                .map(entity_link_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_ids") {
+        resp.source_ids = Some(
+            db::get_source_entity_ids_for_entity(conn, "feed", &feed_guid)?
+                .into_iter()
+                .map(entity_id_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_contributors") {
+        resp.source_contributors = Some(
+            db::get_source_contributor_claims_for_entity(conn, "feed", &feed_guid)?
+                .into_iter()
+                .map(contributor_claim_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_platforms") {
+        resp.source_platforms = Some(
+            db::get_source_platform_claims_for_feed(conn, &feed_guid)?
+                .into_iter()
+                .map(platform_claim_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_release_claims") {
+        resp.source_release_claims = Some(
+            db::get_source_release_claims_for_entity(conn, "feed", &feed_guid)?
+                .into_iter()
+                .map(release_claim_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("canonical") {
+        resp.canonical = conn
+            .query_row(
+                "SELECT release_id, match_type, confidence \
+                 FROM source_feed_release_map WHERE feed_guid = ?1",
+                params![feed_guid],
+                |row| {
+                    Ok(CanonicalReleaseRef {
+                        release_id: row.get(0)?,
+                        match_type: row.get(1)?,
+                        confidence: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+    }
+
+    Ok(resp)
+}
+
+fn build_track_response(
+    conn: &rusqlite::Connection,
+    row: TrackRow,
+    params: &ListQuery,
+) -> Result<TrackResponse, api::ApiError> {
+    let track_guid = row.track_guid.clone();
+    let credit = load_credit(conn, row.credit_id)?;
+
+    let mut resp = TrackResponse {
+        track_guid: row.track_guid,
+        feed_guid: row.feed_guid,
+        title: row.title,
+        artist_credit: credit,
+        pub_date: row.pub_date,
+        duration_secs: row.duration_secs,
+        enclosure_url: row.enclosure_url,
+        enclosure_type: row.enclosure_type,
+        enclosure_bytes: row.enclosure_bytes,
+        track_number: row.track_number,
+        season: row.season,
+        explicit: row.explicit_int != 0,
+        description: row.description,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+        payment_routes: None,
+        value_time_splits: None,
+        tags: None,
+        source_links: None,
+        source_ids: None,
+        source_contributors: None,
+        source_release_claims: None,
+        source_enclosures: None,
+        canonical: None,
+    };
+
+    if params.includes("payment_routes") {
+        let mut stmt = conn.prepare(
+            "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+             FROM payment_routes WHERE track_guid = ?1",
+        )?;
+        let routes: Vec<RouteResponse> = stmt
+            .query_map(params![track_guid], |row| {
+                Ok(RouteResponse {
+                    recipient_name: row.get(0)?,
+                    route_type: row.get(1)?,
+                    address: row.get(2)?,
+                    custom_key: row.get(3)?,
+                    custom_value: row.get(4)?,
+                    split: row.get(5)?,
+                    fee: row.get::<_, i64>(6)? != 0,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        resp.payment_routes = Some(routes);
+    }
+
+    if params.includes("value_time_splits") {
+        let mut stmt = conn.prepare(
+            "SELECT start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split \
+             FROM value_time_splits WHERE source_track_guid = ?1",
+        )?;
+        let vts: Vec<VtsResponse> = stmt
+            .query_map(params![track_guid], |row| {
+                Ok(VtsResponse {
+                    start_time_secs: row.get(0)?,
+                    duration_secs: row.get(1)?,
+                    remote_feed_guid: row.get(2)?,
+                    remote_item_guid: row.get(3)?,
+                    split: row.get(4)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        resp.value_time_splits = Some(vts);
+    }
+
+    if params.includes("tags") {
+        resp.tags = Some(load_tags(conn, "track", &track_guid)?);
+    }
+
+    if params.includes("source_links") {
+        resp.source_links = Some(
+            db::get_source_entity_links_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(entity_link_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_ids") {
+        resp.source_ids = Some(
+            db::get_source_entity_ids_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(entity_id_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_contributors") {
+        resp.source_contributors = Some(
+            db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(contributor_claim_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_release_claims") {
+        resp.source_release_claims = Some(
+            db::get_source_release_claims_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(release_claim_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("source_enclosures") {
+        resp.source_enclosures = Some(
+            db::get_source_item_enclosures_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(enclosure_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("canonical") {
+        resp.canonical = conn
+            .query_row(
+                "SELECT recording_id, match_type, confidence \
+                 FROM source_item_recording_map WHERE track_guid = ?1",
+                params![track_guid],
+                |row| {
+                    Ok(CanonicalRecordingRef {
+                        recording_id: row.get(0)?,
+                        match_type: row.get(1)?,
+                        confidence: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?;
+    }
+
+    Ok(resp)
 }
 
 fn contributor_claim_response(
@@ -1319,6 +1474,73 @@ async fn handle_get_release(
     Ok(Json(result))
 }
 
+// ── GET /v1/releases/{id}/sources ──────────────────────────────────────────
+
+async fn handle_get_release_sources(
+    State(state): State<Arc<api::AppState>>,
+    Path(release_id): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let _release = db::get_release(&conn, &release_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "release not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let mut feeds = Vec::new();
+        for map in db::get_source_feed_release_maps_for_release(&conn, &release_id)? {
+            let feed = db::get_feed(&conn, &map.feed_guid)?
+                .ok_or_else(|| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "release source references missing feed".into(),
+                    www_authenticate: None,
+                })?;
+            let row = FeedRow {
+                feed_guid: feed.feed_guid,
+                feed_url: feed.feed_url,
+                title: feed.title,
+                credit_id: feed.artist_credit_id,
+                description: feed.description,
+                image_url: feed.image_url,
+                language: feed.language,
+                explicit_int: i64::from(feed.explicit),
+                episode_count: feed.episode_count,
+                newest_item_at: feed.newest_item_at,
+                oldest_item_at: feed.oldest_item_at,
+                created_at: feed.created_at,
+                updated_at: feed.updated_at,
+            };
+            feeds.push(build_feed_response(&conn, row, &params)?);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: feeds,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── GET /v1/recordings/{id} ────────────────────────────────────────────────
 
 #[expect(
@@ -1410,6 +1632,75 @@ async fn handle_get_recording(
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/recordings/{id}/sources ────────────────────────────────────────
+
+async fn handle_get_recording_sources(
+    State(state): State<Arc<api::AppState>>,
+    Path(recording_id): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let _recording = db::get_recording(&conn, &recording_id)?
+            .ok_or_else(|| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "recording not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let mut tracks = Vec::new();
+        for map in db::get_source_item_recording_maps_for_recording(&conn, &recording_id)? {
+            let track = db::get_track(&conn, &map.track_guid)?
+                .ok_or_else(|| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: "recording source references missing track".into(),
+                    www_authenticate: None,
+                })?;
+            let row = TrackRow {
+                track_guid: track.track_guid,
+                feed_guid: track.feed_guid,
+                credit_id: track.artist_credit_id,
+                title: track.title,
+                pub_date: track.pub_date,
+                duration_secs: track.duration_secs,
+                enclosure_url: track.enclosure_url,
+                enclosure_type: track.enclosure_type,
+                enclosure_bytes: track.enclosure_bytes,
+                track_number: track.track_number,
+                season: track.season,
+                explicit_int: i64::from(track.explicit),
+                description: track.description,
+                created_at: track.created_at,
+                updated_at: track.updated_at,
+            };
+            tracks.push(build_track_response(&conn, row, &params)?);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: tracks,
             pagination: Pagination {
                 cursor: None,
                 has_more: false,
@@ -1615,140 +1906,7 @@ async fn handle_get_track(
                 www_authenticate: None,
             })?;
 
-        let credit = load_credit(&conn, row.credit_id)?;
-
-        let mut resp = TrackResponse {
-            track_guid: row.track_guid,
-            feed_guid: row.feed_guid,
-            title: row.title,
-            artist_credit: credit,
-            pub_date: row.pub_date,
-            duration_secs: row.duration_secs,
-            enclosure_url: row.enclosure_url,
-            enclosure_type: row.enclosure_type,
-            enclosure_bytes: row.enclosure_bytes,
-            track_number: row.track_number,
-            season: row.season,
-            explicit: row.explicit_int != 0,
-            description: row.description,
-            created_at: row.created_at,
-            updated_at: row.updated_at,
-            payment_routes: None,
-            value_time_splits: None,
-            tags: None,
-            source_links: None,
-            source_ids: None,
-            source_contributors: None,
-            source_release_claims: None,
-            source_enclosures: None,
-            canonical: None,
-        };
-
-        if params.includes("payment_routes") {
-            let mut stmt = conn.prepare(
-                "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
-                 FROM payment_routes WHERE track_guid = ?1",
-            )?;
-            let routes: Vec<RouteResponse> = stmt
-                .query_map(params![track_guid], |row| {
-                    Ok(RouteResponse {
-                        recipient_name: row.get(0)?,
-                        route_type: row.get(1)?,
-                        address: row.get(2)?,
-                        custom_key: row.get(3)?,
-                        custom_value: row.get(4)?,
-                        split: row.get(5)?,
-                        fee: row.get::<_, i64>(6)? != 0,
-                    })
-                })?
-                .collect::<Result<_, _>>()?;
-            resp.payment_routes = Some(routes);
-        }
-
-        if params.includes("value_time_splits") {
-            let mut stmt = conn.prepare(
-                "SELECT start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split \
-                 FROM value_time_splits WHERE source_track_guid = ?1",
-            )?;
-            let vts: Vec<VtsResponse> = stmt
-                .query_map(params![track_guid], |row| {
-                    Ok(VtsResponse {
-                        start_time_secs: row.get(0)?,
-                        duration_secs: row.get(1)?,
-                        remote_feed_guid: row.get(2)?,
-                        remote_item_guid: row.get(3)?,
-                        split: row.get(4)?,
-                    })
-                })?
-                .collect::<Result<_, _>>()?;
-            resp.value_time_splits = Some(vts);
-        }
-
-        if params.includes("tags") {
-            resp.tags = Some(load_tags(&conn, "track", &track_guid)?);
-        }
-
-        if params.includes("source_links") {
-            resp.source_links = Some(
-                db::get_source_entity_links_for_entity(&conn, "track", &track_guid)?
-                    .into_iter()
-                    .map(entity_link_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_ids") {
-            resp.source_ids = Some(
-                db::get_source_entity_ids_for_entity(&conn, "track", &track_guid)?
-                    .into_iter()
-                    .map(entity_id_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_contributors") {
-            resp.source_contributors = Some(
-                db::get_source_contributor_claims_for_entity(&conn, "track", &track_guid)?
-                    .into_iter()
-                    .map(contributor_claim_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_release_claims") {
-            resp.source_release_claims = Some(
-                db::get_source_release_claims_for_entity(&conn, "track", &track_guid)?
-                    .into_iter()
-                    .map(release_claim_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("source_enclosures") {
-            resp.source_enclosures = Some(
-                db::get_source_item_enclosures_for_entity(&conn, "track", &track_guid)?
-                    .into_iter()
-                    .map(enclosure_response)
-                    .collect(),
-            );
-        }
-
-        if params.includes("canonical") {
-            resp.canonical = conn
-                .query_row(
-                    "SELECT recording_id, match_type, confidence \
-                     FROM source_item_recording_map WHERE track_guid = ?1",
-                    params![track_guid],
-                    |row| {
-                        Ok(CanonicalRecordingRef {
-                            recording_id: row.get(0)?,
-                            match_type: row.get(1)?,
-                            confidence: row.get(2)?,
-                        })
-                    },
-                )
-                .optional()?;
-        }
+        let resp = build_track_response(&conn, row, &params)?;
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: resp,
@@ -2188,7 +2346,9 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/artists/{id}/releases", get(handle_get_artist_releases))
         .route("/v1/feeds/{guid}", get(handle_get_feed))
         .route("/v1/releases/{id}", get(handle_get_release))
+        .route("/v1/releases/{id}/sources", get(handle_get_release_sources))
         .route("/v1/recordings/{id}", get(handle_get_recording))
+        .route("/v1/recordings/{id}/sources", get(handle_get_recording_sources))
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/recent", get(handle_get_recent))
         .route("/v1/search", get(handle_search))
