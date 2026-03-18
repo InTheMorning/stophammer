@@ -596,10 +596,82 @@ fn normalize_role(role: Option<&str>) -> Option<String> {
     )
 }
 
+fn derive_feed_artist_name(feed_data: &ingest::IngestFeedData) -> String {
+    if let Some(author_name) = non_empty_trimmed(feed_data.author_name.as_deref()) {
+        return author_name.to_string();
+    }
+
+    if let Some(wavlake_slug_name) = wavlake_artist_name_from_links(&feed_data.links) {
+        return wavlake_slug_name;
+    }
+
+    if let Some(owner_name) = non_empty_trimmed(feed_data.owner_name.as_deref())
+        && !is_platform_owner_name(owner_name)
+    {
+        return owner_name.to_string();
+    }
+
+    "Unknown Artist".to_string()
+}
+
+fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
+    let value = value?.trim();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+fn is_platform_owner_name(name: &str) -> bool {
+    matches!(
+        name.trim().to_ascii_lowercase().as_str(),
+        "wavlake" | "fountain" | "rss blue" | "rssblue" | "podhome" | "justcast"
+    )
+}
+
+fn wavlake_artist_name_from_links(links: &[ingest::IngestLink]) -> Option<String> {
+    links.iter()
+        .filter(|link| link.link_type == "website")
+        .find_map(|link| {
+            let url = reqwest::Url::parse(&link.url).ok()?;
+            let host = url.host_str()?.to_ascii_lowercase();
+            if host != "wavlake.com" && host != "www.wavlake.com" {
+                return None;
+            }
+
+            let slug = url.path_segments()?.find(|segment| !segment.is_empty())?;
+            let slug = slug.trim();
+            if slug.is_empty() || matches!(slug, "feed" | "music" | "node") {
+                return None;
+            }
+
+            Some(humanize_slug(slug))
+        })
+}
+
+fn humanize_slug(slug: &str) -> String {
+    slug.split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(capitalize_word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn capitalize_word(word: &str) -> String {
+    let mut chars = word.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut out = String::new();
+    out.extend(first.to_uppercase());
+    out.push_str(chars.as_str());
+    out
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_source_entity_links, normalize_role};
-    use crate::ingest::IngestLink;
+    use super::{
+        build_source_entity_links, derive_feed_artist_name, normalize_role,
+        wavlake_artist_name_from_links,
+    };
+    use crate::ingest::{IngestFeedData, IngestLink};
 
     #[test]
     fn normalize_role_lowercases_and_collapses_whitespace() {
@@ -624,6 +696,67 @@ mod tests {
         let claims = build_source_entity_links("feed-1", "feed", "feed-1", &links, 123);
         assert_eq!(claims.len(), 1);
         assert_eq!(claims[0].extraction_path, "feed.atom:link[@rel='alternate']");
+    }
+
+    fn empty_feed() -> IngestFeedData {
+        IngestFeedData {
+            feed_guid: "feed-guid".into(),
+            title: "Release Title".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("music".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }
+    }
+
+    #[test]
+    fn derive_feed_artist_prefers_author_name() {
+        let mut feed = empty_feed();
+        feed.author_name = Some("Real Artist".into());
+        feed.owner_name = Some("Wavlake".into());
+        feed.links.push(IngestLink {
+            position: 0,
+            link_type: "website".into(),
+            url: "https://wavlake.com/dj-omegaman".into(),
+            extraction_path: "feed.link".into(),
+        });
+
+        assert_eq!(derive_feed_artist_name(&feed), "Real Artist");
+    }
+
+    #[test]
+    fn derive_feed_artist_uses_wavlake_profile_slug_before_platform_owner() {
+        let mut feed = empty_feed();
+        feed.owner_name = Some("Wavlake".into());
+        feed.links.push(IngestLink {
+            position: 0,
+            link_type: "website".into(),
+            url: "https://wavlake.com/dead-reckoning-band".into(),
+            extraction_path: "feed.link".into(),
+        });
+
+        assert_eq!(wavlake_artist_name_from_links(&feed.links).as_deref(), Some("Dead Reckoning Band"));
+        assert_eq!(derive_feed_artist_name(&feed), "Dead Reckoning Band");
+    }
+
+    #[test]
+    fn derive_feed_artist_does_not_fall_back_to_release_title() {
+        let mut feed = empty_feed();
+        feed.owner_name = Some("Wavlake".into());
+
+        assert_eq!(derive_feed_artist_name(&feed), "Unknown Artist");
     }
 }
 
@@ -1054,12 +1187,7 @@ async fn handle_ingest_feed(
 
             // 4. Resolve artist (scoped to feed_guid)
             // Issue-ARTIST-IDENTITY — 2026-03-14
-            let artist_name = feed_data
-                .owner_name
-                .as_deref()
-                .or(feed_data.author_name.as_deref())
-                .unwrap_or(feed_data.title.as_str())
-                .to_string();
+            let artist_name = derive_feed_artist_name(&feed_data);
 
             let feed_guid_str = feed_data.feed_guid.as_str();
             let feed_artist = db::resolve_artist(&conn, &artist_name, Some(feed_guid_str))?;
