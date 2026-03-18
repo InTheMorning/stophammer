@@ -883,17 +883,15 @@ fn ssrf_rejects_non_http_schemes() {
 /// Verify that `validate_feed_url` accepts legitimate public HTTP(S) URLs.
 #[test]
 fn ssrf_accepts_public_urls() {
-    // These should pass the scheme + IP checks (DNS resolution may fail
-    // in test environments, but the function allows resolution failures
-    // to pass through to the HTTP client).
+    // Use public IP literals so this test stays deterministic without relying
+    // on external DNS resolution in the test environment.
     let accepted = [
-        "https://feeds.example.com/podcast.xml",
-        "http://feeds.example.com/podcast.xml",
+        "https://93.184.216.34/podcast.xml",
+        "http://93.184.216.34/podcast.xml",
     ];
 
     for url in &accepted {
         let result = stophammer::proof::validate_feed_url(url);
-        // DNS resolution might fail in test env, but scheme + literal IP checks pass
         assert!(
             result.is_ok(),
             "validate_feed_url should accept public URL: {url}, got: {:?}",

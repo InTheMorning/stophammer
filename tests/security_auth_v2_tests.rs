@@ -606,9 +606,9 @@ fn v2_cs01_validate_feed_url_rejects_private_ips() {
 
 #[test]
 fn v2_cs01_validate_feed_url_accepts_public_urls() {
-    assert!(stophammer::proof::validate_feed_url("https://example.com/feed.xml").is_ok());
-    assert!(stophammer::proof::validate_feed_url("http://example.com/feed.xml").is_ok());
-    assert!(stophammer::proof::validate_feed_url("https://feeds.megaphone.fm/podcast.xml").is_ok());
+    assert!(stophammer::proof::validate_feed_url("https://93.184.216.34/feed.xml").is_ok());
+    assert!(stophammer::proof::validate_feed_url("http://93.184.216.34/feed.xml").is_ok());
+    assert!(stophammer::proof::validate_feed_url("https://1.1.1.1/podcast.xml").is_ok());
 }
 
 #[test]
