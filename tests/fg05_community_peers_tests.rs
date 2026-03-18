@@ -46,7 +46,11 @@ async fn readonly_router_sync_peers_requires_auth() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), 403, "GET /sync/peers without sync auth must return 403");
+    assert_eq!(
+        resp.status(),
+        403,
+        "GET /sync/peers without sync auth must return 403"
+    );
 }
 
 /// GET /sync/peers on the readonly router should return 200 with valid sync auth.

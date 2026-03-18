@@ -627,7 +627,8 @@ fn is_platform_owner_name(name: &str) -> bool {
 }
 
 fn wavlake_artist_name_from_links(links: &[ingest::IngestLink]) -> Option<String> {
-    links.iter()
+    links
+        .iter()
         .filter(|link| link.link_type == "website")
         .find_map(|link| {
             let url = reqwest::Url::parse(&link.url).ok()?;
@@ -695,7 +696,10 @@ mod tests {
 
         let claims = build_source_entity_links("feed-1", "feed", "feed-1", &links, 123);
         assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].extraction_path, "feed.atom:link[@rel='alternate']");
+        assert_eq!(
+            claims[0].extraction_path,
+            "feed.atom:link[@rel='alternate']"
+        );
     }
 
     fn empty_feed() -> IngestFeedData {
@@ -747,7 +751,10 @@ mod tests {
             extraction_path: "feed.link".into(),
         });
 
-        assert_eq!(wavlake_artist_name_from_links(&feed.links).as_deref(), Some("Dead Reckoning Band"));
+        assert_eq!(
+            wavlake_artist_name_from_links(&feed.links).as_deref(),
+            Some("Dead Reckoning Band")
+        );
         assert_eq!(derive_feed_artist_name(&feed), "Dead Reckoning Band");
     }
 
@@ -831,7 +838,8 @@ fn build_source_entity_links(
     now: i64,
 ) -> Vec<model::SourceEntityLink> {
     let mut seen = HashSet::new();
-    links.iter()
+    links
+        .iter()
         .filter(|link| seen.insert((link.link_type.clone(), link.url.clone())))
         .map(|link| {
             let extraction_path = if link.extraction_path.trim().is_empty() {
@@ -1049,7 +1057,10 @@ fn push_source_release_claim(
     extraction_path: &str,
     now: i64,
 ) {
-    let Some(claim_value) = claim_value.map(|v| v.trim().to_string()).filter(|v| !v.is_empty()) else {
+    let Some(claim_value) = claim_value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+    else {
         return;
     };
     claims.push(model::SourceReleaseClaim {

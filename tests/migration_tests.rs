@@ -92,7 +92,8 @@ fn no_drop_table_in_migrations() {
     let proof_level = include_str!("../migrations/0004_proof_level.sql");
     let live_events = include_str!("../migrations/0005_live_events_and_remote_items.sql");
     let source_claims = include_str!("../migrations/0006_source_claim_staging.sql");
-    let source_links_release = include_str!("../migrations/0007_source_link_and_release_claims.sql");
+    let source_links_release =
+        include_str!("../migrations/0007_source_link_and_release_claims.sql");
     let source_role_norm = include_str!("../migrations/0008_source_contributor_role_norm.sql");
     let source_item_enclosures = include_str!("../migrations/0009_source_item_enclosures.sql");
     let source_platform_claims = include_str!("../migrations/0010_source_platform_claims.sql");

@@ -168,8 +168,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
     );
 
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(config, db2, signer, lp, None)
-            .await;
+        stophammer::community::run_community_sync(config, db2, signer, lp, None).await;
     });
 
     // Give the drain loop enough time to fetch all 3 pages.

@@ -138,8 +138,7 @@ async fn test_community_poll_handles_503_gracefully() {
 
     // The sync loop should log the error and keep going, not panic.
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(config, db2, signer, lp, None)
-            .await;
+        stophammer::community::run_community_sync(config, db2, signer, lp, None).await;
     });
 
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;

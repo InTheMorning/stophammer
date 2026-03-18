@@ -874,8 +874,9 @@ async fn v2_cs03_sync_register_requires_admin_token() {
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-register.key")
-        .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-register.key")
+            .expect("create signer");
 
     // Without admin token
     let resp = app
@@ -900,8 +901,11 @@ async fn v2_cs03_sync_register_requires_admin_token() {
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "wrong-token")
         .body(axum::body::Body::from(
-            serde_json::to_vec(&common::signed_sync_register_body(&signer, "https://evil.com/push"))
-                .unwrap(),
+            serde_json::to_vec(&common::signed_sync_register_body(
+                &signer,
+                "https://evil.com/push",
+            ))
+            .unwrap(),
         ))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();
@@ -918,8 +922,11 @@ async fn v2_cs03_sync_register_requires_admin_token() {
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "test-admin-token-v2")
         .body(axum::body::Body::from(
-            serde_json::to_vec(&common::signed_sync_register_body(&signer, "https://legit.com/push"))
-                .unwrap(),
+            serde_json::to_vec(&common::signed_sync_register_body(
+                &signer,
+                "https://legit.com/push",
+            ))
+            .unwrap(),
         ))
         .unwrap();
     let resp = app.oneshot(req).await.unwrap();
@@ -967,8 +974,9 @@ async fn v2_cs03_admin_token_blast_radius() {
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-blast.key")
-        .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-blast.key")
+            .expect("create signer");
 
     // With leaked admin token: can register push peer
     let req = Request::builder()
@@ -977,8 +985,11 @@ async fn v2_cs03_admin_token_blast_radius() {
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", "test-admin-token-v2")
         .body(axum::body::Body::from(
-            serde_json::to_vec(&common::signed_sync_register_body(&signer, "https://evil.com/push"))
-                .unwrap(),
+            serde_json::to_vec(&common::signed_sync_register_body(
+                &signer,
+                "https://evil.com/push",
+            ))
+            .unwrap(),
         ))
         .unwrap();
     let resp = app.clone().oneshot(req).await.unwrap();

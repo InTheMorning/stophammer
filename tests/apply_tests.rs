@@ -1374,7 +1374,10 @@ fn apply_source_entity_links_replaced() {
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
-    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
 
     let stored: (String, String) = {
         let conn = db.lock().expect("lock after apply");
@@ -1448,7 +1451,10 @@ fn apply_source_release_claims_replaced() {
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
-    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
 
     let stored: (String, String) = {
         let conn = db.lock().expect("lock after apply");
@@ -1526,7 +1532,10 @@ fn apply_source_item_enclosures_replaced() {
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
-    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
 
     let stored: (String, Option<String>, i64) = {
         let conn = db.lock().expect("lock after apply");
@@ -1599,7 +1608,10 @@ fn apply_source_platform_claims_replaced() {
     };
 
     let result = stophammer::apply::apply_single_event(&pool, &ev);
-    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
 
     let stored: (String, Option<String>, Option<String>) = {
         let conn = db.lock().expect("lock after apply");

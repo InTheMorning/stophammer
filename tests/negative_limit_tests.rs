@@ -121,7 +121,11 @@ async fn sync_events_requires_auth() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 403, "GET /sync/events without sync auth must return 403");
+    assert_eq!(
+        resp.status(),
+        403,
+        "GET /sync/events without sync auth must return 403"
+    );
 }
 
 // ── Test: DB-level defense — get_events_since floors negative limit ─────────

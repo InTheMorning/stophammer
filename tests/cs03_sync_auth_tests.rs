@@ -36,8 +36,9 @@ fn test_app_state_with_token(
 }
 
 fn register_request_body() -> serde_json::Value {
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-cs03-sync-auth-body.key")
-        .expect("create signer");
+    let signer =
+        stophammer::signing::NodeSigner::load_or_create("/tmp/test-cs03-sync-auth-body.key")
+            .expect("create signer");
     common::signed_sync_register_body(&signer, "http://community.example.com:8008/sync/push")
 }
 
