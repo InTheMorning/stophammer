@@ -4,7 +4,7 @@
 //! [`ArtistCreditName`], [`Feed`], [`Track`], [`PaymentRoute`],
 //! [`FeedPaymentRoute`], [`ValueTimeSplit`], [`FeedRemoteItemRaw`],
 //! [`LiveEvent`], [`SourceContributorClaim`], [`SourceEntityLink`],
-//! [`SourceEntityIdClaim`], and [`SourceReleaseClaim`].
+//! [`SourceEntityIdClaim`], [`SourceReleaseClaim`], and [`SourceItemEnclosure`].
 //! All types derive `Serialize` and `Deserialize` so they can be embedded in
 //! event payloads and returned from API endpoints without additional mapping.
 
@@ -237,6 +237,24 @@ pub struct SourceReleaseClaim {
     pub position: i64,
     pub claim_type: String,
     pub claim_value: String,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceItemEnclosure {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub bytes: Option<i64>,
+    pub rel: Option<String>,
+    pub title: Option<String>,
+    pub is_primary: bool,
     pub source: String,
     pub extraction_path: String,
     pub observed_at: i64,

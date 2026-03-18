@@ -825,6 +825,73 @@ fn build_source_entity_links(
         .collect()
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "staged source enclosures are built from primary plus alternate fields"
+)]
+fn build_source_item_enclosures(
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    primary_url: Option<&str>,
+    primary_mime_type: Option<&str>,
+    primary_bytes: Option<i64>,
+    alternate_enclosures: &[ingest::IngestAlternateEnclosure],
+    now: i64,
+) -> Vec<model::SourceItemEnclosure> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+
+    if let Some(url) = primary_url.map(str::trim).filter(|value| !value.is_empty()) {
+        seen.insert(url.to_string());
+        out.push(model::SourceItemEnclosure {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            position: 0,
+            url: url.to_string(),
+            mime_type: primary_mime_type.map(str::to_string),
+            bytes: primary_bytes,
+            rel: None,
+            title: None,
+            is_primary: true,
+            source: "rss_enclosure".to_string(),
+            extraction_path: format!("{entity_type}.enclosure"),
+            observed_at: now,
+        });
+    }
+
+    for enclosure in alternate_enclosures {
+        let url = enclosure.url.trim();
+        if url.is_empty() || !seen.insert(url.to_string()) {
+            continue;
+        }
+        out.push(model::SourceItemEnclosure {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            position: out.len() as i64,
+            url: url.to_string(),
+            mime_type: enclosure.mime_type.clone(),
+            bytes: enclosure.bytes,
+            rel: enclosure.rel.clone(),
+            title: enclosure.title.clone(),
+            is_primary: false,
+            source: "podcast_alternate_enclosure".to_string(),
+            extraction_path: if enclosure.extraction_path.trim().is_empty() {
+                format!("{entity_type}.podcast:alternateEnclosure")
+            } else {
+                enclosure.extraction_path.clone()
+            },
+            observed_at: now,
+        });
+    }
+
+    out
+}
+
 fn push_source_release_claim(
     claims: &mut Vec<model::SourceReleaseClaim>,
     feed_guid: &str,
@@ -1323,6 +1390,7 @@ async fn handle_ingest_feed(
                 now,
             );
             let mut source_release_claims = Vec::new();
+            let mut source_item_enclosures = Vec::new();
             push_source_release_claim(
                 &mut source_release_claims,
                 &feed_data.feed_guid,
@@ -1415,6 +1483,16 @@ async fn handle_ingest_feed(
                     "track",
                     &track_data.track_guid,
                     &track_data.links,
+                    now,
+                ));
+                source_item_enclosures.extend(build_source_item_enclosures(
+                    &feed_data.feed_guid,
+                    "track",
+                    &track_data.track_guid,
+                    track_data.enclosure_url.as_deref(),
+                    track_data.enclosure_type.as_deref(),
+                    track_data.enclosure_bytes,
+                    &track_data.alternate_enclosures,
                     now,
                 ));
                 push_source_release_claim(
@@ -1535,6 +1613,16 @@ async fn handle_ingest_feed(
                     &live_item.links,
                     now,
                 ));
+                source_item_enclosures.extend(build_source_item_enclosures(
+                    &feed_data.feed_guid,
+                    "live_item",
+                    &live_item.live_item_guid,
+                    live_item.enclosure_url.as_deref(),
+                    live_item.enclosure_type.as_deref(),
+                    live_item.enclosure_bytes,
+                    &live_item.alternate_enclosures,
+                    now,
+                ));
                 push_source_release_claim(
                     &mut source_release_claims,
                     &feed_data.feed_guid,
@@ -1650,6 +1738,7 @@ async fn handle_ingest_feed(
                 &source_entity_ids,
                 &source_entity_links,
                 &source_release_claims,
+                &source_item_enclosures,
                 &feed_routes,
                 &live_events,
                 &track_tuples,
@@ -1692,6 +1781,7 @@ async fn handle_ingest_feed(
                 source_entity_ids,
                 source_entity_links,
                 source_release_claims,
+                source_item_enclosures,
                 feed_routes,
                 live_events,
                 track_tuples,

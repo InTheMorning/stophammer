@@ -580,6 +580,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         vec![],
         vec![],
         vec![],
+        vec![],
         vec![(track, vec![route], vec![])],
         // Issue-WRITE-AMP — 2026-03-14: include TrackUpserted event so that
         // search/quality is computed for the track (diff-aware gating).
@@ -768,6 +769,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         artist,
         artist_credit,
         feed,
+        vec![],
         vec![],
         vec![],
         vec![],

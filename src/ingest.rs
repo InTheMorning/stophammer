@@ -77,6 +77,8 @@ pub struct IngestTrackData {
     pub enclosure_url: Option<String>,
     pub enclosure_type: Option<String>,
     pub enclosure_bytes: Option<i64>,
+    #[serde(default)]
+    pub alternate_enclosures: Vec<IngestAlternateEnclosure>,
     pub track_number: Option<i64>,
     pub season: Option<i64>,
     pub explicit: bool,
@@ -116,6 +118,8 @@ pub struct IngestLiveItemData {
     pub enclosure_url: Option<String>,
     pub enclosure_type: Option<String>,
     pub enclosure_bytes: Option<i64>,
+    #[serde(default)]
+    pub alternate_enclosures: Vec<IngestAlternateEnclosure>,
     pub track_number: Option<i64>,
     pub season: Option<i64>,
     pub explicit: bool,
@@ -155,6 +159,18 @@ pub struct IngestLink {
     pub position: i64,
     pub link_type: String,
     pub url: String,
+    #[serde(default)]
+    pub extraction_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestAlternateEnclosure {
+    pub position: i64,
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub bytes: Option<i64>,
+    pub rel: Option<String>,
+    pub title: Option<String>,
     #[serde(default)]
     pub extraction_path: String,
 }

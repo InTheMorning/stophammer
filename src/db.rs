@@ -12,7 +12,7 @@ use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceReleaseClaim, Track, ValueTimeSplit,
+    SourceItemEnclosure, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -151,6 +151,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0007_source_link_and_release_claims.sql"),
     // Migration 8: preserve raw contributor roles and add a normalized copy.
     include_str!("../migrations/0008_source_contributor_role_norm.sql"),
+    // Migration 9: add staged source item enclosures for primary/alternate media variants.
+    include_str!("../migrations/0009_source_item_enclosures.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1627,6 +1629,81 @@ pub fn replace_source_release_claims_for_feed(
     Ok(())
 }
 
+// ── source_item_enclosures ──────────────────────────────────────────────────
+
+/// Returns the staged item-enclosure rows for a feed ordered by entity + position.
+pub fn get_source_item_enclosures_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceItemEnclosure>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, \
+         title, is_primary, source, extraction_path, observed_at \
+         FROM source_item_enclosures WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, position, url, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceItemEnclosure {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            bytes: row.get(7)?,
+            rel: row.get(8)?,
+            title: row.get(9)?,
+            is_primary: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
+        })
+    })?;
+
+    let mut enclosures = Vec::new();
+    for row in rows {
+        enclosures.push(row?);
+    }
+    Ok(enclosures)
+}
+
+/// Replaces the staged item-enclosure rows for a feed.
+pub fn replace_source_item_enclosures_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    enclosures: &[SourceItemEnclosure],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for enclosure in enclosures {
+        conn.execute(
+            "INSERT INTO source_item_enclosures \
+             (feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, title, is_primary, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                &enclosure.feed_guid,
+                &enclosure.entity_type,
+                &enclosure.entity_id,
+                enclosure.position,
+                &enclosure.url,
+                &enclosure.mime_type,
+                enclosure.bytes,
+                &enclosure.rel,
+                &enclosure.title,
+                enclosure.is_primary,
+                &enclosure.source,
+                &enclosure.extraction_path,
+                enclosure.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── delete_track ────────────────────────────────────────────────────────────
 
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
@@ -1769,13 +1846,43 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 9. tracks
+    // 9. Feed-scoped staged/source rows
+    conn.execute(
+        "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_entity_links WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_release_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    // 10. tracks
     conn.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
-    // 10. feeds
+    // 11. feeds
     conn.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
 
     Ok(())
@@ -2332,6 +2439,28 @@ fn source_release_claims_changed(
         })
 }
 
+fn source_item_enclosures_changed(
+    existing: &[SourceItemEnclosure],
+    new: &[SourceItemEnclosure],
+) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.url != b.url
+                || a.mime_type != b.mime_type
+                || a.bytes != b.bytes
+                || a.rel != b.rel
+                || a.title != b.title
+                || a.is_primary != b.is_primary
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
 // ── build_diff_events ───────────────────────────────────────────────────────
 // Issue-WRITE-AMP — 2026-03-14
 
@@ -2358,6 +2487,7 @@ pub fn build_diff_events(
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
+    source_item_enclosures: &[SourceItemEnclosure],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2382,6 +2512,7 @@ pub fn build_diff_events(
                 source_entity_ids,
                 source_entity_links,
                 source_release_claims,
+                source_item_enclosures,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2401,6 +2532,7 @@ pub fn build_diff_events(
                 source_entity_ids,
                 source_entity_links,
                 source_release_claims,
+                source_item_enclosures,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2427,6 +2559,7 @@ fn build_all_events(
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
+    source_item_enclosures: &[SourceItemEnclosure],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2495,6 +2628,14 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
+    if !source_item_enclosures.is_empty() {
+        event_rows.push(build_source_item_enclosures_event(
+            feed,
+            source_item_enclosures,
+            now,
+            &warn_vec,
+        )?);
+    }
     if !live_events.is_empty() {
         event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
@@ -2528,6 +2669,7 @@ fn build_changed_events(
     source_entity_ids: &[SourceEntityIdClaim],
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
+    source_item_enclosures: &[SourceItemEnclosure],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2622,6 +2764,17 @@ fn build_changed_events(
         event_rows.push(build_source_release_claims_event(
             feed,
             source_release_claims,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged item-enclosure diff ---
+    let existing_source_item_enclosures = get_source_item_enclosures_for_feed(conn, &feed.feed_guid)?;
+    if source_item_enclosures_changed(&existing_source_item_enclosures, source_item_enclosures) {
+        event_rows.push(build_source_item_enclosures_event(
+            feed,
+            source_item_enclosures,
             now,
             &warn_vec,
         )?);
@@ -2869,6 +3022,27 @@ fn build_source_release_claims_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::SourceReleaseClaimsReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_item_enclosures_event(
+    feed: &Feed,
+    enclosures: &[SourceItemEnclosure],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceItemEnclosuresReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        enclosures: enclosures.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceItemEnclosuresReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -3693,6 +3867,7 @@ pub fn ingest_transaction(
     source_entity_ids: Vec<SourceEntityIdClaim>,
     source_entity_links: Vec<SourceEntityLink>,
     source_release_claims: Vec<SourceReleaseClaim>,
+    source_item_enclosures: Vec<SourceItemEnclosure>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
     tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
@@ -3986,6 +4161,34 @@ pub fn ingest_transaction(
                 &claim.source,
                 &claim.extraction_path,
                 claim.observed_at,
+            ],
+        )?;
+    }
+
+    // 3i. Replace staged item enclosures for this feed
+    tx.execute(
+        "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for enclosure in &source_item_enclosures {
+        tx.execute(
+            "INSERT INTO source_item_enclosures \
+             (feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, title, is_primary, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                &enclosure.feed_guid,
+                &enclosure.entity_type,
+                &enclosure.entity_id,
+                enclosure.position,
+                &enclosure.url,
+                &enclosure.mime_type,
+                enclosure.bytes,
+                &enclosure.rel,
+                &enclosure.title,
+                enclosure.is_primary,
+                &enclosure.source,
+                &enclosure.extraction_path,
+                enclosure.observed_at,
             ],
         )?;
     }

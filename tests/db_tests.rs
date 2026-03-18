@@ -52,6 +52,7 @@ fn schema_creates_all_tables() {
         "source_contributor_claims",
         "source_entity_links",
         "source_entity_ids",
+        "source_item_enclosures",
         "source_release_claims",
         "tags",
         "track_rel",
@@ -1457,6 +1458,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &[],
         &[],
         &[],
+        &[],
         now,
         &[],
     )
@@ -1480,6 +1482,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         vec![],
         contributor_claims.clone(),
         entity_id_claims.clone(),
+        vec![],
         vec![],
         vec![],
         vec![],

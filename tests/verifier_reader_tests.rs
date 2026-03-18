@@ -56,6 +56,7 @@ fn sample_request() -> IngestFeedRequest {
                 enclosure_url: Some("https://example.com/t1.mp3".into()),
                 enclosure_type: Some("audio/mpeg".into()),
                 enclosure_bytes: Some(5_000_000),
+                alternate_enclosures: vec![],
                 track_number: Some(1),
                 season: None,
                 explicit: false,

@@ -1454,6 +1454,85 @@ fn apply_source_release_claims_replaced() {
 }
 
 // ---------------------------------------------------------------------------
+// 18. apply_source_item_enclosures_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_item_enclosures_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, SourceItemEnclosuresReplacedPayload};
+    use stophammer::model::SourceItemEnclosure;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-enclosure-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-enclosure-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-enclosure-1",
+            "https://example.com/enclosure.xml",
+            "Enclosure Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourceItemEnclosuresReplacedPayload {
+        feed_guid: "feed-enclosure-1".into(),
+        enclosures: vec![SourceItemEnclosure {
+            id: None,
+            feed_guid: "feed-enclosure-1".into(),
+            entity_type: "track".into(),
+            entity_id: "track-1".into(),
+            position: 0,
+            url: "https://cdn.example.com/song.flac".into(),
+            mime_type: Some("audio/flac".into()),
+            bytes: Some(222),
+            rel: Some("alternate".into()),
+            title: Some("Lossless".into()),
+            is_primary: false,
+            source: "podcast_alternate_enclosure".into(),
+            extraction_path: "track.podcast:alternateEnclosure".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-enclosure-1".into(),
+        event_type: EventType::SourceItemEnclosuresReplaced,
+        payload: EventPayload::SourceItemEnclosuresReplaced(payload_inner),
+        subject_guid: "feed-enclosure-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+
+    let stored: (String, Option<String>, i64) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT url, mime_type, is_primary FROM source_item_enclosures \
+             WHERE feed_guid = 'feed-enclosure-1' AND entity_type = 'track' AND entity_id = 'track-1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .expect("source item enclosure row should exist")
+    };
+
+    assert_eq!(stored.0, "https://cdn.example.com/song.flac");
+    assert_eq!(stored.1.as_deref(), Some("audio/flac"));
+    assert_eq!(stored.2, 0);
+}
+
+// ---------------------------------------------------------------------------
 // Helpers for Issue-DEDUP-ORDER tests
 // ---------------------------------------------------------------------------
 

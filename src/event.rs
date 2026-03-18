@@ -10,8 +10,8 @@
 
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
-    SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceReleaseClaim, Track,
-    ValueTimeSplit,
+    SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure,
+    SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -49,6 +49,8 @@ pub enum EventType {
     SourceEntityLinksReplaced,
     /// The staged release-claim snapshot for a feed was replaced.
     SourceReleaseClaimsReplaced,
+    /// The staged item-enclosure snapshot for a feed was replaced.
+    SourceItemEnclosuresReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -85,6 +87,8 @@ pub enum EventPayload {
     SourceEntityLinksReplaced(SourceEntityLinksReplacedPayload),
     /// Payload for replacing staged release claims for a feed.
     SourceReleaseClaimsReplaced(SourceReleaseClaimsReplacedPayload),
+    /// Payload for replacing staged item enclosures for a feed.
+    SourceItemEnclosuresReplaced(SourceItemEnclosuresReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -251,4 +255,11 @@ pub struct SourceEntityLinksReplacedPayload {
 pub struct SourceReleaseClaimsReplacedPayload {
     pub feed_guid: String,
     pub claims: Vec<SourceReleaseClaim>,
+}
+
+/// Emitted when the full set of staged item enclosures for a feed is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceItemEnclosuresReplacedPayload {
+    pub feed_guid: String,
+    pub enclosures: Vec<SourceItemEnclosure>,
 }

@@ -109,6 +109,11 @@ Source: `src/schema.sql`
 **Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `claim_type`, `claim_value`.
 **Notes:** Replaced as a feed-scoped snapshot via `SourceReleaseClaimsReplaced`. Current claim families include release-date-like timestamps plus descriptive metadata such as description, language, image URL, medium, and iTunes type where available.
 
+### `source_item_enclosures`
+**Purpose:** Staged source-level media variants for tracks and live items, including the primary enclosure plus any `podcast:alternateEnclosure` rows.
+**Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `position`, `url`, `is_primary`.
+**Notes:** Replaced as a feed-scoped snapshot via `SourceItemEnclosuresReplaced`. This table is intentionally source-oriented: it preserves per-platform media URLs, MIME types, byte lengths, relation hints, titles, and extraction paths so a future canonical release/recording layer can present all platform media options without flattening them into the single `tracks.enclosure_url` field.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).

@@ -178,6 +178,9 @@ fn apply_single_event_inner(
         event::EventPayload::SourceReleaseClaimsReplaced(p) => {
             db::replace_source_release_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
         }
+        event::EventPayload::SourceItemEnclosuresReplaced(p) => {
+            db::replace_source_item_enclosures_for_feed(conn, &p.feed_guid, &p.enclosures)?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;
