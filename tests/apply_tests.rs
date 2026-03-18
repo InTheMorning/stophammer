@@ -1692,6 +1692,73 @@ fn make_feed_upserted_event(
     }
 }
 
+fn make_track_upserted_event(
+    event_id: &str,
+    feed_guid: &str,
+    track_guid: &str,
+    track_title: &str,
+    track_number: Option<i64>,
+    seq: i64,
+    now: i64,
+) -> stophammer::event::Event {
+    use stophammer::event::{Event, EventPayload, EventType, TrackUpsertedPayload};
+    use stophammer::model::{ArtistCredit, ArtistCreditName, Track};
+
+    let credit = ArtistCredit {
+        id: 1,
+        display_name: "apply Artist".into(),
+        feed_guid: Some(feed_guid.into()),
+        created_at: now,
+        names: vec![ArtistCreditName {
+            id: 0,
+            artist_credit_id: 1,
+            artist_id: "apply-artist".into(),
+            position: 0,
+            name: "apply Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let track = Track {
+        track_guid: track_guid.into(),
+        feed_guid: feed_guid.into(),
+        artist_credit_id: 1,
+        title: track_title.into(),
+        title_lower: track_title.to_lowercase(),
+        pub_date: Some(now),
+        duration_secs: Some(180),
+        enclosure_url: Some(format!("https://example.com/{track_guid}.mp3")),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(123),
+        track_number,
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    let inner = TrackUpsertedPayload {
+        track,
+        routes: vec![],
+        value_time_splits: vec![],
+        artist_credit: credit,
+    };
+    let payload_json = serde_json::to_string(&inner).expect("serialize");
+
+    Event {
+        event_id: event_id.into(),
+        event_type: EventType::TrackUpserted,
+        payload: EventPayload::TrackUpserted(inner),
+        subject_guid: track_guid.into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // 12. Issue-DEDUP-ORDER: duplicate `FeedUpserted` must not overwrite newer data
 // ---------------------------------------------------------------------------
@@ -1765,6 +1832,131 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
         .expect("count events")
     };
     assert_eq!(event_count, 1, "only one event row must exist");
+}
+
+#[test]
+fn canonical_release_rows_track_apply_and_remove() {
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
+    use stophammer::event::{Event, EventPayload, EventType, TrackRemovedPayload};
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    let feed_ev = make_feed_upserted_event(
+        "canon-feed-evt",
+        "canon-feed-apply",
+        "Apply Release",
+        "apply",
+        1,
+        now,
+    );
+    let track_a = make_track_upserted_event(
+        "canon-track-a",
+        "canon-feed-apply",
+        "canon-track-a",
+        "Track A",
+        Some(2),
+        2,
+        now,
+    );
+    let track_b = make_track_upserted_event(
+        "canon-track-b",
+        "canon-feed-apply",
+        "canon-track-b",
+        "Track B",
+        Some(1),
+        3,
+        now,
+    );
+
+    assert!(matches!(
+        apply_single_event(&pool, &feed_ev).expect("apply feed"),
+        ApplyOutcome::Applied(_)
+    ));
+    assert!(matches!(
+        apply_single_event(&pool, &track_a).expect("apply track a"),
+        ApplyOutcome::Applied(_)
+    ));
+    assert!(matches!(
+        apply_single_event(&pool, &track_b).expect("apply track b"),
+        ApplyOutcome::Applied(_)
+    ));
+
+    {
+        let conn = db.lock().expect("lock");
+        let release_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM releases", [], |r| r.get(0))
+            .expect("count releases");
+        let recording_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM recordings", [], |r| r.get(0))
+            .expect("count recordings");
+        assert_eq!(release_count, 1);
+        assert_eq!(recording_count, 2);
+
+        let ordered: Vec<(i64, String)> = {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT position, source_track_guid FROM release_recordings \
+                     WHERE release_id = 'release:feed:canon-feed-apply' ORDER BY position",
+                )
+                .expect("prepare release_recordings");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("query release_recordings")
+                .collect::<Result<_, _>>()
+                .expect("collect release_recordings")
+        };
+        assert_eq!(
+            ordered,
+            vec![
+                (1, "canon-track-b".to_string()),
+                (2, "canon-track-a".to_string())
+            ]
+        );
+    }
+
+    let remove_inner = TrackRemovedPayload {
+        track_guid: "canon-track-b".into(),
+        feed_guid: "canon-feed-apply".into(),
+    };
+    let remove_payload_json = serde_json::to_string(&remove_inner).expect("serialize remove");
+    let remove_ev = Event {
+        event_id: "canon-track-b-removed".into(),
+        event_type: EventType::TrackRemoved,
+        payload: EventPayload::TrackRemoved(remove_inner),
+        subject_guid: "canon-track-b".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 4,
+        created_at: now,
+        warnings: vec![],
+        payload_json: remove_payload_json,
+    };
+
+    assert!(matches!(
+        apply_single_event(&pool, &remove_ev).expect("remove track b"),
+        ApplyOutcome::Applied(_)
+    ));
+
+    let conn = db.lock().expect("lock");
+    let recording_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM recordings", [], |r| r.get(0))
+        .expect("count recordings after remove");
+    assert_eq!(recording_count, 1);
+
+    let ordered: Vec<(i64, String)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT position, source_track_guid FROM release_recordings \
+                 WHERE release_id = 'release:feed:canon-feed-apply' ORDER BY position",
+            )
+            .expect("prepare release_recordings");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query release_recordings")
+            .collect::<Result<_, _>>()
+            .expect("collect release_recordings")
+    };
+    assert_eq!(ordered, vec![(1, "canon-track-a".to_string())]);
 }
 
 // ---------------------------------------------------------------------------

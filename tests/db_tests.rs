@@ -45,14 +45,19 @@ fn schema_creates_all_tables() {
         "peer_nodes",
         "proof_challenges",
         "proof_tokens",
+        "recordings",
         "rel_type",
+        "release_recordings",
+        "releases",
         "schema_migrations",
         "search_index",
         "search_entities",
         "source_contributor_claims",
         "source_entity_links",
         "source_entity_ids",
+        "source_feed_release_map",
         "source_item_enclosures",
+        "source_item_recording_map",
         "source_platform_claims",
         "source_release_claims",
         "tags",
@@ -117,6 +122,194 @@ fn schema_idempotent() {
 
     drop(conn2);
     let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-canon-1".into(),
+        name: "Canon Artist".into(),
+        name_lower: "canon artist".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let artist_credit = stophammer::model::ArtistCredit {
+        id: 9001,
+        display_name: "Canon Artist".into(),
+        feed_guid: Some("feed-canon-1".into()),
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
+            artist_credit_id: 9001,
+            artist_id: artist.artist_id.clone(),
+            position: 0,
+            name: "Canon Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let feed = stophammer::model::Feed {
+        feed_guid: "feed-canon-1".into(),
+        feed_url: "https://example.com/feed-canon-1.xml".into(),
+        title: "Release Title".into(),
+        title_lower: "release title".into(),
+        artist_credit_id: artist_credit.id,
+        description: Some("Release description".into()),
+        image_url: Some("https://example.com/release.jpg".into()),
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 2,
+        newest_item_at: Some(now),
+        oldest_item_at: Some(now - 3600),
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
+    };
+    let track_a = stophammer::model::Track {
+        track_guid: "track-canon-a".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: artist_credit.id,
+        title: "Track A".into(),
+        title_lower: "track a".into(),
+        pub_date: Some(now),
+        duration_secs: Some(180),
+        enclosure_url: Some("https://example.com/a.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(111),
+        track_number: Some(2),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let track_b = stophammer::model::Track {
+        track_guid: "track-canon-b".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: artist_credit.id,
+        title: "Track B".into(),
+        title_lower: "track b".into(),
+        pub_date: Some(now - 10),
+        duration_secs: Some(120),
+        enclosure_url: Some("https://example.com/b.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(222),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let tracks = vec![
+        (track_a.clone(), vec![], vec![]),
+        (track_b.clone(), vec![], vec![]),
+    ];
+
+    let event_rows = stophammer::db::build_diff_events(
+        &conn,
+        &artist,
+        &artist_credit,
+        &feed,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &tracks,
+        &[],
+        now,
+        &[],
+    )
+    .expect("build diff events");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("canonical-sync.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&signer_path).expect("signer");
+
+    stophammer::db::ingest_transaction(
+        &mut conn,
+        artist,
+        artist_credit,
+        feed.clone(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        tracks,
+        event_rows,
+        &signer,
+    )
+    .expect("ingest transaction");
+
+    let release_row: (String, String, i64, Option<i64>) = conn
+        .query_row(
+            "SELECT release_id, title, artist_credit_id, release_date \
+             FROM releases WHERE release_id = ?1",
+            params!["release:feed:feed-canon-1"],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("release row");
+    assert_eq!(release_row.0, "release:feed:feed-canon-1");
+    assert_eq!(release_row.1, "Release Title");
+    assert_eq!(release_row.2, 9001);
+    assert_eq!(release_row.3, feed.oldest_item_at);
+
+    let recording_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM recordings", [], |r| r.get(0))
+        .expect("count recordings");
+    assert_eq!(recording_count, 2);
+
+    let feed_map: (String, i64) = conn
+        .query_row(
+            "SELECT release_id, confidence FROM source_feed_release_map WHERE feed_guid = ?1",
+            params![feed.feed_guid],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("feed map");
+    assert_eq!(feed_map.0, "release:feed:feed-canon-1");
+    assert_eq!(feed_map.1, 100);
+
+    let release_tracks: Vec<(i64, String)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT position, source_track_guid FROM release_recordings \
+                 WHERE release_id = ?1 ORDER BY position",
+            )
+            .expect("prepare release_recordings");
+        stmt.query_map(params!["release:feed:feed-canon-1"], |row| {
+            Ok((row.get(0)?, row.get(1)?))
+        })
+        .expect("query release_recordings")
+        .collect::<Result<_, _>>()
+        .expect("collect release_recordings")
+    };
+    assert_eq!(
+        release_tracks,
+        vec![
+            (1, "track-canon-b".to_string()),
+            (2, "track-canon-a".to_string())
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------

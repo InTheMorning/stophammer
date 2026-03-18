@@ -119,6 +119,31 @@ Source: `src/schema.sql`
 **Key columns:** `feed_guid` (owning feed snapshot), `platform_key`, `url`, `owner_name`.
 **Notes:** Replaced as a feed-scoped snapshot via `SourcePlatformClaimsReplaced`. This table is intentionally evidence-oriented: it records why StopHammer believes a feed belongs to a given platform, without conflating that with canonical artist identity.
 
+### `releases`
+**Purpose:** Deterministic canonical release layer built above source feeds.
+**Key columns:** `release_id` (text PK), `artist_credit_id` (FK to `artist_credit`), `title`, `release_date`.
+**Notes:** Current policy is intentionally conservative: one canonical `release` is derived from one source feed. This gives the system a stable canonical anchor without prematurely merging mirrored feeds across platforms.
+
+### `recordings`
+**Purpose:** Deterministic canonical recording layer built above source tracks.
+**Key columns:** `recording_id` (text PK), `artist_credit_id` (FK to `artist_credit`), `title`, `duration_secs`.
+**Notes:** Current policy is also conservative here: one canonical `recording` is derived from one source track. This preserves a clean upgrade path toward cross-feed recording clustering later.
+
+### `release_recordings`
+**Purpose:** Ordered tracklist rows connecting canonical `releases` to canonical `recordings`.
+**Key columns:** `release_id`, `recording_id`, `position`, `source_track_guid`.
+**Notes:** Rebuilt deterministically from the current tracks in a feed. Ordering currently prefers `track_number`, then publication timestamp, then title/GUID as a stable fallback.
+
+### `source_feed_release_map`
+**Purpose:** Explicit mapping from a source feed (`feeds`) to its current canonical `release`.
+**Key columns:** `feed_guid` (PK/FK to `feeds`), `release_id`, `match_type`, `confidence`.
+**Notes:** Today this is always an identity mapping with `match_type = 'feed_guid_identity'` and `confidence = 100`. The table exists so future clustering can replace identity mappings with real multi-platform release resolution.
+
+### `source_item_recording_map`
+**Purpose:** Explicit mapping from a source track (`tracks`) to its current canonical `recording`.
+**Key columns:** `track_guid` (PK/FK to `tracks`), `recording_id`, `match_type`, `confidence`.
+**Notes:** Today this is always an identity mapping with `match_type = 'track_guid_identity'` and `confidence = 100`. It is intentionally additive so later recording dedupe can swap in stronger mappings without losing source rows.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).

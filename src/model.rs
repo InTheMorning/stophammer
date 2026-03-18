@@ -4,7 +4,9 @@
 //! [`ArtistCreditName`], [`Feed`], [`Track`], [`PaymentRoute`],
 //! [`FeedPaymentRoute`], [`ValueTimeSplit`], [`FeedRemoteItemRaw`],
 //! [`LiveEvent`], [`SourceContributorClaim`], [`SourceEntityLink`],
-//! [`SourceEntityIdClaim`], [`SourceReleaseClaim`], and [`SourceItemEnclosure`].
+//! [`SourceEntityIdClaim`], [`SourceReleaseClaim`], [`SourceItemEnclosure`],
+//! [`SourcePlatformClaim`], [`Release`], [`Recording`], [`ReleaseRecording`],
+//! [`SourceFeedReleaseMap`], and [`SourceItemRecordingMap`].
 //! All types derive `Serialize` and `Deserialize` so they can be embedded in
 //! event payloads and returned from API endpoints without additional mapping.
 
@@ -270,4 +272,54 @@ pub struct SourcePlatformClaim {
     pub source: String,
     pub extraction_path: String,
     pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Release {
+    pub release_id: String,
+    pub title: String,
+    pub title_lower: String,
+    pub artist_credit_id: i64,
+    pub description: Option<String>,
+    pub image_url: Option<String>,
+    pub release_date: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Recording {
+    pub recording_id: String,
+    pub title: String,
+    pub title_lower: String,
+    pub artist_credit_id: i64,
+    pub duration_secs: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReleaseRecording {
+    pub release_id: String,
+    pub recording_id: String,
+    pub position: i64,
+    pub source_track_guid: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceFeedReleaseMap {
+    pub feed_guid: String,
+    pub release_id: String,
+    pub match_type: String,
+    pub confidence: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceItemRecordingMap {
+    pub track_guid: String,
+    pub recording_id: String,
+    pub match_type: String,
+    pub confidence: i64,
+    pub created_at: i64,
 }

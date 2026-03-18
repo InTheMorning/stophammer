@@ -155,6 +155,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0009_source_item_enclosures.sql"),
     // Migration 10: add staged source platform claims for platform/owner provenance.
     include_str!("../migrations/0010_source_platform_claims.sql"),
+    // Migration 11: add deterministic canonical release/recording derived tables.
+    include_str!("../migrations/0011_canonical_release_recording.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1118,6 +1120,160 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
     Ok(())
 }
 
+fn canonical_release_id_for_feed_guid(feed_guid: &str) -> String {
+    format!("release:feed:{feed_guid}")
+}
+
+fn canonical_recording_id_for_track_guid(track_guid: &str) -> String {
+    format!("recording:track:{track_guid}")
+}
+
+fn upsert_release_from_feed(conn: &Connection, feed: &Feed) -> Result<String, DbError> {
+    let release_id = canonical_release_id_for_feed_guid(&feed.feed_guid);
+    conn.execute(
+        "INSERT INTO releases \
+         (release_id, title, title_lower, artist_credit_id, description, image_url, release_date, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+         ON CONFLICT(release_id) DO UPDATE SET \
+           title = excluded.title, \
+           title_lower = excluded.title_lower, \
+           artist_credit_id = excluded.artist_credit_id, \
+           description = excluded.description, \
+           image_url = excluded.image_url, \
+           release_date = excluded.release_date, \
+           updated_at = excluded.updated_at",
+        params![
+            release_id,
+            feed.title,
+            feed.title_lower,
+            feed.artist_credit_id,
+            feed.description,
+            feed.image_url,
+            feed.oldest_item_at,
+            feed.created_at,
+            feed.updated_at,
+        ],
+    )?;
+    conn.execute(
+        "INSERT INTO source_feed_release_map (feed_guid, release_id, match_type, confidence, created_at) \
+         VALUES (?1, ?2, 'feed_guid_identity', 100, ?3) \
+         ON CONFLICT(feed_guid) DO UPDATE SET \
+           release_id = excluded.release_id, \
+           match_type = excluded.match_type, \
+           confidence = excluded.confidence",
+        params![feed.feed_guid, release_id, feed.updated_at],
+    )?;
+    Ok(release_id)
+}
+
+fn upsert_recording_from_track(conn: &Connection, track: &Track) -> Result<String, DbError> {
+    let recording_id = canonical_recording_id_for_track_guid(&track.track_guid);
+    conn.execute(
+        "INSERT INTO recordings \
+         (recording_id, title, title_lower, artist_credit_id, duration_secs, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(recording_id) DO UPDATE SET \
+           title = excluded.title, \
+           title_lower = excluded.title_lower, \
+           artist_credit_id = excluded.artist_credit_id, \
+           duration_secs = excluded.duration_secs, \
+           updated_at = excluded.updated_at",
+        params![
+            recording_id,
+            track.title,
+            track.title_lower,
+            track.artist_credit_id,
+            track.duration_secs,
+            track.created_at,
+            track.updated_at,
+        ],
+    )?;
+    conn.execute(
+        "INSERT INTO source_item_recording_map (track_guid, recording_id, match_type, confidence, created_at) \
+         VALUES (?1, ?2, 'track_guid_identity', 100, ?3) \
+         ON CONFLICT(track_guid) DO UPDATE SET \
+           recording_id = excluded.recording_id, \
+           match_type = excluded.match_type, \
+           confidence = excluded.confidence",
+        params![track.track_guid, recording_id, track.updated_at],
+    )?;
+    Ok(recording_id)
+}
+
+fn track_release_sort_key(a: &Track, b: &Track) -> std::cmp::Ordering {
+    a.track_number
+        .is_none()
+        .cmp(&b.track_number.is_none())
+        .then_with(|| a.track_number.unwrap_or(i64::MAX).cmp(&b.track_number.unwrap_or(i64::MAX)))
+        .then_with(|| a.pub_date.unwrap_or(i64::MAX).cmp(&b.pub_date.unwrap_or(i64::MAX)))
+        .then_with(|| a.title_lower.cmp(&b.title_lower))
+        .then_with(|| a.track_guid.cmp(&b.track_guid))
+}
+
+fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_item_recording_map \
+         WHERE track_guid NOT IN (SELECT track_guid FROM tracks)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM source_feed_release_map \
+         WHERE feed_guid NOT IN (SELECT feed_guid FROM feeds)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM release_recordings \
+         WHERE source_track_guid IS NOT NULL \
+           AND source_track_guid NOT IN (SELECT track_guid FROM tracks)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM recordings \
+         WHERE recording_id NOT IN (SELECT recording_id FROM source_item_recording_map)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM releases \
+         WHERE release_id NOT IN (SELECT release_id FROM source_feed_release_map)",
+        [],
+    )?;
+    Ok(())
+}
+
+/// Rebuilds deterministic canonical release/recording rows for a source feed.
+///
+/// Current policy is intentionally conservative and reversible:
+/// one canonical release per source feed, and one canonical recording per
+/// source track. Higher-level clustering can replace these identity mappings
+/// later without losing source provenance.
+pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    let Some(feed) = get_feed_by_guid(conn, feed_guid)? else {
+        cleanup_orphaned_canonical_rows(conn)?;
+        return Ok(());
+    };
+
+    let release_id = upsert_release_from_feed(conn, &feed)?;
+    conn.execute(
+        "DELETE FROM release_recordings WHERE release_id = ?1",
+        params![release_id],
+    )?;
+
+    let mut tracks = get_tracks_for_feed(conn, feed_guid)?;
+    tracks.sort_by(track_release_sort_key);
+
+    for (idx, track) in tracks.iter().enumerate() {
+        let recording_id = upsert_recording_from_track(conn, track)?;
+        conn.execute(
+            "INSERT INTO release_recordings (release_id, recording_id, position, source_track_guid) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![release_id, recording_id, (idx as i64) + 1, track.track_guid],
+        )?;
+    }
+
+    cleanup_orphaned_canonical_rows(conn)?;
+    Ok(())
+}
+
 // ── replace_payment_routes ────────────────────────────────────────────────────
 
 /// Deletes all payment routes for `track_guid` and inserts the new `routes`.
@@ -1791,6 +1947,19 @@ pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbErr
 /// the provided connection without managing its own transaction.  Callers
 /// must ensure they are already inside a transaction or savepoint.
 pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<(), DbError> {
+    let recording_id = canonical_recording_id_for_track_guid(track_guid);
+    conn.execute(
+        "DELETE FROM release_recordings WHERE source_track_guid = ?1 OR recording_id = ?2",
+        params![track_guid, recording_id],
+    )?;
+    conn.execute(
+        "DELETE FROM source_item_recording_map WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM recordings WHERE recording_id = ?1",
+        params![recording_id],
+    )?;
     conn.execute(
         "DELETE FROM track_tag WHERE track_guid = ?1",
         params![track_guid],
@@ -1845,6 +2014,8 @@ pub fn delete_feed(conn: &mut Connection, feed_guid: &str) -> Result<(), DbError
 /// must ensure they are already inside a transaction or savepoint.
 // DB performance compliant (subqueries) — 2026-03-12
 pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    let release_id = canonical_release_id_for_feed_guid(feed_guid);
+
     // 1. track_tag for all tracks in the feed (subquery)
     conn.execute(
         "DELETE FROM track_tag WHERE track_guid IN \
@@ -1942,6 +2113,31 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     conn.execute(
         "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
         params![feed_guid],
+    )?;
+
+    // 9b. Derived canonical release/recording rows for this feed
+    conn.execute(
+        "DELETE FROM release_recordings WHERE release_id = ?1",
+        params![release_id],
+    )?;
+    conn.execute(
+        "DELETE FROM recordings WHERE recording_id IN \
+         (SELECT recording_id FROM source_item_recording_map \
+          WHERE track_guid IN (SELECT track_guid FROM tracks WHERE feed_guid = ?1))",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_item_recording_map WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM releases WHERE release_id = ?1",
+        params![release_id],
     )?;
 
     // 10. tracks
@@ -4494,6 +4690,10 @@ pub fn ingest_transaction(
     // Combine original event rows with removal event rows.
     let mut all_event_rows = event_rows;
     all_event_rows.append(&mut removal_event_rows);
+
+    // 4c. Rebuild deterministic canonical release/recording state from the
+    // final post-ingest feed/track rows before committing.
+    sync_canonical_state_for_feed(&tx, &feed.feed_guid)?;
 
     // 5. Insert events, collect seqs, sign with assigned seq, update signatures
     // Issue-SEQ-INTEGRITY — 2026-03-14
