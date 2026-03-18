@@ -48,6 +48,10 @@ async fn test_community_poll_handles_empty_response() {
     // Run the sync loop in a background task; it should not panic.
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
+    let signer = Arc::new(
+        stophammer::signing::NodeSigner::load_or_create("/tmp/tc03-community-sync.key")
+            .expect("create signer"),
+    );
 
     // Also mount tracker and primary register mocks so they don't fail the test.
     Mock::given(method("POST"))
@@ -62,7 +66,7 @@ async fn test_community_poll_handles_empty_response() {
         .await;
 
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(config, db2, "deadbeef".into(), lp, None).await;
+        stophammer::community::run_community_sync(config, db2, signer, lp, None).await;
     });
 
     // Let it run briefly, then abort (it's an infinite loop).
@@ -127,10 +131,14 @@ async fn test_community_poll_handles_503_gracefully() {
 
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
+    let signer = Arc::new(
+        stophammer::signing::NodeSigner::load_or_create("/tmp/tc03-community-sync-503.key")
+            .expect("create signer"),
+    );
 
     // The sync loop should log the error and keep going, not panic.
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(config, db2, "deadbeef503".into(), lp, None)
+        stophammer::community::run_community_sync(config, db2, signer, lp, None)
             .await;
     });
 

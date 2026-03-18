@@ -83,6 +83,18 @@ pub struct PushResponse {
 pub struct RegisterRequest {
     pub node_pubkey: String,
     pub node_url: String,
+    #[serde(default)]
+    pub signed_at: Option<i64>,
+    #[serde(default)]
+    pub signature: Option<String>,
+}
+
+/// Canonical payload signed by a community node when registering its push URL.
+#[derive(Debug, Serialize)]
+pub struct RegisterSigningPayload<'a> {
+    pub node_pubkey: &'a str,
+    pub node_url: &'a str,
+    pub signed_at: i64,
 }
 
 /// Response from `POST /sync/register` on the primary.

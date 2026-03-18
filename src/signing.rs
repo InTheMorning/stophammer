@@ -160,6 +160,59 @@ impl NodeSigner {
         let sig: Signature = self.signing_key.sign(&digest);
         (self.pubkey_hex.clone(), hex::encode(sig.to_bytes()))
     }
+
+    /// Signs an arbitrary serializable payload using the same SHA-256 then
+    /// Ed25519 flow used for event signing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SigningError::Io`] if the payload cannot be serialized.
+    pub fn sign_json<T: serde::Serialize>(&self, payload: &T) -> Result<String, SigningError> {
+        let serialized = serde_json::to_string(payload)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+        let digest = Sha256::digest(serialized.as_bytes());
+        let sig: Signature = self.signing_key.sign(&digest);
+        Ok(hex::encode(sig.to_bytes()))
+    }
+}
+
+/// Verifies an Ed25519 signature over a serializable payload.
+///
+/// The payload is serialized canonically with `serde_json::to_string`,
+/// hashed with SHA-256, and then verified against `pubkey_hex`.
+///
+/// # Errors
+///
+/// Returns [`SigningError`] when serialization, hex decoding, or signature
+/// verification fails.
+pub fn verify_json_signature<T: serde::Serialize>(
+    pubkey_hex: &str,
+    payload: &T,
+    signature_hex: &str,
+) -> Result<(), SigningError> {
+    let pubkey_bytes = hex::decode(pubkey_hex)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let pubkey_arr: [u8; 32] = pubkey_bytes.try_into().map_err(|_vec| {
+        std::io::Error::new(std::io::ErrorKind::InvalidData, "pubkey must be 32 bytes")
+    })?;
+    let verifying_key = VerifyingKey::from_bytes(&pubkey_arr)?;
+
+    let serialized = serde_json::to_string(payload)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let digest = Sha256::digest(serialized.as_bytes());
+
+    let sig_bytes = hex::decode(signature_hex)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    let sig_arr: [u8; 64] = sig_bytes.try_into().map_err(|_vec| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "signature must be 64 bytes",
+        )
+    })?;
+    let sig = Signature::from_bytes(&sig_arr);
+
+    verifying_key.verify(&digest, &sig)?;
+    Ok(())
 }
 
 /// Verifies the ed25519 signature on `event` using the pubkey in `event.signed_by`.

@@ -25,7 +25,7 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::{apply, db, db_pool, sync};
+use crate::{apply, db, db_pool, signing, sync};
 
 /// Seconds between retry attempts when polling for the primary's pubkey.
 ///
@@ -113,10 +113,11 @@ struct RegisterBody<'a> {
 pub async fn run_community_sync(
     config: CommunityConfig,
     db: db_pool::DbPool,
-    pubkey_hex: String,
+    signer: Arc<signing::NodeSigner>,
     last_push_at: Arc<AtomicI64>,
     sse_registry: Option<Arc<crate::api::SseRegistry>>,
 ) {
+    let pubkey_hex = signer.pubkey_hex().to_string();
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
@@ -135,7 +136,7 @@ pub async fn run_community_sync(
     register_with_primary(
         &client,
         &config.primary_url,
-        &pubkey_hex,
+        Arc::clone(&signer),
         &config.node_address,
     )
     .await;
@@ -385,13 +386,30 @@ async fn register_with_tracker(
 async fn register_with_primary(
     client: &reqwest::Client,
     primary_url: &str,
-    pubkey_hex: &str,
+    signer: Arc<signing::NodeSigner>,
     node_address: &str,
 ) {
     let url = format!("{primary_url}/sync/register");
+    let signed_at = db::unix_now();
+    let node_pubkey = signer.pubkey_hex().to_string();
+    let node_url = format!("{node_address}/sync/push");
+    let signing_payload = sync::RegisterSigningPayload {
+        node_pubkey: &node_pubkey,
+        node_url: &node_url,
+        signed_at,
+    };
+    let signature = match signer.sign_json(&signing_payload) {
+        Ok(sig) => Some(sig),
+        Err(e) => {
+            tracing::error!(error = %e, "community: failed to sign sync/register payload");
+            None
+        }
+    };
     let body = sync::RegisterRequest {
-        node_pubkey: pubkey_hex.to_string(),
-        node_url: format!("{node_address}/sync/push"),
+        node_pubkey,
+        node_url,
+        signed_at: Some(signed_at),
+        signature,
     };
 
     // Finding-3 separate sync token — 2026-03-13

@@ -158,6 +158,20 @@ fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
 #[tokio::test]
 async fn proof_challenge_rate_limit_enforced() {
     let db = common::test_db_arc();
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        insert_artist(&conn, "artist-flood", "Flood Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-flood", "Flood Artist", now);
+        insert_feed(
+            &conn,
+            "flood-feed",
+            "https://example.com/flood-feed.xml",
+            "Flood Feed",
+            credit_id,
+            now,
+        );
+    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
@@ -210,6 +224,28 @@ async fn proof_challenge_rate_limit_enforced() {
 #[tokio::test]
 async fn proof_challenge_rate_limit_per_feed() {
     let db = common::test_db_arc();
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        insert_artist(&conn, "artist-per-feed", "Per Feed Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-per-feed", "Per Feed Artist", now);
+        insert_feed(
+            &conn,
+            "per-feed-a",
+            "https://example.com/per-feed-a.xml",
+            "Per Feed A",
+            credit_id,
+            now,
+        );
+        insert_feed(
+            &conn,
+            "per-feed-b",
+            "https://example.com/per-feed-b.xml",
+            "Per Feed B",
+            credit_id,
+            now,
+        );
+    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
@@ -509,6 +545,20 @@ async fn body_size_limit_rejects_oversized_payload() {
 #[tokio::test]
 async fn body_within_limit_accepted() {
     let db = common::test_db_arc();
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        insert_artist(&conn, "artist-normal", "Normal Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-normal", "Normal Artist", now);
+        insert_feed(
+            &conn,
+            "normal-feed",
+            "https://example.com/normal-feed.xml",
+            "Normal Feed",
+            credit_id,
+            now,
+        );
+    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 

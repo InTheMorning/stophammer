@@ -921,19 +921,15 @@ fn ssrf_rejects_cgnat_range() {
 
 /// Verify that `validate_feed_url` handles edge-case URLs.
 /// `http:///feed.xml` parses as having an empty host in the `url` crate.
-/// The empty host cannot resolve via DNS, so the HTTP client will reject it.
-/// `validate_feed_url` passes it through (DNS failure is deferred to client).
+/// The empty host cannot resolve via DNS, so the validator must now reject it
+/// instead of silently deferring to the HTTP client.
 #[test]
-fn ssrf_empty_host_deferred_to_client() {
-    // url::Url parses "http:///feed.xml" with host_str() = Some("") (empty string).
-    // validate_feed_url allows it because DNS resolution of "" fails silently
-    // and the function lets the HTTP client handle unreachable hosts.
-    // This is safe because reqwest will fail to connect to an empty hostname.
+fn ssrf_empty_host_rejected() {
     let result = stophammer::proof::validate_feed_url("http:///feed.xml");
-    // Whether this is Ok or Err depends on url crate behavior; either is safe.
-    // The key security property: it must NOT succeed in fetching anything.
-    // We just verify no panic.
-    let _ = result;
+    assert!(
+        result.is_err(),
+        "empty-host feed URLs must be rejected instead of falling back to runtime DNS"
+    );
 }
 
 /// Verify that `validate_feed_url` rejects truly malicious non-URL strings.

@@ -448,6 +448,20 @@ async fn assert_endpoint_issues_token() {
 #[tokio::test]
 async fn assert_wrong_nonce_returns_400() {
     let db = common::test_db_arc();
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        insert_artist(&conn, "artist-xyz", "Wrong Nonce Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-xyz", "Wrong Nonce Artist", now);
+        insert_feed(
+            &conn,
+            "feed-xyz",
+            "https://example.com/feed-xyz.xml",
+            "Feed XYZ",
+            credit_id,
+            now,
+        );
+    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 

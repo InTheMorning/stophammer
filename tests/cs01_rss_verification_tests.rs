@@ -499,32 +499,28 @@ async fn assert_with_wrong_rss_token_returns_400() {
 }
 
 // ---------------------------------------------------------------------------
-// CS-01-09: assert when feed not in DB returns 404
+// CS-01-09: challenge for feed not in DB returns 404
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn assert_feed_not_in_db_returns_404() {
+async fn challenge_feed_not_in_db_returns_404() {
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
-    // Create a challenge for a feed_guid that does NOT have a corresponding
-    // feeds row (only proof_challenges entry exists).
     let nonce = "nofeed-nonce-16ch-x";
-    let (challenge_id, _token_binding) =
-        create_challenge_for_feed(&app, "nonexistent-feed", nonce).await;
-
     let resp = app
         .oneshot(json_request(
             "POST",
-            "/v1/proofs/assert",
+            "/v1/proofs/challenge",
             &serde_json::json!({
-                "challenge_id": challenge_id,
+                "feed_guid": "nonexistent-feed",
+                "scope": "feed:write",
                 "requester_nonce": nonce,
             }),
         ))
         .await
-        .expect("assert request");
+        .expect("challenge request");
 
     assert_eq!(
         resp.status(),

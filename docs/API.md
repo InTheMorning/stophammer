@@ -284,9 +284,22 @@ Community nodes announce their push URL with the primary. The primary stores the
 ```json
 {
   "node_pubkey": "hex-ed25519-pubkey",
-  "node_url": "http://community-node:8008/sync/push"
+  "node_url": "https://community-node:8008/sync/push",
+  "signed_at": 1773849600,
+  "signature": "hex-ed25519-signature"
 }
 ```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `node_pubkey` | string | Yes | Ed25519 public key identifying the community node |
+| `node_url` | string | Yes | Push endpoint URL the primary will POST `/sync/push` events to |
+| `signed_at` | i64 | Recommended | Unix timestamp included in the signed registration payload |
+| `signature` | string | Recommended | Ed25519 signature over `{node_pubkey,node_url,signed_at}` using the community node's signing key |
+
+Signed registration is now preferred. During rollout, the primary still accepts
+unsigned registration when both `signed_at` and `signature` are omitted, but
+that legacy path is deprecated.
 
 **Response (`200 OK`):**
 

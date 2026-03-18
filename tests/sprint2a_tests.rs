@@ -277,6 +277,10 @@ async fn patch_track_at_v1_prefix_returns_204() {
 #[tokio::test]
 async fn proofs_challenge_at_v1_prefix_returns_201() {
     let db = common::test_db_arc();
+    {
+        let conn = db.lock().expect("lock db");
+        seed_feed_at_url(&conn, "https://example.com/proof-feed.xml");
+    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 

@@ -450,22 +450,24 @@ pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, St
     // Use std::net::ToSocketAddrs for synchronous DNS resolution (acceptable
     // because this runs before the async fetch and is fast for cached lookups).
     let socket_addr = format!("{host}:{}", url.port_or_known_default().unwrap_or(443));
-    if let Ok(addrs) = socket_addr.to_socket_addrs() {
-        let resolved: Vec<std::net::SocketAddr> = addrs.collect();
-        for addr in &resolved {
-            if is_private_ip(addr.ip()) {
-                return Err(format!(
-                    "feed URL hostname resolves to private/reserved IP: {}",
-                    addr.ip()
-                ));
-            }
-        }
-        return Ok(resolved);
+    let resolved: Vec<std::net::SocketAddr> = socket_addr
+        .to_socket_addrs()
+        .map_err(|e| format!("DNS resolution failed for {host}: {e}"))?
+        .collect();
+
+    if resolved.is_empty() {
+        return Err(format!("DNS resolution returned no addresses for {host}"));
     }
 
-    // If DNS resolution fails, return an empty list; the subsequent HTTP client
-    // will handle the error (surfaced as 503).
-    Ok(vec![])
+    for addr in &resolved {
+        if is_private_ip(addr.ip()) {
+            return Err(format!(
+                "feed URL hostname resolves to private/reserved IP: {}",
+                addr.ip()
+            ));
+        }
+    }
+    Ok(resolved)
 }
 
 // Issue-SSRF-REDIRECT — 2026-03-15

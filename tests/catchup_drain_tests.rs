@@ -162,9 +162,13 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
 
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
+    let signer = Arc::new(
+        stophammer::signing::NodeSigner::load_or_create("/tmp/catchup-drain-sync.key")
+            .expect("create signer"),
+    );
 
     let handle = tokio::spawn(async move {
-        stophammer::community::run_community_sync(config, db2, "deadbeef-drain".into(), lp, None)
+        stophammer::community::run_community_sync(config, db2, signer, lp, None)
             .await;
     });
 

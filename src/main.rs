@@ -102,6 +102,7 @@ async fn run_community(
     pubkey: String,
     bind_addr: String,
 ) {
+    let signer = std::sync::Arc::new(signer);
     let primary_url =
         std::env::var("PRIMARY_URL").expect("PRIMARY_URL env var required in community mode");
     let tracker_url = std::env::var("TRACKER_URL")
@@ -166,13 +167,13 @@ async fn run_community(
 
     // Fire-and-forget sync task.
     let db_for_sync = db.clone();
-    let pubkey_for_sync = pubkey.clone();
+    let signer_for_sync = std::sync::Arc::clone(&signer);
     let lpa_for_sync = std::sync::Arc::clone(&last_push_at);
     let sse_for_sync = Some(std::sync::Arc::clone(&shared_sse_registry));
     drop(tokio::spawn(community::run_community_sync(
         config,
         db_for_sync,
-        pubkey_for_sync,
+        signer_for_sync,
         lpa_for_sync,
         sse_for_sync,
     )));
@@ -186,7 +187,7 @@ async fn run_community(
     let readonly_state = std::sync::Arc::new(api::AppState {
         db,
         chain: std::sync::Arc::new(dummy_chain),
-        signer: std::sync::Arc::new(signer),
+        signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),
         // Finding-3 separate sync token — 2026-03-13

@@ -192,6 +192,7 @@ On startup, the community node:
 1. Fetches `GET {PRIMARY_URL}/node/info` to auto-discover the primary's pubkey
    (retries up to 10 times with 2s delay — handles primary still booting)
 2. Registers its push URL with the primary: `POST {PRIMARY_URL}/sync/register`
+   and signs that registration payload with its node key
 3. Does an initial fallback poll to catch up from the current cursor
 4. Enters the push-receive + fallback-poll loop
 
