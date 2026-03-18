@@ -12,7 +12,7 @@ use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceItemEnclosure, SourceReleaseClaim, Track, ValueTimeSplit,
+    SourceItemEnclosure, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -153,6 +153,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0008_source_contributor_role_norm.sql"),
     // Migration 9: add staged source item enclosures for primary/alternate media variants.
     include_str!("../migrations/0009_source_item_enclosures.sql"),
+    // Migration 10: add staged source platform claims for platform/owner provenance.
+    include_str!("../migrations/0010_source_platform_claims.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1704,6 +1706,68 @@ pub fn replace_source_item_enclosures_for_feed(
     Ok(())
 }
 
+// ── source_platform_claims ──────────────────────────────────────────────────
+
+/// Returns the staged platform claims for a feed.
+pub fn get_source_platform_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourcePlatformClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at \
+         FROM source_platform_claims WHERE feed_guid = ?1 \
+         ORDER BY platform_key, extraction_path, url, owner_name, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourcePlatformClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            platform_key: row.get(2)?,
+            url: row.get(3)?,
+            owner_name: row.get(4)?,
+            source: row.get(5)?,
+            extraction_path: row.get(6)?,
+            observed_at: row.get(7)?,
+        })
+    })?;
+
+    let mut claims = Vec::new();
+    for row in rows {
+        claims.push(row?);
+    }
+    Ok(claims)
+}
+
+/// Replaces the staged platform claims for a feed.
+pub fn replace_source_platform_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    claims: &[SourcePlatformClaim],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for claim in claims {
+        conn.execute(
+            "INSERT INTO source_platform_claims \
+             (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                &claim.feed_guid,
+                &claim.platform_key,
+                &claim.url,
+                &claim.owner_name,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── delete_track ────────────────────────────────────────────────────────────
 
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
@@ -1873,6 +1937,10 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
     conn.execute(
         "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
@@ -2461,6 +2529,22 @@ fn source_item_enclosures_changed(
         })
 }
 
+fn source_platform_claims_changed(
+    existing: &[SourcePlatformClaim],
+    new: &[SourcePlatformClaim],
+) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.platform_key != b.platform_key
+                || a.url != b.url
+                || a.owner_name != b.owner_name
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
 // ── build_diff_events ───────────────────────────────────────────────────────
 // Issue-WRITE-AMP — 2026-03-14
 
@@ -2488,6 +2572,7 @@ pub fn build_diff_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2513,6 +2598,7 @@ pub fn build_diff_events(
                 source_entity_links,
                 source_release_claims,
                 source_item_enclosures,
+                source_platform_claims,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2533,6 +2619,7 @@ pub fn build_diff_events(
                 source_entity_links,
                 source_release_claims,
                 source_item_enclosures,
+                source_platform_claims,
                 feed_routes,
                 live_events,
                 tracks,
@@ -2560,6 +2647,7 @@ fn build_all_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2636,6 +2724,14 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
+    if !source_platform_claims.is_empty() {
+        event_rows.push(build_source_platform_claims_event(
+            feed,
+            source_platform_claims,
+            now,
+            &warn_vec,
+        )?);
+    }
     if !live_events.is_empty() {
         event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
@@ -2670,6 +2766,7 @@ fn build_changed_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
     tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
@@ -2775,6 +2872,17 @@ fn build_changed_events(
         event_rows.push(build_source_item_enclosures_event(
             feed,
             source_item_enclosures,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged platform-claim diff ---
+    let existing_source_platform_claims = get_source_platform_claims_for_feed(conn, &feed.feed_guid)?;
+    if source_platform_claims_changed(&existing_source_platform_claims, source_platform_claims) {
+        event_rows.push(build_source_platform_claims_event(
+            feed,
+            source_platform_claims,
             now,
             &warn_vec,
         )?);
@@ -3043,6 +3151,27 @@ fn build_source_item_enclosures_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::SourceItemEnclosuresReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_platform_claims_event(
+    feed: &Feed,
+    claims: &[SourcePlatformClaim],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourcePlatformClaimsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        claims: claims.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourcePlatformClaimsReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -3868,6 +3997,7 @@ pub fn ingest_transaction(
     source_entity_links: Vec<SourceEntityLink>,
     source_release_claims: Vec<SourceReleaseClaim>,
     source_item_enclosures: Vec<SourceItemEnclosure>,
+    source_platform_claims: Vec<SourcePlatformClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
     tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
@@ -4189,6 +4319,28 @@ pub fn ingest_transaction(
                 &enclosure.source,
                 &enclosure.extraction_path,
                 enclosure.observed_at,
+            ],
+        )?;
+    }
+
+    // 3j. Replace staged platform claims for this feed
+    tx.execute(
+        "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for claim in &source_platform_claims {
+        tx.execute(
+            "INSERT INTO source_platform_claims \
+             (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                &claim.feed_guid,
+                &claim.platform_key,
+                &claim.url,
+                &claim.owner_name,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
             ],
         )?;
     }

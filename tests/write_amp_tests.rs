@@ -159,6 +159,7 @@ fn ingest_and_count_track_events(
         &[], // no source links
         &[], // no source release claims
         &[], // no source item enclosures
+        &[], // no source platform claims
         &[], // no feed routes
         &[], // no live events
         &track_tuples,
@@ -173,6 +174,7 @@ fn ingest_and_count_track_events(
         artist,
         artist_credit,
         feed_model,
+        vec![],
         vec![],
         vec![],
         vec![],

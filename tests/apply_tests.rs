@@ -1533,6 +1533,82 @@ fn apply_source_item_enclosures_replaced() {
 }
 
 // ---------------------------------------------------------------------------
+// 19. apply_source_platform_claims_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_platform_claims_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, SourcePlatformClaimsReplacedPayload};
+    use stophammer::model::SourcePlatformClaim;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-platform-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-platform-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-platform-1",
+            "https://example.com/platform.xml",
+            "Platform Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourcePlatformClaimsReplacedPayload {
+        feed_guid: "feed-platform-1".into(),
+        claims: vec![SourcePlatformClaim {
+            id: None,
+            feed_guid: "feed-platform-1".into(),
+            platform_key: "wavlake".into(),
+            url: Some("https://wavlake.com/feed/music/abc123".into()),
+            owner_name: Some("Wavlake".into()),
+            source: "platform_classifier".into(),
+            extraction_path: "request.canonical_url".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-platform-1".into(),
+        event_type: EventType::SourcePlatformClaimsReplaced,
+        payload: EventPayload::SourcePlatformClaimsReplaced(payload_inner),
+        subject_guid: "feed-platform-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(result.is_ok(), "apply_single_event should succeed: {result:?}");
+
+    let stored: (String, Option<String>, Option<String>) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT platform_key, url, owner_name FROM source_platform_claims \
+             WHERE feed_guid = 'feed-platform-1' AND platform_key = 'wavlake'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .expect("source platform claim row should exist")
+    };
+
+    assert_eq!(stored.0, "wavlake");
+    assert_eq!(
+        stored.1.as_deref(),
+        Some("https://wavlake.com/feed/music/abc123")
+    );
+    assert_eq!(stored.2.as_deref(), Some("Wavlake"));
+}
+
+// ---------------------------------------------------------------------------
 // Helpers for Issue-DEDUP-ORDER tests
 // ---------------------------------------------------------------------------
 

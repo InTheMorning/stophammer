@@ -114,6 +114,11 @@ Source: `src/schema.sql`
 **Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `position`, `url`, `is_primary`.
 **Notes:** Replaced as a feed-scoped snapshot via `SourceItemEnclosuresReplaced`. This table is intentionally source-oriented: it preserves per-platform media URLs, MIME types, byte lengths, relation hints, titles, and extraction paths so a future canonical release/recording layer can present all platform media options without flattening them into the single `tracks.enclosure_url` field.
 
+### `source_platform_claims`
+**Purpose:** Staged feed-level platform provenance such as `wavlake`, `fountain`, or `rss_blue`, derived from canonical feed URLs, typed source links, and platform-style owner names.
+**Key columns:** `feed_guid` (owning feed snapshot), `platform_key`, `url`, `owner_name`.
+**Notes:** Replaced as a feed-scoped snapshot via `SourcePlatformClaimsReplaced`. This table is intentionally evidence-oriented: it records why StopHammer believes a feed belongs to a given platform, without conflating that with canonical artist identity.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).

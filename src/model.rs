@@ -259,3 +259,15 @@ pub struct SourceItemEnclosure {
     pub extraction_path: String,
     pub observed_at: i64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourcePlatformClaim {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub platform_key: String,
+    pub url: Option<String>,
+    pub owner_name: Option<String>,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}

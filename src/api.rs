@@ -620,10 +620,7 @@ fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
 }
 
 fn is_platform_owner_name(name: &str) -> bool {
-    matches!(
-        name.trim().to_ascii_lowercase().as_str(),
-        "wavlake" | "fountain" | "rss blue" | "rssblue" | "podhome" | "justcast"
-    )
+    classify_platform_owner(name).is_some()
 }
 
 fn wavlake_artist_name_from_links(links: &[ingest::IngestLink]) -> Option<String> {
@@ -668,8 +665,8 @@ fn capitalize_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_source_entity_links, derive_feed_artist_name, normalize_role,
-        wavlake_artist_name_from_links,
+        build_source_entity_links, build_source_platform_claims, derive_feed_artist_name,
+        normalize_role, wavlake_artist_name_from_links,
     };
     use crate::ingest::{IngestFeedData, IngestLink};
 
@@ -757,6 +754,43 @@ mod tests {
         feed.owner_name = Some("Wavlake".into());
 
         assert_eq!(derive_feed_artist_name(&feed), "Unknown Artist");
+    }
+
+    #[test]
+    fn source_platform_claims_capture_canonical_url_link_and_owner() {
+        let mut feed = empty_feed();
+        feed.owner_name = Some("Wavlake".into());
+        feed.links.push(IngestLink {
+            position: 0,
+            link_type: "website".into(),
+            url: "https://wavlake.com/dj-omegaman".into(),
+            extraction_path: "feed.link".into(),
+        });
+
+        let claims = build_source_platform_claims(
+            "feed-guid",
+            "https://wavlake.com/feed/music/abc123",
+            feed.owner_name.as_deref(),
+            &feed.links,
+            123,
+        );
+
+        assert_eq!(claims.len(), 3);
+        assert!(claims.iter().any(|claim| {
+            claim.platform_key == "wavlake"
+                && claim.url.as_deref() == Some("https://wavlake.com/feed/music/abc123")
+                && claim.extraction_path == "request.canonical_url"
+        }));
+        assert!(claims.iter().any(|claim| {
+            claim.platform_key == "wavlake"
+                && claim.url.as_deref() == Some("https://wavlake.com/dj-omegaman")
+                && claim.extraction_path == "feed.link"
+        }));
+        assert!(claims.iter().any(|claim| {
+            claim.platform_key == "wavlake"
+                && claim.owner_name.as_deref() == Some("Wavlake")
+                && claim.extraction_path == "feed.owner_name"
+        }));
     }
 }
 
@@ -890,6 +924,116 @@ fn build_source_item_enclosures(
     }
 
     out
+}
+
+fn build_source_platform_claims(
+    feed_guid: &str,
+    canonical_url: &str,
+    owner_name: Option<&str>,
+    links: &[ingest::IngestLink],
+    now: i64,
+) -> Vec<model::SourcePlatformClaim> {
+    let mut seen = HashSet::new();
+    let mut claims = Vec::new();
+
+    if let Some(platform_key) = classify_platform_url(canonical_url) {
+        let url = canonical_url.trim().to_string();
+        seen.insert((
+            platform_key.to_string(),
+            Some(url.clone()),
+            None::<String>,
+            "request.canonical_url".to_string(),
+        ));
+        claims.push(model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            platform_key: platform_key.to_string(),
+            url: Some(url),
+            owner_name: None,
+            source: "platform_classifier".to_string(),
+            extraction_path: "request.canonical_url".to_string(),
+            observed_at: now,
+        });
+    }
+
+    for link in links {
+        let Some(platform_key) = classify_platform_url(&link.url) else {
+            continue;
+        };
+        let url = link.url.trim().to_string();
+        let extraction_path = if link.extraction_path.trim().is_empty() {
+            "feed.link".to_string()
+        } else {
+            link.extraction_path.clone()
+        };
+        if !seen.insert((
+            platform_key.to_string(),
+            Some(url.clone()),
+            None::<String>,
+            extraction_path.clone(),
+        )) {
+            continue;
+        }
+        claims.push(model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            platform_key: platform_key.to_string(),
+            url: Some(url),
+            owner_name: None,
+            source: "platform_classifier".to_string(),
+            extraction_path,
+            observed_at: now,
+        });
+    }
+
+    if let Some(owner_name) = non_empty_trimmed(owner_name)
+        && let Some(platform_key) = classify_platform_owner(owner_name)
+    {
+        let owner_name = owner_name.to_string();
+        if seen.insert((
+            platform_key.to_string(),
+            None::<String>,
+            Some(owner_name.clone()),
+            "feed.owner_name".to_string(),
+        )) {
+            claims.push(model::SourcePlatformClaim {
+                id: None,
+                feed_guid: feed_guid.to_string(),
+                platform_key: platform_key.to_string(),
+                url: None,
+                owner_name: Some(owner_name),
+                source: "platform_classifier".to_string(),
+                extraction_path: "feed.owner_name".to_string(),
+                observed_at: now,
+            });
+        }
+    }
+
+    claims
+}
+
+fn classify_platform_url(url: &str) -> Option<&'static str> {
+    let url = reqwest::Url::parse(url).ok()?;
+    let host = url.host_str()?.trim().to_ascii_lowercase();
+    match host.as_str() {
+        "wavlake.com" | "www.wavlake.com" => Some("wavlake"),
+        "fountain.fm" | "www.fountain.fm" | "feeds.fountain.fm" => Some("fountain"),
+        "rssblue.com" | "www.rssblue.com" | "feeds.rssblue.com" => Some("rss_blue"),
+        "podhome.fm" | "serve.podhome.fm" => Some("podhome"),
+        "justcast.com" | "feed.justcast.com" => Some("justcast"),
+        _ => None,
+    }
+}
+
+fn classify_platform_owner(owner_name: &str) -> Option<&'static str> {
+    match owner_name.trim().to_ascii_lowercase().as_str() {
+        "wavlake" => Some("wavlake"),
+        "fountain" => Some("fountain"),
+        "rss blue" | "rssblue" => Some("rss_blue"),
+        "podhome" => Some("podhome"),
+        "justcast" => Some("justcast"),
+        _ => None,
+    }
 }
 
 fn push_source_release_claim(
@@ -1391,6 +1535,13 @@ async fn handle_ingest_feed(
             );
             let mut source_release_claims = Vec::new();
             let mut source_item_enclosures = Vec::new();
+            let source_platform_claims = build_source_platform_claims(
+                &feed_data.feed_guid,
+                &req.canonical_url,
+                feed_data.owner_name.as_deref(),
+                &feed_data.links,
+                now,
+            );
             push_source_release_claim(
                 &mut source_release_claims,
                 &feed_data.feed_guid,
@@ -1739,6 +1890,7 @@ async fn handle_ingest_feed(
                 &source_entity_links,
                 &source_release_claims,
                 &source_item_enclosures,
+                &source_platform_claims,
                 &feed_routes,
                 &live_events,
                 &track_tuples,
@@ -1782,6 +1934,7 @@ async fn handle_ingest_feed(
                 source_entity_links,
                 source_release_claims,
                 source_item_enclosures,
+                source_platform_claims,
                 feed_routes,
                 live_events,
                 track_tuples,

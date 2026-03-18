@@ -142,6 +142,7 @@ fn ingest_feed_with_tracks(
         vec![],
         vec![],
         vec![],
+        vec![],
         tracks,
         event_rows,
         signer,

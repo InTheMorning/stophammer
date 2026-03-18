@@ -53,6 +53,7 @@ fn schema_creates_all_tables() {
         "source_entity_links",
         "source_entity_ids",
         "source_item_enclosures",
+        "source_platform_claims",
         "source_release_claims",
         "tags",
         "track_rel",
@@ -1349,6 +1350,52 @@ fn source_release_claims_replace_round_trip() {
 }
 
 #[test]
+fn source_platform_claims_replace_round_trip() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-platform", "Source Platform");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Platform");
+    let feed_guid = insert_feed(&conn, "feed-src-platform", credit_id);
+
+    let claims = vec![
+        stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            platform_key: "wavlake".into(),
+            url: Some("https://wavlake.com/feed/music/abc123".into()),
+            owner_name: None,
+            source: "platform_classifier".into(),
+            extraction_path: "request.canonical_url".into(),
+            observed_at: common::now(),
+        },
+        stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            platform_key: "wavlake".into(),
+            url: None,
+            owner_name: Some("Wavlake".into()),
+            source: "platform_classifier".into(),
+            extraction_path: "feed.owner_name".into(),
+            observed_at: common::now(),
+        },
+    ];
+
+    stophammer::db::replace_source_platform_claims_for_feed(&conn, &feed_guid, &claims)
+        .expect("replace source platform claims");
+
+    let stored = stophammer::db::get_source_platform_claims_for_feed(&conn, &feed_guid)
+        .expect("get source platform claims");
+    assert_eq!(stored.len(), 2);
+    assert!(stored.iter().all(|claim| claim.platform_key == "wavlake"));
+    assert!(stored.iter().any(|claim| {
+        claim.url.as_deref() == Some("https://wavlake.com/feed/music/abc123")
+            && claim.extraction_path == "request.canonical_url"
+    }));
+    assert!(stored
+        .iter()
+        .any(|claim| claim.owner_name.as_deref() == Some("Wavlake")));
+}
+
+#[test]
 fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -1459,6 +1506,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         &[],
         &[],
         &[],
+        &[],
         now,
         &[],
     )
@@ -1482,6 +1530,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         vec![],
         contributor_claims.clone(),
         entity_id_claims.clone(),
+        vec![],
         vec![],
         vec![],
         vec![],

@@ -76,7 +76,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 9, "exactly nine migrations should be recorded");
+    assert_eq!(count, 10, "exactly ten migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -95,6 +95,7 @@ fn no_drop_table_in_migrations() {
     let source_links_release = include_str!("../migrations/0007_source_link_and_release_claims.sql");
     let source_role_norm = include_str!("../migrations/0008_source_contributor_role_norm.sql");
     let source_item_enclosures = include_str!("../migrations/0009_source_item_enclosures.sql");
+    let source_platform_claims = include_str!("../migrations/0010_source_platform_claims.sql");
     let all_migrations = [
         baseline,
         feed_scope,
@@ -105,6 +106,7 @@ fn no_drop_table_in_migrations() {
         source_links_release,
         source_role_norm,
         source_item_enclosures,
+        source_platform_claims,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {
