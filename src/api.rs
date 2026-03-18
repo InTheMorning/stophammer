@@ -17,7 +17,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
-use std::sync::{Arc, LazyLock, RwLock};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use axum::{
@@ -2166,7 +2166,7 @@ async fn fan_out_push(
     subscribers: Arc<RwLock<HashMap<String, String>>>,
     events: Vec<event::Event>,
 ) {
-    fan_out_push_inner(db, client, subscribers, events);
+    fan_out_push_inner(db, client, subscribers, events).await;
 }
 
 /// Public entry point for integration tests that need to exercise push fan-out
@@ -2186,7 +2186,7 @@ pub async fn fan_out_push_public(
     subscribers: Arc<RwLock<HashMap<String, String>>>,
     events: Vec<event::Event>,
 ) {
-    fan_out_push_inner(db, client, subscribers, events);
+    fan_out_push_inner(db, client, subscribers, events).await;
 }
 
 /// Maximum number of push attempts per peer (initial + retries).
@@ -2199,21 +2199,17 @@ const PUSH_MAX_ATTEMPTS: u64 = 3;
 const PUSH_EVICTION_THRESHOLD: i64 = db::MAX_PEER_FAILURES;
 
 /// Issue-PUSH-BOUNDS — 2026-03-16: maximum concurrent push tasks to prevent
-/// unbounded task spawning when there are many peers.
+/// unbounded in-flight push requests when there are many peers.
 pub const MAX_CONCURRENT_PUSHES: usize = 16;
 
-/// Issue-PUSH-BOUNDS — 2026-03-16: semaphore enforcing the concurrent push limit.
-static PUSH_SEMAPHORE: LazyLock<tokio::sync::Semaphore> =
-    LazyLock::new(|| tokio::sync::Semaphore::new(MAX_CONCURRENT_PUSHES));
-
 // SP-04 push retry — 2026-03-13
-// Issue-PUSH-BOUNDS — 2026-03-16: Arc-shared batch, semaphore-bounded concurrency,
-// response-body rejection inspection.
+// Issue-PUSH-BOUNDS — 2026-03-16: Arc-shared batch, bounded concurrency without
+// detached per-peer task buildup, response-body rejection inspection.
 #[expect(
     clippy::needless_pass_by_value,
     reason = "values are cloned into spawned tasks; ownership transfer is intentional"
 )]
-fn fan_out_push_inner(
+async fn fan_out_push_inner(
     db: db_pool::DbPool,
     client: reqwest::Client,
     subscribers: Arc<RwLock<HashMap<String, String>>>,
@@ -2236,107 +2232,95 @@ fn fan_out_push_inner(
     };
     let batch = Arc::new(serialized_batch);
 
-    for (pubkey, push_url) in peers {
-        // Issue-SYNC-SSRF — 2026-03-16: defense-in-depth re-validation at push time.
-        // Skipped under test-util because wiremock binds to 127.0.0.1.
-        #[cfg(not(feature = "test-util"))]
-        {
-            if let Ok(parsed) = url::Url::parse(&push_url) {
-                if !proof::is_url_ssrf_safe(&parsed) {
-                    tracing::warn!(
-                        peer = %pubkey, url = %push_url,
-                        "fanout: skipping peer with unsafe push URL (SSRF blocked)"
-                    );
-                    continue;
-                }
-            } else {
-                tracing::warn!(
-                    peer = %pubkey, url = %push_url,
-                    "fanout: skipping peer with unparseable push URL"
-                );
-                continue;
-            }
-        }
+    futures_util::stream::StreamExt::for_each_concurrent(
+        futures_util::stream::iter(peers),
+        MAX_CONCURRENT_PUSHES,
+        move |(pubkey, push_url)| {
+            let client2 = client.clone();
+            let db2 = db.clone();
+            let subs2 = Arc::clone(&subscribers);
+            let batch2 = Arc::clone(&batch);
 
-        let client2 = client.clone();
-        let db2 = db.clone();
-        let subs2 = Arc::clone(&subscribers);
-        let pubkey2 = pubkey.clone();
-        let push_url2 = push_url.clone();
-        // Issue-PUSH-BOUNDS — 2026-03-16: share serialized batch via Arc
-        // instead of cloning the event vector per peer.
-        let batch2 = Arc::clone(&batch);
-
-        tokio::spawn(async move {
-            // Issue-PUSH-BOUNDS — 2026-03-16: acquire semaphore permit to
-            // enforce MAX_CONCURRENT_PUSHES concurrency limit.
-            let _permit = PUSH_SEMAPHORE
-                .acquire()
-                .await
-                .expect("push semaphore closed unexpectedly");
-
-            let mut success = false;
-
-            // SP-04 push retry — 2026-03-13
-            for attempt in 0..PUSH_MAX_ATTEMPTS {
-                if attempt > 0 {
-                    tokio::time::sleep(Duration::from_millis(500 * attempt)).await;
-                }
-                match client2
-                    .post(&push_url2)
-                    .header("content-type", "application/json")
-                    .body(batch2.as_ref().clone())
-                    .timeout(Duration::from_secs(10))
-                    .send()
-                    .await
+            async move {
+                // Issue-SYNC-SSRF — 2026-03-16: defense-in-depth re-validation at push time.
+                // Skipped under test-util because wiremock binds to 127.0.0.1.
+                #[cfg(not(feature = "test-util"))]
                 {
-                    Ok(resp) if resp.status().is_success() => {
-                        // Issue-PUSH-BOUNDS — 2026-03-16: inspect response body
-                        // for rejected events to detect silent divergence.
-                        let had_rejections = check_push_response_rejections(
-                            resp, &push_url2, &pubkey2, &db2, &subs2,
-                        )
-                        .await;
-                        // Treat a 2xx with rejections as partial failure: do
-                        // not reset consecutive_failures via record_push_success.
-                        if !had_rejections {
-                            success = true;
+                    if let Ok(parsed) = url::Url::parse(&push_url) {
+                        if !proof::is_url_ssrf_safe(&parsed) {
+                            tracing::warn!(
+                                peer = %pubkey, url = %push_url,
+                                "fanout: skipping peer with unsafe push URL (SSRF blocked)"
+                            );
+                            return;
                         }
-                        break;
-                    }
-                    Ok(resp) => {
+                    } else {
                         tracing::warn!(
-                            url = %push_url2, attempt, status = %resp.status(),
-                            "fanout: push returned non-success HTTP status"
+                            peer = %pubkey, url = %push_url,
+                            "fanout: skipping peer with unparseable push URL"
                         );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            url = %push_url2, attempt, error = %e,
-                            "fanout: push request failed"
-                        );
+                        return;
                     }
                 }
-            }
 
-            if success {
-                let now = db::unix_now();
-                // Issue-WAL-POOL — 2026-03-14: use writer for push success recording
-                match db2.writer().lock() {
-                    Ok(conn) => {
-                        if let Err(e) = db::record_push_success(&conn, &pubkey2, now) {
-                            tracing::error!(peer = %pubkey2, error = %e, "fanout: failed to record push success");
+                let mut success = false;
+
+                // SP-04 push retry — 2026-03-13
+                for attempt in 0..PUSH_MAX_ATTEMPTS {
+                    if attempt > 0 {
+                        tokio::time::sleep(Duration::from_millis(500 * attempt)).await;
+                    }
+                    match client2
+                        .post(&push_url)
+                        .header("content-type", "application/json")
+                        .body(batch2.as_ref().clone())
+                        .timeout(Duration::from_secs(10))
+                        .send()
+                        .await
+                    {
+                        Ok(resp) if resp.status().is_success() => {
+                            let had_rejections =
+                                check_push_response_rejections(resp, &push_url, &pubkey, &db2, &subs2)
+                                    .await;
+                            if !had_rejections {
+                                success = true;
+                            }
+                            break;
+                        }
+                        Ok(resp) => {
+                            tracing::warn!(
+                                url = %push_url, attempt, status = %resp.status(),
+                                "fanout: push returned non-success HTTP status"
+                            );
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                url = %push_url, attempt, error = %e,
+                                "fanout: push request failed"
+                            );
                         }
                     }
-                    Err(_) => {
-                        tracing::error!(peer = %pubkey2, "fanout: db mutex poisoned; cannot record push success");
-                    }
                 }
-            } else {
-                handle_push_failure(&db2, &subs2, &pubkey2);
+
+                if success {
+                    let now = db::unix_now();
+                    match db2.writer().lock() {
+                        Ok(conn) => {
+                            if let Err(e) = db::record_push_success(&conn, &pubkey, now) {
+                                tracing::error!(peer = %pubkey, error = %e, "fanout: failed to record push success");
+                            }
+                        }
+                        Err(_) => {
+                            tracing::error!(peer = %pubkey, "fanout: db mutex poisoned; cannot record push success");
+                        }
+                    }
+                } else {
+                    handle_push_failure(&db2, &subs2, &pubkey);
+                }
             }
-        });
-    }
+        },
+    )
+    .await;
 }
 
 /// Issue-PUSH-BOUNDS — 2026-03-16: inspect a 2xx push response body for
