@@ -76,7 +76,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 5, "exactly five migrations should be recorded");
+    assert_eq!(count, 6, "exactly six migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -91,12 +91,14 @@ fn no_drop_table_in_migrations() {
     let search_unique = include_str!("../migrations/0003_search_entities_unique.sql");
     let proof_level = include_str!("../migrations/0004_proof_level.sql");
     let live_events = include_str!("../migrations/0005_live_events_and_remote_items.sql");
+    let source_claims = include_str!("../migrations/0006_source_claim_staging.sql");
     let all_migrations = [
         baseline,
         feed_scope,
         search_unique,
         proof_level,
         live_events,
+        source_claims,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {

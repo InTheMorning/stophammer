@@ -2,10 +2,10 @@
 //!
 //! Defines the persisted entities: [`Artist`], [`ArtistCredit`],
 //! [`ArtistCreditName`], [`Feed`], [`Track`], [`PaymentRoute`],
-//! [`FeedPaymentRoute`], [`ValueTimeSplit`], [`FeedRemoteItemRaw`], and
-//! [`LiveEvent`]. All types derive `Serialize` and `Deserialize` so they can
-//! be embedded in event payloads and returned from API endpoints without
-//! additional mapping.
+//! [`FeedPaymentRoute`], [`ValueTimeSplit`], [`FeedRemoteItemRaw`],
+//! [`LiveEvent`], [`SourceContributorClaim`], and [`SourceEntityIdClaim`].
+//! All types derive `Serialize` and `Deserialize` so they can be embedded in
+//! event payloads and returned from API endpoints without additional mapping.
 
 use serde::{Deserialize, Serialize};
 
@@ -177,4 +177,35 @@ pub struct LiveEvent {
     pub scheduled_end: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceContributorClaim {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub name: String,
+    pub role: Option<String>,
+    pub group_name: Option<String>,
+    pub href: Option<String>,
+    pub img: Option<String>,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceEntityIdClaim {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub scheme: String,
+    pub value: String,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
 }

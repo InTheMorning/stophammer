@@ -49,6 +49,8 @@ fn schema_creates_all_tables() {
         "schema_migrations",
         "search_index",
         "search_entities",
+        "source_contributor_claims",
+        "source_entity_ids",
         "tags",
         "track_rel",
         "track_tag",
@@ -1141,4 +1143,113 @@ fn ingest_transaction_rollback() {
         )
         .unwrap();
     assert_eq!(count, 0, "rollback should have removed the artist");
+}
+
+#[test]
+fn source_contributor_claims_replace_round_trip() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-claims", "Source Claims");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Claims");
+    let feed_guid = insert_feed(&conn, "feed-src-claims", credit_id);
+
+    let claims = vec![
+        stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.clone(),
+            position: 0,
+            name: "Alice".into(),
+            role: Some("vocals".into()),
+            group_name: Some("cast".into()),
+            href: Some("https://example.com/alice".into()),
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "channel/podcast:person".into(),
+            observed_at: common::now(),
+        },
+        stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: "track-src-claims".into(),
+            position: 0,
+            name: "Bob".into(),
+            role: Some("guitar".into()),
+            group_name: None,
+            href: None,
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "item/podcast:person".into(),
+            observed_at: common::now(),
+        },
+    ];
+
+    stophammer::db::replace_source_contributor_claims_for_feed(&conn, &feed_guid, &claims)
+        .expect("replace contributor claims");
+
+    let stored = stophammer::db::get_source_contributor_claims_for_feed(&conn, &feed_guid)
+        .expect("get contributor claims");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].name, "Alice");
+    assert_eq!(stored[1].entity_type, "track");
+    assert_eq!(stored[1].role.as_deref(), Some("guitar"));
+
+    stophammer::db::replace_source_contributor_claims_for_feed(&conn, &feed_guid, &claims[..1])
+        .expect("replace contributor claims again");
+    let stored_again = stophammer::db::get_source_contributor_claims_for_feed(&conn, &feed_guid)
+        .expect("get contributor claims again");
+    assert_eq!(stored_again.len(), 1);
+    assert_eq!(stored_again[0].name, "Alice");
+}
+
+#[test]
+fn source_entity_ids_replace_round_trip() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-ids", "Source IDs");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source IDs");
+    let feed_guid = insert_feed(&conn, "feed-src-ids", credit_id);
+
+    let claims = vec![
+        stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.clone(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1example".into(),
+            source: "rss_link".into(),
+            extraction_path: "channel/link".into(),
+            observed_at: common::now(),
+        },
+        stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed_guid.clone(),
+            entity_type: "track".into(),
+            entity_id: "track-src-ids".into(),
+            position: 0,
+            scheme: "isrc".into(),
+            value: "USABC1234567".into(),
+            source: "rss_guid".into(),
+            extraction_path: "item/guid".into(),
+            observed_at: common::now(),
+        },
+    ];
+
+    stophammer::db::replace_source_entity_ids_for_feed(&conn, &feed_guid, &claims)
+        .expect("replace source ids");
+
+    let stored = stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid)
+        .expect("get source ids");
+    assert_eq!(stored.len(), 2);
+    assert_eq!(stored[0].scheme, "nostr_npub");
+    assert_eq!(stored[1].value, "USABC1234567");
+
+    stophammer::db::replace_source_entity_ids_for_feed(&conn, &feed_guid, &claims[..1])
+        .expect("replace source ids again");
+    let stored_again =
+        stophammer::db::get_source_entity_ids_for_feed(&conn, &feed_guid).expect("get source ids again");
+    assert_eq!(stored_again.len(), 1);
+    assert_eq!(stored_again[0].scheme, "nostr_npub");
 }

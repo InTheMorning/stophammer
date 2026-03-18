@@ -63,6 +63,8 @@ fn event_type_snake_case() {
         "feed_routes_replaced",
         "feed_remote_items_replaced",
         "live_events_replaced",
+        "source_contributor_claims_replaced",
+        "source_entity_ids_replaced",
     ];
     // Verify each can be deserialized from quoted JSON
     for t in &types {

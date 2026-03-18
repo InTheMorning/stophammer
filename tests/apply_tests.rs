@@ -1145,6 +1145,165 @@ fn apply_live_events_replaced() {
 }
 
 // ---------------------------------------------------------------------------
+// 14. apply_source_contributor_claims_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_contributor_claims_replaced() {
+    use stophammer::event::{
+        Event, EventPayload, EventType, SourceContributorClaimsReplacedPayload,
+    };
+    use stophammer::model::SourceContributorClaim;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-contrib-1",
+            "https://example.com/contrib.xml",
+            "Contributor Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourceContributorClaimsReplacedPayload {
+        feed_guid: "feed-contrib-1".into(),
+        claims: vec![SourceContributorClaim {
+            id: None,
+            feed_guid: "feed-contrib-1".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-contrib-1".into(),
+            position: 0,
+            name: "Alice".into(),
+            role: Some("vocals".into()),
+            group_name: Some("cast".into()),
+            href: Some("https://example.com/alice".into()),
+            img: None,
+            source: "podcast_person".into(),
+            extraction_path: "channel/podcast:person".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-contrib-1".into(),
+        event_type: EventType::SourceContributorClaimsReplaced,
+        payload: EventPayload::SourceContributorClaimsReplaced(payload_inner),
+        subject_guid: "feed-contrib-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
+
+    let stored: (String, Option<String>) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT name, role FROM source_contributor_claims \
+             WHERE feed_guid = 'feed-contrib-1' AND entity_type = 'feed' AND position = 0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("contributor claim row should exist")
+    };
+
+    assert_eq!(stored.0, "Alice");
+    assert_eq!(stored.1.as_deref(), Some("vocals"));
+}
+
+// ---------------------------------------------------------------------------
+// 15. apply_source_entity_ids_replaced
+// ---------------------------------------------------------------------------
+
+#[test]
+fn apply_source_entity_ids_replaced() {
+    use stophammer::event::{Event, EventPayload, EventType, SourceEntityIdsReplacedPayload};
+    use stophammer::model::SourceEntityIdClaim;
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-1", "Artist", now);
+        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
+        insert_feed(
+            &conn,
+            "feed-ids-1",
+            "https://example.com/ids.xml",
+            "IDs Feed",
+            credit_id,
+            now,
+        );
+    }
+
+    let payload_inner = SourceEntityIdsReplacedPayload {
+        feed_guid: "feed-ids-1".into(),
+        claims: vec![SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-ids-1".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-ids-1".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1example".into(),
+            source: "rss_link".into(),
+            extraction_path: "channel/link".into(),
+            observed_at: now,
+        }],
+    };
+    let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
+    let ev = Event {
+        event_id: "evt-source-ids-1".into(),
+        event_type: EventType::SourceEntityIdsReplaced,
+        payload: EventPayload::SourceEntityIdsReplaced(payload_inner),
+        subject_guid: "feed-ids-1".into(),
+        signed_by: "deadbeef".into(),
+        signature: "cafebabe".into(),
+        seq: 1,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    let result = stophammer::apply::apply_single_event(&pool, &ev);
+    assert!(
+        result.is_ok(),
+        "apply_single_event should succeed: {result:?}"
+    );
+
+    let stored: (String, String) = {
+        let conn = db.lock().expect("lock after apply");
+        conn.query_row(
+            "SELECT scheme, value FROM source_entity_ids \
+             WHERE feed_guid = 'feed-ids-1' AND entity_type = 'feed' AND position = 0",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("source entity id row should exist")
+    };
+
+    assert_eq!(stored.0, "nostr_npub");
+    assert_eq!(stored.1, "npub1example");
+}
+
+// ---------------------------------------------------------------------------
 // Helpers for Issue-DEDUP-ORDER tests
 // ---------------------------------------------------------------------------
 

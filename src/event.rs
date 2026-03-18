@@ -10,7 +10,7 @@
 
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
-    Track, ValueTimeSplit,
+    SourceContributorClaim, SourceEntityIdClaim, Track, ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -40,6 +40,10 @@ pub enum EventType {
     FeedRemoteItemsReplaced,
     /// The ephemeral live-event snapshot for a feed was replaced.
     LiveEventsReplaced,
+    /// The staged contributor-claim snapshot for a feed was replaced.
+    SourceContributorClaimsReplaced,
+    /// The staged entity-ID snapshot for a feed was replaced.
+    SourceEntityIdsReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -68,6 +72,10 @@ pub enum EventPayload {
     FeedRemoteItemsReplaced(FeedRemoteItemsReplacedPayload),
     /// Payload for replacing ephemeral live-event rows for a feed.
     LiveEventsReplaced(LiveEventsReplacedPayload),
+    /// Payload for replacing staged contributor claims for a feed.
+    SourceContributorClaimsReplaced(SourceContributorClaimsReplacedPayload),
+    /// Payload for replacing staged entity IDs for a feed.
+    SourceEntityIdsReplaced(SourceEntityIdsReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -206,4 +214,18 @@ pub struct FeedRemoteItemsReplacedPayload {
 pub struct LiveEventsReplacedPayload {
     pub feed_guid: String,
     pub live_events: Vec<LiveEvent>,
+}
+
+/// Emitted when the full set of staged contributor claims for a feed is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceContributorClaimsReplacedPayload {
+    pub feed_guid: String,
+    pub claims: Vec<SourceContributorClaim>,
+}
+
+/// Emitted when the full set of staged entity-ID claims for a feed is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceEntityIdsReplacedPayload {
+    pub feed_guid: String,
+    pub claims: Vec<SourceEntityIdClaim>,
 }

@@ -89,6 +89,16 @@ Source: `src/schema.sql`
 **Key columns:** `live_item_guid` (text PK), `feed_guid` (FK to `feeds`), `status`, `scheduled_start`, `scheduled_end`.
 **Notes:** Replaced on each ingest via `LiveEventsReplaced`. When a live item transitions to `ended` and has an enclosure, it is removed from this table and promoted into the permanent `tracks` table.
 
+### `source_contributor_claims`
+**Purpose:** Staged source-level contributor claims, intended for raw `podcast:person`-style data and other contributor evidence before canonical normalization.
+**Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id` (which feed, track, or live item the claim belongs to), `position`, `name`.
+**Notes:** This is a replicated source-claim table, not a canonical credit table. `role`, `group_name`, `href`, `img`, `source`, and `extraction_path` preserve source provenance.
+
+### `source_entity_ids`
+**Purpose:** Staged source-level identity claims such as Nostr IDs, MusicBrainz IDs, ISRCs, and platform-native identifiers.
+**Key columns:** `feed_guid` (owning feed snapshot), `entity_type` / `entity_id`, `scheme`, `value`.
+**Notes:** This is distinct from `external_ids`: `source_entity_ids` stores raw evidence from source feeds, while `external_ids` remains canonical-facing.
+
 ### `node_sync_state`
 **Purpose:** Tracks the last event sequence number received from each peer node.
 **Key columns:** `node_pubkey` (text PK, the peer's identity), `last_seq` (highest seq received from that peer).

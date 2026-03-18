@@ -11,7 +11,8 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteType, Track, ValueTimeSplit,
+    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, Track,
+    ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -144,6 +145,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0004_proof_level.sql"),
     // Migration 5: add live-events and feed-level remote-item staging tables.
     include_str!("../migrations/0005_live_events_and_remote_items.sql"),
+    // Migration 6: add staged source-claim tables for contributors and IDs.
+    include_str!("../migrations/0006_source_claim_staging.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1337,6 +1340,147 @@ pub fn replace_live_events_for_feed(
                 live_event.scheduled_end,
                 live_event.created_at,
                 live_event.updated_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+// ── source_contributor_claims ───────────────────────────────────────────────
+
+/// Returns the staged contributor claims for a feed ordered by entity + position.
+pub fn get_source_contributor_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceContributorClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, name, role, group_name, href, \
+         img, source, extraction_path, observed_at \
+         FROM source_contributor_claims WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, position, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceContributorClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            name: row.get(5)?,
+            role: row.get(6)?,
+            group_name: row.get(7)?,
+            href: row.get(8)?,
+            img: row.get(9)?,
+            source: row.get(10)?,
+            extraction_path: row.get(11)?,
+            observed_at: row.get(12)?,
+        })
+    })?;
+
+    let mut claims = Vec::new();
+    for row in rows {
+        claims.push(row?);
+    }
+    Ok(claims)
+}
+
+/// Replaces the staged contributor claims for a feed.
+pub fn replace_source_contributor_claims_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    claims: &[SourceContributorClaim],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for claim in claims {
+        conn.execute(
+            "INSERT INTO source_contributor_claims \
+             (feed_guid, entity_type, entity_id, position, name, role, group_name, href, img, \
+              source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.name,
+                &claim.role,
+                &claim.group_name,
+                &claim.href,
+                &claim.img,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+// ── source_entity_ids ───────────────────────────────────────────────────────
+
+/// Returns the staged entity-ID claims for a feed ordered by entity + position.
+pub fn get_source_entity_ids_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceEntityIdClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, scheme, value, source, \
+         extraction_path, observed_at \
+         FROM source_entity_ids WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, position, scheme, value, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceEntityIdClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            scheme: row.get(5)?,
+            value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+
+    let mut claims = Vec::new();
+    for row in rows {
+        claims.push(row?);
+    }
+    Ok(claims)
+}
+
+/// Replaces the staged entity-ID claims for a feed.
+pub fn replace_source_entity_ids_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    claims: &[SourceEntityIdClaim],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for claim in claims {
+        conn.execute(
+            "INSERT INTO source_entity_ids \
+             (feed_guid, entity_type, entity_id, position, scheme, value, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &claim.feed_guid,
+                &claim.entity_type,
+                &claim.entity_id,
+                claim.position,
+                &claim.scheme,
+                &claim.value,
+                &claim.source,
+                &claim.extraction_path,
+                claim.observed_at,
             ],
         )?;
     }
