@@ -362,4 +362,33 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     let release_search_json = body_json(release_search_resp).await;
     assert_eq!(release_search_json["data"][0]["entity_type"], "release");
     assert_eq!(release_search_json["data"][0]["entity_id"], release_id);
+
+    let recent_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/recent")
+                .body(Body::empty())
+                .expect("recent request"),
+        )
+        .await
+        .expect("recent response");
+    assert_eq!(recent_resp.status(), 200);
+    let recent_json = body_json(recent_resp).await;
+    assert_eq!(recent_json["data"][0]["release_id"], release_id);
+
+    let recent_feeds_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/feeds/recent")
+                .body(Body::empty())
+                .expect("recent feeds request"),
+        )
+        .await
+        .expect("recent feeds response");
+    assert_eq!(recent_feeds_resp.status(), 200);
+    let recent_feeds_json = body_json(recent_feeds_resp).await;
+    assert_eq!(recent_feeds_json["data"][0]["feed_guid"], feed_guid);
 }

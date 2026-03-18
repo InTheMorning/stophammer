@@ -481,6 +481,18 @@ struct ReleaseRow {
     updated_at: i64,
 }
 
+struct RecentReleaseRow {
+    release_id: String,
+    title: String,
+    credit_id: i64,
+    description: Option<String>,
+    image_url: Option<String>,
+    release_date: Option<i64>,
+    created_at: i64,
+    updated_at: i64,
+    recent_at: i64,
+}
+
 // ── GET /v1/artists/{id} ────────────────────────────────────────────────────
 
 async fn handle_get_artist(
@@ -1927,13 +1939,13 @@ async fn handle_get_track(
     Ok(Json(result))
 }
 
-// ── GET /v1/recent ──────────────────────────────────────────────────────────
+// ── GET /v1/feeds/recent ────────────────────────────────────────────────────
 
 #[expect(
     clippy::too_many_lines,
     reason = "single paginated-list flow with two SQL branches"
 )]
-async fn handle_get_recent(
+async fn handle_get_recent_feeds(
     State(state): State<Arc<api::AppState>>,
     Query(params): Query<ListQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
@@ -2075,6 +2087,152 @@ async fn handle_get_recent(
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: feeds,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/recent ──────────────────────────────────────────────────────────
+
+async fn handle_get_recent(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+
+        let base_sql =
+            "SELECT release_id, title, title_lower, artist_credit_id, description, image_url, \
+             release_date, created_at, updated_at, recent_at \
+             FROM ( \
+                 SELECT r.release_id, r.title, r.title_lower, r.artist_credit_id, r.description, \
+                        r.image_url, r.release_date, r.created_at, r.updated_at, \
+                        COALESCE(MAX(f.newest_item_at), r.release_date, r.created_at) AS recent_at \
+                 FROM releases r \
+                 LEFT JOIN source_feed_release_map sfr ON sfr.release_id = r.release_id \
+                 LEFT JOIN feeds f ON f.feed_guid = sfr.feed_guid \
+                 GROUP BY r.release_id, r.title, r.title_lower, r.artist_credit_id, \
+                          r.description, r.image_url, r.release_date, r.created_at, r.updated_at \
+             ) recent_releases";
+
+        let rows: Vec<RecentReleaseRow> = if let Some(ref cursor_str) = params.cursor {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor format".into(),
+                    www_authenticate: None,
+                });
+            }
+            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor timestamp".into(),
+                www_authenticate: None,
+            })?;
+            let cursor_release_id = parts[1];
+            let sql = format!(
+                "{base_sql} \
+                 WHERE (recent_at, release_id) < (?1, ?2) \
+                 ORDER BY recent_at DESC, release_id DESC \
+                 LIMIT ?3"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_map(params![cursor_ts, cursor_release_id, limit + 1], |row| {
+                Ok(RecentReleaseRow {
+                    release_id: row.get(0)?,
+                    title: row.get(1)?,
+                    credit_id: row.get(3)?,
+                    description: row.get(4)?,
+                    image_url: row.get(5)?,
+                    release_date: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    recent_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        } else {
+            let sql = format!(
+                "{base_sql} \
+                 ORDER BY recent_at DESC, release_id DESC \
+                 LIMIT ?1"
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            stmt.query_map(params![limit + 1], |row| {
+                Ok(RecentReleaseRow {
+                    release_id: row.get(0)?,
+                    title: row.get(1)?,
+                    credit_id: row.get(3)?,
+                    description: row.get(4)?,
+                    image_url: row.get(5)?,
+                    release_date: row.get(6)?,
+                    created_at: row.get(7)?,
+                    updated_at: row.get(8)?,
+                    recent_at: row.get(9)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        };
+
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+        let items: Vec<_> = rows
+            .into_iter()
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect();
+
+        let next_cursor = if has_more {
+            items.last().map(|r| encode_cursor(&format!("{}\0{}", r.recent_at, r.release_id)))
+        } else {
+            None
+        };
+
+        let credit_ids: Vec<i64> = items.iter().map(|row| row.credit_id).collect();
+        let credit_map = db::load_credits_batch(&conn, &credit_ids)?
+            .into_iter()
+            .map(|(id, ac)| (id, credit_from_model(&ac)))
+            .collect::<HashMap<_, _>>();
+
+        let releases = items
+            .into_iter()
+            .map(|row| {
+                let credit = credit_map
+                    .get(&row.credit_id)
+                    .cloned()
+                    .map_or_else(|| load_credit(&conn, row.credit_id), Ok)?;
+                Ok::<_, api::ApiError>(ReleaseListItemResponse {
+                    release_id: row.release_id,
+                    title: row.title,
+                    artist_credit: credit,
+                    description: row.description,
+                    image_url: row.image_url,
+                    release_date: row.release_date,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: releases,
             pagination: Pagination {
                 cursor: next_cursor,
                 has_more,
@@ -2345,6 +2503,7 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/artists/{id}/feeds", get(handle_get_artist_feeds))
         .route("/v1/artists/{id}/releases", get(handle_get_artist_releases))
         .route("/v1/feeds/{guid}", get(handle_get_feed))
+        .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/releases/{id}", get(handle_get_release))
         .route("/v1/releases/{id}/sources", get(handle_get_release_sources))
         .route("/v1/recordings/{id}", get(handle_get_recording))

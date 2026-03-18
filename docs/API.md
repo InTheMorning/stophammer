@@ -616,7 +616,27 @@ Returns a single feed by its `podcast:guid`.
 
 ### GET /v1/recent
 
-Lists feeds ordered by `newest_item_at` descending (most recently updated first). Paginated with a composite `timestamp:guid` cursor.
+Lists canonical releases ordered by recency. The sort key is:
+
+1. newest mapped source-feed `newest_item_at`
+2. otherwise canonical `release_date`
+3. otherwise canonical `created_at`
+
+Paginated with a composite `timestamp:release_id` cursor.
+
+- **Authentication:** None
+
+**Response:** Paginated array of canonical release list objects.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+---
+
+### GET /v1/feeds/recent
+
+Lists source feeds ordered by `newest_item_at` descending (most recently updated first). This preserves the older source-oriented recent view for provenance/debugging workflows.
 
 - **Authentication:** None
 

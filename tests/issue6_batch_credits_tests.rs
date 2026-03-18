@@ -203,7 +203,7 @@ async fn artist_feeds_returns_correct_credits_for_multiple_feeds() {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #6: GET /v1/recent uses batch loading (integration test)
+// Issue #6: GET /v1/feeds/recent uses batch loading (integration test)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -224,7 +224,7 @@ async fn recent_feeds_returns_correct_credits() {
 
     let req = Request::builder()
         .method("GET")
-        .uri("/v1/recent")
+        .uri("/v1/feeds/recent")
         .body(axum::body::Body::empty())
         .expect("build request");
 
