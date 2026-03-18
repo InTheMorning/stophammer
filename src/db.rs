@@ -814,6 +814,16 @@ pub(crate) fn merge_artists_sql(
         params![source_artist_id],
     )?;
 
+    // Preserve redirect chains when merging an artist that had already absorbed
+    // earlier artist IDs.
+    conn.execute(
+        "INSERT OR REPLACE INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
+         SELECT old_artist_id, ?1, merged_at \
+         FROM artist_id_redirect \
+         WHERE new_artist_id = ?2",
+        params![target_artist_id, source_artist_id],
+    )?;
+
     // Record redirect for old ID resolution.
     let now = unix_now();
     conn.execute(
@@ -3385,6 +3395,84 @@ fn collect_artist_groups_by_release_cluster(
     Ok(collect_artist_groups_from_rows(rows))
 }
 
+fn normalize_artist_website_key(raw_url: &str) -> Option<String> {
+    let trimmed = raw_url.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = url::Url::parse(trimmed)
+        .or_else(|_| url::Url::parse(&format!("https://{trimmed}")))
+        .ok()?;
+    let mut host = parsed.host_str()?.trim().to_ascii_lowercase();
+    if let Some(stripped) = host.strip_prefix("www.") {
+        host = stripped.to_string();
+    }
+
+    let segments = parsed
+        .path_segments()
+        .map(|parts| {
+            parts
+                .filter(|part| !part.is_empty())
+                .map(|part| part.trim().to_ascii_lowercase())
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    if host.ends_with(".bandcamp.com") {
+        return Some(host);
+    }
+
+    if host == "instagram.com" {
+        if let Some(profile) = segments.first() {
+            if !matches!(profile.as_str(), "p" | "reel" | "reels" | "tv" | "stories") {
+                return Some(format!("{host}/{profile}"));
+            }
+        }
+        return Some(host);
+    }
+
+    if segments.is_empty() {
+        return Some(host);
+    }
+
+    Some(format!("{host}/{}", segments.join("/")))
+}
+
+fn collect_artist_groups_by_normalized_website(
+    conn: &Connection,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), sel.url, acn.artist_id \
+         FROM source_entity_links sel \
+         JOIN feeds f ON f.feed_guid = sel.feed_guid \
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE sel.entity_type = 'feed' \
+           AND sel.link_type = 'website' \
+           AND TRIM(sel.url) <> '' \
+         ORDER BY LOWER(ac.display_name), sel.url, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+
+    let normalized = rows
+        .into_iter()
+        .filter_map(|(name_key, raw_url, artist_id)| {
+            let site_key = normalize_artist_website_key(&raw_url)?;
+            Some((name_key, site_key, artist_id))
+        })
+        .collect::<Vec<_>>();
+    Ok(collect_artist_groups_from_rows(normalized))
+}
+
 fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
     let count: i64 = conn.query_row(
         "SELECT COUNT(*) \
@@ -3511,6 +3599,7 @@ pub fn backfill_artist_identity(
     groups.extend(collect_artist_groups_by_npub(&tx)?);
     groups.extend(collect_artist_groups_by_publisher_guid(&tx)?);
     groups.extend(collect_artist_groups_by_website(&tx)?);
+    groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
 

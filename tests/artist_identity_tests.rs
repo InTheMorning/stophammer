@@ -837,3 +837,84 @@ fn artist_identity_backfill_merges_single_feed_platform_stragglers_into_anchored
         .expect("post count");
     assert_eq!(post_count, 1);
 }
+
+#[test]
+fn artist_identity_backfill_merges_same_bandcamp_subdomain() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    for (feed_guid, website) in [
+        ("feed-bandcamp-a", "https://johnson-city.bandcamp.com/album/crazy-cloud"),
+        ("feed-bandcamp-b", "https://johnson-city.bandcamp.com/album/early-demos-i"),
+    ] {
+        let artist = stophammer::db::resolve_artist(&conn, "Johnson City", Some(feed_guid))
+            .expect("artist");
+        let credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some(feed_guid),
+        )
+        .expect("credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES (?1, ?2, 'Bandcamp Release', 'bandcamp release', ?3, ?4, ?4)",
+            rusqlite::params![feed_guid, website, credit.id, now],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, 'feed', ?1, 0, 'website', ?2, 'rss_link', 'feed.link', ?3)",
+            rusqlite::params![feed_guid, website, now],
+        )
+        .expect("insert website");
+    }
+
+    let pre_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'johnson city'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pre count");
+    assert_eq!(pre_count, 2);
+
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("artist backfill");
+    assert_eq!(stats.merges_applied, 1);
+
+    let post_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'johnson city'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("post count");
+    assert_eq!(post_count, 1);
+}
+
+#[test]
+fn merge_artists_repoints_existing_redirect_chains() {
+    let mut conn = common::test_db();
+
+    let artist_a = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-a"))
+        .expect("artist a");
+    let artist_b = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-b"))
+        .expect("artist b");
+    let artist_c = stophammer::db::resolve_artist(&conn, "Chain Artist", Some("feed-c"))
+        .expect("artist c");
+
+    stophammer::db::merge_artists(&mut conn, &artist_c.artist_id, &artist_b.artist_id)
+        .expect("merge c into b");
+    stophammer::db::merge_artists(&mut conn, &artist_b.artist_id, &artist_a.artist_id)
+        .expect("merge b into a");
+
+    let redirected_target: String = conn
+        .query_row(
+            "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
+            rusqlite::params![artist_c.artist_id],
+            |row| row.get(0),
+        )
+        .expect("redirect for c");
+    assert_eq!(redirected_target, artist_a.artist_id);
+}
