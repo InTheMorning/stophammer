@@ -6,6 +6,7 @@ use crate::{db, db_pool};
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResolverBatchResult {
     pub skipped_import_active: bool,
+    pub stale_import_active_ignored: bool,
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
@@ -30,15 +31,18 @@ pub fn run_batch(
         .writer()
         .lock()
         .map_err(|_poison| db::DbError::Poisoned)?;
-    if db::resolver_import_active(&conn)? {
+    let import_state = db::resolver_import_state(&conn)?;
+    if import_state.active {
         return Ok(ResolverBatchResult {
             skipped_import_active: true,
             ..ResolverBatchResult::default()
         });
     }
+    let stale_import_active_ignored = import_state.stale;
 
     let claimed = db::claim_dirty_feeds(&mut conn, worker_id, limit, db::unix_now())?;
     let mut result = ResolverBatchResult {
+        stale_import_active_ignored,
         claimed: claimed.len(),
         ..ResolverBatchResult::default()
     };
@@ -109,6 +113,14 @@ pub async fn run_forever(
         match run_batch(&db_pool, &worker_id, batch_size) {
             Ok(summary) if summary.skipped_import_active => {
                 tracing::info!("resolver: import_active=true, skipping batch");
+            }
+            Ok(summary) if summary.stale_import_active_ignored => {
+                tracing::warn!(
+                    claimed = summary.claimed,
+                    resolved = summary.resolved,
+                    failed = summary.failed,
+                    "resolver: stale import_active heartbeat ignored"
+                );
             }
             Ok(summary) if summary.claimed > 0 => {
                 tracing::info!(

@@ -30,6 +30,11 @@ cargo run --bin resolverctl -- import-active
 cargo run --bin resolverctl -- import-idle
 ```
 
+When crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
+it performs this bracketing automatically and refreshes the import heartbeat.
+`resolverd` will ignore stale heartbeats and resume work if an importer dies
+without clearing the pause state.
+
 ### Rebuild canonical rows after schema or resolver changes
 
 ```bash

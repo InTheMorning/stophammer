@@ -5,14 +5,15 @@ resolverd \- drain the durable canonical resolver queue
 .B resolverd
 .SH DESCRIPTION
 .B resolverd
-is the phase 1 background worker for Stophammer's durable resolver queue.
+is the background worker for Stophammer's durable resolver queue.
 
 It claims dirty feeds from
 .BR resolver_queue ,
 rebuilds canonical release and recording state, canonical promotions, and the
-canonical search index, then marks those feeds complete.
+canonical search index, runs targeted artist identity cleanup, then marks those
+feeds complete.
 
-Phase 1 keeps the existing inline canonical rebuild path in place.
+The existing inline canonical rebuild path remains in place.
 .B resolverd
 adds retryable background convergence; it does not replace inline sync yet.
 .SH IMPORTANT ENVIRONMENT
@@ -36,9 +37,10 @@ Optional worker identifier used in logs and queue lock rows. Defaults to
 Before each batch,
 .B resolverd
 checks
-.BR resolver_state.import_active .
-When that flag is true, the worker skips the batch and sleeps until the next
-interval.
+.BR resolver_state.import_active
+and its heartbeat timestamp. When the heartbeat is fresh, the worker skips the
+batch and sleeps until the next interval. If the heartbeat is stale, the worker
+logs a warning and resumes draining the queue.
 .SH EXAMPLES
 .TP
 Run the worker against the default database:

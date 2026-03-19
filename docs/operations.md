@@ -318,8 +318,10 @@ RESOLVER_BATCH_SIZE=25 \
 cargo run --bin resolverd
 ```
 
-`resolverd` checks `resolver_state.import_active` before each batch and skips
-work when that flag is set.
+`resolverd` checks the import pause heartbeat before each batch. It skips work
+while `resolver_state.import_active=true` and the heartbeat is fresh. If that
+heartbeat goes stale, the worker logs a warning and resumes draining the queue
+so a crashed importer cannot leave resolution paused forever.
 
 You can bracket large imports manually:
 
@@ -328,6 +330,10 @@ cargo run --bin resolverctl -- import-active
 # run bulk import
 cargo run --bin resolverctl -- import-idle
 ```
+
+When the crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
+it performs this bracketing automatically and refreshes the import heartbeat
+while the bulk import is still active.
 
 The staged plan for later phases lives in:
 

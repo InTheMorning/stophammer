@@ -363,13 +363,18 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds -
 These do not fetch from the network. They operate on an existing local DB file.
 
 `resolverd` is the background worker for durable derived-state rebuilds. It
-drains `resolver_queue` incrementally and pauses when
-`resolver_state.import_active=true`. The existing inline canonical rebuild path
-still remains in place; `resolverd` adds retryable background convergence for
-canonical state and targeted artist identity without replacing inline sync yet.
+drains `resolver_queue` incrementally and pauses while a fresh
+`resolver_state.import_active` heartbeat is present. Stale import heartbeats
+are ignored so a crashed importer cannot wedge the queue forever. The existing
+inline canonical rebuild path still remains in place; `resolverd` adds
+retryable background convergence for canonical state and targeted artist
+identity without replacing inline sync yet.
 
 Use `resolverctl import-active` before a large bulk import and
-`resolverctl import-idle` after it finishes so the queue can drain again.
+`resolverctl import-idle` after it finishes so the queue can drain again. When
+the crawler importer runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`, it
+does this automatically and refreshes the import heartbeat while the import is
+still running.
 
 Schedule with cron:
 ```

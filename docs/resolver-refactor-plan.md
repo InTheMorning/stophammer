@@ -114,6 +114,15 @@ Scope:
 
 This avoids expensive cross-feed consolidation competing with a large import.
 
+Status:
+
+- complete in the current operational form
+- crawler import mode can set `import_active` automatically when
+  `RESOLVER_DB_PATH` is configured
+- importer activity is heartbeat-based instead of a one-shot boolean pause
+- `resolverd` ignores stale import heartbeats so a crashed importer cannot
+  leave the queue paused forever
+
 ### Phase 4: Reduce inline work
 
 Scope:

@@ -36,11 +36,14 @@ Path to the SQLite database. Defaults to
 .B status
 Prints
 .BR import_active ,
-queue total, ready, locked, and failed counts.
+.BR import_stale ,
+.BR import_heartbeat_at ,
+and queue total, ready, locked, and failed counts.
 .TP
 .B import-active
 Sets
-.BR resolver_state.import_active=true .
+.BR resolver_state.import_active=true
+and refreshes the import heartbeat timestamp.
 .TP
 .B import-idle
 Sets

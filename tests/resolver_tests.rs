@@ -150,6 +150,29 @@ fn resolver_batch_skips_when_import_is_active() {
 }
 
 #[test]
+fn resolver_batch_ignores_stale_import_active_heartbeat() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-stale-import");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(
+            &conn,
+            "feed-resolver-stale-import",
+        )
+        .expect("mark dirty");
+        db::set_resolver_import_active_with_now(&conn, true, db::unix_now() - (11 * 60))
+            .expect("set stale import state");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+    assert!(!summary.skipped_import_active);
+    assert!(summary.stale_import_active_ignored);
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+}
+
+#[test]
 fn resolver_batch_drains_phase1_work() {
     let (pool, _dir) = common::test_db_pool();
     {
@@ -164,6 +187,7 @@ fn resolver_batch_drains_phase1_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert!(!summary.stale_import_active_ignored);
     assert_eq!(summary.artist_seed_artists, 1);
     assert_eq!(summary.artist_candidate_groups, 0);
     assert_eq!(summary.artist_groups_processed, 0);
@@ -193,6 +217,7 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert!(!summary.stale_import_active_ignored);
     assert_eq!(summary.artist_seed_artists, 1);
     assert_eq!(summary.artist_candidate_groups, 2);
     assert_eq!(summary.artist_groups_processed, 1);

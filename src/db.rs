@@ -5606,6 +5606,7 @@ pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
 pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
 
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
+const RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS: i64 = 10 * 60;
 
 /// A claimed resolver queue row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -5627,6 +5628,14 @@ pub struct ResolverQueueCounts {
     pub ready: i64,
     pub locked: i64,
     pub failed: i64,
+}
+
+/// Import pause state for the resolver worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolverImportState {
+    pub active: bool,
+    pub stale: bool,
+    pub heartbeat_at: Option<i64>,
 }
 
 /// Inserts or updates a dirty-feed row in the resolver queue.
@@ -5792,15 +5801,65 @@ pub fn get_resolver_state(conn: &Connection, key: &str) -> Result<Option<String>
 
 /// Sets the `import_active` resolver coordination flag.
 pub fn set_resolver_import_active(conn: &Connection, active: bool) -> Result<(), DbError> {
-    set_resolver_state(conn, "import_active", if active { "true" } else { "false" })
+    set_resolver_import_active_with_now(conn, active, unix_now())
+}
+
+/// Sets the `import_active` resolver coordination flag at a specific timestamp.
+pub fn set_resolver_import_active_with_now(
+    conn: &Connection,
+    active: bool,
+    now: i64,
+) -> Result<(), DbError> {
+    set_resolver_state(conn, "import_active", if active { "true" } else { "false" })?;
+    if active {
+        set_resolver_state(conn, "import_heartbeat_at", &now.to_string())?;
+    } else {
+        conn.execute(
+            "DELETE FROM resolver_state WHERE key = 'import_heartbeat_at'",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// Refreshes the import heartbeat while a bulk import is active.
+pub fn touch_resolver_import_active(conn: &Connection) -> Result<(), DbError> {
+    touch_resolver_import_active_with_now(conn, unix_now())
+}
+
+/// Refreshes the import heartbeat at a specific timestamp.
+pub fn touch_resolver_import_active_with_now(conn: &Connection, now: i64) -> Result<(), DbError> {
+    let active_flag = matches!(
+        get_resolver_state(conn, "import_active")?.as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    );
+    if active_flag {
+        set_resolver_state(conn, "import_heartbeat_at", &now.to_string())?;
+    }
+    Ok(())
 }
 
 /// Returns whether bulk import is currently marked active.
 pub fn resolver_import_active(conn: &Connection) -> Result<bool, DbError> {
-    Ok(matches!(
+    Ok(resolver_import_state(conn)?.active)
+}
+
+/// Returns bulk-import pause state, including whether the heartbeat is stale.
+pub fn resolver_import_state(conn: &Connection) -> Result<ResolverImportState, DbError> {
+    let flag = matches!(
         get_resolver_state(conn, "import_active")?.as_deref(),
         Some("1" | "true" | "yes" | "on")
-    ))
+    );
+    let heartbeat_at = get_resolver_state(conn, "import_heartbeat_at")?
+        .and_then(|value| value.parse::<i64>().ok());
+    let stale = flag
+        && heartbeat_at
+            .is_none_or(|ts| ts < unix_now() - RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS);
+    Ok(ResolverImportState {
+        active: flag && !stale,
+        stale,
+        heartbeat_at,
+    })
 }
 
 /// Returns aggregate queue counts for operator inspection.

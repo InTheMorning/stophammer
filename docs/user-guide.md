@@ -195,6 +195,10 @@ cargo run --bin resolverctl -- import-active
 cargo run --bin resolverctl -- import-idle
 ```
 
+If you are using the bundled crawler importer on the same host, set
+`RESOLVER_DB_PATH=/path/to/stophammer.db` and it will bracket the import and
+refresh the pause heartbeat automatically.
+
 ### Review ambiguous artist splits
 
 ```bash

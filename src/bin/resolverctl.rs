@@ -27,8 +27,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                      Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
                      \n\
                      Commands:\n\
-                       status         Print queue counts and import_active state\n\
-                       import-active  Set resolver_state.import_active=true\n\
+                       status         Print queue counts and import pause state\n\
+                       import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
                        import-idle    Set resolver_state.import_active=false"
                 )
                 .into());
@@ -60,17 +60,22 @@ fn print_usage() {
         "Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
          \n\
          Commands:\n\
-           status         Print queue counts and import_active state\n\
-           import-active  Set resolver_state.import_active=true\n\
+           status         Print queue counts and import pause state\n\
+           import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
            import-idle    Set resolver_state.import_active=false"
     );
 }
 
 fn print_status(conn: &rusqlite::Connection) -> Result<(), db::DbError> {
     let counts = db::get_resolver_queue_counts(conn)?;
-    let import_active = db::resolver_import_active(conn)?;
+    let import_state = db::resolver_import_state(conn)?;
 
-    println!("import_active={import_active}");
+    println!("import_active={}", import_state.active);
+    println!("import_stale={}", import_state.stale);
+    match import_state.heartbeat_at {
+        Some(ts) => println!("import_heartbeat_at={ts}"),
+        None => println!("import_heartbeat_at="),
+    }
     println!("queue_total={}", counts.total);
     println!("queue_ready={}", counts.ready);
     println!("queue_locked={}", counts.locked);
