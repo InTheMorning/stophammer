@@ -37,6 +37,21 @@ Maximum dirty feeds claimed per batch. Defaults to
 .B RESOLVER_WORKER_ID
 Optional worker identifier used in logs and queue lock rows. Defaults to
 .BR resolverd-<pid> .
+.TP
+.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+When set to
+.BR true ,
+.BR 1 ,
+.BR yes ,
+or
+.BR on ,
+.B resolverd
+loads
+.B KEY_PATH
+and emits signed
+.B canonical_feed_state_replaced
+events after canonical resolver work succeeds. This is the first phase of
+primary-authority resolved replication and is off by default.
 .SH BEHAVIOR
 Before each batch,
 .B resolverd
@@ -45,6 +60,10 @@ checks
 and its heartbeat timestamp. When the heartbeat is fresh, the worker skips the
 batch and sleeps until the next interval. If the heartbeat is stale, the worker
 logs a warning and resumes draining the queue.
+When
+.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+is enabled, the worker also appends signed feed-scoped canonical snapshots to
+the sync log so replicas can apply them directly.
 .SH EXAMPLES
 .TP
 Run the worker against the default database:

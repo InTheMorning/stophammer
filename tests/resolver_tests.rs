@@ -39,6 +39,38 @@ fn seed_feed(conn: &rusqlite::Connection, feed_guid: &str) {
     db::upsert_feed(conn, &feed).expect("feed");
 }
 
+fn seed_feed_with_track(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    track_guid: &str,
+    track_title: &str,
+) {
+    seed_feed(conn, feed_guid);
+    let feed = db::get_feed(conn, feed_guid)
+        .expect("get feed")
+        .expect("feed exists");
+    let now = db::unix_now();
+    let track = stophammer::model::Track {
+        track_guid: track_guid.to_string(),
+        feed_guid: feed_guid.to_string(),
+        artist_credit_id: feed.artist_credit_id,
+        title: track_title.to_string(),
+        title_lower: track_title.to_lowercase(),
+        pub_date: Some(now),
+        duration_secs: Some(180),
+        enclosure_url: Some(format!("https://cdn.example.com/{track_guid}.mp3")),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(1024),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: Some("resolver snapshot test track".into()),
+        created_at: now,
+        updated_at: now,
+    };
+    db::upsert_track(conn, &track).expect("track");
+}
+
 fn test_app_state(pool: stophammer::db_pool::DbPool) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-resolver-status-signer"));
     let pubkey = signer.pubkey_hex().to_string();
@@ -350,6 +382,102 @@ fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
     assert_eq!(counts.ready, 1);
     assert_eq!(counts.locked, 0);
     assert_eq!(counts.failed, 1);
+}
+
+#[test]
+fn resolver_queue_counts_are_zero_when_queue_is_empty() {
+    let conn = common::test_db();
+    let counts = db::get_resolver_queue_counts(&conn).expect("counts");
+    assert_eq!(counts.total, 0);
+    assert_eq!(counts.ready, 0);
+    assert_eq!(counts.locked, 0);
+    assert_eq!(counts.failed, 0);
+}
+
+#[tokio::test]
+async fn canonical_feed_state_snapshot_applies_without_local_resolver() {
+    let signer = common::temp_signer("resolver-canonical-snapshot");
+    let primary = common::test_db();
+    seed_feed_with_track(
+        &primary,
+        "feed-resolver-snapshot",
+        "track-resolver-snapshot",
+        "Snapshot Track",
+    );
+    db::sync_canonical_state_for_feed(&primary, "feed-resolver-snapshot")
+        .expect("sync canonical state");
+    let payload = db::build_canonical_feed_state_snapshot(&primary, "feed-resolver-snapshot")
+        .expect("build snapshot");
+    assert_eq!(payload.release_maps.len(), 1);
+    assert_eq!(payload.recording_maps.len(), 1);
+
+    let payload_json = serde_json::to_string(&payload).expect("serialize payload");
+    let created_at = db::unix_now();
+    let (signed_by, signature) = signer.sign_event(
+        "event-canonical-feed-state",
+        &stophammer::event::EventType::CanonicalFeedStateReplaced,
+        &payload_json,
+        "feed-resolver-snapshot",
+        created_at,
+        1,
+    );
+    let event = stophammer::event::Event {
+        event_id: "event-canonical-feed-state".into(),
+        event_type: stophammer::event::EventType::CanonicalFeedStateReplaced,
+        payload: stophammer::event::EventPayload::CanonicalFeedStateReplaced(payload.clone()),
+        subject_guid: "feed-resolver-snapshot".into(),
+        signed_by,
+        signature,
+        seq: 1,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    };
+
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed_with_track(
+            &conn,
+            "feed-resolver-snapshot",
+            "track-resolver-snapshot",
+            "Snapshot Track",
+        );
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-snapshot",
+            stophammer::resolver::queue::DIRTY_CANONICAL_STATE,
+        )
+        .expect("mark canonical dirty");
+    }
+
+    let summary = stophammer::apply::apply_events(pool.clone(), vec![event], None).await;
+    assert_eq!(summary.applied, 1);
+    assert_eq!(summary.rejected, 0);
+
+    let conn = pool.writer().lock().expect("writer");
+    let release_maps = db::get_source_feed_release_maps_for_feed(&conn, "feed-resolver-snapshot")
+        .expect("release maps");
+    let recording_maps =
+        db::get_source_item_recording_maps_for_feed(&conn, "feed-resolver-snapshot")
+            .expect("recording maps");
+    assert_eq!(release_maps.len(), 1);
+    assert_eq!(recording_maps.len(), 1);
+
+    let release = db::get_release(&conn, &release_maps[0].release_id)
+        .expect("get release")
+        .expect("release exists");
+    let recording = db::get_recording(&conn, &recording_maps[0].recording_id)
+        .expect("get recording")
+        .expect("recording exists");
+    assert_eq!(release.title, "Feed feed-resolver-snapshot");
+    assert_eq!(recording.title, "Snapshot Track");
+
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(
+        counts.total, 0,
+        "canonical snapshot should clear canonical dirty work"
+    );
 }
 
 #[test]

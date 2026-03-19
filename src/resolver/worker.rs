@@ -1,6 +1,6 @@
 //! Background resolver worker.
 
-use crate::{db, db_pool};
+use crate::{db, db_pool, signing};
 
 /// Summary of one resolver batch.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -10,6 +10,7 @@ pub struct ResolverBatchResult {
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
+    pub canonical_state_events_emitted: usize,
     pub artist_seed_artists: usize,
     pub artist_candidate_groups: usize,
     pub artist_groups_processed: usize,
@@ -26,6 +27,22 @@ pub fn run_batch(
     db_pool: &db_pool::DbPool,
     worker_id: &str,
     limit: i64,
+) -> Result<ResolverBatchResult, db::DbError> {
+    run_batch_with_signer(db_pool, worker_id, limit, None)
+}
+
+/// Runs one resolver batch and optionally emits primary-authored resolved-state
+/// events when a signer is supplied.
+///
+/// # Errors
+///
+/// Returns [`db::DbError`] if queue coordination or resolution queries fail
+/// before individual feed-level error handling can record failures.
+pub fn run_batch_with_signer(
+    db_pool: &db_pool::DbPool,
+    worker_id: &str,
+    limit: i64,
+    signer: Option<&signing::NodeSigner>,
 ) -> Result<ResolverBatchResult, db::DbError> {
     let mut conn = db_pool
         .writer()
@@ -48,10 +65,11 @@ pub fn run_batch(
     };
 
     for entry in claimed {
-        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask) {
+        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask, signer) {
             Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
+                result.canonical_state_events_emitted += feed_result.canonical_state_events_emitted;
                 result.artist_seed_artists += feed_result.seed_artists;
                 result.artist_candidate_groups += feed_result.candidate_groups;
                 result.artist_groups_processed += feed_result.groups_processed;
@@ -69,6 +87,7 @@ pub fn run_batch(
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ResolveFeedResult {
+    canonical_state_events_emitted: usize,
     seed_artists: usize,
     candidate_groups: usize,
     groups_processed: usize,
@@ -79,6 +98,7 @@ fn resolve_feed(
     conn: &mut rusqlite::Connection,
     feed_guid: &str,
     dirty_mask: i64,
+    signer: Option<&signing::NodeSigner>,
 ) -> Result<ResolveFeedResult, db::DbError> {
     // Resolver work is derived-state only. Source feed/track rows and staged
     // source claims remain the preserved authoritative layer.
@@ -88,6 +108,11 @@ fn resolve_feed(
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_STATE != 0 {
         db::sync_canonical_state_for_feed(conn, feed_guid)?;
+        if let Some(signer) = signer
+            && db::emit_canonical_feed_state_event(conn, feed_guid, signer)?.is_some()
+        {
+            result.canonical_state_events_emitted += 1;
+        }
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS != 0 {
         db::sync_canonical_promotions_for_feed(conn, feed_guid)?;
@@ -111,11 +136,12 @@ pub async fn run_forever(
     interval_secs: u64,
     batch_size: i64,
     worker_id: String,
+    signer: Option<std::sync::Arc<signing::NodeSigner>>,
 ) {
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
     loop {
         interval.tick().await;
-        match run_batch(&db_pool, &worker_id, batch_size) {
+        match run_batch_with_signer(&db_pool, &worker_id, batch_size, signer.as_deref()) {
             Ok(summary) if summary.skipped_import_active => {
                 tracing::info!("resolver: import_active=true, skipping batch");
             }
@@ -124,6 +150,7 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     "resolver: stale import_active heartbeat ignored"
                 );
             }
@@ -132,6 +159,7 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     artist_seed_artists = summary.artist_seed_artists,
                     artist_candidate_groups = summary.artist_candidate_groups,
                     artist_groups_processed = summary.artist_groups_processed,

@@ -3,6 +3,13 @@
 This document describes the staged refactor from today's inline canonical sync
 plus manual backfills to a durable, incremental resolver subsystem.
 
+Historical note:
+
+- this document covers the local-resolver rollout that is now in place
+- the next architectural step, making the primary the authority for resolved
+  replication, is planned separately in
+  [primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md)
+
 ## Why
 
 Current behavior is split across two modes:

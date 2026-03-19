@@ -10,7 +10,8 @@
 
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
-    SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure,
+    Recording, Release, ReleaseRecording, SourceContributorClaim, SourceEntityIdClaim,
+    SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure, SourceItemRecordingMap,
     SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +54,8 @@ pub enum EventType {
     SourceItemEnclosuresReplaced,
     /// The staged platform-claim snapshot for a feed was replaced.
     SourcePlatformClaimsReplaced,
+    /// The primary resolver replaced canonical release/recording state for a feed.
+    CanonicalFeedStateReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -93,6 +96,8 @@ pub enum EventPayload {
     SourceItemEnclosuresReplaced(SourceItemEnclosuresReplacedPayload),
     /// Payload for replacing staged platform claims for a feed.
     SourcePlatformClaimsReplaced(SourcePlatformClaimsReplacedPayload),
+    /// Payload for replacing canonical release/recording state for a feed.
+    CanonicalFeedStateReplaced(CanonicalFeedStateReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -273,4 +278,16 @@ pub struct SourceItemEnclosuresReplacedPayload {
 pub struct SourcePlatformClaimsReplacedPayload {
     pub feed_guid: String,
     pub claims: Vec<SourcePlatformClaim>,
+}
+
+/// Emitted by the primary resolver when it replaces canonical release and
+/// recording state derived from one source feed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CanonicalFeedStateReplacedPayload {
+    pub feed_guid: String,
+    pub releases: Vec<Release>,
+    pub recordings: Vec<Recording>,
+    pub release_recordings: Vec<ReleaseRecording>,
+    pub release_maps: Vec<SourceFeedReleaseMap>,
+    pub recording_maps: Vec<SourceItemRecordingMap>,
 }

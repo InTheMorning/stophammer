@@ -1604,6 +1604,35 @@ fn ensure_release_row(conn: &Connection, release_id: &str, feed: &Feed) -> Resul
     Ok(())
 }
 
+fn upsert_release_row(conn: &Connection, release: &Release) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO releases \
+         (release_id, title, title_lower, artist_credit_id, description, image_url, release_date, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) \
+         ON CONFLICT(release_id) DO UPDATE SET \
+           title = excluded.title, \
+           title_lower = excluded.title_lower, \
+           artist_credit_id = excluded.artist_credit_id, \
+           description = excluded.description, \
+           image_url = excluded.image_url, \
+           release_date = excluded.release_date, \
+           created_at = excluded.created_at, \
+           updated_at = excluded.updated_at",
+        params![
+            release.release_id,
+            release.title,
+            release.title_lower,
+            release.artist_credit_id,
+            release.description,
+            release.image_url,
+            release.release_date,
+            release.created_at,
+            release.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
 fn recording_cluster_target(
     conn: &Connection,
     feed: &Feed,
@@ -1661,6 +1690,31 @@ fn ensure_recording_row(
             track.duration_secs,
             track.created_at,
             track.updated_at,
+        ],
+    )?;
+    Ok(())
+}
+
+fn upsert_recording_row(conn: &Connection, recording: &Recording) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO recordings \
+         (recording_id, title, title_lower, artist_credit_id, duration_secs, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) \
+         ON CONFLICT(recording_id) DO UPDATE SET \
+           title = excluded.title, \
+           title_lower = excluded.title_lower, \
+           artist_credit_id = excluded.artist_credit_id, \
+           duration_secs = excluded.duration_secs, \
+           created_at = excluded.created_at, \
+           updated_at = excluded.updated_at",
+        params![
+            recording.recording_id,
+            recording.title,
+            recording.title_lower,
+            recording.artist_credit_id,
+            recording.duration_secs,
+            recording.created_at,
+            recording.updated_at,
         ],
     )?;
     Ok(())
@@ -2007,6 +2061,216 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
 
     cleanup_orphaned_canonical_rows(conn)?;
     Ok(())
+}
+
+/// Returns the primary-resolved canonical-state snapshot currently mapped from
+/// `feed_guid`.
+pub fn build_canonical_feed_state_snapshot(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<crate::event::CanonicalFeedStateReplacedPayload, DbError> {
+    let release_maps = get_source_feed_release_maps_for_feed(conn, feed_guid)?;
+    let mut releases = Vec::with_capacity(release_maps.len());
+    let mut release_recordings = Vec::new();
+    for map in &release_maps {
+        if let Some(release) = get_release(conn, &map.release_id)? {
+            releases.push(release);
+        }
+        release_recordings.extend(get_release_recordings(conn, &map.release_id)?);
+    }
+
+    let recording_maps = get_source_item_recording_maps_for_feed(conn, feed_guid)?;
+    let mut recordings = Vec::with_capacity(recording_maps.len());
+    for map in &recording_maps {
+        if let Some(recording) = get_recording(conn, &map.recording_id)? {
+            recordings.push(recording);
+        }
+    }
+
+    Ok(crate::event::CanonicalFeedStateReplacedPayload {
+        feed_guid: feed_guid.to_string(),
+        releases,
+        recordings,
+        release_recordings,
+        release_maps,
+        recording_maps,
+    })
+}
+
+/// Replaces feed-scoped canonical release/recording state from a primary-owned
+/// resolved snapshot.
+pub fn replace_canonical_feed_state_from_snapshot(
+    conn: &Connection,
+    payload: &crate::event::CanonicalFeedStateReplacedPayload,
+) -> Result<(), DbError> {
+    let previous_release_ids: Vec<String> = conn
+        .prepare(
+            "SELECT release_id FROM source_feed_release_map
+             WHERE feed_guid = ?1
+             ORDER BY release_id",
+        )?
+        .query_map(params![payload.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let previous_recording_ids: Vec<String> = conn
+        .prepare(
+            "SELECT sirm.recording_id
+             FROM source_item_recording_map sirm
+             JOIN tracks t ON t.track_guid = sirm.track_guid
+             WHERE t.feed_guid = ?1
+             ORDER BY sirm.recording_id",
+        )?
+        .query_map(params![payload.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    for release in &payload.releases {
+        upsert_release_row(conn, release)?;
+    }
+    for recording in &payload.recordings {
+        upsert_recording_row(conn, recording)?;
+    }
+
+    conn.execute(
+        "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
+        params![payload.feed_guid],
+    )?;
+    for map in &payload.release_maps {
+        conn.execute(
+            "INSERT INTO source_feed_release_map (feed_guid, release_id, match_type, confidence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                map.feed_guid,
+                map.release_id,
+                map.match_type,
+                map.confidence,
+                map.created_at
+            ],
+        )?;
+    }
+
+    conn.execute(
+        "DELETE FROM source_item_recording_map
+         WHERE track_guid IN (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![payload.feed_guid],
+    )?;
+    for map in &payload.recording_maps {
+        conn.execute(
+            "INSERT INTO source_item_recording_map (track_guid, recording_id, match_type, confidence, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                map.track_guid,
+                map.recording_id,
+                map.match_type,
+                map.confidence,
+                map.created_at
+            ],
+        )?;
+    }
+
+    let mut affected_release_ids: std::collections::BTreeSet<String> =
+        previous_release_ids.into_iter().collect();
+    affected_release_ids.extend(
+        payload
+            .release_maps
+            .iter()
+            .map(|map| map.release_id.clone()),
+    );
+    for release_id in &affected_release_ids {
+        conn.execute(
+            "DELETE FROM release_recordings WHERE release_id = ?1",
+            params![release_id],
+        )?;
+    }
+    for row in &payload.release_recordings {
+        conn.execute(
+            "INSERT INTO release_recordings (release_id, recording_id, position, source_track_guid)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![
+                row.release_id,
+                row.recording_id,
+                row.position,
+                row.source_track_guid
+            ],
+        )?;
+    }
+
+    let mut affected_recording_ids: std::collections::BTreeSet<String> =
+        previous_recording_ids.into_iter().collect();
+    affected_recording_ids.extend(
+        payload
+            .recording_maps
+            .iter()
+            .map(|map| map.recording_id.clone()),
+    );
+    for recording_id in &affected_recording_ids {
+        if payload
+            .recordings
+            .iter()
+            .any(|recording| &recording.recording_id == recording_id)
+        {
+            continue;
+        }
+        conn.execute(
+            "DELETE FROM recordings WHERE recording_id = ?1",
+            params![recording_id],
+        )?;
+    }
+    for release_id in &affected_release_ids {
+        if payload
+            .releases
+            .iter()
+            .any(|release| &release.release_id == release_id)
+        {
+            continue;
+        }
+        conn.execute(
+            "DELETE FROM releases WHERE release_id = ?1",
+            params![release_id],
+        )?;
+    }
+
+    cleanup_orphaned_canonical_rows(conn)?;
+    Ok(())
+}
+
+/// Emits a signed feed-scoped canonical-state snapshot event after primary-side
+/// resolver work has converged for `feed_guid`.
+pub fn emit_canonical_feed_state_event(
+    conn: &Connection,
+    feed_guid: &str,
+    signer: &NodeSigner,
+) -> Result<Option<Event>, DbError> {
+    let payload = build_canonical_feed_state_snapshot(conn, feed_guid)?;
+    if payload.release_maps.is_empty() && payload.recording_maps.is_empty() {
+        return Ok(None);
+    }
+
+    let payload_json = serde_json::to_string(&payload)?;
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let created_at = unix_now();
+    let (seq, signed_by, signature) = insert_event(
+        conn,
+        &event_id,
+        &EventType::CanonicalFeedStateReplaced,
+        &payload_json,
+        feed_guid,
+        signer,
+        created_at,
+        &[],
+    )?;
+
+    Ok(Some(Event {
+        event_id,
+        event_type: EventType::CanonicalFeedStateReplaced,
+        payload: EventPayload::CanonicalFeedStateReplaced(payload),
+        subject_guid: feed_guid.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    }))
 }
 
 fn single_artist_id_for_credit(
@@ -6422,6 +6686,23 @@ pub fn fail_dirty_feed(
     Ok(())
 }
 
+/// Clears a subset of dirty bits for one queued feed, deleting the queue row
+/// when no work remains.
+pub fn clear_feed_dirty_bits(conn: &Connection, feed_guid: &str, mask: i64) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE resolver_queue
+         SET dirty_mask = dirty_mask & ~?2
+         WHERE feed_guid = ?1",
+        params![feed_guid, mask],
+    )?;
+    conn.execute(
+        "DELETE FROM resolver_queue
+         WHERE feed_guid = ?1 AND dirty_mask = 0",
+        params![feed_guid],
+    )?;
+    Ok(())
+}
+
 /// Stores a resolver coordination state value.
 pub fn set_resolver_state(conn: &Connection, key: &str, value: &str) -> Result<(), DbError> {
     conn.execute(
@@ -6512,9 +6793,9 @@ pub fn get_resolver_queue_counts(conn: &Connection) -> Result<ResolverQueueCount
     conn.query_row(
         "SELECT
              COUNT(*),
-             SUM(CASE WHEN locked_at IS NULL THEN 1 ELSE 0 END),
-             SUM(CASE WHEN locked_at IS NOT NULL THEN 1 ELSE 0 END),
-             SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END)
+             COALESCE(SUM(CASE WHEN locked_at IS NULL THEN 1 ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN locked_at IS NOT NULL THEN 1 ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END), 0)
          FROM resolver_queue",
         [],
         |row| {
@@ -7671,6 +7952,32 @@ pub fn get_source_feed_release_maps_for_release(
     Ok(result)
 }
 
+/// Returns source-feed mappings for one source feed.
+pub fn get_source_feed_release_maps_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceFeedReleaseMap>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, release_id, match_type, confidence, created_at \
+         FROM source_feed_release_map WHERE feed_guid = ?1 \
+         ORDER BY release_id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceFeedReleaseMap {
+            feed_guid: row.get(0)?,
+            release_id: row.get(1)?,
+            match_type: row.get(2)?,
+            confidence: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
 /// Returns source-item mappings for a canonical recording.
 pub fn get_source_item_recording_maps_for_recording(
     conn: &Connection,
@@ -7682,6 +7989,34 @@ pub fn get_source_item_recording_maps_for_recording(
          ORDER BY confidence DESC, track_guid",
     )?;
     let rows = stmt.query_map(params![recording_id], |row| {
+        Ok(SourceItemRecordingMap {
+            track_guid: row.get(0)?,
+            recording_id: row.get(1)?,
+            match_type: row.get(2)?,
+            confidence: row.get(3)?,
+            created_at: row.get(4)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Returns source-item mappings for the tracks currently in one feed.
+pub fn get_source_item_recording_maps_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceItemRecordingMap>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT sirm.track_guid, sirm.recording_id, sirm.match_type, sirm.confidence, sirm.created_at \
+         FROM source_item_recording_map sirm \
+         JOIN tracks t ON t.track_guid = sirm.track_guid \
+         WHERE t.feed_guid = ?1 \
+         ORDER BY sirm.track_guid",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
         Ok(SourceItemRecordingMap {
             track_guid: row.get(0)?,
             recording_id: row.get(1)?,

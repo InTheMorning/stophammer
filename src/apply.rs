@@ -170,6 +170,14 @@ fn apply_single_event_inner(
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
+        event::EventPayload::CanonicalFeedStateReplaced(p) => {
+            db::replace_canonical_feed_state_from_snapshot(conn, p)?;
+            db::clear_feed_dirty_bits(
+                conn,
+                &p.feed_guid,
+                crate::resolver::queue::DIRTY_CANONICAL_STATE,
+            )?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

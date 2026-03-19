@@ -391,6 +391,20 @@ merge or do-not-merge overrides on top of that automatic resolver path.
 track rows, or staged source claims; those remain the authoritative extracted
 RSS layer.
 
+The next replication step is primary-authority resolved replication. A first
+phase is now available behind:
+
+```bash
+RESOLVER_EMIT_CANONICAL_STATE_EVENTS=true
+```
+
+When enabled on the primary, `resolverd` emits signed
+`canonical_feed_state_replaced` events after canonical resolver work succeeds.
+Replicas can apply those feed-scoped canonical snapshots directly. This is
+scaffolding for the redesign in
+[docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md);
+it does not retire community-side resolver work yet.
+
 To see whether canonical views are caught up, query:
 
 ```bash
