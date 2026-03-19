@@ -12,6 +12,8 @@ pub const DIRTY_ARTIST_IDENTITY: i64 = crate::db::RESOLVER_DIRTY_ARTIST_IDENTITY
 /// Phase 1 queue mask: canonical derived state only.
 pub const PHASE1_DIRTY_MASK: i64 =
     DIRTY_CANONICAL_STATE | DIRTY_CANONICAL_PROMOTIONS | DIRTY_CANONICAL_SEARCH;
+/// Phase 2 queue mask: canonical derived state plus targeted artist identity.
+pub const PHASE2_DIRTY_MASK: i64 = PHASE1_DIRTY_MASK | DIRTY_ARTIST_IDENTITY;
 
 /// Marks a feed dirty for phase 1 canonical resolver work.
 ///
@@ -22,5 +24,5 @@ pub fn mark_feed_phase1_dirty(
     conn: &rusqlite::Connection,
     feed_guid: &str,
 ) -> Result<(), crate::db::DbError> {
-    crate::db::mark_feed_dirty(conn, feed_guid, PHASE1_DIRTY_MASK)
+    crate::db::mark_feed_dirty(conn, feed_guid, PHASE2_DIRTY_MASK)
 }

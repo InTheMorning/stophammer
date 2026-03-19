@@ -42,7 +42,7 @@ pub fn run_batch(
     };
 
     for entry in claimed {
-        match resolve_feed(&conn, &entry.feed_guid, entry.dirty_mask) {
+        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask) {
             Ok(()) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
@@ -58,7 +58,7 @@ pub fn run_batch(
 }
 
 fn resolve_feed(
-    conn: &rusqlite::Connection,
+    conn: &mut rusqlite::Connection,
     feed_guid: &str,
     dirty_mask: i64,
 ) -> Result<(), db::DbError> {
@@ -70,6 +70,9 @@ fn resolve_feed(
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_SEARCH != 0 {
         db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
+    }
+    if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
+        let _ = db::resolve_artist_identity_for_feed(conn, feed_guid)?;
     }
     Ok(())
 }

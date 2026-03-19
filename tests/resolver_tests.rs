@@ -46,7 +46,7 @@ fn mark_claim_complete_queue_entry() {
     assert_eq!(claimed[0].feed_guid, "feed-resolver-queue");
     assert_eq!(
         claimed[0].dirty_mask,
-        stophammer::resolver::queue::PHASE1_DIRTY_MASK
+        stophammer::resolver::queue::PHASE2_DIRTY_MASK
     );
 
     db::complete_dirty_feed(&conn, "feed-resolver-queue", "worker-a").expect("complete");

@@ -3478,6 +3478,92 @@ pub struct ArtistIdentityBackfillStats {
     pub merges_applied: usize,
 }
 
+fn apply_artist_identity_groups(
+    conn: &Connection,
+    groups: Vec<std::collections::BTreeSet<String>>,
+) -> Result<ArtistIdentityBackfillStats, DbError> {
+    let mut stats = ArtistIdentityBackfillStats {
+        groups_processed: 0,
+        merges_applied: 0,
+    };
+
+    for group in groups {
+        let mut current_ids = std::collections::BTreeSet::new();
+        for artist_id in group {
+            if let Some(current_id) = current_artist_id(conn, &artist_id)? {
+                current_ids.insert(current_id);
+            }
+        }
+        if current_ids.len() <= 1 {
+            continue;
+        }
+        let Some(target_artist_id) = preferred_artist_target(conn, &current_ids)? else {
+            continue;
+        };
+        stats.groups_processed += 1;
+        for source_artist_id in current_ids {
+            if source_artist_id == target_artist_id {
+                continue;
+            }
+            if current_artist_id(conn, &source_artist_id)?.as_deref()
+                != Some(source_artist_id.as_str())
+            {
+                continue;
+            }
+            merge_artists_sql(conn, &source_artist_id, &target_artist_id)?;
+            stats.merges_applied += 1;
+        }
+    }
+
+    Ok(stats)
+}
+
+fn artist_ids_for_feed_scope(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<std::collections::BTreeSet<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT acn.artist_id
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         LEFT JOIN feeds f ON f.artist_credit_id = ac.id
+         LEFT JOIN tracks t ON t.artist_credit_id = ac.id
+         WHERE f.feed_guid = ?1 OR t.feed_guid = ?1
+         ORDER BY acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut artist_ids = std::collections::BTreeSet::new();
+    for artist_id in rows {
+        if let Some(current_id) = current_artist_id(conn, &artist_id)? {
+            artist_ids.insert(current_id);
+        }
+    }
+    Ok(artist_ids)
+}
+
+fn filter_artist_groups_for_seed_ids(
+    conn: &Connection,
+    groups: Vec<std::collections::BTreeSet<String>>,
+    seed_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut filtered = Vec::new();
+    for group in groups {
+        let mut current_group_ids = std::collections::BTreeSet::new();
+        for artist_id in &group {
+            if let Some(current_id) = current_artist_id(conn, artist_id)? {
+                current_group_ids.insert(current_id);
+            }
+        }
+        if !current_group_ids.is_disjoint(seed_ids) {
+            filtered.push(group);
+        }
+    }
+    Ok(filtered)
+}
+
 fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String>, DbError> {
     let mut current = artist_id.to_string();
     for _ in 0..32 {
@@ -3818,40 +3904,58 @@ pub fn backfill_artist_identity(
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
+    let stats = apply_artist_identity_groups(&tx, groups)?;
+    tx.commit()?;
+    Ok(stats)
+}
 
-    let mut stats = ArtistIdentityBackfillStats {
-        groups_processed: 0,
-        merges_applied: 0,
-    };
-
-    for group in groups {
-        let mut current_ids = std::collections::BTreeSet::new();
-        for artist_id in group {
-            if let Some(current_id) = current_artist_id(&tx, &artist_id)? {
-                current_ids.insert(current_id);
-            }
-        }
-        if current_ids.len() <= 1 {
-            continue;
-        }
-        let Some(target_artist_id) = preferred_artist_target(&tx, &current_ids)? else {
-            continue;
-        };
-        stats.groups_processed += 1;
-        for source_artist_id in current_ids {
-            if source_artist_id == target_artist_id {
-                continue;
-            }
-            if current_artist_id(&tx, &source_artist_id)?.as_deref()
-                != Some(source_artist_id.as_str())
-            {
-                continue;
-            }
-            merge_artists_sql(&tx, &source_artist_id, &target_artist_id)?;
-            stats.merges_applied += 1;
-        }
+pub fn resolve_artist_identity_for_feed(
+    conn: &mut Connection,
+    feed_guid: &str,
+) -> Result<ArtistIdentityBackfillStats, DbError> {
+    let tx = conn.transaction()?;
+    let seed_ids = artist_ids_for_feed_scope(&tx, feed_guid)?;
+    if seed_ids.is_empty() {
+        tx.commit()?;
+        return Ok(ArtistIdentityBackfillStats {
+            groups_processed: 0,
+            merges_applied: 0,
+        });
     }
 
+    let mut groups = Vec::new();
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_npub(&tx)?,
+        &seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_publisher_guid(&tx)?,
+        &seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_website(&tx)?,
+        &seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_normalized_website(&tx)?,
+        &seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_release_cluster(&tx)?,
+        &seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        &tx,
+        collect_artist_groups_by_anchored_name(&tx)?,
+        &seed_ids,
+    )?);
+
+    let stats = apply_artist_identity_groups(&tx, groups)?;
     tx.commit()?;
     Ok(stats)
 }
