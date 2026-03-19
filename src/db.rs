@@ -20,9 +20,10 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, Recording, Release, ReleaseRecording, RouteType, SourceContributorClaim,
-    SourceEntityIdClaim, SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure,
-    SourceItemRecordingMap, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
+    PaymentRoute, Recording, Release, ReleaseRecording, ResolvedEntitySourceByFeed,
+    ResolvedExternalIdByFeed, RouteType, SourceContributorClaim, SourceEntityIdClaim,
+    SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure, SourceItemRecordingMap,
+    SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -171,6 +172,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0012_resolver_queue.sql"),
     // Migration 13: add durable artist identity review items and operator overrides.
     include_str!("../migrations/0013_artist_identity_reviews.sql"),
+    // Migration 14: add feed-scoped resolved overlay tables for authoritative replication.
+    include_str!("../migrations/0014_resolved_overlay_tables.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -7850,6 +7853,122 @@ pub fn get_entity_sources(
         result.push(row?);
     }
     Ok(result)
+}
+
+/// Returns feed-scoped authoritative external-ID overlays produced by the
+/// primary resolver.
+pub fn get_resolved_external_ids_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<ResolvedExternalIdByFeed>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, entity_type, entity_id, scheme, value, created_at
+         FROM resolved_external_ids_by_feed
+         WHERE feed_guid = ?1
+         ORDER BY entity_type, entity_id, scheme, value",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(ResolvedExternalIdByFeed {
+            feed_guid: row.get(0)?,
+            entity_type: row.get(1)?,
+            entity_id: row.get(2)?,
+            scheme: row.get(3)?,
+            value: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Replaces the feed-scoped authoritative external-ID overlays for one feed.
+pub fn replace_resolved_external_ids_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    rows: &[ResolvedExternalIdByFeed],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for row in rows {
+        conn.execute(
+            "INSERT INTO resolved_external_ids_by_feed
+             (feed_guid, entity_type, entity_id, scheme, value, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                row.feed_guid,
+                row.entity_type,
+                row.entity_id,
+                row.scheme,
+                row.value,
+                row.created_at
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Returns feed-scoped authoritative provenance overlays produced by the
+/// primary resolver.
+pub fn get_resolved_entity_sources_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<ResolvedEntitySourceByFeed>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, entity_type, entity_id, source_type, source_url, trust_level, created_at
+         FROM resolved_entity_sources_by_feed
+         WHERE feed_guid = ?1
+         ORDER BY entity_type, entity_id, source_type, source_url",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(ResolvedEntitySourceByFeed {
+            feed_guid: row.get(0)?,
+            entity_type: row.get(1)?,
+            entity_id: row.get(2)?,
+            source_type: row.get(3)?,
+            source_url: row.get(4)?,
+            trust_level: row.get(5)?,
+            created_at: row.get(6)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+/// Replaces the feed-scoped authoritative provenance overlays for one feed.
+pub fn replace_resolved_entity_sources_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    rows: &[ResolvedEntitySourceByFeed],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM resolved_entity_sources_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for row in rows {
+        conn.execute(
+            "INSERT INTO resolved_entity_sources_by_feed
+             (feed_guid, entity_type, entity_id, source_type, source_url, trust_level, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                row.feed_guid,
+                row.entity_type,
+                row.entity_id,
+                row.source_type,
+                row.source_url,
+                row.trust_level,
+                row.created_at
+            ],
+        )?;
+    }
+    Ok(())
 }
 
 // ── Canonical read helpers ──────────────────────────────────────────────────

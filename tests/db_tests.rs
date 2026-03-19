@@ -52,6 +52,8 @@ fn schema_creates_all_tables() {
         "proof_tokens",
         "recordings",
         "rel_type",
+        "resolved_entity_sources_by_feed",
+        "resolved_external_ids_by_feed",
         "release_recordings",
         "releases",
         "schema_migrations",
@@ -127,6 +129,57 @@ fn schema_idempotent() {
 
     drop(conn2);
     let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn resolved_overlay_tables_round_trip() {
+    let conn = common::test_db();
+    let now = stophammer::db::unix_now();
+
+    let artist = stophammer::db::resolve_artist(&conn, "Overlay Artist", Some("feed-overlay"))
+        .expect("artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist.name,
+        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        Some("feed-overlay"),
+    )
+    .expect("credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-overlay', 'https://example.com/feed-overlay.xml', 'Overlay Feed', 'overlay feed', ?1, ?2, ?2)",
+        params![credit.id, now],
+    )
+    .expect("feed");
+
+    let extids = vec![stophammer::model::ResolvedExternalIdByFeed {
+        feed_guid: "feed-overlay".into(),
+        entity_type: "artist".into(),
+        entity_id: artist.artist_id.clone(),
+        scheme: "nostr_npub".into(),
+        value: "npub1overlay".into(),
+        created_at: now,
+    }];
+    stophammer::db::replace_resolved_external_ids_for_feed(&conn, "feed-overlay", &extids)
+        .expect("replace extids");
+    let got_extids = stophammer::db::get_resolved_external_ids_for_feed(&conn, "feed-overlay")
+        .expect("get extids");
+    assert_eq!(got_extids, extids);
+
+    let sources = vec![stophammer::model::ResolvedEntitySourceByFeed {
+        feed_guid: "feed-overlay".into(),
+        entity_type: "release".into(),
+        entity_id: "release-overlay".into(),
+        source_type: "source_feed".into(),
+        source_url: Some("https://example.com/feed-overlay.xml".into()),
+        trust_level: 1,
+        created_at: now,
+    }];
+    stophammer::db::replace_resolved_entity_sources_for_feed(&conn, "feed-overlay", &sources)
+        .expect("replace sources");
+    let got_sources = stophammer::db::get_resolved_entity_sources_for_feed(&conn, "feed-overlay")
+        .expect("get sources");
+    assert_eq!(got_sources, sources);
 }
 
 #[test]

@@ -6,7 +6,8 @@
 //! [`LiveEvent`], [`SourceContributorClaim`], [`SourceEntityLink`],
 //! [`SourceEntityIdClaim`], [`SourceReleaseClaim`], [`SourceItemEnclosure`],
 //! [`SourcePlatformClaim`], [`Release`], [`Recording`], [`ReleaseRecording`],
-//! [`SourceFeedReleaseMap`], and [`SourceItemRecordingMap`].
+//! [`SourceFeedReleaseMap`], [`SourceItemRecordingMap`],
+//! [`ResolvedExternalIdByFeed`], and [`ResolvedEntitySourceByFeed`].
 //! All types derive `Serialize` and `Deserialize` so they can be embedded in
 //! event payloads and returned from API endpoints without additional mapping.
 
@@ -321,5 +322,26 @@ pub struct SourceItemRecordingMap {
     pub recording_id: String,
     pub match_type: String,
     pub confidence: i64,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedExternalIdByFeed {
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub scheme: String,
+    pub value: String,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEntitySourceByFeed {
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub source_type: String,
+    pub source_url: Option<String>,
+    pub trust_level: i64,
     pub created_at: i64,
 }

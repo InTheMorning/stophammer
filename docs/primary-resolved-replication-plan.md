@@ -88,6 +88,9 @@ Outcome:
 Scope:
 
 - promotions and provenance snapshots
+- add feed-scoped resolved overlay tables so primary-authored external-ID and
+  provenance decisions can be replaced authoritatively on replicas instead of
+  only appended additively
 - override-backed artist identity decisions
 - explicit replication of durable review/override consequences
 
@@ -95,6 +98,16 @@ Outcome:
 
 - canonical release/recording state, artist external IDs, and provenance all
   converge from primary-authored resolved events
+
+Status:
+
+- phase-2 groundwork started
+- feed-scoped overlay tables now exist for authoritative resolved external-ID
+  and provenance replication:
+  - `resolved_external_ids_by_feed`
+  - `resolved_entity_sources_by_feed`
+- those tables are not the public read model; they are staging tables for
+  future primary-authored resolved-state replacement
 
 ### Phase 3: Community resolver retirement
 
