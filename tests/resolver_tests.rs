@@ -164,6 +164,8 @@ fn resolver_batch_drains_phase1_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert_eq!(summary.artist_groups_processed, 0);
+    assert_eq!(summary.artist_merges_applied, 0);
 
     let mut conn = pool.writer().lock().expect("writer");
     let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now()).expect("claim");
@@ -189,6 +191,8 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert_eq!(summary.artist_groups_processed, 1);
+    assert_eq!(summary.artist_merges_applied, 1);
 
     let conn = pool.writer().lock().expect("writer");
     let artist_count: i64 = conn

@@ -9,6 +9,8 @@ pub struct ResolverBatchResult {
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
+    pub artist_groups_processed: usize,
+    pub artist_merges_applied: usize,
 }
 
 /// Runs one resolver batch against the queue.
@@ -41,9 +43,11 @@ pub fn run_batch(
 
     for entry in claimed {
         match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask) {
-            Ok(()) => {
+            Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
+                result.artist_groups_processed += feed_result.artist_groups_processed;
+                result.artist_merges_applied += feed_result.artist_merges_applied;
             }
             Err(err) => {
                 db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())?;
@@ -55,11 +59,18 @@ pub fn run_batch(
     Ok(result)
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct ResolveFeedResult {
+    artist_groups_processed: usize,
+    artist_merges_applied: usize,
+}
+
 fn resolve_feed(
     conn: &mut rusqlite::Connection,
     feed_guid: &str,
     dirty_mask: i64,
-) -> Result<(), db::DbError> {
+) -> Result<ResolveFeedResult, db::DbError> {
+    let mut result = ResolveFeedResult::default();
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_STATE != 0 {
         db::sync_canonical_state_for_feed(conn, feed_guid)?;
     }
@@ -70,9 +81,11 @@ fn resolve_feed(
         db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
     }
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
-        let _ = db::resolve_artist_identity_for_feed(conn, feed_guid)?;
+        let stats = db::resolve_artist_identity_for_feed(conn, feed_guid)?;
+        result.artist_groups_processed = stats.groups_processed;
+        result.artist_merges_applied = stats.merges_applied;
     }
-    Ok(())
+    Ok(result)
 }
 
 /// Runs the resolver loop forever.
@@ -94,6 +107,8 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    artist_groups_processed = summary.artist_groups_processed,
+                    artist_merges_applied = summary.artist_merges_applied,
                     "resolver: completed batch"
                 );
             }
