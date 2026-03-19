@@ -356,11 +356,11 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 
 These do not fetch from the network. They operate on an existing local DB file.
 
-`resolverd` is the phase 1 background worker for durable canonical rebuilds. It
+`resolverd` is the background worker for durable derived-state rebuilds. It
 drains `resolver_queue` incrementally and pauses when
 `resolver_state.import_active=true`. The existing inline canonical rebuild path
-still remains in place; `resolverd` adds retryable background convergence
-without replacing it yet.
+still remains in place; `resolverd` adds retryable background convergence for
+canonical state and targeted artist identity without replacing inline sync yet.
 
 Use `resolverctl import-active` before a large bulk import and
 `resolverctl import-idle` after it finishes so the queue can drain again.

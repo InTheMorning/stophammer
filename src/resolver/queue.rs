@@ -9,20 +9,20 @@ pub const DIRTY_CANONICAL_SEARCH: i64 = crate::db::RESOLVER_DIRTY_CANONICAL_SEAR
 /// Dirty mask reserved for incremental artist identity work.
 pub const DIRTY_ARTIST_IDENTITY: i64 = crate::db::RESOLVER_DIRTY_ARTIST_IDENTITY;
 
-/// Phase 1 queue mask: canonical derived state only.
-pub const PHASE1_DIRTY_MASK: i64 =
+/// Dirty mask for canonical derived state only.
+pub const CANONICAL_DIRTY_MASK: i64 =
     DIRTY_CANONICAL_STATE | DIRTY_CANONICAL_PROMOTIONS | DIRTY_CANONICAL_SEARCH;
-/// Phase 2 queue mask: canonical derived state plus targeted artist identity.
-pub const PHASE2_DIRTY_MASK: i64 = PHASE1_DIRTY_MASK | DIRTY_ARTIST_IDENTITY;
+/// Default dirty mask for normal write paths.
+pub const DEFAULT_DIRTY_MASK: i64 = CANONICAL_DIRTY_MASK | DIRTY_ARTIST_IDENTITY;
 
-/// Marks a feed dirty for phase 1 canonical resolver work.
+/// Marks a feed dirty for normal resolver work.
 ///
 /// # Errors
 ///
 /// Returns [`crate::db::DbError`] if the queue upsert fails.
-pub fn mark_feed_phase1_dirty(
+pub fn mark_feed_dirty_for_resolver(
     conn: &rusqlite::Connection,
     feed_guid: &str,
 ) -> Result<(), crate::db::DbError> {
-    crate::db::mark_feed_dirty(conn, feed_guid, PHASE2_DIRTY_MASK)
+    crate::db::mark_feed_dirty(conn, feed_guid, DEFAULT_DIRTY_MASK)
 }

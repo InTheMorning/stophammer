@@ -293,14 +293,15 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 These do not crawl or fetch from the network. They operate on an existing local
 SQLite database.
 
-### Phase 1 Resolver Worker
+### Resolver Worker
 
-Phase 1 introduces a durable resolver queue for canonical derived state.
+A durable resolver queue now handles deferred derived-state work.
 
 - write paths now mark feeds dirty in `resolver_queue`
 - `resolverd` drains that queue incrementally
 - current inline canonical rebuilds still remain in place
-- `backfill_artist_identity` is still a separate maintenance step
+- queued work includes targeted artist identity cleanup for touched feeds
+- `backfill_artist_identity` still exists for whole-db repair passes
 
 Run the worker with:
 
@@ -312,10 +313,9 @@ cargo run --bin resolverd
 ```
 
 `resolverd` checks `resolver_state.import_active` before each batch and skips
-work when that flag is set. In phase 1 this pause flag is scaffolding for later
-bulk-import integration; the importer does not set it automatically yet.
+work when that flag is set.
 
-For now, bracket large imports manually:
+You can bracket large imports manually:
 
 ```bash
 cargo run --bin resolverctl -- import-active

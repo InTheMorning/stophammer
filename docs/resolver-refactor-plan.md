@@ -64,7 +64,8 @@ Dirty bits are additive:
 - `4` canonical search
 - `8` artist identity
 
-Phase 1 only uses the first three bits.
+Phase 1 only used the first three bits. The current staged rollout now also
+uses the artist-identity bit for targeted feed-scoped cleanup.
 
 ## Phases
 
@@ -135,16 +136,29 @@ This sits on top of the automatic resolver; it does not replace it.
 
 ## Phase 1 Status
 
-Phase 1 starts in this branch/repo state:
+Phase 1 landed with:
 
 - resolver queue schema and DB helpers
 - a minimal `resolverd` worker
 - dirty marking from current write paths
 - operator docs for running the worker
 
-What Phase 1 does not do yet:
+What Phase 1 still does not do:
 
-- importer auto-pause integration
-- incremental artist identity
 - manual override workflow
 - removal of the current inline canonical rebuild path
+
+## Phase 2 Status
+
+Phase 2 has started in a narrow form:
+
+- normal write paths now mark the artist-identity dirty bit
+- `resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
+- the implementation reuses the existing deterministic merge heuristics from
+  `backfill_artist_identity`
+
+What Phase 2 does not do yet:
+
+- importer-aware prioritization beyond the coarse `import_active` pause flag
+- unresolved-case review records or manual overrides
+- richer batching keyed by impacted artist groups instead of feed scope

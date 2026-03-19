@@ -13,8 +13,6 @@ pub struct ResolverBatchResult {
 
 /// Runs one resolver batch against the queue.
 ///
-/// Phase 1 only rebuilds canonical derived state for dirty feeds.
-///
 /// # Errors
 ///
 /// Returns [`db::DbError`] if queue coordination or resolution queries fail

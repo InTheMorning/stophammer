@@ -6607,7 +6607,7 @@ pub fn ingest_transaction(
         sync_canonical_search_index_for_feed(&tx, &feed.feed_guid)?;
     }
 
-    crate::resolver::queue::mark_feed_phase1_dirty(&tx, &feed.feed_guid)?;
+    crate::resolver::queue::mark_feed_dirty_for_resolver(&tx, &feed.feed_guid)?;
 
     // 7. Commit
     tx.commit()?;

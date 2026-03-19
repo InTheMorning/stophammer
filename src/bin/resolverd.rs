@@ -29,7 +29,7 @@ async fn main() {
         interval_secs,
         batch_size,
         worker_id,
-        "resolver: starting phase 1 worker"
+        "resolver: starting background worker"
     );
 
     resolver::worker::run_forever(pool, interval_secs, batch_size, worker_id).await;
