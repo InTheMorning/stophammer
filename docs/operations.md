@@ -288,6 +288,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 
 # Narrow review to one lowercase artist-name key
 cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
+
+# Inspect the targeted artist-identity plan for one feed
+cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local

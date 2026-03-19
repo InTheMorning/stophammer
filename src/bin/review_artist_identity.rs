@@ -10,12 +10,18 @@ struct Args {
     db_path: PathBuf,
     limit: usize,
     name_filter: Option<String>,
+    feed_guid: Option<String>,
     json: bool,
 }
 
 #[derive(Debug, Serialize)]
 struct ReviewReport {
     groups: Vec<ArtistNameGroup>,
+}
+
+#[derive(Debug, Serialize)]
+struct FeedPlanReport {
+    plan: stophammer::db::ArtistIdentityFeedPlan,
 }
 
 #[derive(Debug, Serialize)]
@@ -53,6 +59,7 @@ fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from("./stophammer.db");
     let mut limit = 20usize;
     let mut name_filter = None;
+    let mut feed_guid = None;
     let mut json = false;
 
     let mut args = std::env::args().skip(1);
@@ -78,14 +85,21 @@ fn parse_args() -> Result<Args, String> {
                     .ok_or_else(|| "--name requires a value".to_string())?;
                 name_filter = Some(value);
             }
+            "--feed-guid" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--feed-guid requires a value".to_string())?;
+                feed_guid = Some(value);
+            }
             "--json" => {
                 json = true;
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--json]\n\
+                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
-                     behind each candidate so merge decisions can be reviewed safely."
+                     behind each candidate so merge decisions can be reviewed safely.\n\
+                     With --feed-guid, prints the targeted resolver plan for one feed."
                 );
                 std::process::exit(0);
             }
@@ -97,6 +111,7 @@ fn parse_args() -> Result<Args, String> {
         db_path,
         limit,
         name_filter,
+        feed_guid,
         json,
     })
 }
@@ -312,6 +327,15 @@ fn build_report(
     Ok(ReviewReport { groups })
 }
 
+fn build_feed_plan_report(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<FeedPlanReport, Box<dyn Error>> {
+    Ok(FeedPlanReport {
+        plan: stophammer::db::explain_artist_identity_for_feed(conn, feed_guid)?,
+    })
+}
+
 fn print_text(report: &ReviewReport) {
     if report.groups.is_empty() {
         println!("review_artist_identity: no duplicate-name artist groups found");
@@ -360,15 +384,53 @@ fn print_text(report: &ReviewReport) {
     }
 }
 
+fn print_feed_plan_text(report: &FeedPlanReport) {
+    println!("feed: {}", report.plan.feed_guid);
+    if report.plan.seed_artists.is_empty() {
+        println!("  seed_artists: -");
+    } else {
+        println!("  seed_artists:");
+        for artist in &report.plan.seed_artists {
+            println!("    {}  {:?}", artist.artist_id, artist.name);
+        }
+    }
+
+    if report.plan.candidate_groups.is_empty() {
+        println!("  candidate_groups: -");
+        return;
+    }
+
+    println!("  candidate_groups: {}", report.plan.candidate_groups.len());
+    for group in &report.plan.candidate_groups {
+        println!(
+            "    source={}  artists={}",
+            group.source,
+            group.artist_ids.len()
+        );
+        if !group.artist_names.is_empty() {
+            println!("      names: {}", group.artist_names.join(", "));
+        }
+        println!("      artist_ids: {}", group.artist_ids.join(", "));
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
     let conn = stophammer::db::open_db(&args.db_path);
-    let report = build_report(&conn, args.limit, args.name_filter.as_deref())?;
-
-    if args.json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
+    if let Some(feed_guid) = args.feed_guid.as_deref() {
+        let report = build_feed_plan_report(&conn, feed_guid)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_feed_plan_text(&report);
+        }
     } else {
-        print_text(&report);
+        let report = build_report(&conn, args.limit, args.name_filter.as_deref())?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_text(&report);
+        }
     }
 
     Ok(())

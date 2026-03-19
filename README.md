@@ -352,6 +352,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 
 # Inspect one duplicate-name group in detail
 cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
+
+# Inspect the targeted artist-identity plan for one feed
+cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
 ```
 
 These do not fetch from the network. They operate on an existing local DB file.

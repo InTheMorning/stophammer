@@ -54,6 +54,12 @@ Or inspect one name:
 cargo run --bin review_artist_identity -- --db ./stophammer.db --name haleen --json
 ```
 
+Or inspect the targeted resolver plan for one feed:
+
+```bash
+cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
+```
+
 ## Resolution Inspection via API
 
 You can also inspect why canonical mappings happened through HTTP:

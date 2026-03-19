@@ -3486,6 +3486,26 @@ pub struct ArtistIdentityResolveStats {
     pub merges_applied: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentitySeedArtist {
+    pub artist_id: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityCandidateGroup {
+    pub source: String,
+    pub artist_ids: Vec<String>,
+    pub artist_names: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityFeedPlan {
+    pub feed_guid: String,
+    pub seed_artists: Vec<ArtistIdentitySeedArtist>,
+    pub candidate_groups: Vec<ArtistIdentityCandidateGroup>,
+}
+
 fn apply_artist_identity_groups(
     conn: &Connection,
     groups: Vec<std::collections::BTreeSet<String>>,
@@ -3576,38 +3596,82 @@ fn collect_artist_identity_groups_for_seed_ids(
     conn: &Connection,
     seed_ids: &std::collections::BTreeSet<String>,
 ) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    Ok(
+        collect_labeled_artist_identity_groups_for_seed_ids(conn, seed_ids)?
+            .into_iter()
+            .map(|(_source, group)| group)
+            .collect(),
+    )
+}
+
+fn collect_labeled_artist_identity_groups_for_seed_ids(
+    conn: &Connection,
+    seed_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<(String, std::collections::BTreeSet<String>)>, DbError> {
     let mut groups = Vec::new();
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_npub(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_publisher_guid(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_website(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_normalized_website(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_release_cluster(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_anchored_name(conn)?,
-        seed_ids,
-    )?);
+    groups.extend(
+        filter_artist_groups_for_seed_ids(conn, collect_artist_groups_by_npub(conn)?, seed_ids)?
+            .into_iter()
+            .map(|group| ("npub".to_string(), group)),
+    );
+    groups.extend(
+        filter_artist_groups_for_seed_ids(
+            conn,
+            collect_artist_groups_by_publisher_guid(conn)?,
+            seed_ids,
+        )?
+        .into_iter()
+        .map(|group| ("publisher_guid".to_string(), group)),
+    );
+    groups.extend(
+        filter_artist_groups_for_seed_ids(conn, collect_artist_groups_by_website(conn)?, seed_ids)?
+            .into_iter()
+            .map(|group| ("website".to_string(), group)),
+    );
+    groups.extend(
+        filter_artist_groups_for_seed_ids(
+            conn,
+            collect_artist_groups_by_normalized_website(conn)?,
+            seed_ids,
+        )?
+        .into_iter()
+        .map(|group| ("normalized_website".to_string(), group)),
+    );
+    groups.extend(
+        filter_artist_groups_for_seed_ids(
+            conn,
+            collect_artist_groups_by_release_cluster(conn)?,
+            seed_ids,
+        )?
+        .into_iter()
+        .map(|group| ("release_cluster".to_string(), group)),
+    );
+    groups.extend(
+        filter_artist_groups_for_seed_ids(
+            conn,
+            collect_artist_groups_by_anchored_name(conn)?,
+            seed_ids,
+        )?
+        .into_iter()
+        .map(|group| ("anchored_name".to_string(), group)),
+    );
     Ok(groups)
+}
+
+fn seed_artist_rows_for_feed_scope(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<ArtistIdentitySeedArtist>, DbError> {
+    let mut rows = Vec::new();
+    for artist_id in artist_ids_for_feed_scope(conn, feed_guid)? {
+        if let Some(artist) = get_artist_by_id(conn, &artist_id)? {
+            rows.push(ArtistIdentitySeedArtist {
+                artist_id: artist.artist_id,
+                name: artist.name,
+            });
+        }
+    }
+    Ok(rows)
 }
 
 fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String>, DbError> {
@@ -3980,6 +4044,45 @@ pub fn resolve_artist_identity_for_feed(
         candidate_groups,
         groups_processed: backfill_stats.groups_processed,
         merges_applied: backfill_stats.merges_applied,
+    })
+}
+
+/// Explains the current feed-scoped artist identity plan for one feed.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the feed-scoped seed artists or candidate groups
+/// cannot be loaded from `SQLite`.
+pub fn explain_artist_identity_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<ArtistIdentityFeedPlan, DbError> {
+    let seed_artists = seed_artist_rows_for_feed_scope(conn, feed_guid)?;
+    let seed_ids = seed_artists
+        .iter()
+        .map(|artist| artist.artist_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let candidate_groups = collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids)?
+        .into_iter()
+        .map(|(source, group)| {
+            let artist_ids = group.into_iter().collect::<Vec<_>>();
+            let artist_names = artist_ids
+                .iter()
+                .filter_map(|artist_id| get_artist_by_id(conn, artist_id).ok().flatten())
+                .map(|artist| artist.name)
+                .collect::<Vec<_>>();
+            ArtistIdentityCandidateGroup {
+                source,
+                artist_ids,
+                artist_names,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    Ok(ArtistIdentityFeedPlan {
+        feed_guid: feed_guid.to_string(),
+        seed_artists,
+        candidate_groups,
     })
 }
 

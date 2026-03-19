@@ -781,6 +781,80 @@ fn targeted_artist_identity_resolver_merges_split_artists_by_website() {
 }
 
 #[test]
+fn explain_artist_identity_for_feed_reports_seed_artists_and_candidate_groups() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "Explained Artist", Some("feed-explain-a"))
+            .expect("artist a");
+    let credit_a = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_a.name,
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
+        Some("feed-explain-a"),
+    )
+    .expect("credit a");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "Explained Artist", Some("feed-explain-b"))
+            .expect("artist b");
+    let credit_b = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_b.name,
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
+        Some("feed-explain-b"),
+    )
+    .expect("credit b");
+
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-explain-a', 'https://wavlake.com/feed/music/explain-a', 'Explain A', 'explain a', ?1, ?2, ?2)",
+        rusqlite::params![credit_a.id, now],
+    )
+    .expect("feed a");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-explain-b', 'https://feeds.fountain.fm/explain-b', 'Explain B', 'explain b', ?1, ?2, ?2)",
+        rusqlite::params![credit_b.id, now],
+    )
+    .expect("feed b");
+    for feed_guid in ["feed-explain-a", "feed-explain-b"] {
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, 'feed', ?1, 0, 'website', 'https://wavlake.com/explained-artist', 'rss_link', 'feed.link', ?2)",
+            rusqlite::params![feed_guid, now],
+        )
+        .expect("website link");
+    }
+
+    let plan = stophammer::db::explain_artist_identity_for_feed(&conn, "feed-explain-b")
+        .expect("feed plan");
+    assert_eq!(plan.feed_guid, "feed-explain-b");
+    assert_eq!(plan.seed_artists.len(), 1);
+    assert_eq!(plan.seed_artists[0].name, "Explained Artist");
+    assert_eq!(plan.candidate_groups.len(), 2);
+    assert!(
+        plan.candidate_groups
+            .iter()
+            .any(|group| group.source == "website")
+    );
+    assert!(
+        plan.candidate_groups
+            .iter()
+            .any(|group| group.source == "normalized_website")
+    );
+}
+
+#[test]
 fn artist_identity_backfill_merges_split_artists_connected_by_release_cluster() {
     let mut conn = common::test_db();
     let now = common::now();

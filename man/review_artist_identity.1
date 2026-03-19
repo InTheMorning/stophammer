@@ -10,6 +10,8 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 ] [
 .BI --name " NAME"
 ] [
+.BI --feed-guid " GUID"
+] [
 .B --json
 ]
 .SH DESCRIPTION
@@ -28,6 +30,10 @@ Maximum number of duplicate-name groups to report. Defaults to 20.
 .BI --name " NAME"
 Restrict output to one lowercased artist-name key.
 .TP
+.BI --feed-guid " GUID"
+Inspect the feed-scoped artist identity plan for one feed, including seed
+artists and candidate merge groups considered by the targeted resolver.
+.TP
 .B --json
 Emit machine-readable JSON instead of text output.
 .SH EXAMPLES
@@ -40,6 +46,11 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 Inspect one name as JSON:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky --json
+.fi
+.TP
+Inspect one feed's targeted resolver plan:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-focus-b
 .fi
 .SH SEE ALSO
 .BR stophammer (1),
