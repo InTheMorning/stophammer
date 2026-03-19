@@ -167,6 +167,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0010_source_platform_claims.sql"),
     // Migration 11: add deterministic canonical release/recording derived tables.
     include_str!("../migrations/0011_canonical_release_recording.sql"),
+    // Migration 12: add durable resolver queue and resolver coordination state.
+    include_str!("../migrations/0012_resolver_queue.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -5309,6 +5311,206 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
     Ok(seq.unwrap_or(0))
 }
 
+// ── resolver queue ───────────────────────────────────────────────────────────
+
+/// Dirty bit for canonical release/recording rebuilds.
+pub const RESOLVER_DIRTY_CANONICAL_STATE: i64 = 1;
+/// Dirty bit for canonical promotion rows.
+pub const RESOLVER_DIRTY_CANONICAL_PROMOTIONS: i64 = 1 << 1;
+/// Dirty bit for canonical search rows.
+pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
+/// Reserved dirty bit for incremental artist identity work.
+pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
+
+const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
+
+/// A claimed resolver queue row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolverQueueEntry {
+    pub feed_guid: String,
+    pub dirty_mask: i64,
+    pub first_marked_at: i64,
+    pub last_marked_at: i64,
+    pub locked_at: Option<i64>,
+    pub locked_by: Option<String>,
+    pub attempt_count: i64,
+    pub last_error: Option<String>,
+}
+
+/// Inserts or updates a dirty-feed row in the resolver queue.
+pub fn mark_feed_dirty(conn: &Connection, feed_guid: &str, dirty_mask: i64) -> Result<(), DbError> {
+    let feed_exists: Option<i64> = conn
+        .query_row(
+            "SELECT 1 FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if feed_exists.is_none() {
+        return Ok(());
+    }
+
+    let now = unix_now();
+    conn.execute(
+        "INSERT INTO resolver_queue (
+             feed_guid, dirty_mask, first_marked_at, last_marked_at
+         ) VALUES (?1, ?2, ?3, ?4)
+         ON CONFLICT(feed_guid) DO UPDATE SET
+             dirty_mask = resolver_queue.dirty_mask | excluded.dirty_mask,
+             last_marked_at = excluded.last_marked_at,
+             last_error = NULL",
+        params![feed_guid, dirty_mask, now, now],
+    )?;
+    Ok(())
+}
+
+/// Claims up to `limit` dirty feeds for `worker_id`.
+pub fn claim_dirty_feeds(
+    conn: &mut Connection,
+    worker_id: &str,
+    limit: i64,
+    now: i64,
+) -> Result<Vec<ResolverQueueEntry>, DbError> {
+    let safe_limit = limit.max(1);
+    let stale_before = now - RESOLVER_LOCK_STALE_AFTER_SECS;
+    let tx = conn.transaction()?;
+
+    let claimed: Vec<ResolverQueueEntry> = {
+        let mut stmt = tx.prepare(
+            "SELECT
+                 feed_guid,
+                 dirty_mask,
+                 first_marked_at,
+                 last_marked_at,
+                 locked_at,
+                 locked_by,
+                 attempt_count,
+                 last_error
+             FROM resolver_queue
+             WHERE dirty_mask != 0
+               AND (locked_at IS NULL OR locked_at < ?1)
+             ORDER BY last_marked_at ASC, first_marked_at ASC
+             LIMIT ?2",
+        )?;
+
+        let rows = stmt.query_map(params![stale_before, safe_limit], |row| {
+            Ok(ResolverQueueEntry {
+                feed_guid: row.get(0)?,
+                dirty_mask: row.get(1)?,
+                first_marked_at: row.get(2)?,
+                last_marked_at: row.get(3)?,
+                locked_at: row.get(4)?,
+                locked_by: row.get(5)?,
+                attempt_count: row.get(6)?,
+                last_error: row.get(7)?,
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for row in rows {
+            entries.push(row?);
+        }
+        entries
+    };
+
+    for entry in &claimed {
+        tx.execute(
+            "UPDATE resolver_queue
+             SET locked_at = ?1, locked_by = ?2
+             WHERE feed_guid = ?3",
+            params![now, worker_id, entry.feed_guid],
+        )?;
+    }
+
+    tx.commit()?;
+    Ok(claimed)
+}
+
+/// Completes a claimed dirty-feed row.
+pub fn complete_dirty_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    worker_id: &str,
+) -> Result<(), DbError> {
+    let deleted = conn.execute(
+        "DELETE FROM resolver_queue
+         WHERE feed_guid = ?1
+           AND locked_by = ?2
+           AND COALESCE(last_marked_at, 0) <= COALESCE(locked_at, 0)",
+        params![feed_guid, worker_id],
+    )?;
+
+    if deleted == 0 {
+        conn.execute(
+            "UPDATE resolver_queue
+             SET locked_at = NULL,
+                 locked_by = NULL,
+                 attempt_count = 0,
+                 last_error = NULL
+             WHERE feed_guid = ?1
+               AND locked_by = ?2",
+            params![feed_guid, worker_id],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Unlocks a claimed dirty-feed row and records an error.
+pub fn fail_dirty_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    worker_id: &str,
+    error: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE resolver_queue
+         SET locked_at = NULL,
+             locked_by = NULL,
+             attempt_count = attempt_count + 1,
+             last_error = ?3
+         WHERE feed_guid = ?1
+           AND locked_by = ?2",
+        params![feed_guid, worker_id, error],
+    )?;
+    Ok(())
+}
+
+/// Stores a resolver coordination state value.
+pub fn set_resolver_state(conn: &Connection, key: &str, value: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO resolver_state (key, value)
+         VALUES (?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// Returns the stored resolver coordination state value for `key`.
+pub fn get_resolver_state(conn: &Connection, key: &str) -> Result<Option<String>, DbError> {
+    conn.query_row(
+        "SELECT value FROM resolver_state WHERE key = ?1",
+        params![key],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Sets the `import_active` resolver coordination flag.
+pub fn set_resolver_import_active(conn: &Connection, active: bool) -> Result<(), DbError> {
+    set_resolver_state(conn, "import_active", if active { "true" } else { "false" })
+}
+
+/// Returns whether bulk import is currently marked active.
+pub fn resolver_import_active(conn: &Connection) -> Result<bool, DbError> {
+    Ok(matches!(
+        get_resolver_state(conn, "import_active")?.as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    ))
+}
+
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
 /// Returns the id of an existing tag with the given (lowercased) name, or
@@ -6269,6 +6471,8 @@ pub fn ingest_transaction(
 
         sync_canonical_search_index_for_feed(&tx, &feed.feed_guid)?;
     }
+
+    crate::resolver::queue::mark_feed_phase1_dirty(&tx, &feed.feed_guid)?;
 
     // 7. Commit
     tx.commit()?;

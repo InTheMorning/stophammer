@@ -8,11 +8,18 @@ merge happened.
 
 The shipped maintenance binaries are:
 
+- `resolverd`
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
 
 ## Typical Maintenance Flow
+
+### Keep the durable canonical resolver queue drained
+
+```bash
+cargo run --bin resolverd
+```
 
 ### Rebuild canonical rows after schema or resolver changes
 
@@ -57,5 +64,6 @@ These routes expose stored evidence such as:
 ## Related Docs
 
 - [operations.md](/home/citizen/build/stophammer/docs/operations.md)
+- [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
 - [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
 - [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)

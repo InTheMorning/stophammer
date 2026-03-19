@@ -63,6 +63,9 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROOF_PRUNE_INTERVAL_SECS` | `300` | How often the background pruner deletes expired proof challenges and tokens (seconds). |
+| `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `resolverd` queue checks. |
+| `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
+| `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 
 ---
@@ -266,6 +269,9 @@ This repo ships local maintenance binaries for derived-state rebuilds and
 review:
 
 ```bash
+# Drain the durable canonical resolver queue
+cargo run --bin resolverd
+
 # Rebuild canonical releases / recordings and source-to-canonical maps
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
@@ -281,6 +287,32 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 
 These do not crawl or fetch from the network. They operate on an existing local
 SQLite database.
+
+### Phase 1 Resolver Worker
+
+Phase 1 introduces a durable resolver queue for canonical derived state.
+
+- write paths now mark feeds dirty in `resolver_queue`
+- `resolverd` drains that queue incrementally
+- current inline canonical rebuilds still remain in place
+- `backfill_artist_identity` is still a separate maintenance step
+
+Run the worker with:
+
+```bash
+DB_PATH=./stophammer.db \
+RESOLVER_INTERVAL_SECS=30 \
+RESOLVER_BATCH_SIZE=25 \
+cargo run --bin resolverd
+```
+
+`resolverd` checks `resolver_state.import_active` before each batch and skips
+work when that flag is set. In phase 1 this pause flag is scaffolding for later
+bulk-import integration; the importer does not set it automatically yet.
+
+The staged plan for later phases lives in:
+
+- [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
 
 ---
 

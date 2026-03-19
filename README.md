@@ -9,6 +9,7 @@ A quality-gated V4V music index.
 - operator deployment and maintenance: [docs/operations.md](docs/operations.md)
 - HTTP API reference: [docs/API.md](docs/API.md)
 - schema and source/canonical model: [docs/schema-reference.md](docs/schema-reference.md)
+- resolver refactor plan and phases: [docs/resolver-refactor-plan.md](docs/resolver-refactor-plan.md)
 - verifier behavior: [docs/verifier-guide.md](docs/verifier-guide.md)
 - wiki-style navigation: [docs/wiki/Home.md](docs/wiki/Home.md)
 - manpages:
@@ -330,6 +331,9 @@ This repo also ships local maintenance binaries for rebuilding and reviewing
 derived state from an existing database:
 
 ```bash
+# Drain the durable canonical resolver queue
+cargo run --bin resolverd
+
 # Rebuild canonical releases / recordings and mapping tables
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
@@ -344,6 +348,12 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 ```
 
 These do not fetch from the network. They operate on an existing local DB file.
+
+`resolverd` is the phase 1 background worker for durable canonical rebuilds. It
+drains `resolver_queue` incrementally and pauses when
+`resolver_state.import_active=true`. The existing inline canonical rebuild path
+still remains in place; `resolverd` adds retryable background convergence
+without replacing it yet.
 
 Schedule with cron:
 ```
