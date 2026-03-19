@@ -14,6 +14,10 @@ Rate limiting applies to all endpoints except `/health`. When exceeded, the serv
 {"error": "rate limit exceeded"}
 ```
 
+Artist-identity review and override workflows are intentionally CLI-only for
+now. They are handled through `review_artist_identity`, not through HTTP API
+mutation endpoints.
+
 ---
 
 ## 1. Health & Info

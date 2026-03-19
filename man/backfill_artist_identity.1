@@ -11,6 +11,10 @@ backfill_artist_identity \- merge split canonical artists using strong evidence
 deterministically merges split canonical artists when strong staged source
 evidence agrees across source IDs, publisher links, websites, or release
 clusters.
+
+Stored artist-identity overrides are honored during this backfill. A durable
+do-not-merge override blocks the corresponding automatic merge, and a durable
+merge override forces the selected target artist when the target still exists.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -21,6 +25,11 @@ Path to the SQLite database. Defaults to
 Run artist identity backfill:
 .nf
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+.fi
+.TP
+Review pending artist-identity items before running a broader repair pass:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
 .fi
 .SH SEE ALSO
 .BR stophammer (1),

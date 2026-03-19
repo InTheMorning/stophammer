@@ -97,3 +97,11 @@ Full operator documentation lives in
 .I docs/operations.md
 and
 .IR docs/API.md .
+
+Resolver queue operation and artist-identity review are CLI-driven:
+
+.nf
+cargo run --bin resolverd
+cargo run --bin resolverctl -- status
+cargo run --bin review_artist_identity -- --pending-reviews --limit 20
+.fi
