@@ -399,9 +399,9 @@ RESOLVER_EMIT_CANONICAL_STATE_EVENTS=true
 ```
 
 When enabled on the primary, `resolverd` emits signed
-`canonical_feed_state_replaced` and `canonical_feed_promotions_replaced`
-events after canonical resolver work succeeds. Replicas can apply those
-feed-scoped resolved snapshots directly. This is scaffolding for the redesign in
+`canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, and
+override-backed `artist_merged` events after resolver work succeeds. Replicas
+can apply those signed resolved events directly. This is scaffolding for the redesign in
 [docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md);
 it does not retire community-side resolver work yet.
 

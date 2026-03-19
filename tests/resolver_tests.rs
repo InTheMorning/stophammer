@@ -324,6 +324,7 @@ fn resolver_batch_drains_phase1_work() {
     assert_eq!(summary.artist_candidate_groups, 0);
     assert_eq!(summary.artist_groups_processed, 0);
     assert_eq!(summary.artist_merges_applied, 0);
+    assert_eq!(summary.artist_merge_events_emitted, 0);
 
     let mut conn = pool.writer().lock().expect("writer");
     let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now()).expect("claim");
@@ -354,6 +355,7 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert_eq!(summary.artist_candidate_groups, 2);
     assert_eq!(summary.artist_groups_processed, 1);
     assert_eq!(summary.artist_merges_applied, 1);
+    assert_eq!(summary.artist_merge_events_emitted, 0);
 
     let conn = pool.writer().lock().expect("writer");
     let artist_count: i64 = conn
@@ -407,6 +409,7 @@ fn do_not_merge_override_blocks_targeted_artist_identity_merge() {
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.artist_groups_processed, 0);
     assert_eq!(summary.artist_merges_applied, 0);
+    assert_eq!(summary.artist_merge_events_emitted, 0);
 
     let conn = pool.writer().lock().expect("writer");
     let artist_count: i64 = conn
@@ -430,6 +433,41 @@ fn do_not_merge_override_blocks_targeted_artist_identity_merge() {
         }),
         "resolver should persist a blocked review item when do_not_merge is set"
     );
+}
+
+#[test]
+fn resolver_batch_emits_artist_merged_events_when_signer_present() {
+    let signer = common::temp_signer("resolver-artist-merge-events");
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_split_artist_feeds(&conn);
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-split-b",
+            stophammer::resolver::queue::DIRTY_ARTIST_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch_with_signer(&pool, "worker-a", 10, Some(&signer))
+            .expect("run batch with signer");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.artist_groups_processed, 1);
+    assert_eq!(summary.artist_merges_applied, 1);
+    assert_eq!(summary.artist_merge_events_emitted, 1);
+
+    let conn = pool.writer().lock().expect("writer");
+    let event_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'artist_merged'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist merged event count");
+    assert_eq!(event_count, 1);
 }
 
 #[test]

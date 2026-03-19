@@ -3804,10 +3804,51 @@ pub fn merge_artists_with_event(
     Ok((transferred, seq, signed_by, signature))
 }
 
+fn merge_artists_sql_with_event(
+    conn: &Connection,
+    source_artist_id: &str,
+    target_artist_id: &str,
+    signer: &NodeSigner,
+) -> Result<Event, DbError> {
+    let transferred = merge_artists_sql(conn, source_artist_id, target_artist_id)?;
+    let payload = crate::event::ArtistMergedPayload {
+        source_artist_id: source_artist_id.to_string(),
+        target_artist_id: target_artist_id.to_string(),
+        aliases_transferred: transferred,
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let created_at = unix_now();
+    let (seq, signed_by, signature) = insert_event(
+        conn,
+        &event_id,
+        &EventType::ArtistMerged,
+        &payload_json,
+        target_artist_id,
+        signer,
+        created_at,
+        &[],
+    )?;
+
+    Ok(Event {
+        event_id,
+        event_type: EventType::ArtistMerged,
+        payload: EventPayload::ArtistMerged(payload),
+        subject_guid: target_artist_id.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ArtistIdentityBackfillStats {
     pub groups_processed: usize,
     pub merges_applied: usize,
+    pub merge_events_emitted: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3816,6 +3857,7 @@ pub struct ArtistIdentityResolveStats {
     pub candidate_groups: usize,
     pub groups_processed: usize,
     pub merges_applied: usize,
+    pub merge_events_emitted: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -3901,10 +3943,12 @@ fn apply_artist_identity_groups(
     conn: &Connection,
     groups: Vec<ArtistIdentityEvidenceGroup>,
     review_feed_guid: Option<&str>,
+    signer: Option<&NodeSigner>,
 ) -> Result<ArtistIdentityBackfillStats, DbError> {
     let mut stats = ArtistIdentityBackfillStats {
         groups_processed: 0,
         merges_applied: 0,
+        merge_events_emitted: 0,
     };
     let mut active_review_keys = std::collections::BTreeSet::new();
 
@@ -3994,7 +4038,17 @@ fn apply_artist_identity_groups(
             {
                 continue;
             }
-            merge_artists_sql(conn, &source_artist_id, &target_artist_id)?;
+            if let Some(signer) = signer {
+                let _event = merge_artists_sql_with_event(
+                    conn,
+                    &source_artist_id,
+                    &target_artist_id,
+                    signer,
+                )?;
+                stats.merge_events_emitted += 1;
+            } else {
+                merge_artists_sql(conn, &source_artist_id, &target_artist_id)?;
+            }
             merges_applied += 1;
             stats.merges_applied += 1;
         }
@@ -4638,14 +4692,15 @@ pub fn backfill_artist_identity(
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
-    let stats = apply_artist_identity_groups(&tx, groups, None)?;
+    let stats = apply_artist_identity_groups(&tx, groups, None, None)?;
     tx.commit()?;
     Ok(stats)
 }
 
-pub fn resolve_artist_identity_for_feed(
+pub fn resolve_artist_identity_for_feed_with_signer(
     conn: &mut Connection,
     feed_guid: &str,
+    signer: Option<&NodeSigner>,
 ) -> Result<ArtistIdentityResolveStats, DbError> {
     let tx = conn.transaction()?;
     let seed_ids = artist_ids_for_feed_scope(&tx, feed_guid)?;
@@ -4656,19 +4711,28 @@ pub fn resolve_artist_identity_for_feed(
             candidate_groups: 0,
             groups_processed: 0,
             merges_applied: 0,
+            merge_events_emitted: 0,
         });
     }
 
     let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids)?;
     let candidate_groups = groups.len();
-    let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid))?;
+    let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid), signer)?;
     tx.commit()?;
     Ok(ArtistIdentityResolveStats {
         seed_artists: seed_ids.len(),
         candidate_groups,
         groups_processed: backfill_stats.groups_processed,
         merges_applied: backfill_stats.merges_applied,
+        merge_events_emitted: backfill_stats.merge_events_emitted,
     })
+}
+
+pub fn resolve_artist_identity_for_feed(
+    conn: &mut Connection,
+    feed_guid: &str,
+) -> Result<ArtistIdentityResolveStats, DbError> {
+    resolve_artist_identity_for_feed_with_signer(conn, feed_guid, None)
 }
 
 /// Explains the current feed-scoped artist identity plan for one feed.
