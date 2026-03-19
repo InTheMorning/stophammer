@@ -5337,6 +5337,15 @@ pub struct ResolverQueueEntry {
     pub last_error: Option<String>,
 }
 
+/// Aggregate counts for the resolver queue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolverQueueCounts {
+    pub total: i64,
+    pub ready: i64,
+    pub locked: i64,
+    pub failed: i64,
+}
+
 /// Inserts or updates a dirty-feed row in the resolver queue.
 pub fn mark_feed_dirty(conn: &Connection, feed_guid: &str, dirty_mask: i64) -> Result<(), DbError> {
     let feed_exists: Option<i64> = conn
@@ -5509,6 +5518,28 @@ pub fn resolver_import_active(conn: &Connection) -> Result<bool, DbError> {
         get_resolver_state(conn, "import_active")?.as_deref(),
         Some("1" | "true" | "yes" | "on")
     ))
+}
+
+/// Returns aggregate queue counts for operator inspection.
+pub fn get_resolver_queue_counts(conn: &Connection) -> Result<ResolverQueueCounts, DbError> {
+    conn.query_row(
+        "SELECT
+             COUNT(*),
+             SUM(CASE WHEN locked_at IS NULL THEN 1 ELSE 0 END),
+             SUM(CASE WHEN locked_at IS NOT NULL THEN 1 ELSE 0 END),
+             SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END)
+         FROM resolver_queue",
+        [],
+        |row| {
+            Ok(ResolverQueueCounts {
+                total: row.get(0)?,
+                ready: row.get(1)?,
+                locked: row.get(2)?,
+                failed: row.get(3)?,
+            })
+        },
+    )
+    .map_err(Into::into)
 }
 
 // ── Tags ─────────────────────────────────────────────────────────────────────

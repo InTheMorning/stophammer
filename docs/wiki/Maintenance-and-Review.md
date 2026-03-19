@@ -9,6 +9,7 @@ merge happened.
 The shipped maintenance binaries are:
 
 - `resolverd`
+- `resolverctl`
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
@@ -19,6 +20,14 @@ The shipped maintenance binaries are:
 
 ```bash
 cargo run --bin resolverd
+```
+
+For large imports, pause background draining first:
+
+```bash
+cargo run --bin resolverctl -- import-active
+# run import
+cargo run --bin resolverctl -- import-idle
 ```
 
 ### Rebuild canonical rows after schema or resolver changes

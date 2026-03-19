@@ -115,3 +115,32 @@ fn resolver_batch_drains_phase1_work() {
     let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now()).expect("claim");
     assert!(claimed.is_empty());
 }
+
+#[test]
+fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
+    let mut conn = common::test_db();
+    seed_feed(&conn, "feed-resolver-counts");
+
+    stophammer::resolver::queue::mark_feed_phase1_dirty(&conn, "feed-resolver-counts")
+        .expect("mark dirty");
+    let counts = db::get_resolver_queue_counts(&conn).expect("counts");
+    assert_eq!(counts.total, 1);
+    assert_eq!(counts.ready, 1);
+    assert_eq!(counts.locked, 0);
+    assert_eq!(counts.failed, 0);
+
+    let claimed = db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim");
+    assert_eq!(claimed.len(), 1);
+    let counts = db::get_resolver_queue_counts(&conn).expect("counts after claim");
+    assert_eq!(counts.total, 1);
+    assert_eq!(counts.ready, 0);
+    assert_eq!(counts.locked, 1);
+    assert_eq!(counts.failed, 0);
+
+    db::fail_dirty_feed(&conn, "feed-resolver-counts", "worker-a", "boom").expect("fail");
+    let counts = db::get_resolver_queue_counts(&conn).expect("counts after fail");
+    assert_eq!(counts.total, 1);
+    assert_eq!(counts.ready, 1);
+    assert_eq!(counts.locked, 0);
+    assert_eq!(counts.failed, 1);
+}

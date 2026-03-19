@@ -334,6 +334,11 @@ derived state from an existing database:
 # Drain the durable canonical resolver queue
 cargo run --bin resolverd
 
+# Inspect or toggle resolver pause state
+cargo run --bin resolverctl -- status
+cargo run --bin resolverctl -- import-active
+cargo run --bin resolverctl -- import-idle
+
 # Rebuild canonical releases / recordings and mapping tables
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
@@ -354,6 +359,9 @@ drains `resolver_queue` incrementally and pauses when
 `resolver_state.import_active=true`. The existing inline canonical rebuild path
 still remains in place; `resolverd` adds retryable background convergence
 without replacing it yet.
+
+Use `resolverctl import-active` before a large bulk import and
+`resolverctl import-idle` after it finishes so the queue can drain again.
 
 Schedule with cron:
 ```

@@ -272,6 +272,11 @@ review:
 # Drain the durable canonical resolver queue
 cargo run --bin resolverd
 
+# Inspect or toggle resolver pause state
+cargo run --bin resolverctl -- status
+cargo run --bin resolverctl -- import-active
+cargo run --bin resolverctl -- import-idle
+
 # Rebuild canonical releases / recordings and source-to-canonical maps
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
@@ -309,6 +314,14 @@ cargo run --bin resolverd
 `resolverd` checks `resolver_state.import_active` before each batch and skips
 work when that flag is set. In phase 1 this pause flag is scaffolding for later
 bulk-import integration; the importer does not set it automatically yet.
+
+For now, bracket large imports manually:
+
+```bash
+cargo run --bin resolverctl -- import-active
+# run bulk import
+cargo run --bin resolverctl -- import-idle
+```
 
 The staged plan for later phases lives in:
 
