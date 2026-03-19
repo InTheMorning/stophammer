@@ -11,6 +11,7 @@ pub struct ResolverBatchResult {
     pub resolved: usize,
     pub failed: usize,
     pub canonical_state_events_emitted: usize,
+    pub canonical_promotion_events_emitted: usize,
     pub artist_seed_artists: usize,
     pub artist_candidate_groups: usize,
     pub artist_groups_processed: usize,
@@ -70,6 +71,8 @@ pub fn run_batch_with_signer(
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
                 result.canonical_state_events_emitted += feed_result.canonical_state_events_emitted;
+                result.canonical_promotion_events_emitted +=
+                    feed_result.canonical_promotion_events_emitted;
                 result.artist_seed_artists += feed_result.seed_artists;
                 result.artist_candidate_groups += feed_result.candidate_groups;
                 result.artist_groups_processed += feed_result.groups_processed;
@@ -88,6 +91,7 @@ pub fn run_batch_with_signer(
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ResolveFeedResult {
     canonical_state_events_emitted: usize,
+    canonical_promotion_events_emitted: usize,
     seed_artists: usize,
     candidate_groups: usize,
     groups_processed: usize,
@@ -116,6 +120,11 @@ fn resolve_feed(
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS != 0 {
         db::sync_canonical_promotions_for_feed(conn, feed_guid)?;
+        if let Some(signer) = signer
+            && db::emit_canonical_feed_promotions_event(conn, feed_guid, signer)?.is_some()
+        {
+            result.canonical_promotion_events_emitted += 1;
+        }
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_SEARCH != 0 {
         db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
@@ -151,6 +160,7 @@ pub async fn run_forever(
                     resolved = summary.resolved,
                     failed = summary.failed,
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
+                    canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     "resolver: stale import_active heartbeat ignored"
                 );
             }
@@ -160,6 +170,7 @@ pub async fn run_forever(
                     resolved = summary.resolved,
                     failed = summary.failed,
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
+                    canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     artist_seed_artists = summary.artist_seed_artists,
                     artist_candidate_groups = summary.artist_candidate_groups,
                     artist_groups_processed = summary.artist_groups_processed,

@@ -66,7 +66,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `resolverd` queue checks. |
 | `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
 | `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
-| `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` | `false` | When truthy, `resolverd` emits signed `canonical_feed_state_replaced` events after canonical resolver work succeeds. This is phase-1 scaffolding for primary-authority resolved replication. |
+| `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` | `false` | When truthy, `resolverd` emits signed `canonical_feed_state_replaced` and `canonical_feed_promotions_replaced` events after canonical resolver work succeeds. This is phase-1/2 scaffolding for primary-authority resolved replication. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 
 ---
@@ -351,9 +351,10 @@ heartbeat goes stale, the worker logs a warning and resumes draining the queue
 so a crashed importer cannot leave resolution paused forever.
 
 If `RESOLVER_EMIT_CANONICAL_STATE_EVENTS=true`, the worker also appends signed
-`canonical_feed_state_replaced` events to the sync log after canonical resolver
-work succeeds. That starts the shift toward primary-authority resolved
-replication without removing community-side resolver fallback yet.
+`canonical_feed_state_replaced` and `canonical_feed_promotions_replaced`
+events to the sync log after canonical resolver work succeeds. That starts the
+shift toward primary-authority resolved replication without removing
+community-side resolver fallback yet.
 
 Source feed/track search rows and quality scores now converge through
 `resolverd` too. Canonical promotions, canonical release/recording rows, and

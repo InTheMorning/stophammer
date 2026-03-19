@@ -71,6 +71,83 @@ fn seed_feed_with_track(
     db::upsert_track(conn, &track).expect("track");
 }
 
+fn seed_feed_promotions_source_claims(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) {
+    let now = db::unix_now();
+    db::replace_source_entity_ids_for_feed(
+        conn,
+        feed_guid,
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: "feed".into(),
+            entity_id: feed_guid.to_string(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1resolverpromotions".into(),
+            source: "rss_guid".into(),
+            extraction_path: "feed.podcast:valueRecipient".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("source entity ids");
+    db::replace_source_entity_links_for_feed(
+        conn,
+        feed_guid,
+        &[
+            stophammer::model::SourceEntityLink {
+                id: None,
+                feed_guid: feed_guid.to_string(),
+                entity_type: "feed".into(),
+                entity_id: feed_guid.to_string(),
+                position: 0,
+                link_type: "website".into(),
+                url: "https://wavlake.com/resolver-promotions".into(),
+                source: "rss_link".into(),
+                extraction_path: "feed.link".into(),
+                observed_at: now,
+            },
+            stophammer::model::SourceEntityLink {
+                id: None,
+                feed_guid: feed_guid.to_string(),
+                entity_type: "track".into(),
+                entity_id: track_guid.to_string(),
+                position: 0,
+                link_type: "web_page".into(),
+                url: "https://wavlake.com/resolver-promotions/track".into(),
+                source: "item.link".into(),
+                extraction_path: "item.link".into(),
+                observed_at: now,
+            },
+        ],
+    )
+    .expect("source entity links");
+    db::replace_source_item_enclosures_for_feed(
+        conn,
+        feed_guid,
+        &[stophammer::model::SourceItemEnclosure {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: "track".into(),
+            entity_id: track_guid.to_string(),
+            position: 0,
+            url: format!("https://cdn.example.com/{track_guid}.mp3"),
+            mime_type: Some("audio/mpeg".into()),
+            bytes: Some(1024),
+            rel: None,
+            title: None,
+            is_primary: true,
+            source: "rss_enclosure".into(),
+            extraction_path: "item.enclosure".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("source item enclosures");
+}
+
 fn test_app_state(pool: stophammer::db_pool::DbPool) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-resolver-status-signer"));
     let pubkey = signer.pubkey_hex().to_string();
@@ -477,6 +554,227 @@ async fn canonical_feed_state_snapshot_applies_without_local_resolver() {
     assert_eq!(
         counts.total, 0,
         "canonical snapshot should clear canonical dirty work"
+    );
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end resolved snapshot application is clearer as one test flow"
+)]
+#[tokio::test]
+async fn canonical_feed_promotions_snapshot_applies_without_local_derivation() {
+    let signer = common::temp_signer("resolver-promotions-snapshot");
+    let primary = common::test_db();
+    seed_feed_with_track(
+        &primary,
+        "feed-resolver-promotions",
+        "track-resolver-promotions",
+        "Resolver Promotions Track",
+    );
+    seed_feed_promotions_source_claims(
+        &primary,
+        "feed-resolver-promotions",
+        "track-resolver-promotions",
+    );
+    db::sync_canonical_state_for_feed(&primary, "feed-resolver-promotions")
+        .expect("sync canonical state");
+    db::sync_canonical_promotions_for_feed(&primary, "feed-resolver-promotions")
+        .expect("sync canonical promotions");
+
+    let state_payload =
+        db::build_canonical_feed_state_snapshot(&primary, "feed-resolver-promotions")
+            .expect("build canonical state snapshot");
+    let promotions_payload =
+        db::build_canonical_feed_promotions_snapshot(&primary, "feed-resolver-promotions")
+            .expect("build promotions snapshot");
+    assert_eq!(promotions_payload.external_ids.len(), 1);
+    assert_eq!(promotions_payload.entity_sources.len(), 4);
+
+    let primary_feed = db::get_feed(&primary, "feed-resolver-promotions")
+        .expect("get primary feed")
+        .expect("primary feed exists");
+    let primary_artist_id = primary
+        .query_row(
+            "SELECT artist_id FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position LIMIT 1",
+            rusqlite::params![primary_feed.artist_credit_id],
+            |row| row.get::<_, String>(0),
+        )
+        .expect("primary artist id");
+    let primary_artist = db::get_artist_by_id(&primary, &primary_artist_id)
+        .expect("get primary artist")
+        .expect("primary artist exists");
+    let release_id = state_payload.release_maps[0].release_id.clone();
+    let recording_id = state_payload.recording_maps[0].recording_id.clone();
+
+    let state_payload_json =
+        serde_json::to_string(&state_payload).expect("serialize state payload");
+    let promotions_payload_json =
+        serde_json::to_string(&promotions_payload).expect("serialize promotions payload");
+    let created_at = db::unix_now();
+    let (state_signed_by, state_signature) = signer.sign_event(
+        "event-canonical-feed-state-promotions",
+        &stophammer::event::EventType::CanonicalFeedStateReplaced,
+        &state_payload_json,
+        "feed-resolver-promotions",
+        created_at,
+        1,
+    );
+    let state_event = stophammer::event::Event {
+        event_id: "event-canonical-feed-state-promotions".into(),
+        event_type: stophammer::event::EventType::CanonicalFeedStateReplaced,
+        payload: stophammer::event::EventPayload::CanonicalFeedStateReplaced(state_payload),
+        subject_guid: "feed-resolver-promotions".into(),
+        signed_by: state_signed_by,
+        signature: state_signature,
+        seq: 1,
+        created_at,
+        warnings: Vec::new(),
+        payload_json: state_payload_json,
+    };
+    let (promotions_signed_by, promotions_signature) = signer.sign_event(
+        "event-canonical-feed-promotions",
+        &stophammer::event::EventType::CanonicalFeedPromotionsReplaced,
+        &promotions_payload_json,
+        "feed-resolver-promotions",
+        created_at + 1,
+        2,
+    );
+    let promotions_event = stophammer::event::Event {
+        event_id: "event-canonical-feed-promotions".into(),
+        event_type: stophammer::event::EventType::CanonicalFeedPromotionsReplaced,
+        payload: stophammer::event::EventPayload::CanonicalFeedPromotionsReplaced(
+            promotions_payload.clone(),
+        ),
+        subject_guid: "feed-resolver-promotions".into(),
+        signed_by: promotions_signed_by,
+        signature: promotions_signature,
+        seq: 2,
+        created_at: created_at + 1,
+        warnings: Vec::new(),
+        payload_json: promotions_payload_json,
+    };
+
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        db::upsert_artist_if_absent(&conn, &primary_artist).expect("seed primary artist");
+        let replica_credit = db::create_single_artist_credit(
+            &conn,
+            &primary_artist,
+            Some("feed-resolver-promotions"),
+        )
+        .expect("create replica artist credit");
+        assert_eq!(replica_credit.id, primary_feed.artist_credit_id);
+
+        let now = db::unix_now();
+        let feed = stophammer::model::Feed {
+            feed_guid: "feed-resolver-promotions".into(),
+            feed_url: "https://example.com/feed-resolver-promotions.xml".into(),
+            title: "Feed feed-resolver-promotions".into(),
+            title_lower: "feed feed-resolver-promotions".into(),
+            artist_credit_id: replica_credit.id,
+            description: Some("resolver promotions replica feed".into()),
+            image_url: None,
+            language: Some("en".into()),
+            explicit: false,
+            itunes_type: None,
+            episode_count: 1,
+            newest_item_at: Some(now),
+            oldest_item_at: Some(now),
+            created_at: now,
+            updated_at: now,
+            raw_medium: Some("music".into()),
+        };
+        db::upsert_feed(&conn, &feed).expect("upsert replica feed");
+        let track = stophammer::model::Track {
+            track_guid: "track-resolver-promotions".into(),
+            feed_guid: "feed-resolver-promotions".into(),
+            artist_credit_id: replica_credit.id,
+            title: "Resolver Promotions Track".into(),
+            title_lower: "resolver promotions track".into(),
+            pub_date: Some(now),
+            duration_secs: Some(180),
+            enclosure_url: Some("https://cdn.example.com/track-resolver-promotions.mp3".into()),
+            enclosure_type: Some("audio/mpeg".into()),
+            enclosure_bytes: Some(1024),
+            track_number: Some(1),
+            season: None,
+            explicit: false,
+            description: Some("replica promotions track".into()),
+            created_at: now,
+            updated_at: now,
+        };
+        db::upsert_track(&conn, &track).expect("upsert replica track");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-promotions",
+            stophammer::resolver::queue::DIRTY_CANONICAL_STATE
+                | stophammer::resolver::queue::DIRTY_CANONICAL_PROMOTIONS,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::apply::apply_events(pool.clone(), vec![state_event, promotions_event], None)
+            .await;
+    assert_eq!(summary.applied, 2);
+    assert_eq!(summary.rejected, 0);
+
+    let conn = pool.writer().lock().expect("writer");
+    let external_ids =
+        db::get_external_ids(&conn, "artist", &primary_artist_id).expect("get artist external ids");
+    assert_eq!(external_ids.len(), 1);
+    assert_eq!(external_ids[0].scheme, "nostr_npub");
+    assert_eq!(external_ids[0].value, "npub1resolverpromotions");
+
+    let release_sources =
+        db::get_entity_sources(&conn, "release", &release_id).expect("get release sources");
+    assert_eq!(release_sources.len(), 2);
+    assert!(
+        release_sources
+            .iter()
+            .any(|row| row.source_type == "source_feed"
+                && row.source_url.as_deref()
+                    == Some("https://example.com/feed-resolver-promotions.xml"))
+    );
+    assert!(
+        release_sources
+            .iter()
+            .any(|row| row.source_type == "source_release_page"
+                && row.source_url.as_deref() == Some("https://wavlake.com/resolver-promotions"))
+    );
+
+    let recording_sources =
+        db::get_entity_sources(&conn, "recording", &recording_id).expect("get recording sources");
+    assert_eq!(recording_sources.len(), 2);
+    assert!(
+        recording_sources
+            .iter()
+            .any(|row| row.source_type == "source_primary_enclosure"
+                && row.source_url.as_deref()
+                    == Some("https://cdn.example.com/track-resolver-promotions.mp3"))
+    );
+    assert!(
+        recording_sources
+            .iter()
+            .any(|row| row.source_type == "source_recording_page"
+                && row.source_url.as_deref()
+                    == Some("https://wavlake.com/resolver-promotions/track"))
+    );
+
+    let resolved_external_ids =
+        db::get_resolved_external_ids_for_feed(&conn, "feed-resolver-promotions")
+            .expect("resolved external ids");
+    let resolved_sources =
+        db::get_resolved_entity_sources_for_feed(&conn, "feed-resolver-promotions")
+            .expect("resolved entity sources");
+    assert_eq!(resolved_external_ids.len(), 1);
+    assert_eq!(resolved_sources.len(), 4);
+
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(
+        counts.total, 0,
+        "promotions snapshot should clear promotions dirty work"
     );
 }
 

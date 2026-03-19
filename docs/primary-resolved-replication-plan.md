@@ -80,8 +80,10 @@ Constraints:
 Outcome:
 
 - the primary can begin emitting signed canonical-state snapshots
-- replicas can consume them deterministically without invoking canonical
-  clustering logic
+- the primary can also begin emitting signed feed-scoped promotions/provenance
+  snapshots
+- replicas can consume those resolved snapshots deterministically without
+  invoking canonical clustering or promotion derivation logic
 
 ### Phase 2: Expand resolved-state coverage
 
@@ -106,8 +108,12 @@ Status:
   and provenance replication:
   - `resolved_external_ids_by_feed`
   - `resolved_entity_sources_by_feed`
-- those tables are not the public read model; they are staging tables for
-  future primary-authored resolved-state replacement
+- those tables are not the public read model; they stage authoritative
+  primary-authored replacement
+- `resolverd` can now emit signed `canonical_feed_promotions_replaced` events
+  sourced from those overlays
+- `apply_events` can replace feed-scoped promoted external IDs and provenance
+  directly from the signed snapshot
 
 ### Phase 3: Community resolver retirement
 

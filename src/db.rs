@@ -2055,11 +2055,9 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
 
     for release_id in &affected_release_ids {
         rebuild_canonical_release(conn, release_id)?;
-        rebuild_release_sources(conn, release_id)?;
     }
     for recording_id in &affected_recording_ids {
         rebuild_canonical_recording(conn, recording_id)?;
-        rebuild_recording_sources(conn, recording_id)?;
     }
 
     cleanup_orphaned_canonical_rows(conn)?;
@@ -2276,6 +2274,73 @@ pub fn emit_canonical_feed_state_event(
     }))
 }
 
+/// Returns the primary-resolved promotions snapshot currently attributed to
+/// `feed_guid`.
+pub fn build_canonical_feed_promotions_snapshot(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<crate::event::CanonicalFeedPromotionsReplacedPayload, DbError> {
+    Ok(crate::event::CanonicalFeedPromotionsReplacedPayload {
+        feed_guid: feed_guid.to_string(),
+        external_ids: get_resolved_external_ids_for_feed(conn, feed_guid)?,
+        entity_sources: get_resolved_entity_sources_for_feed(conn, feed_guid)?,
+    })
+}
+
+/// Replaces feed-scoped promoted IDs and provenance from a primary-owned
+/// resolved snapshot.
+pub fn replace_canonical_feed_promotions_from_snapshot(
+    conn: &Connection,
+    payload: &crate::event::CanonicalFeedPromotionsReplacedPayload,
+) -> Result<(), DbError> {
+    replace_materialized_canonical_promotions_for_feed(
+        conn,
+        &payload.feed_guid,
+        &payload.external_ids,
+        &payload.entity_sources,
+    )
+}
+
+/// Emits a signed feed-scoped promotions snapshot event after primary-side
+/// resolver work has converged for `feed_guid`.
+pub fn emit_canonical_feed_promotions_event(
+    conn: &Connection,
+    feed_guid: &str,
+    signer: &NodeSigner,
+) -> Result<Option<Event>, DbError> {
+    let payload = build_canonical_feed_promotions_snapshot(conn, feed_guid)?;
+    if payload.external_ids.is_empty() && payload.entity_sources.is_empty() {
+        return Ok(None);
+    }
+
+    let payload_json = serde_json::to_string(&payload)?;
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let created_at = unix_now();
+    let (seq, signed_by, signature) = insert_event(
+        conn,
+        &event_id,
+        &EventType::CanonicalFeedPromotionsReplaced,
+        &payload_json,
+        feed_guid,
+        signer,
+        created_at,
+        &[],
+    )?;
+
+    Ok(Some(Event {
+        event_id,
+        event_type: EventType::CanonicalFeedPromotionsReplaced,
+        payload: EventPayload::CanonicalFeedPromotionsReplaced(payload),
+        subject_guid: feed_guid.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    }))
+}
+
 fn single_artist_id_for_credit(
     conn: &Connection,
     artist_credit_id: i64,
@@ -2323,61 +2388,6 @@ fn record_promoted_entity_source(
         Some(source_url),
         1,
     )?;
-    Ok(())
-}
-
-fn promote_high_confidence_artist_ids_for_feed(
-    conn: &Connection,
-    feed: &Feed,
-) -> Result<(), DbError> {
-    let Some(artist_id) = single_artist_id_for_credit(conn, feed.artist_credit_id)? else {
-        return Ok(());
-    };
-
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT value FROM source_entity_ids \
-         WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND scheme = 'nostr_npub' \
-         ORDER BY value",
-    )?;
-    let values: Vec<String> = stmt
-        .query_map(params![feed.feed_guid], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    if values.len() != 1 {
-        return Ok(());
-    }
-    let npub = &values[0];
-
-    let existing_for_artist: Option<String> = conn
-        .query_row(
-            "SELECT value FROM external_ids \
-             WHERE entity_type = 'artist' AND entity_id = ?1 AND scheme = 'nostr_npub'",
-            params![artist_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if existing_for_artist
-        .as_deref()
-        .is_some_and(|value| value != npub)
-    {
-        return Ok(());
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT entity_type, entity_id FROM external_ids \
-         WHERE scheme = 'nostr_npub' AND value = ?1 \
-         ORDER BY entity_type, entity_id",
-    )?;
-    let existing_owners: Vec<(String, String)> = stmt
-        .query_map(params![npub], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-    if existing_owners
-        .iter()
-        .any(|(entity_type, entity_id)| entity_type != "artist" || entity_id != &artist_id)
-    {
-        return Ok(());
-    }
-
-    link_external_id(conn, "artist", &artist_id, "nostr_npub", npub)?;
     Ok(())
 }
 
@@ -2522,21 +2532,15 @@ pub fn sync_canonical_promotions_for_feed(
         return Ok(());
     };
 
-    promote_high_confidence_artist_ids_for_feed(conn, &feed)?;
-    if let Some(release_id) = release_id_for_feed_map(conn, feed_guid)? {
-        rebuild_release_sources(conn, &release_id)?;
-    }
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT recording_id FROM source_item_recording_map \
-         WHERE track_guid IN (SELECT track_guid FROM tracks WHERE feed_guid = ?1) \
-         ORDER BY recording_id",
+    let external_ids = collect_high_confidence_artist_external_ids_for_feed(conn, &feed)?;
+    let mut entity_sources = collect_release_source_overlays_for_feed(conn, &feed)?;
+    entity_sources.extend(collect_recording_source_overlays_for_feed(conn, &feed)?);
+    replace_materialized_canonical_promotions_for_feed(
+        conn,
+        feed_guid,
+        &external_ids,
+        &entity_sources,
     )?;
-    let recording_ids: Vec<String> = stmt
-        .query_map(params![feed_guid], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    for recording_id in recording_ids {
-        rebuild_recording_sources(conn, &recording_id)?;
-    }
     Ok(())
 }
 
@@ -7968,6 +7972,315 @@ pub fn replace_resolved_entity_sources_for_feed(
             ],
         )?;
     }
+    Ok(())
+}
+
+const MANAGED_PROMOTED_ENTITY_SOURCE_TYPES: &[&str] = &[
+    "source_feed",
+    "source_release_page",
+    "source_recording_page",
+    "source_primary_enclosure",
+];
+
+fn collect_high_confidence_artist_external_ids_for_feed(
+    conn: &Connection,
+    feed: &Feed,
+) -> Result<Vec<ResolvedExternalIdByFeed>, DbError> {
+    let Some(artist_id) = single_artist_id_for_credit(conn, feed.artist_credit_id)? else {
+        return Ok(Vec::new());
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT value FROM source_entity_ids \
+         WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND scheme = 'nostr_npub' \
+         ORDER BY value",
+    )?;
+    let values: Vec<String> = stmt
+        .query_map(params![feed.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if values.len() != 1 {
+        return Ok(Vec::new());
+    }
+    let npub = &values[0];
+
+    let existing_for_artist: Option<String> = conn
+        .query_row(
+            "SELECT value FROM external_ids \
+             WHERE entity_type = 'artist' AND entity_id = ?1 AND scheme = 'nostr_npub'",
+            params![artist_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if existing_for_artist
+        .as_deref()
+        .is_some_and(|value| value != npub)
+    {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT entity_type, entity_id FROM external_ids \
+         WHERE scheme = 'nostr_npub' AND value = ?1 \
+         ORDER BY entity_type, entity_id",
+    )?;
+    let existing_owners: Vec<(String, String)> = stmt
+        .query_map(params![npub], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    if existing_owners
+        .iter()
+        .any(|(entity_type, entity_id)| entity_type != "artist" || entity_id != &artist_id)
+    {
+        return Ok(Vec::new());
+    }
+
+    Ok(vec![ResolvedExternalIdByFeed {
+        feed_guid: feed.feed_guid.clone(),
+        entity_type: "artist".to_string(),
+        entity_id: artist_id,
+        scheme: "nostr_npub".to_string(),
+        value: npub.clone(),
+        created_at: feed.updated_at,
+    }])
+}
+
+fn collect_release_source_overlays_for_feed(
+    conn: &Connection,
+    feed: &Feed,
+) -> Result<Vec<ResolvedEntitySourceByFeed>, DbError> {
+    let Some(release_id) = release_id_for_feed_map(conn, &feed.feed_guid)? else {
+        return Ok(Vec::new());
+    };
+
+    let mut rows = vec![ResolvedEntitySourceByFeed {
+        feed_guid: feed.feed_guid.clone(),
+        entity_type: "release".to_string(),
+        entity_id: release_id.clone(),
+        source_type: "source_feed".to_string(),
+        source_url: Some(feed.feed_url.clone()),
+        trust_level: 1,
+        created_at: feed.updated_at,
+    }];
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT url FROM source_entity_links \
+         WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND link_type = 'website' \
+         ORDER BY position, url",
+    )?;
+    let urls: Vec<String> = stmt
+        .query_map(params![feed.feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for url in urls {
+        rows.push(ResolvedEntitySourceByFeed {
+            feed_guid: feed.feed_guid.clone(),
+            entity_type: "release".to_string(),
+            entity_id: release_id.clone(),
+            source_type: "source_release_page".to_string(),
+            source_url: Some(url),
+            trust_level: 1,
+            created_at: feed.updated_at,
+        });
+    }
+    Ok(rows)
+}
+
+fn collect_recording_source_overlays_for_feed(
+    conn: &Connection,
+    feed: &Feed,
+) -> Result<Vec<ResolvedEntitySourceByFeed>, DbError> {
+    let mut rows = Vec::new();
+    let mut track_stmt = conn.prepare(
+        "SELECT t.track_guid, sirm.recording_id, t.enclosure_url
+         FROM tracks t
+         JOIN source_item_recording_map sirm ON sirm.track_guid = t.track_guid
+         WHERE t.feed_guid = ?1
+         ORDER BY t.track_guid",
+    )?;
+    let mapped_tracks: Vec<(String, String, Option<String>)> = track_stmt
+        .query_map(params![feed.feed_guid], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?;
+
+    for (track_guid, recording_id, enclosure_url) in mapped_tracks {
+        let mut enclosure_stmt = conn.prepare(
+            "SELECT DISTINCT url FROM source_item_enclosures \
+             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND is_primary = 1 \
+             ORDER BY position, url",
+        )?;
+        let enclosure_urls: Vec<String> = enclosure_stmt
+            .query_map(params![feed.feed_guid, track_guid], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        if enclosure_urls.is_empty() {
+            if let Some(url) = enclosure_url {
+                rows.push(ResolvedEntitySourceByFeed {
+                    feed_guid: feed.feed_guid.clone(),
+                    entity_type: "recording".to_string(),
+                    entity_id: recording_id.clone(),
+                    source_type: "source_primary_enclosure".to_string(),
+                    source_url: Some(url),
+                    trust_level: 1,
+                    created_at: feed.updated_at,
+                });
+            }
+        } else {
+            for url in enclosure_urls {
+                rows.push(ResolvedEntitySourceByFeed {
+                    feed_guid: feed.feed_guid.clone(),
+                    entity_type: "recording".to_string(),
+                    entity_id: recording_id.clone(),
+                    source_type: "source_primary_enclosure".to_string(),
+                    source_url: Some(url),
+                    trust_level: 1,
+                    created_at: feed.updated_at,
+                });
+            }
+        }
+
+        let mut link_stmt = conn.prepare(
+            "SELECT DISTINCT url FROM source_entity_links \
+             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND link_type = 'web_page' \
+             ORDER BY position, url",
+        )?;
+        let link_urls: Vec<String> = link_stmt
+            .query_map(params![feed.feed_guid, track_guid], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        for url in link_urls {
+            rows.push(ResolvedEntitySourceByFeed {
+                feed_guid: feed.feed_guid.clone(),
+                entity_type: "recording".to_string(),
+                entity_id: recording_id.clone(),
+                source_type: "source_recording_page".to_string(),
+                source_url: Some(url),
+                trust_level: 1,
+                created_at: feed.updated_at,
+            });
+        }
+    }
+
+    Ok(rows)
+}
+
+fn rebuild_materialized_external_ids_for_keys(
+    conn: &Connection,
+    keys: &std::collections::BTreeSet<(String, String, String)>,
+) -> Result<(), DbError> {
+    for (entity_type, entity_id, scheme) in keys {
+        conn.execute(
+            "DELETE FROM external_ids
+             WHERE entity_type = ?1 AND entity_id = ?2 AND scheme = ?3",
+            params![entity_type, entity_id, scheme],
+        )?;
+
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT value, MIN(created_at)
+             FROM resolved_external_ids_by_feed
+             WHERE entity_type = ?1 AND entity_id = ?2 AND scheme = ?3
+             GROUP BY value
+             ORDER BY value",
+        )?;
+        let rows: Vec<(String, i64)> = stmt
+            .query_map(params![entity_type, entity_id, scheme], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        for (value, created_at) in rows {
+            conn.execute(
+                "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![entity_type, entity_id, scheme, value, created_at],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn rebuild_materialized_entity_sources_for_keys(
+    conn: &Connection,
+    keys: &std::collections::BTreeSet<(String, String)>,
+) -> Result<(), DbError> {
+    for (entity_type, entity_id) in keys {
+        let source_types = MANAGED_PROMOTED_ENTITY_SOURCE_TYPES
+            .iter()
+            .map(|_| "?".to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "DELETE FROM entity_source
+             WHERE entity_type = ?1 AND entity_id = ?2
+               AND source_type IN ({source_types})"
+        );
+        let mut params_vec: Vec<rusqlite::types::Value> =
+            vec![entity_type.clone().into(), entity_id.clone().into()];
+        for source_type in MANAGED_PROMOTED_ENTITY_SOURCE_TYPES {
+            params_vec.push((*source_type).to_string().into());
+        }
+        conn.execute(&sql, rusqlite::params_from_iter(params_vec))?;
+
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT source_type, source_url, trust_level, MIN(created_at)
+             FROM resolved_entity_sources_by_feed
+             WHERE entity_type = ?1 AND entity_id = ?2
+             GROUP BY source_type, source_url, trust_level
+             ORDER BY source_type, source_url",
+        )?;
+        let rows: Vec<(String, Option<String>, i64, i64)> = stmt
+            .query_map(params![entity_type, entity_id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        for (source_type, source_url, trust_level, created_at) in rows {
+            conn.execute(
+                "INSERT INTO entity_source (entity_type, entity_id, source_type, source_url, trust_level, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    entity_type,
+                    entity_id,
+                    source_type,
+                    source_url,
+                    trust_level,
+                    created_at
+                ],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn replace_materialized_canonical_promotions_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    external_ids: &[ResolvedExternalIdByFeed],
+    entity_sources: &[ResolvedEntitySourceByFeed],
+) -> Result<(), DbError> {
+    let previous_ext = get_resolved_external_ids_for_feed(conn, feed_guid)?;
+    let previous_sources = get_resolved_entity_sources_for_feed(conn, feed_guid)?;
+
+    replace_resolved_external_ids_for_feed(conn, feed_guid, external_ids)?;
+    replace_resolved_entity_sources_for_feed(conn, feed_guid, entity_sources)?;
+
+    let mut ext_keys: std::collections::BTreeSet<(String, String, String)> = previous_ext
+        .into_iter()
+        .map(|row| (row.entity_type, row.entity_id, row.scheme))
+        .collect();
+    ext_keys.extend(external_ids.iter().map(|row| {
+        (
+            row.entity_type.clone(),
+            row.entity_id.clone(),
+            row.scheme.clone(),
+        )
+    }));
+    rebuild_materialized_external_ids_for_keys(conn, &ext_keys)?;
+
+    let mut source_keys: std::collections::BTreeSet<(String, String)> = previous_sources
+        .into_iter()
+        .map(|row| (row.entity_type, row.entity_id))
+        .collect();
+    source_keys.extend(
+        entity_sources
+            .iter()
+            .map(|row| (row.entity_type.clone(), row.entity_id.clone())),
+    );
+    rebuild_materialized_entity_sources_for_keys(conn, &source_keys)?;
     Ok(())
 }
 

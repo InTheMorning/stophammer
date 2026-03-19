@@ -50,8 +50,10 @@ loads
 .B KEY_PATH
 and emits signed
 .B canonical_feed_state_replaced
-events after canonical resolver work succeeds. This is the first phase of
-primary-authority resolved replication and is off by default.
+and
+.B canonical_feed_promotions_replaced
+events after canonical resolver work succeeds. This is the current
+primary-authority resolved replication scaffolding and is off by default.
 .SH BEHAVIOR
 Before each batch,
 .B resolverd
@@ -62,8 +64,8 @@ batch and sleeps until the next interval. If the heartbeat is stale, the worker
 logs a warning and resumes draining the queue.
 When
 .B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
-is enabled, the worker also appends signed feed-scoped canonical snapshots to
-the sync log so replicas can apply them directly.
+is enabled, the worker also appends signed feed-scoped canonical and promotion
+snapshots to the sync log so replicas can apply them directly.
 .SH EXAMPLES
 .TP
 Run the worker against the default database:
