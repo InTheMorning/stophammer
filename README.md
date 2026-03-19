@@ -365,10 +365,10 @@ These do not fetch from the network. They operate on an existing local DB file.
 `resolverd` is the background worker for durable derived-state rebuilds. It
 drains `resolver_queue` incrementally and pauses while a fresh
 `resolver_state.import_active` heartbeat is present. Stale import heartbeats
-are ignored so a crashed importer cannot wedge the queue forever. The existing
-source-facing feed/track search and quality updates still remain inline, but
-canonical release/recording state, canonical-first search, promotions, and
-targeted artist identity now converge through `resolverd`.
+are ignored so a crashed importer cannot wedge the queue forever. Source
+feed/track search, source quality scores, canonical release/recording state,
+canonical-first search, promotions, and targeted artist identity now all
+converge through `resolverd`.
 
 `resolverd` consumes preserved source facts. It does not rewrite feed rows,
 track rows, or staged source claims; those remain the authoritative extracted

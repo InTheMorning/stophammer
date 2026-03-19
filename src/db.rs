@@ -2290,9 +2290,8 @@ fn cleanup_canonical_search_entities(conn: &Connection) -> Result<(), DbError> {
 /// Updates canonical search index rows for the release/recording objects
 /// currently mapped from one feed.
 ///
-/// Search stays canonical-first at the API layer, but we keep the raw
-/// `feed`/`track` search rows for direct diagnostics and potential future
-/// source-oriented tooling.
+/// Search stays canonical-first at the API layer. Source `feed`/`track`
+/// search rows are maintained separately via [`sync_source_read_models_for_feed`].
 pub fn sync_canonical_search_index_for_feed(
     conn: &Connection,
     feed_guid: &str,
@@ -2335,6 +2334,66 @@ pub fn sync_canonical_search_index_for_feed(
                 "",
             )?;
         }
+    }
+
+    Ok(())
+}
+
+/// Rebuilds source-layer `feed`/`track` search rows and quality scores for one
+/// feed without touching canonical tables.
+pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    let Some(feed) = get_feed_by_guid(conn, feed_guid)? else {
+        return Ok(());
+    };
+
+    crate::search::populate_search_index(
+        conn,
+        "feed",
+        &feed.feed_guid,
+        "",
+        &feed.title,
+        feed.description.as_deref().unwrap_or(""),
+        feed.raw_medium.as_deref().unwrap_or(""),
+    )?;
+    let feed_score = crate::quality::compute_feed_quality(conn, &feed.feed_guid)?;
+    crate::quality::store_quality(conn, "feed", &feed.feed_guid, feed_score)?;
+
+    for track in get_tracks_for_feed(conn, feed_guid)? {
+        crate::search::populate_search_index(
+            conn,
+            "track",
+            &track.track_guid,
+            "",
+            &track.title,
+            track.description.as_deref().unwrap_or(""),
+            "",
+        )?;
+        let track_score = crate::quality::compute_track_quality(conn, &track.track_guid)?;
+        crate::quality::store_quality(conn, "track", &track.track_guid, track_score)?;
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT a.artist_id, a.name \
+         FROM artists a \
+         JOIN artist_credit_name acn ON acn.artist_id = a.artist_id \
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+         JOIN feeds f ON f.artist_credit_id = ac.id \
+         WHERE f.feed_guid = ?1 \
+         UNION \
+         SELECT DISTINCT a.artist_id, a.name \
+         FROM artists a \
+         JOIN artist_credit_name acn ON acn.artist_id = a.artist_id \
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+         JOIN tracks t ON t.artist_credit_id = ac.id \
+         WHERE t.feed_guid = ?1",
+    )?;
+    let artists: Vec<(String, String)> = stmt
+        .query_map(params![feed_guid], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    for (artist_id, artist_name) in artists {
+        crate::search::populate_search_index(conn, "artist", &artist_id, &artist_name, "", "", "")?;
+        let artist_score = crate::quality::compute_artist_quality(conn, &artist_id)?;
+        crate::quality::store_quality(conn, "artist", &artist_id, artist_score)?;
     }
 
     Ok(())
@@ -5604,6 +5663,8 @@ pub const RESOLVER_DIRTY_CANONICAL_PROMOTIONS: i64 = 1 << 1;
 pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
 /// Reserved dirty bit for incremental artist identity work.
 pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
+/// Dirty bit for source-layer search and quality read models.
+pub const RESOLVER_DIRTY_SOURCE_READ_MODELS: i64 = 1 << 4;
 
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
 const RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS: i64 = 10 * 60;
@@ -6777,71 +6838,10 @@ pub fn ingest_transaction(
         seqs.push((seq, signed_by, signature));
     }
 
-    // Issue-5 ingest atomic — 2026-03-13
-    // Issue-WRITE-AMP — 2026-03-14: only recompute search/quality for
-    // tracks that actually changed. Feed and artist are always recomputed
-    // (one entity each — negligible cost).
-    // 6. Populate search index + compute quality scores inside the same
-    //    transaction so they are atomic with the entity and event writes.
-    {
-        // Derive the set of changed tracks from event_rows to avoid
-        // redundant search/quality recomputation for unchanged tracks.
-        let changed_track_guids: std::collections::HashSet<&str> = all_event_rows
-            .iter()
-            .filter(|e| matches!(e.event_type, EventType::TrackUpserted))
-            .map(|e| e.subject_guid.as_str())
-            .collect();
-
-        // Feed search index + quality (always — single entity, negligible)
-        crate::search::populate_search_index(
-            &tx,
-            "feed",
-            &feed.feed_guid,
-            "",
-            &feed.title,
-            feed.description.as_deref().unwrap_or(""),
-            feed.raw_medium.as_deref().unwrap_or(""),
-        )?;
-        let feed_score = crate::quality::compute_feed_quality(&tx, &feed.feed_guid)?;
-        crate::quality::store_quality(&tx, "feed", &feed.feed_guid, feed_score)?;
-
-        // Artist quality + search index (always — single entity, negligible)
-        let artist_score = crate::quality::compute_artist_quality(&tx, &artist.artist_id)?;
-        crate::quality::store_quality(&tx, "artist", &artist.artist_id, artist_score)?;
-        crate::search::populate_search_index(
-            &tx,
-            "artist",
-            &artist.artist_id,
-            &artist.name,
-            "",
-            "",
-            "",
-        )?;
-
-        // Issue-WRITE-AMP — 2026-03-14: track search index + quality —
-        // only for new or changed tracks. This is where the N multiplier
-        // caused the write amplification bug.
-        for (track, _, _) in &tracks {
-            if changed_track_guids.contains(track.track_guid.as_str()) {
-                crate::search::populate_search_index(
-                    &tx,
-                    "track",
-                    &track.track_guid,
-                    "",
-                    &track.title,
-                    track.description.as_deref().unwrap_or(""),
-                    "",
-                )?;
-                let track_score = crate::quality::compute_track_quality(&tx, &track.track_guid)?;
-                crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
-            }
-        }
-    }
-
-    // Canonical release/recording state, canonical search, promotions, and
-    // targeted artist identity are now deferred to the durable resolver queue
-    // to reduce inline write amplification and keep ingest focused on source
-    // facts plus source-facing read models.
+    // Source feed/track search, quality, canonical state/search/promotions,
+    // and targeted artist identity are all deferred to the durable resolver
+    // queue. Ingest now focuses on preserving source facts and emitting the
+    // event trail that resolverd will converge from.
     crate::resolver::queue::mark_feed_dirty_for_resolver(&tx, &feed.feed_guid)?;
 
     // 7. Commit

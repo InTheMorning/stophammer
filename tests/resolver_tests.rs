@@ -430,10 +430,84 @@ async fn resolver_status_reports_queue_counts_and_boundary_contract() {
             .any(|v| v == "/v1/feeds/{guid}")
     );
     assert!(
+        body["source_layer"]["immediate_endpoints"]
+            .as_array()
+            .expect("immediate endpoints")
+            .iter()
+            .all(|v| v != "/v1/search?type=feed")
+    );
+    assert!(
         body["resolver"]["resolver_backed_endpoints"]
             .as_array()
             .expect("resolver-backed endpoints")
             .iter()
             .any(|v| v == "/v1/releases/{id}")
+    );
+    assert!(
+        body["resolver"]["resolver_backed_endpoints"]
+            .as_array()
+            .expect("resolver-backed endpoints")
+            .iter()
+            .any(|v| v == "/v1/search?type=feed")
+    );
+}
+
+#[tokio::test]
+async fn source_feed_search_appears_only_after_resolver_batch() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-search");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-search")
+            .expect("mark dirty");
+    }
+
+    let app = stophammer::api::build_readonly_router(test_app_state(pool.clone()));
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=resolver&type=feed")
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response before resolver");
+    assert_eq!(resp.status(), 200);
+    let bytes = resp.into_body().collect().await.expect("body").to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+    assert_eq!(
+        body["data"].as_array().expect("data before resolver").len(),
+        0,
+        "feed search should stay empty until resolver writes source read models"
+    );
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=resolver&type=feed")
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response after resolver");
+    assert_eq!(resp.status(), 200);
+    let bytes = resp.into_body().collect().await.expect("body").to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+    assert!(
+        body["data"]
+            .as_array()
+            .expect("data after resolver")
+            .iter()
+            .any(|row| row["entity_type"] == "feed" && row["entity_id"] == "feed-resolver-search"),
+        "feed search should appear after resolver writes source read models"
     );
 }

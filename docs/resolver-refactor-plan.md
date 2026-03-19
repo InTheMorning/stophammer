@@ -144,8 +144,8 @@ Status:
 
 - inline canonical promotions, canonical release/recording state, and canonical
   search have all been moved off the ingest/apply path
-- source-facing feed/track rows and their source-derived search data still
-  remain inline for immediate diagnostics
+- direct source feed/track rows still remain inline, but source feed/track
+  search and quality are resolver-backed derived state too
 - later phase-4 slices can trim more inline rebuild work once operators are
   comfortable relying on `resolverd` for convergence
 

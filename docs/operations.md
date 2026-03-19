@@ -322,12 +322,13 @@ while `resolver_state.import_active=true` and the heartbeat is fresh. If that
 heartbeat goes stale, the worker logs a warning and resumes draining the queue
 so a crashed importer cannot leave resolution paused forever.
 
-Canonical promotions and promoted artist IDs now converge through
-`resolverd`. Canonical release/recording rows and canonical search rows also
-converge through the queue now, so canonical APIs can lag until `resolverd`
-has drained the backlog. Source-facing feed/track rows still update inline and
-remain the preserved RSS layer. Resolver work is derived-state only; it does
-not rewrite the preserved source feed/track rows or staged source-claim tables.
+Source feed/track search rows and quality scores now converge through
+`resolverd` too. Canonical promotions, canonical release/recording rows, and
+canonical search rows all converge through the queue, so those read models can
+lag until `resolverd` has drained the backlog. Direct source feed/track rows
+still update inline and remain the preserved RSS layer. Resolver work is
+derived-state only; it does not rewrite the preserved source feed/track rows
+or staged source-claim tables.
 
 To inspect backlog and the read-model boundary over HTTP:
 

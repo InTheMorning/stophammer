@@ -113,22 +113,10 @@ fn apply_single_event_inner(
             // Ensure artist credit exists before upserting feed
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
             db::upsert_feed(conn, &p.feed)?;
-            // Canonical release/recording state and promotions now converge
-            // through the durable resolver queue instead of adding more inline
-            // write amplification here.
+            // Feed/track source search+quality and all canonical/enriched
+            // views now converge through the durable resolver queue instead
+            // of adding more inline write amplification here.
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed.feed_guid)?;
-            // Recompute feed quality + search index
-            let score = crate::quality::compute_feed_quality(conn, &p.feed.feed_guid)?;
-            crate::quality::store_quality(conn, "feed", &p.feed.feed_guid, score)?;
-            crate::search::populate_search_index(
-                conn,
-                "feed",
-                &p.feed.feed_guid,
-                "",
-                &p.feed.title,
-                p.feed.description.as_deref().unwrap_or(""),
-                p.feed.raw_medium.as_deref().unwrap_or(""),
-            )?;
         }
         event::EventPayload::TrackUpserted(p) => {
             // Ensure artist credit exists before upserting track
@@ -137,33 +125,19 @@ fn apply_single_event_inner(
             db::replace_payment_routes(conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(conn, &p.track.track_guid, &p.value_time_splits)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.track.feed_guid)?;
-            // Recompute track quality + search index
-            let score = crate::quality::compute_track_quality(conn, &p.track.track_guid)?;
-            crate::quality::store_quality(conn, "track", &p.track.track_guid, score)?;
-            crate::search::populate_search_index(
-                conn,
-                "track",
-                &p.track.track_guid,
-                "",
-                &p.track.title,
-                p.track.description.as_deref().unwrap_or(""),
-                "",
-            )?;
         }
         event::EventPayload::RoutesReplaced(p) => {
             db::replace_payment_routes(conn, &p.track_guid, &p.routes)?;
-            // Recompute track quality (routes affect score)
-            let score = crate::quality::compute_track_quality(conn, &p.track_guid)?;
-            crate::quality::store_quality(conn, "track", &p.track_guid, score)?;
+            if let Some(track) = db::get_track_by_guid(conn, &p.track_guid)? {
+                crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &track.feed_guid)?;
+            }
         }
         event::EventPayload::ArtistCreditCreated(p) => {
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
         }
         event::EventPayload::FeedRoutesReplaced(p) => {
             db::replace_feed_payment_routes(conn, &p.feed_guid, &p.routes)?;
-            // Recompute feed quality (routes affect score)
-            let score = crate::quality::compute_feed_quality(conn, &p.feed_guid)?;
-            crate::quality::store_quality(conn, "feed", &p.feed_guid, score)?;
+            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::FeedRemoteItemsReplaced(p) => {
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;

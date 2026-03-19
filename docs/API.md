@@ -74,9 +74,7 @@ drained `resolver_queue`.
     "immediate_endpoints": [
       "/v1/feeds/{guid}",
       "/v1/tracks/{guid}",
-      "/v1/feeds/recent",
-      "/v1/search?type=feed",
-      "/v1/search?type=track"
+      "/v1/feeds/recent"
     ]
   },
   "resolver": {
@@ -92,6 +90,8 @@ drained `resolver_queue`.
     },
     "resolver_backed_endpoints": [
       "/v1/search",
+      "/v1/search?type=feed",
+      "/v1/search?type=track",
       "/v1/recent",
       "/v1/artists/{id}",
       "/v1/releases/{id}",
@@ -1093,10 +1093,9 @@ Source `feed` and `track` rows remain directly readable by ID and can still be
 requested explicitly with `type=feed` or `type=track`, but they are no longer
 the default public search surface.
 
-Default canonical-first search is resolver-backed. Fresh ingests may not
-appear under `artist`, `release`, or `recording` search until `resolverd`
-has drained the queue. Source `feed`/`track` search remains the immediate
-diagnostic path.
+All search surfaces are resolver-backed now. Fresh ingests may not appear
+under `artist`, `release`, `recording`, `feed`, or `track` search until
+`resolverd` has drained the queue for the touched feeds.
 
 - **Authentication:** None
 

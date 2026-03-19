@@ -2914,8 +2914,6 @@ async fn handle_resolver_status(
                     "/v1/feeds/{guid}",
                     "/v1/tracks/{guid}",
                     "/v1/feeds/recent",
-                    "/v1/search?type=feed",
-                    "/v1/search?type=track",
                 ],
             },
             resolver: ResolverDerivedLayerStatus {
@@ -2931,6 +2929,8 @@ async fn handle_resolver_status(
                 },
                 resolver_backed_endpoints: vec![
                     "/v1/search",
+                    "/v1/search?type=feed",
+                    "/v1/search?type=track",
                     "/v1/recent",
                     "/v1/artists/{id}",
                     "/v1/artists/{id}/resolution",
