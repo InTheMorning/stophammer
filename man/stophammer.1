@@ -1,0 +1,99 @@
+.TH STOPHAMMER 1 "2026-03-18" "stophammer" "User Commands"
+.SH NAME
+stophammer \- quality-gated V4V music index node
+.SH SYNOPSIS
+.B stophammer
+.SH DESCRIPTION
+.B stophammer
+starts either a primary node or a community node depending on the
+.B NODE_MODE
+environment variable.
+
+The binary is environment-driven. It does not currently take command-line
+flags for normal operation.
+.SH MODES
+.TP
+.B primary
+Accepts crawler ingest, runs the verifier chain, stores accepted data, signs
+events, and serves the full API.
+.TP
+.B community
+Registers with a primary, receives or polls signed events, verifies them, and
+serves a read-only API.
+.SH IMPORTANT ENVIRONMENT
+.TP
+.B NODE_MODE
+Either
+.B primary
+or
+.BR community .
+Defaults to
+.BR primary .
+.TP
+.B DB_PATH
+SQLite database path. Defaults to
+.BR ./stophammer.db .
+.TP
+.B KEY_PATH
+Ed25519 signing key path. Defaults to
+.BR ./signing.key .
+.TP
+.B BIND
+Bind address. Defaults to
+.BR 0.0.0.0:8008 .
+.TP
+.B CRAWL_TOKEN
+Required on primary nodes.
+.TP
+.B SYNC_TOKEN
+Required for sync endpoints and community replication.
+.TP
+.B ADMIN_TOKEN
+Optional token for admin endpoints.
+.TP
+.B PRIMARY_URL
+Required in community mode.
+.TP
+.B NODE_ADDRESS
+Required in community mode. Public URL of the node, ending conceptually in the
+community push endpoint at
+.BR /sync/push .
+.SH FILES
+.TP
+.I stophammer.db
+Default SQLite database.
+.TP
+.I signing.key
+Default signing key file.
+.SH EXAMPLES
+.TP
+Run a local primary:
+.nf
+DB_PATH=./stophammer.db \\
+KEY_PATH=./signing.key \\
+CRAWL_TOKEN=change-me \\
+SYNC_TOKEN=change-me \\
+BIND=127.0.0.1:8008 \\
+./target/release/stophammer
+.fi
+.TP
+Run a local community:
+.nf
+NODE_MODE=community \\
+DB_PATH=./stophammer.db \\
+KEY_PATH=./signing.key \\
+PRIMARY_URL=http://127.0.0.1:8008 \\
+NODE_ADDRESS=http://127.0.0.1:8010 \\
+SYNC_TOKEN=change-me \\
+BIND=127.0.0.1:8010 \\
+./target/release/stophammer
+.fi
+.SH SEE ALSO
+.BR backfill_canonical (1),
+.BR backfill_artist_identity (1),
+.BR review_artist_identity (1)
+
+Full operator documentation lives in
+.I docs/operations.md
+and
+.IR docs/API.md .

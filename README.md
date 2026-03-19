@@ -2,6 +2,21 @@
 
 A quality-gated V4V music index.
 
+## Documentation
+
+- quick start and architecture: this README
+- narrative introduction: [docs/user-guide.md](docs/user-guide.md)
+- operator deployment and maintenance: [docs/operations.md](docs/operations.md)
+- HTTP API reference: [docs/API.md](docs/API.md)
+- schema and source/canonical model: [docs/schema-reference.md](docs/schema-reference.md)
+- verifier behavior: [docs/verifier-guide.md](docs/verifier-guide.md)
+- wiki-style navigation: [docs/wiki/Home.md](docs/wiki/Home.md)
+- manpages:
+  - [man/stophammer.1](man/stophammer.1)
+  - [man/backfill_canonical.1](man/backfill_canonical.1)
+  - [man/backfill_artist_identity.1](man/backfill_artist_identity.1)
+  - [man/review_artist_identity.1](man/review_artist_identity.1)
+
 ## Ecosystem
 
 | Repository | Description |

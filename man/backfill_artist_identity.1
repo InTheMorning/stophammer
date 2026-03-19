@@ -1,0 +1,28 @@
+.TH BACKFILL_ARTIST_IDENTITY 1 "2026-03-18" "stophammer" "User Commands"
+.SH NAME
+backfill_artist_identity \- merge split canonical artists using strong evidence
+.SH SYNOPSIS
+.B backfill_artist_identity
+[
+.BI --db " PATH"
+]
+.SH DESCRIPTION
+.B backfill_artist_identity
+deterministically merges split canonical artists when strong staged source
+evidence agrees across source IDs, publisher links, websites, or release
+clusters.
+.SH OPTIONS
+.TP
+.BI --db " PATH"
+Path to the SQLite database. Defaults to
+.BR ./stophammer.db .
+.SH EXAMPLES
+.TP
+Run artist identity backfill:
+.nf
+cargo run --bin backfill_artist_identity -- --db ./stophammer.db
+.fi
+.SH SEE ALSO
+.BR stophammer (1),
+.BR backfill_canonical (1),
+.BR review_artist_identity (1)

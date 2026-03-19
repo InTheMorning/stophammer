@@ -1,0 +1,37 @@
+.TH BACKFILL_CANONICAL 1 "2026-03-18" "stophammer" "User Commands"
+.SH NAME
+backfill_canonical \- rebuild canonical release and recording rows
+.SH SYNOPSIS
+.B backfill_canonical
+[
+.BI --db " PATH"
+] [
+.BI --limit " N"
+]
+.SH DESCRIPTION
+.B backfill_canonical
+rebuilds canonical release and recording rows, canonical promotions, and the
+canonical search index for feeds already stored in the SQLite database.
+.SH OPTIONS
+.TP
+.BI --db " PATH"
+Path to the SQLite database. Defaults to
+.BR ./stophammer.db .
+.TP
+.BI --limit " N"
+Limit the number of feeds processed, ordered by creation time and feed GUID.
+.SH EXAMPLES
+.TP
+Backfill the whole database:
+.nf
+cargo run --bin backfill_canonical -- --db ./stophammer.db
+.fi
+.TP
+Backfill only the first 100 feeds:
+.nf
+cargo run --bin backfill_canonical -- --db ./stophammer.db --limit 100
+.fi
+.SH SEE ALSO
+.BR stophammer (1),
+.BR backfill_artist_identity (1),
+.BR review_artist_identity (1)
