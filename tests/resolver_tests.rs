@@ -164,6 +164,8 @@ fn resolver_batch_drains_phase1_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert_eq!(summary.artist_seed_artists, 1);
+    assert_eq!(summary.artist_candidate_groups, 0);
     assert_eq!(summary.artist_groups_processed, 0);
     assert_eq!(summary.artist_merges_applied, 0);
 
@@ -191,6 +193,8 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert_eq!(summary.claimed, 1);
     assert_eq!(summary.resolved, 1);
     assert_eq!(summary.failed, 0);
+    assert_eq!(summary.artist_seed_artists, 1);
+    assert_eq!(summary.artist_candidate_groups, 2);
     assert_eq!(summary.artist_groups_processed, 1);
     assert_eq!(summary.artist_merges_applied, 1);
 

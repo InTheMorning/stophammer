@@ -9,6 +9,8 @@ pub struct ResolverBatchResult {
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
+    pub artist_seed_artists: usize,
+    pub artist_candidate_groups: usize,
     pub artist_groups_processed: usize,
     pub artist_merges_applied: usize,
 }
@@ -46,8 +48,10 @@ pub fn run_batch(
             Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
-                result.artist_groups_processed += feed_result.artist_groups_processed;
-                result.artist_merges_applied += feed_result.artist_merges_applied;
+                result.artist_seed_artists += feed_result.seed_artists;
+                result.artist_candidate_groups += feed_result.candidate_groups;
+                result.artist_groups_processed += feed_result.groups_processed;
+                result.artist_merges_applied += feed_result.merges_applied;
             }
             Err(err) => {
                 db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())?;
@@ -61,8 +65,10 @@ pub fn run_batch(
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ResolveFeedResult {
-    artist_groups_processed: usize,
-    artist_merges_applied: usize,
+    seed_artists: usize,
+    candidate_groups: usize,
+    groups_processed: usize,
+    merges_applied: usize,
 }
 
 fn resolve_feed(
@@ -82,8 +88,10 @@ fn resolve_feed(
     }
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
         let stats = db::resolve_artist_identity_for_feed(conn, feed_guid)?;
-        result.artist_groups_processed = stats.groups_processed;
-        result.artist_merges_applied = stats.merges_applied;
+        result.seed_artists = stats.seed_artists;
+        result.candidate_groups = stats.candidate_groups;
+        result.groups_processed = stats.groups_processed;
+        result.merges_applied = stats.merges_applied;
     }
     Ok(result)
 }
@@ -107,6 +115,8 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    artist_seed_artists = summary.artist_seed_artists,
+                    artist_candidate_groups = summary.artist_candidate_groups,
                     artist_groups_processed = summary.artist_groups_processed,
                     artist_merges_applied = summary.artist_merges_applied,
                     "resolver: completed batch"

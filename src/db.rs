@@ -3478,6 +3478,14 @@ pub struct ArtistIdentityBackfillStats {
     pub merges_applied: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ArtistIdentityResolveStats {
+    pub seed_artists: usize,
+    pub candidate_groups: usize,
+    pub groups_processed: usize,
+    pub merges_applied: usize,
+}
+
 fn apply_artist_identity_groups(
     conn: &Connection,
     groups: Vec<std::collections::BTreeSet<String>>,
@@ -3562,6 +3570,44 @@ fn filter_artist_groups_for_seed_ids(
         }
     }
     Ok(filtered)
+}
+
+fn collect_artist_identity_groups_for_seed_ids(
+    conn: &Connection,
+    seed_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+    let mut groups = Vec::new();
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_npub(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_publisher_guid(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_website(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_normalized_website(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_release_cluster(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_anchored_name(conn)?,
+        seed_ids,
+    )?);
+    Ok(groups)
 }
 
 fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String>, DbError> {
@@ -3912,52 +3958,29 @@ pub fn backfill_artist_identity(
 pub fn resolve_artist_identity_for_feed(
     conn: &mut Connection,
     feed_guid: &str,
-) -> Result<ArtistIdentityBackfillStats, DbError> {
+) -> Result<ArtistIdentityResolveStats, DbError> {
     let tx = conn.transaction()?;
     let seed_ids = artist_ids_for_feed_scope(&tx, feed_guid)?;
     if seed_ids.is_empty() {
         tx.commit()?;
-        return Ok(ArtistIdentityBackfillStats {
+        return Ok(ArtistIdentityResolveStats {
+            seed_artists: 0,
+            candidate_groups: 0,
             groups_processed: 0,
             merges_applied: 0,
         });
     }
 
-    let mut groups = Vec::new();
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_npub(&tx)?,
-        &seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_publisher_guid(&tx)?,
-        &seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_website(&tx)?,
-        &seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_normalized_website(&tx)?,
-        &seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_release_cluster(&tx)?,
-        &seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        &tx,
-        collect_artist_groups_by_anchored_name(&tx)?,
-        &seed_ids,
-    )?);
-
-    let stats = apply_artist_identity_groups(&tx, groups)?;
+    let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids)?;
+    let candidate_groups = groups.len();
+    let backfill_stats = apply_artist_identity_groups(&tx, groups)?;
     tx.commit()?;
-    Ok(stats)
+    Ok(ArtistIdentityResolveStats {
+        seed_artists: seed_ids.len(),
+        candidate_groups,
+        groups_processed: backfill_stats.groups_processed,
+        merges_applied: backfill_stats.merges_applied,
+    })
 }
 
 // ── get_feed_by_guid ────────────────────────────────────────────────────────

@@ -156,6 +156,8 @@ Phase 2 has started in a narrow form:
 - `resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
 - the implementation reuses the existing deterministic merge heuristics from
   `backfill_artist_identity`
+- resolver batch output now reports seed-artist and candidate-group counts so
+  feed-scoped work is visible before the queue model becomes artist-group-based
 
 What Phase 2 does not do yet:
 

@@ -765,6 +765,9 @@ fn targeted_artist_identity_resolver_merges_split_artists_by_website() {
 
     let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-focus-b")
         .expect("targeted feed identity");
+    assert_eq!(stats.seed_artists, 1);
+    assert_eq!(stats.candidate_groups, 2);
+    assert_eq!(stats.groups_processed, 1);
     assert_eq!(stats.merges_applied, 1);
 
     let artist_count: i64 = conn
