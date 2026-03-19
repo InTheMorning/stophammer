@@ -239,7 +239,7 @@ If you want community nodes to reject events signed by any key other than the
 known primary (stronger trust model):
 
 ```bash
-PRIMARY_PUBKEY=0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2
+PRIMARY_PUBKEY=<primary-node-pubkey-from-/node/info>
 ```
 
 Without this, the pubkey is auto-discovered from `/node/info` at startup.
