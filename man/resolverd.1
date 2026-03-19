@@ -13,7 +13,10 @@ rebuilds canonical release and recording state, canonical promotions, and the
 canonical search index, runs targeted artist identity cleanup, then marks those
 feeds complete.
 
-The existing inline canonical rebuild path remains in place.
+Inline canonical release/recording state and canonical search rebuilds still
+remain in place for now, but canonical promotions are now expected to converge
+through
+.BR resolverd .
 .B resolverd
 adds retryable background convergence; it does not replace inline sync yet.
 .SH IMPORTANT ENVIRONMENT

@@ -323,6 +323,11 @@ while `resolver_state.import_active=true` and the heartbeat is fresh. If that
 heartbeat goes stale, the worker logs a warning and resumes draining the queue
 so a crashed importer cannot leave resolution paused forever.
 
+Canonical promotions and promoted artist IDs now converge through
+`resolverd`. Canonical release/recording rows and canonical search rows still
+have inline rebuild coverage for now, but promotion rows like `entity_source`
+can lag until the queue drains.
+
 You can bracket large imports manually:
 
 ```bash

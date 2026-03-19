@@ -515,6 +515,18 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
     )
     .expect("ingest transaction");
 
+    let queued_feed_guid: String = conn
+        .query_row(
+            "SELECT feed_guid FROM resolver_queue WHERE feed_guid = ?1",
+            params![feed.feed_guid.clone()],
+            |row| row.get(0),
+        )
+        .expect("resolver queue entry");
+    assert_eq!(queued_feed_guid, feed.feed_guid);
+
+    stophammer::db::sync_canonical_promotions_for_feed(&conn, &feed.feed_guid)
+        .expect("sync canonical promotions");
+
     let artist_npub: String = conn
         .query_row(
             "SELECT value FROM external_ids \

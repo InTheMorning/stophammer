@@ -1313,6 +1313,11 @@ fn apply_source_entity_ids_replaced() {
     assert_eq!(stored.0, "nostr_npub");
     assert_eq!(stored.1, "npub1example");
 
+    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
+        .expect("run resolver batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+
     let promoted_value: String = {
         let conn = db.lock().expect("lock after apply");
         conn.query_row(

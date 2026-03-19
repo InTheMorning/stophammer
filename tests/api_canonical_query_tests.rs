@@ -157,6 +157,13 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("ingest");
     assert_eq!(ingest_resp.status(), 200);
 
+    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
+    let resolver_summary =
+        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
+            .expect("run resolver batch");
+    assert_eq!(resolver_summary.claimed, 1);
+    assert_eq!(resolver_summary.resolved, 1);
+
     let (release_id, recording_id, artist_id) = {
         let conn = db.lock().expect("lock db");
         let release_id: String = conn

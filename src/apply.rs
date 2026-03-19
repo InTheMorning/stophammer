@@ -114,7 +114,8 @@ fn apply_single_event_inner(
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
             db::upsert_feed(conn, &p.feed)?;
             db::sync_canonical_state_for_feed(conn, &p.feed.feed_guid)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.feed.feed_guid)?;
+            // Canonical promotions now converge through the durable resolver
+            // queue instead of adding more inline write amplification here.
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed.feed_guid)?;
             // Recompute feed quality + search index
             let score = crate::quality::compute_feed_quality(conn, &p.feed.feed_guid)?;
@@ -136,7 +137,6 @@ fn apply_single_event_inner(
             db::replace_payment_routes(conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(conn, &p.track.track_guid, &p.value_time_splits)?;
             db::sync_canonical_state_for_feed(conn, &p.track.feed_guid)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.track.feed_guid)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.track.feed_guid)?;
             // Recompute track quality + search index
             let score = crate::quality::compute_track_quality(conn, &p.track.track_guid)?;
@@ -179,12 +179,10 @@ fn apply_single_event_inner(
         }
         event::EventPayload::SourceEntityIdsReplaced(p) => {
             db::replace_source_entity_ids_for_feed(conn, &p.feed_guid, &p.claims)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.feed_guid)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceEntityLinksReplaced(p) => {
             db::replace_source_entity_links_for_feed(conn, &p.feed_guid, &p.links)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.feed_guid)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceReleaseClaimsReplaced(p) => {
@@ -193,7 +191,6 @@ fn apply_single_event_inner(
         }
         event::EventPayload::SourceItemEnclosuresReplaced(p) => {
             db::replace_source_item_enclosures_for_feed(conn, &p.feed_guid, &p.enclosures)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.feed_guid)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourcePlatformClaimsReplaced(p) => {
@@ -251,7 +248,6 @@ fn apply_single_event_inner(
                 db::delete_track_sql(conn, &p.track_guid)?;
             }
             db::sync_canonical_state_for_feed(conn, &p.feed_guid)?;
-            db::sync_canonical_promotions_for_feed(conn, &p.feed_guid)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::ArtistMerged(p) => {

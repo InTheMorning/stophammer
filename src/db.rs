@@ -6743,7 +6743,6 @@ pub fn ingest_transaction(
     // 4c. Rebuild deterministic canonical release/recording state from the
     // final post-ingest feed/track rows before committing.
     sync_canonical_state_for_feed(&tx, &feed.feed_guid)?;
-    sync_canonical_promotions_for_feed(&tx, &feed.feed_guid)?;
 
     // 5. Insert events, collect seqs, sign with assigned seq, update signatures
     // Issue-SEQ-INTEGRITY — 2026-03-14
@@ -6845,6 +6844,8 @@ pub fn ingest_transaction(
         sync_canonical_search_index_for_feed(&tx, &feed.feed_guid)?;
     }
 
+    // Canonical promotions and targeted artist identity are now deferred to
+    // the durable resolver queue to reduce inline write amplification.
     crate::resolver::queue::mark_feed_dirty_for_resolver(&tx, &feed.feed_guid)?;
 
     // 7. Commit

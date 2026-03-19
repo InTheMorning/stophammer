@@ -133,6 +133,14 @@ Scope:
 
 This is deliberately later because it changes steady-state write behavior.
 
+Status:
+
+- started with canonical promotions moved off the inline ingest/apply path
+- inline canonical release/recording state and canonical search still remain
+  for immediate queryability
+- later phase-4 slices can trim more inline rebuild work once operators are
+  comfortable relying on `resolverd` for convergence
+
 ### Phase 5: Review and override tooling
 
 Scope:
