@@ -374,6 +374,16 @@ targeted artist identity now converge through `resolverd`.
 track rows, or staged source claims; those remain the authoritative extracted
 RSS layer.
 
+To see whether canonical views are caught up, query:
+
+```bash
+curl http://127.0.0.1:8008/v1/resolver/status
+```
+
+That endpoint reports resolver queue counts, import-pause heartbeat state, and
+which API surfaces are immediate source-layer reads versus resolver-backed
+canonical views.
+
 Use `resolverctl import-active` before a large bulk import and
 `resolverctl import-idle` after it finishes so the queue can drain again. When
 the crawler importer runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`, it

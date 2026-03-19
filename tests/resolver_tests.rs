@@ -1,6 +1,12 @@
 mod common;
 
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
+use http::Request;
+use http_body_util::BodyExt;
 use stophammer::db;
+use tower::ServiceExt;
 
 fn seed_feed(conn: &rusqlite::Connection, feed_guid: &str) {
     let artist = db::resolve_artist(conn, "Resolver Artist", Some(feed_guid)).expect("artist");
@@ -31,6 +37,23 @@ fn seed_feed(conn: &rusqlite::Connection, feed_guid: &str) {
         raw_medium: Some("music".into()),
     };
     db::upsert_feed(conn, &feed).expect("feed");
+}
+
+fn test_app_state(pool: stophammer::db_pool::DbPool) -> Arc<stophammer::api::AppState> {
+    let signer = Arc::new(common::temp_signer("test-resolver-status-signer"));
+    let pubkey = signer.pubkey_hex().to_string();
+    Arc::new(stophammer::api::AppState {
+        db: pool,
+        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        signer,
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: Some("test-sync-token".into()),
+        push_client: reqwest::Client::new(),
+        push_subscribers: Arc::new(RwLock::new(HashMap::new())),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        skip_ssrf_validation: true,
+    })
 }
 
 fn seed_split_artist_feeds(conn: &rusqlite::Connection) {
@@ -363,4 +386,54 @@ fn resolver_batch_preserves_source_feed_track_and_claim_rows() {
             .expect("source links after resolver");
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].url, "https://artist.example.com/preserve");
+}
+
+#[tokio::test]
+async fn resolver_status_reports_queue_counts_and_boundary_contract() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-status");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-status")
+            .expect("mark dirty");
+        db::set_resolver_import_active(&conn, true).expect("set import state");
+    }
+
+    let app = stophammer::api::build_readonly_router(test_app_state(pool));
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/resolver/status")
+                .body(axum::body::Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+
+    assert_eq!(resp.status(), 200);
+    let bytes = resp.into_body().collect().await.expect("body").to_bytes();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json body");
+
+    assert_eq!(body["api_version"], "v1");
+    assert_eq!(body["source_layer"]["authoritative"], true);
+    assert_eq!(body["source_layer"]["preserved"], true);
+    assert_eq!(body["resolver"]["import_active"], true);
+    assert_eq!(body["resolver"]["caught_up"], false);
+    assert_eq!(body["resolver"]["queue"]["total"], 1);
+    assert_eq!(body["resolver"]["queue"]["ready"], 1);
+    assert!(
+        body["source_layer"]["immediate_endpoints"]
+            .as_array()
+            .expect("immediate endpoints")
+            .iter()
+            .any(|v| v == "/v1/feeds/{guid}")
+    );
+    assert!(
+        body["resolver"]["resolver_backed_endpoints"]
+            .as_array()
+            .expect("resolver-backed endpoints")
+            .iter()
+            .any(|v| v == "/v1/releases/{id}")
+    );
 }

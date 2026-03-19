@@ -205,6 +205,21 @@ recordings, promoted `external_ids`, `entity_source`, `/v1/search` default
 results, or `/v1/recent`, run `resolverd` or wait for it to drain the queue
 first.
 
+You can check that backlog directly:
+
+```bash
+curl http://127.0.0.1:8008/v1/resolver/status
+```
+
+Look at:
+
+- `resolver.caught_up`
+- `resolver.queue.total`
+- `resolver.queue.failed`
+
+That endpoint also tells you which API surfaces are immediate source-layer
+reads and which are resolver-backed canonical views.
+
 The original feed/track data and staged source claims remain the preserved RSS
 layer. `resolverd` enriches canonical views on top of that data; it does not
 replace the source rows.

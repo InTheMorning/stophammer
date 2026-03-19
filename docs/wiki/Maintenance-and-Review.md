@@ -35,6 +35,15 @@ it performs this bracketing automatically and refreshes the import heartbeat.
 `resolverd` will ignore stale heartbeats and resume work if an importer dies
 without clearing the pause state.
 
+To inspect whether canonical views are caught up:
+
+```bash
+curl http://127.0.0.1:8008/v1/resolver/status
+```
+
+That endpoint reports queue backlog, import pause heartbeat state, and which
+HTTP endpoints are immediate source-layer reads versus resolver-backed.
+
 ### Rebuild canonical rows after schema or resolver changes
 
 ```bash

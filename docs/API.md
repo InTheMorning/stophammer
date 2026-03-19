@@ -46,6 +46,67 @@ Returns this node's ed25519 public key.
 
 ---
 
+### GET /v1/resolver/status
+
+Returns resolver queue status and explicitly documents the source-vs-canonical
+read boundary for this node.
+
+- **Authentication:** None
+- **Available on:** Primary and community nodes
+
+This endpoint is the quickest way to answer two operator questions:
+
+- are canonical/enriched views caught up yet?
+- which API surfaces are immediate source-layer reads versus resolver-backed?
+
+Resolver-backed canonical endpoints may lag fresh ingest until `resolverd` has
+drained `resolver_queue`.
+
+- **Response:**
+
+```json
+{
+  "api_version": "v1",
+  "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2",
+  "source_layer": {
+    "authoritative": true,
+    "preserved": true,
+    "immediate_endpoints": [
+      "/v1/feeds/{guid}",
+      "/v1/tracks/{guid}",
+      "/v1/feeds/recent",
+      "/v1/search?type=feed",
+      "/v1/search?type=track"
+    ]
+  },
+  "resolver": {
+    "caught_up": false,
+    "import_active": false,
+    "import_stale": false,
+    "import_heartbeat_at": 1773883813,
+    "queue": {
+      "total": 12,
+      "ready": 12,
+      "locked": 0,
+      "failed": 0
+    },
+    "resolver_backed_endpoints": [
+      "/v1/search",
+      "/v1/recent",
+      "/v1/artists/{id}",
+      "/v1/releases/{id}",
+      "/v1/recordings/{id}"
+    ]
+  }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+---
+
 ## 2. Ingest
 
 ### POST /ingest/feed

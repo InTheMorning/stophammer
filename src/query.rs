@@ -2811,6 +2811,39 @@ struct CapabilitiesResponse {
     include_params: HashMap<&'static str, Vec<&'static str>>,
 }
 
+#[derive(Debug, Serialize)]
+struct ResolverSourceLayerStatus {
+    authoritative: bool,
+    preserved: bool,
+    immediate_endpoints: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+struct ResolverQueueStatus {
+    total: i64,
+    ready: i64,
+    locked: i64,
+    failed: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct ResolverDerivedLayerStatus {
+    caught_up: bool,
+    import_active: bool,
+    import_stale: bool,
+    import_heartbeat_at: Option<i64>,
+    queue: ResolverQueueStatus,
+    resolver_backed_endpoints: Vec<&'static str>,
+}
+
+#[derive(Debug, Serialize)]
+struct ResolverStatusResponse {
+    api_version: &'static str,
+    node_pubkey: String,
+    source_layer: ResolverSourceLayerStatus,
+    resolver: ResolverDerivedLayerStatus,
+}
+
 async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl IntoResponse {
     let mut include_params = HashMap::new();
     include_params.insert(
@@ -2855,6 +2888,70 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         entity_types: vec!["artist", "feed", "track", "release", "recording"],
         include_params,
     })
+}
+
+// ── GET /v1/resolver/status ────────────────────────────────────────────────
+
+async fn handle_resolver_status(
+    State(state): State<Arc<api::AppState>>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let counts = db::get_resolver_queue_counts(&conn)?;
+        let import_state = db::resolver_import_state(&conn)?;
+        Ok::<_, api::ApiError>(ResolverStatusResponse {
+            api_version: "v1",
+            node_pubkey: state2.node_pubkey_hex.clone(),
+            source_layer: ResolverSourceLayerStatus {
+                authoritative: true,
+                preserved: true,
+                immediate_endpoints: vec![
+                    "/v1/feeds/{guid}",
+                    "/v1/tracks/{guid}",
+                    "/v1/feeds/recent",
+                    "/v1/search?type=feed",
+                    "/v1/search?type=track",
+                ],
+            },
+            resolver: ResolverDerivedLayerStatus {
+                caught_up: counts.total == 0 && !import_state.active,
+                import_active: import_state.active,
+                import_stale: import_state.stale,
+                import_heartbeat_at: import_state.heartbeat_at,
+                queue: ResolverQueueStatus {
+                    total: counts.total,
+                    ready: counts.ready,
+                    locked: counts.locked,
+                    failed: counts.failed,
+                },
+                resolver_backed_endpoints: vec![
+                    "/v1/search",
+                    "/v1/recent",
+                    "/v1/artists/{id}",
+                    "/v1/artists/{id}/resolution",
+                    "/v1/artists/{id}/releases",
+                    "/v1/releases/{id}",
+                    "/v1/releases/{id}/resolution",
+                    "/v1/releases/{id}/sources",
+                    "/v1/recordings/{id}",
+                    "/v1/recordings/{id}/resolution",
+                    "/v1/recordings/{id}/sources",
+                ],
+            },
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+    Ok(Json(result))
 }
 
 // ── GET /v1/peers ───────────────────────────────────────────────────────────
@@ -2927,5 +3024,6 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/recent", get(handle_get_recent))
         .route("/v1/search", get(handle_search))
         .route("/v1/node/capabilities", get(handle_capabilities))
+        .route("/v1/resolver/status", get(handle_resolver_status))
         .route("/v1/peers", get(handle_get_peers))
 }

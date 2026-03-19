@@ -305,7 +305,6 @@ A durable resolver queue now handles deferred derived-state work.
 
 - write paths now mark feeds dirty in `resolver_queue`
 - `resolverd` drains that queue incrementally
-- current inline canonical rebuilds still remain in place
 - queued work includes targeted artist identity cleanup for touched feeds
 - `backfill_artist_identity` still exists for whole-db repair passes
 
@@ -324,11 +323,25 @@ heartbeat goes stale, the worker logs a warning and resumes draining the queue
 so a crashed importer cannot leave resolution paused forever.
 
 Canonical promotions and promoted artist IDs now converge through
-`resolverd`. Canonical release/recording rows and canonical search rows still
-can lag until the queue drains. Source-facing feed/track rows still update
-inline, but canonical APIs now depend on `resolverd` having drained the queue.
-Resolver work is derived-state only; it does not rewrite the preserved source
-feed/track rows or staged source-claim tables.
+`resolverd`. Canonical release/recording rows and canonical search rows also
+converge through the queue now, so canonical APIs can lag until `resolverd`
+has drained the backlog. Source-facing feed/track rows still update inline and
+remain the preserved RSS layer. Resolver work is derived-state only; it does
+not rewrite the preserved source feed/track rows or staged source-claim tables.
+
+To inspect backlog and the read-model boundary over HTTP:
+
+```bash
+curl http://127.0.0.1:8008/v1/resolver/status
+```
+
+That response shows:
+
+- whether canonical views are caught up (`resolver.caught_up`)
+- whether a bulk import pause heartbeat is active or stale
+- queue totals (`ready`, `locked`, `failed`)
+- which API endpoints are immediate source-layer reads versus resolver-backed
+  canonical views
 
 You can bracket large imports manually:
 
