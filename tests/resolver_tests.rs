@@ -458,6 +458,7 @@ fn resolver_batch_emits_artist_merged_events_when_signer_present() {
     assert_eq!(summary.artist_groups_processed, 1);
     assert_eq!(summary.artist_merges_applied, 1);
     assert_eq!(summary.artist_merge_events_emitted, 1);
+    assert_eq!(summary.artist_identity_events_emitted, 1);
 
     let conn = pool.writer().lock().expect("writer");
     let event_count: i64 = conn
@@ -468,6 +469,14 @@ fn resolver_batch_emits_artist_merged_events_when_signer_present() {
         )
         .expect("artist merged event count");
     assert_eq!(event_count, 1);
+    let resolved_event_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'artist_identity_feed_resolved'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist identity resolved event count");
+    assert_eq!(resolved_event_count, 1);
 }
 
 #[test]
@@ -814,6 +823,62 @@ async fn canonical_feed_promotions_snapshot_applies_without_local_derivation() {
         counts.total, 0,
         "promotions snapshot should clear promotions dirty work"
     );
+}
+
+#[tokio::test]
+async fn artist_identity_feed_resolved_event_clears_dirty_bit_without_local_resolution() {
+    let signer = common::temp_signer("resolver-artist-identity-resolved");
+    let payload = stophammer::event::ArtistIdentityFeedResolvedPayload {
+        feed_guid: "feed-resolver-identity-complete".into(),
+        seed_artists: 1,
+        candidate_groups: 0,
+        groups_processed: 0,
+        merges_applied: 0,
+        pending_reviews: 0,
+        blocked_reviews: 0,
+    };
+    let payload_json = serde_json::to_string(&payload).expect("serialize payload");
+    let created_at = db::unix_now();
+    let (signed_by, signature) = signer.sign_event(
+        "event-artist-identity-feed-resolved",
+        &stophammer::event::EventType::ArtistIdentityFeedResolved,
+        &payload_json,
+        "feed-resolver-identity-complete",
+        created_at,
+        1,
+    );
+    let event = stophammer::event::Event {
+        event_id: "event-artist-identity-feed-resolved".into(),
+        event_type: stophammer::event::EventType::ArtistIdentityFeedResolved,
+        payload: stophammer::event::EventPayload::ArtistIdentityFeedResolved(payload),
+        subject_guid: "feed-resolver-identity-complete".into(),
+        signed_by,
+        signature,
+        seq: 1,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    };
+
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-identity-complete");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-identity-complete",
+            stophammer::resolver::queue::DIRTY_ARTIST_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary = stophammer::apply::apply_events(pool.clone(), vec![event], None).await;
+    assert_eq!(summary.applied, 1);
+    assert_eq!(summary.rejected, 0);
+
+    let conn = pool.writer().lock().expect("writer");
+    let claimed = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(claimed.total, 0);
 }
 
 #[test]

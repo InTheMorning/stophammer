@@ -13,6 +13,7 @@ pub struct ResolverBatchResult {
     pub canonical_state_events_emitted: usize,
     pub canonical_promotion_events_emitted: usize,
     pub artist_merge_events_emitted: usize,
+    pub artist_identity_events_emitted: usize,
     pub artist_seed_artists: usize,
     pub artist_candidate_groups: usize,
     pub artist_groups_processed: usize,
@@ -75,6 +76,7 @@ pub fn run_batch_with_signer(
                 result.canonical_promotion_events_emitted +=
                     feed_result.canonical_promotion_events_emitted;
                 result.artist_merge_events_emitted += feed_result.artist_merge_events_emitted;
+                result.artist_identity_events_emitted += feed_result.artist_identity_events_emitted;
                 result.artist_seed_artists += feed_result.seed_artists;
                 result.artist_candidate_groups += feed_result.candidate_groups;
                 result.artist_groups_processed += feed_result.groups_processed;
@@ -95,6 +97,7 @@ struct ResolveFeedResult {
     canonical_state_events_emitted: usize,
     canonical_promotion_events_emitted: usize,
     artist_merge_events_emitted: usize,
+    artist_identity_events_emitted: usize,
     seed_artists: usize,
     candidate_groups: usize,
     groups_processed: usize,
@@ -135,6 +138,11 @@ fn resolve_feed(
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
         let stats = db::resolve_artist_identity_for_feed_with_signer(conn, feed_guid, signer)?;
         result.artist_merge_events_emitted = stats.merge_events_emitted;
+        if let Some(signer) = signer {
+            let _event =
+                db::emit_artist_identity_feed_resolved_event(conn, feed_guid, &stats, signer)?;
+            result.artist_identity_events_emitted += 1;
+        }
         result.seed_artists = stats.seed_artists;
         result.candidate_groups = stats.candidate_groups;
         result.groups_processed = stats.groups_processed;
@@ -166,6 +174,7 @@ pub async fn run_forever(
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     artist_merge_events_emitted = summary.artist_merge_events_emitted,
+                    artist_identity_events_emitted = summary.artist_identity_events_emitted,
                     "resolver: stale import_active heartbeat ignored"
                 );
             }
@@ -177,6 +186,7 @@ pub async fn run_forever(
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     artist_merge_events_emitted = summary.artist_merge_events_emitted,
+                    artist_identity_events_emitted = summary.artist_identity_events_emitted,
                     artist_seed_artists = summary.artist_seed_artists,
                     artist_candidate_groups = summary.artist_candidate_groups,
                     artist_groups_processed = summary.artist_groups_processed,

@@ -186,6 +186,13 @@ fn apply_single_event_inner(
                 crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS,
             )?;
         }
+        event::EventPayload::ArtistIdentityFeedResolved(p) => {
+            db::clear_feed_dirty_bits(
+                conn,
+                &p.feed_guid,
+                crate::resolver::queue::DIRTY_ARTIST_IDENTITY,
+            )?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

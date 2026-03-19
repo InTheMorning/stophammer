@@ -114,6 +114,8 @@ Status:
   sourced from those overlays
 - `apply_events` can replace feed-scoped promoted external IDs and provenance
   directly from the signed snapshot
+- `resolverd` can now emit signed `artist_identity_feed_resolved` events so
+  replicas can clear feed-scoped artist-identity work without local heuristics
 - override-backed artist identity merges can now be emitted as signed
   `artist_merged` events during primary resolver batches
 
