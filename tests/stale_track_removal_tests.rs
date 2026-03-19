@@ -158,8 +158,7 @@ fn ingest_feed_with_tracks(
 #[test]
 fn reingest_removes_stale_track() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/stale-track-test-1.key")
-        .expect("signer");
+    let signer = common::temp_signer("stale-track-test-1");
 
     // First ingest: 3 tracks
     let _ = ingest_feed_with_tracks(
@@ -239,8 +238,7 @@ fn reingest_removes_stale_track() {
 #[test]
 fn reingest_removes_all_tracks() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/stale-track-test-2.key")
-        .expect("signer");
+    let signer = common::temp_signer("stale-track-test-2");
 
     // First ingest: 3 tracks
     let _ = ingest_feed_with_tracks(
@@ -307,8 +305,7 @@ fn reingest_removes_all_tracks() {
 #[test]
 fn reingest_same_tracks_no_removals() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/stale-track-test-3.key")
-        .expect("signer");
+    let signer = common::temp_signer("stale-track-test-3");
 
     // First ingest: 2 tracks
     let _ = ingest_feed_with_tracks(&mut conn, "feed-stale-3", &["track-g", "track-h"], &signer);
@@ -361,8 +358,7 @@ fn reingest_same_tracks_no_removals() {
 #[test]
 fn reingest_cleans_up_child_rows() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/stale-track-test-4.key")
-        .expect("signer");
+    let signer = common::temp_signer("stale-track-test-4");
 
     // First ingest: 2 tracks
     let _ = ingest_feed_with_tracks(&mut conn, "feed-stale-4", &["track-i", "track-j"], &signer);

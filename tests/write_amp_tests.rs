@@ -212,8 +212,7 @@ fn ingest_and_count_track_events(
 #[test]
 fn reingest_unchanged_tracks_emits_zero_track_events() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-1.key")
-        .expect("signer");
+    let signer = common::temp_signer("write-amp-test-1");
 
     let feed = TestFeed::default();
     let tracks = [
@@ -254,8 +253,7 @@ fn reingest_unchanged_tracks_emits_zero_track_events() {
 #[test]
 fn reingest_one_changed_track_emits_one_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-2.key")
-        .expect("signer");
+    let signer = common::temp_signer("write-amp-test-2");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-2",
@@ -309,8 +307,7 @@ fn reingest_one_changed_track_emits_one_event() {
 #[test]
 fn reingest_one_new_track_emits_one_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-3.key")
-        .expect("signer");
+    let signer = common::temp_signer("write-amp-test-3");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-3",
@@ -360,8 +357,7 @@ fn reingest_one_new_track_emits_one_event() {
 #[test]
 fn reingest_unchanged_feed_emits_no_feed_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-4.key")
-        .expect("signer");
+    let signer = common::temp_signer("write-amp-test-4");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-4",
@@ -408,8 +404,7 @@ fn reingest_unchanged_feed_emits_no_feed_event() {
 #[test]
 fn reingest_changed_feed_title_emits_feed_event() {
     let mut conn = common::test_db();
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/write-amp-test-5.key")
-        .expect("signer");
+    let signer = common::temp_signer("write-amp-test-5");
 
     let feed = TestFeed {
         feed_guid: "feed-wa-5",

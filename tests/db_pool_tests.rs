@@ -84,7 +84,7 @@ fn readers_proceed_while_writer_locked() {
     }
 }
 
-/// Verifies that reader connections cannot write (PRAGMA query_only=ON).
+/// Verifies that reader connections cannot write (PRAGMA `query_only=ON`).
 #[test]
 fn reader_connections_are_read_only() {
     let (pool, _dir) = common::test_db_pool();

@@ -147,6 +147,10 @@ impl SyncAuth {
 /// # Panics
 ///
 /// Panics if the `reqwest::Client` cannot be built (TLS backend unavailable).
+#[allow(
+    clippy::too_many_lines,
+    reason = "community sync keeps startup, registration, cursor bootstrap, and poll loop together"
+)]
 pub async fn run_community_sync(
     config: CommunityConfig,
     db: db_pool::DbPool,

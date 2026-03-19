@@ -76,9 +76,7 @@ fn insert_feed(
 }
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-avail-signer.key").unwrap(),
-    );
+    let signer = Arc::new(common::temp_signer("test-avail-signer"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -86,7 +84,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -103,7 +101,7 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<ax
         .unwrap()
 }
 
-// Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires sync/admin auth.
+// Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires dedicated sync auth.
 fn json_request_authed(
     method: &str,
     uri: &str,
@@ -113,7 +111,7 @@ fn json_request_authed(
         .method(method)
         .uri(uri)
         .header("Content-Type", "application/json")
-        .header("X-Admin-Token", "test-admin-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap()
 }
@@ -205,10 +203,17 @@ async fn proof_challenge_replaces_existing_pending_for_same_feed() {
         .await
         .unwrap();
 
-    assert_eq!(second.status(), 201, "fresh challenge should replace prior pending one");
+    assert_eq!(
+        second.status(),
+        201,
+        "fresh challenge should replace prior pending one"
+    );
     let second_body = body_json(second).await;
     let second_id = second_body["challenge_id"].as_str().unwrap().to_string();
-    assert_ne!(first_id, second_id, "replacement should mint a new challenge");
+    assert_ne!(
+        first_id, second_id,
+        "replacement should mint a new challenge"
+    );
 
     let conn = db.lock().unwrap();
     let pending_count: i64 = conn
@@ -227,7 +232,10 @@ async fn proof_challenge_replaces_existing_pending_for_same_feed() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(first_state, "invalid", "older pending challenge should be invalidated");
+    assert_eq!(
+        first_state, "invalid",
+        "older pending challenge should be invalidated"
+    );
 }
 
 // Challenges for different feed_guids should not interfere with each other.

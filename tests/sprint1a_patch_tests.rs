@@ -20,10 +20,7 @@ use tower::ServiceExt;
 // ---------------------------------------------------------------------------
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sprint1a.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-sprint1a"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

@@ -84,7 +84,7 @@ pub struct IngestContext<'a> {
     /// **Read-only** database connection (reader pool, `query_only = ON`).
     ///
     /// Verifiers may query prior state (e.g. crawl cache) but must NOT attempt
-    /// writes — they will fail at the SQLite level.
+    /// writes — they will fail at the `SQLite` level.
     pub db: &'a Connection,
     /// The feed row already stored for this URL, if one exists.
     ///
@@ -117,7 +117,7 @@ pub enum VerifyResult {
 /// Verifiers receive a **read-only** database connection through
 /// [`IngestContext::db`]. The connection has `PRAGMA query_only = ON` enforced
 /// at the pool level, so any attempt to execute a write statement will return
-/// a SQLite error. This is intentional:
+/// a `SQLite` error. This is intentional:
 ///
 /// - Verification is an *inspection* step — it decides whether a mutation is
 ///   allowed but must not perform mutations itself.
@@ -151,7 +151,7 @@ pub trait Verifier: Send + Sync {
     /// Run this check against `ctx` and return the outcome.
     ///
     /// `ctx.db` is a **read-only** connection (`PRAGMA query_only = ON`).
-    /// Attempting a write will fail at the SQLite level.
+    /// Attempting a write will fail at the `SQLite` level.
     fn verify(&self, ctx: &IngestContext) -> VerifyResult;
 }
 
@@ -438,13 +438,13 @@ mod tests {
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
         unsafe {
-            std::env::set_var("VERIFIER_CHAIN", ",")
+            std::env::set_var("VERIFIER_CHAIN", ",");
         };
         let spec = ChainSpec::from_env();
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
         unsafe {
-            std::env::remove_var("VERIFIER_CHAIN")
+            std::env::remove_var("VERIFIER_CHAIN");
         };
         let default_names: Vec<String> = ChainSpec::DEFAULT
             .split(',')
@@ -462,13 +462,13 @@ mod tests {
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
         unsafe {
-            std::env::set_var("VERIFIER_CHAIN", " , , ")
+            std::env::set_var("VERIFIER_CHAIN", " , , ");
         };
         let spec = ChainSpec::from_env();
         #[expect(unsafe_code, reason = "env var manipulation in single-threaded test")]
         // SAFETY: test is single-threaded; no concurrent env reads
         unsafe {
-            std::env::remove_var("VERIFIER_CHAIN")
+            std::env::remove_var("VERIFIER_CHAIN");
         };
         assert!(
             !spec.names.is_empty(),

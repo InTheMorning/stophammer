@@ -127,10 +127,7 @@ fn test_app_state_inner(
     db: Arc<Mutex<rusqlite::Connection>>,
     skip_ssrf: bool,
 ) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-security-auth-v2"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -158,7 +155,8 @@ async fn signed_register_body_for_mock_peer(
         .mount(&mock_server)
         .await;
 
-    let body = common::signed_sync_register_body(signer, &format!("{}/sync/push", mock_server.uri()));
+    let body =
+        common::signed_sync_register_body(signer, &format!("{}/sync/push", mock_server.uri()));
     (mock_server, body)
 }
 
@@ -890,19 +888,13 @@ async fn v2_cs03_sync_register_requires_sync_token() {
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-register.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-security-auth-v2-register");
     let (_peer_server, register_body) = signed_register_body_for_mock_peer(&signer).await;
 
     // Without admin token
     let resp = app
         .clone()
-        .oneshot(json_request(
-            "POST",
-            "/sync/register",
-            &register_body,
-        ))
+        .oneshot(json_request("POST", "/sync/register", &register_body))
         .await
         .unwrap();
     assert_eq!(
@@ -974,9 +966,7 @@ async fn v2_cs03_admin_token_cannot_register_push_peer() {
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-security-auth-v2-blast.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-security-auth-v2-blast");
     let (_peer_server, register_body) = signed_register_body_for_mock_peer(&signer).await;
 
     // With leaked admin token: cannot register push peer
@@ -1352,7 +1342,11 @@ async fn v2_challenge_flooding_replaced_for_same_feed() {
         ))
         .await
         .unwrap();
-    assert_eq!(second.status(), 201, "fresh challenge should replace prior pending one");
+    assert_eq!(
+        second.status(),
+        201,
+        "fresh challenge should replace prior pending one"
+    );
 
     let conn = db.lock().unwrap();
     let pending_count: i64 = conn
@@ -1371,5 +1365,8 @@ async fn v2_challenge_flooding_replaced_for_same_feed() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(first_state, "invalid", "older challenge should be invalidated");
+    assert_eq!(
+        first_state, "invalid",
+        "older challenge should be invalidated"
+    );
 }

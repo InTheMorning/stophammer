@@ -94,10 +94,7 @@ fn insert_track(
 }
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-auth-atomicity.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-auth-atomicity"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

@@ -34,7 +34,7 @@ async fn test_community_poll_handles_empty_response() {
 
     // Build a community config pointing at the mock primary.
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
@@ -48,10 +48,7 @@ async fn test_community_poll_handles_empty_response() {
     // Run the sync loop in a background task; it should not panic.
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/tc03-community-sync.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("tc03-community-sync"));
 
     // Also mount tracker and primary register mocks so they don't fail the test.
     Mock::given(method("POST"))
@@ -118,7 +115,7 @@ async fn test_community_poll_handles_503_gracefully() {
         .await;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
@@ -131,10 +128,7 @@ async fn test_community_poll_handles_503_gracefully() {
 
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/tc03-community-sync-503.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("tc03-community-sync-503"));
 
     // The sync loop should log the error and keep going, not panic.
     let handle = tokio::spawn(async move {
@@ -166,7 +160,7 @@ async fn test_community_push_handler_rejects_wrong_signer() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let primary_pubkey = "aaaa1111bbbb2222cccc3333dddd4444eeee5555ffff6666aaaa1111bbbb2222";
 
     let state = Arc::new(stophammer::community::CommunityState {
@@ -255,11 +249,10 @@ async fn test_community_push_handler_accepts_valid_events() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
 
     // Create a real signer so we can produce valid signatures.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-tc03-signer.key")
-        .expect("create signer");
+    let signer = common::temp_signer("test-tc03-signer");
     let primary_pubkey = signer.pubkey_hex().to_string();
     let now = stophammer::db::unix_now();
 

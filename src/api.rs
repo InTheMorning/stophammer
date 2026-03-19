@@ -82,6 +82,12 @@ pub struct SseFrame {
     pub seq: i64,
 }
 
+type IngestBlockingOutput = (
+    ingest::IngestResponse,
+    Vec<event::Event>,
+    Vec<(String, SseFrame)>,
+);
+
 /// Registry managing per-artist broadcast channels and ring buffers for SSE.
 // CRIT-03 Debug — 2026-03-13
 pub struct SseRegistry {
@@ -332,6 +338,15 @@ fn live_sse_payload(
     })
 }
 
+/// Build SSE frames describing live-event start/end transitions for a feed.
+///
+/// This diffs the old and new live-event snapshots and associates ended live
+/// events with their promoted `TrackUpserted` events when possible.
+///
+/// # Errors
+///
+/// Returns `DbError` if the helper queries needed to resolve artist channels
+/// or promoted-track mappings fail.
 pub fn build_live_sse_frames_for_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
@@ -530,7 +545,7 @@ const SYNC_REGISTER_MAX_SKEW_SECS: i64 = 600;
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct AppState {
-    /// SQLite WAL connection pool (writer singleton + reader pool).
+    /// `SQLite` WAL connection pool (writer singleton + reader pool).
     // Issue-WAL-POOL — 2026-03-14
     pub db: db_pool::DbPool,
     /// Ordered chain of verifiers that must all pass before an ingest is accepted.
@@ -595,7 +610,7 @@ fn normalize_role(role: Option<&str>) -> Option<String> {
 
     Some(
         role.split_whitespace()
-            .map(|part| part.to_ascii_lowercase())
+            .map(str::to_ascii_lowercase)
             .collect::<Vec<_>>()
             .join(" "),
     )
@@ -919,7 +934,7 @@ fn build_source_item_enclosures(
             feed_guid: feed_guid.to_string(),
             entity_type: entity_type.to_string(),
             entity_id: entity_id.to_string(),
-            position: out.len() as i64,
+            position: i64::try_from(out.len()).unwrap_or(i64::MAX),
             url: url.to_string(),
             mime_type: enclosure.mime_type.clone(),
             bytes: enclosure.bytes,
@@ -1049,6 +1064,10 @@ fn classify_platform_owner(owner_name: &str) -> Option<&'static str> {
     }
 }
 
+#[allow(
+    clippy::too_many_arguments,
+    reason = "claim builder mirrors the stored source-claim columns"
+)]
 fn push_source_release_claim(
     claims: &mut Vec<model::SourceReleaseClaim>,
     feed_guid: &str,
@@ -1168,7 +1187,7 @@ where
 }
 
 /// Runs a blocking closure with the **writer** connection (shared reference)
-/// on a `spawn_blocking` task. Uses the single writer mutex — SQLite allows
+/// on a `spawn_blocking` task. Uses the single writer mutex — `SQLite` allows
 /// only one concurrent writer.
 ///
 /// Use this for handlers that write via `&Connection` (e.g. `INSERT`,
@@ -1202,7 +1221,7 @@ where
 }
 
 /// Runs a blocking closure with the **writer** connection (exclusive reference)
-/// on a `spawn_blocking` task. Uses the single writer mutex — SQLite allows
+/// on a `spawn_blocking` task. Uses the single writer mutex — `SQLite` allows
 /// only one concurrent writer.
 ///
 /// Use this for handlers that need `&mut Connection` (e.g. transactions).
@@ -1331,193 +1350,406 @@ async fn handle_ingest_feed(
 ) -> Result<Json<ingest::IngestResponse>, ApiError> {
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
-    let result = tokio::task::spawn_blocking(
-        move || -> Result<(ingest::IngestResponse, Vec<event::Event>, Vec<(String, SseFrame)>), ApiError> {
-            // Issue-VERIFY-READER — 2026-03-16
-            // Phase 1: verify against a READ-ONLY connection (reader pool).
-            // This avoids holding the writer mutex during verification, so
-            // non-trivial verifiers never block the global write path.
-            let warnings = {
-                let reader = state2.db.reader().map_err(|e| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("reader pool error: {e}"),
-                    www_authenticate: None,
-                })?;
-
-                // 1. Get existing feed (read-only)
-                let existing = db::get_existing_feed(&*reader, &req.canonical_url)?;
-
-                // 2. Build verify context and run chain against reader
-                let ctx = verify::IngestContext {
-                    request: &req,
-                    db: &*reader, // Issue-VERIFY-READER — ReadConn derefs to Connection
-                    existing: existing.as_ref(),
-                };
-
-                match state2.chain.run(&ctx) {
-                    Err(ref e) if e.0 == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
-                        return Ok((
-                            ingest::IngestResponse {
-                                accepted: true,
-                                no_change: true,
-                                reason: None,
-                                events_emitted: vec![],
-                                warnings: vec![],
-                            },
-                            vec![],
-                            vec![],
-                        ));
-                    }
-                    Err(e) => {
-                        return Ok((
-                            ingest::IngestResponse {
-                                accepted: false,
-                                no_change: false,
-                                reason: Some(e.0),
-                                events_emitted: vec![],
-                                warnings: vec![],
-                            },
-                            vec![],
-                            vec![],
-                        ));
-                    }
-                    Ok(w) => w,
-                }
-            };
-            // reader is dropped here — writer lock is never contested by verification
-
-            // Phase 2: mutate — acquire writer lock only after verification passed.
-            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+    let result = tokio::task::spawn_blocking(move || -> Result<IngestBlockingOutput, ApiError> {
+        // Issue-VERIFY-READER — 2026-03-16
+        // Phase 1: verify against a READ-ONLY connection (reader pool).
+        // This avoids holding the writer mutex during verification, so
+        // non-trivial verifiers never block the global write path.
+        let warnings = {
+            let reader = state2.db.reader().map_err(|e| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "database mutex poisoned".into(),
+                message: format!("reader pool error: {e}"),
                 www_authenticate: None,
             })?;
 
-            // 3. Unwrap feed_data
-            let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "feed_data is required for successful ingest".into(),
-                www_authenticate: None,
-            })?;
+            // 1. Get existing feed (read-only)
+            let existing = db::get_existing_feed(&reader, &req.canonical_url)?;
 
-            // 3b. Enforce track count limit to prevent DB growth attacks.
-            if feed_data.tracks.len() > MAX_TRACKS_PER_INGEST {
-                return Err(ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: format!(
-                        "feed contains {} tracks, maximum is {MAX_TRACKS_PER_INGEST}",
-                        feed_data.tracks.len()
-                    ),
-                    www_authenticate: None,
-                });
+            // 2. Build verify context and run chain against reader
+            let ctx = verify::IngestContext {
+                request: &req,
+                db: &reader, // Issue-VERIFY-READER — ReadConn derefs to Connection
+                existing: existing.as_ref(),
+            };
+
+            match state2.chain.run(&ctx) {
+                Err(ref e) if e.0 == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: true,
+                            no_change: true,
+                            reason: None,
+                            events_emitted: vec![],
+                            warnings: vec![],
+                        },
+                        vec![],
+                        vec![],
+                    ));
+                }
+                Err(e) => {
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some(e.0),
+                            events_emitted: vec![],
+                            warnings: vec![],
+                        },
+                        vec![],
+                        vec![],
+                    ));
+                }
+                Ok(w) => w,
             }
+        };
+        // reader is dropped here — writer lock is never contested by verification
 
-            // 4. Build feed-scoped source claims needed for identity resolution.
-            let now = db::unix_now();
-            let feed_guid_str = feed_data.feed_guid.as_str();
-            let feed_remote_items: Vec<model::FeedRemoteItemRaw> = feed_data
-                .remote_items
-                .iter()
-                .map(|item| model::FeedRemoteItemRaw {
-                    id: None,
-                    feed_guid: feed_data.feed_guid.clone(),
-                    position: item.position,
-                    medium: item.medium.clone(),
-                    remote_feed_guid: item.remote_feed_guid.clone(),
-                    remote_feed_url: item.remote_feed_url.clone(),
-                    source: "podcast_remote_item".to_string(),
-                })
-                .collect();
-            let mut source_entity_ids = build_source_entity_id_claims(
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                &feed_data.entity_ids,
-                now,
-            );
-            let mut source_entity_links = build_source_entity_links(
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                &feed_data.links,
-                now,
-            );
+        // Phase 2: mutate — acquire writer lock only after verification passed.
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
 
-            // 5. Resolve artist from high-confidence source claims before the
-            // legacy feed-scoped alias fallback.
-            let artist_name = derive_feed_artist_name(&feed_data);
-            let feed_artist = db::resolve_feed_artist_from_source_claims(
-                &conn,
-                &artist_name,
-                feed_guid_str,
-                &source_entity_ids,
-                &feed_remote_items,
-                &source_entity_links,
-            )?;
+        // 3. Unwrap feed_data
+        let feed_data = req.feed_data.as_ref().ok_or_else(|| ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "feed_data is required for successful ingest".into(),
+            www_authenticate: None,
+        })?;
 
-            // 6. Get or create artist credit for the feed artist (idempotent, feed-scoped)
-            let feed_artist_credit = db::get_or_create_artist_credit(
-                &conn,
-                &feed_artist.name,
-                &[(
-                    feed_artist.artist_id.clone(),
-                    feed_artist.name.clone(),
-                    String::new(),
-                )],
-                Some(feed_guid_str),
-            )?;
-            let existing_live_events = db::get_live_events_for_feed(&conn, feed_guid_str)
-                .map_err(ApiError::from)?;
+        // 3b. Enforce track count limit to prevent DB growth attacks.
+        if feed_data.tracks.len() > MAX_TRACKS_PER_INGEST {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!(
+                    "feed contains {} tracks, maximum is {MAX_TRACKS_PER_INGEST}",
+                    feed_data.tracks.len()
+                ),
+                www_authenticate: None,
+            });
+        }
 
-            // 7. Compute newest_item_at and oldest_item_at from track pub_dates
-            let pub_dates: Vec<i64> = feed_data
-                .tracks
-                .iter()
-                .filter_map(|t| t.pub_date)
-                .chain(
-                    feed_data
-                        .live_items
-                        .iter()
-                        .filter(|li| {
-                            li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some()
-                        })
-                        .filter_map(|li| li.pub_date),
-                )
-                .collect();
-
-            let newest_item_at = pub_dates.iter().copied().max();
-            let oldest_item_at = pub_dates.iter().copied().min();
-
-            // 8. Build Feed struct
-            let feed = model::Feed {
+        // 4. Build feed-scoped source claims needed for identity resolution.
+        let now = db::unix_now();
+        let feed_guid_str = feed_data.feed_guid.as_str();
+        let feed_remote_items: Vec<model::FeedRemoteItemRaw> = feed_data
+            .remote_items
+            .iter()
+            .map(|item| model::FeedRemoteItemRaw {
+                id: None,
                 feed_guid: feed_data.feed_guid.clone(),
-                feed_url: req.canonical_url.clone(),
-                title: feed_data.title.clone(),
-                title_lower: feed_data.title.to_lowercase(),
-                artist_credit_id: feed_artist_credit.id,
-                description: feed_data.description.clone(),
-                image_url: feed_data.image_url.clone(),
-                language: feed_data.language.clone(),
-                explicit: feed_data.explicit,
-                itunes_type: feed_data.itunes_type.clone(),
-                #[expect(
-                    clippy::cast_possible_wrap,
-                    reason = "episode counts never approach i64::MAX"
-                )]
-                episode_count: feed_data.tracks.len() as i64,
-                newest_item_at,
-                oldest_item_at,
+                position: item.position,
+                medium: item.medium.clone(),
+                remote_feed_guid: item.remote_feed_guid.clone(),
+                remote_feed_url: item.remote_feed_url.clone(),
+                source: "podcast_remote_item".to_string(),
+            })
+            .collect();
+        let mut source_entity_ids = build_source_entity_id_claims(
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            &feed_data.entity_ids,
+            now,
+        );
+        let mut source_entity_links = build_source_entity_links(
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            &feed_data.links,
+            now,
+        );
+
+        // 5. Resolve artist from high-confidence source claims before the
+        // legacy feed-scoped alias fallback.
+        let artist_name = derive_feed_artist_name(feed_data);
+        let feed_artist = db::resolve_feed_artist_from_source_claims(
+            &conn,
+            &artist_name,
+            feed_guid_str,
+            &source_entity_ids,
+            &feed_remote_items,
+            &source_entity_links,
+        )?;
+
+        // 6. Get or create artist credit for the feed artist (idempotent, feed-scoped)
+        let feed_artist_credit = db::get_or_create_artist_credit(
+            &conn,
+            &feed_artist.name,
+            &[(
+                feed_artist.artist_id.clone(),
+                feed_artist.name.clone(),
+                String::new(),
+            )],
+            Some(feed_guid_str),
+        )?;
+        let existing_live_events =
+            db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
+
+        // 7. Compute newest_item_at and oldest_item_at from track pub_dates
+        let pub_dates: Vec<i64> = feed_data
+            .tracks
+            .iter()
+            .filter_map(|t| t.pub_date)
+            .chain(
+                feed_data
+                    .live_items
+                    .iter()
+                    .filter(|li| {
+                        li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some()
+                    })
+                    .filter_map(|li| li.pub_date),
+            )
+            .collect();
+
+        let newest_item_at = pub_dates.iter().copied().max();
+        let oldest_item_at = pub_dates.iter().copied().min();
+
+        // 8. Build Feed struct
+        let feed = model::Feed {
+            feed_guid: feed_data.feed_guid.clone(),
+            feed_url: req.canonical_url.clone(),
+            title: feed_data.title.clone(),
+            title_lower: feed_data.title.to_lowercase(),
+            artist_credit_id: feed_artist_credit.id,
+            description: feed_data.description.clone(),
+            image_url: feed_data.image_url.clone(),
+            language: feed_data.language.clone(),
+            explicit: feed_data.explicit,
+            itunes_type: feed_data.itunes_type.clone(),
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "episode counts never approach i64::MAX"
+            )]
+            episode_count: feed_data.tracks.len() as i64,
+            newest_item_at,
+            oldest_item_at,
+            created_at: now,
+            updated_at: now,
+            raw_medium: feed_data.raw_medium.clone(),
+        };
+
+        // 8b. Build feed-level payment routes
+        let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
+            .feed_payment_routes
+            .iter()
+            .map(|r| model::FeedPaymentRoute {
+                id: None,
+                feed_guid: feed_data.feed_guid.clone(),
+                recipient_name: r.recipient_name.clone(),
+                route_type: r.route_type.clone(),
+                address: r.address.clone(),
+                custom_key: r.custom_key.clone(),
+                custom_value: r.custom_value.clone(),
+                split: r.split,
+                fee: r.fee,
+            })
+            .collect();
+
+        let live_events: Vec<model::LiveEvent> = feed_data
+            .live_items
+            .iter()
+            .filter(|item| matches!(item.status.as_str(), "pending" | "live"))
+            .map(|item| model::LiveEvent {
+                live_item_guid: item.live_item_guid.clone(),
+                feed_guid: feed_data.feed_guid.clone(),
+                title: item.title.clone(),
+                content_link: item.content_link.clone(),
+                status: item.status.clone(),
+                scheduled_start: item.start_at,
+                scheduled_end: item.end_at,
                 created_at: now,
                 updated_at: now,
-                raw_medium: feed_data.raw_medium.clone(),
+            })
+            .collect();
+        let live_events_for_sse = live_events.clone();
+
+        let mut source_contributor_claims = build_source_contributor_claims(
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            &feed_data.persons,
+            now,
+        );
+        let mut source_release_claims = Vec::new();
+        let mut source_item_enclosures = Vec::new();
+        let source_platform_claims = build_source_platform_claims(
+            &feed_data.feed_guid,
+            &req.canonical_url,
+            feed_data.owner_name.as_deref(),
+            &feed_data.links,
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "release_date",
+            feed_data.pub_date.map(|v| v.to_string()),
+            "feed.pub_date",
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "description",
+            feed_data.description.clone(),
+            "feed.description",
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "language",
+            feed_data.language.clone(),
+            "feed.language",
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "image_url",
+            feed_data.image_url.clone(),
+            "feed.image_url",
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "raw_medium",
+            feed_data.raw_medium.clone(),
+            "feed.raw_medium",
+            now,
+        );
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "itunes_type",
+            feed_data.itunes_type.clone(),
+            "feed.itunes_type",
+            now,
+        );
+
+        // 9. Build track tuples
+        let mut track_tuples: Vec<(
+            model::Track,
+            Vec<model::PaymentRoute>,
+            Vec<model::ValueTimeSplit>,
+        )> = Vec::with_capacity(feed_data.tracks.len());
+
+        // Track artist credits for event generation
+        let mut track_credits: Vec<model::ArtistCredit> =
+            Vec::with_capacity(feed_data.tracks.len());
+
+        for track_data in &feed_data.tracks {
+            source_contributor_claims.extend(build_source_contributor_claims(
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                &track_data.persons,
+                now,
+            ));
+            source_entity_ids.extend(build_source_entity_id_claims(
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                &track_data.entity_ids,
+                now,
+            ));
+            source_entity_links.extend(build_source_entity_links(
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                &track_data.links,
+                now,
+            ));
+            source_item_enclosures.extend(build_source_item_enclosures(
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                track_data.enclosure_url.as_deref(),
+                track_data.enclosure_type.as_deref(),
+                track_data.enclosure_bytes,
+                &track_data.alternate_enclosures,
+                now,
+            ));
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                "release_date",
+                track_data.pub_date.map(|v| v.to_string()),
+                "track.pub_date",
+                now,
+            );
+            push_source_release_claim(
+                &mut source_release_claims,
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                "description",
+                track_data.description.clone(),
+                "track.description",
+                now,
+            );
+
+            // Per-track artist resolution (feed-scoped)
+            // Issue-ARTIST-IDENTITY — 2026-03-14
+            let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
+                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
+                let credit = db::get_or_create_artist_credit(
+                    &conn,
+                    &track_artist.name,
+                    &[(
+                        track_artist.artist_id.clone(),
+                        track_artist.name.clone(),
+                        String::new(),
+                    )],
+                    Some(feed_guid_str),
+                )?;
+                (credit.id, credit)
+            } else {
+                (feed_artist_credit.id, feed_artist_credit.clone())
             };
 
-            // 8b. Build feed-level payment routes
-            let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
-                .feed_payment_routes
+            let track = model::Track {
+                track_guid: track_data.track_guid.clone(),
+                feed_guid: feed_data.feed_guid.clone(),
+                artist_credit_id: track_credit_id,
+                title: track_data.title.clone(),
+                title_lower: track_data.title.to_lowercase(),
+                pub_date: track_data.pub_date,
+                duration_secs: track_data.duration_secs,
+                enclosure_url: track_data.enclosure_url.clone(),
+                enclosure_type: track_data.enclosure_type.clone(),
+                enclosure_bytes: track_data.enclosure_bytes,
+                track_number: track_data.track_number,
+                season: track_data.season,
+                explicit: track_data.explicit,
+                description: track_data.description.clone(),
+                created_at: now,
+                updated_at: now,
+            };
+
+            let routes: Vec<model::PaymentRoute> = track_data
+                .payment_routes
                 .iter()
-                .map(|r| model::FeedPaymentRoute {
+                .map(|r| model::PaymentRoute {
                     id: None,
+                    track_guid: track_data.track_guid.clone(),
                     feed_guid: feed_data.feed_guid.clone(),
                     recipient_name: r.recipient_name.clone(),
                     route_type: r.route_type.clone(),
@@ -1529,506 +1761,286 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            let live_events: Vec<model::LiveEvent> = feed_data
-                .live_items
+            let vts: Vec<model::ValueTimeSplit> = track_data
+                .value_time_splits
                 .iter()
-                .filter(|item| matches!(item.status.as_str(), "pending" | "live"))
-                .map(|item| model::LiveEvent {
-                    live_item_guid: item.live_item_guid.clone(),
-                    feed_guid: feed_data.feed_guid.clone(),
-                    title: item.title.clone(),
-                    content_link: item.content_link.clone(),
-                    status: item.status.clone(),
-                    scheduled_start: item.start_at,
-                    scheduled_end: item.end_at,
+                .map(|v| model::ValueTimeSplit {
+                    id: None,
+                    source_track_guid: track_data.track_guid.clone(),
+                    start_time_secs: v.start_time_secs,
+                    duration_secs: v.duration_secs,
+                    remote_feed_guid: v.remote_feed_guid.clone(),
+                    remote_item_guid: v.remote_item_guid.clone(),
+                    split: v.split,
                     created_at: now,
-                    updated_at: now,
                 })
                 .collect();
-            let live_events_for_sse = live_events.clone();
 
-            let mut source_contributor_claims = build_source_contributor_claims(
+            track_tuples.push((track, routes, vts));
+            track_credits.push(track_credit);
+        }
+
+        for live_item in &feed_data.live_items {
+            source_contributor_claims.extend(build_source_contributor_claims(
                 &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                &feed_data.persons,
+                "live_item",
+                &live_item.live_item_guid,
+                &live_item.persons,
                 now,
-            );
-            let mut source_release_claims = Vec::new();
-            let mut source_item_enclosures = Vec::new();
-            let source_platform_claims = build_source_platform_claims(
+            ));
+            source_entity_ids.extend(build_source_entity_id_claims(
                 &feed_data.feed_guid,
-                &req.canonical_url,
-                feed_data.owner_name.as_deref(),
-                &feed_data.links,
+                "live_item",
+                &live_item.live_item_guid,
+                &live_item.entity_ids,
                 now,
-            );
+            ));
+            source_entity_links.extend(build_source_entity_links(
+                &feed_data.feed_guid,
+                "live_item",
+                &live_item.live_item_guid,
+                &live_item.links,
+                now,
+            ));
+            source_item_enclosures.extend(build_source_item_enclosures(
+                &feed_data.feed_guid,
+                "live_item",
+                &live_item.live_item_guid,
+                live_item.enclosure_url.as_deref(),
+                live_item.enclosure_type.as_deref(),
+                live_item.enclosure_bytes,
+                &live_item.alternate_enclosures,
+                now,
+            ));
             push_source_release_claim(
                 &mut source_release_claims,
                 &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
+                "live_item",
+                &live_item.live_item_guid,
                 "release_date",
-                feed_data.pub_date.map(|v| v.to_string()),
-                "feed.pub_date",
+                live_item.pub_date.map(|v| v.to_string()),
+                "live_item.pub_date",
                 now,
             );
             push_source_release_claim(
                 &mut source_release_claims,
                 &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
+                "live_item",
+                &live_item.live_item_guid,
                 "description",
-                feed_data.description.clone(),
-                "feed.description",
-                now,
-            );
-            push_source_release_claim(
-                &mut source_release_claims,
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                "language",
-                feed_data.language.clone(),
-                "feed.language",
-                now,
-            );
-            push_source_release_claim(
-                &mut source_release_claims,
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                "image_url",
-                feed_data.image_url.clone(),
-                "feed.image_url",
-                now,
-            );
-            push_source_release_claim(
-                &mut source_release_claims,
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                "raw_medium",
-                feed_data.raw_medium.clone(),
-                "feed.raw_medium",
-                now,
-            );
-            push_source_release_claim(
-                &mut source_release_claims,
-                &feed_data.feed_guid,
-                "feed",
-                &feed_data.feed_guid,
-                "itunes_type",
-                feed_data.itunes_type.clone(),
-                "feed.itunes_type",
+                live_item.description.clone(),
+                "live_item.description",
                 now,
             );
 
-            // 9. Build track tuples
-            let mut track_tuples: Vec<(
-                model::Track,
-                Vec<model::PaymentRoute>,
-                Vec<model::ValueTimeSplit>,
-            )> = Vec::with_capacity(feed_data.tracks.len());
-
-            // Track artist credits for event generation
-            let mut track_credits: Vec<model::ArtistCredit> =
-                Vec::with_capacity(feed_data.tracks.len());
-
-            for track_data in &feed_data.tracks {
-                source_contributor_claims.extend(build_source_contributor_claims(
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    &track_data.persons,
-                    now,
-                ));
-                source_entity_ids.extend(build_source_entity_id_claims(
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    &track_data.entity_ids,
-                    now,
-                ));
-                source_entity_links.extend(build_source_entity_links(
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    &track_data.links,
-                    now,
-                ));
-                source_item_enclosures.extend(build_source_item_enclosures(
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    track_data.enclosure_url.as_deref(),
-                    track_data.enclosure_type.as_deref(),
-                    track_data.enclosure_bytes,
-                    &track_data.alternate_enclosures,
-                    now,
-                ));
-                push_source_release_claim(
-                    &mut source_release_claims,
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    "release_date",
-                    track_data.pub_date.map(|v| v.to_string()),
-                    "track.pub_date",
-                    now,
-                );
-                push_source_release_claim(
-                    &mut source_release_claims,
-                    &feed_data.feed_guid,
-                    "track",
-                    &track_data.track_guid,
-                    "description",
-                    track_data.description.clone(),
-                    "track.description",
-                    now,
-                );
-
-                // Per-track artist resolution (feed-scoped)
-                // Issue-ARTIST-IDENTITY — 2026-03-14
-                let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name
-                {
-                    let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
-                    let credit = db::get_or_create_artist_credit(
-                        &conn,
-                        &track_artist.name,
-                        &[(
-                            track_artist.artist_id.clone(),
-                            track_artist.name.clone(),
-                            String::new(),
-                        )],
-                        Some(feed_guid_str),
-                    )?;
-                    (credit.id, credit)
-                } else {
-                    (feed_artist_credit.id, feed_artist_credit.clone())
-                };
-
-                let track = model::Track {
-                    track_guid: track_data.track_guid.clone(),
-                    feed_guid: feed_data.feed_guid.clone(),
-                    artist_credit_id: track_credit_id,
-                    title: track_data.title.clone(),
-                    title_lower: track_data.title.to_lowercase(),
-                    pub_date: track_data.pub_date,
-                    duration_secs: track_data.duration_secs,
-                    enclosure_url: track_data.enclosure_url.clone(),
-                    enclosure_type: track_data.enclosure_type.clone(),
-                    enclosure_bytes: track_data.enclosure_bytes,
-                    track_number: track_data.track_number,
-                    season: track_data.season,
-                    explicit: track_data.explicit,
-                    description: track_data.description.clone(),
-                    created_at: now,
-                    updated_at: now,
-                };
-
-                let routes: Vec<model::PaymentRoute> = track_data
-                    .payment_routes
-                    .iter()
-                    .map(|r| model::PaymentRoute {
-                        id: None,
-                        track_guid: track_data.track_guid.clone(),
-                        feed_guid: feed_data.feed_guid.clone(),
-                        recipient_name: r.recipient_name.clone(),
-                        route_type: r.route_type.clone(),
-                        address: r.address.clone(),
-                        custom_key: r.custom_key.clone(),
-                        custom_value: r.custom_value.clone(),
-                        split: r.split,
-                        fee: r.fee,
-                    })
-                    .collect();
-
-                let vts: Vec<model::ValueTimeSplit> = track_data
-                    .value_time_splits
-                    .iter()
-                    .map(|v| model::ValueTimeSplit {
-                        id: None,
-                        source_track_guid: track_data.track_guid.clone(),
-                        start_time_secs: v.start_time_secs,
-                        duration_secs: v.duration_secs,
-                        remote_feed_guid: v.remote_feed_guid.clone(),
-                        remote_item_guid: v.remote_item_guid.clone(),
-                        split: v.split,
-                        created_at: now,
-                    })
-                    .collect();
-
-                track_tuples.push((track, routes, vts));
-                track_credits.push(track_credit);
+            if !(live_item.status.eq_ignore_ascii_case("ended")
+                && live_item.enclosure_url.is_some())
+            {
+                continue;
             }
 
-            for live_item in &feed_data.live_items {
-                source_contributor_claims.extend(build_source_contributor_claims(
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    &live_item.persons,
-                    now,
-                ));
-                source_entity_ids.extend(build_source_entity_id_claims(
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    &live_item.entity_ids,
-                    now,
-                ));
-                source_entity_links.extend(build_source_entity_links(
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    &live_item.links,
-                    now,
-                ));
-                source_item_enclosures.extend(build_source_item_enclosures(
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    live_item.enclosure_url.as_deref(),
-                    live_item.enclosure_type.as_deref(),
-                    live_item.enclosure_bytes,
-                    &live_item.alternate_enclosures,
-                    now,
-                ));
-                push_source_release_claim(
-                    &mut source_release_claims,
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    "release_date",
-                    live_item.pub_date.map(|v| v.to_string()),
-                    "live_item.pub_date",
-                    now,
-                );
-                push_source_release_claim(
-                    &mut source_release_claims,
-                    &feed_data.feed_guid,
-                    "live_item",
-                    &live_item.live_item_guid,
-                    "description",
-                    live_item.description.clone(),
-                    "live_item.description",
-                    now,
-                );
+            let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
+                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
+                let credit = db::get_or_create_artist_credit(
+                    &conn,
+                    &track_artist.name,
+                    &[(
+                        track_artist.artist_id.clone(),
+                        track_artist.name.clone(),
+                        String::new(),
+                    )],
+                    Some(feed_guid_str),
+                )?;
+                (credit.id, credit)
+            } else {
+                (feed_artist_credit.id, feed_artist_credit.clone())
+            };
 
-                if !(live_item.status.eq_ignore_ascii_case("ended")
-                    && live_item.enclosure_url.is_some())
-                {
-                    continue;
-                }
+            let track = model::Track {
+                track_guid: live_item.live_item_guid.clone(),
+                feed_guid: feed_data.feed_guid.clone(),
+                artist_credit_id: track_credit_id,
+                title: live_item.title.clone(),
+                title_lower: live_item.title.to_lowercase(),
+                pub_date: live_item.pub_date,
+                duration_secs: live_item.duration_secs,
+                enclosure_url: live_item.enclosure_url.clone(),
+                enclosure_type: live_item.enclosure_type.clone(),
+                enclosure_bytes: live_item.enclosure_bytes,
+                track_number: live_item.track_number,
+                season: live_item.season,
+                explicit: live_item.explicit,
+                description: live_item.description.clone(),
+                created_at: now,
+                updated_at: now,
+            };
 
-                let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
-                    let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
-                    let credit = db::get_or_create_artist_credit(
-                        &conn,
-                        &track_artist.name,
-                        &[(
-                            track_artist.artist_id.clone(),
-                            track_artist.name.clone(),
-                            String::new(),
-                        )],
-                        Some(feed_guid_str),
-                    )?;
-                    (credit.id, credit)
-                } else {
-                    (feed_artist_credit.id, feed_artist_credit.clone())
-                };
-
-                let track = model::Track {
+            let routes: Vec<model::PaymentRoute> = live_item
+                .payment_routes
+                .iter()
+                .map(|r| model::PaymentRoute {
+                    id: None,
                     track_guid: live_item.live_item_guid.clone(),
                     feed_guid: feed_data.feed_guid.clone(),
-                    artist_credit_id: track_credit_id,
-                    title: live_item.title.clone(),
-                    title_lower: live_item.title.to_lowercase(),
-                    pub_date: live_item.pub_date,
-                    duration_secs: live_item.duration_secs,
-                    enclosure_url: live_item.enclosure_url.clone(),
-                    enclosure_type: live_item.enclosure_type.clone(),
-                    enclosure_bytes: live_item.enclosure_bytes,
-                    track_number: live_item.track_number,
-                    season: live_item.season,
-                    explicit: live_item.explicit,
-                    description: live_item.description.clone(),
-                    created_at: now,
-                    updated_at: now,
-                };
-
-                let routes: Vec<model::PaymentRoute> = live_item
-                    .payment_routes
-                    .iter()
-                    .map(|r| model::PaymentRoute {
-                        id: None,
-                        track_guid: live_item.live_item_guid.clone(),
-                        feed_guid: feed_data.feed_guid.clone(),
-                        recipient_name: r.recipient_name.clone(),
-                        route_type: r.route_type.clone(),
-                        address: r.address.clone(),
-                        custom_key: r.custom_key.clone(),
-                        custom_value: r.custom_value.clone(),
-                        split: r.split,
-                        fee: r.fee,
-                    })
-                    .collect();
-
-                let vts: Vec<model::ValueTimeSplit> = live_item
-                    .value_time_splits
-                    .iter()
-                    .map(|v| model::ValueTimeSplit {
-                        id: None,
-                        source_track_guid: live_item.live_item_guid.clone(),
-                        start_time_secs: v.start_time_secs,
-                        duration_secs: v.duration_secs,
-                        remote_feed_guid: v.remote_feed_guid.clone(),
-                        remote_item_guid: v.remote_item_guid.clone(),
-                        split: v.split,
-                        created_at: now,
-                    })
-                    .collect();
-
-                track_tuples.push((track, routes, vts));
-                track_credits.push(track_credit);
-            }
-
-            // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
-            // Only emit events for entities whose fields actually changed
-            // compared to what is stored in the DB.
-            // Issue-SEQ-INTEGRITY — 2026-03-14: EventRows no longer carry
-            // signatures. The signer is passed to ingest_transaction which
-            // signs each event after the DB assigns its seq.
-            let event_rows = db::build_diff_events(
-                &conn,
-                &feed_artist,
-                &feed_artist_credit,
-                &feed,
-                &feed_remote_items,
-                &source_contributor_claims,
-                &source_entity_ids,
-                &source_entity_links,
-                &source_release_claims,
-                &source_item_enclosures,
-                &source_platform_claims,
-                &feed_routes,
-                &live_events,
-                &track_tuples,
-                &track_credits,
-                now,
-                &warnings,
-            )
-            .map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to build diff events: {e}"),
-                www_authenticate: None,
-            })?;
-
-            // Collect event_ids and snapshot event data before moving event_rows
-            let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
-
-            // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
-            // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
-            let events_for_fanout: Vec<db::EventRow> = event_rows
-                .iter()
-                .map(|r| db::EventRow {
-                    event_id: r.event_id.clone(),
-                    event_type: r.event_type.clone(),
-                    payload_json: r.payload_json.clone(),
-                    subject_guid: r.subject_guid.clone(),
-                    created_at: r.created_at,
-                    warnings: r.warnings.clone(),
+                    recipient_name: r.recipient_name.clone(),
+                    route_type: r.route_type.clone(),
+                    address: r.address.clone(),
+                    custom_key: r.custom_key.clone(),
+                    custom_value: r.custom_value.clone(),
+                    split: r.split,
+                    fee: r.fee,
                 })
                 .collect();
 
-            // 11. Run ingest transaction (signer signs after DB assigns seq)
-            // Issue-SEQ-INTEGRITY — 2026-03-14
-            let seqs = db::ingest_transaction(
-                &mut conn,
-                feed_artist,
-                feed_artist_credit,
-                feed,
-                feed_remote_items,
-                source_contributor_claims,
-                source_entity_ids,
-                source_entity_links,
-                source_release_claims,
-                source_item_enclosures,
-                source_platform_claims,
-                feed_routes,
-                live_events,
-                track_tuples,
-                event_rows,
-                &state2.signer,
-            )?;
+            let vts: Vec<model::ValueTimeSplit> = live_item
+                .value_time_splits
+                .iter()
+                .map(|v| model::ValueTimeSplit {
+                    id: None,
+                    source_track_guid: live_item.live_item_guid.clone(),
+                    start_time_secs: v.start_time_secs,
+                    duration_secs: v.duration_secs,
+                    remote_feed_guid: v.remote_feed_guid.clone(),
+                    remote_item_guid: v.remote_item_guid.clone(),
+                    split: v.split,
+                    created_at: now,
+                })
+                .collect();
 
-            // 11b. Search index + quality scores are now written inside
-            // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
+            track_tuples.push((track, routes, vts));
+            track_credits.push(track_credit);
+        }
 
-            // 12. Update crawl cache
-            db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
+        // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
+        // Only emit events for entities whose fields actually changed
+        // compared to what is stored in the DB.
+        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRows no longer carry
+        // signatures. The signer is passed to ingest_transaction which
+        // signs each event after the DB assigns its seq.
+        let event_rows = db::build_diff_events(
+            &conn,
+            &feed_artist,
+            &feed_artist_credit,
+            &feed,
+            &feed_remote_items,
+            &source_contributor_claims,
+            &source_entity_ids,
+            &source_entity_links,
+            &source_release_claims,
+            &source_item_enclosures,
+            &source_platform_claims,
+            &feed_routes,
+            &live_events,
+            &track_tuples,
+            &track_credits,
+            now,
+            &warnings,
+        )
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("failed to build diff events: {e}"),
+            www_authenticate: None,
+        })?;
 
-            // 13. Reconstruct events with assigned seqs + signatures for fan-out
-            // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
-            let fanout_events: Vec<event::Event> = events_for_fanout
-                .into_iter()
-                .zip(seqs.iter())
-                .map(|(r, (seq, signed_by, signature))| {
-                    let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
+        // Collect event_ids and snapshot event data before moving event_rows
+        let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
+
+        // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
+        // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
+        let events_for_fanout: Vec<db::EventRow> = event_rows
+            .iter()
+            .map(|r| db::EventRow {
+                event_id: r.event_id.clone(),
+                event_type: r.event_type.clone(),
+                payload_json: r.payload_json.clone(),
+                subject_guid: r.subject_guid.clone(),
+                created_at: r.created_at,
+                warnings: r.warnings.clone(),
+            })
+            .collect();
+
+        // 11. Run ingest transaction (signer signs after DB assigns seq)
+        // Issue-SEQ-INTEGRITY — 2026-03-14
+        let seqs = db::ingest_transaction(
+            &mut conn,
+            feed_artist,
+            feed_artist_credit,
+            feed,
+            feed_remote_items,
+            source_contributor_claims,
+            source_entity_ids,
+            source_entity_links,
+            source_release_claims,
+            source_item_enclosures,
+            source_platform_claims,
+            feed_routes,
+            live_events,
+            track_tuples,
+            event_rows,
+            &state2.signer,
+        )?;
+
+        // 11b. Search index + quality scores are now written inside
+        // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
+
+        // 12. Update crawl cache
+        db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
+
+        // 13. Reconstruct events with assigned seqs + signatures for fan-out
+        // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
+        let fanout_events: Vec<event::Event> = events_for_fanout
+            .into_iter()
+            .zip(seqs.iter())
+            .map(|(r, (seq, signed_by, signature))| {
+                let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("failed to serialize event type for fan-out: {e}"),
+                    www_authenticate: None,
+                })?;
+                let et_str = et_str.trim_matches('"');
+                let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
+                let payload =
+                    serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
                         status: StatusCode::INTERNAL_SERVER_ERROR,
-                        message: format!("failed to serialize event type for fan-out: {e}"),
+                        message: format!("failed to deserialize event payload for fan-out: {e}"),
                         www_authenticate: None,
                     })?;
-                    let et_str = et_str.trim_matches('"');
-                    let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
-                    let payload =
-                        serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| {
-                            ApiError {
-                                status: StatusCode::INTERNAL_SERVER_ERROR,
-                                message: format!(
-                                    "failed to deserialize event payload for fan-out: {e}"
-                                ),
-                                www_authenticate: None,
-                            }
-                        })?;
-                    Ok(event::Event {
-                        event_id: r.event_id,
-                        event_type: r.event_type,
-                        payload,
-                        subject_guid: r.subject_guid,
-                        signed_by: signed_by.clone(),
-                        signature: signature.clone(),
-                        seq: *seq,
-                        created_at: r.created_at,
-                        warnings: r.warnings,
-                        payload_json: r.payload_json,
-                    })
+                Ok(event::Event {
+                    event_id: r.event_id,
+                    event_type: r.event_type,
+                    payload,
+                    subject_guid: r.subject_guid,
+                    signed_by: signed_by.clone(),
+                    signature: signature.clone(),
+                    seq: *seq,
+                    created_at: r.created_at,
+                    warnings: r.warnings,
+                    payload_json: r.payload_json,
                 })
-                .collect::<Result<Vec<_>, ApiError>>()?;
+            })
+            .collect::<Result<Vec<_>, ApiError>>()?;
 
-            let live_sse_frames = build_live_sse_frames_for_feed(
-                &conn,
-                &feed_data.feed_guid,
-                &existing_live_events,
-                &live_events_for_sse,
-                &fanout_events,
-            )
-            .map_err(ApiError::from)?;
+        let live_sse_frames = build_live_sse_frames_for_feed(
+            &conn,
+            &feed_data.feed_guid,
+            &existing_live_events,
+            &live_events_for_sse,
+            &fanout_events,
+        )
+        .map_err(ApiError::from)?;
 
-            Ok((
-                ingest::IngestResponse {
-                    accepted: true,
-                    no_change: false,
-                    reason: None,
-                    events_emitted: event_ids,
-                    warnings,
-                },
-                fanout_events,
-                live_sse_frames,
-            ))
-        },
-    )
+        Ok((
+            ingest::IngestResponse {
+                accepted: true,
+                no_change: false,
+                reason: None,
+                events_emitted: event_ids,
+                warnings,
+            },
+            fanout_events,
+            live_sse_frames,
+        ))
+    })
     .await
     .map_err(|e| ApiError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -2172,7 +2184,7 @@ async fn handle_sync_reconcile(
 
 // SP-04 push retry — 2026-03-13
 // Mutex safety compliant — 2026-03-12
-#[expect(
+#[allow(
     clippy::unused_async,
     reason = "must be async because tokio::spawn requires a Future"
 )]
@@ -2188,7 +2200,7 @@ async fn fan_out_push(
 /// Public entry point for integration tests that need to exercise push fan-out
 /// with retry logic. Not part of the stable API — test-only.
 // SP-04 push retry — 2026-03-13
-#[expect(
+#[allow(
     clippy::unused_async,
     reason = "async signature for convenience in test await context"
 )]
@@ -2221,7 +2233,7 @@ pub const MAX_CONCURRENT_PUSHES: usize = 16;
 // SP-04 push retry — 2026-03-13
 // Issue-PUSH-BOUNDS — 2026-03-16: Arc-shared batch, bounded concurrency without
 // detached per-peer task buildup, response-body rejection inspection.
-#[expect(
+#[allow(
     clippy::needless_pass_by_value,
     reason = "values are cloned into spawned tasks; ownership transfer is intentional"
 )]
@@ -2362,17 +2374,16 @@ async fn check_push_response_rejections(
         }
     };
 
-    let push_resp: sync::PushResponse = match serde_json::from_str(&body_text) {
-        Ok(r) => r,
-        Err(_) => {
-            // Peer returned non-JSON 2xx — not necessarily an error, but we
-            // cannot inspect rejection counts.
-            tracing::debug!(
-                url = %push_url,
-                "fanout: push response was not valid PushResponse JSON"
-            );
-            return false;
-        }
+    let push_resp: sync::PushResponse = if let Ok(r) = serde_json::from_str(&body_text) {
+        r
+    } else {
+        // Peer returned non-JSON 2xx — not necessarily an error, but we
+        // cannot inspect rejection counts.
+        tracing::debug!(
+            url = %push_url,
+            "fanout: push response was not valid PushResponse JSON"
+        );
+        return false;
     };
 
     if push_resp.rejected > 0 {
@@ -2444,15 +2455,12 @@ async fn handle_sync_register(
 ) -> Result<Json<sync::RegisterResponse>, ApiError> {
     check_sync_token(&headers, state.sync_token.as_deref())?;
 
-    let (signed_at, signature_hex) = match (req.signed_at, req.signature.as_deref()) {
-        (Some(signed_at), Some(signature_hex)) => (signed_at, signature_hex),
-        _ => {
-            return Err(ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "sync/register requires signed_at and signature".into(),
-                www_authenticate: None,
-            });
-        }
+    let (Some(signed_at), Some(signature_hex)) = (req.signed_at, req.signature.as_deref()) else {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "sync/register requires signed_at and signature".into(),
+            www_authenticate: None,
+        });
     };
 
     let now = db::unix_now();
@@ -2586,7 +2594,10 @@ fn sync_register_node_info_url(node_url: &str) -> Result<String, String> {
     Ok(url.to_string())
 }
 
-async fn verify_sync_register_target(node_url: &str, expected_pubkey: &str) -> Result<(), ApiError> {
+async fn verify_sync_register_target(
+    node_url: &str,
+    expected_pubkey: &str,
+) -> Result<(), ApiError> {
     let node_info_url = sync_register_node_info_url(node_url).map_err(|e| ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
         message: e,
@@ -2599,11 +2610,15 @@ async fn verify_sync_register_target(node_url: &str, expected_pubkey: &str) -> R
         .build()
         .expect("sync/register node-info client uses only safe options");
 
-    let resp = client.get(&node_info_url).send().await.map_err(|e| ApiError {
-        status: StatusCode::UNPROCESSABLE_ENTITY,
-        message: format!("failed to verify node URL ownership via {node_info_url}: {e}"),
-        www_authenticate: None,
-    })?;
+    let resp = client
+        .get(&node_info_url)
+        .send()
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: format!("failed to verify node URL ownership via {node_info_url}: {e}"),
+            www_authenticate: None,
+        })?;
 
     if !resp.status().is_success() {
         return Err(ApiError {

@@ -3,6 +3,14 @@
 // Tests for SSE publish wiring (Part 1) and Last-Event-ID seq semantics (Part 2).
 
 #![recursion_limit = "256"]
+#![allow(
+    clippy::too_many_lines,
+    reason = "SSE regression tests keep full payloads inline so event shapes stay explicit"
+)]
+#![allow(
+    clippy::unreadable_literal,
+    reason = "Unix timestamps and payload byte counts are clearer in raw copied fixture form"
+)]
 
 mod common;
 
@@ -22,10 +30,7 @@ fn test_app_state_with_crawl_token(
     db: Arc<Mutex<rusqlite::Connection>>,
     crawl_token: &str,
 ) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sse-publish.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-sse-publish"));
     let pubkey = signer.pubkey_hex().to_string();
 
     let spec = stophammer::verify::ChainSpec {

@@ -16,12 +16,9 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-/// Build an `AppState` with SSRF validation **enabled** (skip_ssrf_validation = false).
+/// Build an `AppState` with SSRF validation **enabled** (`skip_ssrf_validation` = false).
 fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-ssrf.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-sync-ssrf"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -42,10 +39,7 @@ fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophamm
 fn state_with_ssrf_disabled(
     db: Arc<Mutex<rusqlite::Connection>>,
 ) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-ssrf-accept.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-sync-ssrf-accept"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -62,9 +56,7 @@ fn state_with_ssrf_disabled(
 }
 
 async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum::body::Body> {
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-body.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-body");
     let body = common::signed_sync_register_body(&signer, node_url);
     let req = Request::builder()
         .method("POST")
@@ -78,9 +70,7 @@ async fn post_register(app: axum::Router, node_url: &str) -> http::Response<axum
     app.oneshot(req).await.expect("call handler")
 }
 
-async fn start_peer_server(
-    signer: &stophammer::signing::NodeSigner,
-) -> (MockServer, String) {
+async fn start_peer_server(signer: &stophammer::signing::NodeSigner) -> (MockServer, String) {
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/node/info"))
@@ -154,9 +144,7 @@ async fn register_http_public_accepted() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-http.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-http");
     let (_mock_server, node_url) = start_peer_server(&signer).await;
 
     let body = common::signed_sync_register_body(&signer, &node_url);
@@ -188,9 +176,7 @@ async fn register_https_public_accepted() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-https.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-https");
     let (_mock_server, node_url) = start_peer_server(&signer).await;
 
     let body = common::signed_sync_register_body(&signer, &node_url);
@@ -222,9 +208,7 @@ async fn register_signed_request_accepted() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-signed.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-signed");
     let (_mock_server, node_url) = start_peer_server(&signer).await;
 
     let body = common::signed_sync_register_body(&signer, &node_url);
@@ -300,9 +284,7 @@ async fn register_stale_signed_at_rejected() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-stale.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-stale");
     let (_mock_server, node_url) = start_peer_server(&signer).await;
 
     let body = common::signed_sync_register_body_with_signed_at(
@@ -329,9 +311,7 @@ async fn register_non_push_endpoint_rejected() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-path.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-path");
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -362,12 +342,8 @@ async fn register_node_info_pubkey_mismatch_rejected() {
     let db = common::test_db_arc();
     let state = state_with_ssrf_disabled(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-mismatch.key")
-            .expect("create signer");
-    let wrong_signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sync-register-wrong.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-sync-register-mismatch");
+    let wrong_signer = common::temp_signer("test-sync-register-wrong");
 
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
@@ -391,7 +367,11 @@ async fn register_node_info_pubkey_mismatch_rejected() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 422, "node/info pubkey mismatch must be rejected");
+    assert_eq!(
+        resp.status(),
+        422,
+        "node/info pubkey mismatch must be rejected"
+    );
 }
 
 // ── Unit tests: validate_node_url directly ───────────────────────────────────

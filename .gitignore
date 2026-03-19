@@ -2,3 +2,4 @@
 *.db
 *.key
 .env
+.vscode/

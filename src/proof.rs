@@ -404,9 +404,8 @@ pub async fn verify_podcast_txt(
 #[must_use]
 pub fn extract_podcast_txt_values(xml: &str) -> Vec<String> {
     const PODCAST_NS: &str = "https://podcastindex.org/namespace/1.0";
-    let doc = match roxmltree::Document::parse(xml) {
-        Ok(d) => d,
-        Err(_) => return vec![],
+    let Ok(doc) = roxmltree::Document::parse(xml) else {
+        return vec![];
     };
     doc.descendants()
         .filter(|n| {
@@ -503,6 +502,7 @@ pub fn validate_feed_url(feed_url: &str) -> Result<Vec<std::net::SocketAddr>, St
 /// Checks scheme and any literal IP in the hostname. For hostnames, performs
 /// synchronous DNS resolution and rejects any address in a private range.
 // Issue-SYNC-SSRF — 2026-03-16
+#[must_use]
 pub fn is_url_ssrf_safe(url: &url::Url) -> bool {
     // Only HTTP(S) schemes are allowed.
     match url.scheme() {
@@ -752,12 +752,12 @@ pub async fn fetch_with_pinned_redirects(
             }
 
             // Check Content-Length header before reading.
-            if let Some(cl) = resp.content_length() {
-                if cl > max_body_bytes as u64 {
-                    return Err(format!(
-                        "RSS response too large: {cl} bytes (limit: {max_body_bytes})"
-                    ));
-                }
+            if let Some(cl) = resp.content_length()
+                && cl > max_body_bytes as u64
+            {
+                return Err(format!(
+                    "RSS response too large: {cl} bytes (limit: {max_body_bytes})"
+                ));
             }
 
             let mut body_bytes = Vec::new();

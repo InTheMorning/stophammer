@@ -79,7 +79,7 @@ async fn push_retry_recovers_on_second_attempt() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let pubkey = "peer-retry-ok";
     seed_peer(&db, pubkey, &push_url);
 
@@ -128,7 +128,7 @@ async fn push_eviction_after_threshold() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let pubkey = "peer-always-fail";
     seed_peer(&db, pubkey, &push_url);
 
@@ -184,7 +184,7 @@ async fn push_not_evicted_at_old_threshold() {
     let push_url = format!("{}/sync/push", mock_server.uri());
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let pubkey = "peer-not-evicted-yet";
     seed_peer(&db, pubkey, &push_url);
 

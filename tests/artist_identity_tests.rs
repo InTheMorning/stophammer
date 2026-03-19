@@ -4,6 +4,11 @@
 // Two feeds with the same `owner_name` must get distinct artist and artist
 // credit records. Re-ingesting the same feed must reuse the existing records.
 
+#![allow(
+    clippy::similar_names,
+    reason = "artist identity tests intentionally compare near-identical fixture names and credits"
+)]
+
 mod common;
 
 // ---------------------------------------------------------------------------
@@ -472,8 +477,7 @@ fn ingest_transaction_feeds_get_distinct_artists() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/artist-identity-test.key")
-        .expect("signer");
+    let signer = common::temp_signer("artist-identity-test");
 
     // Feed A: owner = "John Smith"
     let artist_a =

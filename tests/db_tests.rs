@@ -1,3 +1,8 @@
+#![allow(
+    clippy::too_many_lines,
+    reason = "db regression tests inline full fixture setup and assertions for determinism"
+)]
+
 mod common;
 
 use rusqlite::params;
@@ -1491,7 +1496,10 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
         .expect("get release")
         .expect("release exists");
     assert_eq!(release.artist_credit_id, 9402);
-    assert_eq!(release.description.as_deref(), Some("Preferred release description"));
+    assert_eq!(
+        release.description.as_deref(),
+        Some("Preferred release description")
+    );
     assert_eq!(
         release.image_url.as_deref(),
         Some("https://cdn.example.com/preferred-cover.jpg")

@@ -13,10 +13,7 @@ fn test_app_state_with_token(
     db: Arc<Mutex<rusqlite::Connection>>,
     admin_token: &str,
 ) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-cs02-signer.key")
-            .expect("signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-cs02-signer"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

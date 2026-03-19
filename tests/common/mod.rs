@@ -9,7 +9,10 @@ pub fn test_db() -> Connection {
 }
 
 /// Returns the DB as an `Arc<Mutex<Connection>>` matching the legacy `db::Db` type.
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn test_db_arc() -> Arc<Mutex<Connection>> {
     Arc::new(Mutex::new(test_db()))
 }
@@ -19,7 +22,10 @@ pub fn test_db_arc() -> Arc<Mutex<Connection>> {
 /// The returned `TempDir` must be kept alive for the lifetime of the pool —
 /// dropping it removes the underlying database file.
 // Issue-WAL-POOL — 2026-03-14
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn test_db_pool() -> (stophammer::db_pool::DbPool, tempfile::TempDir) {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let db_path = dir.path().join("test.db");
@@ -32,27 +38,39 @@ pub fn test_db_pool() -> (stophammer::db_pool::DbPool, tempfile::TempDir) {
 /// Both reads and writes go through the single writer. Use this when tests
 /// need to seed data via raw SQL on a `Connection` reference.
 // Issue-WAL-POOL — 2026-03-14
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn test_db_pool_memory() -> stophammer::db_pool::DbPool {
     stophammer::db_pool::DbPool::from_writer_only(test_db_arc())
 }
 
 /// Wraps an `Arc<Mutex<Connection>>` into a `DbPool` for test compatibility.
 // Issue-WAL-POOL — 2026-03-14
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn wrap_pool(db: Arc<Mutex<rusqlite::Connection>>) -> stophammer::db_pool::DbPool {
     stophammer::db_pool::DbPool::from_writer_only(db)
 }
 
 // SP-05 epoch guard — 2026-03-12
 /// Returns current unix timestamp as i64.
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn now() -> i64 {
     stophammer::db::unix_now()
 }
 
 /// Builds a signed `POST /sync/register` request body for test callers.
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn signed_sync_register_body(
     signer: &stophammer::signing::NodeSigner,
     node_url: &str,
@@ -60,7 +78,10 @@ pub fn signed_sync_register_body(
     signed_sync_register_body_with_signed_at(signer, node_url, stophammer::db::unix_now())
 }
 
-#[expect(dead_code, reason = "used conditionally across test files")]
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
 pub fn signed_sync_register_body_with_signed_at(
     signer: &stophammer::signing::NodeSigner,
     node_url: &str,
@@ -82,4 +103,15 @@ pub fn signed_sync_register_body_with_signed_at(
         "signed_at": signed_at,
         "signature": signature
     })
+}
+
+/// Returns a signer backed by a unique temporary key path.
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
+pub fn temp_signer(label: &str) -> stophammer::signing::NodeSigner {
+    let dir = tempfile::tempdir().expect("failed to create temp signer dir");
+    let key_path = dir.path().join(format!("{label}.key"));
+    stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer")
 }

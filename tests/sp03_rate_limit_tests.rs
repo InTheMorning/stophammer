@@ -66,9 +66,7 @@ async fn health_endpoint_not_rate_limited_in_router() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sp03-signer.key").unwrap(),
-    );
+    let signer = Arc::new(common::temp_signer("test-sp03-signer"));
     let pubkey = signer.pubkey_hex().to_string();
     let state = Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

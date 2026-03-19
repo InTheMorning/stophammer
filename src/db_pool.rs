@@ -1,6 +1,6 @@
 // Issue-WAL-POOL — 2026-03-14
 
-//! SQLite WAL connection pool.
+//! `SQLite` WAL connection pool.
 //!
 //! Provides a writer (single connection under `Mutex`) and a bounded reader
 //! pool (`r2d2`) so WAL concurrency materialises at the application level.
@@ -49,12 +49,12 @@ impl std::ops::Deref for ReadConn<'_> {
 
 /// A cloneable handle to the WAL-mode connection pool.
 ///
-/// The writer is a single `Mutex<Connection>` (SQLite allows only one
+/// The writer is a single `Mutex<Connection>` (`SQLite` allows only one
 /// concurrent writer). The reader pool is bounded at 8 connections with
 /// `PRAGMA query_only = ON` enforced per connection.
 #[derive(Clone)]
 pub struct DbPool {
-    /// Single write connection. SQLite allows only one concurrent writer.
+    /// Single write connection. `SQLite` allows only one concurrent writer.
     writer: Arc<Mutex<Connection>>,
     /// Bounded pool of read connections (WAL snapshot isolation).
     /// `None` in test-util writer-only mode.
@@ -144,7 +144,7 @@ impl DbPool {
             self.writer
                 .lock()
                 .map(ReadConn::Writer)
-                .map_err(|_| DbError::Poisoned)
+                .map_err(|_poison| DbError::Poisoned)
         }
     }
 }

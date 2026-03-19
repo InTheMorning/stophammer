@@ -1,3 +1,8 @@
+#![allow(
+    clippy::clone_on_ref_ptr,
+    reason = "tests use Arc-backed in-memory DB handles; Arc::clone adds noise without changing intent"
+)]
+
 mod common;
 
 use rusqlite::params;
@@ -278,7 +283,7 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "integration test exercises full feed deletion with all child rows"
 )]
@@ -630,8 +635,7 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         5
     );
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-many-tracks.key")
-        .expect("signer");
+    let signer = common::temp_signer("test-many-tracks");
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload_json = r#"{"feed_guid":"feed-n","reason":"bulk test"}"#;
     let now = common::now();
@@ -698,8 +702,7 @@ fn apply_feed_retired_event() {
     let pool = common::wrap_pool(db.clone());
 
     // Build a FeedRetired event.
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-feed.key").unwrap();
+    let signer = common::temp_signer("test-retire-feed");
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::FeedRetiredPayload {
         feed_guid: "feed-1".to_string(),
@@ -755,8 +758,7 @@ fn apply_track_removed_event() {
     let pool = common::wrap_pool(db.clone());
 
     // Build a TrackRemoved event.
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-track.key").unwrap();
+    let signer = common::temp_signer("test-remove-track");
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::TrackRemovedPayload {
         track_guid: "track-1".to_string(),
@@ -811,8 +813,7 @@ fn apply_feed_retired_unknown_guid_is_noop() {
     let db = Arc::new(Mutex::new(conn));
     let pool = common::wrap_pool(db.clone());
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-retire-unknown.key").unwrap();
+    let signer = common::temp_signer("test-retire-unknown");
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::FeedRetiredPayload {
         feed_guid: "nonexistent-feed".to_string(),
@@ -860,8 +861,7 @@ fn apply_track_removed_unknown_guid_is_noop() {
     let db = Arc::new(Mutex::new(conn));
     let pool = common::wrap_pool(db.clone());
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-remove-unknown.key").unwrap();
+    let signer = common::temp_signer("test-remove-unknown");
     let event_id = uuid::Uuid::new_v4().to_string();
     let payload = stophammer::event::TrackRemovedPayload {
         track_guid: "nonexistent-track".to_string(),

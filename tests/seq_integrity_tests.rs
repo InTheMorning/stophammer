@@ -1,3 +1,8 @@
+#![allow(
+    clippy::clone_on_ref_ptr,
+    reason = "tests use Arc-backed in-memory DB handles; Arc::clone adds noise without changing intent"
+)]
+
 mod common;
 
 use std::sync::{Arc, Mutex};
@@ -87,9 +92,8 @@ fn event_signing_payload_includes_seq() {
 fn inflated_seq_breaks_signature() {
     use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
-    use stophammer::signing::NodeSigner;
 
-    let signer = NodeSigner::load_or_create("/tmp/seq-integrity-test.key").unwrap();
+    let signer = common::temp_signer("seq-integrity-test");
 
     let artist = Artist {
         artist_id: "seq-artist-1".into(),
@@ -195,9 +199,8 @@ fn apply_uses_wire_seq_for_cursor_after_verification() {
 #[test]
 fn sign_event_produces_different_signatures_for_different_seq() {
     use stophammer::event::EventType;
-    use stophammer::signing::NodeSigner;
 
-    let signer = NodeSigner::load_or_create("/tmp/seq-integrity-diff.key").unwrap();
+    let signer = common::temp_signer("seq-integrity-diff");
 
     let (_, sig_a) = signer.sign_event(
         "evt-diff",

@@ -1,3 +1,12 @@
+#![allow(
+    clippy::missing_errors_doc,
+    reason = "db.rs exposes many thin Result-returning helpers; keeping per-item docs here is low-value noise"
+)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "db.rs intentionally centralizes SQL-heavy flows and delete/rebuild routines"
+)]
+
 //! Database access layer for stophammer.
 //!
 //! All SQL operations are collected here: schema initialisation, per-entity
@@ -73,8 +82,7 @@ impl std::error::Error for DbError {
         match self {
             Self::Rusqlite(e) => Some(e),
             Self::Json(e) => Some(e),
-            Self::Poisoned => None,
-            Self::Other(_) => None,
+            Self::Poisoned | Self::Other(_) => None,
         }
     }
 }
@@ -507,12 +515,9 @@ pub fn resolve_feed_artist_from_source_claims(
         .map(|claim| claim.value.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect();
-    if npubs.len() == 1
-        && let Some(artist) = find_existing_artist_by_npub_and_name(
-            conn,
-            npubs.first().expect("len checked"),
-            &artist_name_lower,
-        )?
+    if let Some(only_npub) = (npubs.len() == 1).then(|| npubs.first()).flatten()
+        && let Some(artist) =
+            find_existing_artist_by_npub_and_name(conn, only_npub, &artist_name_lower)?
     {
         return Ok(artist);
     }
@@ -523,10 +528,12 @@ pub fn resolve_feed_artist_from_source_claims(
         .map(|item| item.remote_feed_guid.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect();
-    if publisher_guids.len() == 1
+    if let Some(only_publisher_guid) = (publisher_guids.len() == 1)
+        .then(|| publisher_guids.first())
+        .flatten()
         && let Some(artist) = find_existing_artist_by_publisher_guid_and_name(
             conn,
-            publisher_guids.first().expect("len checked"),
+            only_publisher_guid,
             &artist_name_lower,
         )?
     {
@@ -541,10 +548,12 @@ pub fn resolve_feed_artist_from_source_claims(
         .map(|link| link.url.trim().to_string())
         .filter(|value| !value.is_empty())
         .collect();
-    if website_urls.len() == 1
+    if let Some(only_website_url) = (website_urls.len() == 1)
+        .then(|| website_urls.first())
+        .flatten()
         && let Some(artist) = find_existing_artist_by_website_url_and_name(
             conn,
-            website_urls.first().expect("len checked"),
+            only_website_url,
             &artist_name_lower,
         )?
     {
@@ -1398,9 +1407,10 @@ fn get_artist_credit_display_name(
     conn: &Connection,
     artist_credit_id: i64,
 ) -> Result<String, DbError> {
-    Ok(get_artist_credit(conn, artist_credit_id)?
-        .map(|credit| credit.display_name.to_lowercase())
-        .unwrap_or_else(|| format!("artist_credit_id:{artist_credit_id}")))
+    Ok(get_artist_credit(conn, artist_credit_id)?.map_or_else(
+        || format!("artist_credit_id:{artist_credit_id}"),
+        |credit| credit.display_name.to_lowercase(),
+    ))
 }
 
 fn get_feed_platform_keys(
@@ -1523,20 +1533,19 @@ fn release_cluster_target(
     feed: &Feed,
     tracks: &[Track],
 ) -> Result<(String, String, i64), DbError> {
-    if tracks.len() == 1 {
-        if let Some((artist_display_key, duration_anchor)) =
+    if tracks.len() == 1
+        && let Some((artist_display_key, duration_anchor)) =
             cross_platform_single_track_anchor(conn, feed, &tracks[0])?
-        {
-            let key = format!(
-                "single_track_cross_platform_release_v1|artist_display={artist_display_key}|release_title={}|track_title={}|duration_anchor={duration_anchor}",
-                feed.title_lower, tracks[0].title_lower,
-            );
-            return Ok((
-                canonical_cluster_id("release", &key),
-                "single_track_cross_platform_release_v1".to_string(),
-                92,
-            ));
-        }
+    {
+        let key = format!(
+            "single_track_cross_platform_release_v1|artist_display={artist_display_key}|release_title={}|track_title={}|duration_anchor={duration_anchor}",
+            feed.title_lower, tracks[0].title_lower,
+        );
+        return Ok((
+            canonical_cluster_id("release", &key),
+            "single_track_cross_platform_release_v1".to_string(),
+            92,
+        ));
     }
 
     if tracks.is_empty() || tracks.iter().any(|track| track.duration_secs.is_none()) {
@@ -1653,27 +1662,26 @@ fn ensure_recording_row(
     Ok(())
 }
 
-fn has_non_blank_text(value: &Option<String>) -> i64 {
+fn has_non_blank_text(value: Option<&String>) -> i64 {
     value
-        .as_deref()
+        .map(String::as_str)
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .map(|_| 1)
-        .unwrap_or(0)
+        .map_or(0, |_| 1)
 }
 
-fn feed_representative_rank(
-    map: &SourceFeedReleaseMap,
-    feed: &Feed,
-) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+type FeedRepresentativeRank = (i64, i64, i64, i64, i64, i64, i64, i64, i64);
+type TrackRepresentativeRank = (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64);
+
+fn feed_representative_rank(map: &SourceFeedReleaseMap, feed: &Feed) -> FeedRepresentativeRank {
     (
         map.confidence,
-        has_non_blank_text(&feed.description),
-        has_non_blank_text(&feed.image_url),
-        feed.oldest_item_at.is_some() as i64,
-        feed.newest_item_at.is_some() as i64,
-        has_non_blank_text(&feed.language),
-        has_non_blank_text(&feed.itunes_type),
+        has_non_blank_text(feed.description.as_ref()),
+        has_non_blank_text(feed.image_url.as_ref()),
+        i64::from(feed.oldest_item_at.is_some()),
+        i64::from(feed.newest_item_at.is_some()),
+        has_non_blank_text(feed.language.as_ref()),
+        has_non_blank_text(feed.itunes_type.as_ref()),
         feed.newest_item_at.unwrap_or(i64::MIN),
         feed.updated_at.max(feed.created_at),
     )
@@ -1683,16 +1691,16 @@ fn track_representative_rank(
     map: &SourceItemRecordingMap,
     track: &Track,
     feed: &Feed,
-) -> (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64) {
+) -> TrackRepresentativeRank {
     (
         map.confidence,
-        has_non_blank_text(&track.description),
-        has_non_blank_text(&track.enclosure_url),
-        has_non_blank_text(&track.enclosure_type),
-        track.enclosure_bytes.is_some() as i64,
-        track.pub_date.is_some() as i64,
-        track.duration_secs.is_some() as i64,
-        has_non_blank_text(&feed.description),
+        has_non_blank_text(track.description.as_ref()),
+        has_non_blank_text(track.enclosure_url.as_ref()),
+        has_non_blank_text(track.enclosure_type.as_ref()),
+        i64::from(track.enclosure_bytes.is_some()),
+        i64::from(track.pub_date.is_some()),
+        i64::from(track.duration_secs.is_some()),
+        has_non_blank_text(feed.description.as_ref()),
         track.pub_date.unwrap_or(i64::MIN),
         track.updated_at.max(track.created_at).max(feed.updated_at),
     )
@@ -1703,7 +1711,7 @@ fn representative_feed_guid_for_release(
     release_id: &str,
 ) -> Result<Option<String>, DbError> {
     let maps = get_source_feed_release_maps_for_release(conn, release_id)?;
-    let mut best: Option<(String, (i64, i64, i64, i64, i64, i64, i64, i64, i64))> = None;
+    let mut best: Option<(String, FeedRepresentativeRank)> = None;
 
     for map in maps {
         let Some(feed) = get_feed_by_guid(conn, &map.feed_guid)? else {
@@ -1725,7 +1733,7 @@ fn representative_track_guid_for_recording(
     recording_id: &str,
 ) -> Result<Option<String>, DbError> {
     let maps = get_source_item_recording_maps_for_recording(conn, recording_id)?;
-    let mut best: Option<(String, (i64, i64, i64, i64, i64, i64, i64, i64, i64, i64))> = None;
+    let mut best: Option<(String, TrackRepresentativeRank)> = None;
 
     for map in maps {
         let Some(track) = get_track_by_guid(conn, &map.track_guid)? else {
@@ -1837,10 +1845,13 @@ fn rebuild_canonical_release(conn: &Connection, release_id: &str) -> Result<(), 
             )
             .optional()?;
         if let Some(recording_id) = recording_id {
+            let position = i64::try_from(idx)
+                .map_err(|_err| DbError::Other("release track position overflow".to_string()))?
+                + 1;
             conn.execute(
                 "INSERT INTO release_recordings (release_id, recording_id, position, source_track_guid) \
                  VALUES (?1, ?2, ?3, ?4)",
-                params![release_id, recording_id, (idx as i64) + 1, track.track_guid],
+                params![release_id, recording_id, position, track.track_guid],
             )?;
         }
     }
@@ -2110,7 +2121,7 @@ fn release_id_for_feed_map(conn: &Connection, feed_guid: &str) -> Result<Option<
 }
 
 fn rebuild_release_sources(conn: &Connection, release_id: &str) -> Result<(), DbError> {
-    delete_promoted_entity_sources(conn, "release", &release_id)?;
+    delete_promoted_entity_sources(conn, "release", release_id)?;
     let mut stmt = conn.prepare(
         "SELECT f.feed_url, f.feed_guid \
          FROM source_feed_release_map sfr
@@ -3612,10 +3623,10 @@ fn normalize_artist_website_key(raw_url: &str) -> Option<String> {
     }
 
     if host == "instagram.com" {
-        if let Some(profile) = segments.first() {
-            if !matches!(profile.as_str(), "p" | "reel" | "reels" | "tv" | "stories") {
-                return Some(format!("{host}/{profile}"));
-            }
+        if let Some(profile) = segments.first()
+            && !matches!(profile.as_str(), "p" | "reel" | "reels" | "tv" | "stories")
+        {
+            return Some(format!("{host}/{profile}"));
         }
         return Some(host);
     }

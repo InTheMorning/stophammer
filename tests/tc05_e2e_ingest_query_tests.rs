@@ -20,10 +20,7 @@ fn test_app_state_with_crawl_token(
     db: Arc<Mutex<rusqlite::Connection>>,
     crawl_token: &str,
 ) -> Arc<stophammer::api::AppState> {
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-tc05-signer.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-tc05-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
     // Build a verifier chain with only crawl_token (skip content_hash, medium_music, etc.)
@@ -233,7 +230,7 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "track title should match"
     );
 
-    // ── Step 4: GET /v1/search?q=Golden → verify search returns entity metadata
+    // ── Step 4: GET /v1/search?q=Golden → verify canonical-first search results
     // Issue-FTS5-CONTENT — 2026-03-14
     // The search endpoint now JOINs through the `search_entities` companion
     // table to resolve (entity_type, entity_id) from contentless FTS5 rowids.
@@ -259,13 +256,43 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "search for 'Golden' should return at least one result"
     );
 
-    // The feed should appear in the results with correct entity metadata.
-    let feed_hit = search_data.iter().find(|r| {
+    // Default search is canonical-first and should not surface source feeds.
+    assert!(search_data.iter().all(|r| {
+        matches!(
+            r["entity_type"].as_str(),
+            Some("artist" | "release" | "recording")
+        )
+    }));
+
+    // Explicit feed search should still surface the source feed hit.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=Golden&type=feed")
+                .body(Body::empty())
+                .expect("build source feed search request"),
+        )
+        .await
+        .expect("feed search should not panic");
+
+    assert_eq!(
+        resp.status(),
+        200,
+        "GET /v1/search?type=feed should return 200"
+    );
+    let feed_search_body = body_json(resp).await;
+    let feed_search_data = feed_search_body["data"]
+        .as_array()
+        .expect("feed search data should be an array");
+
+    let feed_hit = feed_search_data.iter().find(|r| {
         r["entity_type"].as_str() == Some("feed") && r["entity_id"].as_str() == Some(feed_guid)
     });
     assert!(
         feed_hit.is_some(),
-        "search results should include the feed with entity_type='feed' and entity_id='{feed_guid}'"
+        "feed search results should include the feed with entity_type='feed' and entity_id='{feed_guid}'"
     );
 
     // ── Step 5: GET /v1/feeds/{guid}?include=payment_routes → verify routes ─

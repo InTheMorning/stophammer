@@ -1,6 +1,10 @@
 // Sprint 1B — Issue #17 & Issue #5 atomicity tests — 2026-03-13
 
 #![recursion_limit = "256"]
+#![allow(
+    clippy::clone_on_ref_ptr,
+    reason = "tests use Arc-backed in-memory DB handles; Arc::clone adds noise without changing intent"
+)]
 #![expect(
     clippy::significant_drop_tightening,
     reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
@@ -271,11 +275,8 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
 
     let crawl_token = "sprint1b-crawl-token";
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-sprint1b-signer.key")
-            .expect("create signer"),
-    );
+    let _pool = common::wrap_pool(db.clone());
+    let signer = Arc::new(common::temp_signer("test-sprint1b-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
     let spec = stophammer::verify::ChainSpec {
@@ -566,8 +567,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     };
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/sprint1b-atom-test.key")
-        .expect("signer");
+    let signer = common::temp_signer("sprint1b-atom-test");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
         artist,
@@ -763,8 +763,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         .expect("rename events table");
 
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer, EventRow no longer has signed_by/signature.
-    let signer2 = stophammer::signing::NodeSigner::load_or_create("/tmp/sprint1b-atom-test2.key")
-        .expect("signer");
+    let signer2 = common::temp_signer("sprint1b-atom-test2");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
         artist,

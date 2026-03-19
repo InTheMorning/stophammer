@@ -106,8 +106,7 @@ impl Respond for PagedResponder {
 #[tokio::test]
 async fn drain_loop_fetches_all_pages_before_sleeping() {
     let mock_server = MockServer::start().await;
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-drain-signer.key")
-        .expect("create signer");
+    let signer = common::temp_signer("test-drain-signer");
 
     // Page 1: after_seq=0
     let page1_events: Vec<serde_json::Value> = (1..=3_i64)
@@ -149,7 +148,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
         .await;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let last_push_at = Arc::new(AtomicI64::new(0));
 
     let config = stophammer::community::CommunityConfig {
@@ -162,10 +161,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
 
     let db2 = pool.clone();
     let lp = Arc::clone(&last_push_at);
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/catchup-drain-sync.key")
-            .expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("catchup-drain-sync"));
 
     let handle = tokio::spawn(async move {
         stophammer::community::run_community_sync(config, db2, signer, lp, None).await;

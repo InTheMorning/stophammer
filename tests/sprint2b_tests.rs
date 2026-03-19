@@ -16,7 +16,7 @@ use stophammer::db;
 fn poisoned_db_mutex_returns_db_error() {
     let conn = common::test_db();
     let db: db::Db = Arc::new(Mutex::new(conn));
-    let pool = common::wrap_pool(Arc::clone(&db));
+    let _pool = common::wrap_pool(Arc::clone(&db));
 
     // Poison the mutex by panicking inside a lock scope.
     let db2 = Arc::clone(&db);

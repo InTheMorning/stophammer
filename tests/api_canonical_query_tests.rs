@@ -1,4 +1,12 @@
 #![recursion_limit = "256"]
+#![allow(
+    clippy::too_many_lines,
+    reason = "canonical API regression test keeps the full response matrix in one golden-path scenario"
+)]
+#![allow(
+    clippy::unreadable_literal,
+    reason = "fixture payloads preserve raw timestamp and byte-count literals for readability against JSON"
+)]
 
 mod common;
 

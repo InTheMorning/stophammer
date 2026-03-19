@@ -125,8 +125,7 @@ fn merge_artists_rolls_back_when_event_insert_fails() {
 
     // Attempt the atomic merge+event operation.
     // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/finding2-test.key").expect("signer");
+    let signer = common::temp_signer("finding2-test");
     let result = stophammer::db::merge_artists_with_event(
         &mut conn,
         "art-src",

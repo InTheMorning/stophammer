@@ -70,7 +70,7 @@ fn parse_args() -> Result<Args, String> {
                     .ok_or_else(|| "--limit requires a number".to_string())?;
                 limit = value
                     .parse::<usize>()
-                    .map_err(|_| format!("invalid --limit value: {value}"))?;
+                    .map_err(|_err| format!("invalid --limit value: {value}"))?;
             }
             "--name" => {
                 let value = args
@@ -117,6 +117,13 @@ fn duplicate_name_keys(
         stmt.query_map([name], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()
     } else {
+        let limit_i64 = i64::try_from(limit).map_err(|_err| {
+            rusqlite::Error::ToSqlConversionFailure(
+                "review limit exceeded supported SQLite integer range"
+                    .to_string()
+                    .into(),
+            )
+        })?;
         let mut stmt = conn.prepare(
             "SELECT LOWER(name) AS name_key \
              FROM artists \
@@ -125,7 +132,7 @@ fn duplicate_name_keys(
              ORDER BY COUNT(*) DESC, name_key \
              LIMIT ?1",
         )?;
-        stmt.query_map([limit as i64], |row| row.get(0))?
+        stmt.query_map([limit_i64], |row| row.get(0))?
             .collect::<Result<Vec<_>, _>>()
     }
 }

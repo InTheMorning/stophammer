@@ -11,9 +11,7 @@ use tower::ServiceExt;
 
 fn test_app_state() -> Arc<stophammer::api::AppState> {
     let db = common::test_db_arc();
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-fg05-signer.key").unwrap(),
-    );
+    let signer = Arc::new(common::temp_signer("test-fg05-signer"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

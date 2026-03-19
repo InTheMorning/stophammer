@@ -15,7 +15,7 @@ use stophammer::signing::NodeSigner;
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Build a properly signed `ArtistUpserted` event with a unique artist per
-/// `artist_suffix` so events don't collide on subject_guid.
+/// `artist_suffix` so events don't collide on `subject_guid`.
 fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, artist_suffix: &str) -> Event {
     let artist_id = format!("batch-artist-{artist_suffix}");
     let artist = Artist {
@@ -68,7 +68,7 @@ fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, artist_suffi
 #[tokio::test]
 async fn batch_of_10_events_applied_atomically() {
     let (pool, _dir) = common::test_db_pool();
-    let signer = NodeSigner::load_or_create("/tmp/batch-apply-test-atomic.key").unwrap();
+    let signer = common::temp_signer("batch-apply-test-atomic");
 
     let events: Vec<Event> = (1..=10)
         .map(|i| {
@@ -119,7 +119,7 @@ async fn batch_of_10_events_applied_atomically() {
 #[tokio::test]
 async fn sync_cursor_is_max_seq_of_batch() {
     let (pool, _dir) = common::test_db_pool();
-    let signer = NodeSigner::load_or_create("/tmp/batch-apply-test-cursor.key").unwrap();
+    let signer = common::temp_signer("batch-apply-test-cursor");
 
     let seqs = [3, 7, 1, 10, 5];
     let events: Vec<Event> = seqs
@@ -152,7 +152,7 @@ async fn sync_cursor_is_max_seq_of_batch() {
 #[tokio::test]
 async fn duplicate_events_in_batch_do_not_fail() {
     let (pool, _dir) = common::test_db_pool();
-    let signer = NodeSigner::load_or_create("/tmp/batch-apply-test-dup.key").unwrap();
+    let signer = common::temp_signer("batch-apply-test-dup");
 
     // First apply: insert 3 events.
     let events_first: Vec<Event> = (1..=3)
@@ -215,7 +215,7 @@ async fn duplicate_events_in_batch_do_not_fail() {
 #[tokio::test]
 async fn sse_not_published_during_transaction() {
     let (pool, _dir) = common::test_db_pool();
-    let signer = NodeSigner::load_or_create("/tmp/batch-apply-test-sse.key").unwrap();
+    let signer = common::temp_signer("batch-apply-test-sse");
 
     let events: Vec<Event> = (1..=5)
         .map(|i| {
@@ -250,7 +250,7 @@ async fn sse_not_published_during_transaction() {
 #[tokio::test]
 async fn single_event_wrapper_still_works() {
     let (pool, _dir) = common::test_db_pool();
-    let signer = NodeSigner::load_or_create("/tmp/batch-apply-test-single.key").unwrap();
+    let signer = common::temp_signer("batch-apply-test-single");
 
     let ev = make_signed_event(&signer, "single-evt-1", 42, "single-1");
 

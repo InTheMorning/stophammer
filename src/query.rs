@@ -2,6 +2,10 @@
     clippy::significant_drop_tightening,
     reason = "MutexGuard<Connection> must be held for the full spawn_blocking scope"
 )]
+#![allow(
+    clippy::too_many_lines,
+    reason = "query handlers intentionally assemble rich paginated/detail responses in one place"
+)]
 
 //! Query API handlers for the `/v1/*` read-only endpoints.
 //!
@@ -703,7 +707,7 @@ async fn handle_get_artist(
 
 // ── GET /v1/artists/{id}/feeds ──────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single paginated feed-list flow with batch credit loading"
 )]
@@ -894,7 +898,7 @@ async fn handle_get_artist_feeds(
 
 // ── GET /v1/feeds/{guid} ────────────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single paginated-detail flow with optional includes"
 )]
@@ -1482,7 +1486,7 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
 
 // ── GET /v1/releases/{id} ──────────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single canonical detail flow with optional expansions"
 )]
@@ -1735,7 +1739,7 @@ async fn handle_get_release_sources(
 
 // ── GET /v1/recordings/{id} ────────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single canonical detail flow with optional expansions"
 )]
@@ -2263,7 +2267,7 @@ async fn handle_get_artist_resolution(
 
 // ── GET /v1/tracks/{guid} ────────────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single paginated-detail flow with optional includes"
 )]
@@ -2337,7 +2341,7 @@ async fn handle_get_track(
 
 // ── GET /v1/feeds/recent ────────────────────────────────────────────────────
 
-#[expect(
+#[allow(
     clippy::too_many_lines,
     reason = "single paginated-list flow with two SQL branches"
 )]

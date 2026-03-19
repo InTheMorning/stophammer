@@ -20,9 +20,10 @@ fn test_app_state(
     admin_token: &str,
     sync_token: Option<&str>,
 ) -> Arc<stophammer::api::AppState> {
+    let temp_dir = tempfile::tempdir().expect("create temp signer dir");
+    let key_path = temp_dir.path().join("test-finding3-sync-token.key");
     let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-finding3-sync-token.key")
-            .expect("create signer"),
+        stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer"),
     );
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
@@ -40,9 +41,9 @@ fn test_app_state(
 }
 
 async fn register_request_body() -> (MockServer, serde_json::Value) {
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-finding3-sync-token-body.key")
-            .expect("create signer");
+    let temp_dir = tempfile::tempdir().expect("create temp signer dir");
+    let key_path = temp_dir.path().join("test-finding3-sync-token-body.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer");
     let mock_server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/node/info"))
@@ -51,7 +52,8 @@ async fn register_request_body() -> (MockServer, serde_json::Value) {
         })))
         .mount(&mock_server)
         .await;
-    let body = common::signed_sync_register_body(&signer, &format!("{}/sync/push", mock_server.uri()));
+    let body =
+        common::signed_sync_register_body(&signer, &format!("{}/sync/push", mock_server.uri()));
     (mock_server, body)
 }
 

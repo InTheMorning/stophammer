@@ -15,10 +15,12 @@ use tower::ServiceExt;
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
+    let key_dir = tempfile::tempdir().expect("tempdir");
+    let key_path = key_dir.path().join("test-finding5-reconcile.key");
     let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-finding5-reconcile.key")
-            .expect("create signer"),
+        stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer"),
     );
+    std::mem::forget(key_dir);
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -26,7 +28,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token".into(),
-        sync_token: None,
+        sync_token: Some("test-sync-token".into()),
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
@@ -39,8 +41,7 @@ fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<ax
         .method(method)
         .uri(uri)
         .header("Content-Type", "application/json")
-        // Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires auth.
-        .header("X-Admin-Token", "test-admin-token")
+        .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(body).expect("serialize"),
         ))
@@ -61,8 +62,9 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 // Issue-SEQ-INTEGRITY — 2026-03-14: pass signer instead of signed_by/signature.
 fn insert_dummy_event(conn: &rusqlite::Connection, event_id: &str, created_at: i64) -> i64 {
     let payload_json = r#"{"artist":{"artist_id":"a-1","name":"Test","name_lower":"test","created_at":0,"updated_at":0}}"#;
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/finding5-test.key").expect("signer");
+    let key_dir = tempfile::tempdir().expect("tempdir");
+    let key_path = key_dir.path().join("finding5-test.key");
+    let signer = stophammer::signing::NodeSigner::load_or_create(&key_path).expect("signer");
     let (seq, _, _) = stophammer::db::insert_event(
         conn,
         event_id,
@@ -74,6 +76,7 @@ fn insert_dummy_event(conn: &rusqlite::Connection, event_id: &str, created_at: i
         &[],
     )
     .expect("insert event");
+    std::mem::forget(key_dir);
     seq
 }
 

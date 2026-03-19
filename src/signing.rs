@@ -280,9 +280,15 @@ mod tests {
     use crate::event::{ArtistUpsertedPayload, EventPayload};
     use crate::model::Artist;
 
+    fn temp_signer(label: &str) -> NodeSigner {
+        let dir = tempfile::tempdir().expect("failed to create temp signer dir");
+        let key_path = dir.path().join(format!("{label}.key"));
+        NodeSigner::load_or_create(&key_path).expect("create signer")
+    }
+
     #[test]
     fn sign_verify_roundtrip() {
-        let signer = NodeSigner::load_or_create("/tmp/sign-roundtrip.key").unwrap();
+        let signer = temp_signer("sign-roundtrip");
 
         let artist = Artist {
             artist_id: "artist-1".into(),

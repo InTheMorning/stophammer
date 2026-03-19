@@ -76,7 +76,7 @@ fn cursor_monotonic_through_apply_single_event() {
     use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let now = common::now();
 
     // Apply event with seq=20.
@@ -130,7 +130,7 @@ fn cursor_survives_simulated_restart() {
     use stophammer::apply::{ApplyOutcome, apply_single_event};
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let pool = common::wrap_pool(Arc::clone(&db));
     let now = common::now();
 
     // Apply several events.
@@ -270,7 +270,7 @@ fn proof_feed_deleted_between_phases_returns_none() {
 
 fn test_search_app_state() -> Arc<stophammer::api::AppState> {
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let _pool = common::wrap_pool(Arc::clone(&db));
 
     // Insert a searchable entity so non-cursor queries work.
     {
@@ -287,10 +287,7 @@ fn test_search_app_state() -> Arc<stophammer::api::AppState> {
         .unwrap();
     }
 
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-coverage-gap-signer.key")
-            .unwrap(),
-    );
+    let signer = Arc::new(common::temp_signer("test-coverage-gap-signer"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -1266,10 +1263,9 @@ async fn community_push_duplicate_event_returns_duplicate() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let _pool = common::wrap_pool(Arc::clone(&db));
 
-    let signer = stophammer::signing::NodeSigner::load_or_create("/tmp/test-dup-push-signer.key")
-        .expect("create signer");
+    let signer = common::temp_signer("test-dup-push-signer");
     let primary_pubkey = signer.pubkey_hex().to_string();
     let now = stophammer::db::unix_now();
 
@@ -1383,11 +1379,9 @@ async fn community_push_bad_signature_rejected() {
     use tower::ServiceExt;
 
     let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
+    let _pool = common::wrap_pool(Arc::clone(&db));
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/test-badsig-push-signer.key")
-            .expect("create signer");
+    let signer = common::temp_signer("test-badsig-push-signer");
     let primary_pubkey = signer.pubkey_hex().to_string();
     let now = stophammer::db::unix_now();
 

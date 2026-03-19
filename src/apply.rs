@@ -365,6 +365,12 @@ struct PendingLiveSseDiff {
     new_live_events: Vec<crate::model::LiveEvent>,
 }
 
+type ApplyBatchOutput = (
+    ApplySummary,
+    Vec<BatchedApplyResult>,
+    Vec<(String, api::SseFrame)>,
+);
+
 // ── apply_events ─────────────────────────────────────────────────────────────
 
 /// Verify and apply a batch of events to the local DB.
@@ -381,6 +387,10 @@ struct PendingLiveSseDiff {
 // Issue-CURSOR-IDENTITY — 2026-03-14
 // Issue-WAL-POOL — 2026-03-14: accepts DbPool instead of db::Db
 // Issue-BATCH-APPLY — 2026-03-16
+#[allow(
+    clippy::too_many_lines,
+    reason = "batched apply intentionally keeps verification, transaction, and SSE staging in one flow"
+)]
 pub async fn apply_events(
     db: db_pool::DbPool,
     events: Vec<event::Event>,
@@ -422,8 +432,8 @@ pub async fn apply_events(
     // and per-event transaction commit latency.
     // Issue-BATCH-APPLY — 2026-03-16
     let db2 = db.clone();
-    let batch_result = tokio::task::spawn_blocking(
-        move || -> Result<(ApplySummary, Vec<BatchedApplyResult>, Vec<(String, api::SseFrame)>), db::DbError> {
+    let batch_result =
+        tokio::task::spawn_blocking(move || -> Result<ApplyBatchOutput, db::DbError> {
             let now = db::unix_now();
             let mut conn = db2
                 .writer()
@@ -516,9 +526,8 @@ pub async fn apply_events(
 
             tx.commit()?;
             Ok((batch_summary, applied, live_sse_frames))
-        },
-    )
-    .await;
+        })
+        .await;
 
     // Phase 3: merge batch results and publish SSE events after commit.
     // Issue-BATCH-APPLY — 2026-03-16
@@ -581,6 +590,12 @@ mod tests {
         (pool, dir) // dir must be kept alive for the DB file to persist
     }
 
+    fn temp_signer(label: &str) -> NodeSigner {
+        let dir = tempfile::tempdir().expect("failed to create temp signer dir");
+        let key_path = dir.path().join(format!("{label}.key"));
+        NodeSigner::load_or_create(&key_path).expect("create signer")
+    }
+
     /// Build a properly signed `ArtistUpserted` event.
     fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64) -> event::Event {
         let artist = Artist {
@@ -632,7 +647,7 @@ mod tests {
     #[tokio::test]
     async fn push_cursor_visible_to_poll_reader() {
         let (pool, _dir) = test_db();
-        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-1.key").unwrap();
+        let signer = temp_signer("cursor-identity-test-1");
 
         let ev = make_signed_event(&signer, "evt-push-1", 42);
         let summary = apply_events(pool.clone(), vec![ev], None).await;
@@ -650,7 +665,7 @@ mod tests {
     #[tokio::test]
     async fn push_and_poll_share_cursor() {
         let (pool, _dir) = test_db();
-        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-2.key").unwrap();
+        let signer = temp_signer("cursor-identity-test-2");
 
         // Simulate poll applying seq 10.
         let ev1 = make_signed_event(&signer, "evt-poll-1", 10);
@@ -678,7 +693,7 @@ mod tests {
     #[tokio::test]
     async fn cursor_is_monotonic() {
         let (pool, _dir) = test_db();
-        let signer = NodeSigner::load_or_create("/tmp/cursor-identity-test-3.key").unwrap();
+        let signer = temp_signer("cursor-identity-test-3");
 
         let ev_high = make_signed_event(&signer, "evt-high", 100);
         apply_events(pool.clone(), vec![ev_high], None).await;

@@ -140,7 +140,7 @@ fn verifier_chain_runs_on_reader_connection() {
     let req = sample_request();
     let ctx = IngestContext {
         request: &req,
-        db: &*reader,
+        db: &reader,
         existing: None,
     };
 
@@ -160,7 +160,7 @@ fn verifier_write_attempt_blocked_on_reader() {
     let req = sample_request();
     let ctx = IngestContext {
         request: &req,
-        db: &*reader,
+        db: &reader,
         existing: None,
     };
 
@@ -196,7 +196,7 @@ fn verification_failure_does_not_acquire_writer() {
     let req = sample_request();
     let ctx = IngestContext {
         request: &req,
-        db: &*reader,
+        db: &reader,
         existing: None,
     };
 
@@ -233,7 +233,7 @@ fn mixed_chain_reader_queries_succeed() {
     let req = sample_request();
     let ctx = IngestContext {
         request: &req,
-        db: &*reader,
+        db: &reader,
         existing: None,
     };
 
@@ -270,7 +270,7 @@ fn content_hash_verifier_works_on_reader() {
     let req = sample_request(); // content_hash = "hash-abc" matching the seeded row
     let ctx = IngestContext {
         request: &req,
-        db: &*reader,
+        db: &reader,
         existing: None,
     };
 

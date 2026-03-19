@@ -19,7 +19,7 @@ fn parse_args() -> Result<(PathBuf, Option<usize>), String> {
                     .ok_or_else(|| "--limit requires a number".to_string())?;
                 let parsed = value
                     .parse::<usize>()
-                    .map_err(|_| format!("invalid --limit value: {value}"))?;
+                    .map_err(|_err| format!("invalid --limit value: {value}"))?;
                 limit = Some(parsed);
             }
             "--help" | "-h" => {
@@ -48,14 +48,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "SELECT feed_guid FROM feeds ORDER BY created_at, feed_guid"
         };
         let mut stmt = conn.prepare(sql)?;
-        let rows = if let Some(limit) = limit {
-            stmt.query_map([limit as i64], |row| row.get(0))?
+        if let Some(limit) = limit {
+            let limit_i64 = i64::try_from(limit).map_err(|_err| {
+                rusqlite::Error::ToSqlConversionFailure(
+                    "backfill limit exceeded supported SQLite integer range"
+                        .to_string()
+                        .into(),
+                )
+            })?;
+            stmt.query_map([limit_i64], |row| row.get(0))?
                 .collect::<Result<Vec<String>, _>>()?
         } else {
             stmt.query_map([], |row| row.get(0))?
                 .collect::<Result<Vec<String>, _>>()?
-        };
-        rows
+        }
     };
 
     println!(

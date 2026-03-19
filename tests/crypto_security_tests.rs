@@ -149,8 +149,7 @@ fn verify_rejects_empty_payload_json() {
     let inner = ArtistUpsertedPayload { artist };
     let payload_json = serde_json::to_string(&inner).unwrap();
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test.key").unwrap();
+    let signer = common::temp_signer("crypto-sec-test");
     let (signed_by, signature) = signer.sign_event(
         "evt-empty-pj",
         &EventType::ArtistUpserted,
@@ -345,12 +344,15 @@ fn event_id_primary_key_prevents_duplicates() {
 /// Verify that changing ANY field in the signing payload breaks the signature.
 /// This is the comprehensive version covering all fields.
 #[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "security regression test spells out multiple tamper cases inline for auditability"
+)]
 fn signature_covers_all_payload_fields() {
     use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-2.key").unwrap();
+    let signer = common::temp_signer("crypto-sec-test-2");
 
     let artist = Artist {
         artist_id: "a1".into(),
@@ -649,8 +651,7 @@ fn verify_event_signature_rejects_unknown_signer() {
     use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
     use stophammer::model::Artist;
 
-    let signer =
-        stophammer::signing::NodeSigner::load_or_create("/tmp/crypto-sec-test-3.key").unwrap();
+    let signer = common::temp_signer("crypto-sec-test-3");
     let attacker_key = SigningKey::generate(&mut OsRng);
     let attacker_pubkey = hex::encode(attacker_key.verifying_key().to_bytes());
 

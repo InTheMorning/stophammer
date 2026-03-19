@@ -1,3 +1,8 @@
+#![allow(
+    clippy::clone_on_ref_ptr,
+    reason = "tests use Arc-backed in-memory DB handles; Arc::clone adds noise without changing intent"
+)]
+
 // Issue-PUSH-BOUNDS — 2026-03-16
 
 mod common;

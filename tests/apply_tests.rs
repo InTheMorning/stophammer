@@ -1,3 +1,12 @@
+#![allow(
+    clippy::clone_on_ref_ptr,
+    reason = "tests use Arc-backed in-memory DB handles; Arc::clone adds noise without changing intent"
+)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "apply regression tests inline full event sequences and assertions for clarity"
+)]
+
 mod common;
 
 use rusqlite::params;
