@@ -81,7 +81,5 @@ immediately.
   authority.
 - Replication semantics are cleaner: source events preserve facts, resolved
   events publish derived state.
-- The legacy env var name
-  `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` no longer matches reality. The new
-  primary-facing name is `RESOLVER_EMIT_RESOLVED_STATE_EVENTS`; the old name is
-  kept only as a compatibility alias during transition.
+- The primary-facing env var for this emission path is
+  `RESOLVER_EMIT_RESOLVED_STATE_EVENTS`.

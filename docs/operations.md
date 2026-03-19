@@ -67,7 +67,6 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
 | `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
 | `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
-| `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` | compatibility alias | Deprecated legacy name for `RESOLVER_EMIT_RESOLVED_STATE_EVENTS`. Still honored, but `resolverd` logs a warning and the new name should be used. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 
 ---

@@ -192,9 +192,7 @@ resolved-state events emitted by the primary and should not run their own
 resolver worker.
 
 If you need to disable resolved-state event emission temporarily, use
-`RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`. The older
-`RESOLVER_EMIT_CANONICAL_STATE_EVENTS` name is still accepted as a deprecated
-compatibility alias.
+`RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`.
 
 ### Pause resolver draining during a bulk import
 

@@ -410,10 +410,6 @@ making changes. This is documented in
 and the rollout notes in
 [docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md).
 
-For compatibility, `resolverd` still accepts the older
-`RESOLVER_EMIT_CANONICAL_STATE_EVENTS` env var, but it now logs a deprecation
-warning. Use `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` instead.
-
 To see whether canonical views are caught up, query:
 
 ```bash

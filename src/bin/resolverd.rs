@@ -6,18 +6,6 @@ fn parse_truthy_opt_out(value: Option<&str>) -> bool {
     !matches!(value, Some("0" | "false" | "no" | "off"))
 }
 
-fn resolved_state_event_config() -> (bool, bool) {
-    if let Some(value) = std::env::var("RESOLVER_EMIT_RESOLVED_STATE_EVENTS")
-        .ok()
-        .as_deref()
-    {
-        return (parse_truthy_opt_out(Some(value)), false);
-    }
-
-    let legacy = std::env::var("RESOLVER_EMIT_CANONICAL_STATE_EVENTS").ok();
-    (parse_truthy_opt_out(legacy.as_deref()), legacy.is_some())
-}
-
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
@@ -48,7 +36,11 @@ async fn main() {
         .unwrap_or(25);
     let worker_id = std::env::var("RESOLVER_WORKER_ID")
         .unwrap_or_else(|_| format!("resolverd-{}", std::process::id()));
-    let (emit_resolved_state_events, used_legacy_emit_var) = resolved_state_event_config();
+    let emit_resolved_state_events = parse_truthy_opt_out(
+        std::env::var("RESOLVER_EMIT_RESOLVED_STATE_EVENTS")
+            .ok()
+            .as_deref(),
+    );
 
     let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
         .expect("failed to open database pool");
@@ -60,19 +52,12 @@ async fn main() {
         )
     });
 
-    if used_legacy_emit_var {
-        tracing::warn!(
-            "RESOLVER_EMIT_CANONICAL_STATE_EVENTS is deprecated; use RESOLVER_EMIT_RESOLVED_STATE_EVENTS"
-        );
-    }
-
     tracing::info!(
         db_path,
         interval_secs,
         batch_size,
         worker_id,
         emit_resolved_state_events,
-        used_legacy_emit_var,
         "resolver: starting background worker"
     );
 
