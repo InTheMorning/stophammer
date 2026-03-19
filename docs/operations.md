@@ -313,6 +313,17 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 These do not crawl or fetch from the network. They operate on an existing local
 SQLite database.
 
+For a resolver-aware load check, use:
+
+```bash
+FEED_GUID=feed-guid-here ./tests/load_test.sh
+FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
+```
+
+That script measures source-layer feed/track reads separately from
+resolver-backed search and only runs the search leg once the resolver backlog
+is drained or explicitly waited out.
+
 ### Resolver Worker
 
 A durable resolver queue now handles deferred derived-state work.

@@ -34,8 +34,8 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 
 - architecture decisions:
   [docs/adr](/home/citizen/build/stophammer/docs/adr)
-- current API refactor notes:
-  [api-refactor-plan.md](/home/citizen/build/stophammer/docs/api-refactor-plan.md)
+- current resolver/refactor notes:
+  [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
 
 ## Manpages
 

@@ -224,6 +224,15 @@ The original feed/track data and staged source claims remain the preserved RSS
 layer. `resolverd` enriches canonical views on top of that data; it does not
 replace the source rows.
 
+For a quick resolver-aware load check:
+
+```bash
+FEED_GUID=feed-guid-here ./tests/load_test.sh
+FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
+```
+
+That script treats source reads and resolver-backed search as separate layers.
+
 ### Review ambiguous artist splits
 
 ```bash

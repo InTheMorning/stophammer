@@ -401,6 +401,17 @@ That endpoint reports resolver queue counts, import-pause heartbeat state, and
 which API surfaces are immediate source-layer reads versus resolver-backed
 canonical views.
 
+For a resolver-aware load check, use:
+
+```bash
+FEED_GUID=feed-guid-here ./tests/load_test.sh
+FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
+```
+
+That script treats source feed/track reads and resolver-backed search as
+separate layers instead of assuming search freshness is part of the ingest
+path.
+
 Use `resolverctl import-active` before a large bulk import and
 `resolverctl import-idle` after it finishes so the queue can drain again. When
 the crawler importer runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`, it
