@@ -382,7 +382,7 @@ drains `resolver_queue` incrementally and pauses while a fresh
 are ignored so a crashed importer cannot wedge the queue forever. Source
 feed/track search, source quality scores, canonical release/recording state,
 canonical-first search, promotions, and targeted artist identity now all
-converge through `resolverd`.
+converge through `resolverd` on the primary.
 
 The artist-identity review tool persists feed-scoped review items and durable
 merge or do-not-merge overrides on top of that automatic resolver path.
@@ -391,19 +391,23 @@ merge or do-not-merge overrides on top of that automatic resolver path.
 track rows, or staged source claims; those remain the authoritative extracted
 RSS layer.
 
-The next replication step is primary-authority resolved replication. A first
-phase is now available behind:
+Primary-authority resolved replication is now the default `resolverd`
+behavior on primaries. Unless you explicitly disable it with
+`RESOLVER_EMIT_CANONICAL_STATE_EVENTS=false`, the worker emits signed:
 
 ```bash
-RESOLVER_EMIT_CANONICAL_STATE_EVENTS=true
+source_feed_read_models_resolved
+canonical_feed_state_replaced
+canonical_feed_promotions_replaced
+artist_identity_feed_resolved
+artist_merged
 ```
 
-When enabled on the primary, `resolverd` emits signed
-`canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`,
-`artist_identity_feed_resolved`, and override-backed `artist_merged` events
-after resolver work succeeds. Replicas can apply those signed resolved events directly. This is scaffolding for the redesign in
+Replicas apply those signed resolved events directly. Community nodes no
+longer run `resolverd`; they follow the primary once its resolver has finished
+making changes. This is documented in
 [docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md);
-it does not retire community-side resolver work yet.
+the remaining work is operational cleanup, not community-side resolver fallback.
 
 To see whether canonical views are caught up, query:
 
@@ -495,3 +499,6 @@ cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_import -- \
 - **Do not sign events.** Community nodes have a signing key for identity
   (peer registration) but never sign events. All events in the log are signed
   by the primary.
+- **Do not run `resolverd`.** Community nodes now wait for the primary to emit
+  signed source-read-model, canonical-state, promotion, and artist-identity
+  resolver events.

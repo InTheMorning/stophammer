@@ -10,6 +10,7 @@ pub struct ResolverBatchResult {
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
+    pub source_read_model_events_emitted: usize,
     pub canonical_state_events_emitted: usize,
     pub canonical_promotion_events_emitted: usize,
     pub artist_merge_events_emitted: usize,
@@ -72,6 +73,8 @@ pub fn run_batch_with_signer(
             Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
+                result.source_read_model_events_emitted +=
+                    feed_result.source_read_model_events_emitted;
                 result.canonical_state_events_emitted += feed_result.canonical_state_events_emitted;
                 result.canonical_promotion_events_emitted +=
                     feed_result.canonical_promotion_events_emitted;
@@ -94,6 +97,7 @@ pub fn run_batch_with_signer(
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 struct ResolveFeedResult {
+    source_read_model_events_emitted: usize,
     canonical_state_events_emitted: usize,
     canonical_promotion_events_emitted: usize,
     artist_merge_events_emitted: usize,
@@ -115,6 +119,11 @@ fn resolve_feed(
     let mut result = ResolveFeedResult::default();
     if dirty_mask & crate::resolver::queue::DIRTY_SOURCE_READ_MODELS != 0 {
         db::sync_source_read_models_for_feed(conn, feed_guid)?;
+        if let Some(signer) = signer
+            && db::emit_source_feed_read_models_event(conn, feed_guid, signer)?.is_some()
+        {
+            result.source_read_model_events_emitted += 1;
+        }
     }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_STATE != 0 {
         db::sync_canonical_state_for_feed(conn, feed_guid)?;
@@ -171,6 +180,7 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    source_read_model_events_emitted = summary.source_read_model_events_emitted,
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     artist_merge_events_emitted = summary.artist_merge_events_emitted,
@@ -183,6 +193,7 @@ pub async fn run_forever(
                     claimed = summary.claimed,
                     resolved = summary.resolved,
                     failed = summary.failed,
+                    source_read_model_events_emitted = summary.source_read_model_events_emitted,
                     canonical_state_events_emitted = summary.canonical_state_events_emitted,
                     canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
                     artist_merge_events_emitted = summary.artist_merge_events_emitted,

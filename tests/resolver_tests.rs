@@ -480,6 +480,53 @@ fn resolver_batch_emits_artist_merged_events_when_signer_present() {
 }
 
 #[test]
+fn resolver_batch_emits_source_and_canonical_snapshot_events_when_signer_present() {
+    let signer = common::temp_signer("resolver-source-canonical-events");
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed_with_track(
+            &conn,
+            "feed-resolver-signed-snapshots",
+            "track-resolver-signed-snapshots",
+            "Signed Snapshot Track",
+        );
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(
+            &conn,
+            "feed-resolver-signed-snapshots",
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch_with_signer(&pool, "worker-a", 10, Some(&signer))
+            .expect("run batch with signer");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.source_read_model_events_emitted, 1);
+    assert_eq!(summary.canonical_state_events_emitted, 1);
+    assert_eq!(summary.artist_identity_events_emitted, 1);
+
+    let conn = pool.writer().lock().expect("writer");
+    let source_event_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'source_feed_read_models_resolved'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("source event count");
+    let canonical_event_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'canonical_feed_state_replaced'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("canonical state event count");
+    assert_eq!(source_event_count, 1);
+    assert_eq!(canonical_event_count, 1);
+}
+
+#[test]
 fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
     let mut conn = common::test_db();
     seed_feed(&conn, "feed-resolver-counts");
@@ -596,11 +643,148 @@ async fn canonical_feed_state_snapshot_applies_without_local_resolver() {
         .expect("recording exists");
     assert_eq!(release.title, "Feed feed-resolver-snapshot");
     assert_eq!(recording.title, "Snapshot Track");
+    let release_search: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM search_entities WHERE entity_type = 'release' AND entity_id = ?1",
+            rusqlite::params![release.release_id],
+            |row| row.get(0),
+        )
+        .expect("release search row");
+    let recording_search: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM search_entities WHERE entity_type = 'recording' AND entity_id = ?1",
+            rusqlite::params![recording.recording_id],
+            |row| row.get(0),
+        )
+        .expect("recording search row");
+    assert_eq!(release_search, 1);
+    assert_eq!(recording_search, 1);
 
     let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
     assert_eq!(
         counts.total, 0,
         "canonical snapshot should clear canonical dirty work"
+    );
+}
+
+#[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "end-to-end source read-model snapshot application is clearest as one flow"
+)]
+async fn source_read_models_resolved_event_applies_without_local_resolver() {
+    let signer = common::temp_signer("resolver-source-read-models");
+    let primary = common::test_db();
+    seed_feed_with_track(
+        &primary,
+        "feed-resolver-source-models",
+        "track-resolver-source-models",
+        "Source Models Track",
+    );
+    db::sync_source_read_models_for_feed(&primary, "feed-resolver-source-models")
+        .expect("sync source read models");
+    let payload =
+        db::build_source_feed_read_models_resolved_payload(&primary, "feed-resolver-source-models")
+            .expect("build source payload")
+            .expect("source payload exists");
+    assert_eq!(payload.feed_rows, 1);
+    assert_eq!(payload.track_rows, 1);
+    assert_eq!(payload.artist_rows, 1);
+
+    let payload_json = serde_json::to_string(&payload).expect("serialize payload");
+    let created_at = db::unix_now();
+    let (signed_by, signature) = signer.sign_event(
+        "event-source-feed-read-models",
+        &stophammer::event::EventType::SourceFeedReadModelsResolved,
+        &payload_json,
+        "feed-resolver-source-models",
+        created_at,
+        1,
+    );
+    let event = stophammer::event::Event {
+        event_id: "event-source-feed-read-models".into(),
+        event_type: stophammer::event::EventType::SourceFeedReadModelsResolved,
+        payload: stophammer::event::EventPayload::SourceFeedReadModelsResolved(payload),
+        subject_guid: "feed-resolver-source-models".into(),
+        signed_by,
+        signature,
+        seq: 1,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    };
+
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed_with_track(
+            &conn,
+            "feed-resolver-source-models",
+            "track-resolver-source-models",
+            "Source Models Track",
+        );
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-source-models",
+            stophammer::resolver::queue::DIRTY_SOURCE_READ_MODELS,
+        )
+        .expect("mark source dirty");
+    }
+
+    {
+        let conn = pool.writer().lock().expect("writer");
+        let search_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM search_entities WHERE entity_type = 'feed' AND entity_id = 'feed-resolver-source-models'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("search before apply");
+        assert_eq!(search_count, 0);
+    }
+
+    let summary = stophammer::apply::apply_events(pool.clone(), vec![event], None).await;
+    assert_eq!(summary.applied, 1);
+    assert_eq!(summary.rejected, 0);
+
+    let conn = pool.writer().lock().expect("writer");
+    let feed_search: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM search_entities WHERE entity_type = 'feed' AND entity_id = 'feed-resolver-source-models'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("feed search row");
+    let track_search: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM search_entities WHERE entity_type = 'track' AND entity_id = 'track-resolver-source-models'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("track search row");
+    let feed_quality: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entity_quality WHERE entity_type = 'feed' AND entity_id = 'feed-resolver-source-models'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("feed quality row");
+    let track_quality: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-resolver-source-models'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("track quality row");
+    assert_eq!(feed_search, 1);
+    assert_eq!(track_search, 1);
+    assert_eq!(feed_quality, 1);
+    assert_eq!(track_quality, 1);
+
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(
+        counts.total, 0,
+        "source read-model completion event should clear source dirty work"
     );
 }
 

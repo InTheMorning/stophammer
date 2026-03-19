@@ -66,7 +66,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `resolverd` queue checks. |
 | `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
 | `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
-| `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` | `false` | When truthy, `resolverd` emits signed `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. This is phase-1/2 scaffolding for primary-authority resolved replication. |
+| `RESOLVER_EMIT_CANONICAL_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 
 ---
@@ -345,23 +345,29 @@ RESOLVER_BATCH_SIZE=25 \
 cargo run --bin resolverd
 ```
 
+Do not run `resolverd` on community nodes. The binary exits immediately when
+`NODE_MODE=community`; community nodes now wait for the primary to emit signed
+resolved-state events and then apply them.
+
 `resolverd` checks the import pause heartbeat before each batch. It skips work
 while `resolver_state.import_active=true` and the heartbeat is fresh. If that
 heartbeat goes stale, the worker logs a warning and resumes draining the queue
 so a crashed importer cannot leave resolution paused forever.
 
-If `RESOLVER_EMIT_CANONICAL_STATE_EVENTS=true`, the worker also appends signed
+Unless `RESOLVER_EMIT_CANONICAL_STATE_EVENTS=false`, the worker also appends
+signed `source_feed_read_models_resolved`,
 `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`,
 `artist_identity_feed_resolved`, and override-backed `artist_merged` events to
-the sync log after resolver work succeeds. That starts the shift toward
-primary-authority resolved replication without removing community-side
-resolver fallback yet.
+the sync log after resolver work succeeds. Community nodes follow those
+primary-authored resolver events directly instead of running local resolver
+batches.
 
 Source feed/track search rows and quality scores now converge through
-`resolverd` too. Canonical promotions, canonical release/recording rows, and
-canonical search rows all converge through the queue, so those read models can
-lag until `resolverd` has drained the backlog. Direct source feed/track rows
-still update inline and remain the preserved RSS layer. Resolver work is
+primary-side `resolverd` too. Canonical promotions, canonical
+release/recording rows, and canonical search rows all converge through the
+queue, so those read models can lag until the primary resolver has drained the
+backlog and emitted the corresponding signed events. Direct source feed/track
+rows still update inline and remain the preserved RSS layer. Resolver work is
 derived-state only; it does not rewrite the preserved source feed/track rows
 or staged source-claim tables.
 

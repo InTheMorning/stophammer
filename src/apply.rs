@@ -170,12 +170,22 @@ fn apply_single_event_inner(
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
             crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
-        event::EventPayload::CanonicalFeedStateReplaced(p) => {
-            db::replace_canonical_feed_state_from_snapshot(conn, p)?;
+        event::EventPayload::SourceFeedReadModelsResolved(p) => {
+            db::sync_source_read_models_for_feed(conn, &p.feed_guid)?;
             db::clear_feed_dirty_bits(
                 conn,
                 &p.feed_guid,
-                crate::resolver::queue::DIRTY_CANONICAL_STATE,
+                crate::resolver::queue::DIRTY_SOURCE_READ_MODELS,
+            )?;
+        }
+        event::EventPayload::CanonicalFeedStateReplaced(p) => {
+            db::replace_canonical_feed_state_from_snapshot(conn, p)?;
+            db::sync_canonical_search_index_for_feed(conn, &p.feed_guid)?;
+            db::clear_feed_dirty_bits(
+                conn,
+                &p.feed_guid,
+                crate::resolver::queue::DIRTY_CANONICAL_STATE
+                    | crate::resolver::queue::DIRTY_CANONICAL_SEARCH,
             )?;
         }
         event::EventPayload::CanonicalFeedPromotionsReplaced(p) => {
@@ -187,6 +197,7 @@ fn apply_single_event_inner(
             )?;
         }
         event::EventPayload::ArtistIdentityFeedResolved(p) => {
+            db::sync_source_read_models_for_feed(conn, &p.feed_guid)?;
             db::clear_feed_dirty_bits(
                 conn,
                 &p.feed_guid,
@@ -224,6 +235,11 @@ fn apply_single_event_inner(
                 // _sql variant that works on &Connection within our tx).
                 db::delete_feed_sql(conn, &p.feed_guid)?;
             }
+            db::clear_feed_dirty_bits(
+                conn,
+                &p.feed_guid,
+                crate::resolver::queue::DEFAULT_DIRTY_MASK,
+            )?;
         }
         event::EventPayload::TrackRemoved(p) => {
             // Look up the track to get search-index fields. If already gone, no-op.

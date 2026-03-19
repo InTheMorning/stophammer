@@ -15,12 +15,12 @@ expensive than they are useful:
   which means the most important identity decisions are no longer truly
   "re-derived everywhere"
 
-That creates avoidable duplication and drift risk:
+That created avoidable duplication and drift risk:
 
 - every community node pays the full resolver cost
 - resolver heuristics and override behavior must stay in lock-step everywhere
-- operationally, community nodes need `resolverd` even though the primary is
-  already the place where review and approval happen
+- operationally, community nodes used to need `resolverd` even though the
+  primary is already the place where review and approval happen
 
 The desired end state is:
 
@@ -133,6 +133,17 @@ Outcome:
 - primary runs the resolver
 - community nodes apply signed resolved state
 
+Status:
+
+- done in the current replication contract
+- primary `resolverd` now emits signed `source_feed_read_models_resolved`,
+  `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`,
+  `artist_identity_feed_resolved`, and override-backed `artist_merged` events
+- community apply now treats `resolver_queue` as "awaiting primary-authored
+  resolved state" instead of a backlog to process locally
+- `resolverd` is primary-only and exits immediately under
+  `NODE_MODE=community`
+
 ### Phase 4: Replication contract cleanup
 
 Scope:
@@ -144,6 +155,12 @@ Scope:
 Outcome:
 
 - replication model matches operational reality cleanly
+
+Status:
+
+- in progress
+- operator docs now say community nodes do not run `resolverd`
+- remaining cleanup is mostly doc/API wording rather than replication logic
 
 ## Event Design Principles
 

@@ -54,6 +54,8 @@ pub enum EventType {
     SourceItemEnclosuresReplaced,
     /// The staged platform-claim snapshot for a feed was replaced.
     SourcePlatformClaimsReplaced,
+    /// The primary resolver completed source-layer search/quality projection for a feed.
+    SourceFeedReadModelsResolved,
     /// The primary resolver replaced canonical release/recording state for a feed.
     CanonicalFeedStateReplaced,
     /// The primary resolver replaced promoted IDs and provenance for a feed.
@@ -100,6 +102,8 @@ pub enum EventPayload {
     SourceItemEnclosuresReplaced(SourceItemEnclosuresReplacedPayload),
     /// Payload for replacing staged platform claims for a feed.
     SourcePlatformClaimsReplaced(SourcePlatformClaimsReplacedPayload),
+    /// Payload for authoritative completion of source-layer read models for a feed.
+    SourceFeedReadModelsResolved(SourceFeedReadModelsResolvedPayload),
     /// Payload for replacing canonical release/recording state for a feed.
     CanonicalFeedStateReplaced(CanonicalFeedStateReplacedPayload),
     /// Payload for replacing canonical promoted IDs and provenance for a feed.
@@ -286,6 +290,16 @@ pub struct SourceItemEnclosuresReplacedPayload {
 pub struct SourcePlatformClaimsReplacedPayload {
     pub feed_guid: String,
     pub claims: Vec<SourcePlatformClaim>,
+}
+
+/// Emitted by the primary resolver when source-layer search and quality rows
+/// for one feed have converged for the current source state.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceFeedReadModelsResolvedPayload {
+    pub feed_guid: String,
+    pub feed_rows: usize,
+    pub track_rows: usize,
+    pub artist_rows: usize,
 }
 
 /// Emitted by the primary resolver when it replaces canonical release and

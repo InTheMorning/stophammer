@@ -2064,6 +2064,73 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
     Ok(())
 }
 
+/// Returns metadata for the primary-resolved source read-model completion
+/// currently attributed to `feed_guid`.
+pub fn build_source_feed_read_models_resolved_payload(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<crate::event::SourceFeedReadModelsResolvedPayload>, DbError> {
+    let feed_exists = get_feed_by_guid(conn, feed_guid)?.is_some();
+    if !feed_exists {
+        return Ok(None);
+    }
+
+    let track_rows: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM tracks WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| row.get(0),
+    )?;
+    let artist_rows = count_source_artist_rows_for_feed(conn, feed_guid)?;
+
+    Ok(Some(crate::event::SourceFeedReadModelsResolvedPayload {
+        feed_guid: feed_guid.to_string(),
+        feed_rows: 1,
+        track_rows: usize::try_from(track_rows).map_err(|err| {
+            DbError::Other(format!("track row count overflow for {feed_guid}: {err}"))
+        })?,
+        artist_rows,
+    }))
+}
+
+/// Emits a signed feed-scoped source read-model completion event after
+/// primary-side resolver work has converged for `feed_guid`.
+pub fn emit_source_feed_read_models_event(
+    conn: &Connection,
+    feed_guid: &str,
+    signer: &NodeSigner,
+) -> Result<Option<Event>, DbError> {
+    let Some(payload) = build_source_feed_read_models_resolved_payload(conn, feed_guid)? else {
+        return Ok(None);
+    };
+
+    let payload_json = serde_json::to_string(&payload)?;
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let created_at = unix_now();
+    let (seq, signed_by, signature) = insert_event(
+        conn,
+        &event_id,
+        &EventType::SourceFeedReadModelsResolved,
+        &payload_json,
+        feed_guid,
+        signer,
+        created_at,
+        &[],
+    )?;
+
+    Ok(Some(Event {
+        event_id,
+        event_type: EventType::SourceFeedReadModelsResolved,
+        payload: EventPayload::SourceFeedReadModelsResolved(payload),
+        subject_guid: feed_guid.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at,
+        warnings: Vec::new(),
+        payload_json,
+    }))
+}
+
 /// Returns the primary-resolved canonical-state snapshot currently mapped from
 /// `feed_guid`.
 pub fn build_canonical_feed_state_snapshot(
@@ -2670,6 +2737,30 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
     }
 
     Ok(())
+}
+
+fn count_source_artist_rows_for_feed(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
+    let artist_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM (
+             SELECT DISTINCT a.artist_id
+             FROM artists a
+             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+             JOIN feeds f ON f.artist_credit_id = ac.id
+             WHERE f.feed_guid = ?1
+             UNION
+             SELECT DISTINCT a.artist_id
+             FROM artists a
+             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+             JOIN tracks t ON t.artist_credit_id = ac.id
+             WHERE t.feed_guid = ?1
+         )",
+        params![feed_guid],
+        |row| row.get(0),
+    )?;
+    usize::try_from(artist_count)
+        .map_err(|err| DbError::Other(format!("artist row count overflow for {feed_guid}: {err}")))
 }
 
 // ── replace_payment_routes ────────────────────────────────────────────────────

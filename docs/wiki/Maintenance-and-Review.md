@@ -22,6 +22,10 @@ The shipped maintenance binaries are:
 cargo run --bin resolverd
 ```
 
+Run `resolverd` on the primary only. Community nodes now apply the primary's
+signed source-read-model, canonical, promotion, and artist-identity resolver
+events instead of running local resolver batches.
+
 For large imports, pause background draining first:
 
 ```bash

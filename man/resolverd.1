@@ -13,6 +13,12 @@ rebuilds source feed and track search/quality, canonical release and recording
 state, canonical promotions, and the canonical search index, runs targeted
 artist identity cleanup, then marks those feeds complete.
 
+.B resolverd
+is primary-only. If
+.B NODE_MODE=community
+is set, the binary exits immediately and expects that node to follow
+primary-authored resolved-state events instead.
+
 Source feed/track search and quality, canonical release/recording state,
 canonical-first search, and promotions are expected to converge through
 .BR resolverd .
@@ -39,24 +45,23 @@ Optional worker identifier used in logs and queue lock rows. Defaults to
 .BR resolverd-<pid> .
 .TP
 .B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
-When set to
-.BR true ,
-.BR 1 ,
-.BR yes ,
+Primary-only opt-out. Unless set to
+.BR false ,
+.BR 0 ,
+.BR no ,
 or
-.BR on ,
+.BR off ,
 .B resolverd
 loads
 .B KEY_PATH
 and emits signed
-.B canonical_feed_state_replaced
-and
-.B canonical_feed_promotions_replaced
-.B artist_identity_feed_resolved
-events, plus override-backed
+.BR source_feed_read_models_resolved ,
+.BR canonical_feed_state_replaced ,
+.BR canonical_feed_promotions_replaced ,
+.BR artist_identity_feed_resolved ,
+and override-backed
 .B artist_merged
-events after resolver work succeeds. This is the current primary-authority
-resolved replication scaffolding and is off by default.
+events after resolver work succeeds.
 .SH BEHAVIOR
 Before each batch,
 .B resolverd
@@ -65,10 +70,11 @@ checks
 and its heartbeat timestamp. When the heartbeat is fresh, the worker skips the
 batch and sleeps until the next interval. If the heartbeat is stale, the worker
 logs a warning and resumes draining the queue.
-When
+Unless
 .B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
-is enabled, the worker also appends signed feed-scoped canonical and promotion
-snapshots, feed-scoped artist-identity completion events, plus override-backed
+is set falsey, the worker also appends signed feed-scoped source-read-model,
+canonical, and promotion snapshots, feed-scoped artist-identity completion
+events, plus override-backed
 .B artist_merged
 events, to the sync log so replicas can apply them directly.
 .SH EXAMPLES

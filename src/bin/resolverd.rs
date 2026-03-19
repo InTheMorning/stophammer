@@ -11,6 +11,16 @@ async fn main() {
         )
         .init();
 
+    if matches!(
+        std::env::var("NODE_MODE").ok().as_deref(),
+        Some("community")
+    ) {
+        tracing::error!(
+            "resolverd is primary-only; community nodes follow primary-authored resolved events"
+        );
+        std::process::exit(2);
+    }
+
     let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "stophammer.db".into());
     let interval_secs: u64 = std::env::var("RESOLVER_INTERVAL_SECS")
         .ok()
@@ -22,20 +32,20 @@ async fn main() {
         .unwrap_or(25);
     let worker_id = std::env::var("RESOLVER_WORKER_ID")
         .unwrap_or_else(|_| format!("resolverd-{}", std::process::id()));
-    let emit_canonical_state_events = matches!(
+    let emit_resolved_state_events = !matches!(
         std::env::var("RESOLVER_EMIT_CANONICAL_STATE_EVENTS")
             .ok()
             .as_deref(),
-        Some("1" | "true" | "yes" | "on")
+        Some("0" | "false" | "no" | "off")
     );
 
     let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
         .expect("failed to open database pool");
-    let signer = emit_canonical_state_events.then(|| {
+    let signer = emit_resolved_state_events.then(|| {
         let key_path = std::env::var("KEY_PATH").unwrap_or_else(|_| "signing.key".into());
         Arc::new(
             signing::NodeSigner::load_or_create(&key_path)
-                .expect("failed to load signer for canonical-state event emission"),
+                .expect("failed to load signer for resolved-state event emission"),
         )
     });
 
@@ -44,7 +54,7 @@ async fn main() {
         interval_secs,
         batch_size,
         worker_id,
-        emit_canonical_state_events,
+        emit_resolved_state_events,
         "resolver: starting background worker"
     );
 

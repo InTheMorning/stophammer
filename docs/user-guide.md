@@ -187,6 +187,10 @@ cargo run --bin backfill_canonical -- --db ./stophammer.db
 cargo run --bin resolverd
 ```
 
+Run `resolverd` on the primary only. Community nodes now follow the signed
+resolved-state events emitted by the primary and should not run their own
+resolver worker.
+
 ### Pause resolver draining during a bulk import
 
 ```bash
@@ -200,10 +204,11 @@ If you are using the bundled crawler importer on the same host, set
 refresh the pause heartbeat automatically.
 
 Promoted artist IDs, source feed/track search rows, source quality scores, and
-canonical source rows are now background-derived. If you ingest fresh data and
-immediately inspect `/v1/search`, `/v1/recent`, canonical releases,
-canonical recordings, promoted `external_ids`, or `entity_source`, run
-`resolverd` or wait for it to drain the queue first.
+canonical source rows are now background-derived from the primary resolver. If
+you ingest fresh data and immediately inspect `/v1/search`, `/v1/recent`,
+canonical releases, canonical recordings, promoted `external_ids`, or
+`entity_source`, run `resolverd` on the primary or wait for it to drain the
+queue first.
 
 You can check that backlog directly:
 
