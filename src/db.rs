@@ -3506,6 +3506,15 @@ pub struct ArtistIdentityFeedPlan {
     pub candidate_groups: Vec<ArtistIdentityCandidateGroup>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityPendingFeed {
+    pub feed_guid: String,
+    pub title: String,
+    pub feed_url: String,
+    pub seed_artists: usize,
+    pub candidate_groups: usize,
+}
+
 fn apply_artist_identity_groups(
     conn: &Connection,
     groups: Vec<std::collections::BTreeSet<String>>,
@@ -4084,6 +4093,50 @@ pub fn explain_artist_identity_for_feed(
         seed_artists,
         candidate_groups,
     })
+}
+
+/// Lists feeds whose current targeted artist-identity plan still has
+/// candidate groups to review.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if feed rows or feed-scoped artist identity plans
+/// cannot be loaded from `SQLite`.
+pub fn list_pending_artist_identity_feeds(
+    conn: &Connection,
+    limit: usize,
+) -> Result<Vec<ArtistIdentityPendingFeed>, DbError> {
+    let mut pending = Vec::new();
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, title, feed_url
+         FROM feeds
+         ORDER BY title_lower, feed_guid",
+    )?;
+    let feed_rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for (feed_guid, title, feed_url) in feed_rows {
+        let plan = explain_artist_identity_for_feed(conn, &feed_guid)?;
+        if !plan.candidate_groups.is_empty() {
+            pending.push(ArtistIdentityPendingFeed {
+                feed_guid,
+                title,
+                feed_url,
+                seed_artists: plan.seed_artists.len(),
+                candidate_groups: plan.candidate_groups.len(),
+            });
+            if pending.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(pending)
 }
 
 // ── get_feed_by_guid ────────────────────────────────────────────────────────

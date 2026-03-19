@@ -291,6 +291,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
 
 # Inspect the targeted artist-identity plan for one feed
 cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
+
+# List feeds whose targeted artist-identity plan still has candidate groups
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local

@@ -11,6 +11,7 @@ struct Args {
     limit: usize,
     name_filter: Option<String>,
     feed_guid: Option<String>,
+    pending_feeds: bool,
     json: bool,
 }
 
@@ -22,6 +23,11 @@ struct ReviewReport {
 #[derive(Debug, Serialize)]
 struct FeedPlanReport {
     plan: stophammer::db::ArtistIdentityFeedPlan,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingFeedsReport {
+    feeds: Vec<stophammer::db::ArtistIdentityPendingFeed>,
 }
 
 #[derive(Debug, Serialize)]
@@ -60,6 +66,7 @@ fn parse_args() -> Result<Args, String> {
     let mut limit = 20usize;
     let mut name_filter = None;
     let mut feed_guid = None;
+    let mut pending_feeds = false;
     let mut json = false;
 
     let mut args = std::env::args().skip(1);
@@ -91,15 +98,19 @@ fn parse_args() -> Result<Args, String> {
                     .ok_or_else(|| "--feed-guid requires a value".to_string())?;
                 feed_guid = Some(value);
             }
+            "--pending-feeds" => {
+                pending_feeds = true;
+            }
             "--json" => {
                 json = true;
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--json]\n\
+                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
                      behind each candidate so merge decisions can be reviewed safely.\n\
-                     With --feed-guid, prints the targeted resolver plan for one feed."
+                     With --feed-guid, prints the targeted resolver plan for one feed.\n\
+                     With --pending-feeds, lists feeds whose targeted plan still has candidate groups."
                 );
                 std::process::exit(0);
             }
@@ -112,6 +123,7 @@ fn parse_args() -> Result<Args, String> {
         limit,
         name_filter,
         feed_guid,
+        pending_feeds,
         json,
     })
 }
@@ -336,6 +348,15 @@ fn build_feed_plan_report(
     })
 }
 
+fn build_pending_feeds_report(
+    conn: &Connection,
+    limit: usize,
+) -> Result<PendingFeedsReport, Box<dyn Error>> {
+    Ok(PendingFeedsReport {
+        feeds: stophammer::db::list_pending_artist_identity_feeds(conn, limit)?,
+    })
+}
+
 fn print_text(report: &ReviewReport) {
     if report.groups.is_empty() {
         println!("review_artist_identity: no duplicate-name artist groups found");
@@ -414,6 +435,21 @@ fn print_feed_plan_text(report: &FeedPlanReport) {
     }
 }
 
+fn print_pending_feeds_text(report: &PendingFeedsReport) {
+    if report.feeds.is_empty() {
+        println!("review_artist_identity: no pending feed-scoped artist identity candidates found");
+        return;
+    }
+
+    for feed in &report.feeds {
+        println!(
+            "feed {}  title={:?}  seed_artists={}  candidate_groups={}",
+            feed.feed_guid, feed.title, feed.seed_artists, feed.candidate_groups
+        );
+        println!("  url={}", feed.feed_url);
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
     let conn = stophammer::db::open_db(&args.db_path);
@@ -423,6 +459,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
             print_feed_plan_text(&report);
+        }
+    } else if args.pending_feeds {
+        let report = build_pending_feeds_report(&conn, args.limit)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_pending_feeds_text(&report);
         }
     } else {
         let report = build_report(&conn, args.limit, args.name_filter.as_deref())?;

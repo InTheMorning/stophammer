@@ -12,6 +12,8 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 ] [
 .BI --feed-guid " GUID"
 ] [
+.B --pending-feeds
+] [
 .B --json
 ]
 .SH DESCRIPTION
@@ -34,6 +36,10 @@ Restrict output to one lowercased artist-name key.
 Inspect the feed-scoped artist identity plan for one feed, including seed
 artists and candidate merge groups considered by the targeted resolver.
 .TP
+.B --pending-feeds
+List feeds whose targeted artist identity plan still contains candidate groups
+to review.
+.TP
 .B --json
 Emit machine-readable JSON instead of text output.
 .SH EXAMPLES
@@ -51,6 +57,11 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky --js
 Inspect one feed's targeted resolver plan:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-focus-b
+.fi
+.TP
+List pending feeds with unresolved candidate groups:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
 .fi
 .SH SEE ALSO
 .BR stophammer (1),

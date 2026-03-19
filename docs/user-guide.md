@@ -199,6 +199,8 @@ cargo run --bin resolverctl -- import-idle
 
 ```bash
 cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
+cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
 ```
 
 ### Run the strict local quality gate

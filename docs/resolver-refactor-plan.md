@@ -150,7 +150,7 @@ What Phase 1 still does not do:
 
 ## Phase 2 Status
 
-Phase 2 has started in a narrow form:
+Phase 2 is complete in its feed-scoped form:
 
 - normal write paths now mark the artist-identity dirty bit
 - `resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
@@ -158,9 +158,12 @@ Phase 2 has started in a narrow form:
   `backfill_artist_identity`
 - resolver batch output now reports seed-artist and candidate-group counts so
   feed-scoped work is visible before the queue model becomes artist-group-based
+- review tooling can now:
+  - inspect one feed-scoped artist identity plan
+  - list feeds whose targeted plan still has candidate groups to review
 
-What Phase 2 does not do yet:
+What remains deferred beyond Phase 2:
 
 - importer-aware prioritization beyond the coarse `import_active` pause flag
-- unresolved-case review records or manual overrides
 - richer batching keyed by impacted artist groups instead of feed scope
+- manual override state and review lifecycle

@@ -60,6 +60,12 @@ Or inspect the targeted resolver plan for one feed:
 cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
 ```
 
+Or list feeds whose targeted resolver plan still has candidate groups:
+
+```bash
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
+```
+
 ## Resolution Inspection via API
 
 You can also inspect why canonical mappings happened through HTTP:

@@ -855,6 +855,90 @@ fn explain_artist_identity_for_feed_reports_seed_artists_and_candidate_groups() 
 }
 
 #[test]
+fn pending_artist_identity_feed_report_lists_unresolved_feeds() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let artist_a = stophammer::db::resolve_artist(&conn, "Pending Artist", Some("feed-pending-a"))
+        .expect("artist a");
+    let credit_a = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_a.name,
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
+        Some("feed-pending-a"),
+    )
+    .expect("credit a");
+    let artist_b = stophammer::db::resolve_artist(&conn, "Pending Artist", Some("feed-pending-b"))
+        .expect("artist b");
+    let credit_b = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_b.name,
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
+        Some("feed-pending-b"),
+    )
+    .expect("credit b");
+    let stable_artist = stophammer::db::resolve_artist(&conn, "Stable Artist", Some("feed-stable"))
+        .expect("stable artist");
+    let stable_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &stable_artist.name,
+        &[(
+            stable_artist.artist_id.clone(),
+            stable_artist.name.clone(),
+            String::new(),
+        )],
+        Some("feed-stable"),
+    )
+    .expect("stable credit");
+
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-pending-a', 'https://wavlake.com/feed/music/pending-a', 'Pending A', 'pending a', ?1, ?2, ?2)",
+        rusqlite::params![credit_a.id, now],
+    )
+    .expect("feed pending a");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-pending-b', 'https://feeds.fountain.fm/pending-b', 'Pending B', 'pending b', ?1, ?2, ?2)",
+        rusqlite::params![credit_b.id, now],
+    )
+    .expect("feed pending b");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-stable', 'https://example.com/stable.xml', 'Stable', 'stable', ?1, ?2, ?2)",
+        rusqlite::params![stable_credit.id, now],
+    )
+    .expect("feed stable");
+
+    for feed_guid in ["feed-pending-a", "feed-pending-b"] {
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES (?1, 'feed', ?1, 0, 'website', 'https://wavlake.com/pending-artist', 'rss_link', 'feed.link', ?2)",
+            rusqlite::params![feed_guid, now],
+        )
+        .expect("pending website link");
+    }
+
+    let pending =
+        stophammer::db::list_pending_artist_identity_feeds(&conn, 10).expect("pending feeds");
+    let guids = pending
+        .iter()
+        .map(|feed| feed.feed_guid.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(guids, vec!["feed-pending-a", "feed-pending-b"]);
+    assert!(pending.iter().all(|feed| feed.candidate_groups == 2));
+}
+
+#[test]
 fn artist_identity_backfill_merges_split_artists_connected_by_release_cluster() {
     let mut conn = common::test_db();
     let now = common::now();
