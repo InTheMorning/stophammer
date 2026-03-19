@@ -327,6 +327,8 @@ Canonical promotions and promoted artist IDs now converge through
 `resolverd`. Canonical release/recording rows and canonical search rows still
 can lag until the queue drains. Source-facing feed/track rows still update
 inline, but canonical APIs now depend on `resolverd` having drained the queue.
+Resolver work is derived-state only; it does not rewrite the preserved source
+feed/track rows or staged source-claim tables.
 
 You can bracket large imports manually:
 

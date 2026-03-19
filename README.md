@@ -370,6 +370,10 @@ source-facing feed/track search and quality updates still remain inline, but
 canonical release/recording state, canonical-first search, promotions, and
 targeted artist identity now converge through `resolverd`.
 
+`resolverd` consumes preserved source facts. It does not rewrite feed rows,
+track rows, or staged source claims; those remain the authoritative extracted
+RSS layer.
+
 Use `resolverctl import-active` before a large bulk import and
 `resolverctl import-idle` after it finishes so the queue can drain again. When
 the crawler importer runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`, it

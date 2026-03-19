@@ -205,6 +205,10 @@ recordings, promoted `external_ids`, `entity_source`, `/v1/search` default
 results, or `/v1/recent`, run `resolverd` or wait for it to drain the queue
 first.
 
+The original feed/track data and staged source claims remain the preserved RSS
+layer. `resolverd` enriches canonical views on top of that data; it does not
+replace the source rows.
+
 ### Review ambiguous artist splits
 
 ```bash

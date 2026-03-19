@@ -822,6 +822,7 @@ Returns a single canonical release by `release_id`.
 
 This endpoint is resolver-backed. Fresh ingests may not expose a canonical
 release immediately until `resolverd` has rebuilt the feed's canonical state.
+Source feed and track endpoints remain the immediate preserved-RSS layer.
 
 - **Authentication:** None
 - **Include options:** `tracks`, `sources`
@@ -921,6 +922,7 @@ Returns a single canonical recording by `recording_id`.
 
 This endpoint is resolver-backed. Fresh ingests may not expose a canonical
 recording immediately until `resolverd` has rebuilt the feed's canonical state.
+Source feed and track endpoints remain the immediate preserved-RSS layer.
 
 - **Authentication:** None
 - **Include options:** `sources`, `releases`

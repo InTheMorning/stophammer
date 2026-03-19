@@ -80,6 +80,8 @@ fn resolve_feed(
     feed_guid: &str,
     dirty_mask: i64,
 ) -> Result<ResolveFeedResult, db::DbError> {
+    // Resolver work is derived-state only. Source feed/track rows and staged
+    // source claims remain the preserved authoritative layer.
     let mut result = ResolveFeedResult::default();
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_STATE != 0 {
         db::sync_canonical_state_for_feed(conn, feed_guid)?;

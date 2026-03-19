@@ -262,3 +262,105 @@ fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
     assert_eq!(counts.locked, 0);
     assert_eq!(counts.failed, 1);
 }
+
+#[test]
+fn resolver_batch_preserves_source_feed_track_and_claim_rows() {
+    let (pool, _dir) = common::test_db_pool();
+    let now = db::unix_now();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-preserve");
+        let feed = stophammer::db::get_feed(&conn, "feed-resolver-preserve")
+            .expect("get feed")
+            .expect("feed exists");
+        let track = stophammer::model::Track {
+            track_guid: "track-resolver-preserve".into(),
+            feed_guid: "feed-resolver-preserve".into(),
+            artist_credit_id: feed.artist_credit_id,
+            title: "Resolver Preserve Track".into(),
+            title_lower: "resolver preserve track".into(),
+            pub_date: Some(now),
+            duration_secs: Some(180),
+            enclosure_url: Some("https://cdn.example.com/preserve.mp3".into()),
+            enclosure_type: Some("audio/mpeg".into()),
+            enclosure_bytes: Some(1234),
+            track_number: Some(1),
+            season: None,
+            explicit: false,
+            description: Some("preserve me".into()),
+            created_at: now,
+            updated_at: now,
+        };
+        db::upsert_track(&conn, &track).expect("upsert track");
+        db::replace_source_entity_ids_for_feed(
+            &conn,
+            "feed-resolver-preserve",
+            &[stophammer::model::SourceEntityIdClaim {
+                id: None,
+                feed_guid: "feed-resolver-preserve".into(),
+                entity_type: "feed".into(),
+                entity_id: "feed-resolver-preserve".into(),
+                position: 0,
+                scheme: "nostr_npub".into(),
+                value: "npub1resolverpreserve".into(),
+                source: "podcast_txt".into(),
+                extraction_path: "feed.podcast:txt".into(),
+                observed_at: now,
+            }],
+        )
+        .expect("replace source ids");
+        db::replace_source_entity_links_for_feed(
+            &conn,
+            "feed-resolver-preserve",
+            &[stophammer::model::SourceEntityLink {
+                id: None,
+                feed_guid: "feed-resolver-preserve".into(),
+                entity_type: "feed".into(),
+                entity_id: "feed-resolver-preserve".into(),
+                position: 0,
+                link_type: "website".into(),
+                url: "https://artist.example.com/preserve".into(),
+                source: "rss_link".into(),
+                extraction_path: "feed.link".into(),
+                observed_at: now,
+            }],
+        )
+        .expect("replace source links");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-preserve")
+            .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+
+    let conn = pool.writer().lock().expect("writer");
+    let feed = stophammer::db::get_feed(&conn, "feed-resolver-preserve")
+        .expect("get feed after resolver")
+        .expect("feed still exists");
+    assert_eq!(feed.title, "Feed feed-resolver-preserve");
+    assert_eq!(
+        feed.feed_url,
+        "https://example.com/feed-resolver-preserve.xml"
+    );
+
+    let track = stophammer::db::get_track(&conn, "track-resolver-preserve")
+        .expect("get track after resolver")
+        .expect("track still exists");
+    assert_eq!(track.title, "Resolver Preserve Track");
+    assert_eq!(track.description.as_deref(), Some("preserve me"));
+
+    let ids =
+        stophammer::db::get_source_entity_ids_for_entity(&conn, "feed", "feed-resolver-preserve")
+            .expect("source ids after resolver");
+    assert_eq!(ids.len(), 1);
+    assert_eq!(ids[0].scheme, "nostr_npub");
+    assert_eq!(ids[0].value, "npub1resolverpreserve");
+
+    let links =
+        stophammer::db::get_source_entity_links_for_entity(&conn, "feed", "feed-resolver-preserve")
+            .expect("source links after resolver");
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].url, "https://artist.example.com/preserve");
+}

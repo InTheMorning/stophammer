@@ -18,6 +18,13 @@ That leaves an operational gap:
 - there is no durable record of feeds that still need deferred resolution
 - there is no background worker that can catch up after import or downtime
 
+Invariant:
+
+- source feed/track rows and staged source claims are the authoritative
+  extracted layer
+- resolver work may derive canonical/enriched state from those facts, but must
+  not rewrite the preserved source layer
+
 The goal is to make resolver work durable, incremental, and eventually
 automatic, while keeping the deterministic backfill binaries for repair and
 migration use.
