@@ -40,6 +40,8 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 ## Manpages
 
 - [stophammer.1](/home/citizen/build/stophammer/man/stophammer.1)
+- [resolverd.1](/home/citizen/build/stophammer/man/resolverd.1)
+- [resolverctl.1](/home/citizen/build/stophammer/man/resolverctl.1)
 - [backfill_canonical.1](/home/citizen/build/stophammer/man/backfill_canonical.1)
 - [backfill_artist_identity.1](/home/citizen/build/stophammer/man/backfill_artist_identity.1)
 - [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)

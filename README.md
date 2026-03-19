@@ -14,6 +14,8 @@ A quality-gated V4V music index.
 - wiki-style navigation: [docs/wiki/Home.md](docs/wiki/Home.md)
 - manpages:
   - [man/stophammer.1](man/stophammer.1)
+  - [man/resolverd.1](man/resolverd.1)
+  - [man/resolverctl.1](man/resolverctl.1)
   - [man/backfill_canonical.1](man/backfill_canonical.1)
   - [man/backfill_artist_identity.1](man/backfill_artist_identity.1)
   - [man/review_artist_identity.1](man/review_artist_identity.1)

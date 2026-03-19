@@ -1,0 +1,64 @@
+.TH RESOLVERCTL 1 "2026-03-19" "stophammer" "User Commands"
+.SH NAME
+resolverctl \- inspect or toggle resolver queue state
+.SH SYNOPSIS
+.B resolverctl
+[
+.BI --db " PATH"
+]
+[
+.B status
+|
+.B import-active
+|
+.B import-idle
+]
+.SH DESCRIPTION
+.B resolverctl
+is a small operational helper for the durable resolver queue.
+
+It can:
+
+- print queue counts and current import pause state
+- set
+.BR resolver_state.import_active=true
+before a large import
+- clear that flag afterwards so
+.BR resolverd
+can resume draining the queue
+.SH OPTIONS
+.TP
+.BI --db " PATH"
+Path to the SQLite database. Defaults to
+.BR ./stophammer.db .
+.SH COMMANDS
+.TP
+.B status
+Prints
+.BR import_active ,
+queue total, ready, locked, and failed counts.
+.TP
+.B import-active
+Sets
+.BR resolver_state.import_active=true .
+.TP
+.B import-idle
+Sets
+.BR resolver_state.import_active=false .
+.SH EXAMPLES
+.TP
+Check queue status:
+.nf
+cargo run --bin resolverctl -- status
+.fi
+.TP
+Pause the queue around a bulk import:
+.nf
+cargo run --bin resolverctl -- import-active
+# run bulk import
+cargo run --bin resolverctl -- import-idle
+.fi
+.SH SEE ALSO
+.BR resolverd (1),
+.BR backfill_canonical (1),
+.BR stophammer (1)

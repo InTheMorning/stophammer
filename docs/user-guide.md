@@ -108,6 +108,8 @@ Those are useful for provenance, source claims, platform links, and audit views.
 
 The shipped utility binaries are:
 
+- `resolverd`
+- `resolverctl`
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
@@ -115,6 +117,8 @@ The shipped utility binaries are:
 See:
 
 - [operations.md](/home/citizen/build/stophammer/docs/operations.md)
+- [resolverd.1](/home/citizen/build/stophammer/man/resolverd.1)
+- [resolverctl.1](/home/citizen/build/stophammer/man/resolverctl.1)
 - [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)
 - [backfill_canonical.1](/home/citizen/build/stophammer/man/backfill_canonical.1)
 - [backfill_artist_identity.1](/home/citizen/build/stophammer/man/backfill_artist_identity.1)
@@ -175,6 +179,20 @@ curl http://127.0.0.1:8008/node/info
 
 ```bash
 cargo run --bin backfill_canonical -- --db ./stophammer.db
+```
+
+### Run the resolver worker
+
+```bash
+cargo run --bin resolverd
+```
+
+### Pause resolver draining during a bulk import
+
+```bash
+cargo run --bin resolverctl -- import-active
+# run import
+cargo run --bin resolverctl -- import-idle
 ```
 
 ### Review ambiguous artist splits
