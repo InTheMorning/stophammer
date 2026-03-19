@@ -12,6 +12,12 @@ struct Args {
     name_filter: Option<String>,
     feed_guid: Option<String>,
     pending_feeds: bool,
+    pending_reviews: bool,
+    show_review: Option<i64>,
+    merge_review: Option<i64>,
+    reject_review: Option<i64>,
+    target_artist: Option<String>,
+    note: Option<String>,
     json: bool,
 }
 
@@ -28,6 +34,16 @@ struct FeedPlanReport {
 #[derive(Debug, Serialize)]
 struct PendingFeedsReport {
     feeds: Vec<stophammer::db::ArtistIdentityPendingFeed>,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingReviewsReport {
+    reviews: Vec<stophammer::db::ArtistIdentityPendingReview>,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewItemReport {
+    review: stophammer::db::ArtistIdentityReviewItem,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,12 +77,22 @@ struct FeedEvidenceRow {
     publisher_remote_feed_guids: Vec<String>,
 }
 
+#[allow(
+    clippy::too_many_lines,
+    reason = "manual CLI parsing keeps the review tool dependency-free"
+)]
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from("./stophammer.db");
     let mut limit = 20usize;
     let mut name_filter = None;
     let mut feed_guid = None;
     let mut pending_feeds = false;
+    let mut pending_reviews = false;
+    let mut show_review = None;
+    let mut merge_review = None;
+    let mut reject_review = None;
+    let mut target_artist = None;
+    let mut note = None;
     let mut json = false;
 
     let mut args = std::env::args().skip(1);
@@ -101,16 +127,63 @@ fn parse_args() -> Result<Args, String> {
             "--pending-feeds" => {
                 pending_feeds = true;
             }
+            "--pending-reviews" => {
+                pending_reviews = true;
+            }
+            "--show-review" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--show-review requires an integer id".to_string())?;
+                show_review = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_err| format!("invalid --show-review value: {value}"))?,
+                );
+            }
+            "--merge-review" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--merge-review requires an integer id".to_string())?;
+                merge_review = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_err| format!("invalid --merge-review value: {value}"))?,
+                );
+            }
+            "--reject-review" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--reject-review requires an integer id".to_string())?;
+                reject_review = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_err| format!("invalid --reject-review value: {value}"))?,
+                );
+            }
+            "--target-artist" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--target-artist requires an artist id".to_string())?;
+                target_artist = Some(value);
+            }
+            "--note" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--note requires a value".to_string())?;
+                note = Some(value);
+            }
             "--json" => {
                 json = true;
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--json]\n\
+                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
                      behind each candidate so merge decisions can be reviewed safely.\n\
                      With --feed-guid, prints the targeted resolver plan for one feed.\n\
-                     With --pending-feeds, lists feeds whose targeted plan still has candidate groups."
+                     With --pending-feeds, lists feeds whose targeted plan still has candidate groups.\n\
+                     With --pending-reviews or --show-review, inspects stored resolver review items.\n\
+                     With --merge-review or --reject-review, stores a durable override."
                 );
                 std::process::exit(0);
             }
@@ -124,6 +197,12 @@ fn parse_args() -> Result<Args, String> {
         name_filter,
         feed_guid,
         pending_feeds,
+        pending_reviews,
+        show_review,
+        merge_review,
+        reject_review,
+        target_artist,
+        note,
         json,
     })
 }
@@ -357,6 +436,24 @@ fn build_pending_feeds_report(
     })
 }
 
+fn build_pending_reviews_report(
+    conn: &Connection,
+    limit: usize,
+) -> Result<PendingReviewsReport, Box<dyn Error>> {
+    Ok(PendingReviewsReport {
+        reviews: stophammer::db::list_pending_artist_identity_reviews(conn, limit)?,
+    })
+}
+
+fn build_review_item_report(
+    conn: &Connection,
+    review_id: i64,
+) -> Result<ReviewItemReport, Box<dyn Error>> {
+    let review = stophammer::db::get_artist_identity_review(conn, review_id)?
+        .ok_or_else(|| std::io::Error::other(format!("review not found: {review_id}")))?;
+    Ok(ReviewItemReport { review })
+}
+
 fn print_text(report: &ReviewReport) {
     if report.groups.is_empty() {
         println!("review_artist_identity: no duplicate-name artist groups found");
@@ -424,14 +521,25 @@ fn print_feed_plan_text(report: &FeedPlanReport) {
     println!("  candidate_groups: {}", report.plan.candidate_groups.len());
     for group in &report.plan.candidate_groups {
         println!(
-            "    source={}  artists={}",
+            "    source={}  name_key={:?}  evidence_key={:?}  artists={}",
             group.source,
+            group.name_key,
+            group.evidence_key,
             group.artist_ids.len()
         );
         if !group.artist_names.is_empty() {
             println!("      names: {}", group.artist_names.join(", "));
         }
         println!("      artist_ids: {}", group.artist_ids.join(", "));
+        if let Some(review_id) = group.review_id {
+            println!(
+                "      review_id={}  status={:?}  override={:?}  target={:?}",
+                review_id, group.review_status, group.override_type, group.target_artist_id
+            );
+        }
+        if let Some(note) = &group.note {
+            println!("      note: {note}");
+        }
     }
 }
 
@@ -450,15 +558,99 @@ fn print_pending_feeds_text(report: &PendingFeedsReport) {
     }
 }
 
+fn print_pending_reviews_text(report: &PendingReviewsReport) {
+    if report.reviews.is_empty() {
+        println!("review_artist_identity: no pending artist identity reviews found");
+        return;
+    }
+
+    for review in &report.reviews {
+        println!(
+            "review {}  feed={}  title={:?}  source={}  name_key={:?}  artists={}",
+            review.review_id,
+            review.feed_guid,
+            review.title,
+            review.source,
+            review.name_key,
+            review.artist_count
+        );
+        println!("  evidence_key={}", review.evidence_key);
+    }
+}
+
+fn print_review_item_text(report: &ReviewItemReport) {
+    let review = &report.review;
+    println!(
+        "review {}  feed={}  source={}  status={}",
+        review.review_id, review.feed_guid, review.source, review.status
+    );
+    println!("  name_key={}", review.name_key);
+    println!("  evidence_key={}", review.evidence_key);
+    println!("  artist_ids={}", review.artist_ids.join(", "));
+    if !review.artist_names.is_empty() {
+        println!("  artist_names={}", review.artist_names.join(", "));
+    }
+    println!(
+        "  override={:?}  target_artist_id={:?}",
+        review.override_type, review.target_artist_id
+    );
+    if let Some(note) = &review.note {
+        println!("  note={note}");
+    }
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
     let conn = stophammer::db::open_db(&args.db_path);
-    if let Some(feed_guid) = args.feed_guid.as_deref() {
+    if let Some(review_id) = args.merge_review {
+        let target_artist = args
+            .target_artist
+            .as_deref()
+            .ok_or_else(|| std::io::Error::other("--merge-review requires --target-artist"))?;
+        stophammer::db::set_artist_identity_merge_override_for_review(
+            &conn,
+            review_id,
+            target_artist,
+            args.note.as_deref(),
+        )?;
+        let report = build_review_item_report(&conn, review_id)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_review_item_text(&report);
+        }
+    } else if let Some(review_id) = args.reject_review {
+        stophammer::db::set_artist_identity_do_not_merge_override_for_review(
+            &conn,
+            review_id,
+            args.note.as_deref(),
+        )?;
+        let report = build_review_item_report(&conn, review_id)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_review_item_text(&report);
+        }
+    } else if let Some(review_id) = args.show_review {
+        let report = build_review_item_report(&conn, review_id)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_review_item_text(&report);
+        }
+    } else if let Some(feed_guid) = args.feed_guid.as_deref() {
         let report = build_feed_plan_report(&conn, feed_guid)?;
         if args.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
             print_feed_plan_text(&report);
+        }
+    } else if args.pending_reviews {
+        let report = build_pending_reviews_report(&conn, args.limit)?;
+        if args.json {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_pending_reviews_text(&report);
         }
     } else if args.pending_feeds {
         let report = build_pending_feeds_report(&conn, args.limit)?;

@@ -230,7 +230,17 @@ replace the source rows.
 cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --reject-review 17 --note "different projects sharing one name"
 ```
+
+Stored review items let you keep the automatic resolver conservative. It can
+continue merging deterministic cases while ambiguous feed-scoped candidate
+groups get a durable review row and an optional operator override.
 
 ### Run the strict local quality gate
 

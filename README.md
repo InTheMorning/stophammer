@@ -358,6 +358,20 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-
 
 # List feeds whose targeted artist-identity plan still has candidate groups
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
+
+# List stored pending resolver review items
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+
+# Inspect one stored review item
+cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
+
+# Store a durable merge override for one review item
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
+
+# Store a durable do-not-merge override for one review item
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --reject-review 17 --note "different projects sharing one name"
 ```
 
 These do not fetch from the network. They operate on an existing local DB file.
@@ -369,6 +383,9 @@ are ignored so a crashed importer cannot wedge the queue forever. Source
 feed/track search, source quality scores, canonical release/recording state,
 canonical-first search, promotions, and targeted artist identity now all
 converge through `resolverd`.
+
+The artist-identity review tool persists feed-scoped review items and durable
+merge or do-not-merge overrides on top of that automatic resolver path.
 
 `resolverd` consumes preserved source facts. It does not rewrite feed rows,
 track rows, or staged source claims; those remain the authoritative extracted

@@ -14,6 +14,18 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 ] [
 .B --pending-feeds
 ] [
+.B --pending-reviews
+] [
+.BI --show-review " ID"
+] [
+.BI --merge-review " ID"
+] [
+.BI --target-artist " ARTIST_ID"
+] [
+.BI --reject-review " ID"
+] [
+.BI --note " TEXT"
+] [
 .B --json
 ]
 .SH DESCRIPTION
@@ -40,6 +52,30 @@ artists and candidate merge groups considered by the targeted resolver.
 List feeds whose targeted artist identity plan still contains candidate groups
 to review.
 .TP
+.B --pending-reviews
+List stored feed-scoped artist identity review items whose status is still
+.BR pending .
+.TP
+.BI --show-review " ID"
+Show one stored review item by numeric review identifier.
+.TP
+.BI --merge-review " ID"
+Store a durable merge override for the selected review item. Requires
+.BR --target-artist .
+.TP
+.BI --target-artist " ARTIST_ID"
+Target artist to use with
+.BR --merge-review .
+.TP
+.BI --reject-review " ID"
+Store a durable do-not-merge override for the selected review item.
+.TP
+.BI --note " TEXT"
+Optional operator note stored with
+.BR --merge-review
+or
+.BR --reject-review .
+.TP
 .B --json
 Emit machine-readable JSON instead of text output.
 .SH EXAMPLES
@@ -62,6 +98,23 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-
 List pending feeds with unresolved candidate groups:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
+.fi
+.TP
+List pending stored review items:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+.fi
+.TP
+Store a durable merge override:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db \\
+  --merge-review 17 --target-artist artist-123 --note "same artist"
+.fi
+.TP
+Store a durable do-not-merge override:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db \\
+  --reject-review 17 --note "different projects"
 .fi
 .SH SEE ALSO
 .BR stophammer (1),

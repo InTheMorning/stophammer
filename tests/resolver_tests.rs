@@ -255,6 +255,72 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
         )
         .expect("artist count");
     assert_eq!(artist_count, 1);
+
+    let reviews = db::list_artist_identity_reviews_for_feed(&conn, "feed-resolver-split-b")
+        .expect("reviews for feed");
+    assert!(
+        reviews
+            .iter()
+            .any(|review| review.status == "merged" && review.source == "website"),
+        "resolver should persist a merged review item for the feed-scoped candidate"
+    );
+}
+
+#[test]
+fn do_not_merge_override_blocks_targeted_artist_identity_merge() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_split_artist_feeds(&conn);
+        let plan = db::explain_artist_identity_for_feed(&conn, "feed-resolver-split-b")
+            .expect("feed plan");
+        let now = db::unix_now();
+        for group in &plan.candidate_groups {
+            conn.execute(
+                "INSERT INTO artist_identity_override \
+                 (source, name_key, evidence_key, override_type, note, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, 'do_not_merge', 'operator decision', ?4, ?4)",
+                rusqlite::params![group.source, group.name_key, group.evidence_key, now],
+            )
+            .expect("insert override");
+        }
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-split-b",
+            stophammer::resolver::queue::DIRTY_ARTIST_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.artist_groups_processed, 0);
+    assert_eq!(summary.artist_merges_applied, 0);
+
+    let conn = pool.writer().lock().expect("writer");
+    let artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'resolver split artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist count");
+    assert_eq!(
+        artist_count, 2,
+        "do_not_merge override should preserve both split artists"
+    );
+    let reviews = db::list_artist_identity_reviews_for_feed(&conn, "feed-resolver-split-b")
+        .expect("reviews for feed");
+    assert!(
+        reviews.iter().any(|review| {
+            review.status == "blocked"
+                && review.override_type.as_deref() == Some("do_not_merge")
+                && review.note.as_deref() == Some("operator decision")
+        }),
+        "resolver should persist a blocked review item when do_not_merge is set"
+    );
 }
 
 #[test]

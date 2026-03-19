@@ -76,7 +76,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 12, "exactly twelve migrations should be recorded");
+    assert_eq!(count, 13, "exactly thirteen migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -100,6 +100,7 @@ fn no_drop_table_in_migrations() {
     let canonical_release_recording =
         include_str!("../migrations/0011_canonical_release_recording.sql");
     let resolver_queue = include_str!("../migrations/0012_resolver_queue.sql");
+    let artist_identity_reviews = include_str!("../migrations/0013_artist_identity_reviews.sql");
     let all_migrations = [
         baseline,
         feed_scope,
@@ -113,6 +114,7 @@ fn no_drop_table_in_migrations() {
         source_platform_claims,
         canonical_release_recording,
         resolver_queue,
+        artist_identity_reviews,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {

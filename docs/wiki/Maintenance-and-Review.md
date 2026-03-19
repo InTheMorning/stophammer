@@ -80,6 +80,24 @@ Or list feeds whose targeted resolver plan still has candidate groups:
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
 ```
 
+Or work from the stored review queue:
+
+```bash
+# List pending review items
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+
+# Inspect one review item
+cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
+
+# Store a merge override
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
+
+# Store a do-not-merge override
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --reject-review 17 --note "different projects sharing one name"
+```
+
 ## Resolution Inspection via API
 
 You can also inspect why canonical mappings happened through HTTP:

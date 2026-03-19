@@ -169,6 +169,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0011_canonical_release_recording.sql"),
     // Migration 12: add durable resolver queue and resolver coordination state.
     include_str!("../migrations/0012_resolver_queue.sql"),
+    // Migration 13: add durable artist identity review items and operator overrides.
+    include_str!("../migrations/0013_artist_identity_reviews.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -3554,8 +3556,15 @@ pub struct ArtistIdentitySeedArtist {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct ArtistIdentityCandidateGroup {
     pub source: String,
+    pub name_key: String,
+    pub evidence_key: String,
     pub artist_ids: Vec<String>,
     pub artist_names: Vec<String>,
+    pub review_id: Option<i64>,
+    pub review_status: Option<String>,
+    pub override_type: Option<String>,
+    pub target_artist_id: Option<String>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -3574,29 +3583,137 @@ pub struct ArtistIdentityPendingFeed {
     pub candidate_groups: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityReviewItem {
+    pub review_id: i64,
+    pub feed_guid: String,
+    pub source: String,
+    pub name_key: String,
+    pub evidence_key: String,
+    pub status: String,
+    pub artist_ids: Vec<String>,
+    pub artist_names: Vec<String>,
+    pub override_type: Option<String>,
+    pub target_artist_id: Option<String>,
+    pub note: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityPendingReview {
+    pub review_id: i64,
+    pub feed_guid: String,
+    pub title: String,
+    pub source: String,
+    pub name_key: String,
+    pub evidence_key: String,
+    pub artist_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArtistIdentityEvidenceGroup {
+    source: String,
+    name_key: String,
+    evidence_key: String,
+    artist_ids: std::collections::BTreeSet<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ArtistIdentityOverrideRow {
+    override_type: String,
+    target_artist_id: Option<String>,
+    note: Option<String>,
+}
+
 fn apply_artist_identity_groups(
     conn: &Connection,
-    groups: Vec<std::collections::BTreeSet<String>>,
+    groups: Vec<ArtistIdentityEvidenceGroup>,
+    review_feed_guid: Option<&str>,
 ) -> Result<ArtistIdentityBackfillStats, DbError> {
     let mut stats = ArtistIdentityBackfillStats {
         groups_processed: 0,
         merges_applied: 0,
     };
+    let mut active_review_keys = std::collections::BTreeSet::new();
 
     for group in groups {
+        if let Some(feed_guid) = review_feed_guid {
+            active_review_keys.insert((
+                group.source.clone(),
+                group.name_key.clone(),
+                group.evidence_key.clone(),
+            ));
+            sync_artist_identity_review_item(conn, feed_guid, &group, "pending", None, None, None)?;
+        }
+
         let mut current_ids = std::collections::BTreeSet::new();
-        for artist_id in group {
-            if let Some(current_id) = current_artist_id(conn, &artist_id)? {
+        for artist_id in &group.artist_ids {
+            if let Some(current_id) = current_artist_id(conn, artist_id)? {
                 current_ids.insert(current_id);
             }
         }
         if current_ids.len() <= 1 {
+            if let Some(feed_guid) = review_feed_guid {
+                sync_artist_identity_review_item(
+                    conn, feed_guid, &group, "resolved", None, None, None,
+                )?;
+            }
             continue;
         }
-        let Some(target_artist_id) = preferred_artist_target(conn, &current_ids)? else {
+
+        let override_row = artist_identity_override_for_group(
+            conn,
+            &group.source,
+            &group.name_key,
+            &group.evidence_key,
+        )?;
+        if let Some(override_row) = &override_row
+            && override_row.override_type == "do_not_merge"
+        {
+            if let Some(feed_guid) = review_feed_guid {
+                sync_artist_identity_review_item(
+                    conn,
+                    feed_guid,
+                    &group,
+                    "blocked",
+                    Some("do_not_merge"),
+                    None,
+                    override_row.note.as_deref(),
+                )?;
+            }
             continue;
+        }
+
+        let target_artist_id = match override_row.as_ref() {
+            Some(override_row) if override_row.override_type == "merge" => {
+                let Some(target_artist_id) = override_row.target_artist_id.as_deref() else {
+                    return Err(DbError::Other(
+                        "artist identity merge override is missing target_artist_id".into(),
+                    ));
+                };
+                current_artist_id(conn, target_artist_id)?.ok_or_else(|| {
+                    DbError::Other(format!(
+                        "artist identity merge override target does not exist: {target_artist_id}"
+                    ))
+                })?
+            }
+            _ => {
+                if let Some(target_artist_id) = preferred_artist_target(conn, &current_ids)? {
+                    target_artist_id
+                } else {
+                    if let Some(feed_guid) = review_feed_guid {
+                        sync_artist_identity_review_item(
+                            conn, feed_guid, &group, "pending", None, None, None,
+                        )?;
+                    }
+                    continue;
+                }
+            }
         };
+
         stats.groups_processed += 1;
+        let mut merges_applied = 0usize;
         for source_artist_id in current_ids {
             if source_artist_id == target_artist_id {
                 continue;
@@ -3607,8 +3724,33 @@ fn apply_artist_identity_groups(
                 continue;
             }
             merge_artists_sql(conn, &source_artist_id, &target_artist_id)?;
+            merges_applied += 1;
             stats.merges_applied += 1;
         }
+
+        if let Some(feed_guid) = review_feed_guid {
+            let (override_type, note) = override_row.as_ref().map_or((None, None), |row| {
+                (Some(row.override_type.as_str()), row.note.as_deref())
+            });
+            sync_artist_identity_review_item(
+                conn,
+                feed_guid,
+                &group,
+                if merges_applied > 0 || current_ids_for_review(conn, &group.artist_ids)?.len() <= 1
+                {
+                    "merged"
+                } else {
+                    "pending"
+                },
+                override_type,
+                Some(target_artist_id.as_str()),
+                note,
+            )?;
+        }
+    }
+
+    if let Some(feed_guid) = review_feed_guid {
+        resolve_missing_artist_identity_reviews(conn, feed_guid, &active_review_keys)?;
     }
 
     Ok(stats)
@@ -3642,13 +3784,13 @@ fn artist_ids_for_feed_scope(
 
 fn filter_artist_groups_for_seed_ids(
     conn: &Connection,
-    groups: Vec<std::collections::BTreeSet<String>>,
+    groups: Vec<ArtistIdentityEvidenceGroup>,
     seed_ids: &std::collections::BTreeSet<String>,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut filtered = Vec::new();
     for group in groups {
         let mut current_group_ids = std::collections::BTreeSet::new();
-        for artist_id in &group {
+        for artist_id in &group.artist_ids {
             if let Some(current_id) = current_artist_id(conn, artist_id)? {
                 current_group_ids.insert(current_id);
             }
@@ -3663,67 +3805,187 @@ fn filter_artist_groups_for_seed_ids(
 fn collect_artist_identity_groups_for_seed_ids(
     conn: &Connection,
     seed_ids: &std::collections::BTreeSet<String>,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
-    Ok(
-        collect_labeled_artist_identity_groups_for_seed_ids(conn, seed_ids)?
-            .into_iter()
-            .map(|(_source, group)| group)
-            .collect(),
-    )
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    collect_labeled_artist_identity_groups_for_seed_ids(conn, seed_ids)
 }
 
 fn collect_labeled_artist_identity_groups_for_seed_ids(
     conn: &Connection,
     seed_ids: &std::collections::BTreeSet<String>,
-) -> Result<Vec<(String, std::collections::BTreeSet<String>)>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut groups = Vec::new();
-    groups.extend(
-        filter_artist_groups_for_seed_ids(conn, collect_artist_groups_by_npub(conn)?, seed_ids)?
-            .into_iter()
-            .map(|group| ("npub".to_string(), group)),
-    );
-    groups.extend(
-        filter_artist_groups_for_seed_ids(
-            conn,
-            collect_artist_groups_by_publisher_guid(conn)?,
-            seed_ids,
-        )?
-        .into_iter()
-        .map(|group| ("publisher_guid".to_string(), group)),
-    );
-    groups.extend(
-        filter_artist_groups_for_seed_ids(conn, collect_artist_groups_by_website(conn)?, seed_ids)?
-            .into_iter()
-            .map(|group| ("website".to_string(), group)),
-    );
-    groups.extend(
-        filter_artist_groups_for_seed_ids(
-            conn,
-            collect_artist_groups_by_normalized_website(conn)?,
-            seed_ids,
-        )?
-        .into_iter()
-        .map(|group| ("normalized_website".to_string(), group)),
-    );
-    groups.extend(
-        filter_artist_groups_for_seed_ids(
-            conn,
-            collect_artist_groups_by_release_cluster(conn)?,
-            seed_ids,
-        )?
-        .into_iter()
-        .map(|group| ("release_cluster".to_string(), group)),
-    );
-    groups.extend(
-        filter_artist_groups_for_seed_ids(
-            conn,
-            collect_artist_groups_by_anchored_name(conn)?,
-            seed_ids,
-        )?
-        .into_iter()
-        .map(|group| ("anchored_name".to_string(), group)),
-    );
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_npub(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_publisher_guid(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_website(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_normalized_website(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_release_cluster(conn)?,
+        seed_ids,
+    )?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        collect_artist_groups_by_anchored_name(conn)?,
+        seed_ids,
+    )?);
     Ok(groups)
+}
+
+fn current_ids_for_review(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<std::collections::BTreeSet<String>, DbError> {
+    let mut current_ids = std::collections::BTreeSet::new();
+    for artist_id in artist_ids {
+        if let Some(current_id) = current_artist_id(conn, artist_id)? {
+            current_ids.insert(current_id);
+        }
+    }
+    Ok(current_ids)
+}
+
+fn artist_names_for_review_group(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Vec<String> {
+    artist_ids
+        .iter()
+        .filter_map(|artist_id| get_artist_by_id(conn, artist_id).ok().flatten())
+        .map(|artist| artist.name)
+        .collect()
+}
+
+fn artist_identity_override_for_group(
+    conn: &Connection,
+    source: &str,
+    name_key: &str,
+    evidence_key: &str,
+) -> Result<Option<ArtistIdentityOverrideRow>, DbError> {
+    conn.query_row(
+        "SELECT override_type, target_artist_id, note
+         FROM artist_identity_override
+         WHERE source = ?1 AND name_key = ?2 AND evidence_key = ?3",
+        params![source, name_key, evidence_key],
+        |row| {
+            Ok(ArtistIdentityOverrideRow {
+                override_type: row.get(0)?,
+                target_artist_id: row.get(1)?,
+                note: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+fn sync_artist_identity_review_item(
+    conn: &Connection,
+    feed_guid: &str,
+    group: &ArtistIdentityEvidenceGroup,
+    status: &str,
+    override_type: Option<&str>,
+    target_artist_id: Option<&str>,
+    note: Option<&str>,
+) -> Result<i64, DbError> {
+    let now = unix_now();
+    let current_ids = current_ids_for_review(conn, &group.artist_ids)?;
+    let artist_ids = current_ids.into_iter().collect::<Vec<_>>();
+    let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
+    let artist_ids_json = serde_json::to_string(&artist_ids)?;
+    let artist_names_json = serde_json::to_string(&artist_names)?;
+
+    conn.execute(
+        "INSERT INTO artist_identity_review (
+             feed_guid, source, name_key, evidence_key, status,
+             artist_ids_json, artist_names_json, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+         ON CONFLICT(feed_guid, source, name_key, evidence_key) DO UPDATE SET
+             status = excluded.status,
+             artist_ids_json = excluded.artist_ids_json,
+             artist_names_json = excluded.artist_names_json,
+             updated_at = excluded.updated_at",
+        params![
+            feed_guid,
+            group.source,
+            group.name_key,
+            group.evidence_key,
+            status,
+            artist_ids_json,
+            artist_names_json,
+            now
+        ],
+    )?;
+
+    if let Some(override_type) = override_type {
+        set_artist_identity_override(
+            conn,
+            &group.source,
+            &group.name_key,
+            &group.evidence_key,
+            override_type,
+            target_artist_id,
+            note,
+        )?;
+    }
+
+    conn.query_row(
+        "SELECT review_id
+         FROM artist_identity_review
+         WHERE feed_guid = ?1 AND source = ?2 AND name_key = ?3 AND evidence_key = ?4",
+        params![feed_guid, group.source, group.name_key, group.evidence_key],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+fn resolve_missing_artist_identity_reviews(
+    conn: &Connection,
+    feed_guid: &str,
+    active_keys: &std::collections::BTreeSet<(String, String, String)>,
+) -> Result<(), DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT source, name_key, evidence_key
+         FROM artist_identity_review
+         WHERE feed_guid = ?1",
+    )?;
+    let existing = stmt
+        .query_map(params![feed_guid], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let now = unix_now();
+    for key in existing {
+        if active_keys.contains(&key) {
+            continue;
+        }
+        conn.execute(
+            "UPDATE artist_identity_review
+             SET status = 'resolved', updated_at = ?5
+             WHERE feed_guid = ?1 AND source = ?2 AND name_key = ?3 AND evidence_key = ?4",
+            params![feed_guid, key.0, key.1, key.2, now],
+        )?;
+    }
+    Ok(())
 }
 
 fn seed_artist_rows_for_feed_scope(
@@ -3765,8 +4027,9 @@ fn current_artist_id(conn: &Connection, artist_id: &str) -> Result<Option<String
 }
 
 fn collect_artist_groups_from_rows(
+    source: &str,
     rows: Vec<(String, String, String)>,
-) -> Vec<std::collections::BTreeSet<String>> {
+) -> Vec<ArtistIdentityEvidenceGroup> {
     let mut grouped: std::collections::BTreeMap<
         (String, String),
         std::collections::BTreeSet<String>,
@@ -3778,14 +4041,21 @@ fn collect_artist_groups_from_rows(
             .insert(artist_id);
     }
     grouped
-        .into_values()
-        .filter(|artist_ids| artist_ids.len() > 1)
+        .into_iter()
+        .filter_map(|((name_key, evidence_key), artist_ids)| {
+            (artist_ids.len() > 1).then_some(ArtistIdentityEvidenceGroup {
+                source: source.to_string(),
+                name_key,
+                evidence_key,
+                artist_ids,
+            })
+        })
         .collect()
 }
 
 fn collect_artist_groups_by_npub(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT LOWER(ac.display_name), sid.value, acn.artist_id \
          FROM source_entity_ids sid \
@@ -3800,12 +4070,12 @@ fn collect_artist_groups_by_npub(
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows(rows))
+    Ok(collect_artist_groups_from_rows("npub", rows))
 }
 
 fn collect_artist_groups_by_publisher_guid(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT LOWER(ac.display_name), fri.remote_feed_guid, acn.artist_id \
          FROM feed_remote_items_raw fri \
@@ -3819,12 +4089,12 @@ fn collect_artist_groups_by_publisher_guid(
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows(rows))
+    Ok(collect_artist_groups_from_rows("publisher_guid", rows))
 }
 
 fn collect_artist_groups_by_website(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT LOWER(ac.display_name), sel.url, acn.artist_id \
          FROM source_entity_links sel \
@@ -3839,12 +4109,12 @@ fn collect_artist_groups_by_website(
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows(rows))
+    Ok(collect_artist_groups_from_rows("website", rows))
 }
 
 fn collect_artist_groups_by_release_cluster(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT LOWER(ac.display_name), sfr.release_id, acn.artist_id \
          FROM source_feed_release_map sfr \
@@ -3857,7 +4127,7 @@ fn collect_artist_groups_by_release_cluster(
     let rows = stmt
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows(rows))
+    Ok(collect_artist_groups_from_rows("release_cluster", rows))
 }
 
 fn normalize_artist_website_key(raw_url: &str) -> Option<String> {
@@ -3906,7 +4176,7 @@ fn normalize_artist_website_key(raw_url: &str) -> Option<String> {
 
 fn collect_artist_groups_by_normalized_website(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT LOWER(ac.display_name), sel.url, acn.artist_id \
          FROM source_entity_links sel \
@@ -3935,7 +4205,10 @@ fn collect_artist_groups_by_normalized_website(
             Some((name_key, site_key, artist_id))
         })
         .collect::<Vec<_>>();
-    Ok(collect_artist_groups_from_rows(normalized))
+    Ok(collect_artist_groups_from_rows(
+        "normalized_website",
+        normalized,
+    ))
 }
 
 fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
@@ -3987,7 +4260,7 @@ fn artist_platforms(
 
 fn collect_artist_groups_by_anchored_name(
     conn: &Connection,
-) -> Result<Vec<std::collections::BTreeSet<String>>, DbError> {
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut stmt =
         conn.prepare("SELECT LOWER(name), artist_id FROM artists ORDER BY LOWER(name), artist_id")?;
     let rows = stmt
@@ -4035,10 +4308,22 @@ fn collect_artist_groups_by_anchored_name(
         }
 
         if anchored.len() == 1 && !weak.is_empty() {
-            let mut group = std::collections::BTreeSet::new();
-            group.insert(anchored.remove(0));
-            group.extend(weak);
-            groups.push(group);
+            let mut group_artist_ids = std::collections::BTreeSet::new();
+            group_artist_ids.insert(anchored.remove(0));
+            group_artist_ids.extend(weak);
+            let Some(name_key) = group_artist_ids
+                .iter()
+                .find_map(|artist_id| get_artist_by_id(conn, artist_id).ok().flatten())
+                .map(|artist| artist.name.to_lowercase())
+            else {
+                continue;
+            };
+            groups.push(ArtistIdentityEvidenceGroup {
+                source: "anchored_name".to_string(),
+                name_key: name_key.clone(),
+                evidence_key: name_key,
+                artist_ids: group_artist_ids,
+            });
         }
     }
 
@@ -4082,7 +4367,7 @@ pub fn backfill_artist_identity(
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
-    let stats = apply_artist_identity_groups(&tx, groups)?;
+    let stats = apply_artist_identity_groups(&tx, groups, None)?;
     tx.commit()?;
     Ok(stats)
 }
@@ -4105,7 +4390,7 @@ pub fn resolve_artist_identity_for_feed(
 
     let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids)?;
     let candidate_groups = groups.len();
-    let backfill_stats = apply_artist_identity_groups(&tx, groups)?;
+    let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid))?;
     tx.commit()?;
     Ok(ArtistIdentityResolveStats {
         seed_artists: seed_ids.len(),
@@ -4132,17 +4417,34 @@ pub fn explain_artist_identity_for_feed(
         .collect::<std::collections::BTreeSet<_>>();
     let candidate_groups = collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids)?
         .into_iter()
-        .map(|(source, group)| {
-            let artist_ids = group.into_iter().collect::<Vec<_>>();
-            let artist_names = artist_ids
-                .iter()
-                .filter_map(|artist_id| get_artist_by_id(conn, artist_id).ok().flatten())
-                .map(|artist| artist.name)
+        .map(|group| {
+            let artist_ids = current_ids_for_review(conn, &group.artist_ids)
+                .unwrap_or_else(|_err| group.artist_ids.clone())
+                .into_iter()
                 .collect::<Vec<_>>();
+            let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
+            let review = get_artist_identity_review_for_subject(
+                conn,
+                feed_guid,
+                &group.source,
+                &group.name_key,
+                &group.evidence_key,
+            )
+            .ok()
+            .flatten();
             ArtistIdentityCandidateGroup {
-                source,
+                source: group.source,
+                name_key: group.name_key,
+                evidence_key: group.evidence_key,
                 artist_ids,
                 artist_names,
+                review_id: review.as_ref().map(|item| item.review_id),
+                review_status: review.as_ref().map(|item| item.status.clone()),
+                override_type: review.as_ref().and_then(|item| item.override_type.clone()),
+                target_artist_id: review
+                    .as_ref()
+                    .and_then(|item| item.target_artist_id.clone()),
+                note: review.and_then(|item| item.note),
             }
         })
         .collect::<Vec<_>>();
@@ -4196,6 +4498,288 @@ pub fn list_pending_artist_identity_feeds(
         }
     }
     Ok(pending)
+}
+
+/// Returns the stored review items for one feed-scoped artist identity plan.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review rows or joined override metadata cannot be
+/// loaded from `SQLite`.
+pub fn list_artist_identity_reviews_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<ArtistIdentityReviewItem>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT
+             r.review_id,
+             r.feed_guid,
+             r.source,
+             r.name_key,
+             r.evidence_key,
+             r.status,
+             r.artist_ids_json,
+             r.artist_names_json,
+             o.override_type,
+             o.target_artist_id,
+             o.note,
+             r.created_at,
+             r.updated_at
+         FROM artist_identity_review r
+         LEFT JOIN artist_identity_override o
+           ON o.source = r.source
+          AND o.name_key = r.name_key
+          AND o.evidence_key = r.evidence_key
+         WHERE r.feed_guid = ?1
+         ORDER BY r.updated_at DESC, r.review_id DESC",
+    )?;
+    stmt.query_map(params![feed_guid], artist_identity_review_row)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
+/// Returns one review item by `review_id`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review row or joined override metadata cannot be
+/// loaded from `SQLite`.
+pub fn get_artist_identity_review(
+    conn: &Connection,
+    review_id: i64,
+) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
+    conn.query_row(
+        "SELECT
+             r.review_id,
+             r.feed_guid,
+             r.source,
+             r.name_key,
+             r.evidence_key,
+             r.status,
+             r.artist_ids_json,
+             r.artist_names_json,
+             o.override_type,
+             o.target_artist_id,
+             o.note,
+             r.created_at,
+             r.updated_at
+         FROM artist_identity_review r
+         LEFT JOIN artist_identity_override o
+           ON o.source = r.source
+          AND o.name_key = r.name_key
+          AND o.evidence_key = r.evidence_key
+         WHERE r.review_id = ?1",
+        params![review_id],
+        artist_identity_review_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns one review item for a specific feed and subject triple.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review row or joined override metadata cannot be
+/// loaded from `SQLite`.
+pub fn get_artist_identity_review_for_subject(
+    conn: &Connection,
+    feed_guid: &str,
+    source: &str,
+    name_key: &str,
+    evidence_key: &str,
+) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
+    conn.query_row(
+        "SELECT
+             r.review_id,
+             r.feed_guid,
+             r.source,
+             r.name_key,
+             r.evidence_key,
+             r.status,
+             r.artist_ids_json,
+             r.artist_names_json,
+             o.override_type,
+             o.target_artist_id,
+             o.note,
+             r.created_at,
+             r.updated_at
+         FROM artist_identity_review r
+         LEFT JOIN artist_identity_override o
+           ON o.source = r.source
+          AND o.name_key = r.name_key
+          AND o.evidence_key = r.evidence_key
+         WHERE r.feed_guid = ?1
+           AND r.source = ?2
+           AND r.name_key = ?3
+           AND r.evidence_key = ?4",
+        params![feed_guid, source, name_key, evidence_key],
+        artist_identity_review_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Lists unresolved artist-identity review items that still need an operator
+/// decision.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn list_pending_artist_identity_reviews(
+    conn: &Connection,
+    limit: usize,
+) -> Result<Vec<ArtistIdentityPendingReview>, DbError> {
+    let limit_i64 = i64::try_from(limit).map_err(|_err| {
+        DbError::Other("pending review limit exceeded supported SQLite integer range".into())
+    })?;
+    let mut stmt = conn.prepare(
+        "SELECT
+             r.review_id,
+             r.feed_guid,
+             f.title,
+             r.source,
+             r.name_key,
+             r.evidence_key,
+             r.artist_ids_json
+         FROM artist_identity_review r
+         JOIN feeds f ON f.feed_guid = r.feed_guid
+         WHERE r.status = 'pending'
+         ORDER BY r.updated_at DESC, r.review_id DESC
+         LIMIT ?1",
+    )?;
+    stmt.query_map(params![limit_i64], |row| {
+        let artist_ids_json: String = row.get(6)?;
+        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
+        })?;
+        Ok(ArtistIdentityPendingReview {
+            review_id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            title: row.get(2)?,
+            source: row.get(3)?,
+            name_key: row.get(4)?,
+            evidence_key: row.get(5)?,
+            artist_count: artist_ids.len(),
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
+/// Stores a merge override for one artist-identity review item.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review item does not exist, the target artist
+/// cannot be resolved, or the override write fails.
+pub fn set_artist_identity_merge_override_for_review(
+    conn: &Connection,
+    review_id: i64,
+    target_artist_id: &str,
+    note: Option<&str>,
+) -> Result<(), DbError> {
+    let review = get_artist_identity_review(conn, review_id)?
+        .ok_or_else(|| DbError::Other(format!("artist identity review not found: {review_id}")))?;
+    let resolved_target = current_artist_id(conn, target_artist_id)?.ok_or_else(|| {
+        DbError::Other(format!(
+            "artist identity merge target does not exist: {target_artist_id}"
+        ))
+    })?;
+    set_artist_identity_override(
+        conn,
+        &review.source,
+        &review.name_key,
+        &review.evidence_key,
+        "merge",
+        Some(resolved_target.as_str()),
+        note,
+    )
+}
+
+/// Stores a do-not-merge override for one artist-identity review item.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review item does not exist or the override write
+/// fails.
+pub fn set_artist_identity_do_not_merge_override_for_review(
+    conn: &Connection,
+    review_id: i64,
+    note: Option<&str>,
+) -> Result<(), DbError> {
+    let review = get_artist_identity_review(conn, review_id)?
+        .ok_or_else(|| DbError::Other(format!("artist identity review not found: {review_id}")))?;
+    set_artist_identity_override(
+        conn,
+        &review.source,
+        &review.name_key,
+        &review.evidence_key,
+        "do_not_merge",
+        None,
+        note,
+    )
+}
+
+fn set_artist_identity_override(
+    conn: &Connection,
+    source: &str,
+    name_key: &str,
+    evidence_key: &str,
+    override_type: &str,
+    target_artist_id: Option<&str>,
+    note: Option<&str>,
+) -> Result<(), DbError> {
+    let now = unix_now();
+    conn.execute(
+        "INSERT INTO artist_identity_override (
+             source, name_key, evidence_key, override_type,
+             target_artist_id, note, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+         ON CONFLICT(source, name_key, evidence_key) DO UPDATE SET
+             override_type = excluded.override_type,
+             target_artist_id = excluded.target_artist_id,
+             note = excluded.note,
+             updated_at = excluded.updated_at",
+        params![
+            source,
+            name_key,
+            evidence_key,
+            override_type,
+            target_artist_id,
+            note,
+            now
+        ],
+    )?;
+    Ok(())
+}
+
+fn artist_identity_review_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<ArtistIdentityReviewItem> {
+    let artist_ids_json: String = row.get(6)?;
+    let artist_names_json: String = row.get(7)?;
+    let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
+    })?;
+    let artist_names = serde_json::from_str::<Vec<String>>(&artist_names_json).map_err(|err| {
+        rusqlite::Error::FromSqlConversionFailure(7, rusqlite::types::Type::Text, err.into())
+    })?;
+    Ok(ArtistIdentityReviewItem {
+        review_id: row.get(0)?,
+        feed_guid: row.get(1)?,
+        source: row.get(2)?,
+        name_key: row.get(3)?,
+        evidence_key: row.get(4)?,
+        status: row.get(5)?,
+        artist_ids,
+        artist_names,
+        override_type: row.get(8)?,
+        target_artist_id: row.get(9)?,
+        note: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+    })
 }
 
 // ── get_feed_by_guid ────────────────────────────────────────────────────────

@@ -159,6 +159,25 @@ Scope:
 
 This sits on top of the automatic resolver; it does not replace it.
 
+Status:
+
+- started for feed-scoped artist identity
+- `resolverd` now persists durable review items for feed-scoped candidate groups
+- operator merge / do-not-merge overrides are now stored durably and checked by
+  both targeted resolver batches and whole-db artist-identity backfills
+- the current review tool can:
+  - list pending review items
+  - inspect one review item
+  - store merge overrides
+  - store do-not-merge overrides
+
+Still deferred:
+
+- review APIs beyond the CLI
+- release / recording override workflows
+- richer review lifecycle states beyond the current pending / merged / blocked /
+  resolved feed-scoped flow
+
 ## Phase 1 Status
 
 Phase 1 landed with:
@@ -191,4 +210,5 @@ What remains deferred beyond Phase 2:
 
 - importer-aware prioritization beyond the coarse `import_active` pause flag
 - richer batching keyed by impacted artist groups instead of feed scope
-- manual override state and review lifecycle
+- richer manual override state and review lifecycle beyond the initial
+  feed-scoped artist identity review tables

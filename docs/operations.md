@@ -294,6 +294,20 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-
 
 # List feeds whose targeted artist-identity plan still has candidate groups
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
+
+# List stored pending review items that still need an operator decision
+cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+
+# Inspect one stored review item
+cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
+
+# Store a durable merge override
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
+
+# Store a durable do-not-merge override
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --reject-review 17 --note "different projects sharing one name"
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local
@@ -306,6 +320,8 @@ A durable resolver queue now handles deferred derived-state work.
 - write paths now mark feeds dirty in `resolver_queue`
 - `resolverd` drains that queue incrementally
 - queued work includes targeted artist identity cleanup for touched feeds
+- queued artist-identity work now persists review items and durable operator
+  overrides for ambiguous feed-scoped candidate groups
 - `backfill_artist_identity` still exists for whole-db repair passes
 
 Run the worker with:
