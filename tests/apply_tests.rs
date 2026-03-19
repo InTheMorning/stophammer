@@ -1920,6 +1920,10 @@ fn canonical_release_rows_track_apply_and_remove() {
         apply_single_event(&pool, &track_b).expect("apply track b"),
         ApplyOutcome::Applied(_)
     ));
+    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
+        .expect("run resolver batch after upserts");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
 
     {
         let conn = db.lock().expect("lock");
@@ -1983,6 +1987,10 @@ fn canonical_release_rows_track_apply_and_remove() {
         apply_single_event(&pool, &remove_ev).expect("remove track b"),
         ApplyOutcome::Applied(_)
     ));
+    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
+        .expect("run resolver batch after remove");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
 
     let conn = db.lock().expect("lock");
     let recording_count: i64 = conn

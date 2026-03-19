@@ -266,6 +266,9 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
     )
     .expect("ingest transaction");
 
+    stophammer::db::sync_canonical_state_for_feed(&conn, &feed.feed_guid)
+        .expect("sync canonical state");
+
     let feed_map: (String, String, i64) = conn
         .query_row(
             "SELECT release_id, match_type, confidence FROM source_feed_release_map WHERE feed_guid = ?1",
@@ -524,6 +527,8 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         .expect("resolver queue entry");
     assert_eq!(queued_feed_guid, feed.feed_guid);
 
+    stophammer::db::sync_canonical_state_for_feed(&conn, &feed.feed_guid)
+        .expect("sync canonical state");
     stophammer::db::sync_canonical_promotions_for_feed(&conn, &feed.feed_guid)
         .expect("sync canonical promotions");
 
@@ -781,6 +786,11 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
         )
         .expect("ingest transaction");
     }
+
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-mirror-a")
+        .expect("sync mirror canonical a");
+    stophammer::db::sync_canonical_state_for_feed(&conn, "feed-mirror-b")
+        .expect("sync mirror canonical b");
 
     let release_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM releases", [], |row| row.get(0))

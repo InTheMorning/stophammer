@@ -200,8 +200,10 @@ If you are using the bundled crawler importer on the same host, set
 refresh the pause heartbeat automatically.
 
 Promoted artist IDs and canonical source rows are now background-derived. If
-you ingest fresh data and immediately inspect promoted `external_ids` or
-`entity_source`, run `resolverd` or wait for it to drain the queue first.
+you ingest fresh data and immediately inspect canonical releases, canonical
+recordings, promoted `external_ids`, `entity_source`, `/v1/search` default
+results, or `/v1/recent`, run `resolverd` or wait for it to drain the queue
+first.
 
 ### Review ambiguous artist splits
 

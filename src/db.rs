@@ -6740,10 +6740,6 @@ pub fn ingest_transaction(
     let mut all_event_rows = event_rows;
     all_event_rows.append(&mut removal_event_rows);
 
-    // 4c. Rebuild deterministic canonical release/recording state from the
-    // final post-ingest feed/track rows before committing.
-    sync_canonical_state_for_feed(&tx, &feed.feed_guid)?;
-
     // 5. Insert events, collect seqs, sign with assigned seq, update signatures
     // Issue-SEQ-INTEGRITY — 2026-03-14
     let mut seqs = Vec::new();
@@ -6840,12 +6836,12 @@ pub fn ingest_transaction(
                 crate::quality::store_quality(&tx, "track", &track.track_guid, track_score)?;
             }
         }
-
-        sync_canonical_search_index_for_feed(&tx, &feed.feed_guid)?;
     }
 
-    // Canonical promotions and targeted artist identity are now deferred to
-    // the durable resolver queue to reduce inline write amplification.
+    // Canonical release/recording state, canonical search, promotions, and
+    // targeted artist identity are now deferred to the durable resolver queue
+    // to reduce inline write amplification and keep ingest focused on source
+    // facts plus source-facing read models.
     crate::resolver::queue::mark_feed_dirty_for_resolver(&tx, &feed.feed_guid)?;
 
     // 7. Commit

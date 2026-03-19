@@ -135,9 +135,10 @@ This is deliberately later because it changes steady-state write behavior.
 
 Status:
 
-- started with canonical promotions moved off the inline ingest/apply path
-- inline canonical release/recording state and canonical search still remain
-  for immediate queryability
+- inline canonical promotions, canonical release/recording state, and canonical
+  search have all been moved off the ingest/apply path
+- source-facing feed/track rows and their source-derived search data still
+  remain inline for immediate diagnostics
 - later phase-4 slices can trim more inline rebuild work once operators are
   comfortable relying on `resolverd` for convergence
 

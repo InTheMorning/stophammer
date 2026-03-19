@@ -230,6 +230,13 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "track title should match"
     );
 
+    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
+    let resolver_summary =
+        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
+            .expect("run resolver batch");
+    assert_eq!(resolver_summary.claimed, 1);
+    assert_eq!(resolver_summary.resolved, 1);
+
     // ── Step 4: GET /v1/search?q=Golden → verify canonical-first search results
     // Issue-FTS5-CONTENT — 2026-03-14
     // The search endpoint now JOINs through the `search_entities` companion

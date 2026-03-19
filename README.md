@@ -366,10 +366,9 @@ These do not fetch from the network. They operate on an existing local DB file.
 drains `resolver_queue` incrementally and pauses while a fresh
 `resolver_state.import_active` heartbeat is present. Stale import heartbeats
 are ignored so a crashed importer cannot wedge the queue forever. The existing
-inline canonical state and canonical search rebuild path still remains in
-place; `resolverd` now owns canonical promotions and targeted artist identity,
-and adds retryable background convergence without fully replacing inline sync
-yet.
+source-facing feed/track search and quality updates still remain inline, but
+canonical release/recording state, canonical-first search, promotions, and
+targeted artist identity now converge through `resolverd`.
 
 Use `resolverctl import-active` before a large bulk import and
 `resolverctl import-idle` after it finishes so the queue can drain again. When

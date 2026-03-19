@@ -669,6 +669,9 @@ Lists canonical releases ordered by recency. The sort key is:
 
 Paginated with a composite `timestamp:release_id` cursor.
 
+This endpoint is resolver-backed. Fresh ingests may not appear here until
+`resolverd` has drained the queue for those feeds.
+
 - **Authentication:** None
 
 **Response:** Paginated array of canonical release list objects.
@@ -817,6 +820,9 @@ Returns a single track by its `track_guid`.
 
 Returns a single canonical release by `release_id`.
 
+This endpoint is resolver-backed. Fresh ingests may not expose a canonical
+release immediately until `resolverd` has rebuilt the feed's canonical state.
+
 - **Authentication:** None
 - **Include options:** `tracks`, `sources`
 
@@ -912,6 +918,9 @@ release instead of the lighter `sources` summary embedded in `GET /v1/releases/{
 ### GET /v1/recordings/{id}
 
 Returns a single canonical recording by `recording_id`.
+
+This endpoint is resolver-backed. Fresh ingests may not expose a canonical
+recording immediately until `resolverd` has rebuilt the feed's canonical state.
 
 - **Authentication:** None
 - **Include options:** `sources`, `releases`
@@ -1020,6 +1029,11 @@ Default search is canonical-first:
 Source `feed` and `track` rows remain directly readable by ID and can still be
 requested explicitly with `type=feed` or `type=track`, but they are no longer
 the default public search surface.
+
+Default canonical-first search is resolver-backed. Fresh ingests may not
+appear under `artist`, `release`, or `recording` search until `resolverd`
+has drained the queue. Source `feed`/`track` search remains the immediate
+diagnostic path.
 
 - **Authentication:** None
 
