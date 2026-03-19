@@ -44,7 +44,7 @@ Maximum dirty feeds claimed per batch. Defaults to
 Optional worker identifier used in logs and queue lock rows. Defaults to
 .BR resolverd-<pid> .
 .TP
-.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+.B RESOLVER_EMIT_RESOLVED_STATE_EVENTS
 Primary-only opt-out. Unless set to
 .BR false ,
 .BR 0 ,
@@ -62,6 +62,12 @@ and emits signed
 and override-backed
 .B artist_merged
 events after resolver work succeeds.
+.TP
+.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+Deprecated compatibility alias for
+.BR RESOLVER_EMIT_RESOLVED_STATE_EVENTS .
+.B resolverd
+still honors it, but logs a warning and the new name should be used.
 .SH BEHAVIOR
 Before each batch,
 .B resolverd
@@ -71,7 +77,7 @@ and its heartbeat timestamp. When the heartbeat is fresh, the worker skips the
 batch and sleeps until the next interval. If the heartbeat is stale, the worker
 logs a warning and resumes draining the queue.
 Unless
-.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+.B RESOLVER_EMIT_RESOLVED_STATE_EVENTS
 is set falsey, the worker also appends signed feed-scoped source-read-model,
 canonical, and promotion snapshots, feed-scoped artist-identity completion
 events, plus override-backed

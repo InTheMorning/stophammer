@@ -393,7 +393,7 @@ RSS layer.
 
 Primary-authority resolved replication is now the default `resolverd`
 behavior on primaries. Unless you explicitly disable it with
-`RESOLVER_EMIT_CANONICAL_STATE_EVENTS=false`, the worker emits signed:
+`RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`, the worker emits signed:
 
 ```bash
 source_feed_read_models_resolved
@@ -406,8 +406,13 @@ artist_merged
 Replicas apply those signed resolved events directly. Community nodes no
 longer run `resolverd`; they follow the primary once its resolver has finished
 making changes. This is documented in
-[docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md);
-the remaining work is operational cleanup, not community-side resolver fallback.
+[ADR 0029](/home/citizen/build/stophammer/docs/adr/0029-primary-resolved-replication-authority.md)
+and the rollout notes in
+[docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md).
+
+For compatibility, `resolverd` still accepts the older
+`RESOLVER_EMIT_CANONICAL_STATE_EVENTS` env var, but it now logs a deprecation
+warning. Use `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` instead.
 
 To see whether canonical views are caught up, query:
 

@@ -110,3 +110,9 @@ Run
 .B resolverd
 on the primary only. Community nodes now follow the primary's signed
 resolved-state events and should not run a local resolver worker.
+
+The primary-side env var for that emission path is now
+.BR RESOLVER_EMIT_RESOLVED_STATE_EVENTS .
+The older
+.B RESOLVER_EMIT_CANONICAL_STATE_EVENTS
+name remains as a deprecated compatibility alias.

@@ -1,5 +1,9 @@
 # Primary-Authority Resolved Replication Plan
 
+This plan has now been accepted in
+[ADR 0029](/home/citizen/build/stophammer/docs/adr/0029-primary-resolved-replication-authority.md).
+Treat this file as rollout notes and implementation history for that ADR.
+
 This document plans the next architectural step after the local resolver queue
 rollout: make the primary the authority for resolved canonical state and
 replicate those decisions to community nodes.
