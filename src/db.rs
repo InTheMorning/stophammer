@@ -174,6 +174,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0013_artist_identity_reviews.sql"),
     // Migration 14: add feed-scoped resolved overlay tables for authoritative replication.
     include_str!("../migrations/0014_resolved_overlay_tables.sql"),
+    // Migration 15: scope live-event uniqueness by feed and preserve legacy rows.
+    include_str!("../migrations/0015_live_events_feed_scoped_key.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -901,6 +903,83 @@ pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(),
 
 // ── Artist credit operations ────────────────────────────────────────────────
 
+fn ensure_credit_artist_exists(
+    conn: &Connection,
+    artist_id: &str,
+    credited_name: &str,
+    feed_guid: Option<&str>,
+    now: i64,
+) -> Result<(), DbError> {
+    let existing: Option<String> = conn
+        .query_row(
+            "SELECT artist_id FROM artists WHERE artist_id = ?1",
+            params![artist_id],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if existing.is_none() {
+        let name_lower = credited_name.to_lowercase();
+        conn.execute(
+            "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![artist_id, credited_name, name_lower, now, now],
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) \
+             VALUES (?1, ?2, ?3, ?4)",
+            params![name_lower, artist_id, feed_guid, now],
+        )?;
+    }
+    Ok(())
+}
+
+/// Ensures the `artist_credit` row, its referenced artists, and all
+/// `artist_credit_name` members exist.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any dependency lookup or insert fails.
+pub(crate) fn upsert_artist_credit_sql(
+    conn: &Connection,
+    credit: &ArtistCredit,
+) -> Result<(), DbError> {
+    let now = unix_now();
+    for acn in &credit.names {
+        ensure_credit_artist_exists(
+            conn,
+            &acn.artist_id,
+            &acn.name,
+            credit.feed_guid.as_deref(),
+            now,
+        )?;
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
+         VALUES (?1, ?2, ?3, ?4)",
+        params![
+            credit.id,
+            credit.display_name,
+            credit.feed_guid,
+            credit.created_at
+        ],
+    )?;
+    for acn in &credit.names {
+        conn.execute(
+            "INSERT OR IGNORE INTO artist_credit_name \
+             (artist_credit_id, artist_id, position, name, join_phrase) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                acn.artist_credit_id,
+                acn.artist_id,
+                acn.position,
+                acn.name,
+                acn.join_phrase
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// Creates an artist credit with its constituent names. Returns the credit with
 /// the assigned `id` populated.
 ///
@@ -924,6 +1003,7 @@ pub fn create_artist_credit(
 
     let mut credit_names = Vec::with_capacity(names.len());
     for (pos, (artist_id, name, join_phrase)) in names.iter().enumerate() {
+        ensure_credit_artist_exists(conn, artist_id, name, feed_guid, now)?;
         #[expect(
             clippy::cast_possible_wrap,
             reason = "artist credit position count never approaches i64::MAX"
@@ -1897,7 +1977,9 @@ fn rebuild_canonical_release(conn: &Connection, release_id: &str) -> Result<(), 
 
     let mut tracks = get_tracks_for_feed(conn, &feed_guid)?;
     tracks.sort_by(track_release_sort_key);
-    for (idx, track) in tracks.iter().enumerate() {
+    let mut seen_recordings = std::collections::BTreeSet::new();
+    let mut position = 0_i64;
+    for track in &tracks {
         let recording_id: Option<String> = conn
             .query_row(
                 "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
@@ -1905,10 +1987,12 @@ fn rebuild_canonical_release(conn: &Connection, release_id: &str) -> Result<(), 
                 |row| row.get(0),
             )
             .optional()?;
-        if let Some(recording_id) = recording_id {
-            let position = i64::try_from(idx)
-                .map_err(|_err| DbError::Other("release track position overflow".to_string()))?
-                + 1;
+        if let Some(recording_id) = recording_id
+            && seen_recordings.insert(recording_id.clone())
+        {
+            position = position
+                .checked_add(1)
+                .ok_or_else(|| DbError::Other("release track position overflow".to_string()))?;
             conn.execute(
                 "INSERT INTO release_recordings (release_id, recording_id, position, source_track_guid) \
                  VALUES (?1, ?2, ?3, ?4)",
@@ -2159,10 +2243,24 @@ pub fn build_canonical_feed_state_snapshot(
         feed_guid: feed_guid.to_string(),
         releases,
         recordings,
-        release_recordings,
+        release_recordings: dedupe_release_recordings(release_recordings),
         release_maps,
         recording_maps,
     })
+}
+
+fn dedupe_release_recordings(rows: Vec<ReleaseRecording>) -> Vec<ReleaseRecording> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(rows.len());
+
+    for mut row in rows {
+        if seen.insert((row.release_id.clone(), row.recording_id.clone())) {
+            row.position = i64::try_from(deduped.len() + 1).unwrap_or(i64::MAX);
+            deduped.push(row);
+        }
+    }
+
+    deduped
 }
 
 /// Replaces feed-scoped canonical release/recording state from a primary-owned
@@ -2249,7 +2347,7 @@ pub fn replace_canonical_feed_state_from_snapshot(
             params![release_id],
         )?;
     }
-    for row in &payload.release_recordings {
+    for row in &dedupe_release_recordings(payload.release_recordings.clone()) {
         conn.execute(
             "INSERT INTO release_recordings (release_id, recording_id, position, source_track_guid)
              VALUES (?1, ?2, ?3, ?4)",
@@ -2969,6 +3067,116 @@ pub fn get_live_events_for_feed(
 }
 
 /// Replaces the current ephemeral live-event rows for a feed.
+fn dedupe_live_events(live_events: &[LiveEvent]) -> Vec<LiveEvent> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(live_events.len());
+    for live_event in live_events {
+        if seen.insert(live_event.live_item_guid.clone()) {
+            deduped.push(live_event.clone());
+        }
+    }
+    deduped
+}
+
+#[must_use]
+pub fn dedupe_source_contributor_claims(
+    claims: &[SourceContributorClaim],
+) -> Vec<SourceContributorClaim> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(claims.len());
+    for claim in claims {
+        let key = (
+            claim.feed_guid.clone(),
+            claim.entity_type.clone(),
+            claim.entity_id.clone(),
+            claim.position,
+            claim.source.clone(),
+        );
+        if seen.insert(key) {
+            deduped.push(claim.clone());
+        }
+    }
+    deduped
+}
+
+#[must_use]
+pub fn dedupe_source_entity_links(links: &[SourceEntityLink]) -> Vec<SourceEntityLink> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(links.len());
+    for link in links {
+        let key = (
+            link.feed_guid.clone(),
+            link.entity_type.clone(),
+            link.entity_id.clone(),
+            link.link_type.clone(),
+            link.url.clone(),
+        );
+        if seen.insert(key) {
+            deduped.push(link.clone());
+        }
+    }
+    deduped
+}
+
+#[must_use]
+pub fn dedupe_source_entity_ids(claims: &[SourceEntityIdClaim]) -> Vec<SourceEntityIdClaim> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(claims.len());
+    for claim in claims {
+        let key = (
+            claim.feed_guid.clone(),
+            claim.entity_type.clone(),
+            claim.entity_id.clone(),
+            claim.scheme.clone(),
+            claim.value.clone(),
+        );
+        if seen.insert(key) {
+            deduped.push(claim.clone());
+        }
+    }
+    deduped
+}
+
+#[must_use]
+pub fn dedupe_source_release_claims(claims: &[SourceReleaseClaim]) -> Vec<SourceReleaseClaim> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(claims.len());
+    for claim in claims {
+        let key = (
+            claim.feed_guid.clone(),
+            claim.entity_type.clone(),
+            claim.entity_id.clone(),
+            claim.claim_type.clone(),
+            claim.position,
+        );
+        if seen.insert(key) {
+            deduped.push(claim.clone());
+        }
+    }
+    deduped
+}
+
+#[must_use]
+pub fn dedupe_source_item_enclosures(
+    enclosures: &[SourceItemEnclosure],
+) -> Vec<SourceItemEnclosure> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(enclosures.len());
+    for enclosure in enclosures {
+        let key = (
+            enclosure.feed_guid.clone(),
+            enclosure.entity_type.clone(),
+            enclosure.entity_id.clone(),
+            enclosure.position,
+            enclosure.url.clone(),
+        );
+        if seen.insert(key) {
+            deduped.push(enclosure.clone());
+        }
+    }
+    deduped
+}
+
 pub fn replace_live_events_for_feed(
     conn: &Connection,
     feed_guid: &str,
@@ -2978,7 +3186,7 @@ pub fn replace_live_events_for_feed(
         "DELETE FROM live_events WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for live_event in live_events {
+    for live_event in dedupe_live_events(live_events) {
         conn.execute(
             "INSERT INTO live_events \
              (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
@@ -3049,7 +3257,7 @@ pub fn replace_source_contributor_claims_for_feed(
         "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for claim in claims {
+    for claim in dedupe_source_contributor_claims(claims) {
         conn.execute(
             "INSERT INTO source_contributor_claims \
              (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, \
@@ -3121,7 +3329,7 @@ pub fn replace_source_entity_ids_for_feed(
         "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for claim in claims {
+    for claim in dedupe_source_entity_ids(claims) {
         conn.execute(
             "INSERT INTO source_entity_ids \
              (feed_guid, entity_type, entity_id, position, scheme, value, source, extraction_path, observed_at) \
@@ -3188,7 +3396,7 @@ pub fn replace_source_entity_links_for_feed(
         "DELETE FROM source_entity_links WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for link in links {
+    for link in dedupe_source_entity_links(links) {
         conn.execute(
             "INSERT INTO source_entity_links \
              (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
@@ -3255,7 +3463,7 @@ pub fn replace_source_release_claims_for_feed(
         "DELETE FROM source_release_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for claim in claims {
+    for claim in dedupe_source_release_claims(claims) {
         conn.execute(
             "INSERT INTO source_release_claims \
              (feed_guid, entity_type, entity_id, position, claim_type, claim_value, source, extraction_path, observed_at) \
@@ -3326,7 +3534,7 @@ pub fn replace_source_item_enclosures_for_feed(
         "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    for enclosure in enclosures {
+    for enclosure in dedupe_source_item_enclosures(enclosures) {
         conn.execute(
             "INSERT INTO source_item_enclosures \
              (feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, title, is_primary, source, extraction_path, observed_at) \
@@ -7404,6 +7612,11 @@ pub fn ingest_transaction(
     event_rows: Vec<EventRow>,
     signer: &NodeSigner,
 ) -> Result<Vec<(i64, String, String)>, DbError> {
+    let source_contributor_claims = dedupe_source_contributor_claims(&source_contributor_claims);
+    let source_entity_ids = dedupe_source_entity_ids(&source_entity_ids);
+    let source_entity_links = dedupe_source_entity_links(&source_entity_links);
+    let source_release_claims = dedupe_source_release_claims(&source_release_claims);
+    let source_item_enclosures = dedupe_source_item_enclosures(&source_item_enclosures);
     let tx = conn.transaction()?;
 
     // 1. Resolve/insert artist (and ensure a feed-scoped canonical alias row exists)
@@ -7457,29 +7670,16 @@ pub fn ingest_transaction(
     // 2. Insert artist credit (idempotent via INSERT OR IGNORE on PK)
     // Issue-ARTIST-IDENTITY — 2026-03-14
     {
-        tx.execute(
-            "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
-             VALUES (?1, ?2, ?3, ?4)",
-            params![
-                artist_credit.id,
-                artist_credit.display_name,
-                artist_credit.feed_guid,
-                artist_credit.created_at
-            ],
-        )?;
-        for acn in &artist_credit.names {
-            tx.execute(
-                "INSERT OR IGNORE INTO artist_credit_name \
-                 (artist_credit_id, artist_id, position, name, join_phrase) \
-                 VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![
-                    acn.artist_credit_id,
-                    acn.artist_id,
-                    acn.position,
-                    acn.name,
-                    acn.join_phrase
-                ],
-            )?;
+        upsert_artist_credit_sql(&tx, &artist_credit)?;
+        for event_row in &event_rows {
+            if event_row.event_type != EventType::TrackUpserted {
+                continue;
+            }
+            if let Ok(payload) =
+                serde_json::from_str::<crate::event::TrackUpsertedPayload>(&event_row.payload_json)
+            {
+                upsert_artist_credit_sql(&tx, &payload.artist_credit)?;
+            }
         }
     }
 
@@ -7575,7 +7775,7 @@ pub fn ingest_transaction(
         "DELETE FROM live_events WHERE feed_guid = ?1",
         params![feed.feed_guid],
     )?;
-    for live_event in &live_events {
+    for live_event in dedupe_live_events(&live_events) {
         tx.execute(
             "INSERT INTO live_events \
              (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \

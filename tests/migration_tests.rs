@@ -76,7 +76,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 14, "exactly fourteen migrations should be recorded");
+    assert_eq!(count, 15, "exactly fifteen migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -102,6 +102,8 @@ fn no_drop_table_in_migrations() {
     let resolver_queue = include_str!("../migrations/0012_resolver_queue.sql");
     let artist_identity_reviews = include_str!("../migrations/0013_artist_identity_reviews.sql");
     let resolved_overlay_tables = include_str!("../migrations/0014_resolved_overlay_tables.sql");
+    let live_events_feed_scoped =
+        include_str!("../migrations/0015_live_events_feed_scoped_key.sql");
     let all_migrations = [
         baseline,
         feed_scope,
@@ -117,6 +119,7 @@ fn no_drop_table_in_migrations() {
         resolver_queue,
         artist_identity_reviews,
         resolved_overlay_tables,
+        live_events_feed_scoped,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {

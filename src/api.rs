@@ -583,21 +583,32 @@ fn build_source_contributor_claims(
 ) -> Vec<model::SourceContributorClaim> {
     persons
         .iter()
-        .map(|person| model::SourceContributorClaim {
-            id: None,
-            feed_guid: feed_guid.to_string(),
-            entity_type: entity_type.to_string(),
-            entity_id: entity_id.to_string(),
-            position: person.position,
-            name: person.name.clone(),
-            role: person.role.clone(),
-            role_norm: normalize_role(person.role.as_deref()),
-            group_name: person.group_name.clone(),
-            href: person.href.clone(),
-            img: person.img.clone(),
-            source: "podcast_person".to_string(),
-            extraction_path: format!("{entity_type}.podcast:person"),
-            observed_at: now,
+        .enumerate()
+        .map(|(position, person)| {
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "contributor counts are bounded by feed size"
+            )]
+            let position = position as i64;
+            model::SourceContributorClaim {
+                id: None,
+                feed_guid: feed_guid.to_string(),
+                entity_type: entity_type.to_string(),
+                entity_id: entity_id.to_string(),
+                // Preserve contributor order but normalize positions to a
+                // unique per-entity sequence so malformed feeds with repeated
+                // incoming positions do not violate staging-table constraints.
+                position,
+                name: person.name.clone(),
+                role: person.role.clone(),
+                role_norm: normalize_role(person.role.as_deref()),
+                group_name: person.group_name.clone(),
+                href: person.href.clone(),
+                img: person.img.clone(),
+                source: "podcast_person".to_string(),
+                extraction_path: format!("{entity_type}.podcast:person"),
+                observed_at: now,
+            }
         })
         .collect()
 }
@@ -686,10 +697,10 @@ fn capitalize_word(word: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_source_entity_links, build_source_platform_claims, derive_feed_artist_name,
-        normalize_role, wavlake_artist_name_from_links,
+        build_source_contributor_claims, build_source_entity_links, build_source_platform_claims,
+        derive_feed_artist_name, normalize_role, wavlake_artist_name_from_links,
     };
-    use crate::ingest::{IngestFeedData, IngestLink};
+    use crate::ingest::{IngestFeedData, IngestLink, IngestPerson};
 
     #[test]
     fn normalize_role_lowercases_and_collapses_whitespace() {
@@ -717,6 +728,33 @@ mod tests {
             claims[0].extraction_path,
             "feed.atom:link[@rel='alternate']"
         );
+    }
+
+    #[test]
+    fn source_contributor_claims_normalize_duplicate_input_positions() {
+        let persons = vec![
+            IngestPerson {
+                position: 0,
+                name: "Alice".into(),
+                role: Some("Vocals".into()),
+                group_name: None,
+                href: None,
+                img: None,
+            },
+            IngestPerson {
+                position: 0,
+                name: "Bob".into(),
+                role: Some("Guitar".into()),
+                group_name: None,
+                href: None,
+                img: None,
+            },
+        ];
+
+        let claims = build_source_contributor_claims("feed-1", "feed", "feed-1", &persons, 123);
+        assert_eq!(claims.len(), 2);
+        assert_eq!(claims[0].position, 0);
+        assert_eq!(claims[1].position, 1);
     }
 
     fn empty_feed() -> IngestFeedData {
@@ -1910,6 +1948,13 @@ async fn handle_ingest_feed(
             track_tuples.push((track, routes, vts));
             track_credits.push(track_credit);
         }
+
+        let source_contributor_claims =
+            db::dedupe_source_contributor_claims(&source_contributor_claims);
+        let source_entity_ids = db::dedupe_source_entity_ids(&source_entity_ids);
+        let source_entity_links = db::dedupe_source_entity_links(&source_entity_links);
+        let source_release_claims = db::dedupe_source_release_claims(&source_release_claims);
+        let source_item_enclosures = db::dedupe_source_item_enclosures(&source_item_enclosures);
 
         // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
         // Only emit events for entities whose fields actually changed

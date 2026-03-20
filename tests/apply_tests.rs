@@ -1797,6 +1797,52 @@ fn make_track_upserted_event(
     }
 }
 
+#[test]
+fn apply_track_upserted_creates_missing_credit_artist_rows() {
+    use stophammer::apply::{ApplyOutcome, apply_single_event};
+
+    let db = common::test_db_arc();
+    let pool = common::wrap_pool(db.clone());
+    let now = common::now();
+
+    {
+        let conn = db.lock().unwrap();
+        insert_artist(&conn, "feed-artist", "Feed Artist", now);
+        let feed_credit_id = insert_artist_credit(&conn, "feed-artist", "Feed Artist", now);
+        insert_feed(
+            &conn,
+            "feed-apply-credit",
+            "https://example.com/feed-apply-credit.xml",
+            "Apply Credit Feed",
+            feed_credit_id,
+            now,
+        );
+    }
+
+    let event = make_track_upserted_event(
+        "track-credit-event",
+        "feed-apply-credit",
+        "track-apply-credit",
+        "Applied Track",
+        Some(1),
+        1,
+        now,
+    );
+
+    let outcome = apply_single_event(&pool, &event).expect("apply track upserted");
+    assert!(matches!(outcome, ApplyOutcome::Applied(_)));
+
+    let conn = db.lock().unwrap();
+    let artist_name: String = conn
+        .query_row(
+            "SELECT name FROM artists WHERE artist_id = 'apply-artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("track credit artist inserted");
+    assert_eq!(artist_name, "apply Artist");
+}
+
 // ---------------------------------------------------------------------------
 // 12. Issue-DEDUP-ORDER: duplicate `FeedUpserted` must not overwrite newer data
 // ---------------------------------------------------------------------------

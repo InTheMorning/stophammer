@@ -402,6 +402,548 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
 }
 
 #[test]
+fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-dup-release-1".into(),
+        name: "Duplicate Release Artist".into(),
+        name_lower: "duplicate release artist".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let artist_credit = stophammer::model::ArtistCredit {
+        id: 9011,
+        display_name: "Duplicate Release Artist".into(),
+        feed_guid: Some("feed-dup-release-1".into()),
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
+            artist_credit_id: 9011,
+            artist_id: artist.artist_id.clone(),
+            position: 0,
+            name: "Duplicate Release Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let feed = stophammer::model::Feed {
+        feed_guid: "feed-dup-release-1".into(),
+        feed_url: "https://example.com/feed-dup-release-1.xml".into(),
+        title: "Duplicate Release".into(),
+        title_lower: "duplicate release".into(),
+        artist_credit_id: artist_credit.id,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 2,
+        newest_item_at: Some(now),
+        oldest_item_at: Some(now - 60),
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
+    };
+    let track_a = stophammer::model::Track {
+        track_guid: "track-dup-release-a".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: artist_credit.id,
+        title: "Same Song".into(),
+        title_lower: "same song".into(),
+        pub_date: Some(now - 60),
+        duration_secs: Some(180),
+        enclosure_url: Some("https://cdn.example.com/dup-a.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(1111),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let track_b = stophammer::model::Track {
+        track_guid: "track-dup-release-b".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: artist_credit.id,
+        title: "Same Song".into(),
+        title_lower: "same song".into(),
+        pub_date: Some(now),
+        duration_secs: Some(180),
+        enclosure_url: Some("https://cdn.example.com/dup-b.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(2222),
+        track_number: Some(2),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let tracks = vec![
+        (track_a.clone(), vec![], vec![]),
+        (track_b.clone(), vec![], vec![]),
+    ];
+
+    let event_rows = stophammer::db::build_diff_events(
+        &conn,
+        &artist,
+        &artist_credit,
+        &feed,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &tracks,
+        &[],
+        now,
+        &[],
+    )
+    .expect("build diff events");
+
+    let signer = common::temp_signer("duplicate-release-membership");
+    stophammer::db::ingest_transaction(
+        &mut conn,
+        artist,
+        artist_credit,
+        feed.clone(),
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        tracks,
+        event_rows,
+        &signer,
+    )
+    .expect("ingest transaction");
+
+    stophammer::db::sync_canonical_state_for_feed(&conn, &feed.feed_guid)
+        .expect("sync canonical state");
+
+    let release_id: String = conn
+        .query_row(
+            "SELECT release_id FROM source_feed_release_map WHERE feed_guid = ?1",
+            params![feed.feed_guid],
+            |row| row.get(0),
+        )
+        .expect("release id");
+    let recording_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT recording_id FROM source_item_recording_map \
+                 WHERE track_guid IN (?1, ?2) ORDER BY track_guid",
+            )
+            .expect("prepare recording ids");
+        stmt.query_map(params![track_a.track_guid, track_b.track_guid], |row| {
+            row.get(0)
+        })
+        .expect("query recording ids")
+        .collect::<Result<_, _>>()
+        .expect("collect recording ids")
+    };
+    assert_eq!(recording_ids.len(), 2);
+    assert_eq!(recording_ids[0], recording_ids[1]);
+
+    let release_tracks: Vec<(i64, String, String)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT position, recording_id, source_track_guid FROM release_recordings \
+                 WHERE release_id = ?1 ORDER BY position",
+            )
+            .expect("prepare release_recordings");
+        stmt.query_map(params![release_id], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })
+        .expect("query release_recordings")
+        .collect::<Result<_, _>>()
+        .expect("collect release_recordings")
+    };
+    assert_eq!(
+        release_tracks,
+        vec![(
+            1,
+            recording_ids[0].clone(),
+            "track-dup-release-a".to_string()
+        )]
+    );
+}
+
+#[test]
+fn canonical_snapshot_apply_dedupes_duplicate_release_recordings() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let artist = stophammer::db::resolve_artist(&conn, "Snapshot Artist", Some("feed-snapshot"))
+        .expect("artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist.name,
+        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        Some("feed-snapshot"),
+    )
+    .expect("credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-snapshot', 'https://example.com/feed-snapshot.xml', 'Snapshot Feed', 'snapshot feed', ?1, ?2, ?2)",
+        params![credit.id, now],
+    )
+    .expect("feed");
+    for (track_guid, title, pos) in [
+        ("track-snapshot-a", "Snapshot Song A", 1_i64),
+        ("track-snapshot-b", "Snapshot Song B", 2_i64),
+    ] {
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, track_number, created_at, updated_at) \
+             VALUES (?1, 'feed-snapshot', ?2, ?3, lower(?3), ?4, ?5, ?5)",
+            params![track_guid, credit.id, title, pos, now],
+        )
+        .expect("track");
+    }
+
+    let payload = stophammer::event::CanonicalFeedStateReplacedPayload {
+        feed_guid: "feed-snapshot".into(),
+        releases: vec![stophammer::model::Release {
+            release_id: "release-snapshot".into(),
+            title: "Snapshot Release".into(),
+            title_lower: "snapshot release".into(),
+            artist_credit_id: credit.id,
+            description: None,
+            image_url: None,
+            release_date: Some(now),
+            created_at: now,
+            updated_at: now,
+        }],
+        recordings: vec![stophammer::model::Recording {
+            recording_id: "recording-snapshot".into(),
+            title: "Snapshot Song".into(),
+            title_lower: "snapshot song".into(),
+            artist_credit_id: credit.id,
+            duration_secs: Some(180),
+            created_at: now,
+            updated_at: now,
+        }],
+        release_recordings: vec![
+            stophammer::model::ReleaseRecording {
+                release_id: "release-snapshot".into(),
+                recording_id: "recording-snapshot".into(),
+                position: 1,
+                source_track_guid: Some("track-snapshot-a".into()),
+            },
+            stophammer::model::ReleaseRecording {
+                release_id: "release-snapshot".into(),
+                recording_id: "recording-snapshot".into(),
+                position: 2,
+                source_track_guid: Some("track-snapshot-b".into()),
+            },
+        ],
+        release_maps: vec![stophammer::model::SourceFeedReleaseMap {
+            feed_guid: "feed-snapshot".into(),
+            release_id: "release-snapshot".into(),
+            match_type: "exact_release_signature_v1".into(),
+            confidence: 95,
+            created_at: now,
+        }],
+        recording_maps: vec![
+            stophammer::model::SourceItemRecordingMap {
+                track_guid: "track-snapshot-a".into(),
+                recording_id: "recording-snapshot".into(),
+                match_type: "exact_recording_signature_v1".into(),
+                confidence: 95,
+                created_at: now,
+            },
+            stophammer::model::SourceItemRecordingMap {
+                track_guid: "track-snapshot-b".into(),
+                recording_id: "recording-snapshot".into(),
+                match_type: "exact_recording_signature_v1".into(),
+                confidence: 95,
+                created_at: now,
+            },
+        ],
+    };
+
+    stophammer::db::replace_canonical_feed_state_from_snapshot(&conn, &payload)
+        .expect("replace canonical feed state");
+
+    let release_tracks: Vec<(i64, String, Option<String>)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT position, recording_id, source_track_guid FROM release_recordings \
+                 WHERE release_id = 'release-snapshot' ORDER BY position",
+            )
+            .expect("prepare release_recordings");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .expect("query release_recordings")
+            .collect::<Result<_, _>>()
+            .expect("collect release_recordings")
+    };
+    assert_eq!(
+        release_tracks,
+        vec![(
+            1,
+            "recording-snapshot".to_string(),
+            Some("track-snapshot-a".to_string())
+        )]
+    );
+}
+
+#[test]
+fn replace_live_events_allows_same_live_item_guid_in_multiple_feeds() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let credit_a = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        "Artist A",
+        &[("artist-a".into(), "Artist A".into(), String::new())],
+        Some("feed-a"),
+    )
+    .expect("credit a");
+    let credit_b = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        "Artist B",
+        &[("artist-b".into(), "Artist B".into(), String::new())],
+        Some("feed-b"),
+    )
+    .expect("credit b");
+
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, episode_count, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7)",
+        params![
+            "feed-a",
+            "https://example.com/a.xml",
+            "Feed A",
+            "feed a",
+            credit_a.id,
+            now,
+            now
+        ],
+    )
+    .expect("insert feed a");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, episode_count, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7)",
+        params![
+            "feed-b",
+            "https://example.com/b.xml",
+            "Feed B",
+            "feed b",
+            credit_b.id,
+            now,
+            now
+        ],
+    )
+    .expect("insert feed b");
+
+    let shared_guid = "shared-live-item";
+    stophammer::db::replace_live_events_for_feed(
+        &conn,
+        "feed-a",
+        &[stophammer::model::LiveEvent {
+            live_item_guid: shared_guid.into(),
+            feed_guid: "feed-a".into(),
+            title: "Live A".into(),
+            content_link: None,
+            status: "live".into(),
+            scheduled_start: Some(now),
+            scheduled_end: None,
+            created_at: now,
+            updated_at: now,
+        }],
+    )
+    .expect("replace live events a");
+    stophammer::db::replace_live_events_for_feed(
+        &conn,
+        "feed-b",
+        &[stophammer::model::LiveEvent {
+            live_item_guid: shared_guid.into(),
+            feed_guid: "feed-b".into(),
+            title: "Live B".into(),
+            content_link: None,
+            status: "live".into(),
+            scheduled_start: Some(now + 1),
+            scheduled_end: None,
+            created_at: now,
+            updated_at: now + 1,
+        }],
+    )
+    .expect("replace live events b");
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM live_events WHERE live_item_guid = ?1",
+            params![shared_guid],
+            |row| row.get(0),
+        )
+        .expect("count shared live events");
+    assert_eq!(count, 2);
+}
+
+#[test]
+fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
+    let mut conn = common::test_db();
+    let now = common::now();
+    let signer = common::temp_signer("ingest-track-credit");
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-feed".into(),
+        name: "Feed Artist".into(),
+        name_lower: "feed artist".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let artist_credit = stophammer::model::ArtistCredit {
+        id: 1001,
+        display_name: "Feed Artist".into(),
+        feed_guid: Some("feed-credits".into()),
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
+            artist_credit_id: 1001,
+            artist_id: "artist-feed".into(),
+            position: 0,
+            name: "Feed Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let track_credit = stophammer::model::ArtistCredit {
+        id: 2002,
+        display_name: "Track Artist".into(),
+        feed_guid: Some("feed-credits".into()),
+        created_at: now,
+        names: vec![stophammer::model::ArtistCreditName {
+            id: 0,
+            artist_credit_id: 2002,
+            artist_id: "artist-track".into(),
+            position: 0,
+            name: "Track Artist".into(),
+            join_phrase: String::new(),
+        }],
+    };
+    let feed = stophammer::model::Feed {
+        feed_guid: "feed-credits".into(),
+        feed_url: "https://example.com/feed-credits.xml".into(),
+        title: "Feed Credits".into(),
+        title_lower: "feed credits".into(),
+        artist_credit_id: artist_credit.id,
+        description: None,
+        image_url: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        episode_count: 1,
+        newest_item_at: Some(now),
+        oldest_item_at: Some(now),
+        created_at: now,
+        updated_at: now,
+        raw_medium: Some("music".into()),
+    };
+    let track = stophammer::model::Track {
+        track_guid: "track-credit-guid".into(),
+        feed_guid: feed.feed_guid.clone(),
+        artist_credit_id: track_credit.id,
+        title: "Track Title".into(),
+        title_lower: "track title".into(),
+        pub_date: Some(now),
+        duration_secs: Some(120),
+        enclosure_url: Some("https://example.com/track.mp3".into()),
+        enclosure_type: Some("audio/mpeg".into()),
+        enclosure_bytes: Some(1234),
+        track_number: Some(1),
+        season: None,
+        explicit: false,
+        description: None,
+        created_at: now,
+        updated_at: now,
+    };
+    let tracks = vec![(track.clone(), vec![], vec![])];
+
+    let event_rows = stophammer::db::build_diff_events(
+        &conn,
+        &artist,
+        &artist_credit,
+        &feed,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &tracks,
+        std::slice::from_ref(&track_credit),
+        now,
+        &[],
+    )
+    .expect("build diff events");
+
+    stophammer::db::ingest_transaction(
+        &mut conn,
+        artist,
+        artist_credit,
+        feed,
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        vec![],
+        tracks,
+        event_rows,
+        &signer,
+    )
+    .expect("ingest transaction");
+
+    let track_artist_name: String = conn
+        .query_row(
+            "SELECT name FROM artists WHERE artist_id = 'artist-track'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("track artist exists");
+    assert_eq!(track_artist_name, "Track Artist");
+
+    let credit_rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_credit_name WHERE artist_credit_id = 2002",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count track credit names");
+    assert_eq!(credit_rows, 1);
+}
+
+#[test]
 fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -2686,6 +3228,43 @@ fn source_contributor_claims_replace_round_trip() {
 }
 
 #[test]
+fn source_contributor_claims_replace_dedupes_duplicate_unique_keys() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-claims-dedupe", "Source Claims Dedupe");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Claims Dedupe");
+    let feed_guid = insert_feed(&conn, "feed-src-claims-dedupe", credit_id);
+
+    let claim = stophammer::model::SourceContributorClaim {
+        id: None,
+        feed_guid: feed_guid.clone(),
+        entity_type: "feed".into(),
+        entity_id: feed_guid.clone(),
+        position: 0,
+        name: "Alice".into(),
+        role: None,
+        role_norm: None,
+        group_name: None,
+        href: None,
+        img: None,
+        source: "podcast_person".into(),
+        extraction_path: "channel/podcast:person".into(),
+        observed_at: common::now(),
+    };
+
+    stophammer::db::replace_source_contributor_claims_for_feed(
+        &conn,
+        &feed_guid,
+        &[claim.clone(), claim],
+    )
+    .expect("replace contributor claims");
+
+    let stored = stophammer::db::get_source_contributor_claims_for_feed(&conn, &feed_guid)
+        .expect("get contributor claims");
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].name, "Alice");
+}
+
+#[test]
 fn source_entity_ids_replace_round_trip() {
     let conn = common::test_db();
     let artist_id = insert_artist(&conn, "art-src-ids", "Source IDs");
@@ -2781,6 +3360,35 @@ fn source_entity_links_replace_round_trip() {
 }
 
 #[test]
+fn source_entity_links_replace_dedupes_duplicate_unique_keys() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-links-dedupe", "Source Links Dedupe");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Links Dedupe");
+    let feed_guid = insert_feed(&conn, "feed-src-links-dedupe", credit_id);
+
+    let link = stophammer::model::SourceEntityLink {
+        id: None,
+        feed_guid: feed_guid.clone(),
+        entity_type: "feed".into(),
+        entity_id: feed_guid.clone(),
+        position: 0,
+        link_type: "website".into(),
+        url: "https://example.com/artist".into(),
+        source: "rss_link".into(),
+        extraction_path: "feed.link".into(),
+        observed_at: common::now(),
+    };
+
+    stophammer::db::replace_source_entity_links_for_feed(&conn, &feed_guid, &[link.clone(), link])
+        .expect("replace source links");
+
+    let stored = stophammer::db::get_source_entity_links_for_feed(&conn, &feed_guid)
+        .expect("get source links");
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].url, "https://example.com/artist");
+}
+
+#[test]
 fn source_release_claims_replace_round_trip() {
     let conn = common::test_db();
     let artist_id = insert_artist(&conn, "art-src-release", "Source Release");
@@ -2822,6 +3430,39 @@ fn source_release_claims_replace_round_trip() {
     assert_eq!(stored.len(), 2);
     assert_eq!(stored[0].claim_type, "release_date");
     assert_eq!(stored[1].claim_value, "Track description");
+}
+
+#[test]
+fn source_release_claims_replace_dedupes_duplicate_unique_keys() {
+    let conn = common::test_db();
+    let artist_id = insert_artist(&conn, "art-src-release-dedupe", "Source Release Dedupe");
+    let credit_id = insert_single_credit(&conn, &artist_id, "Source Release Dedupe");
+    let feed_guid = insert_feed(&conn, "feed-src-release-dedupe", credit_id);
+
+    let claim = stophammer::model::SourceReleaseClaim {
+        id: None,
+        feed_guid: feed_guid.clone(),
+        entity_type: "feed".into(),
+        entity_id: feed_guid.clone(),
+        position: 0,
+        claim_type: "description".into(),
+        claim_value: "same value".into(),
+        source: "rss_metadata".into(),
+        extraction_path: "feed.description".into(),
+        observed_at: common::now(),
+    };
+
+    stophammer::db::replace_source_release_claims_for_feed(
+        &conn,
+        &feed_guid,
+        &[claim.clone(), claim],
+    )
+    .expect("replace source release claims");
+
+    let stored = stophammer::db::get_source_release_claims_for_feed(&conn, &feed_guid)
+        .expect("get source release claims");
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].claim_type, "description");
 }
 
 #[test]

@@ -337,31 +337,7 @@ fn upsert_artist_credit_if_absent(
     conn: &rusqlite::Connection,
     credit: &crate::model::ArtistCredit,
 ) -> Result<(), db::DbError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
-         VALUES (?1, ?2, ?3, ?4)",
-        rusqlite::params![
-            credit.id,
-            credit.display_name,
-            credit.feed_guid,
-            credit.created_at
-        ],
-    )?;
-    for acn in &credit.names {
-        conn.execute(
-            "INSERT OR IGNORE INTO artist_credit_name \
-             (artist_credit_id, artist_id, position, name, join_phrase) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![
-                acn.artist_credit_id,
-                acn.artist_id,
-                acn.position,
-                acn.name,
-                acn.join_phrase
-            ],
-        )?;
-    }
-    Ok(())
+    db::upsert_artist_credit_sql(conn, credit)
 }
 
 // ── Batched outcome (internal) ──────────────────────────────────────────────
