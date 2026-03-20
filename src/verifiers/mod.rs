@@ -11,6 +11,7 @@
 pub mod content_hash;
 pub mod crawl_token;
 pub mod enclosure_type;
+pub mod feed_blocklist;
 pub mod feed_guid;
 pub mod medium_music;
 pub mod payment_route_sum;

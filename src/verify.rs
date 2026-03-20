@@ -38,6 +38,7 @@
 //! |---|---|---|
 //! | `crawl_token` | [`verifiers::crawl_token`] | Rejects invalid crawl tokens |
 //! | `content_hash` | [`verifiers::content_hash`] | Short-circuits unchanged feeds |
+//! | `feed_blocklist` | [`verifiers::feed_blocklist`] | Rejects exact-match blocked feed GUIDs and URLs |
 //! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or non-music `podcast:medium` |
 //! | `feed_guid` | [`verifiers::feed_guid`] | Rejects bad/malformed GUIDs |
 //! | `v4v_payment` | [`verifiers::v4v_payment`] | Rejects feeds with no valid V4V payment routes |
@@ -230,7 +231,7 @@ pub struct ChainSpec {
 impl ChainSpec {
     /// Default chain: all built-ins in the recommended order.
     pub const DEFAULT: &'static str =
-        "crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type";
+        "crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type";
 
     /// Reads `VERIFIER_CHAIN` from the environment.
     ///
@@ -292,9 +293,9 @@ impl ChainSpec {
 pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
     use crate::verifiers::{
         content_hash::ContentHashVerifier, crawl_token::CrawlTokenVerifier,
-        enclosure_type::EnclosureTypeVerifier, feed_guid::FeedGuidVerifier,
-        medium_music::MediumMusicVerifier, payment_route_sum::PaymentRouteSumVerifier,
-        v4v_payment::V4VPaymentVerifier,
+        enclosure_type::EnclosureTypeVerifier, feed_blocklist::FeedBlocklistVerifier,
+        feed_guid::FeedGuidVerifier, medium_music::MediumMusicVerifier,
+        payment_route_sum::PaymentRouteSumVerifier, v4v_payment::V4VPaymentVerifier,
     };
 
     let mut verifiers: Vec<Box<dyn Verifier>> = Vec::new();
@@ -305,6 +306,7 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
                 expected: crawl_token.clone(),
             }),
             "content_hash" => Box::new(ContentHashVerifier),
+            "feed_blocklist" => Box::new(FeedBlocklistVerifier::from_env()),
             "medium_music" => Box::new(MediumMusicVerifier),
             "feed_guid" => Box::new(FeedGuidVerifier),
             "v4v_payment" => Box::new(V4VPaymentVerifier),
@@ -313,8 +315,8 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
             unknown => {
                 panic!(
                     "FATAL: unknown verifier '{unknown}' in VERIFIER_CHAIN. \
-                     Valid verifiers are: crawl_token, content_hash, medium_music, \
-                     feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
+                     Valid verifiers are: crawl_token, content_hash, feed_blocklist, \
+                     medium_music, feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
                      Check the VERIFIER_CHAIN env var for typos."
                 );
             }

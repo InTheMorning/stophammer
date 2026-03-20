@@ -536,6 +536,263 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
     (credit_id, guids)
 }
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "test fixture seeds the full set of feed-scoped dependency tables in one place"
+)]
+fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id: i64, now: i64) {
+    insert_feed(
+        conn,
+        "feed-peer",
+        "https://example.com/feed-peer.xml",
+        "Peer Feed",
+        credit_id,
+        now,
+    );
+    insert_track(
+        conn,
+        "track-delete-extra",
+        "feed-n",
+        credit_id,
+        "Extra Track",
+        now,
+    );
+
+    conn.execute(
+        "INSERT INTO resolver_queue (feed_guid, dirty_mask, first_marked_at, last_marked_at) \
+         VALUES (?1, ?2, ?3, ?3)",
+        params![
+            "feed-n",
+            stophammer::db::RESOLVER_DIRTY_SOURCE_READ_MODELS
+                | stophammer::db::RESOLVER_DIRTY_CANONICAL_STATE,
+            now
+        ],
+    )
+    .expect("insert resolver queue row");
+    conn.execute(
+        "INSERT INTO artist_identity_review (
+             feed_guid,
+             source,
+             name_key,
+             evidence_key,
+             status,
+             artist_ids_json,
+             artist_names_json,
+             created_at,
+             updated_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
+        params![
+            "feed-n",
+            "feed_author",
+            "n-track artist",
+            "feed_author:n-track artist",
+            "pending",
+            "[\"artist-n\"]",
+            "[\"N-Track Artist\"]",
+            now
+        ],
+    )
+    .expect("insert artist identity review row");
+    conn.execute(
+        "INSERT INTO resolved_external_ids_by_feed (
+             feed_guid,
+             entity_type,
+             entity_id,
+             scheme,
+             value,
+             created_at
+         ) VALUES (?1, 'artist', 'artist-n', 'nostr_npub', 'npub-test', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert resolved external id");
+    conn.execute(
+        "INSERT INTO resolved_entity_sources_by_feed (
+             feed_guid,
+             entity_type,
+             entity_id,
+             source_type,
+             source_url,
+             trust_level,
+             created_at
+         ) VALUES (?1, 'feed', ?1, 'source_feed', 'https://example.com/feed-n.xml', 80, ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert resolved entity source");
+    conn.execute(
+        "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) \
+         VALUES (?1, ?2, 22, ?3)",
+        params!["feed-n", "feed-peer", now],
+    )
+    .expect("insert feed relationship");
+    conn.execute(
+        "INSERT INTO feed_remote_items_raw (
+             feed_guid,
+             position,
+             medium,
+             remote_feed_guid,
+             remote_feed_url,
+             source
+         ) VALUES (?1, 0, 'music', 'remote-feed', 'https://remote.example/feed.xml', 'podcast_remote_item')",
+        params!["feed-n"],
+    )
+    .expect("insert feed remote item");
+    conn.execute(
+        "INSERT INTO live_events (
+             live_item_guid,
+             feed_guid,
+             title,
+             content_link,
+             status,
+             created_at,
+             updated_at
+         ) VALUES (?1, ?2, 'Live Event', 'https://example.com/live', 'live', ?3, ?3)",
+        params!["live-item-n", "feed-n", now],
+    )
+    .expect("insert live event");
+    conn.execute(
+        "INSERT INTO source_contributor_claims (
+             feed_guid,
+             entity_type,
+             entity_id,
+             position,
+             name,
+             role,
+             role_norm,
+             group_name,
+             href,
+             img,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'feed', ?1, 0, 'N-Track Artist', 'host', 'host', NULL, NULL, NULL, 'itunes:author', 'feed.author', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source contributor claim");
+    conn.execute(
+        "INSERT INTO source_entity_ids (
+             feed_guid,
+             entity_type,
+             entity_id,
+             position,
+             scheme,
+             value,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'feed', ?1, 0, 'guid', 'feed-n', 'podcast:guid', 'feed.guid', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source entity id");
+    conn.execute(
+        "INSERT INTO source_entity_links (
+             feed_guid,
+             entity_type,
+             entity_id,
+             position,
+             link_type,
+             url,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'feed', ?1, 0, 'website', 'https://example.com/feed-n', 'atom:link', 'feed.link', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source entity link");
+    conn.execute(
+        "INSERT INTO source_release_claims (
+             feed_guid,
+             entity_type,
+             entity_id,
+             position,
+             claim_type,
+             claim_value,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'feed', ?1, 0, 'release_date', '2026-01-01', 'itunes:date', 'feed.pub_date', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source release claim");
+    conn.execute(
+        "INSERT INTO source_item_enclosures (
+             feed_guid,
+             entity_type,
+             entity_id,
+             position,
+             url,
+             mime_type,
+             bytes,
+             rel,
+             title,
+             is_primary,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'track', 'track-delete-extra', 0, 'https://cdn.example/track.mp3', 'audio/mpeg', 123, 'enclosure', 'Track', 1, 'enclosure', 'track.enclosure', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source item enclosure");
+    conn.execute(
+        "INSERT INTO source_platform_claims (
+             feed_guid,
+             platform_key,
+             url,
+             owner_name,
+             source,
+             extraction_path,
+             observed_at
+         ) VALUES (?1, 'wavlake', 'https://wavlake.com/album/test', 'N-Track Artist', 'podcast:value', 'feed.value', ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source platform claim");
+    conn.execute(
+        "INSERT INTO releases (
+             release_id,
+             title,
+             title_lower,
+             artist_credit_id,
+             created_at,
+             updated_at
+         ) VALUES (?1, 'Test Release', 'test release', ?2, ?3, ?3)",
+        params!["release-delete-n", credit_id, now],
+    )
+    .expect("insert release");
+    conn.execute(
+        "INSERT INTO recordings (
+             recording_id,
+             title,
+             title_lower,
+             artist_credit_id,
+             created_at,
+             updated_at
+         ) VALUES (?1, 'Test Recording', 'test recording', ?2, ?3, ?3)",
+        params!["recording-delete-n", credit_id, now],
+    )
+    .expect("insert recording");
+    conn.execute(
+        "INSERT INTO source_feed_release_map (
+             feed_guid,
+             release_id,
+             match_type,
+             confidence,
+             created_at
+         ) VALUES (?1, 'release-delete-n', 'test', 100, ?2)",
+        params!["feed-n", now],
+    )
+    .expect("insert source feed release map");
+    conn.execute(
+        "INSERT INTO source_item_recording_map (
+             track_guid,
+             recording_id,
+             match_type,
+             confidence,
+             created_at
+         ) VALUES ('track-delete-extra', 'recording-delete-n', 'test', 100, ?1)",
+        params![now],
+    )
+    .expect("insert source item recording map");
+}
+
 #[test]
 fn delete_feed_many_tracks_removes_all_children() {
     let mut conn = common::test_db();
@@ -687,6 +944,101 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         count(&conn, "events", &format!("event_id = '{event_id}'")),
         1
     );
+}
+
+#[test]
+fn delete_feed_with_event_removes_resolver_and_source_dependents() {
+    let mut conn = common::test_db();
+    let (credit_id, _track_guids) = populate_feed_with_n_tracks(&conn, 2);
+    let now = common::now();
+    seed_delete_feed_with_event_dependents(&conn, credit_id, now);
+
+    let signer = common::temp_signer("test-delete-dependent-cleanup");
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let payload_json = r#"{"feed_guid":"feed-n","reason":"cleanup dependents"}"#;
+
+    stophammer::db::delete_feed_with_event(
+        &mut conn,
+        "feed-n",
+        &event_id,
+        payload_json,
+        "feed-n",
+        &signer,
+        now,
+        &[],
+    )
+    .expect("delete_feed_with_event should clean resolver/source dependents");
+
+    assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
+    assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 0);
+    assert_eq!(count(&conn, "resolver_queue", "feed_guid = 'feed-n'"), 0);
+    assert_eq!(
+        count(&conn, "artist_identity_review", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "resolved_external_ids_by_feed",
+            "feed_guid = 'feed-n'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "resolved_entity_sources_by_feed",
+            "feed_guid = 'feed-n'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "feed_rel",
+            "feed_guid_a = 'feed-n' OR feed_guid_b = 'feed-n'"
+        ),
+        0
+    );
+    assert_eq!(
+        count(&conn, "feed_remote_items_raw", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(count(&conn, "live_events", "feed_guid = 'feed-n'"), 0);
+    assert_eq!(
+        count(&conn, "source_contributor_claims", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(count(&conn, "source_entity_ids", "feed_guid = 'feed-n'"), 0);
+    assert_eq!(
+        count(&conn, "source_entity_links", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(&conn, "source_release_claims", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(&conn, "source_item_enclosures", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(&conn, "source_platform_claims", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(&conn, "source_feed_release_map", "feed_guid = 'feed-n'"),
+        0
+    );
+    assert_eq!(
+        count(
+            &conn,
+            "source_item_recording_map",
+            "track_guid = 'track-delete-extra'"
+        ),
+        0
+    );
+    assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-peer'"), 1);
 }
 
 // ---------------------------------------------------------------------------

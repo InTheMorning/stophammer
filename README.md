@@ -100,13 +100,14 @@ as an audit trail and replicated to all nodes.
 Default chain:
 
 ```
-crawl_token → content_hash → medium_music → feed_guid → v4v_payment → enclosure_type
+crawl_token → content_hash → feed_blocklist → medium_music → feed_guid → v4v_payment → enclosure_type
 ```
 
 | Verifier | Effect |
 |---|---|
 | `crawl_token` | Rejects invalid crawl tokens |
 | `content_hash` | Short-circuits unchanged feeds (no DB write, no event) |
+| `feed_blocklist` | Rejects exact-match blocked feed GUIDs and URLs from `BLOCKED_FEED_GUIDS` / `BLOCKED_FEED_URLS` |
 | `medium_music` | Rejects feeds without `podcast:medium=music` |
 | `feed_guid` | Rejects malformed or known-bad `podcast:guid` values |
 | `v4v_payment` | Rejects feeds with no structurally valid V4V payment routes (requires non-empty address + positive split; does not test reachability) |
@@ -114,6 +115,13 @@ crawl_token → content_hash → medium_music → feed_guid → v4v_payment → 
 
 Override at runtime with `VERIFIER_CHAIN=crawl_token,content_hash,...`.
 Changing the chain on a primary does not affect community nodes.
+
+To block a specific feed without changing crawler inputs:
+
+```bash
+BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
+BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
+```
 
 ---
 
@@ -282,6 +290,15 @@ This repo does not ship a `docker-compose.yml` for day-to-day operation.
 # Skip medium_music for feeds that don't set podcast:medium yet
 CRAWL_TOKEN=secret SYNC_TOKEN=test-sync-token \
   VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type \
+  docker compose -f docker-compose.e2e.yml up -d primary
+```
+
+```bash
+# Block exact feed GUIDs / URLs before any enrichment work
+CRAWL_TOKEN=secret SYNC_TOKEN=test-sync-token \
+  BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492 \
+  BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml \
+  VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type \
   docker compose -f docker-compose.e2e.yml up -d primary
 ```
 

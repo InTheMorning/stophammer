@@ -69,6 +69,11 @@ The primary:
 - fans out sync traffic to community nodes
 - serves the full read API
 
+If you need to keep a known-bad feed out of the index, add `feed_blocklist`
+to `VERIFIER_CHAIN` and set exact-match `BLOCKED_FEED_GUIDS` and/or
+`BLOCKED_FEED_URLS` on the primary. Community nodes follow the primary's
+decision and do not re-run verifiers locally.
+
 ### I want to run a community replica
 
 Read the community sections in [README.md](/home/citizen/build/stophammer/README.md)

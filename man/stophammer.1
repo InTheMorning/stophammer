@@ -51,6 +51,16 @@ Required for sync endpoints and community replication.
 .B ADMIN_TOKEN
 Optional token for admin endpoints.
 .TP
+.B BLOCKED_FEED_GUIDS
+Optional comma-separated exact feed GUID blocklist for the
+.B feed_blocklist
+verifier.
+.TP
+.B BLOCKED_FEED_URLS
+Optional comma-separated exact feed URL blocklist for the
+.B feed_blocklist
+verifier.
+.TP
 .B PRIMARY_URL
 Required in community mode.
 .TP
@@ -73,6 +83,19 @@ DB_PATH=./stophammer.db \\
 KEY_PATH=./signing.key \\
 CRAWL_TOKEN=change-me \\
 SYNC_TOKEN=change-me \\
+BIND=127.0.0.1:8008 \\
+./target/release/stophammer
+.fi
+.TP
+Run a local primary with an exact-match feed blocklist:
+.nf
+DB_PATH=./stophammer.db \\
+KEY_PATH=./signing.key \\
+CRAWL_TOKEN=change-me \\
+SYNC_TOKEN=change-me \\
+BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492 \\
+BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml \\
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type \\
 BIND=127.0.0.1:8008 \\
 ./target/release/stophammer
 .fi

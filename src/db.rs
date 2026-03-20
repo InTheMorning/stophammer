@@ -3804,7 +3804,29 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 9. Feed-scoped staged/source rows
+    // 9. Feed-scoped resolver/read-model rows and relationships
+    conn.execute(
+        "DELETE FROM resolver_queue WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM artist_identity_review WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM resolved_entity_sources_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM feed_rel WHERE feed_guid_a = ?1 OR feed_guid_b = ?1",
+        params![feed_guid],
+    )?;
+
+    // 10. Feed-scoped staged/source rows
     conn.execute(
         "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
         params![feed_guid],
@@ -3838,7 +3860,7 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 9b. Derived canonical release/recording mappings for this feed
+    // 10b. Derived canonical release/recording mappings for this feed
     conn.execute(
         "DELETE FROM source_item_recording_map WHERE track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
@@ -3848,13 +3870,13 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    // 10. tracks
+    // 11. tracks
     conn.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
-    // 11. feeds
+    // 12. feeds
     conn.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
 
     for recording_id in &recording_ids {
@@ -3948,6 +3970,68 @@ pub fn delete_feed_with_event(
     )?;
     tx.execute(
         "DELETE FROM proof_challenges WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
+    tx.execute(
+        "DELETE FROM resolver_queue WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM artist_identity_review WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM resolved_entity_sources_by_feed WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM feed_rel WHERE feed_guid_a = ?1 OR feed_guid_b = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_entity_links WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_release_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_item_recording_map WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 

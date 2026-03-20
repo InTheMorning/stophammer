@@ -117,6 +117,9 @@ The `VERIFIER_CHAIN` environment variable controls which verifiers run and in wh
 # Default (all built-ins in recommended order)
 VERIFIER_CHAIN=crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type
 
+# Add an exact-match feed blocklist
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+
 # Skip medium_music for feeds that don't set podcast:medium yet
 VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type
 
@@ -129,6 +132,7 @@ When `VERIFIER_CHAIN` is absent or empty, the default chain is used. Unknown nam
 The chain order matters:
 - `crawl_token` should always be first (rejects unauthenticated requests before any DB access)
 - `content_hash` should be second (short-circuits unchanged feeds with no DB write)
+- `feed_blocklist` should run early if you use it (rejects known-bad feeds before enrichment work)
 - Remaining verifiers inspect feed content and can be reordered freely
 
 ---
@@ -219,6 +223,22 @@ No other files need to change. The chain order and which verifiers run is contro
 - **Result:** `Pass` if `raw_medium == "music"`; `Fail` otherwise
 - **Env vars:** None
 - **Notes:** When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
+
+### feed_blocklist
+
+- **File:** `src/verifiers/feed_blocklist.rs`
+- **Effect:** Rejects feeds whose exact GUID or URL is operator-blocked
+- **Result:** `Pass` if the feed GUID, canonical URL, and source URL are all absent from the blocklists; `Fail` otherwise
+- **Env vars:** `BLOCKED_FEED_GUIDS`, `BLOCKED_FEED_URLS`
+- **Notes:** Exact-match only. `BLOCKED_FEED_GUIDS` is compared case-insensitively against `podcast:guid`. `BLOCKED_FEED_URLS` is compared exactly against both `canonical_url` and `source_url`, so redirects do not bypass the blocklist.
+
+Example:
+
+```bash
+BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
+BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+```
 
 ### feed_guid
 

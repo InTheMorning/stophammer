@@ -67,7 +67,9 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
 | `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
 | `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
-| `VERIFIER_CHAIN` | `crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
+| `VERIFIER_CHAIN` | `crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
+| `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated exact GUID blocklist used by the `feed_blocklist` verifier. |
+| `BLOCKED_FEED_URLS` | empty | Optional comma-separated exact URL blocklist used by the `feed_blocklist` verifier. |
 
 ---
 
@@ -108,8 +110,17 @@ The primary node:
 - Fans out new events to all registered community nodes via `POST /sync/push`
 - Serves the full API (read, write, admin, sync)
 - Spawns a background proof pruner
+- Can reject exact blocked feeds early via `feed_blocklist`
 
 **Required env vars:** `CRAWL_TOKEN`
+
+Example blocklist configuration:
+
+```bash
+BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
+BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+```
 
 ### Community Mode
 
