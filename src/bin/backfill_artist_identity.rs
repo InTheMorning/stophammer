@@ -37,5 +37,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats.merges_applied,
         db_path.display()
     );
+    let orphan_stats = stophammer::db::cleanup_orphaned_artists(&mut conn)?;
+    println!(
+        "cleanup_orphaned_artists: deleted {} artists, {} credits in {}",
+        orphan_stats.artists_deleted,
+        orphan_stats.credits_deleted,
+        db_path.display()
+    );
     Ok(())
 }
