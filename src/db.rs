@@ -176,6 +176,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0014_resolved_overlay_tables.sql"),
     // Migration 15: scope live-event uniqueness by feed and preserve legacy rows.
     include_str!("../migrations/0015_live_events_feed_scoped_key.sql"),
+    // Migration 16: wallet entity tables — fact layer (endpoints, aliases, route maps)
+    // and derived layer (owners, artist links, reviews, overrides).
+    include_str!("../migrations/0016_wallet_entities.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -9377,4 +9380,112 @@ pub fn get_source_item_enclosures_for_entity(
         result.push(row?);
     }
     Ok(result)
+}
+
+// ============================================================
+// Wallet entity helpers — fact layer
+// ============================================================
+
+/// Normalize a payment address for identity matching.
+///
+/// Source route rows store addresses verbatim. This function produces the
+/// canonical form used as the identity key in `wallet_endpoints`.
+pub fn normalize_wallet_address(route_type: &str, address: &str) -> String {
+    match route_type {
+        "lnaddress" => address.trim().to_lowercase(),
+        "node" | "keysend" => address.trim().to_lowercase(),
+        "wallet" => address.trim().to_lowercase(),
+        _ => address.trim().to_lowercase(),
+    }
+}
+
+/// Look up or create a `wallet_endpoints` row for the given identity 4-tuple.
+///
+/// If the endpoint already exists, updates the alias `last_seen_at` (if a
+/// non-empty `recipient_name` is provided). If it does not exist, creates the
+/// endpoint and an initial alias row.
+///
+/// Returns the `wallet_endpoints.id`.
+///
+/// **Does not create wallets** — `wallet_id` stays NULL until Pass 2.
+pub fn get_or_create_endpoint(
+    conn: &Connection,
+    route_type: &str,
+    address: &str,
+    custom_key: &str,
+    custom_value: &str,
+    recipient_name: Option<&str>,
+    timestamp: i64,
+) -> Result<i64, DbError> {
+    let norm_addr = normalize_wallet_address(route_type, address);
+    let ck = custom_key.trim();
+    let cv = custom_value.trim();
+
+    // Try to find existing endpoint
+    let existing: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM wallet_endpoints \
+             WHERE route_type = ?1 AND normalized_address = ?2 \
+               AND custom_key = ?3 AND custom_value = ?4",
+            params![route_type, norm_addr, ck, cv],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let endpoint_id = if let Some(id) = existing {
+        id
+    } else {
+        conn.execute(
+            "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![route_type, norm_addr, ck, cv, timestamp],
+        )?;
+        conn.last_insert_rowid()
+    };
+
+    // Upsert alias if a non-empty name was given
+    if let Some(name) = recipient_name {
+        let name = name.trim();
+        if !name.is_empty() {
+            let name_lower = name.to_lowercase();
+            conn.execute(
+                "INSERT INTO wallet_aliases (endpoint_id, alias, alias_lower, first_seen_at, last_seen_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5) \
+                 ON CONFLICT(endpoint_id, alias_lower) DO UPDATE SET last_seen_at = MAX(last_seen_at, excluded.last_seen_at)",
+                params![endpoint_id, name, name_lower, timestamp, timestamp],
+            )?;
+        }
+    }
+
+    Ok(endpoint_id)
+}
+
+/// Create a route map entry linking a track-level payment route to an endpoint.
+pub fn map_track_route_to_endpoint(
+    conn: &Connection,
+    route_id: i64,
+    endpoint_id: i64,
+    timestamp: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO wallet_track_route_map (route_id, endpoint_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        params![route_id, endpoint_id, timestamp],
+    )?;
+    Ok(())
+}
+
+/// Create a route map entry linking a feed-level payment route to an endpoint.
+pub fn map_feed_route_to_endpoint(
+    conn: &Connection,
+    route_id: i64,
+    endpoint_id: i64,
+    timestamp: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO wallet_feed_route_map (route_id, endpoint_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        params![route_id, endpoint_id, timestamp],
+    )?;
+    Ok(())
 }

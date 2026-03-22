@@ -76,7 +76,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 15, "exactly fifteen migrations should be recorded");
+    assert_eq!(count, 16, "exactly sixteen migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
