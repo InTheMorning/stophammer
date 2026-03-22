@@ -1288,6 +1288,29 @@ fn build_track_response(
                 })
             })?
             .collect::<Result<_, _>>()?;
+        // Feed→track inheritance: fall back to parent feed routes when the
+        // track has none of its own.
+        let routes = if routes.is_empty() {
+            let mut fstmt = conn.prepare(
+                "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+                 FROM feed_payment_routes WHERE feed_guid = ?1",
+            )?;
+            fstmt
+                .query_map(params![resp.feed_guid], |row| {
+                    Ok(RouteResponse {
+                        recipient_name: row.get(0)?,
+                        route_type: row.get(1)?,
+                        address: row.get(2)?,
+                        custom_key: row.get(3)?,
+                        custom_value: row.get(4)?,
+                        split: row.get(5)?,
+                        fee: row.get::<_, i64>(6)? != 0,
+                    })
+                })?
+                .collect::<Result<_, _>>()?
+        } else {
+            routes
+        };
         resp.payment_routes = Some(routes);
     }
 
@@ -1333,11 +1356,17 @@ fn build_track_response(
     }
 
     if params.includes("source_contributors") {
+        let claims =
+            db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?;
+        // Feed→track inheritance: fall back to parent feed contributors when
+        // the track has none of its own.
+        let claims = if claims.is_empty() {
+            db::get_source_contributor_claims_for_entity(conn, "feed", &resp.feed_guid)?
+        } else {
+            claims
+        };
         resp.source_contributors = Some(
-            db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?
-                .into_iter()
-                .map(contributor_claim_response)
-                .collect(),
+            claims.into_iter().map(contributor_claim_response).collect(),
         );
     }
 
