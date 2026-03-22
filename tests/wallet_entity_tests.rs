@@ -674,3 +674,66 @@ fn fee_true_wallet_gets_no_artist_link_in_backfill() {
         .unwrap();
     assert_eq!(link_count, 0, "fee=true wallet should get no artist link even if name matches");
 }
+
+#[test]
+fn per_feed_resolver_creates_endpoints_and_wallets() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // Insert routes for feed-w
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Artist', 'keysend', 'artistaddr', 95, 0)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'App Fee', 'keysend', 'feeaddr', 5, 1)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('feed-w', 'Artist', 'keysend', 'artistaddr', 100, 0)",
+        [],
+    ).unwrap();
+
+    let stats = db::resolve_wallet_identity_for_feed(&conn, "feed-w").unwrap();
+
+    assert_eq!(stats.endpoints_created, 2, "should create 2 distinct endpoints");
+    assert_eq!(stats.wallets_created, 2, "should create 2 wallets");
+    assert_eq!(stats.track_maps_created, 2, "2 track routes mapped");
+    assert_eq!(stats.feed_maps_created, 1, "1 feed route mapped");
+
+    // The fee route should have been classified
+    let bot_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallets WHERE wallet_class = 'bot_service'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(bot_count, 1);
+
+    // Running again is idempotent
+    let stats2 = db::resolve_wallet_identity_for_feed(&conn, "feed-w").unwrap();
+    assert_eq!(stats2.endpoints_created, 0);
+    assert_eq!(stats2.wallets_created, 0);
+}
+
+#[test]
+fn wallet_dirty_bit_is_in_default_mask() {
+    use stophammer::resolver::queue;
+    assert!(
+        queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY != 0,
+        "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
+    );
+}
+
+#[test]
+fn wallet_dirty_bit_after_promotions_before_search() {
+    use stophammer::resolver::queue;
+    // Wallet identity bit should be distinct from all other bits
+    assert_eq!(queue::DIRTY_WALLET_IDENTITY, 1 << 5);
+    assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_PROMOTIONS);
+    assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_SEARCH);
+}

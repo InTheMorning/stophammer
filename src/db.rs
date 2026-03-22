@@ -7202,6 +7202,8 @@ pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
 pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
 /// Dirty bit for source-layer search and quality read models.
 pub const RESOLVER_DIRTY_SOURCE_READ_MODELS: i64 = 1 << 4;
+/// Dirty bit for incremental wallet identity (Passes 1-2 per feed).
+pub const RESOLVER_DIRTY_WALLET_IDENTITY: i64 = 1 << 5;
 
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
 const RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS: i64 = 10 * 60;
@@ -9754,6 +9756,121 @@ pub struct WalletBackfillStats {
     pub wallets_created: usize,
     pub hard_classified: usize,
     pub artist_links_created: usize,
+}
+
+/// Per-feed wallet resolver: runs Passes 1-2 for a single feed's routes.
+///
+/// Called by the incremental resolver when `DIRTY_WALLET_IDENTITY` is set.
+/// Only normalizes endpoint facts and creates provisional wallets with
+/// hard-signal classification. Does NOT run Passes 3-5 (artist linking,
+/// review items, owner grouping) — those are corpus-level concerns handled
+/// by the backfill binary.
+pub fn resolve_wallet_identity_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<WalletBackfillStats, DbError> {
+    let mut stats = WalletBackfillStats::default();
+    let now = unix_now();
+
+    // Pass 1: track-level routes for this feed
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, route_type, address, COALESCE(custom_key, ''), COALESCE(custom_value, ''), \
+             recipient_name FROM payment_routes WHERE feed_guid = ?1",
+        )?;
+        let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
+            .query_map(params![feed_guid], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        for (route_id, route_type, address, ck, cv, name) in rows {
+            let before: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM wallet_endpoints",
+                [],
+                |r| r.get(0),
+            )?;
+            let ep = get_or_create_endpoint(conn, &route_type, &address, &ck, &cv, name.as_deref(), now)?;
+            let after: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM wallet_endpoints",
+                [],
+                |r| r.get(0),
+            )?;
+            if after > before {
+                stats.endpoints_created += 1;
+            }
+            let mapped = conn.execute(
+                "INSERT OR IGNORE INTO wallet_track_route_map (route_id, endpoint_id, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![route_id, ep, now],
+            )?;
+            if mapped > 0 {
+                stats.track_maps_created += 1;
+            }
+        }
+    }
+
+    // Pass 1: feed-level routes for this feed
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, route_type, address, COALESCE(custom_key, ''), COALESCE(custom_value, ''), \
+             recipient_name FROM feed_payment_routes WHERE feed_guid = ?1",
+        )?;
+        let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
+            .query_map(params![feed_guid], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        for (route_id, route_type, address, ck, cv, name) in rows {
+            let before: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM wallet_endpoints",
+                [],
+                |r| r.get(0),
+            )?;
+            let ep = get_or_create_endpoint(conn, &route_type, &address, &ck, &cv, name.as_deref(), now)?;
+            let after: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM wallet_endpoints",
+                [],
+                |r| r.get(0),
+            )?;
+            if after > before {
+                stats.endpoints_created += 1;
+            }
+            let mapped = conn.execute(
+                "INSERT OR IGNORE INTO wallet_feed_route_map (route_id, endpoint_id, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![route_id, ep, now],
+            )?;
+            if mapped > 0 {
+                stats.feed_maps_created += 1;
+            }
+        }
+    }
+
+    // Pass 2: create provisional wallets for any unassigned endpoints we just touched
+    {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT we.id FROM wallet_endpoints we \
+             LEFT JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+             LEFT JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             LEFT JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+             LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+             WHERE we.wallet_id IS NULL \
+               AND (pr.feed_guid = ?1 OR fpr.feed_guid = ?1)",
+        )?;
+        let ep_ids: Vec<i64> = stmt
+            .query_map(params![feed_guid], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+
+        for ep_id in ep_ids {
+            let wid = create_provisional_wallet(conn, ep_id, now)?;
+            stats.wallets_created += 1;
+            classify_wallet_hard_signals(conn, &wid)?;
+        }
+    }
+
+    Ok(stats)
 }
 
 /// Pass 1: scan all source routes, normalize endpoint facts.

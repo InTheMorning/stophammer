@@ -19,6 +19,8 @@ pub struct ResolverBatchResult {
     pub artist_candidate_groups: usize,
     pub artist_groups_processed: usize,
     pub artist_merges_applied: usize,
+    pub wallet_endpoints_created: usize,
+    pub wallet_wallets_created: usize,
 }
 
 /// Runs one resolver batch against the queue.
@@ -96,6 +98,8 @@ pub fn run_batch_with_signer(
                 result.artist_candidate_groups += feed_result.candidate_groups;
                 result.artist_groups_processed += feed_result.groups_processed;
                 result.artist_merges_applied += feed_result.merges_applied;
+                result.wallet_endpoints_created += feed_result.wallet_endpoints_created;
+                result.wallet_wallets_created += feed_result.wallet_wallets_created;
             }
             Err(err) => {
                 db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())?;
@@ -133,6 +137,8 @@ struct ResolveFeedResult {
     candidate_groups: usize,
     groups_processed: usize,
     merges_applied: usize,
+    wallet_endpoints_created: usize,
+    wallet_wallets_created: usize,
 }
 
 fn resolve_feed(
@@ -182,6 +188,11 @@ fn resolve_feed(
             result.canonical_promotion_events_emitted += 1;
         }
     }
+    if dirty_mask & crate::resolver::queue::DIRTY_WALLET_IDENTITY != 0 {
+        let wstats = db::resolve_wallet_identity_for_feed(conn, feed_guid)?;
+        result.wallet_endpoints_created = wstats.endpoints_created;
+        result.wallet_wallets_created = wstats.wallets_created;
+    }
     if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_SEARCH != 0 {
         db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
     }
@@ -230,6 +241,8 @@ pub async fn run_forever(
                     artist_candidate_groups = summary.artist_candidate_groups,
                     artist_groups_processed = summary.artist_groups_processed,
                     artist_merges_applied = summary.artist_merges_applied,
+                    wallet_endpoints_created = summary.wallet_endpoints_created,
+                    wallet_wallets_created = summary.wallet_wallets_created,
                     "resolver: completed batch"
                 );
             }
