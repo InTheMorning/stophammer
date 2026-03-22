@@ -68,8 +68,20 @@ pub fn run_batch_with_signer(
         ..ResolverBatchResult::default()
     };
 
+    // Disable FTS5 background segment merging during the batch. Each
+    // populate_search_index call would otherwise trigger a merge, making bulk
+    // resolution O(n·log n). We do a single merge pass after the loop.
+    let _ = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('automerge=0')",
+        [],
+    );
+
+    // Pre-compute anchored-name identity groups once for the whole batch.
+    // This avoids repeating the global table scan inside every per-feed call.
+    let anchored_cache = db::precompute_anchored_name_groups(&conn)?;
+
     for entry in claimed {
-        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask, signer) {
+        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask, signer, Some(&anchored_cache)) {
             Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
@@ -90,6 +102,21 @@ pub fn run_batch_with_signer(
                 result.failed += 1;
             }
         }
+    }
+
+    if result.resolved > 0 {
+        db::cleanup_orphaned_canonical_rows(&conn)?;
+        db::cleanup_canonical_search_entities(&conn)?;
+        // Re-enable automerge and run one merge pass to consolidate the
+        // segments created during this batch.
+        let _ = conn.execute(
+            "INSERT INTO search_index(search_index) VALUES('automerge=8')",
+            [],
+        );
+        let _ = conn.execute(
+            "INSERT INTO search_index(search_index) VALUES('merge=500')",
+            [],
+        );
     }
 
     Ok(result)
@@ -113,6 +140,7 @@ fn resolve_feed(
     feed_guid: &str,
     dirty_mask: i64,
     signer: Option<&signing::NodeSigner>,
+    anchored_cache: Option<&db::AnchoredNameGroupsCache>,
 ) -> Result<ResolveFeedResult, db::DbError> {
     // Resolver work is derived-state only. Source feed/track rows and staged
     // source claims remain the preserved authoritative layer.
@@ -134,7 +162,7 @@ fn resolve_feed(
         }
     }
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
-        let stats = db::resolve_artist_identity_for_feed_with_signer(conn, feed_guid, signer)?;
+        let stats = db::resolve_artist_identity_for_feed_with_signer(conn, feed_guid, signer, anchored_cache)?;
         result.artist_merge_events_emitted = stats.merge_events_emitted;
         if let Some(signer) = signer {
             let _event =

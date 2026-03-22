@@ -245,7 +245,8 @@ pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;\n\
          PRAGMA foreign_keys = ON;\n\
-         PRAGMA synchronous = NORMAL;",
+         PRAGMA synchronous = NORMAL;\n\
+         PRAGMA cache_size = -65536;",
     )
     .expect("failed to set PRAGMAs");
     run_migrations(&mut conn).expect("failed to apply migrations");
@@ -397,15 +398,14 @@ pub fn resolve_artist(
 }
 
 fn artist_feed_count(conn: &Connection, artist_id: &str) -> Result<i64, DbError> {
-    Ok(conn.query_row(
+    Ok(conn.prepare_cached(
         "SELECT COUNT(DISTINCT f.feed_guid) \
          FROM artist_credit_name acn \
          JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
          JOIN feeds f ON f.artist_credit_id = ac.id \
          WHERE acn.artist_id = ?1",
-        params![artist_id],
-        |row| row.get(0),
-    )?)
+    )?
+    .query_row(params![artist_id], |row| row.get(0))?)
 }
 
 fn canonical_artist_for_query(
@@ -958,11 +958,28 @@ pub fn create_artist_credit(
 ) -> Result<ArtistCredit, DbError> {
     let now = unix_now();
 
+    // INSERT OR IGNORE guards against the SQLite LOWER()-vs-Unicode mismatch:
+    // SQLite's built-in LOWER() is ASCII-only, so the pre-insert lookup in
+    // get_or_create_artist_credit misses rows whose display_name contains
+    // non-ASCII uppercase letters (e.g. "ZÄVODI").  If a concurrent or
+    // repeated ingest hits that path we must not hard-fail; fetch the
+    // existing row instead.
     conn.execute(
-        "INSERT INTO artist_credit (display_name, feed_guid, created_at) VALUES (?1, ?2, ?3)",
+        "INSERT OR IGNORE INTO artist_credit (display_name, feed_guid, created_at) VALUES (?1, ?2, ?3)",
         params![display_name, feed_guid, now],
     )?;
-    let credit_id = conn.last_insert_rowid();
+    let credit_id = if conn.changes() == 0 {
+        // Row already existed (UNIQUE conflict silenced by OR IGNORE).
+        // Re-fetch by exact display_name + feed_guid.
+        conn.query_row(
+            "SELECT id FROM artist_credit WHERE display_name = ?1 AND \
+             (feed_guid = ?2 OR (feed_guid IS NULL AND ?2 IS NULL))",
+            params![display_name, feed_guid],
+            |row| row.get::<_, i64>(0),
+        )?
+    } else {
+        conn.last_insert_rowid()
+    };
 
     let mut credit_names = Vec::with_capacity(names.len());
     for (pos, (artist_id, name, join_phrase)) in names.iter().enumerate() {
@@ -973,11 +990,21 @@ pub fn create_artist_credit(
         )]
         let position = pos as i64;
         conn.execute(
-            "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
+            "INSERT OR IGNORE INTO artist_credit_name \
+             (artist_credit_id, artist_id, position, name, join_phrase) \
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![credit_id, artist_id, position, name, join_phrase],
         )?;
-        let acn_id = conn.last_insert_rowid();
+        let acn_id = if conn.changes() == 0 {
+            conn.query_row(
+                "SELECT id FROM artist_credit_name \
+                 WHERE artist_credit_id = ?1 AND position = ?2",
+                params![credit_id, position],
+                |row| row.get::<_, i64>(0),
+            )?
+        } else {
+            conn.last_insert_rowid()
+        };
         credit_names.push(ArtistCreditName {
             id: acn_id,
             artist_credit_id: credit_id,
@@ -1954,7 +1981,7 @@ fn rebuild_canonical_release(conn: &Connection, release_id: &str) -> Result<(), 
     Ok(())
 }
 
-fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
+pub(crate) fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
     conn.execute(
         "DELETE FROM source_item_recording_map \
          WHERE track_guid NOT IN (SELECT track_guid FROM tracks)",
@@ -2016,7 +2043,6 @@ fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
 /// mapping so no source data becomes unreachable.
 pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
     let Some(feed) = get_feed_by_guid(conn, feed_guid)? else {
-        cleanup_orphaned_canonical_rows(conn)?;
         return Ok(());
     };
 
@@ -2095,7 +2121,6 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
         rebuild_canonical_recording(conn, recording_id)?;
     }
 
-    cleanup_orphaned_canonical_rows(conn)?;
     Ok(())
 }
 
@@ -2644,7 +2669,6 @@ pub fn sync_canonical_promotions_for_feed(
     feed_guid: &str,
 ) -> Result<(), DbError> {
     let Some(feed) = get_feed_by_guid(conn, feed_guid)? else {
-        cleanup_orphaned_canonical_rows(conn)?;
         return Ok(());
     };
 
@@ -2660,7 +2684,7 @@ pub fn sync_canonical_promotions_for_feed(
     Ok(())
 }
 
-fn cleanup_canonical_search_entities(conn: &Connection) -> Result<(), DbError> {
+pub(crate) fn cleanup_canonical_search_entities(conn: &Connection) -> Result<(), DbError> {
     conn.execute(
         "DELETE FROM search_entities \
          WHERE entity_type = 'release' \
@@ -2685,8 +2709,6 @@ pub fn sync_canonical_search_index_for_feed(
     conn: &Connection,
     feed_guid: &str,
 ) -> Result<(), DbError> {
-    cleanup_canonical_search_entities(conn)?;
-
     if let Some(release_id) = release_id_for_feed_map(conn, feed_guid)?
         && let Some(release) = get_release(conn, &release_id)?
     {
@@ -4268,6 +4290,20 @@ struct ArtistIdentityEvidenceGroup {
     artist_ids: std::collections::BTreeSet<String>,
 }
 
+/// Pre-computed anchored-name groups, computed once per resolver batch so the
+/// global table scan in [`collect_artist_groups_by_anchored_name`] does not
+/// repeat for every feed in the batch.
+pub struct AnchoredNameGroupsCache(Vec<ArtistIdentityEvidenceGroup>);
+
+/// Computes [`AnchoredNameGroupsCache`] from the current DB state.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the underlying queries fail.
+pub fn precompute_anchored_name_groups(conn: &Connection) -> Result<AnchoredNameGroupsCache, DbError> {
+    Ok(AnchoredNameGroupsCache(collect_artist_groups_by_anchored_name(conn)?))
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArtistIdentityOverrideRow {
     override_type: String,
@@ -4480,14 +4516,19 @@ fn artist_ids_for_feed_scope(
     conn: &Connection,
     feed_guid: &str,
 ) -> Result<std::collections::BTreeSet<String>, DbError> {
+    // UNION form: start from feeds/tracks (feed_guid index), not acn (full scan).
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT acn.artist_id
-         FROM artist_credit_name acn
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-         LEFT JOIN feeds f ON f.artist_credit_id = ac.id
-         LEFT JOIN tracks t ON t.artist_credit_id = ac.id
-         WHERE f.feed_guid = ?1 OR t.feed_guid = ?1
-         ORDER BY acn.artist_id",
+        "SELECT acn.artist_id
+         FROM feeds f
+         JOIN artist_credit ac ON ac.id = f.artist_credit_id
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id
+         WHERE f.feed_guid = ?1
+         UNION
+         SELECT acn.artist_id
+         FROM tracks t
+         JOIN artist_credit ac ON ac.id = t.artist_credit_id
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id
+         WHERE t.feed_guid = ?1",
     )?;
     let rows = stmt
         .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
@@ -4507,15 +4548,46 @@ fn filter_artist_groups_for_seed_ids(
     groups: Vec<ArtistIdentityEvidenceGroup>,
     seed_ids: &std::collections::BTreeSet<String>,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
-    let mut filtered = Vec::new();
-    for group in groups {
-        let mut current_group_ids = std::collections::BTreeSet::new();
-        for artist_id in &group.artist_ids {
-            if let Some(current_id) = current_artist_id(conn, artist_id)? {
-                current_group_ids.insert(current_id);
+    if groups.is_empty() || seed_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Load the full redirect table once (usually O(100s) rows) so that
+    // per-group artist resolution is pure in-memory rather than one DB
+    // round-trip per artist across potentially thousands of groups.
+    let redirect_map: std::collections::HashMap<String, String> = {
+        let mut stmt = conn.prepare(
+            "SELECT old_artist_id, new_artist_id FROM artist_id_redirect",
+        )?;
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+
+    // Resolve an artist_id through the in-memory redirect chain.
+    let resolve = |artist_id: &str| -> String {
+        let mut current = artist_id.to_string();
+        for _ in 0..32 {
+            match redirect_map.get(&current) {
+                Some(next) if next != &current => current = next.clone(),
+                _ => break,
             }
         }
-        if !current_group_ids.is_disjoint(seed_ids) {
+        current
+    };
+
+    let mut filtered = Vec::new();
+    for group in groups {
+        // Fast path: check direct set membership before resolving redirects.
+        if !group.artist_ids.is_disjoint(seed_ids) {
+            filtered.push(group);
+            continue;
+        }
+        // Slow path: follow redirect chains to find canonical IDs.
+        let has_seed = group
+            .artist_ids
+            .iter()
+            .any(|artist_id| seed_ids.contains(&resolve(artist_id)));
+        if has_seed {
             filtered.push(group);
         }
     }
@@ -4525,40 +4597,35 @@ fn filter_artist_groups_for_seed_ids(
 fn collect_artist_identity_groups_for_seed_ids(
     conn: &Connection,
     seed_ids: &std::collections::BTreeSet<String>,
+    anchored_cache: Option<&AnchoredNameGroupsCache>,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
-    collect_labeled_artist_identity_groups_for_seed_ids(conn, seed_ids)
+    collect_labeled_artist_identity_groups_for_seed_ids(conn, seed_ids, anchored_cache)
 }
 
 fn collect_labeled_artist_identity_groups_for_seed_ids(
     conn: &Connection,
     seed_ids: &std::collections::BTreeSet<String>,
+    anchored_cache: Option<&AnchoredNameGroupsCache>,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut groups = Vec::new();
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_npub(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_website(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_normalized_website(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_release_cluster(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
-        collect_artist_groups_by_anchored_name(conn)?,
-        seed_ids,
-    )?);
+    let npub_groups = collect_artist_groups_by_npub(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(conn, npub_groups, seed_ids)?);
+
+    let website_groups = collect_artist_groups_by_website(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(conn, website_groups, seed_ids)?);
+
+    let norm_website_groups = collect_artist_groups_by_normalized_website(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(conn, norm_website_groups, seed_ids)?);
+
+    let release_groups = collect_artist_groups_by_release_cluster(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(conn, release_groups, seed_ids)?);
+
+    let name_groups = match anchored_cache {
+        Some(cache) => cache.0.clone(),
+        None => collect_artist_groups_by_anchored_name(conn)?,
+    };
+    groups.extend(filter_artist_groups_for_seed_ids(conn, name_groups, seed_ids)?);
+
     Ok(groups)
 }
 
@@ -4909,7 +4976,7 @@ fn collect_artist_groups_by_normalized_website(
 }
 
 fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
-    let count: i64 = conn.query_row(
+    let count: i64 = conn.prepare_cached(
         "SELECT COUNT(*) \
          FROM artist_credit_name acn \
          JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
@@ -4926,9 +4993,8 @@ fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Resu
                          AND sel.link_type = 'website' \
                          AND TRIM(sel.url) <> '') \
            )",
-        params![artist_id],
-        |row| row.get(0),
-    )?;
+    )?
+    .query_row(params![artist_id], |row| row.get(0))?;
     Ok(count > 0)
 }
 
@@ -4936,7 +5002,7 @@ fn artist_platforms(
     conn: &Connection,
     artist_id: &str,
 ) -> Result<std::collections::BTreeSet<String>, DbError> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare_cached(
         "SELECT DISTINCT spc.platform_key \
          FROM artist_credit_name acn \
          JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
@@ -4954,6 +5020,7 @@ fn artist_platforms(
 fn collect_artist_groups_by_anchored_name(
     conn: &Connection,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    // Step 1: get all artists grouped by lowercase name.
     let mut stmt =
         conn.prepare("SELECT LOWER(name), artist_id FROM artists ORDER BY LOWER(name), artist_id")?;
     let rows = stmt
@@ -4971,6 +5038,73 @@ fn collect_artist_groups_by_anchored_name(
             .push(artist_id);
     }
 
+    // Early exit: if no duplicate names, nothing to do.
+    let multi_name_artists: Vec<String> = names_to_artists
+        .values()
+        .filter(|ids| ids.len() > 1)
+        .flatten()
+        .cloned()
+        .collect();
+    if multi_name_artists.is_empty() {
+        return Ok(vec![]);
+    }
+
+    // Step 2: bulk-load strong-identity flags for all artists in candidate groups.
+    // One query replaces N per-artist queries.
+    let strong_artists: std::collections::HashSet<String> = {
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT acn.artist_id \
+             FROM artist_credit_name acn \
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+             JOIN feeds f ON f.artist_credit_id = ac.id \
+             WHERE EXISTS( \
+                 SELECT 1 FROM source_entity_ids sid \
+                 WHERE sid.entity_type = 'feed' AND sid.entity_id = f.feed_guid \
+                   AND sid.scheme = 'nostr_npub' \
+             ) OR EXISTS( \
+                 SELECT 1 FROM source_entity_links sel \
+                 WHERE sel.entity_type = 'feed' AND sel.entity_id = f.feed_guid \
+                   AND sel.link_type = 'website' AND TRIM(sel.url) <> '' \
+             )",
+        )?;
+        stmt.query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<_, _>>()?
+    };
+
+    // Step 3: bulk-load feed counts per artist.
+    let feed_counts: std::collections::HashMap<String, i64> = {
+        let mut stmt = conn.prepare(
+            "SELECT acn.artist_id, COUNT(DISTINCT f.feed_guid) \
+             FROM artist_credit_name acn \
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+             LEFT JOIN feeds f ON f.artist_credit_id = ac.id \
+             GROUP BY acn.artist_id",
+        )?;
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+            .collect::<Result<_, _>>()?
+    };
+
+    // Step 4: bulk-load platform sets per artist.
+    let mut platform_map: std::collections::HashMap<String, std::collections::BTreeSet<String>> =
+        std::collections::HashMap::new();
+    {
+        let mut stmt = conn.prepare(
+            "SELECT acn.artist_id, spc.platform_key \
+             FROM artist_credit_name acn \
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+             JOIN feeds f ON f.artist_credit_id = ac.id \
+             JOIN source_platform_claims spc ON spc.feed_guid = f.feed_guid \
+             WHERE TRIM(spc.platform_key) <> ''",
+        )?;
+        let platform_rows = stmt
+            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .collect::<Result<Vec<_>, _>>()?;
+        for (artist_id, platform_key) in platform_rows {
+            platform_map.entry(artist_id).or_default().insert(platform_key);
+        }
+    }
+
+    // Step 5: classify artists and build groups — pure in-memory, no DB queries.
     let mut groups = Vec::new();
     for artist_ids in names_to_artists.into_values() {
         if artist_ids.len() <= 1 {
@@ -4980,18 +5114,15 @@ fn collect_artist_groups_by_anchored_name(
         let mut anchored = Vec::new();
         let mut weak = Vec::new();
         for artist_id in artist_ids {
-            let strong = artist_has_strong_identity_claims(conn, &artist_id)?;
-            if strong {
+            if strong_artists.contains(&artist_id) {
                 anchored.push(artist_id);
                 continue;
             }
-
-            let feed_count = artist_feed_count(conn, &artist_id)?;
-            if feed_count != 1 {
+            if feed_counts.get(&artist_id).copied().unwrap_or(0) != 1 {
                 continue;
             }
-
-            let platforms = artist_platforms(conn, &artist_id)?;
+            let empty = std::collections::BTreeSet::new();
+            let platforms = platform_map.get(&artist_id).unwrap_or(&empty);
             if platforms
                 .iter()
                 .all(|platform| matches!(platform.as_str(), "fountain" | "rss_blue"))
@@ -5178,6 +5309,7 @@ pub fn resolve_artist_identity_for_feed_with_signer(
     conn: &mut Connection,
     feed_guid: &str,
     signer: Option<&NodeSigner>,
+    anchored_cache: Option<&AnchoredNameGroupsCache>,
 ) -> Result<ArtistIdentityResolveStats, DbError> {
     let tx = conn.transaction()?;
     let seed_ids = artist_ids_for_feed_scope(&tx, feed_guid)?;
@@ -5194,7 +5326,7 @@ pub fn resolve_artist_identity_for_feed_with_signer(
         });
     }
 
-    let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids)?;
+    let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids, anchored_cache)?;
     let candidate_groups = groups.len();
     let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid), signer)?;
     let (pending_reviews, blocked_reviews) =
@@ -5215,7 +5347,7 @@ pub fn resolve_artist_identity_for_feed(
     conn: &mut Connection,
     feed_guid: &str,
 ) -> Result<ArtistIdentityResolveStats, DbError> {
-    resolve_artist_identity_for_feed_with_signer(conn, feed_guid, None)
+    resolve_artist_identity_for_feed_with_signer(conn, feed_guid, None, None)
 }
 
 /// Explains the current feed-scoped artist identity plan for one feed.
@@ -5233,7 +5365,7 @@ pub fn explain_artist_identity_for_feed(
         .iter()
         .map(|artist| artist.artist_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    let candidate_groups = collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids)?
+    let candidate_groups = collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?
         .into_iter()
         .map(|group| {
             let artist_ids = current_ids_for_review(conn, &group.artist_ids)
