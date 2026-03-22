@@ -567,3 +567,110 @@ fn display_name_rederived_after_merge() {
         .unwrap();
     assert_eq!(name, "Alice", "display name should be re-derived from first-seen alias");
 }
+
+// ---------------------------------------------------------------------------
+// Backfill integration
+// ---------------------------------------------------------------------------
+
+#[test]
+fn backfill_is_idempotent() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    // Set up a feed + track + routes
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+         VALUES ('art-bf', 'BF Artist', 'bf artist', ?1, ?2)",
+        params![now, now],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO artist_credit (display_name, created_at) VALUES ('BF Artist', ?1)",
+        params![now],
+    ).unwrap();
+    let credit_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
+         VALUES (?1, 'art-bf', 0, 'BF Artist', '')",
+        params![credit_id],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+         explicit, episode_count, created_at, updated_at) \
+         VALUES ('feed-bf', 'https://example.com/bf.xml', 'BF Feed', 'bf feed', ?1, 0, 0, ?2, ?3)",
+        params![credit_id, now, now],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+         explicit, created_at, updated_at) \
+         VALUES ('track-bf', 'feed-bf', ?1, 'BF Track', 'bf track', 0, ?2, ?3)",
+        params![credit_id, now, now],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-bf', 'feed-bf', 'BF Artist', 'keysend', 'bfaddr', 95, 0)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-bf', 'feed-bf', 'App Fee', 'keysend', 'appfee', 5, 1)",
+        [],
+    ).unwrap();
+    conn.execute(
+        "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('feed-bf', 'BF Artist', 'keysend', 'bfaddr', 100, 0)",
+        [],
+    ).unwrap();
+
+    // Run passes 1-3
+    let s1 = db::backfill_wallet_pass1(&conn).unwrap();
+    assert!(s1.endpoints_created >= 2, "should create at least 2 endpoints");
+
+    let s2 = db::backfill_wallet_pass2(&conn).unwrap();
+    assert!(s2.wallets_created >= 2);
+
+    let s3 = db::backfill_wallet_pass3(&conn).unwrap();
+
+    // Capture counts
+    let ep_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap();
+    let wallet_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0)).unwrap();
+    let link_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0)).unwrap();
+
+    // Run again — should be idempotent
+    let s1b = db::backfill_wallet_pass1(&conn).unwrap();
+    assert_eq!(s1b.endpoints_created, 0, "second run should create no new endpoints");
+
+    let s2b = db::backfill_wallet_pass2(&conn).unwrap();
+    assert_eq!(s2b.wallets_created, 0, "second run should create no new wallets");
+
+    db::backfill_wallet_pass3(&conn).unwrap();
+
+    let ep2: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap();
+    let w2: i64 = conn.query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0)).unwrap();
+    let l2: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0)).unwrap();
+
+    assert_eq!(ep_count, ep2, "endpoint count should not change");
+    assert_eq!(wallet_count, w2, "wallet count should not change");
+    assert_eq!(link_count, l2, "artist link count should not change");
+}
+
+#[test]
+fn fee_true_wallet_gets_no_artist_link_in_backfill() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // Insert a fee=true route with name matching the feed's artist credit
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Wallet Artist', 'keysend', 'feeaddr', 5, 1)",
+        [],
+    ).unwrap();
+
+    db::backfill_wallet_pass1(&conn).unwrap();
+    db::backfill_wallet_pass2(&conn).unwrap();
+    db::backfill_wallet_pass3(&conn).unwrap();
+
+    let link_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(link_count, 0, "fee=true wallet should get no artist link even if name matches");
+}
