@@ -1,7 +1,13 @@
 mod common;
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, RwLock};
+
+use http::Request;
+use http_body_util::BodyExt;
 use rusqlite::params;
 use stophammer::db;
+use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -727,6 +733,95 @@ fn wallet_dirty_bit_is_in_default_mask() {
         queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY != 0,
         "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
     );
+}
+
+fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
+    let signer = Arc::new(common::temp_signer("test-wallet"));
+    let pubkey = signer.pubkey_hex().to_string();
+    Arc::new(stophammer::api::AppState {
+        db: stophammer::db_pool::DbPool::from_writer_only(db),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        signer,
+        node_pubkey_hex: pubkey,
+        admin_token: "test-admin-token".into(),
+        sync_token: None,
+        push_client: reqwest::Client::new(),
+        push_subscribers: Arc::new(RwLock::new(HashMap::new())),
+        sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        skip_ssrf_validation: true,
+    })
+}
+
+#[tokio::test]
+async fn get_wallet_endpoint_returns_wallet_details() {
+    let db = common::test_db_arc();
+    let wid;
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "7629169", "pod1", Some("Alice"), now).unwrap();
+        wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+    }
+    let state = test_app_state(db);
+    let app = stophammer::api::build_router(state);
+    let req = Request::builder()
+        .uri(format!("/v1/wallets/{wid}"))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let data = &json["data"];
+    assert_eq!(data["wallet_id"], wid);
+    assert_eq!(data["display_name"], "Alice");
+    assert_eq!(data["wallet_class"], "unknown");
+    assert_eq!(data["class_confidence"], "provisional");
+    assert_eq!(data["endpoints"].as_array().unwrap().len(), 1);
+    assert_eq!(data["endpoints"][0]["route_type"], "keysend");
+    assert_eq!(data["endpoints"][0]["custom_value"], "pod1");
+    assert_eq!(data["aliases"].as_array().unwrap().len(), 1);
+    assert_eq!(data["aliases"][0]["alias"], "Alice");
+}
+
+#[tokio::test]
+async fn get_wallet_follows_redirect() {
+    let db = common::test_db_arc();
+    let new_wid;
+    let old_wid;
+    {
+        let conn = db.lock().unwrap();
+        let now = common::now();
+        let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("A"), now).unwrap();
+        let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("B"), now).unwrap();
+        old_wid = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+        new_wid = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+        db::merge_wallets(&conn, &old_wid, &new_wid).unwrap();
+    }
+    let state = test_app_state(db);
+    let app = stophammer::api::build_router(state);
+    let req = Request::builder()
+        .uri(format!("/v1/wallets/{old_wid}"))
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), 200);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["data"]["wallet_id"], new_wid, "should follow redirect");
+}
+
+#[tokio::test]
+async fn get_wallet_not_found() {
+    let db = common::test_db_arc();
+    let state = test_app_state(db);
+    let app = stophammer::api::build_router(state);
+    let req = Request::builder()
+        .uri("/v1/wallets/nonexistent")
+        .body(axum::body::Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), 404);
 }
 
 #[test]

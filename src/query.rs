@@ -3019,6 +3019,175 @@ async fn handle_get_peers(
     Ok(Json(result))
 }
 
+// ── GET /v1/wallets/{id} ────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize)]
+struct WalletResponse {
+    wallet_id: String,
+    display_name: String,
+    wallet_class: String,
+    class_confidence: String,
+    endpoints: Vec<WalletEndpointResponse>,
+    aliases: Vec<WalletAliasResponse>,
+    artist_links: Vec<WalletArtistLinkResponse>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletEndpointResponse {
+    id: i64,
+    route_type: String,
+    normalized_address: String,
+    custom_key: String,
+    custom_value: String,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletAliasResponse {
+    alias: String,
+    first_seen_at: i64,
+    last_seen_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletArtistLinkResponse {
+    artist_id: String,
+    artist_name: Option<String>,
+    confidence: String,
+    evidence_entity_type: String,
+    evidence_entity_id: String,
+}
+
+async fn handle_get_wallet(
+    State(state): State<Arc<api::AppState>>,
+    Path(wallet_id): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        // Follow redirect chain
+        let resolved_id: String = conn
+            .query_row(
+                "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                params![wallet_id],
+                |row| row.get(0),
+            )
+            .unwrap_or(wallet_id);
+
+        let wallet = conn
+            .query_row(
+                "SELECT wallet_id, display_name, wallet_class, class_confidence, created_at, updated_at \
+                 FROM wallets WHERE wallet_id = ?1",
+                params![resolved_id],
+                |row| {
+                    Ok(WalletResponse {
+                        wallet_id: row.get(0)?,
+                        display_name: row.get(1)?,
+                        wallet_class: row.get(2)?,
+                        class_confidence: row.get(3)?,
+                        endpoints: Vec::new(),
+                        aliases: Vec::new(),
+                        artist_links: Vec::new(),
+                        created_at: row.get(4)?,
+                        updated_at: row.get(5)?,
+                    })
+                },
+            )
+            .map_err(|_| api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "wallet not found".into(),
+                www_authenticate: None,
+            })?;
+
+        let mut wallet = wallet;
+
+        // Endpoints
+        {
+            let mut stmt = conn.prepare(
+                "SELECT id, route_type, normalized_address, custom_key, custom_value \
+                 FROM wallet_endpoints WHERE wallet_id = ?1 ORDER BY id",
+            )?;
+            wallet.endpoints = stmt
+                .query_map(params![resolved_id], |row| {
+                    Ok(WalletEndpointResponse {
+                        id: row.get(0)?,
+                        route_type: row.get(1)?,
+                        normalized_address: row.get(2)?,
+                        custom_key: row.get(3)?,
+                        custom_value: row.get(4)?,
+                    })
+                })?
+                .collect::<Result<_, _>>()?;
+        }
+
+        // Aliases (across all endpoints)
+        {
+            let mut stmt = conn.prepare(
+                "SELECT wa.alias, wa.first_seen_at, wa.last_seen_at \
+                 FROM wallet_aliases wa \
+                 JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+                 WHERE we.wallet_id = ?1 \
+                 ORDER BY wa.first_seen_at ASC, wa.alias_lower ASC",
+            )?;
+            wallet.aliases = stmt
+                .query_map(params![resolved_id], |row| {
+                    Ok(WalletAliasResponse {
+                        alias: row.get(0)?,
+                        first_seen_at: row.get(1)?,
+                        last_seen_at: row.get(2)?,
+                    })
+                })?
+                .collect::<Result<_, _>>()?;
+        }
+
+        // Artist links
+        {
+            let mut stmt = conn.prepare(
+                "SELECT wal.artist_id, a.name, wal.confidence, \
+                 wal.evidence_entity_type, wal.evidence_entity_id \
+                 FROM wallet_artist_links wal \
+                 LEFT JOIN artists a ON a.artist_id = wal.artist_id \
+                 WHERE wal.wallet_id = ?1 \
+                 ORDER BY wal.artist_id",
+            )?;
+            wallet.artist_links = stmt
+                .query_map(params![resolved_id], |row| {
+                    Ok(WalletArtistLinkResponse {
+                        artist_id: row.get(0)?,
+                        artist_name: row.get(1)?,
+                        confidence: row.get(2)?,
+                        evidence_entity_type: row.get(3)?,
+                        evidence_entity_id: row.get(4)?,
+                    })
+                })?
+                .collect::<Result<_, _>>()?;
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: wallet,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── Router builder ──────────────────────────────────────────────────────────
 
 use axum::routing::get;
@@ -3050,6 +3219,7 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
             get(handle_get_recording_sources),
         )
         .route("/v1/tracks/{guid}", get(handle_get_track))
+        .route("/v1/wallets/{id}", get(handle_get_wallet))
         .route("/v1/recent", get(handle_get_recent))
         .route("/v1/search", get(handle_search))
         .route("/v1/node/capabilities", get(handle_capabilities))
