@@ -1554,6 +1554,127 @@ fn merge_target_prefers_evidence_over_creation_order() {
     );
 }
 
+/// Canonical promotions computed after an artist-identity merge reference the
+/// surviving artist, not the merged-away one.
+///
+/// This verifies the ordering invariant in `resolve_feed`: the
+/// `DIRTY_ARTIST_IDENTITY` phase (which merges artists and repoints
+/// `artist_credit_name` rows) must run before the `DIRTY_CANONICAL_PROMOTIONS`
+/// phase (which emits external-id promotions scoped to the feed's current
+/// artist).  If the order were reversed, `single_artist_id_for_credit` would
+/// still return the pre-merge artist_id, and the surviving artist would not
+/// receive the nostr_npub evidence it owns.
+#[test]
+fn canonical_promotions_after_merge_reference_surviving_artist() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    // Strong: one wavlake feed, one nostr_npub — will be the merge target.
+    let strong =
+        stophammer::db::resolve_artist(&conn, "Promo Order Artist", Some("feed-promo-order-strong"))
+            .expect("strong artist");
+    let strong_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &strong.name,
+        &[(strong.artist_id.clone(), strong.name.clone(), String::new())],
+        Some("feed-promo-order-strong"),
+    )
+    .expect("strong credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-promo-order-strong', 'https://wavlake.com/promo-order.xml', 'Promo Order', 'promo order', ?1, ?2, ?2)",
+        rusqlite::params![strong_credit.id, now],
+    )
+    .expect("strong feed");
+    stophammer::db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-promo-order-strong",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-promo-order-strong".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-promo-order-strong".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1promoordertest".into(),
+            source: "podcast_txt".into(),
+            extraction_path: "feed.podcast:txt".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("strong npub source claim");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-promo-order-strong', 'wavlake', 'https://wavlake.com/promo-order.xml', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("strong platform");
+
+    // Weak: one fountain feed, no identity evidence — will be merged into strong.
+    let weak =
+        stophammer::db::resolve_artist(&conn, "Promo Order Artist", Some("feed-promo-order-weak"))
+            .expect("weak artist");
+    let weak_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &weak.name,
+        &[(weak.artist_id.clone(), weak.name.clone(), String::new())],
+        Some("feed-promo-order-weak"),
+    )
+    .expect("weak credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-promo-order-weak', 'https://feeds.fountain.fm/promo-order-weak', 'Promo Order Weak', 'promo order weak', ?1, ?2, ?2)",
+        rusqlite::params![weak_credit.id, now],
+    )
+    .expect("weak feed");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-promo-order-weak', 'fountain', 'https://feeds.fountain.fm/promo-order-weak', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("weak platform");
+
+    // Phase 1 (DIRTY_ARTIST_IDENTITY): merge weak into strong.
+    let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-promo-order-weak")
+        .expect("artist identity");
+    assert!(stats.merges_applied >= 1, "expected weak to be merged into strong");
+
+    // Phase 2 (DIRTY_CANONICAL_PROMOTIONS): sync promotions for the strong feed
+    // AFTER the merge.  The promotion must reference the surviving artist.
+    stophammer::db::sync_canonical_promotions_for_feed(&conn, "feed-promo-order-strong")
+        .expect("sync promotions");
+
+    let promo_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM resolved_external_ids_by_feed \
+             WHERE feed_guid = 'feed-promo-order-strong' \
+               AND scheme = 'nostr_npub' AND value = 'npub1promoordertest'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("promo count query");
+    assert_eq!(
+        promo_count, 1,
+        "sync_canonical_promotions_for_feed must emit a resolved external-id for the npub"
+    );
+
+    let promo_artist: String = conn
+        .query_row(
+            "SELECT entity_id FROM resolved_external_ids_by_feed \
+             WHERE feed_guid = 'feed-promo-order-strong' \
+               AND scheme = 'nostr_npub' AND value = 'npub1promoordertest'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("promo entity_id query");
+    assert_eq!(
+        promo_artist, strong.artist_id,
+        "promotion entity_id must be the surviving artist, not the merged-away one"
+    );
+}
+
 /// cleanup_orphaned_artists deletes truly unreferenced artists and their
 /// associated rows, and leaves artists that are still referenced untouched.
 #[test]
