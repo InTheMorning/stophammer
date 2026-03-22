@@ -9489,3 +9489,252 @@ pub fn map_feed_route_to_endpoint(
     )?;
     Ok(())
 }
+
+// ============================================================
+// Wallet entity helpers — owner (derived) layer
+// ============================================================
+
+/// Create a provisional wallet for the given endpoint and assign it.
+///
+/// Generates a new `wallet_id`, sets `display_name` from the endpoint's
+/// first alias (or a placeholder), and applies hard-signal classification
+/// only. Returns the new `wallet_id`.
+pub fn create_provisional_wallet(
+    conn: &Connection,
+    endpoint_id: i64,
+    timestamp: i64,
+) -> Result<String, DbError> {
+    let wallet_id = uuid::Uuid::new_v4().to_string();
+
+    // Pick display name from the endpoint's first alias (by first_seen_at)
+    let display_name: String = conn
+        .query_row(
+            "SELECT alias FROM wallet_aliases WHERE endpoint_id = ?1 \
+             ORDER BY first_seen_at ASC, alias_lower ASC, id ASC LIMIT 1",
+            params![endpoint_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or_else(|| format!("endpoint-{endpoint_id}"));
+
+    let display_name_lower = display_name.to_lowercase();
+
+    conn.execute(
+        "INSERT INTO wallets (wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'unknown', 'provisional', ?4, ?5)",
+        params![wallet_id, display_name, display_name_lower, timestamp, timestamp],
+    )?;
+
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = ?1 WHERE id = ?2",
+        params![wallet_id, endpoint_id],
+    )?;
+
+    Ok(wallet_id)
+}
+
+/// Apply hard-signal classification to a wallet. Only `fee=true` and operator
+/// overrides produce non-provisional confidence. Everything else stays as-is.
+pub fn classify_wallet_hard_signals(conn: &Connection, wallet_id: &str) -> Result<(), DbError> {
+    let now = unix_now();
+
+    // Check operator overrides first (highest priority)
+    let override_class: Option<String> = conn
+        .query_row(
+            "SELECT value FROM wallet_identity_override \
+             WHERE wallet_id = ?1 AND override_type = 'force_class' \
+             ORDER BY created_at DESC LIMIT 1",
+            params![wallet_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+
+    if let Some(class) = override_class {
+        conn.execute(
+            "UPDATE wallets SET wallet_class = ?1, class_confidence = 'reviewed', updated_at = ?2 \
+             WHERE wallet_id = ?3",
+            params![class, now, wallet_id],
+        )?;
+        return Ok(());
+    }
+
+    // Check fee=true on any linked route (via endpoint → route map → source route)
+    let has_fee: bool = conn.query_row(
+        "SELECT EXISTS(
+            SELECT 1 FROM wallet_endpoints we
+            JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+            JOIN payment_routes pr ON pr.id = wtrm.route_id
+            WHERE we.wallet_id = ?1 AND pr.fee = 1
+            UNION ALL
+            SELECT 1 FROM wallet_endpoints we
+            JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+            JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+            WHERE we.wallet_id = ?1 AND fpr.fee = 1
+        )",
+        params![wallet_id],
+        |r| r.get(0),
+    )?;
+
+    if has_fee {
+        conn.execute(
+            "UPDATE wallets SET wallet_class = 'bot_service', class_confidence = 'high_confidence', updated_at = ?1 \
+             WHERE wallet_id = ?2",
+            params![now, wallet_id],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Re-derive the display name for a wallet from its grouped endpoints' aliases.
+///
+/// Uses the first-seen non-empty alias across all endpoints assigned to this
+/// wallet, ordered deterministically by `first_seen_at ASC, alias_lower ASC, id ASC`.
+pub fn update_wallet_display_name(conn: &Connection, wallet_id: &str) -> Result<(), DbError> {
+    let now = unix_now();
+
+    let display_name: Option<String> = conn
+        .query_row(
+            "SELECT wa.alias FROM wallet_aliases wa \
+             JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+             WHERE we.wallet_id = ?1 \
+             ORDER BY wa.first_seen_at ASC, wa.alias_lower ASC, wa.id ASC LIMIT 1",
+            params![wallet_id],
+            |r| r.get(0),
+        )
+        .optional()?;
+
+    if let Some(name) = display_name {
+        let name_lower = name.to_lowercase();
+        conn.execute(
+            "UPDATE wallets SET display_name = ?1, display_name_lower = ?2, updated_at = ?3 \
+             WHERE wallet_id = ?4",
+            params![name, name_lower, now, wallet_id],
+        )?;
+    }
+
+    Ok(())
+}
+
+/// Create a wallet→artist link if strong same-feed evidence exists.
+///
+/// Only creates links when the wallet is at `high_confidence` or `unknown`
+/// classification (skips `bot_service/high_confidence`). Returns true if a
+/// link was created.
+pub fn link_wallet_to_artist_if_confident(
+    conn: &Connection,
+    wallet_id: &str,
+    feed_guid: &str,
+) -> Result<bool, DbError> {
+    let now = unix_now();
+
+    // Check wallet classification — skip bot_service/high_confidence
+    let (wallet_class, class_confidence): (String, String) = conn.query_row(
+        "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+        params![wallet_id],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+
+    if wallet_class == "bot_service" && class_confidence == "high_confidence" {
+        return Ok(false);
+    }
+
+    // Find artist IDs from the feed's artist credit that match wallet aliases
+    // (exact same-feed artist credit evidence)
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT acn.artist_id FROM wallet_endpoints we \
+         JOIN wallet_aliases wa ON wa.endpoint_id = we.id \
+         JOIN artist_credit_name acn ON LOWER(acn.name) = wa.alias_lower \
+         JOIN feeds f ON f.artist_credit_id = acn.artist_credit_id \
+         WHERE we.wallet_id = ?1 AND f.feed_guid = ?2",
+    )?;
+
+    let artist_ids: Vec<String> = stmt
+        .query_map(params![wallet_id, feed_guid], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let mut created = false;
+    for artist_id in artist_ids {
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO wallet_artist_links \
+             (wallet_id, artist_id, evidence_entity_type, evidence_entity_id, confidence, created_at) \
+             VALUES (?1, ?2, 'feed', ?3, 'high_confidence', ?4)",
+            params![wallet_id, artist_id, feed_guid, now],
+        )?;
+        if inserted > 0 {
+            created = true;
+        }
+    }
+
+    Ok(created)
+}
+
+/// Merge two wallets: repoint all references from `old_id` to `new_id`.
+///
+/// Updates endpoint assignments, artist links, review items, and inserts a
+/// redirect. Re-derives the display name of the surviving wallet.
+pub fn merge_wallets(conn: &Connection, old_id: &str, new_id: &str) -> Result<(), DbError> {
+    let now = unix_now();
+
+    // Repoint endpoints
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = ?1 WHERE wallet_id = ?2",
+        params![new_id, old_id],
+    )?;
+
+    // Repoint artist links (ignore conflicts on UNIQUE(wallet_id, artist_id))
+    conn.execute(
+        "UPDATE OR IGNORE wallet_artist_links SET wallet_id = ?1 WHERE wallet_id = ?2",
+        params![new_id, old_id],
+    )?;
+    // Delete any orphaned links that couldn't be repointed due to conflict
+    conn.execute(
+        "DELETE FROM wallet_artist_links WHERE wallet_id = ?1",
+        params![old_id],
+    )?;
+
+    // Repoint review items
+    conn.execute(
+        "UPDATE wallet_identity_review SET wallet_id = ?1 WHERE wallet_id = ?2",
+        params![new_id, old_id],
+    )?;
+
+    // Insert redirect
+    conn.execute(
+        "INSERT OR REPLACE INTO wallet_id_redirect (old_wallet_id, new_wallet_id, created_at) \
+         VALUES (?1, ?2, ?3)",
+        params![old_id, new_id, now],
+    )?;
+
+    // Repoint any existing redirects that pointed to old_id
+    conn.execute(
+        "UPDATE wallet_id_redirect SET new_wallet_id = ?1 WHERE new_wallet_id = ?2",
+        params![new_id, old_id],
+    )?;
+
+    // Delete the old wallet row
+    conn.execute("DELETE FROM wallets WHERE wallet_id = ?1", params![old_id])?;
+
+    // Re-derive display name of surviving wallet
+    update_wallet_display_name(conn, new_id)?;
+
+    Ok(())
+}
+
+/// Stats returned by `cleanup_orphaned_wallets`.
+#[derive(Debug, Default)]
+pub struct WalletCleanupStats {
+    pub wallets_deleted: usize,
+}
+
+/// Delete wallets that have no remaining endpoint references.
+pub fn cleanup_orphaned_wallets(conn: &Connection) -> Result<WalletCleanupStats, DbError> {
+    let deleted = conn.execute(
+        "DELETE FROM wallets WHERE wallet_id NOT IN \
+         (SELECT DISTINCT wallet_id FROM wallet_endpoints WHERE wallet_id IS NOT NULL)",
+        [],
+    )?;
+    Ok(WalletCleanupStats {
+        wallets_deleted: deleted,
+    })
+}

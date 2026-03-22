@@ -244,3 +244,326 @@ fn address_normalization_deduplicates_case_variants() {
     assert_eq!(id1, id2, "case-insensitive address should match same endpoint");
     assert_eq!(endpoint_count(&conn), 1);
 }
+
+// ---------------------------------------------------------------------------
+// Owner creation (Pass 2)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn provisional_wallet_per_endpoint() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "lnaddress", "bob@example.com", "", "", Some("Bob"), now).unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    assert_ne!(w1, w2, "distinct endpoints should get distinct wallets");
+
+    let (class, confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![w1],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(class, "unknown");
+    assert_eq!(confidence, "provisional");
+}
+
+#[test]
+fn provisional_wallet_uses_first_alias_as_display_name() {
+    let conn = common::test_db();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), 1000).unwrap();
+    db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Bob"), 2000).unwrap();
+
+    let wid = db::create_provisional_wallet(&conn, ep, 3000).unwrap();
+    let name: String = conn
+        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Alice", "display_name should be the earliest-seen alias");
+}
+
+#[test]
+fn endpoint_without_alias_gets_placeholder_name() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", None, now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    let name: String = conn
+        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .unwrap();
+    assert!(name.starts_with("endpoint-"), "should use placeholder: {name}");
+}
+
+#[test]
+fn fee_true_classifies_as_bot_service_high_confidence() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // Insert a fee=true track route
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'App Fee', 'keysend', 'feenode123', 1, 1)",
+        [],
+    )
+    .unwrap();
+    let route_id = conn.last_insert_rowid();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "feenode123", "", "", Some("App Fee"), now).unwrap();
+    db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+    db::classify_wallet_hard_signals(&conn, &wid).unwrap();
+
+    let (class, confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(class, "bot_service");
+    assert_eq!(confidence, "high_confidence");
+}
+
+#[test]
+fn operator_override_takes_precedence() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // Insert a fee=true route
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Overridden', 'keysend', 'overnode', 1, 1)",
+        [],
+    )
+    .unwrap();
+    let route_id = conn.last_insert_rowid();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "overnode", "", "", Some("Overridden"), now).unwrap();
+    db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    // Add an operator override
+    conn.execute(
+        "INSERT INTO wallet_identity_override (override_type, wallet_id, value, created_at) \
+         VALUES ('force_class', ?1, 'person_artist', ?2)",
+        params![wid, now],
+    )
+    .unwrap();
+
+    db::classify_wallet_hard_signals(&conn, &wid).unwrap();
+
+    let (class, confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(class, "person_artist");
+    assert_eq!(confidence, "reviewed");
+}
+
+#[test]
+fn label_alone_stays_unknown_provisional() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "fountain123", "", "", Some("Fountain"), now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+    db::classify_wallet_hard_signals(&conn, &wid).unwrap();
+
+    let (class, confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(class, "unknown", "name alone should not drive classification");
+    assert_eq!(confidence, "provisional");
+}
+
+// ---------------------------------------------------------------------------
+// Artist links (Pass 3)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn same_feed_artist_credit_match_creates_link() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // The feed's artist credit name is "Wallet Artist" with artist_id "artist-w"
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Wallet Artist"), now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    let linked = db::link_wallet_to_artist_if_confident(&conn, &wid, "feed-w").unwrap();
+    assert!(linked, "should create link when alias matches feed artist credit");
+
+    let link_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_artist_links WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(link_count, 1);
+}
+
+#[test]
+fn bot_service_high_confidence_skipped_for_artist_linking() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Wallet Artist', 'keysend', 'feebot', 1, 1)",
+        [],
+    )
+    .unwrap();
+    let route_id = conn.last_insert_rowid();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "feebot", "", "", Some("Wallet Artist"), now).unwrap();
+    db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+    db::classify_wallet_hard_signals(&conn, &wid).unwrap();
+
+    let linked = db::link_wallet_to_artist_if_confident(&conn, &wid, "feed-w").unwrap();
+    assert!(!linked, "bot_service/high_confidence should be skipped");
+}
+
+// ---------------------------------------------------------------------------
+// Merge + cleanup
+// ---------------------------------------------------------------------------
+
+#[test]
+fn wallet_merge_repoints_endpoints_and_creates_redirect() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def456", "", "", Some("Alice Alt"), now).unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    db::merge_wallets(&conn, &w2, &w1).unwrap();
+
+    // Both endpoints should now point to w1
+    let ep2_wallet: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1",
+            params![ep2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(ep2_wallet, w1);
+
+    // Redirect should exist
+    let redirect_target: String = conn
+        .query_row(
+            "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(redirect_target, w1);
+
+    // Old wallet should be deleted
+    let old_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!old_exists);
+}
+
+#[test]
+fn redirect_chains_repointed() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "a", "", "", Some("A"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "b", "", "", Some("B"), now).unwrap();
+    let ep3 = db::get_or_create_endpoint(&conn, "keysend", "c", "", "", Some("C"), now).unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+    let w3 = db::create_provisional_wallet(&conn, ep3, now).unwrap();
+
+    // Merge w2 into w1 (creates redirect w2 → w1)
+    db::merge_wallets(&conn, &w2, &w1).unwrap();
+    // Merge w1 into w3 (should repoint w2 redirect to w3 as well)
+    db::merge_wallets(&conn, &w1, &w3).unwrap();
+
+    let w2_target: String = conn
+        .query_row(
+            "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(w2_target, w3, "redirect chain should be flattened");
+}
+
+#[test]
+fn cleanup_removes_orphaned_wallets() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    // Unassign the endpoint (simulates the endpoint being repointed elsewhere)
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = NULL WHERE id = ?1",
+        params![ep],
+    )
+    .unwrap();
+
+    let stats = db::cleanup_orphaned_wallets(&conn).unwrap();
+    assert_eq!(stats.wallets_deleted, 1);
+
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![wid],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!exists);
+}
+
+#[test]
+fn display_name_rederived_after_merge() {
+    let conn = common::test_db();
+
+    // ep1 has alias "Bob" at t=2000, ep2 has alias "Alice" at t=1000
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("Bob"), 2000).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("Alice"), 1000).unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, 3000).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, 3000).unwrap();
+
+    // Before merge, w1 display_name is "Bob"
+    let name: String = conn
+        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![w1], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Bob");
+
+    // Merge w2 into w1 — "Alice" is earlier, so display_name should become "Alice"
+    db::merge_wallets(&conn, &w2, &w1).unwrap();
+
+    let name: String = conn
+        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![w1], |r| r.get(0))
+        .unwrap();
+    assert_eq!(name, "Alice", "display name should be re-derived from first-seen alias");
+}
