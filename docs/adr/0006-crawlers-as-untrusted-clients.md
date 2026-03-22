@@ -19,3 +19,10 @@ Crawlers are separate processes that communicate with the core via `POST /ingest
 - Multiple specialized crawlers can coexist: one for podping gossip, one for bulk imports, one for platform-specific APIs.
 - The `CRAWL_TOKEN` is a simple shared secret — sufficient for a trusted internal network but not for a fully open submission model.
 - If the crawl token is compromised, all submitted data must be reverified; there is currently no per-crawler identity.
+- Crawlers are the system's SSRF-exposed fetch tier. They should be deployed as
+  low-privilege, network-restricted processes that can reach public feed hosts and the
+  primary's ingest endpoint, but not arbitrary internal services, metadata endpoints, or
+  primary secrets.
+- `CRAWL_TOKEN` authentication does **not** make crawler fetches safe. It only
+  authenticates submission to the primary. Fetch hardening and deployment isolation are
+  still required on the crawler side.

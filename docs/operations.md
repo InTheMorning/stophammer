@@ -114,6 +114,13 @@ The primary node:
 
 **Required env vars:** `CRAWL_TOKEN`
 
+**Crawler deployment boundary:** Crawlers fetch untrusted URLs and should be treated as
+an SSRF-exposed tier. Give them outbound access to public feed hosts and
+`POST /ingest/feed` on the primary, but avoid broad access to internal services, cloud
+metadata endpoints, admin paths, or the primary's signing/admin credentials. The
+`CRAWL_TOKEN` only authenticates crawler submissions; it does not harden crawler-side
+fetch behavior.
+
 Example blocklist configuration:
 
 ```bash

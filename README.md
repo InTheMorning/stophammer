@@ -7,6 +7,8 @@ A quality-gated V4V music index.
 - quick start and architecture: this README
 - narrative introduction: [docs/user-guide.md](docs/user-guide.md)
 - operator deployment and maintenance: [docs/operations.md](docs/operations.md)
+- cross-cutting security and trust-boundary rules:
+  [docs/security-guidelines.md](docs/security-guidelines.md)
 - HTTP API reference: [docs/API.md](docs/API.md)
 - schema and source/canonical model: [docs/schema-reference.md](docs/schema-reference.md)
 - resolver refactor plan and phases: [docs/resolver-refactor-plan.md](docs/resolver-refactor-plan.md)
@@ -89,6 +91,9 @@ dependency on a central server.
   Stophammer does **not** run or schedule crawlers — that is the operator's
   responsibility (cron, systemd timer, external service). Current crawler
   implementations: RSS crawler, Podping listener, PodcastIndex snapshot importer.
+  Treat crawlers as the SSRF-exposed fetch tier: they should be low-privilege,
+  network-restricted processes that can reach public feed hosts and the primary's ingest
+  endpoint, but not arbitrary internal services or primary secrets.
 
 ## Verifier chain
 
@@ -324,6 +329,12 @@ docker compose -f docker-compose.e2e.yml cp primary:/data/signing.key ./primary-
 
 Stophammer does not run or schedule crawlers. Crawlers are separate processes
 that authenticate with `CRAWL_TOKEN` and POST to `/ingest/feed`.
+
+Crawler deployments should be sandboxed or network-isolated from the primary as much as
+practical. They need access to the public internet and to the primary's ingest endpoint,
+but they should not have broad access to internal services, metadata endpoints, or admin
+credentials. Plain-HTTP feed fetches also remain weaker against DNS poisoning and
+on-path tampering than HTTPS fetches, even when crawler SSRF blast radius is reduced.
 
 ### RSS crawler
 

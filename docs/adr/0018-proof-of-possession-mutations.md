@@ -216,6 +216,13 @@ To assert, the owner must embed the full token binding string in **two places**:
    `stophammer-proof`, `value` = token binding), a FLAC `STOPHAMMER-PROOF` comment, or
    as ASCII text within the first 4 KB of the file (stophammer scans only the header).
 
+For Phase 2, this requires a **binary-safe** fetch path. The current RSS proof helper
+returns UTF-8 text and is intentionally scoped to XML feeds; it cannot be reused
+directly for MP3/FLAC verification. Audio proof must fetch bounded raw bytes with an
+explicit maximum byte limit to prevent resource exhaustion, follow redirects with the
+same SSRF and DNS-pinning guarantees as RSS proof, and then parse ID3/FLAC metadata
+from those bytes.
+
 Requiring both proves:
 - The requester writes to the RSS (controls the hosting account).
 - The requester controls the audio file location (can modify or re-upload it).
@@ -303,7 +310,9 @@ implemented**. They are tracked as future work.
   binding in an ID3 `TXXX` frame, a FLAC `STOPHAMMER-PROOF` comment, or as ASCII in the
   first 4 KB of the audio file. This second proof layer (proving control of the audio,
   not just the RSS) is not implemented. The current system trusts RSS control alone as
-  sufficient proof.
+  sufficient proof. When implemented, this must use a binary-safe bounded fetch path and
+  format-aware metadata parsing. A fixed-size raw byte scan is only a last-resort
+  heuristic, not a substitute for proper ID3/FLAC parsing.
 - **Dual-location verification for relocations**: The Decision section specifies that
   `PATCH /feeds/{guid}` and `PATCH /tracks/{guid}` should require the token to appear at
   both the old and new URL. This is not implemented. Instead, the current implementation

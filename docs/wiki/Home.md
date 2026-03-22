@@ -11,6 +11,8 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 
 - deployment, env vars, TLS, backup, restore:
   [operations.md](/home/citizen/build/stophammer/docs/operations.md)
+- cross-cutting security and trust-boundary rules:
+  [security-guidelines.md](/home/citizen/build/stophammer/docs/security-guidelines.md)
 - verifier behavior and chain composition:
   [verifier-guide.md](/home/citizen/build/stophammer/docs/verifier-guide.md)
 - manpage for the main binary:
@@ -34,8 +36,12 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 
 - architecture decisions:
   [docs/adr](/home/citizen/build/stophammer/docs/adr)
+- security and identity-resolution guidelines:
+  [security-guidelines.md](/home/citizen/build/stophammer/docs/security-guidelines.md)
 - current resolver/refactor notes:
   [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
+- wallet identity design plan:
+  [wallet-entity-plan.md](/home/citizen/build/stophammer/docs/wallet-entity-plan.md)
 
 ## Manpages
 
