@@ -1290,3 +1290,152 @@ async fn source_feed_search_appears_only_after_resolver_batch() {
         "feed search should appear after resolver writes source read models"
     );
 }
+
+/// Canonical promotions must reflect post-merge artist ownership.
+///
+/// When a feed is dirty for both DIRTY_ARTIST_IDENTITY and
+/// DIRTY_CANONICAL_PROMOTIONS, the resolver processes identity before
+/// promotions. The resolved_external_ids_by_feed entry must reference the
+/// surviving (merge-target) artist, not a pre-merge artist that was
+/// subsequently redirected.
+#[test]
+fn resolver_batch_canonical_promotions_use_post_merge_artist() {
+    let (pool, _dir) = common::test_db_pool();
+    let now = db::unix_now();
+
+    // Feed A: artist X with a shared website (no npub — provides merge
+    // evidence but no promotable external ID).
+    // Feed B: artist Y with the same shared website AND a nostr_npub.
+    //
+    // When feed B's identity is resolved (targeted, feed-scoped), the
+    // website group {X, Y} triggers a merge. After the merge the npub
+    // promotion for feed B must reference the surviving artist.
+    {
+        let conn = pool.writer().lock().expect("writer");
+
+        let artist_x =
+            db::resolve_artist(&conn, "Promo Order Artist", Some("feed-po-a")).expect("artist x");
+        let credit_x = db::get_or_create_artist_credit(
+            &conn,
+            &artist_x.name,
+            &[(artist_x.artist_id.clone(), artist_x.name.clone(), String::new())],
+            Some("feed-po-a"),
+        )
+        .expect("credit x");
+        conn.execute(
+            "INSERT INTO feeds \
+             (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-po-a', 'https://example.com/po-a.xml', 'PO A', 'po a', ?1, ?2, ?2)",
+            rusqlite::params![credit_x.id, now],
+        )
+        .expect("feed a");
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES ('feed-po-a', 'feed', 'feed-po-a', 0, 'website', 'https://shared-promo.example.com', 'rss_link', 'feed.link', ?1)",
+            rusqlite::params![now],
+        )
+        .expect("website a");
+
+        let artist_y =
+            db::resolve_artist(&conn, "Promo Order Artist", Some("feed-po-b")).expect("artist y");
+        let credit_y = db::get_or_create_artist_credit(
+            &conn,
+            &artist_y.name,
+            &[(artist_y.artist_id.clone(), artist_y.name.clone(), String::new())],
+            Some("feed-po-b"),
+        )
+        .expect("credit y");
+        conn.execute(
+            "INSERT INTO feeds \
+             (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-po-b', 'https://example.com/po-b.xml', 'PO B', 'po b', ?1, ?2, ?2)",
+            rusqlite::params![credit_y.id, now],
+        )
+        .expect("feed b");
+        conn.execute(
+            "INSERT INTO source_entity_links \
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+             VALUES ('feed-po-b', 'feed', 'feed-po-b', 0, 'website', 'https://shared-promo.example.com', 'rss_link', 'feed.link', ?1)",
+            rusqlite::params![now],
+        )
+        .expect("website b");
+        db::replace_source_entity_ids_for_feed(
+            &conn,
+            "feed-po-b",
+            &[stophammer::model::SourceEntityIdClaim {
+                id: None,
+                feed_guid: "feed-po-b".into(),
+                entity_type: "feed".into(),
+                entity_id: "feed-po-b".into(),
+                position: 0,
+                scheme: "nostr_npub".into(),
+                value: "npub1promoordertest".into(),
+                source: "podcast_txt".into(),
+                extraction_path: "feed.podcast:txt".into(),
+                observed_at: now,
+            }],
+        )
+        .expect("source entity ids");
+
+        // Mark feed B dirty for both bits. Identity must run before promotions.
+        db::mark_feed_dirty(
+            &conn,
+            "feed-po-b",
+            stophammer::resolver::queue::DIRTY_ARTIST_IDENTITY
+                | stophammer::resolver::queue::DIRTY_CANONICAL_PROMOTIONS,
+        )
+        .expect("mark dirty");
+    }
+
+    stophammer::resolver::worker::run_batch(&pool, "worker-po", 10).expect("run batch");
+
+    let conn = pool.writer().lock().expect("writer");
+
+    // Verify merge happened: merge_artists deletes the source artist row,
+    // so only 1 artist with this name should remain.
+    let artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'promo order artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist count");
+    assert_eq!(artist_count, 1, "merge should leave exactly one live artist row");
+
+    // The npub promotion for feed B must exist.
+    let promotions: Vec<(String, String)> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT entity_id, value FROM resolved_external_ids_by_feed \
+                 WHERE feed_guid = 'feed-po-b' AND entity_type = 'artist' AND scheme = 'nostr_npub'",
+            )
+            .expect("prepare promotions");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query promotions")
+            .collect::<Result<_, _>>()
+            .expect("collect promotions")
+    };
+    assert_eq!(promotions.len(), 1, "feed-po-b must have exactly one npub promotion");
+    let (promoted_artist_id, promoted_value) = &promotions[0];
+    assert_eq!(promoted_value, "npub1promoordertest");
+
+    // The promoted artist_id must be the merge TARGET (no redirect from it).
+    // If promotions ran before identity (wrong order), the promoted ID would
+    // be the pre-merge artist Y, which was subsequently redirected to X.
+    // With the correct order, the promoted ID is X (the merge target), which
+    // has no outbound redirect.
+    let has_outbound_redirect: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_id_redirect WHERE old_artist_id = ?1",
+            rusqlite::params![promoted_artist_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .expect("redirect check")
+        > 0;
+    assert!(
+        !has_outbound_redirect,
+        "promoted artist_id must be the merge target (no outbound redirect); \
+         if this fails, canonical promotions ran before artist identity"
+    );
+}

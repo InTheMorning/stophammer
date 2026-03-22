@@ -1,8 +1,12 @@
 /target/
+/analysis/data/*
 *.db
 *.db-shm
 *.db-wal
 *.key
 *.env
 .vscode/
+.idea/
 stophammer.sh
+rebuilddb.sh
+AGENTS.md

@@ -133,17 +133,6 @@ fn resolve_feed(
             result.canonical_state_events_emitted += 1;
         }
     }
-    if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS != 0 {
-        db::sync_canonical_promotions_for_feed(conn, feed_guid)?;
-        if let Some(signer) = signer
-            && db::emit_canonical_feed_promotions_event(conn, feed_guid, signer)?.is_some()
-        {
-            result.canonical_promotion_events_emitted += 1;
-        }
-    }
-    if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_SEARCH != 0 {
-        db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
-    }
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
         let stats = db::resolve_artist_identity_for_feed_with_signer(conn, feed_guid, signer)?;
         result.artist_merge_events_emitted = stats.merge_events_emitted;
@@ -156,6 +145,17 @@ fn resolve_feed(
         result.candidate_groups = stats.candidate_groups;
         result.groups_processed = stats.groups_processed;
         result.merges_applied = stats.merges_applied;
+    }
+    if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS != 0 {
+        db::sync_canonical_promotions_for_feed(conn, feed_guid)?;
+        if let Some(signer) = signer
+            && db::emit_canonical_feed_promotions_event(conn, feed_guid, signer)?.is_some()
+        {
+            result.canonical_promotion_events_emitted += 1;
+        }
+    }
+    if dirty_mask & crate::resolver::queue::DIRTY_CANONICAL_SEARCH != 0 {
+        db::sync_canonical_search_index_for_feed(conn, feed_guid)?;
     }
     Ok(result)
 }

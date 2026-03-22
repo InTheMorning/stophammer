@@ -229,7 +229,6 @@ fn feed_artist_resolution_reuses_existing_artist_by_npub() {
         "feed-new",
         &source_entity_ids,
         &[],
-        &[],
     )
     .expect("resolve via npub");
 
@@ -237,7 +236,10 @@ fn feed_artist_resolution_reuses_existing_artist_by_npub() {
 }
 
 #[test]
-fn feed_artist_resolution_reuses_existing_artist_by_publisher_guid() {
+fn feed_artist_resolution_does_not_reuse_artist_by_publisher_guid() {
+    // publisher_guid is no longer treated as artist identity evidence.
+    // A feed sharing a publisher_guid with an existing feed must NOT reuse
+    // the existing artist — it should create a new, independent artist row.
     let conn = common::test_db();
     let now = common::now();
 
@@ -279,27 +281,20 @@ fn feed_artist_resolution_reuses_existing_artist_by_publisher_guid() {
     )
     .expect("insert remote item");
 
-    let remote_items = vec![stophammer::model::FeedRemoteItemRaw {
-        id: None,
-        feed_guid: "feed-new".into(),
-        position: 0,
-        medium: Some("publisher".into()),
-        remote_feed_guid: "publisher-guid-1".into(),
-        remote_feed_url: Some("https://wavlake.com/publisher-artist".into()),
-        source: "podcast_remote_item".into(),
-    }];
-
+    // Resolve from a new feed that shares the publisher_guid but provides no
+    // explicit npub or website identity evidence.
     let resolved = stophammer::db::resolve_feed_artist_from_source_claims(
         &conn,
         "Publisher Artist",
         "feed-new",
         &[],
-        &remote_items,
         &[],
     )
-    .expect("resolve via publisher guid");
+    .expect("resolve without publisher guid identity");
 
-    assert_eq!(resolved.artist_id, existing.artist_id);
+    // Must NOT reuse the existing artist — publisher_guid is not identity
+    // evidence, so a fresh artist row should be created.
+    assert_ne!(resolved.artist_id, existing.artist_id);
 }
 
 #[test]
@@ -358,7 +353,6 @@ fn feed_artist_resolution_reuses_existing_artist_by_website_url() {
         &conn,
         "Website Artist",
         "feed-new",
-        &[],
         &[],
         &source_entity_links,
     )
@@ -454,7 +448,6 @@ fn feed_artist_resolution_prefers_canonical_artist_when_source_claim_is_split() 
         &conn,
         "Split Artist",
         "feed-new",
-        &[],
         &[],
         &source_entity_links,
     )
@@ -1188,4 +1181,457 @@ fn merge_artists_repoints_existing_redirect_chains() {
         )
         .expect("redirect for c");
     assert_eq!(redirected_target, artist_a.artist_id);
+}
+
+// ---------------------------------------------------------------------------
+// Required resolver correctness tests
+// ---------------------------------------------------------------------------
+
+/// publisher_guid is no longer a backfill evidence source.
+/// Two artists sharing a publisher_guid but no other evidence must NOT be
+/// merged by backfill_artist_identity.
+#[test]
+fn backfill_does_not_merge_artists_by_publisher_guid() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let artist_a =
+        stophammer::db::resolve_artist(&conn, "Pguid Artist", Some("feed-pguid-a")).expect("a");
+    let credit_a = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_a.name,
+        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        Some("feed-pguid-a"),
+    )
+    .expect("credit a");
+    let artist_b =
+        stophammer::db::resolve_artist(&conn, "Pguid Artist", Some("feed-pguid-b")).expect("b");
+    let credit_b = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &artist_b.name,
+        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        Some("feed-pguid-b"),
+    )
+    .expect("credit b");
+
+    for (feed_guid, credit_id) in [("feed-pguid-a", credit_a.id), ("feed-pguid-b", credit_b.id)] {
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            rusqlite::params![
+                feed_guid,
+                format!("https://example.com/{feed_guid}.xml"),
+                "Pguid Release",
+                "pguid release",
+                credit_id,
+                now
+            ],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, 0, 'publisher', 'shared-publisher-guid', 'https://wavlake.com/pguid-artist', 'podcast_remote_item')",
+            rusqlite::params![feed_guid],
+        )
+        .expect("insert publisher remote item");
+    }
+
+    let pre_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'pguid artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pre count");
+    assert_eq!(pre_count, 2);
+
+    stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+
+    // publisher_guid is no longer identity evidence — both artists must survive.
+    let post_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'pguid artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("post count");
+    assert_eq!(
+        post_count, 2,
+        "backfill must not merge artists based solely on shared publisher_guid"
+    );
+}
+
+/// A single-feed artist with one website link anchors same-name weak
+/// single-feed duplicates on aggregator-only platforms.
+#[test]
+fn single_feed_artist_with_website_anchors_weak_duplicates() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    // Anchor: 1 feed with a website link.
+    let anchor =
+        stophammer::db::resolve_artist(&conn, "Single Anchor Artist", Some("feed-anchor-site"))
+            .expect("anchor");
+    let anchor_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &anchor.name,
+        &[(anchor.artist_id.clone(), anchor.name.clone(), String::new())],
+        Some("feed-anchor-site"),
+    )
+    .expect("anchor credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-anchor-site', 'https://example.com/anchor.xml', 'Anchor', 'anchor', ?1, ?2, ?2)",
+        rusqlite::params![anchor_credit.id, now],
+    )
+    .expect("anchor feed");
+    conn.execute(
+        "INSERT INTO source_entity_links \
+         (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+         VALUES ('feed-anchor-site', 'feed', 'feed-anchor-site', 0, 'website', 'https://anchor-artist.example.com', 'rss_link', 'feed.link', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("anchor website");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-anchor-site', 'wavlake', 'https://example.com/anchor.xml', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("anchor platform");
+
+    // Weak: 1 fountain-only feed, no identity evidence, same name.
+    let weak = stophammer::db::resolve_artist(
+        &conn,
+        "Single Anchor Artist",
+        Some("feed-weak-fountain"),
+    )
+    .expect("weak");
+    let weak_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &weak.name,
+        &[(weak.artist_id.clone(), weak.name.clone(), String::new())],
+        Some("feed-weak-fountain"),
+    )
+    .expect("weak credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-weak-fountain', 'https://feeds.fountain.fm/single-anchor', 'Weak', 'weak', ?1, ?2, ?2)",
+        rusqlite::params![weak_credit.id, now],
+    )
+    .expect("weak feed");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-weak-fountain', 'fountain', 'https://feeds.fountain.fm/single-anchor', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("weak platform");
+
+    let pre_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'single anchor artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pre count");
+    assert_eq!(pre_count, 2);
+
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    assert!(stats.merges_applied >= 1, "expected at least one merge");
+
+    let post_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'single anchor artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("post count");
+    assert_eq!(
+        post_count, 1,
+        "single-feed artist with website evidence must anchor weak duplicate"
+    );
+}
+
+/// A single-feed artist with one nostr_npub anchors same-name weak
+/// single-feed duplicates on aggregator-only platforms.
+#[test]
+fn single_feed_artist_with_npub_anchors_weak_duplicates() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let anchor =
+        stophammer::db::resolve_artist(&conn, "Npub Anchor Artist", Some("feed-npub-anchor"))
+            .expect("anchor");
+    let anchor_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &anchor.name,
+        &[(anchor.artist_id.clone(), anchor.name.clone(), String::new())],
+        Some("feed-npub-anchor"),
+    )
+    .expect("anchor credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-npub-anchor', 'https://example.com/npub-anchor.xml', 'Npub Anchor', 'npub anchor', ?1, ?2, ?2)",
+        rusqlite::params![anchor_credit.id, now],
+    )
+    .expect("anchor feed");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-npub-anchor', 'wavlake', 'https://example.com/npub-anchor.xml', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("anchor platform");
+    stophammer::db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-npub-anchor",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-npub-anchor".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-npub-anchor".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1anchortest".into(),
+            source: "podcast_txt".into(),
+            extraction_path: "feed.podcast:txt".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("npub source claim");
+
+    let weak =
+        stophammer::db::resolve_artist(&conn, "Npub Anchor Artist", Some("feed-npub-weak"))
+            .expect("weak");
+    let weak_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &weak.name,
+        &[(weak.artist_id.clone(), weak.name.clone(), String::new())],
+        Some("feed-npub-weak"),
+    )
+    .expect("weak credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-npub-weak', 'https://feeds.rssblue.com/npub-weak', 'Npub Weak', 'npub weak', ?1, ?2, ?2)",
+        rusqlite::params![weak_credit.id, now],
+    )
+    .expect("weak feed");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-npub-weak', 'rss_blue', 'https://feeds.rssblue.com/npub-weak', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("weak platform");
+
+    let pre_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'npub anchor artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pre count");
+    assert_eq!(pre_count, 2);
+
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    assert!(stats.merges_applied >= 1, "expected at least one merge");
+
+    let post_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'npub anchor artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("post count");
+    assert_eq!(
+        post_count, 1,
+        "single-feed artist with npub evidence must anchor weak duplicate"
+    );
+}
+
+/// preferred_artist_target chooses the artist with explicit identity evidence
+/// over the one created earlier (which the old tie-break would have preferred).
+///
+/// Setup: weak artist created first (older created_at), strong artist created
+/// second (newer, but has explicit website evidence). Under the old ordering
+/// (no evidence weight), the older weak artist would win. Under the new
+/// ordering (evidence first), the strong artist must win.
+#[test]
+fn merge_target_prefers_evidence_over_creation_order() {
+    let mut conn = common::test_db();
+    let earlier = common::now();
+    let later = earlier + 1;
+
+    // Weak: created FIRST (older created_at), single fountain feed, no evidence.
+    let weak =
+        stophammer::db::resolve_artist(&conn, "Target Pref Artist", Some("feed-tp-weak"))
+            .expect("weak");
+    let weak_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &weak.name,
+        &[(weak.artist_id.clone(), weak.name.clone(), String::new())],
+        Some("feed-tp-weak"),
+    )
+    .expect("weak credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-tp-weak', 'https://feeds.fountain.fm/tp-weak', 'TP Weak', 'tp weak', ?1, ?2, ?2)",
+        rusqlite::params![weak_credit.id, earlier],
+    )
+    .expect("weak feed");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-tp-weak', 'fountain', 'https://feeds.fountain.fm/tp-weak', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![earlier],
+    )
+    .expect("weak platform");
+
+    // Strong: created SECOND (newer created_at), single wavlake feed, has website.
+    let strong =
+        stophammer::db::resolve_artist(&conn, "Target Pref Artist", Some("feed-tp-strong"))
+            .expect("strong");
+    let strong_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &strong.name,
+        &[(strong.artist_id.clone(), strong.name.clone(), String::new())],
+        Some("feed-tp-strong"),
+    )
+    .expect("strong credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-tp-strong', 'https://wavlake.com/tp-strong.xml', 'TP Strong', 'tp strong', ?1, ?2, ?2)",
+        rusqlite::params![strong_credit.id, later],
+    )
+    .expect("strong feed");
+    conn.execute(
+        "INSERT INTO source_entity_links \
+         (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+         VALUES ('feed-tp-strong', 'feed', 'feed-tp-strong', 0, 'website', 'https://targetpref.example.com', 'rss_link', 'feed.link', ?1)",
+        rusqlite::params![later],
+    )
+    .expect("strong website");
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, owner_name, source, extraction_path, observed_at) \
+         VALUES ('feed-tp-strong', 'wavlake', 'https://wavlake.com/tp-strong.xml', NULL, 'derived', 'request.canonical_url', ?1)",
+        rusqlite::params![later],
+    )
+    .expect("strong platform");
+
+    // Backfill: anchored_name gate fires — strong is anchor (has website),
+    // weak is the weak candidate (fountain, single-feed, no evidence).
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    assert!(stats.merges_applied >= 1, "expected at least one merge");
+
+    // The strong artist (newer, but has evidence) must be the merge target.
+    // Under the old preferred_artist_target (no evidence weight), the weak
+    // artist would win because it has an older created_at.
+    let strong_redirected: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_id_redirect WHERE old_artist_id = ?1",
+            rusqlite::params![strong.artist_id],
+            |row| row.get(0),
+        )
+        .expect("redirect query for strong");
+    assert_eq!(
+        strong_redirected, 0,
+        "the artist with explicit identity evidence must be the merge target, not redirected away"
+    );
+
+    let weak_redirected: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_id_redirect WHERE old_artist_id = ?1",
+            rusqlite::params![weak.artist_id],
+            |row| row.get(0),
+        )
+        .expect("redirect query for weak");
+    assert_eq!(
+        weak_redirected, 1,
+        "the artist with no identity evidence must be merged away, even if it was created first"
+    );
+}
+
+/// cleanup_orphaned_artists deletes truly unreferenced artists and their
+/// associated rows, and leaves artists that are still referenced untouched.
+#[test]
+fn orphan_cleanup_deletes_unreferenced_artists_only() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    // Artist A: unreferenced — no feeds, no tracks, no releases, no recordings.
+    let orphan =
+        stophammer::db::resolve_artist(&conn, "Orphan Artist", None).expect("orphan artist");
+
+    // Artist B: referenced by a live feed — must NOT be deleted.
+    let live = stophammer::db::resolve_artist(&conn, "Live Artist", Some("feed-live-ref"))
+        .expect("live artist");
+    let live_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &live.name,
+        &[(live.artist_id.clone(), live.name.clone(), String::new())],
+        Some("feed-live-ref"),
+    )
+    .expect("live credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-live-ref', 'https://example.com/live-ref.xml', 'Live Feed', 'live feed', ?1, ?2, ?2)",
+        rusqlite::params![live_credit.id, now],
+    )
+    .expect("live feed");
+
+    // Add an alias and a tag to the orphan to verify associated row cleanup.
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) VALUES ('orphan alias', ?1, ?2)",
+        rusqlite::params![orphan.artist_id, now],
+    )
+    .expect("orphan alias");
+
+    let pre_orphan: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE artist_id = ?1",
+            rusqlite::params![orphan.artist_id],
+            |row| row.get(0),
+        )
+        .expect("pre orphan");
+    assert_eq!(pre_orphan, 1);
+
+    let stats =
+        stophammer::db::cleanup_orphaned_artists(&mut conn).expect("cleanup_orphaned_artists");
+    assert!(
+        stats.artists_deleted >= 1,
+        "expected at least one orphan artist deleted"
+    );
+
+    // Orphan must be gone.
+    let post_orphan: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE artist_id = ?1",
+            rusqlite::params![orphan.artist_id],
+            |row| row.get(0),
+        )
+        .expect("post orphan");
+    assert_eq!(post_orphan, 0, "orphan artist must have been deleted");
+
+    // Alias must be cleaned up too.
+    let alias_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_aliases WHERE artist_id = ?1",
+            rusqlite::params![orphan.artist_id],
+            |row| row.get(0),
+        )
+        .expect("alias count");
+    assert_eq!(alias_count, 0, "orphan artist aliases must be deleted");
+
+    // Live artist must be untouched.
+    let post_live: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE artist_id = ?1",
+            rusqlite::params![live.artist_id],
+            |row| row.get(0),
+        )
+        .expect("post live");
+    assert_eq!(post_live, 1, "referenced artist must not be deleted");
 }

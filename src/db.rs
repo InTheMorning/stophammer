@@ -463,24 +463,6 @@ fn find_existing_artist_by_npub_and_name(
     )
 }
 
-fn find_existing_artist_by_publisher_guid_and_name(
-    conn: &Connection,
-    remote_feed_guid: &str,
-    artist_name_lower: &str,
-) -> Result<Option<Artist>, DbError> {
-    canonical_artist_for_query(
-        conn,
-        "SELECT DISTINCT a.artist_id \
-         FROM feed_remote_items_raw fri \
-         JOIN feeds f ON f.feed_guid = fri.feed_guid \
-         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-         JOIN artists a ON a.artist_id = acn.artist_id \
-         WHERE fri.medium = 'publisher' \
-           AND fri.remote_feed_guid = ?1 \
-           AND a.name_lower = ?2",
-        &[&remote_feed_guid, &artist_name_lower],
-    )
-}
 
 fn find_existing_artist_by_website_url_and_name(
     conn: &Connection,
@@ -509,7 +491,6 @@ pub fn resolve_feed_artist_from_source_claims(
     name: &str,
     feed_guid: &str,
     source_entity_ids: &[SourceEntityIdClaim],
-    remote_items: &[FeedRemoteItemRaw],
     source_entity_links: &[SourceEntityLink],
 ) -> Result<Artist, DbError> {
     let artist_name_lower = name.to_lowercase();
@@ -527,24 +508,6 @@ pub fn resolve_feed_artist_from_source_claims(
     if let Some(only_npub) = (npubs.len() == 1).then(|| npubs.first()).flatten()
         && let Some(artist) =
             find_existing_artist_by_npub_and_name(conn, only_npub, &artist_name_lower)?
-    {
-        return Ok(artist);
-    }
-
-    let publisher_guids: std::collections::BTreeSet<String> = remote_items
-        .iter()
-        .filter(|item| item.medium.as_deref() == Some("publisher"))
-        .map(|item| item.remote_feed_guid.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .collect();
-    if let Some(only_publisher_guid) = (publisher_guids.len() == 1)
-        .then(|| publisher_guids.first())
-        .flatten()
-        && let Some(artist) = find_existing_artist_by_publisher_guid_and_name(
-            conn,
-            only_publisher_guid,
-            &artist_name_lower,
-        )?
     {
         return Ok(artist);
     }
@@ -1525,18 +1488,6 @@ fn feed_artist_evidence_key(conn: &Connection, feed: &Feed) -> Result<String, Db
         .collect::<Result<_, _>>()?;
     if npubs.len() == 1 {
         return Ok(format!("nostr_npub:{}", npubs[0]));
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT remote_feed_guid FROM feed_remote_items_raw \
-         WHERE feed_guid = ?1 AND medium = 'publisher' \
-         ORDER BY remote_feed_guid",
-    )?;
-    let publisher_guids: Vec<String> = stmt
-        .query_map(params![feed.feed_guid], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    if publisher_guids.len() == 1 {
-        return Ok(format!("publisher_feed_guid:{}", publisher_guids[0]));
     }
 
     Ok(format!(
@@ -4590,11 +4541,6 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
     )?);
     groups.extend(filter_artist_groups_for_seed_ids(
         conn,
-        collect_artist_groups_by_publisher_guid(conn)?,
-        seed_ids,
-    )?);
-    groups.extend(filter_artist_groups_for_seed_ids(
-        conn,
         collect_artist_groups_by_website(conn)?,
         seed_ids,
     )?);
@@ -4842,24 +4788,6 @@ fn collect_artist_groups_by_npub(
     Ok(collect_artist_groups_from_rows("npub", rows))
 }
 
-fn collect_artist_groups_by_publisher_guid(
-    conn: &Connection,
-) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT LOWER(ac.display_name), fri.remote_feed_guid, acn.artist_id \
-         FROM feed_remote_items_raw fri \
-         JOIN feeds f ON f.feed_guid = fri.feed_guid \
-         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
-         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
-         WHERE fri.medium = 'publisher' \
-           AND TRIM(fri.remote_feed_guid) <> '' \
-         ORDER BY LOWER(ac.display_name), fri.remote_feed_guid, acn.artist_id",
-    )?;
-    let rows = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows("publisher_guid", rows))
-}
 
 fn collect_artist_groups_by_website(
     conn: &Connection,
@@ -4992,10 +4920,6 @@ fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Resu
                        WHERE sid.entity_type = 'feed' \
                          AND sid.entity_id = f.feed_guid \
                          AND sid.scheme = 'nostr_npub') \
-             OR EXISTS(SELECT 1 FROM feed_remote_items_raw fri \
-                       WHERE fri.feed_guid = f.feed_guid \
-                         AND fri.medium = 'publisher' \
-                         AND TRIM(fri.remote_feed_guid) <> '') \
              OR EXISTS(SELECT 1 FROM source_entity_links sel \
                        WHERE sel.entity_type = 'feed' \
                          AND sel.entity_id = f.feed_guid \
@@ -5056,14 +4980,14 @@ fn collect_artist_groups_by_anchored_name(
         let mut anchored = Vec::new();
         let mut weak = Vec::new();
         for artist_id in artist_ids {
-            let feed_count = artist_feed_count(conn, &artist_id)?;
             let strong = artist_has_strong_identity_claims(conn, &artist_id)?;
-            if strong && feed_count >= 2 {
+            if strong {
                 anchored.push(artist_id);
                 continue;
             }
 
-            if strong || feed_count != 1 {
+            let feed_count = artist_feed_count(conn, &artist_id)?;
+            if feed_count != 1 {
                 continue;
             }
 
@@ -5111,18 +5035,23 @@ fn preferred_artist_target(
         let Some(artist) = get_artist_by_id(conn, &current_id)? else {
             continue;
         };
+        let has_strong = artist_has_strong_identity_claims(conn, &current_id)?;
         ranked.push((
+            has_strong,
             artist_feed_count(conn, &current_id)?,
             artist.created_at,
             current_id,
         ));
     }
+    // Sort: explicit identity evidence first, then feed count desc, then
+    // oldest row, then stable artist_id.
     ranked.sort_by(|a, b| {
         b.0.cmp(&a.0)
-            .then_with(|| a.1.cmp(&b.1))
+            .then_with(|| b.1.cmp(&a.1))
             .then_with(|| a.2.cmp(&b.2))
+            .then_with(|| a.3.cmp(&b.3))
     });
-    Ok(ranked.into_iter().next().map(|(_, _, artist_id)| artist_id))
+    Ok(ranked.into_iter().next().map(|(_, _, _, artist_id)| artist_id))
 }
 
 pub fn backfill_artist_identity(
@@ -5131,12 +5060,116 @@ pub fn backfill_artist_identity(
     let tx = conn.transaction()?;
     let mut groups = Vec::new();
     groups.extend(collect_artist_groups_by_npub(&tx)?);
-    groups.extend(collect_artist_groups_by_publisher_guid(&tx)?);
     groups.extend(collect_artist_groups_by_website(&tx)?);
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
     let stats = apply_artist_identity_groups(&tx, groups, None, None)?;
+    tx.commit()?;
+    Ok(stats)
+}
+
+/// Stats returned by [`cleanup_orphaned_artists`].
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct OrphanCleanupStats {
+    pub artists_deleted: usize,
+    pub credits_deleted: usize,
+}
+
+/// Deletes artists that have no live references in feeds, tracks, releases, or
+/// recordings, and cleans up their associated rows.
+///
+/// An artist is considered orphaned if none of its `artist_credit_name` rows
+/// has an `artist_credit_id` that appears in `feeds.artist_credit_id`,
+/// `tracks.artist_credit_id`, `releases.artist_credit_id`, or
+/// `recordings.artist_credit_id`.
+///
+/// Does NOT delete `artist_id_redirect` targets — redirects are merge history,
+/// not orphan state.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any query or deletion fails.
+pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupStats, DbError> {
+    let tx = conn.transaction()?;
+
+    // Collect artist_ids with no live credit reference.
+    let mut stmt = tx.prepare(
+        "SELECT a.artist_id \
+         FROM artists a \
+         WHERE NOT EXISTS ( \
+             SELECT 1 \
+             FROM artist_credit_name acn \
+             WHERE acn.artist_id = a.artist_id \
+               AND ( \
+                   EXISTS(SELECT 1 FROM feeds     f WHERE f.artist_credit_id    = acn.artist_credit_id) \
+                OR EXISTS(SELECT 1 FROM tracks    t WHERE t.artist_credit_id    = acn.artist_credit_id) \
+                OR EXISTS(SELECT 1 FROM releases  r WHERE r.artist_credit_id    = acn.artist_credit_id) \
+                OR EXISTS(SELECT 1 FROM recordings rc WHERE rc.artist_credit_id = acn.artist_credit_id) \
+               ) \
+         ) \
+         ORDER BY a.artist_id",
+    )?;
+    let orphan_ids: Vec<String> = stmt
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    drop(stmt);
+
+    let mut stats = OrphanCleanupStats::default();
+    for artist_id in &orphan_ids {
+        // Collect the artist_credit ids exclusively owned by this orphan before
+        // deleting artist_credit_name rows.
+        let mut credit_stmt = tx.prepare(
+            "SELECT DISTINCT acn.artist_credit_id \
+             FROM artist_credit_name acn \
+             WHERE acn.artist_id = ?1 \
+               AND NOT EXISTS ( \
+                   SELECT 1 FROM artist_credit_name other \
+                   WHERE other.artist_credit_id = acn.artist_credit_id \
+                     AND other.artist_id <> ?1 \
+               )",
+        )?;
+        let exclusive_credits: Vec<i64> = credit_stmt
+            .query_map(params![artist_id], |row| row.get(0))?
+            .collect::<Result<_, _>>()?;
+        drop(credit_stmt);
+
+        tx.execute(
+            "DELETE FROM artist_aliases WHERE artist_id = ?1",
+            params![artist_id],
+        )?;
+        tx.execute(
+            "DELETE FROM artist_tag WHERE artist_id = ?1",
+            params![artist_id],
+        )?;
+        tx.execute(
+            "DELETE FROM artist_artist_rel \
+             WHERE artist_id_a = ?1 OR artist_id_b = ?1",
+            params![artist_id],
+        )?;
+        tx.execute(
+            "DELETE FROM external_ids WHERE entity_type = 'artist' AND entity_id = ?1",
+            params![artist_id],
+        )?;
+        tx.execute(
+            "DELETE FROM artist_credit_name WHERE artist_id = ?1",
+            params![artist_id],
+        )?;
+        tx.execute(
+            "DELETE FROM artists WHERE artist_id = ?1",
+            params![artist_id],
+        )?;
+        stats.artists_deleted += 1;
+
+        for credit_id in exclusive_credits {
+            tx.execute(
+                "DELETE FROM artist_credit WHERE id = ?1",
+                params![credit_id],
+            )?;
+            stats.credits_deleted += 1;
+        }
+    }
+
     tx.commit()?;
     Ok(stats)
 }

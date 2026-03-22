@@ -1507,7 +1507,6 @@ async fn handle_ingest_feed(
             &artist_name,
             feed_guid_str,
             &source_entity_ids,
-            &feed_remote_items,
             &source_entity_links,
         )?;
 
