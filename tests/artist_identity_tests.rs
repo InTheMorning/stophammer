@@ -759,7 +759,7 @@ fn targeted_artist_identity_resolver_merges_split_artists_by_website() {
     let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-focus-b")
         .expect("targeted feed identity");
     assert_eq!(stats.seed_artists, 1);
-    assert_eq!(stats.candidate_groups, 2);
+    assert_eq!(stats.candidate_groups, 1);
     assert_eq!(stats.groups_processed, 1);
     assert_eq!(stats.merges_applied, 1);
 
@@ -834,12 +834,7 @@ fn explain_artist_identity_for_feed_reports_seed_artists_and_candidate_groups() 
     assert_eq!(plan.feed_guid, "feed-explain-b");
     assert_eq!(plan.seed_artists.len(), 1);
     assert_eq!(plan.seed_artists[0].name, "Explained Artist");
-    assert_eq!(plan.candidate_groups.len(), 2);
-    assert!(
-        plan.candidate_groups
-            .iter()
-            .any(|group| group.source == "website")
-    );
+    assert_eq!(plan.candidate_groups.len(), 1);
     assert!(
         plan.candidate_groups
             .iter()
@@ -928,7 +923,7 @@ fn pending_artist_identity_feed_report_lists_unresolved_feeds() {
         .map(|feed| feed.feed_guid.as_str())
         .collect::<Vec<_>>();
     assert_eq!(guids, vec!["feed-pending-a", "feed-pending-b"]);
-    assert!(pending.iter().all(|feed| feed.candidate_groups == 2));
+    assert!(pending.iter().all(|feed| feed.candidate_groups == 1));
 }
 
 #[test]

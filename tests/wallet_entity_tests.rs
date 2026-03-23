@@ -1331,3 +1331,268 @@ fn wallet_dirty_bit_after_promotions_before_search() {
     assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_PROMOTIONS);
     assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_SEARCH);
 }
+
+// ---------------------------------------------------------------------------
+// Wavlake route exclusion
+// ---------------------------------------------------------------------------
+
+/// Create a Wavlake feed with a platform claim and a track, returning (credit_id, now).
+fn seed_wavlake_feed(conn: &rusqlite::Connection, feed_guid: &str, track_guid: &str) -> i64 {
+    let now = common::now();
+    // Reuse existing artist if present, otherwise create one.
+    let artist_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM artists WHERE artist_id = 'artist-w')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    if !artist_exists {
+        conn.execute(
+            "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+             VALUES ('artist-w', 'Wallet Artist', 'wallet artist', ?1, ?1)",
+            params![now],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_credit (display_name, created_at) VALUES ('Wallet Artist', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let credit_id: i64 = conn
+        .query_row(
+            "SELECT id FROM artist_credit WHERE display_name = 'Wallet Artist'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
+         VALUES (?1, 'artist-w', 0, 'Wallet Artist', '')",
+        params![credit_id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+         explicit, episode_count, created_at, updated_at) \
+         VALUES (?1, ?2, 'WL Feed', 'wl feed', ?3, 0, 0, ?4, ?4)",
+        params![feed_guid, format!("https://wavlake.com/feed/music/{feed_guid}"), credit_id, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+         explicit, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, 'WL Track', 'wl track', 0, ?4, ?4)",
+        params![track_guid, feed_guid, credit_id, now],
+    )
+    .unwrap();
+    // Mark this feed as a Wavlake feed via platform claim.
+    conn.execute(
+        "INSERT INTO source_platform_claims \
+         (feed_guid, platform_key, url, source, extraction_path, observed_at) \
+         VALUES (?1, 'wavlake', ?2, 'platform_classifier', 'request.canonical_url', ?3)",
+        params![feed_guid, format!("https://wavlake.com/feed/music/{feed_guid}"), now],
+    )
+    .unwrap();
+    now
+}
+
+#[test]
+fn wavlake_routes_skipped_in_pass1() {
+    let conn = common::test_db();
+    seed_wavlake_feed(&conn, "feed-wl", "track-wl");
+
+    // Insert a track route and a feed route on the Wavlake feed.
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-wl', 'feed-wl', 'Wavlake', 'keysend', 'wl-node-abc', 5, 0)",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('feed-wl', 'Wavlake', 'keysend', 'wl-node-def', 3, 0)",
+        [],
+    )
+    .unwrap();
+
+    let stats = db::backfill_wallet_pass1(&conn).unwrap();
+    assert_eq!(stats.endpoints_created, 0, "Wavlake routes should produce no endpoints");
+    assert_eq!(stats.track_maps_created, 0);
+    assert_eq!(stats.feed_maps_created, 0);
+}
+
+#[test]
+fn non_wavlake_routes_unaffected() {
+    let conn = common::test_db();
+    seed_feed_and_track(&conn);
+    insert_track_route(&conn, "track-w", "Alice", "alice-node-123");
+
+    let stats = db::backfill_wallet_pass1(&conn).unwrap();
+    assert_eq!(stats.endpoints_created, 1, "non-Wavlake route should create an endpoint");
+    assert_eq!(stats.track_maps_created, 1);
+}
+
+#[test]
+fn incremental_resolver_skips_wavlake_feed() {
+    let conn = common::test_db();
+    seed_wavlake_feed(&conn, "feed-wl2", "track-wl2");
+
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-wl2', 'feed-wl2', 'Wavlake', 'keysend', 'wl-node-ghi', 5, 0)",
+        [],
+    )
+    .unwrap();
+
+    let stats = db::resolve_wallet_identity_for_feed(&conn, "feed-wl2").unwrap();
+    assert_eq!(stats.endpoints_created, 0);
+    assert_eq!(stats.wallets_created, 0);
+}
+
+#[test]
+fn purge_removes_wavlake_wallets() {
+    let conn = common::test_db();
+    seed_wavlake_feed(&conn, "feed-wl3", "track-wl3");
+
+    // Manually create a route + endpoint + wallet for this Wavlake feed
+    // (simulating state before the filter was added).
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-wl3', 'feed-wl3', 'Wavlake', 'keysend', 'wl-node-jkl', 5, 0)",
+        [],
+    )
+    .unwrap();
+    let route_id: i64 = conn.last_insert_rowid();
+
+    let now = common::now();
+    conn.execute(
+        "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, created_at) \
+         VALUES ('keysend', 'wl-node-jkl', '', '', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let ep_id: i64 = conn.last_insert_rowid();
+
+    conn.execute(
+        "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![route_id, ep_id, now],
+    )
+    .unwrap();
+
+    // Create a wallet and assign the endpoint.
+    conn.execute(
+        "INSERT INTO wallets (wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at) \
+         VALUES ('wl-wallet-1', 'Wavlake', 'wavlake', 'unknown', 'provisional', ?1, ?1)",
+        params![now],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = 'wl-wallet-1' WHERE id = ?1",
+        params![ep_id],
+    )
+    .unwrap();
+
+    assert_eq!(endpoint_count(&conn), 1);
+    let wallet_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(wallet_count, 1);
+
+    // Purge + orphan cleanup should remove everything.
+    let removed = db::purge_wavlake_wallet_route_maps(&conn).unwrap();
+    assert!(removed > 0, "should have removed route map entries");
+    let cleanup = db::cleanup_orphaned_wallets(&conn).unwrap();
+    assert_eq!(cleanup.wallets_deleted, 1);
+    assert_eq!(endpoint_count(&conn), 0);
+}
+
+#[test]
+fn purge_preserves_shared_endpoints() {
+    let conn = common::test_db();
+
+    // Create both a Wavlake feed and a non-Wavlake feed.
+    seed_wavlake_feed(&conn, "feed-wl4", "track-wl4");
+    // Non-Wavlake feed reuses the same artist credit.
+    let now = common::now();
+    let credit_id: i64 = conn
+        .query_row(
+            "SELECT id FROM artist_credit WHERE display_name = 'Wallet Artist'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+         explicit, episode_count, created_at, updated_at) \
+         VALUES ('feed-normal', 'https://example.com/normal.xml', 'Normal', 'normal', ?1, 0, 0, ?2, ?2)",
+        params![credit_id, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+         explicit, created_at, updated_at) \
+         VALUES ('track-normal', 'feed-normal', ?1, 'Normal Track', 'normal track', 0, ?2, ?2)",
+        params![credit_id, now],
+    )
+    .unwrap();
+
+    // Both feeds have a route pointing to the same address.
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-wl4', 'feed-wl4', 'SharedAddr', 'keysend', 'shared-node-xyz', 50, 0)",
+        [],
+    )
+    .unwrap();
+    let wl_route_id: i64 = conn.last_insert_rowid();
+
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-normal', 'feed-normal', 'SharedAddr', 'keysend', 'shared-node-xyz', 50, 0)",
+        [],
+    )
+    .unwrap();
+    let normal_route_id: i64 = conn.last_insert_rowid();
+
+    // Create one shared endpoint.
+    conn.execute(
+        "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, created_at) \
+         VALUES ('keysend', 'shared-node-xyz', '', '', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let ep_id: i64 = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO wallets (wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at) \
+         VALUES ('shared-wallet', 'SharedAddr', 'sharedaddr', 'unknown', 'provisional', ?1, ?1)",
+        params![now],
+    )
+    .unwrap();
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = 'shared-wallet' WHERE id = ?1",
+        params![ep_id],
+    )
+    .unwrap();
+
+    // Both routes map to the same endpoint.
+    conn.execute(
+        "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![wl_route_id, ep_id, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![normal_route_id, ep_id, now],
+    )
+    .unwrap();
+
+    // Purge Wavlake route maps — the shared endpoint should survive
+    // because the non-Wavlake route map still references it.
+    let removed = db::purge_wavlake_wallet_route_maps(&conn).unwrap();
+    assert_eq!(removed, 1, "only the Wavlake route map entry should be removed");
+
+    let cleanup = db::cleanup_orphaned_wallets(&conn).unwrap();
+    assert_eq!(cleanup.wallets_deleted, 0, "wallet should survive — endpoint still has a route map");
+    assert_eq!(endpoint_count(&conn), 1, "endpoint should survive");
+}

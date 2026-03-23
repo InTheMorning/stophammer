@@ -4614,11 +4614,8 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
     let npub_groups = collect_artist_groups_by_npub(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(conn, npub_groups, seed_ids)?);
 
-    let website_groups = collect_artist_groups_by_website(conn)?;
+    let website_groups = collect_artist_groups_by_normalized_website(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(conn, website_groups, seed_ids)?);
-
-    let norm_website_groups = collect_artist_groups_by_normalized_website(conn)?;
-    groups.extend(filter_artist_groups_for_seed_ids(conn, norm_website_groups, seed_ids)?);
 
     let release_groups = collect_artist_groups_by_release_cluster(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(conn, release_groups, seed_ids)?);
@@ -4858,26 +4855,6 @@ fn collect_artist_groups_by_npub(
     Ok(collect_artist_groups_from_rows("npub", rows))
 }
 
-
-fn collect_artist_groups_by_website(
-    conn: &Connection,
-) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT LOWER(ac.display_name), sel.url, acn.artist_id \
-         FROM source_entity_links sel \
-         JOIN feeds f ON f.feed_guid = sel.feed_guid \
-         JOIN artist_credit ac ON ac.id = f.artist_credit_id \
-         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
-         WHERE sel.entity_type = 'feed' \
-           AND sel.link_type = 'website' \
-           AND TRIM(sel.url) <> '' \
-         ORDER BY LOWER(ac.display_name), sel.url, acn.artist_id",
-    )?;
-    let rows = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
-        .collect::<Result<Vec<(String, String, String)>, _>>()?;
-    Ok(collect_artist_groups_from_rows("website", rows))
-}
 
 fn collect_artist_groups_by_release_cluster(
     conn: &Connection,
@@ -5194,7 +5171,6 @@ pub fn backfill_artist_identity(
     let tx = conn.transaction()?;
     let mut groups = Vec::new();
     groups.extend(collect_artist_groups_by_npub(&tx)?);
-    groups.extend(collect_artist_groups_by_website(&tx)?);
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);
@@ -9925,6 +9901,82 @@ pub fn cleanup_orphaned_wallets(conn: &Connection) -> Result<WalletCleanupStats,
     })
 }
 
+/// Purge wallet entities created from Wavlake routes.
+///
+/// Wavlake payment routes point to Wavlake infrastructure, not artist wallets.
+/// This function removes the route-map links, detaches endpoints, and lets
+/// `cleanup_orphaned_wallets` handle the rest.
+///
+/// Returns the number of route-map entries removed.
+pub fn purge_wavlake_wallet_route_maps(conn: &Connection) -> Result<usize, DbError> {
+    // Delete track-level route maps where the underlying route belongs to a Wavlake feed.
+    let track_deleted = conn.execute(
+        "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
+             SELECT pr.id FROM payment_routes pr \
+             WHERE EXISTS ( \
+                 SELECT 1 FROM source_platform_claims spc \
+                 WHERE spc.feed_guid = pr.feed_guid AND spc.platform_key = 'wavlake' \
+             ) \
+         )",
+        [],
+    )?;
+
+    // Delete feed-level route maps where the underlying route belongs to a Wavlake feed.
+    let feed_deleted = conn.execute(
+        "DELETE FROM wallet_feed_route_map WHERE route_id IN ( \
+             SELECT fpr.id FROM feed_payment_routes fpr \
+             WHERE EXISTS ( \
+                 SELECT 1 FROM source_platform_claims spc \
+                 WHERE spc.feed_guid = fpr.feed_guid AND spc.platform_key = 'wavlake' \
+             ) \
+         )",
+        [],
+    )?;
+
+    // Detach endpoints that no longer have any route-map references.
+    conn.execute(
+        "UPDATE wallet_endpoints SET wallet_id = NULL WHERE id NOT IN ( \
+             SELECT endpoint_id FROM wallet_track_route_map \
+             UNION \
+             SELECT endpoint_id FROM wallet_feed_route_map \
+         )",
+        [],
+    )?;
+
+    // Delete now-orphaned endpoints (no route maps at all).
+    conn.execute(
+        "DELETE FROM wallet_aliases WHERE endpoint_id NOT IN ( \
+             SELECT endpoint_id FROM wallet_track_route_map \
+             UNION \
+             SELECT endpoint_id FROM wallet_feed_route_map \
+         )",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM wallet_endpoints WHERE id NOT IN ( \
+             SELECT endpoint_id FROM wallet_track_route_map \
+             UNION \
+             SELECT endpoint_id FROM wallet_feed_route_map \
+         )",
+        [],
+    )?;
+
+    // Clean up dependent rows for wallets that are now orphaned (no endpoints),
+    // so that cleanup_orphaned_wallets can DELETE them without FK violations.
+    conn.execute(
+        "DELETE FROM wallet_identity_review WHERE wallet_id NOT IN \
+         (SELECT DISTINCT wallet_id FROM wallet_endpoints WHERE wallet_id IS NOT NULL)",
+        [],
+    )?;
+    conn.execute(
+        "DELETE FROM wallet_artist_links WHERE wallet_id NOT IN \
+         (SELECT DISTINCT wallet_id FROM wallet_endpoints WHERE wallet_id IS NOT NULL)",
+        [],
+    )?;
+
+    Ok(track_deleted + feed_deleted)
+}
+
 /// Within one feed, merge endpoints that share the same `alias_lower` and
 /// the same `fee` status under one wallet. This is a conservative grouping
 /// heuristic: same name + same fee flag within the same feed is strong
@@ -10079,6 +10131,18 @@ pub fn resolve_wallet_identity_for_feed(
     feed_guid: &str,
 ) -> Result<WalletBackfillStats, DbError> {
     let mut stats = WalletBackfillStats::default();
+
+    // Wavlake routes are platform infrastructure, not artist wallets — skip entirely.
+    let is_wavlake: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_platform_claims \
+         WHERE feed_guid = ?1 AND platform_key = 'wavlake')",
+        params![feed_guid],
+        |r| r.get(0),
+    )?;
+    if is_wavlake {
+        return Ok(stats);
+    }
+
     let now = unix_now();
 
     // Pass 1: track-level routes for this feed
@@ -10194,7 +10258,11 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
     {
         let mut stmt = conn.prepare(
             "SELECT id, route_type, address, COALESCE(custom_key, ''), COALESCE(custom_value, ''), \
-             recipient_name FROM payment_routes",
+             recipient_name FROM payment_routes pr \
+             WHERE NOT EXISTS ( \
+                 SELECT 1 FROM source_platform_claims spc \
+                 WHERE spc.feed_guid = pr.feed_guid AND spc.platform_key = 'wavlake' \
+             )",
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map([], |r| {
@@ -10243,7 +10311,11 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
     {
         let mut stmt = conn.prepare(
             "SELECT id, route_type, address, COALESCE(custom_key, ''), COALESCE(custom_value, ''), \
-             recipient_name FROM feed_payment_routes",
+             recipient_name FROM feed_payment_routes fpr \
+             WHERE NOT EXISTS ( \
+                 SELECT 1 FROM source_platform_claims spc \
+                 WHERE spc.feed_guid = fpr.feed_guid AND spc.platform_key = 'wavlake' \
+             )",
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map([], |r| {

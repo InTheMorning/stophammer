@@ -352,7 +352,7 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert_eq!(summary.failed, 0);
     assert!(!summary.stale_import_active_ignored);
     assert_eq!(summary.artist_seed_artists, 1);
-    assert_eq!(summary.artist_candidate_groups, 2);
+    assert_eq!(summary.artist_candidate_groups, 1);
     assert_eq!(summary.artist_groups_processed, 1);
     assert_eq!(summary.artist_merges_applied, 1);
     assert_eq!(summary.artist_merge_events_emitted, 0);
@@ -372,7 +372,7 @@ fn resolver_batch_runs_targeted_artist_identity_work() {
     assert!(
         reviews
             .iter()
-            .any(|review| review.status == "merged" && review.source == "website"),
+            .any(|review| review.status == "merged" && review.source == "normalized_website"),
         "resolver should persist a merged review item for the feed-scoped candidate"
     );
 }

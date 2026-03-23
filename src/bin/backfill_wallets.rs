@@ -44,6 +44,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
     let conn = stophammer::db::open_db(&args.db_path);
 
+    println!("Purging Wavlake wallet entities...");
+    let wavlake_purged = stophammer::db::purge_wavlake_wallet_route_maps(&conn)?;
+    let wavlake_orphans = stophammer::db::cleanup_orphaned_wallets(&conn)?;
+    println!(
+        "  route maps removed: {}, orphaned wallets deleted: {}",
+        wavlake_purged, wavlake_orphans.wallets_deleted
+    );
+
     println!("Pass 1: normalizing endpoint facts...");
     let s1 = stophammer::db::backfill_wallet_pass1(&conn)?;
     println!(
