@@ -62,6 +62,11 @@ CREATE TABLE IF NOT EXISTS wallet_feed_route_map (
 -- DERIVED LAYER: merge redirects, artist links
 -- ============================================================
 
+CREATE INDEX IF NOT EXISTS idx_wallet_track_route_ep
+    ON wallet_track_route_map(endpoint_id);
+CREATE INDEX IF NOT EXISTS idx_wallet_feed_route_ep
+    ON wallet_feed_route_map(endpoint_id);
+
 CREATE TABLE IF NOT EXISTS wallet_id_redirect (
     old_wallet_id   TEXT PRIMARY KEY,
     new_wallet_id   TEXT NOT NULL,

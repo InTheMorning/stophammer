@@ -824,6 +824,110 @@ async fn get_wallet_not_found() {
     assert_eq!(resp.status(), 404);
 }
 
+// ---------------------------------------------------------------------------
+// Owner grouping (Pass 5)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn same_feed_same_name_endpoints_grouped() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    // Two different keysend addresses, same name, same feed
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Alice', 'keysend', 'addr1', 50, 0)",
+        [],
+    ).unwrap();
+    let r1 = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Alice', 'keysend', 'addr2', 50, 0)",
+        [],
+    ).unwrap();
+    let r2 = conn.last_insert_rowid();
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    db::map_track_route_to_endpoint(&conn, r1, ep1, now).unwrap();
+    db::map_track_route_to_endpoint(&conn, r2, ep2, now).unwrap();
+    db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let merges = db::group_same_feed_endpoints(&conn, "feed-w").unwrap();
+    assert_eq!(merges, 1, "should merge same-name endpoints");
+
+    let wallet_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(wallet_count, 1, "should have 1 wallet after grouping");
+}
+
+#[test]
+fn fee_vs_nonfee_same_name_not_grouped() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Alice', 'keysend', 'addr1', 95, 0)",
+        [],
+    ).unwrap();
+    let r1 = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w', 'feed-w', 'Alice', 'keysend', 'addr2', 5, 1)",
+        [],
+    ).unwrap();
+    let r2 = conn.last_insert_rowid();
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    db::map_track_route_to_endpoint(&conn, r1, ep1, now).unwrap();
+    db::map_track_route_to_endpoint(&conn, r2, ep2, now).unwrap();
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+    // Classify so fee endpoint becomes bot_service (different wallet_class)
+    db::classify_wallet_hard_signals(&conn, &w1).unwrap();
+    db::classify_wallet_hard_signals(&conn, &w2).unwrap();
+
+    let merges = db::group_same_feed_endpoints(&conn, "feed-w").unwrap();
+    assert_eq!(merges, 0, "fee vs non-fee should NOT be grouped");
+
+    let wallet_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(wallet_count, 2);
+}
+
+#[test]
+fn review_items_created_for_cross_wallet_aliases() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    // Two endpoints with same alias but different wallets
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let created = db::generate_wallet_review_items(&conn).unwrap();
+    assert!(created >= 2, "should create review items for both wallets sharing 'alice'");
+
+    let pending: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_identity_review WHERE status = 'pending'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(pending >= 2);
+
+    // Idempotent
+    let created2 = db::generate_wallet_review_items(&conn).unwrap();
+    assert_eq!(created2, 0, "should not create duplicate review items");
+}
+
 #[test]
 fn wallet_dirty_bit_after_promotions_before_search() {
     use stophammer::resolver::queue;

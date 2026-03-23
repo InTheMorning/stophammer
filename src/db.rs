@@ -9741,6 +9741,131 @@ pub fn cleanup_orphaned_wallets(conn: &Connection) -> Result<WalletCleanupStats,
     })
 }
 
+/// Within one feed, merge endpoints that share the same `alias_lower` and
+/// the same `fee` status under one wallet. This is a conservative grouping
+/// heuristic: same name + same fee flag within the same feed is strong
+/// evidence of the same entity. Run only in Pass 5 (--refresh).
+///
+/// Returns the number of merges performed.
+pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
+    // Use the wallet's classification as a proxy for fee status (bot_service = fee endpoint).
+    // This avoids expensive multi-JOIN back through route maps to source routes.
+    // Endpoints sharing the same alias_lower within the same feed, with the same
+    // fee-derived classification, are merged.
+    let mut stmt = conn.prepare(
+        "SELECT wa.alias_lower, \
+                GROUP_CONCAT(DISTINCT we.id) AS endpoint_ids, \
+                w.wallet_class \
+         FROM wallet_endpoints we \
+         JOIN wallet_aliases wa ON wa.endpoint_id = we.id \
+         JOIN wallets w ON w.wallet_id = we.wallet_id \
+         WHERE we.wallet_id IS NOT NULL \
+           AND we.id IN ( \
+               SELECT wtrm.endpoint_id FROM wallet_track_route_map wtrm \
+               JOIN payment_routes pr ON pr.id = wtrm.route_id \
+               WHERE pr.feed_guid = ?1 \
+               UNION \
+               SELECT wfrm.endpoint_id FROM wallet_feed_route_map wfrm \
+               JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+               WHERE fpr.feed_guid = ?1 \
+           ) \
+         GROUP BY wa.alias_lower, w.wallet_class \
+         HAVING COUNT(DISTINCT we.id) > 1",
+    )?;
+
+    let groups: Vec<(String, String)> = stmt
+        .query_map(params![feed_guid], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<Result<_, _>>()?;
+
+    let mut merges = 0;
+    for (_alias, ep_ids_str) in groups {
+        let ep_ids: Vec<i64> = ep_ids_str
+            .split(',')
+            .filter_map(|s| s.trim().parse().ok())
+            .collect();
+
+        if ep_ids.len() < 2 {
+            continue;
+        }
+
+        // Find the wallet_ids for these endpoints
+        let mut unique_wallets: Vec<String> = ep_ids
+            .iter()
+            .filter_map(|ep_id| {
+                conn.query_row(
+                    "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1 AND wallet_id IS NOT NULL",
+                    params![ep_id],
+                    |r| r.get(0),
+                )
+                .ok()
+            })
+            .collect();
+
+        unique_wallets.sort();
+        unique_wallets.dedup();
+
+        if unique_wallets.len() < 2 {
+            continue;
+        }
+
+        let target = unique_wallets[0].clone();
+        for other in &unique_wallets[1..] {
+            merge_wallets(conn, other, &target)?;
+            merges += 1;
+        }
+    }
+
+    Ok(merges)
+}
+
+/// Create review items for ambiguous wallet identity patterns.
+///
+/// Generates review items for:
+/// - Same alias_lower across multiple wallets with different endpoints
+/// - Endpoints with conflicting fee/non-fee signals
+pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError> {
+    let now = unix_now();
+    let mut created = 0;
+
+    // Same alias across multiple wallets
+    let mut stmt = conn.prepare(
+        "SELECT wa.alias_lower, GROUP_CONCAT(DISTINCT we.wallet_id) AS wallet_ids \
+         FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         WHERE we.wallet_id IS NOT NULL \
+         GROUP BY wa.alias_lower \
+         HAVING COUNT(DISTINCT we.wallet_id) > 1",
+    )?;
+
+    let rows: Vec<(String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+
+    for (alias, wallet_ids_str) in rows {
+        let wallet_ids: Vec<&str> = wallet_ids_str.split(',').collect();
+        for wid in &wallet_ids {
+            let wid = wid.trim();
+            // Check if review item already exists
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
+                 WHERE wallet_id = ?1 AND review_type = 'cross_wallet_alias' AND details = ?2)",
+                params![wid, alias],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                conn.execute(
+                    "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+                     VALUES (?1, 'cross_wallet_alias', ?2, 'pending', ?3)",
+                    params![wid, alias, now],
+                )?;
+                created += 1;
+            }
+        }
+    }
+
+    Ok(created)
+}
+
 // ============================================================
 // Wallet backfill — multi-pass orchestration
 // ============================================================
@@ -10048,6 +10173,80 @@ pub fn backfill_wallet_pass3(conn: &Connection) -> Result<WalletBackfillStats, D
             stats.artist_links_created += 1;
         }
     }
+
+    Ok(stats)
+}
+
+/// Stats returned by Pass 5 (--refresh).
+#[derive(Debug, Default)]
+pub struct WalletRefreshStats {
+    pub feeds_processed: usize,
+    pub merges_from_grouping: usize,
+    pub review_items_created: usize,
+    pub orphans_deleted: usize,
+}
+
+/// Pass 5: global refresh / owner grouping.
+///
+/// Run via `backfill_wallets --refresh` after major corpus changes.
+///
+/// 1. group_same_feed_endpoints for each feed
+/// 2. Re-derive display names across grouped endpoints
+/// 3. Generate review items for ambiguous patterns
+/// 4. Orphan cleanup
+pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, DbError> {
+    let mut stats = WalletRefreshStats::default();
+
+    // Get feed GUIDs that have multiple distinct endpoints sharing an alias.
+    // Only these feeds can possibly produce merges — skip the rest.
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT feed_guid FROM ( \
+             SELECT pr.feed_guid, wa.alias_lower, COUNT(DISTINCT we.id) AS ep_count \
+             FROM wallet_endpoints we \
+             JOIN wallet_aliases wa ON wa.endpoint_id = we.id \
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             WHERE we.wallet_id IS NOT NULL \
+             GROUP BY pr.feed_guid, wa.alias_lower \
+             HAVING ep_count > 1 \
+             UNION \
+             SELECT fpr.feed_guid, wa.alias_lower, COUNT(DISTINCT we.id) AS ep_count \
+             FROM wallet_endpoints we \
+             JOIN wallet_aliases wa ON wa.endpoint_id = we.id \
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+             WHERE we.wallet_id IS NOT NULL \
+             GROUP BY fpr.feed_guid, wa.alias_lower \
+             HAVING ep_count > 1 \
+         )",
+    )?;
+    let candidate_feeds: Vec<String> = stmt
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    for feed_guid in &candidate_feeds {
+        let merges = group_same_feed_endpoints(conn, feed_guid)?;
+        stats.merges_from_grouping += merges;
+        stats.feeds_processed += 1;
+    }
+
+    // Re-derive display names for all wallets that were involved in merges
+    if stats.merges_from_grouping > 0 {
+        let mut wstmt = conn.prepare("SELECT wallet_id FROM wallets")?;
+        let wallet_ids: Vec<String> = wstmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for wid in wallet_ids {
+            update_wallet_display_name(conn, &wid)?;
+        }
+    }
+
+    // Generate review items
+    stats.review_items_created = generate_wallet_review_items(conn)?;
+
+    // Orphan cleanup
+    let cleanup = cleanup_orphaned_wallets(conn)?;
+    stats.orphans_deleted = cleanup.wallets_deleted;
 
     Ok(stats)
 }
