@@ -634,6 +634,119 @@ Required coverage:
 - backfill idempotent: running twice produces same result
 - cleanup removes orphaned wallets: only wallets with no endpoints deleted
 
+## Implementation Status
+
+### Completed
+
+- **Phase 0: Feed→track inheritance** — tracks without own payment_routes or
+  source_contributors fall back to parent feed's data at query time
+  (`src/query.rs:build_track_response`)
+- **Phase 1: Schema + backfill** — migration 0016, all fact-layer and owner-layer
+  helpers in `src/db.rs`, backfill binary (`src/bin/backfill_wallets.rs`),
+  33 tests in `tests/wallet_entity_tests.rs`
+- **Phase 2: Incremental resolver** — `DIRTY_WALLET_IDENTITY` bit wired into
+  resolver worker, runs Passes 1-2 per feed
+- **Phase 3: API endpoint** — `GET /v1/wallets/{id}` primary-only endpoint with
+  redirect following
+- **Pass 5: Owner grouping** — `backfill_wallets --refresh` mode, same-feed
+  same-name grouping, review item generation, orphan cleanup
+
+Corpus state after backfill (2026-03-22):
+
+| Layer | Count |
+|-------|-------|
+| Endpoints | 25,293 |
+| Wallets | 12,411 (after Pass 5 grouping) |
+| Redirects | 12,882 (from merges) |
+| Artist links | 309 |
+| Pending reviews | 5,694 |
+| Classification | 2 bot_service/high_confidence, 12,409 unknown/provisional |
+
+### Remaining: Soft-Signal Classification
+
+`classify_wallet_soft_signals(conn, wallet_id) -> Result<bool, DbError>`
+
+Applies provisional classification from known platform/app signals. Only runs
+on wallets that are still `unknown/provisional`. Never overrides
+`high_confidence`, `reviewed`, or `blocked`.
+
+Signal sources:
+
+1. **Alias exact match** against hardcoded platform list (matching the existing
+   `classify_platform_url` and `classify_platform_owner` functions in
+   `src/api.rs:1081-1103`): fountain, wavlake, alby, breez, podcast addict,
+   rss blue, rssblue, buzzsprout, podverse, podhome, justcast
+2. **lnaddress domain match**: `@getalby.com`, `@fountain.fm`, `@wavlake.com`,
+   `@breez.technology`
+
+All matches produce `organization_platform/provisional`. Exact alias match
+only — "Fountain Valley Podcast" does not match.
+
+Integrates into `backfill_wallet_pass5` after display name re-derivation,
+before review item generation.
+
+### Remaining: Split-Shape Heuristics
+
+`classify_wallet_split_heuristics(conn, wallet_id) -> Result<bool, DbError>`
+
+Applies split-shape weak evidence. Only runs on wallets still
+`unknown/provisional` after soft signals. Never produces `high_confidence`,
+never creates endpoints, never auto-merges, never creates artist links.
+
+Thresholds (as constants):
+
+- small share: `split <= 5` (app-fee level)
+- dominant share: `split >= 50` (primary recipient)
+- unrelated feeds: `>= 3` distinct feed_guids
+
+Heuristics:
+
+1. **Repeated small non-fee share across ≥3 unrelated feeds** →
+   `organization_platform/provisional`
+2. **All non-fee routes have dominant share, ≤2 feeds** →
+   `person_artist/provisional`
+
+Integrates into `backfill_wallet_pass5` after soft signals.
+
+### Remaining: CLI Review Tool
+
+`src/bin/review_wallet_identity.rs` — new binary following the pattern of
+`src/bin/review_artist_identity.rs` (473 lines).
+
+Modes:
+
+| Flag | Action |
+|------|--------|
+| (default) | List pending wallet reviews |
+| `--show-review ID` | Show review + wallet detail (endpoints, aliases, feeds) |
+| `--show-wallet ID` | Show wallet detail without a review |
+| `--resolve-merge ID --target-wallet WID` | Store merge override, resolve review |
+| `--resolve-reject ID` | Store do_not_merge override, resolve review |
+| `--resolve-class ID --class CLASS` | Store force_class override, resolve review |
+| `--resolve-link ID --artist AID` | Store force_artist_link override, resolve review |
+| `--resolve-block-link ID --artist AID` | Store block_artist_link override, resolve review |
+| `--json` | JSON output |
+| `--limit N` | Limit results (default 50) |
+
+Supporting db.rs helpers: `list_pending_wallet_reviews`,
+`get_wallet_review_detail`, `get_wallet_detail`,
+`set_wallet_identity_override_for_review`.
+
+### Deferred: Signed Wallet-State Events
+
+New `EventPayload::WalletIdentityFeedResolved` — summary event (not full
+snapshot), emitted by resolver after `resolve_wallet_identity_for_feed`.
+Community nodes use it as signal to run their own wallet resolution from
+replicated source data. Deferred until classification rules and review workflow
+stabilize.
+
+### Deferred: RouteResponse Wallet Enrichment
+
+Add optional `endpoint_id`, `wallet_id`, `wallet_display_name`, `wallet_class`,
+`class_confidence` fields to `RouteResponse` in `src/query.rs`. Query joins
+through route map → endpoint → wallet with LEFT JOINs. Gated on signed events
+so community nodes have wallet data to serve.
+
 ## Open Follow-On Work
 
 Likely later work, but not required for v1:

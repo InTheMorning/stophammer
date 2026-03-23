@@ -1,0 +1,464 @@
+use std::error::Error;
+use std::path::PathBuf;
+
+use rusqlite::Connection;
+use serde::Serialize;
+
+#[derive(Debug)]
+struct Args {
+    db_path: PathBuf,
+    limit: usize,
+    show_review: Option<i64>,
+    show_wallet: Option<String>,
+    resolve_merge: Option<i64>,
+    resolve_reject: Option<i64>,
+    resolve_class: Option<i64>,
+    resolve_link: Option<i64>,
+    resolve_block_link: Option<i64>,
+    target_wallet: Option<String>,
+    class_value: Option<String>,
+    artist_id: Option<String>,
+    json: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingReviewsReport {
+    reviews: Vec<stophammer::db::WalletReviewSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct WalletDetailReport {
+    wallet: stophammer::db::WalletDetail,
+}
+
+#[derive(Debug, Serialize)]
+struct ReviewDetailReport {
+    review: stophammer::db::WalletReviewSummary,
+    wallet: stophammer::db::WalletDetail,
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "manual CLI parsing keeps the review tool dependency-free"
+)]
+fn parse_args() -> Result<Args, String> {
+    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut limit = 50usize;
+    let mut show_review = None;
+    let mut show_wallet = None;
+    let mut resolve_merge = None;
+    let mut resolve_reject = None;
+    let mut resolve_class = None;
+    let mut resolve_link = None;
+    let mut resolve_block_link = None;
+    let mut target_wallet = None;
+    let mut class_value = None;
+    let mut artist_id = None;
+    let mut json = false;
+
+    let mut args = std::env::args().skip(1);
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--db" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--db requires a path".to_string())?;
+                db_path = PathBuf::from(value);
+            }
+            "--limit" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--limit requires a number".to_string())?;
+                limit = value
+                    .parse::<usize>()
+                    .map_err(|_| format!("invalid --limit value: {value}"))?;
+            }
+            "--show-review" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--show-review requires an integer id".to_string())?;
+                show_review = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --show-review value: {value}"))?,
+                );
+            }
+            "--show-wallet" => {
+                show_wallet = Some(
+                    args.next()
+                        .ok_or_else(|| "--show-wallet requires a wallet id".to_string())?,
+                );
+            }
+            "--resolve-merge" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--resolve-merge requires an integer id".to_string())?;
+                resolve_merge = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --resolve-merge value: {value}"))?,
+                );
+            }
+            "--resolve-reject" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--resolve-reject requires an integer id".to_string())?;
+                resolve_reject = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --resolve-reject value: {value}"))?,
+                );
+            }
+            "--resolve-class" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--resolve-class requires an integer id".to_string())?;
+                resolve_class = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --resolve-class value: {value}"))?,
+                );
+            }
+            "--resolve-link" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--resolve-link requires an integer id".to_string())?;
+                resolve_link = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --resolve-link value: {value}"))?,
+                );
+            }
+            "--resolve-block-link" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--resolve-block-link requires an integer id".to_string())?;
+                resolve_block_link = Some(
+                    value
+                        .parse::<i64>()
+                        .map_err(|_| format!("invalid --resolve-block-link value: {value}"))?,
+                );
+            }
+            "--target-wallet" => {
+                target_wallet = Some(
+                    args.next()
+                        .ok_or_else(|| "--target-wallet requires a wallet id".to_string())?,
+                );
+            }
+            "--class" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--class requires a value".to_string())?;
+                let valid = [
+                    "person_artist",
+                    "organization_platform",
+                    "bot_service",
+                    "unknown",
+                ];
+                if !valid.contains(&value.as_str()) {
+                    return Err(format!(
+                        "invalid --class value: {value} (must be one of: {})",
+                        valid.join(", ")
+                    ));
+                }
+                class_value = Some(value);
+            }
+            "--artist" => {
+                artist_id = Some(
+                    args.next()
+                        .ok_or_else(|| "--artist requires an artist id".to_string())?,
+                );
+            }
+            "--json" => {
+                json = true;
+            }
+            "--help" | "-h" => {
+                println!(
+                    "Usage: review_wallet_identity [OPTIONS]\n\n\
+                     Options:\n\
+                     --db PATH              Database path (default: ./stophammer.db)\n\
+                     --limit N              Limit results (default: 50)\n\
+                     --json                 Output JSON\n\n\
+                     Display:\n\
+                     (default)              List pending wallet reviews\n\
+                     --show-review ID       Show review detail with wallet info\n\
+                     --show-wallet ID       Show wallet detail\n\n\
+                     Resolve:\n\
+                     --resolve-merge ID --target-wallet WID   Merge override\n\
+                     --resolve-reject ID                      Do-not-merge override\n\
+                     --resolve-class ID --class CLASS         Force classification\n\
+                     --resolve-link ID --artist AID           Force artist link\n\
+                     --resolve-block-link ID --artist AID     Block artist link"
+                );
+                std::process::exit(0);
+            }
+            other => return Err(format!("unknown argument: {other}")),
+        }
+    }
+
+    Ok(Args {
+        db_path,
+        limit,
+        show_review,
+        show_wallet,
+        resolve_merge,
+        resolve_reject,
+        resolve_class,
+        resolve_link,
+        resolve_block_link,
+        target_wallet,
+        class_value,
+        artist_id,
+        json,
+    })
+}
+
+fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
+    if reviews.is_empty() {
+        println!("review_wallet_identity: no pending wallet reviews found");
+        return;
+    }
+
+    for r in reviews {
+        println!(
+            "review {}  wallet={}  name={:?}  class={}  confidence={}",
+            r.id, r.wallet_id, r.display_name, r.wallet_class, r.class_confidence
+        );
+        println!("  type={}  details={:?}", r.review_type, r.details);
+    }
+}
+
+fn print_wallet_detail(w: &stophammer::db::WalletDetail) {
+    println!(
+        "wallet {}  name={:?}  class={}  confidence={}",
+        w.wallet_id, w.display_name, w.wallet_class, w.class_confidence
+    );
+    println!("  created_at={}  updated_at={}", w.created_at, w.updated_at);
+
+    if w.endpoints.is_empty() {
+        println!("  endpoints: -");
+    } else {
+        println!("  endpoints ({}):", w.endpoints.len());
+        for ep in &w.endpoints {
+            if ep.custom_key.is_empty() && ep.custom_value.is_empty() {
+                println!("    [{}] {} {}", ep.id, ep.route_type, ep.normalized_address);
+            } else {
+                println!(
+                    "    [{}] {} {} key={} val={}",
+                    ep.id, ep.route_type, ep.normalized_address, ep.custom_key, ep.custom_value
+                );
+            }
+        }
+    }
+
+    if w.aliases.is_empty() {
+        println!("  aliases: -");
+    } else {
+        println!("  aliases ({}):", w.aliases.len());
+        for a in &w.aliases {
+            println!(
+                "    {:?}  first_seen={}  last_seen={}",
+                a.alias, a.first_seen_at, a.last_seen_at
+            );
+        }
+    }
+
+    if w.artist_links.is_empty() {
+        println!("  artist_links: -");
+    } else {
+        println!("  artist_links ({}):", w.artist_links.len());
+        for link in &w.artist_links {
+            println!(
+                "    artist={}  confidence={}  evidence={}:{}",
+                link.artist_id, link.confidence, link.evidence_entity_type, link.evidence_entity_id
+            );
+        }
+    }
+
+    if w.feed_guids.is_empty() {
+        println!("  feeds: -");
+    } else {
+        println!("  feeds ({}):", w.feed_guids.len());
+        for fg in &w.feed_guids {
+            println!("    {fg}");
+        }
+    }
+
+    if !w.overrides.is_empty() {
+        println!("  overrides ({}):", w.overrides.len());
+        for o in &w.overrides {
+            println!(
+                "    [{}] {}  target={:?}  value={:?}  at={}",
+                o.id, o.override_type, o.target_id, o.value, o.created_at
+            );
+        }
+    }
+}
+
+fn resolve_action(
+    conn: &Connection,
+    review_id: i64,
+    override_type: &str,
+    target_id: Option<&str>,
+    value: Option<&str>,
+    json: bool,
+) -> Result<(), Box<dyn Error>> {
+    stophammer::db::set_wallet_identity_override_for_review(
+        conn,
+        review_id,
+        override_type,
+        target_id,
+        value,
+    )?;
+    println!("Resolved review {review_id} with override: {override_type}");
+
+    // Show the wallet detail after resolution
+    let wallet_id: String = conn.query_row(
+        "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
+        rusqlite::params![review_id],
+        |r| r.get(0),
+    )?;
+    if let Some(detail) = stophammer::db::get_wallet_detail(conn, &wallet_id)? {
+        if json {
+            println!("{}", serde_json::to_string_pretty(&detail)?);
+        } else {
+            print_wallet_detail(&detail);
+        }
+    }
+    Ok(())
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args = parse_args().map_err(std::io::Error::other)?;
+    let conn = stophammer::db::open_db(&args.db_path);
+
+    if let Some(review_id) = args.resolve_merge {
+        let target = args
+            .target_wallet
+            .as_deref()
+            .ok_or_else(|| std::io::Error::other("--resolve-merge requires --target-wallet"))?;
+        resolve_action(&conn, review_id, "merge", Some(target), None, args.json)?;
+    } else if let Some(review_id) = args.resolve_reject {
+        resolve_action(&conn, review_id, "do_not_merge", None, None, args.json)?;
+    } else if let Some(review_id) = args.resolve_class {
+        let class = args
+            .class_value
+            .as_deref()
+            .ok_or_else(|| std::io::Error::other("--resolve-class requires --class"))?;
+        resolve_action(&conn, review_id, "force_class", None, Some(class), args.json)?;
+    } else if let Some(review_id) = args.resolve_link {
+        let artist = args
+            .artist_id
+            .as_deref()
+            .ok_or_else(|| std::io::Error::other("--resolve-link requires --artist"))?;
+        resolve_action(
+            &conn,
+            review_id,
+            "force_artist_link",
+            Some(artist),
+            None,
+            args.json,
+        )?;
+    } else if let Some(review_id) = args.resolve_block_link {
+        let artist = args
+            .artist_id
+            .as_deref()
+            .ok_or_else(|| std::io::Error::other("--resolve-block-link requires --artist"))?;
+        resolve_action(
+            &conn,
+            review_id,
+            "block_artist_link",
+            Some(artist),
+            None,
+            args.json,
+        )?;
+    } else if let Some(review_id) = args.show_review {
+        let reviews = stophammer::db::list_pending_wallet_reviews(&conn, 1)?;
+        // Fetch the specific review
+        let wallet_id: String = conn
+            .query_row(
+                "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
+                rusqlite::params![review_id],
+                |r| r.get(0),
+            )
+            .map_err(|_| std::io::Error::other(format!("review not found: {review_id}")))?;
+        let detail = stophammer::db::get_wallet_detail(&conn, &wallet_id)?
+            .ok_or_else(|| std::io::Error::other(format!("wallet not found: {wallet_id}")))?;
+
+        let review_summary = conn.query_row(
+            "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                    r.review_type, r.details, r.created_at \
+             FROM wallet_identity_review r \
+             JOIN wallets w ON w.wallet_id = r.wallet_id \
+             WHERE r.id = ?1",
+            rusqlite::params![review_id],
+            |r| {
+                Ok(stophammer::db::WalletReviewSummary {
+                    id: r.get(0)?,
+                    wallet_id: r.get(1)?,
+                    display_name: r.get(2)?,
+                    wallet_class: r.get(3)?,
+                    class_confidence: r.get(4)?,
+                    review_type: r.get(5)?,
+                    details: r.get(6)?,
+                    created_at: r.get(7)?,
+                })
+            },
+        )?;
+
+        if args.json {
+            let report = ReviewDetailReport {
+                review: review_summary,
+                wallet: detail,
+            };
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            println!(
+                "review {}  type={}  status=pending  details={:?}",
+                review_summary.id, review_summary.review_type, review_summary.details
+            );
+            print_wallet_detail(&detail);
+        }
+        let _ = reviews; // suppress unused
+    } else if let Some(wallet_id) = args.show_wallet.as_deref() {
+        // Follow redirects
+        let resolved_id = {
+            let mut current = wallet_id.to_string();
+            loop {
+                let redirect: Option<String> = conn
+                    .query_row(
+                        "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                        rusqlite::params![current],
+                        |r| r.get(0),
+                    )
+                    .ok();
+                match redirect {
+                    Some(new_id) => current = new_id,
+                    None => break current,
+                }
+            }
+        };
+        let detail = stophammer::db::get_wallet_detail(&conn, &resolved_id)?
+            .ok_or_else(|| std::io::Error::other(format!("wallet not found: {resolved_id}")))?;
+        if args.json {
+            let report = WalletDetailReport { wallet: detail };
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            if resolved_id != wallet_id {
+                println!("(redirected from {wallet_id})");
+            }
+            print_wallet_detail(&detail);
+        }
+    } else {
+        // Default: list pending reviews
+        let reviews = stophammer::db::list_pending_wallet_reviews(&conn, args.limit)?;
+        if args.json {
+            let report = PendingReviewsReport { reviews };
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else {
+            print_pending_reviews(&reviews);
+        }
+    }
+
+    Ok(())
+}

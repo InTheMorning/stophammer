@@ -78,6 +78,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             s5.feeds_processed, s5.merges_from_grouping
         );
         println!(
+            "  soft-classified: {}, split-classified: {}",
+            s5.soft_classified, s5.split_classified
+        );
+        println!(
             "  review items created: {}, orphans deleted: {}",
             s5.review_items_created, s5.orphans_deleted
         );

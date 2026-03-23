@@ -9588,6 +9588,190 @@ pub fn classify_wallet_hard_signals(conn: &Connection, wallet_id: &str) -> Resul
     Ok(())
 }
 
+/// Known platform alias patterns for soft-signal classification.
+/// Each entry is (alias_lower exact match, wallet_class).
+const PLATFORM_ALIAS_PATTERNS: &[(&str, &str)] = &[
+    ("fountain", "organization_platform"),
+    ("wavlake", "organization_platform"),
+    ("alby", "organization_platform"),
+    ("breez", "organization_platform"),
+    ("podcast addict", "organization_platform"),
+    ("rss blue", "organization_platform"),
+    ("rssblue", "organization_platform"),
+    ("buzzsprout", "organization_platform"),
+    ("podverse", "organization_platform"),
+    ("podhome", "organization_platform"),
+    ("justcast", "organization_platform"),
+];
+
+/// Known lnaddress domains for soft-signal classification.
+const PLATFORM_LNADDRESS_DOMAINS: &[(&str, &str)] = &[
+    ("getalby.com", "organization_platform"),
+    ("fountain.fm", "organization_platform"),
+    ("wavlake.com", "organization_platform"),
+    ("breez.technology", "organization_platform"),
+];
+
+/// Apply soft-signal classification to a wallet. Produces only `provisional`
+/// confidence from known platform/app alias patterns and lnaddress domains.
+/// Never overrides `high_confidence`, `reviewed`, or `blocked`.
+pub fn classify_wallet_soft_signals(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<bool, DbError> {
+    // Early exit: only classify wallets that are still unknown/provisional
+    let (wallet_class, class_confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wallet_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Other(format!("wallet not found: {wallet_id}")))?;
+
+    if class_confidence != "provisional" || wallet_class != "unknown" {
+        return Ok(false);
+    }
+
+    // Check alias patterns
+    let mut stmt = conn.prepare(
+        "SELECT wa.alias_lower FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         WHERE we.wallet_id = ?1",
+    )?;
+    let aliases: Vec<String> = stmt
+        .query_map(params![wallet_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    for alias in &aliases {
+        for &(pattern, class) in PLATFORM_ALIAS_PATTERNS {
+            if alias == pattern {
+                let now = unix_now();
+                conn.execute(
+                    "UPDATE wallets SET wallet_class = ?1, class_confidence = 'provisional', updated_at = ?2 \
+                     WHERE wallet_id = ?3 AND class_confidence = 'provisional' AND wallet_class = 'unknown'",
+                    params![class, now, wallet_id],
+                )?;
+                return Ok(true);
+            }
+        }
+    }
+
+    // Check lnaddress domains
+    let mut ep_stmt = conn.prepare(
+        "SELECT we.normalized_address FROM wallet_endpoints we \
+         WHERE we.wallet_id = ?1 AND we.route_type = 'lnaddress'",
+    )?;
+    let addresses: Vec<String> = ep_stmt
+        .query_map(params![wallet_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    for addr in &addresses {
+        if let Some(domain) = addr.rsplit_once('@').map(|(_, d)| d) {
+            for &(pattern_domain, class) in PLATFORM_LNADDRESS_DOMAINS {
+                if domain == pattern_domain {
+                    let now = unix_now();
+                    conn.execute(
+                        "UPDATE wallets SET wallet_class = ?1, class_confidence = 'provisional', updated_at = ?2 \
+                         WHERE wallet_id = ?3 AND class_confidence = 'provisional' AND wallet_class = 'unknown'",
+                        params![class, now, wallet_id],
+                    )?;
+                    return Ok(true);
+                }
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+/// Split-shape heuristic thresholds.
+const SPLIT_SMALL_THRESHOLD: i64 = 5; // ≤5% = app-fee level
+const SPLIT_DOMINANT_THRESHOLD: i64 = 50; // ≥50% = primary recipient
+const SPLIT_MIN_FEED_COUNT: usize = 3; // across ≥3 unrelated feeds
+
+/// Apply split-shape heuristics to a wallet. Produces only `provisional`
+/// confidence. Never creates endpoints, auto-merges, or creates artist links.
+pub fn classify_wallet_split_heuristics(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<bool, DbError> {
+    // Early exit: only classify wallets still unknown/provisional
+    let (wallet_class, class_confidence): (String, String) = conn
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wallet_id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Other(format!("wallet not found: {wallet_id}")))?;
+
+    if class_confidence != "provisional" || wallet_class != "unknown" {
+        return Ok(false);
+    }
+
+    // Gather split data across all feeds
+    let mut stmt = conn.prepare(
+        "SELECT pr.split, pr.fee, pr.feed_guid \
+         FROM wallet_endpoints we \
+         JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+         JOIN payment_routes pr ON pr.id = wtrm.route_id \
+         WHERE we.wallet_id = ?1 \
+         UNION ALL \
+         SELECT fpr.split, fpr.fee, fpr.feed_guid \
+         FROM wallet_endpoints we \
+         JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+         JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+         WHERE we.wallet_id = ?1",
+    )?;
+
+    let mut small_nonfee_feeds = std::collections::HashSet::new();
+    let mut has_nonfee = false;
+    let mut all_nonfee_dominant = true;
+    let mut nonfee_feed_guids = std::collections::HashSet::new();
+
+    stmt.query_map(params![wallet_id], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+    })?
+    .filter_map(|r| r.ok())
+    .for_each(|(split, fee, feed_guid)| {
+        if fee == 0 {
+            has_nonfee = true;
+            nonfee_feed_guids.insert(feed_guid.clone());
+            if split <= SPLIT_SMALL_THRESHOLD {
+                small_nonfee_feeds.insert(feed_guid);
+            }
+            if split < SPLIT_DOMINANT_THRESHOLD {
+                all_nonfee_dominant = false;
+            }
+        }
+    });
+
+    let now = unix_now();
+
+    // Repeated small non-fee share across many unrelated feeds → organization_platform
+    if small_nonfee_feeds.len() >= SPLIT_MIN_FEED_COUNT {
+        conn.execute(
+            "UPDATE wallets SET wallet_class = 'organization_platform', class_confidence = 'provisional', updated_at = ?1 \
+             WHERE wallet_id = ?2 AND class_confidence = 'provisional' AND wallet_class = 'unknown'",
+            params![now, wallet_id],
+        )?;
+        return Ok(true);
+    }
+
+    // Dominant non-fee share in few feeds → person_artist
+    if has_nonfee && all_nonfee_dominant && nonfee_feed_guids.len() <= 2 {
+        conn.execute(
+            "UPDATE wallets SET wallet_class = 'person_artist', class_confidence = 'provisional', updated_at = ?1 \
+             WHERE wallet_id = ?2 AND class_confidence = 'provisional' AND wallet_class = 'unknown'",
+            params![now, wallet_id],
+        )?;
+        return Ok(true);
+    }
+
+    Ok(false)
+}
+
 /// Re-derive the display name for a wallet from its grouped endpoints' aliases.
 ///
 /// Uses the first-seen non-empty alias across all endpoints assigned to this
@@ -10182,6 +10366,8 @@ pub fn backfill_wallet_pass3(conn: &Connection) -> Result<WalletBackfillStats, D
 pub struct WalletRefreshStats {
     pub feeds_processed: usize,
     pub merges_from_grouping: usize,
+    pub soft_classified: usize,
+    pub split_classified: usize,
     pub review_items_created: usize,
     pub orphans_deleted: usize,
 }
@@ -10241,6 +10427,38 @@ pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, Db
         }
     }
 
+    // Soft-signal classification (known platform aliases + lnaddress domains)
+    {
+        let mut wstmt = conn.prepare(
+            "SELECT wallet_id FROM wallets \
+             WHERE class_confidence = 'provisional' AND wallet_class = 'unknown'",
+        )?;
+        let provisional_ids: Vec<String> = wstmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for wid in &provisional_ids {
+            if classify_wallet_soft_signals(conn, wid)? {
+                stats.soft_classified += 1;
+            }
+        }
+    }
+
+    // Split-shape heuristics (only for wallets still unknown/provisional after soft signals)
+    {
+        let mut wstmt = conn.prepare(
+            "SELECT wallet_id FROM wallets \
+             WHERE class_confidence = 'provisional' AND wallet_class = 'unknown'",
+        )?;
+        let still_unknown: Vec<String> = wstmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for wid in &still_unknown {
+            if classify_wallet_split_heuristics(conn, wid)? {
+                stats.split_classified += 1;
+            }
+        }
+    }
+
     // Generate review items
     stats.review_items_created = generate_wallet_review_items(conn)?;
 
@@ -10249,4 +10467,258 @@ pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, Db
     stats.orphans_deleted = cleanup.wallets_deleted;
 
     Ok(stats)
+}
+
+// ---------------------------------------------------------------------------
+// Wallet identity review helpers
+// ---------------------------------------------------------------------------
+
+/// Summary of a pending wallet identity review item.
+#[derive(Debug, serde::Serialize)]
+pub struct WalletReviewSummary {
+    pub id: i64,
+    pub wallet_id: String,
+    pub display_name: String,
+    pub wallet_class: String,
+    pub class_confidence: String,
+    pub review_type: String,
+    pub details: Option<String>,
+    pub created_at: i64,
+}
+
+/// Full detail of a wallet for review display.
+#[derive(Debug, serde::Serialize)]
+pub struct WalletDetail {
+    pub wallet_id: String,
+    pub display_name: String,
+    pub wallet_class: String,
+    pub class_confidence: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub endpoints: Vec<WalletEndpointDetail>,
+    pub aliases: Vec<WalletAliasDetail>,
+    pub artist_links: Vec<WalletArtistLinkDetail>,
+    pub feed_guids: Vec<String>,
+    pub overrides: Vec<WalletOverrideDetail>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WalletEndpointDetail {
+    pub id: i64,
+    pub route_type: String,
+    pub normalized_address: String,
+    pub custom_key: String,
+    pub custom_value: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WalletAliasDetail {
+    pub alias: String,
+    pub first_seen_at: i64,
+    pub last_seen_at: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WalletArtistLinkDetail {
+    pub artist_id: String,
+    pub confidence: String,
+    pub evidence_entity_type: String,
+    pub evidence_entity_id: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WalletOverrideDetail {
+    pub id: i64,
+    pub override_type: String,
+    pub target_id: Option<String>,
+    pub value: Option<String>,
+    pub created_at: i64,
+}
+
+/// List pending wallet identity reviews.
+pub fn list_pending_wallet_reviews(
+    conn: &Connection,
+    limit: usize,
+) -> Result<Vec<WalletReviewSummary>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                r.review_type, r.details, r.created_at \
+         FROM wallet_identity_review r \
+         JOIN wallets w ON w.wallet_id = r.wallet_id \
+         WHERE r.status = 'pending' \
+         ORDER BY r.created_at DESC \
+         LIMIT ?1",
+    )?;
+    let rows = stmt
+        .query_map(params![limit as i64], |r| {
+            Ok(WalletReviewSummary {
+                id: r.get(0)?,
+                wallet_id: r.get(1)?,
+                display_name: r.get(2)?,
+                wallet_class: r.get(3)?,
+                class_confidence: r.get(4)?,
+                review_type: r.get(5)?,
+                details: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Get full wallet detail for review display.
+pub fn get_wallet_detail(conn: &Connection, wallet_id: &str) -> Result<Option<WalletDetail>, DbError> {
+    let row = conn
+        .query_row(
+            "SELECT wallet_id, display_name, wallet_class, class_confidence, created_at, updated_at \
+             FROM wallets WHERE wallet_id = ?1",
+            params![wallet_id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                    r.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+
+    let Some((wid, display_name, wallet_class, class_confidence, created_at, updated_at)) = row
+    else {
+        return Ok(None);
+    };
+
+    let mut ep_stmt = conn.prepare(
+        "SELECT id, route_type, normalized_address, custom_key, custom_value \
+         FROM wallet_endpoints WHERE wallet_id = ?1 ORDER BY id",
+    )?;
+    let endpoints: Vec<WalletEndpointDetail> = ep_stmt
+        .query_map(params![wid], |r| {
+            Ok(WalletEndpointDetail {
+                id: r.get(0)?,
+                route_type: r.get(1)?,
+                normalized_address: r.get(2)?,
+                custom_key: r.get(3)?,
+                custom_value: r.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let mut alias_stmt = conn.prepare(
+        "SELECT wa.alias, wa.first_seen_at, wa.last_seen_at \
+         FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         WHERE we.wallet_id = ?1 \
+         ORDER BY wa.first_seen_at ASC, wa.alias_lower ASC",
+    )?;
+    let aliases: Vec<WalletAliasDetail> = alias_stmt
+        .query_map(params![wid], |r| {
+            Ok(WalletAliasDetail {
+                alias: r.get(0)?,
+                first_seen_at: r.get(1)?,
+                last_seen_at: r.get(2)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let mut link_stmt = conn.prepare(
+        "SELECT artist_id, confidence, evidence_entity_type, evidence_entity_id \
+         FROM wallet_artist_links WHERE wallet_id = ?1 ORDER BY artist_id",
+    )?;
+    let artist_links: Vec<WalletArtistLinkDetail> = link_stmt
+        .query_map(params![wid], |r| {
+            Ok(WalletArtistLinkDetail {
+                artist_id: r.get(0)?,
+                confidence: r.get(1)?,
+                evidence_entity_type: r.get(2)?,
+                evidence_entity_id: r.get(3)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let mut feed_stmt = conn.prepare(
+        "SELECT DISTINCT fg FROM ( \
+             SELECT pr.feed_guid AS fg FROM wallet_endpoints we \
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             WHERE we.wallet_id = ?1 \
+             UNION \
+             SELECT fpr.feed_guid AS fg FROM wallet_endpoints we \
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+             WHERE we.wallet_id = ?1 \
+         ) ORDER BY fg",
+    )?;
+    let feed_guids: Vec<String> = feed_stmt
+        .query_map(params![wid], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let mut override_stmt = conn.prepare(
+        "SELECT id, override_type, target_id, value, created_at \
+         FROM wallet_identity_override WHERE wallet_id = ?1 ORDER BY created_at DESC",
+    )?;
+    let overrides: Vec<WalletOverrideDetail> = override_stmt
+        .query_map(params![wid], |r| {
+            Ok(WalletOverrideDetail {
+                id: r.get(0)?,
+                override_type: r.get(1)?,
+                target_id: r.get(2)?,
+                value: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    Ok(Some(WalletDetail {
+        wallet_id: wid,
+        display_name,
+        wallet_class,
+        class_confidence,
+        created_at,
+        updated_at,
+        endpoints,
+        aliases,
+        artist_links,
+        feed_guids,
+        overrides,
+    }))
+}
+
+/// Store a wallet identity override and resolve the associated review.
+pub fn set_wallet_identity_override_for_review(
+    conn: &Connection,
+    review_id: i64,
+    override_type: &str,
+    target_id: Option<&str>,
+    value: Option<&str>,
+) -> Result<(), DbError> {
+    let now = unix_now();
+
+    // Look up the review to get the wallet_id
+    let wallet_id: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
+            params![review_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Other(format!("wallet identity review not found: {review_id}")))?;
+
+    // Insert the override
+    conn.execute(
+        "INSERT INTO wallet_identity_override (override_type, wallet_id, target_id, value, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![override_type, wallet_id, target_id, value, now],
+    )?;
+
+    // Resolve the review
+    conn.execute(
+        "UPDATE wallet_identity_review SET status = 'resolved', resolved_at = ?1 WHERE id = ?2",
+        params![now, review_id],
+    )?;
+
+    Ok(())
 }
