@@ -85,6 +85,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "  feeds processed: {}, merges from overrides: {}, merges from grouping: {}",
             s5.feeds_processed, s5.merges_from_overrides, s5.merges_from_grouping
         );
+        if let Some(batch_id) = s5.apply_batch_id {
+            println!("  apply batch id: {}", batch_id);
+        }
         println!(
             "  soft-classified: {}, split-classified: {}",
             s5.soft_classified, s5.split_classified

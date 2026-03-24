@@ -1805,6 +1805,7 @@ fn backfill_refresh_applies_wallet_merge_overrides() {
 
     let stats = db::backfill_wallet_pass5(&conn).unwrap();
     assert_eq!(stats.merges_from_overrides, 1);
+    assert!(stats.apply_batch_id.is_some());
 
     let ep2_wallet: String = conn
         .query_row(
@@ -1823,6 +1824,70 @@ fn backfill_refresh_applies_wallet_merge_overrides() {
         )
         .unwrap();
     assert_eq!(redirect_target, w1);
+}
+
+#[test]
+fn undo_last_wallet_merge_batch_restores_wallets() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "undo-left", "", "", Some("Alice"), now)
+        .unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "undo-right", "", "", Some("Alice"), now)
+            .unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let review_id: i64 = conn
+        .query_row(
+            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
+            params![w2, now],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    db::set_wallet_identity_override_for_review(&conn, review_id, "merge", Some(&w1), None)
+        .unwrap();
+    let apply_stats = db::backfill_wallet_pass5(&conn).unwrap();
+    assert_eq!(apply_stats.merges_from_overrides, 1);
+
+    let undo_stats = db::undo_last_wallet_merge_batch(&conn)
+        .unwrap()
+        .expect("expected undo batch");
+    assert_eq!(undo_stats.merges_reverted, 1);
+
+    let old_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(old_exists, "old wallet should be restored");
+
+    let ep2_wallet: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1",
+            params![ep2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        ep2_wallet, w2,
+        "endpoint should move back to restored wallet"
+    );
+
+    let redirect_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallet_id_redirect WHERE old_wallet_id = ?1)",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!redirect_exists, "undo should remove the applied redirect");
 }
 
 #[test]

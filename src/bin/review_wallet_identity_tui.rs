@@ -66,6 +66,12 @@ struct EvidenceBranch {
     default_collapsed: bool,
 }
 
+#[derive(Debug, Clone)]
+struct SummaryDialog {
+    title: String,
+    lines: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SectionState {
     routes: bool,
@@ -145,6 +151,7 @@ struct App {
     evidence_rows: Vec<EvidenceRow>,
     sections: SectionState,
     collapsed_item_keys: BTreeSet<String>,
+    dialog: Option<SummaryDialog>,
     focus: Focus,
     status: String,
 }
@@ -197,10 +204,13 @@ fn parse_args() -> Result<Args, String> {
                      Keys:\n\
                      q            Quit\n\
                      Tab          Cycle focus: groups -> source -> feeds -> evidence\n\
-                     Left/Right   Move focus\n\
+                    Left/Right   Move focus\n\
+                     [/]          Previous/next wallet to merge\n\
                      Up/Down      Move selection in focused pane\n\
                      Enter/Space  Expand/collapse selected evidence tree item\n\
+                     a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
+                     u            Undo last applied merge batch\n\
                      x            Mark selected wallet as different from the main wallet\n\
                      c            Cycle main wallet class (also sets confidence to reviewed)\n\
                      v            Cycle main wallet confidence\n\
@@ -266,6 +276,7 @@ impl App {
             evidence_rows: Vec::new(),
             sections: SectionState::default(),
             collapsed_item_keys: BTreeSet::new(),
+            dialog: None,
             focus: Focus::Groups,
             status: String::from("Loading review groups"),
         };
@@ -659,6 +670,24 @@ impl App {
         };
     }
 
+    fn previous_candidate(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.selected_candidate > 0 {
+            self.selected_candidate -= 1;
+            self.candidate_state.select(Some(self.selected_candidate));
+            self.load_selected_candidate()?;
+        }
+        Ok(())
+    }
+
+    fn next_candidate(&mut self) -> Result<(), Box<dyn Error>> {
+        if self.selected_candidate + 1 < self.candidate_wallets.len() {
+            self.selected_candidate += 1;
+            self.candidate_state.select(Some(self.selected_candidate));
+            self.load_selected_candidate()?;
+        }
+        Ok(())
+    }
+
     fn move_down(&mut self) -> Result<(), Box<dyn Error>> {
         match self.focus {
             Focus::Groups => {
@@ -969,6 +998,60 @@ impl App {
         );
         self.reload()?;
         self.status = status;
+        Ok(())
+    }
+
+    fn apply_reviewed_merges(&mut self) -> Result<(), Box<dyn Error>> {
+        let stats = stophammer::db::backfill_wallet_pass5(&self.conn)?;
+        let mut lines = vec![
+            format!("operator merges applied: {}", stats.merges_from_overrides),
+            format!("heuristic merges applied: {}", stats.merges_from_grouping),
+            format!("soft classified: {}", stats.soft_classified),
+            format!("split classified: {}", stats.split_classified),
+            format!("review items created: {}", stats.review_items_created),
+            format!("orphans deleted: {}", stats.orphans_deleted),
+        ];
+        if let Some(batch_id) = stats.apply_batch_id {
+            lines.insert(0, format!("apply batch id: {}", batch_id));
+        }
+        let status = format!(
+            "Applied merges: {} operator, {} heuristic",
+            stats.merges_from_overrides, stats.merges_from_grouping
+        );
+        self.reload()?;
+        self.status = status;
+        self.dialog = Some(SummaryDialog {
+            title: "Apply Summary".to_string(),
+            lines,
+        });
+        Ok(())
+    }
+
+    fn undo_last_apply_batch(&mut self) -> Result<(), Box<dyn Error>> {
+        let result = stophammer::db::undo_last_wallet_merge_batch(&self.conn)?;
+        let Some(stats) = result else {
+            self.status = "No applied merge batch to undo".to_string();
+            self.dialog = Some(SummaryDialog {
+                title: "Undo Summary".to_string(),
+                lines: vec!["No applied merge batch to undo.".to_string()],
+            });
+            return Ok(());
+        };
+
+        let status = format!(
+            "Undid merge batch {} ({} merges reverted)",
+            stats.batch_id, stats.merges_reverted
+        );
+        self.reload()?;
+        self.status = status;
+        self.dialog = Some(SummaryDialog {
+            title: "Undo Summary".to_string(),
+            lines: vec![
+                format!("batch id: {}", stats.batch_id),
+                format!("merges reverted: {}", stats.merges_reverted),
+                "merge materialization was rolled back".to_string(),
+            ],
+        });
         Ok(())
     }
 }
@@ -1986,7 +2069,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title("Choose Wallet To Merge", Color::Yellow))
+                .title(styled_title("Choose Wallet To Merge [ / ]", Color::Yellow))
                 .border_style(block_style(app.focus == Focus::Candidates))
                 .border_type(block_border_type(app.focus == Focus::Candidates)),
         )
@@ -2092,9 +2175,47 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(
-        "Wallet Review TUI  Tab/Left/Right: focus  Up/Down: move  Enter: toggle tree item  m: merge into main  x: do not merge  c: cycle class  v: cycle confidence  z: revert edits  r: reload  q: quit",
+        "Wallet Review TUI  Tab/Left/Right: focus  [ / ]: merge target  Up/Down: move  Enter: toggle tree item  a: apply  u: undo batch  m: merge into main  x: do not merge  c: cycle class  v: cycle confidence  z: revert edits  r: reload  q: quit",
     );
     frame.render_widget(footer, root[2]);
+
+    if let Some(dialog) = &app.dialog {
+        let popup = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(30),
+                Constraint::Length((dialog.lines.len() as u16).saturating_add(4)),
+                Constraint::Percentage(30),
+            ])
+            .split(frame.area());
+        let row = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Percentage(25),
+                Constraint::Percentage(50),
+                Constraint::Percentage(25),
+            ])
+            .split(popup[1]);
+        let dialog_text = dialog
+            .lines
+            .iter()
+            .map(|line| Line::from(line.clone()))
+            .collect::<Vec<_>>();
+        let dialog_widget = Paragraph::new(dialog_text)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_type(BorderType::Thick)
+                    .border_style(
+                        Style::default()
+                            .fg(Color::White)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                    .title(styled_title(&dialog.title, Color::White)),
+            )
+            .wrap(Wrap { trim: false });
+        frame.render_widget(dialog_widget, row[1]);
+    }
 }
 
 fn run_app(
@@ -2112,10 +2233,22 @@ fn run_app(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        if app.dialog.is_some() {
+            match key.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char(' ') => {
+                    app.dialog = None;
+                }
+                _ => {}
+            }
+            continue;
+        }
         match key.code {
             KeyCode::Char('q') => return Ok(()),
             KeyCode::Tab | KeyCode::Right => app.next_focus(),
             KeyCode::BackTab | KeyCode::Left => app.previous_focus(),
+            KeyCode::Char('[') => app.previous_candidate()?,
+            KeyCode::Char(']') => app.next_candidate()?,
             KeyCode::Down => app.move_down()?,
             KeyCode::Up => app.move_up()?,
             KeyCode::Home => app.jump_top()?,
@@ -2123,8 +2256,14 @@ fn run_app(
             KeyCode::Enter | KeyCode::Char(' ') if app.focus == Focus::Evidence => {
                 app.toggle_selected_section();
             }
+            KeyCode::Char('a') => {
+                app.apply_reviewed_merges()?;
+            }
             KeyCode::Char('m') => {
                 app.approve_merge()?;
+            }
+            KeyCode::Char('u') => {
+                app.undo_last_apply_batch()?;
             }
             KeyCode::Char('x') => {
                 app.reject_review()?;
