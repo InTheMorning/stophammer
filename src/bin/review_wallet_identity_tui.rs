@@ -2175,7 +2175,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(
-        "Wallet Review TUI  Tab/Left/Right: focus  [ / ]: merge target  Up/Down: move  Enter: toggle tree item  a: apply  u: undo batch  m: merge into main  x: do not merge  c: cycle class  v: cycle confidence  z: revert edits  r: reload  q: quit",
+        "Wallet Review TUI  TAB/LEFT/RIGHT: focus  [ / ]: merge target  UP/DOWN: move  ENTER: toggle tree item  A: apply  U: undo batch  M: merge into main  X: do not merge  C: cycle class  V: cycle confidence  Z: revert edits  R: reload  Q: quit",
     );
     frame.render_widget(footer, root[2]);
 
