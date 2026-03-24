@@ -83,7 +83,13 @@ pub fn run_batch_with_signer(
     let anchored_cache = db::precompute_anchored_name_groups(&conn)?;
 
     for entry in claimed {
-        match resolve_feed(&mut conn, &entry.feed_guid, entry.dirty_mask, signer, Some(&anchored_cache)) {
+        match resolve_feed(
+            &mut conn,
+            &entry.feed_guid,
+            entry.dirty_mask,
+            signer,
+            Some(&anchored_cache),
+        ) {
             Ok(feed_result) => {
                 db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
                 result.resolved += 1;
@@ -168,7 +174,12 @@ fn resolve_feed(
         }
     }
     if dirty_mask & crate::resolver::queue::DIRTY_ARTIST_IDENTITY != 0 {
-        let stats = db::resolve_artist_identity_for_feed_with_signer(conn, feed_guid, signer, anchored_cache)?;
+        let stats = db::resolve_artist_identity_for_feed_with_signer(
+            conn,
+            feed_guid,
+            signer,
+            anchored_cache,
+        )?;
         result.artist_merge_events_emitted = stats.merge_events_emitted;
         if let Some(signer) = signer {
             let _event =

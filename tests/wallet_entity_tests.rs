@@ -37,20 +37,41 @@ fn seed_feed_and_track(conn: &rusqlite::Connection) -> i64 {
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
          explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7)",
-        params!["feed-w", "https://example.com/feed.xml", "Wallet Feed", "wallet feed", credit_id, now, now],
+        params![
+            "feed-w",
+            "https://example.com/feed.xml",
+            "Wallet Feed",
+            "wallet feed",
+            credit_id,
+            now,
+            now
+        ],
     )
     .unwrap();
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          explicit, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
-        params!["track-w", "feed-w", credit_id, "Wallet Track", "wallet track", now, now],
+        params![
+            "track-w",
+            "feed-w",
+            credit_id,
+            "Wallet Track",
+            "wallet track",
+            now,
+            now
+        ],
     )
     .unwrap();
     now
 }
 
-fn insert_track_route(conn: &rusqlite::Connection, track_guid: &str, name: &str, address: &str) -> i64 {
+fn insert_track_route(
+    conn: &rusqlite::Connection,
+    track_guid: &str,
+    name: &str,
+    address: &str,
+) -> i64 {
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
          VALUES (?1, 'feed-w', ?2, 'keysend', ?3, 100, 0)",
@@ -60,7 +81,12 @@ fn insert_track_route(conn: &rusqlite::Connection, track_guid: &str, name: &str,
     conn.last_insert_rowid()
 }
 
-fn insert_feed_route(conn: &rusqlite::Connection, feed_guid: &str, name: &str, address: &str) -> i64 {
+fn insert_feed_route(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    name: &str,
+    address: &str,
+) -> i64 {
     conn.execute(
         "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
          VALUES (?1, ?2, 'keysend', ?3, 100, 0)",
@@ -71,11 +97,13 @@ fn insert_feed_route(conn: &rusqlite::Connection, feed_guid: &str, name: &str, a
 }
 
 fn endpoint_count(conn: &rusqlite::Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap()
+    conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))
+        .unwrap()
 }
 
 fn alias_count(conn: &rusqlite::Connection) -> i64 {
-    conn.query_row("SELECT COUNT(*) FROM wallet_aliases", [], |r| r.get(0)).unwrap()
+    conn.query_row("SELECT COUNT(*) FROM wallet_aliases", [], |r| r.get(0))
+        .unwrap()
 }
 
 // ---------------------------------------------------------------------------
@@ -84,10 +112,22 @@ fn alias_count(conn: &rusqlite::Connection) -> i64 {
 
 #[test]
 fn normalize_trims_and_lowercases() {
-    assert_eq!(db::normalize_wallet_address("lnaddress", " Alice@Example.COM "), "alice@example.com");
-    assert_eq!(db::normalize_wallet_address("keysend", "  0xABCDEF  "), "0xabcdef");
-    assert_eq!(db::normalize_wallet_address("node", " PubKey123 "), "pubkey123");
-    assert_eq!(db::normalize_wallet_address("wallet", " WALLET_ADDR "), "wallet_addr");
+    assert_eq!(
+        db::normalize_wallet_address("lnaddress", " Alice@Example.COM "),
+        "alice@example.com"
+    );
+    assert_eq!(
+        db::normalize_wallet_address("keysend", "  0xABCDEF  "),
+        "0xabcdef"
+    );
+    assert_eq!(
+        db::normalize_wallet_address("node", " PubKey123 "),
+        "pubkey123"
+    );
+    assert_eq!(
+        db::normalize_wallet_address("wallet", " WALLET_ADDR "),
+        "wallet_addr"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -99,8 +139,11 @@ fn same_address_different_labels_one_endpoint() {
     let conn = common::test_db();
     let now = common::now();
 
-    let id1 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
-    let id2 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("ALICE"), now + 1).unwrap();
+    let id1 =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let id2 =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("ALICE"), now + 1)
+            .unwrap();
 
     assert_eq!(id1, id2, "same normalized address should reuse endpoint");
     assert_eq!(endpoint_count(&conn), 1);
@@ -125,8 +168,26 @@ fn keysend_with_distinct_custom_values_create_separate_endpoints() {
     let conn = common::test_db();
     let now = common::now();
 
-    let id1 = db::get_or_create_endpoint(&conn, "keysend", "node123", "7629169", "podcast1", Some("Alice"), now).unwrap();
-    let id2 = db::get_or_create_endpoint(&conn, "keysend", "node123", "7629169", "podcast2", Some("Bob"), now).unwrap();
+    let id1 = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "node123",
+        "7629169",
+        "podcast1",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let id2 = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "node123",
+        "7629169",
+        "podcast2",
+        Some("Bob"),
+        now,
+    )
+    .unwrap();
 
     assert_ne!(id1, id2);
     assert_eq!(endpoint_count(&conn), 2);
@@ -138,7 +199,16 @@ fn pass_1_creates_no_wallets() {
     let now = common::now();
 
     db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
-    db::get_or_create_endpoint(&conn, "lnaddress", "alice@example.com", "", "", Some("Alice"), now).unwrap();
+    db::get_or_create_endpoint(
+        &conn,
+        "lnaddress",
+        "alice@example.com",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
 
     let wallet_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
@@ -152,7 +222,10 @@ fn pass_1_creates_no_wallets() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(null_wallet_count, 2, "all endpoints should have NULL wallet_id");
+    assert_eq!(
+        null_wallet_count, 2,
+        "all endpoints should have NULL wallet_id"
+    );
 }
 
 #[test]
@@ -228,13 +301,16 @@ fn route_map_insert_is_idempotent() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
     let route_id = insert_track_route(&conn, "track-w", "Alice", "abc123");
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
 
     db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
 
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM wallet_track_route_map", [], |r| r.get(0))
+        .query_row("SELECT COUNT(*) FROM wallet_track_route_map", [], |r| {
+            r.get(0)
+        })
         .unwrap();
     assert_eq!(count, 1);
 }
@@ -244,10 +320,31 @@ fn address_normalization_deduplicates_case_variants() {
     let conn = common::test_db();
     let now = common::now();
 
-    let id1 = db::get_or_create_endpoint(&conn, "lnaddress", "Alice@Example.COM", "", "", Some("Alice"), now).unwrap();
-    let id2 = db::get_or_create_endpoint(&conn, "lnaddress", "alice@example.com", "", "", Some("Alice"), now).unwrap();
+    let id1 = db::get_or_create_endpoint(
+        &conn,
+        "lnaddress",
+        "Alice@Example.COM",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let id2 = db::get_or_create_endpoint(
+        &conn,
+        "lnaddress",
+        "alice@example.com",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
 
-    assert_eq!(id1, id2, "case-insensitive address should match same endpoint");
+    assert_eq!(
+        id1, id2,
+        "case-insensitive address should match same endpoint"
+    );
     assert_eq!(endpoint_count(&conn), 1);
 }
 
@@ -260,8 +357,18 @@ fn provisional_wallet_per_endpoint() {
     let conn = common::test_db();
     let now = common::now();
 
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "lnaddress", "bob@example.com", "", "", Some("Bob"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep2 = db::get_or_create_endpoint(
+        &conn,
+        "lnaddress",
+        "bob@example.com",
+        "",
+        "",
+        Some("Bob"),
+        now,
+    )
+    .unwrap();
 
     let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
     let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
@@ -283,14 +390,22 @@ fn provisional_wallet_per_endpoint() {
 fn provisional_wallet_uses_first_alias_as_display_name() {
     let conn = common::test_db();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), 1000).unwrap();
+    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), 1000)
+        .unwrap();
     db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Bob"), 2000).unwrap();
 
     let wid = db::create_provisional_wallet(&conn, ep, 3000).unwrap();
     let name: String = conn
-        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT display_name FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert_eq!(name, "Alice", "display_name should be the earliest-seen alias");
+    assert_eq!(
+        name, "Alice",
+        "display_name should be the earliest-seen alias"
+    );
 }
 
 #[test]
@@ -302,9 +417,16 @@ fn endpoint_without_alias_gets_placeholder_name() {
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let name: String = conn
-        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT display_name FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert!(name.starts_with("endpoint-"), "should use placeholder: {name}");
+    assert!(
+        name.starts_with("endpoint-"),
+        "should use placeholder: {name}"
+    );
 }
 
 #[test]
@@ -321,7 +443,9 @@ fn fee_true_classifies_as_bot_service_high_confidence() {
     .unwrap();
     let route_id = conn.last_insert_rowid();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "feenode123", "", "", Some("App Fee"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "feenode123", "", "", Some("App Fee"), now)
+            .unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
@@ -351,7 +475,16 @@ fn operator_override_takes_precedence() {
     .unwrap();
     let route_id = conn.last_insert_rowid();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "overnode", "", "", Some("Overridden"), now).unwrap();
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "overnode",
+        "",
+        "",
+        Some("Overridden"),
+        now,
+    )
+    .unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
@@ -381,7 +514,16 @@ fn label_alone_stays_unknown_provisional() {
     let conn = common::test_db();
     let now = common::now();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "fountain123", "", "", Some("Fountain"), now).unwrap();
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "fountain123",
+        "",
+        "",
+        Some("Fountain"),
+        now,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
 
@@ -392,7 +534,10 @@ fn label_alone_stays_unknown_provisional() {
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap();
-    assert_eq!(class, "unknown", "name alone should not drive classification");
+    assert_eq!(
+        class, "unknown",
+        "name alone should not drive classification"
+    );
     assert_eq!(confidence, "provisional");
 }
 
@@ -406,11 +551,23 @@ fn same_feed_artist_credit_match_creates_link() {
     let now = seed_feed_and_track(&conn);
 
     // The feed's artist credit name is "Wallet Artist" with artist_id "artist-w"
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Wallet Artist"), now).unwrap();
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "abc123",
+        "",
+        "",
+        Some("Wallet Artist"),
+        now,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let linked = db::link_wallet_to_artist_if_confident(&conn, &wid, "feed-w").unwrap();
-    assert!(linked, "should create link when alias matches feed artist credit");
+    assert!(
+        linked,
+        "should create link when alias matches feed artist credit"
+    );
 
     let link_count: i64 = conn
         .query_row(
@@ -435,7 +592,16 @@ fn bot_service_high_confidence_skipped_for_artist_linking() {
     .unwrap();
     let route_id = conn.last_insert_rowid();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "feebot", "", "", Some("Wallet Artist"), now).unwrap();
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "feebot",
+        "",
+        "",
+        Some("Wallet Artist"),
+        now,
+    )
+    .unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep, now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
@@ -453,8 +619,11 @@ fn wallet_merge_repoints_endpoints_and_creates_redirect() {
     let conn = common::test_db();
     let now = common::now();
 
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def456", "", "", Some("Alice Alt"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "def456", "", "", Some("Alice Alt"), now)
+            .unwrap();
 
     let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
     let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
@@ -525,7 +694,8 @@ fn cleanup_removes_orphaned_wallets() {
     let conn = common::test_db();
     let now = common::now();
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     // Unassign the endpoint (simulates the endpoint being repointed elsewhere)
@@ -553,15 +723,21 @@ fn display_name_rederived_after_merge() {
     let conn = common::test_db();
 
     // ep1 has alias "Bob" at t=2000, ep2 has alias "Alice" at t=1000
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("Bob"), 2000).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("Alice"), 1000).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("Bob"), 2000).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("Alice"), 1000).unwrap();
 
     let w1 = db::create_provisional_wallet(&conn, ep1, 3000).unwrap();
     let w2 = db::create_provisional_wallet(&conn, ep2, 3000).unwrap();
 
     // Before merge, w1 display_name is "Bob"
     let name: String = conn
-        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![w1], |r| r.get(0))
+        .query_row(
+            "SELECT display_name FROM wallets WHERE wallet_id = ?1",
+            params![w1],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(name, "Bob");
 
@@ -569,9 +745,16 @@ fn display_name_rederived_after_merge() {
     db::merge_wallets(&conn, &w2, &w1).unwrap();
 
     let name: String = conn
-        .query_row("SELECT display_name FROM wallets WHERE wallet_id = ?1", params![w1], |r| r.get(0))
+        .query_row(
+            "SELECT display_name FROM wallets WHERE wallet_id = ?1",
+            params![w1],
+            |r| r.get(0),
+        )
         .unwrap();
-    assert_eq!(name, "Alice", "display name should be re-derived from first-seen alias");
+    assert_eq!(
+        name, "Alice",
+        "display name should be re-derived from first-seen alias"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -588,29 +771,34 @@ fn backfill_is_idempotent() {
         "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
          VALUES ('art-bf', 'BF Artist', 'bf artist', ?1, ?2)",
         params![now, now],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO artist_credit (display_name, created_at) VALUES ('BF Artist', ?1)",
         params![now],
-    ).unwrap();
+    )
+    .unwrap();
     let credit_id = conn.last_insert_rowid();
     conn.execute(
         "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
          VALUES (?1, 'art-bf', 0, 'BF Artist', '')",
         params![credit_id],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
          explicit, episode_count, created_at, updated_at) \
          VALUES ('feed-bf', 'https://example.com/bf.xml', 'BF Feed', 'bf feed', ?1, 0, 0, ?2, ?3)",
         params![credit_id, now, now],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          explicit, created_at, updated_at) \
          VALUES ('track-bf', 'feed-bf', ?1, 'BF Track', 'bf track', 0, ?2, ?3)",
         params![credit_id, now, now],
-    ).unwrap();
+    )
+    .unwrap();
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
          VALUES ('track-bf', 'feed-bf', 'BF Artist', 'keysend', 'bfaddr', 95, 0)",
@@ -629,7 +817,10 @@ fn backfill_is_idempotent() {
 
     // Run passes 1-3
     let s1 = db::backfill_wallet_pass1(&conn).unwrap();
-    assert!(s1.endpoints_created >= 2, "should create at least 2 endpoints");
+    assert!(
+        s1.endpoints_created >= 2,
+        "should create at least 2 endpoints"
+    );
 
     let s2 = db::backfill_wallet_pass2(&conn).unwrap();
     assert!(s2.wallets_created >= 2);
@@ -637,22 +828,40 @@ fn backfill_is_idempotent() {
     let s3 = db::backfill_wallet_pass3(&conn).unwrap();
 
     // Capture counts
-    let ep_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap();
-    let wallet_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0)).unwrap();
-    let link_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0)).unwrap();
+    let ep_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))
+        .unwrap();
+    let wallet_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
+        .unwrap();
+    let link_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0))
+        .unwrap();
 
     // Run again — should be idempotent
     let s1b = db::backfill_wallet_pass1(&conn).unwrap();
-    assert_eq!(s1b.endpoints_created, 0, "second run should create no new endpoints");
+    assert_eq!(
+        s1b.endpoints_created, 0,
+        "second run should create no new endpoints"
+    );
 
     let s2b = db::backfill_wallet_pass2(&conn).unwrap();
-    assert_eq!(s2b.wallets_created, 0, "second run should create no new wallets");
+    assert_eq!(
+        s2b.wallets_created, 0,
+        "second run should create no new wallets"
+    );
 
     db::backfill_wallet_pass3(&conn).unwrap();
 
-    let ep2: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap();
-    let w2: i64 = conn.query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0)).unwrap();
-    let l2: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0)).unwrap();
+    let ep2: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))
+        .unwrap();
+    let w2: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallets", [], |r| r.get(0))
+        .unwrap();
+    let l2: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0))
+        .unwrap();
 
     assert_eq!(ep_count, ep2, "endpoint count should not change");
     assert_eq!(wallet_count, w2, "wallet count should not change");
@@ -678,7 +887,10 @@ fn fee_true_wallet_gets_no_artist_link_in_backfill() {
     let link_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(link_count, 0, "fee=true wallet should get no artist link even if name matches");
+    assert_eq!(
+        link_count, 0,
+        "fee=true wallet should get no artist link even if name matches"
+    );
 }
 
 #[test]
@@ -705,7 +917,10 @@ fn per_feed_resolver_creates_endpoints_and_wallets() {
 
     let stats = db::resolve_wallet_identity_for_feed(&conn, "feed-w").unwrap();
 
-    assert_eq!(stats.endpoints_created, 2, "should create 2 distinct endpoints");
+    assert_eq!(
+        stats.endpoints_created, 2,
+        "should create 2 distinct endpoints"
+    );
     assert_eq!(stats.wallets_created, 2, "should create 2 wallets");
     assert_eq!(stats.track_maps_created, 2, "2 track routes mapped");
     assert_eq!(stats.feed_maps_created, 1, "1 feed route mapped");
@@ -759,7 +974,16 @@ async fn get_wallet_endpoint_returns_wallet_details() {
     {
         let conn = db.lock().unwrap();
         let now = common::now();
-        let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "7629169", "pod1", Some("Alice"), now).unwrap();
+        let ep = db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "abc123",
+            "7629169",
+            "pod1",
+            Some("Alice"),
+            now,
+        )
+        .unwrap();
         wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
     }
     let state = test_app_state(db);
@@ -792,8 +1016,10 @@ async fn get_wallet_follows_redirect() {
     {
         let conn = db.lock().unwrap();
         let now = common::now();
-        let ep1 = db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("A"), now).unwrap();
-        let ep2 = db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("B"), now).unwrap();
+        let ep1 =
+            db::get_or_create_endpoint(&conn, "keysend", "abc", "", "", Some("A"), now).unwrap();
+        let ep2 =
+            db::get_or_create_endpoint(&conn, "keysend", "def", "", "", Some("B"), now).unwrap();
         old_wid = db::create_provisional_wallet(&conn, ep1, now).unwrap();
         new_wid = db::create_provisional_wallet(&conn, ep2, now).unwrap();
         db::merge_wallets(&conn, &old_wid, &new_wid).unwrap();
@@ -847,8 +1073,10 @@ fn same_feed_same_name_endpoints_grouped() {
     ).unwrap();
     let r2 = conn.last_insert_rowid();
 
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
     db::map_track_route_to_endpoint(&conn, r1, ep1, now).unwrap();
     db::map_track_route_to_endpoint(&conn, r2, ep2, now).unwrap();
     db::create_provisional_wallet(&conn, ep1, now).unwrap();
@@ -881,8 +1109,10 @@ fn fee_vs_nonfee_same_name_not_grouped() {
     ).unwrap();
     let r2 = conn.last_insert_rowid();
 
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
     db::map_track_route_to_endpoint(&conn, r1, ep1, now).unwrap();
     db::map_track_route_to_endpoint(&conn, r2, ep2, now).unwrap();
     let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
@@ -906,13 +1136,18 @@ fn review_items_created_for_cross_wallet_aliases() {
     let now = common::now();
 
     // Two endpoints with same alias but different wallets
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
     db::create_provisional_wallet(&conn, ep1, now).unwrap();
     db::create_provisional_wallet(&conn, ep2, now).unwrap();
 
     let created = db::generate_wallet_review_items(&conn).unwrap();
-    assert!(created >= 2, "should create review items for both wallets sharing 'alice'");
+    assert!(
+        created >= 2,
+        "should create review items for both wallets sharing 'alice'"
+    );
 
     let pending: i64 = conn
         .query_row(
@@ -928,6 +1163,121 @@ fn review_items_created_for_cross_wallet_aliases() {
     assert_eq!(created2, 0, "should not create duplicate review items");
 }
 
+#[test]
+fn wallet_claim_feeds_include_routes_and_source_claims() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let route_id = insert_feed_route(&conn, "feed-w", "Alice", "addr-claims");
+    let endpoint =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-claims", "", "", Some("Alice"), now)
+            .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_id, endpoint, now).unwrap();
+    let wallet_id = db::create_provisional_wallet(&conn, endpoint, now).unwrap();
+
+    db::replace_source_contributor_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            name: "Wallet Artist".into(),
+            role: Some("artist".into()),
+            role_norm: Some("artist".into()),
+            group_name: None,
+            href: Some("https://example.com/artist".into()),
+            img: None,
+            source: "test".into(),
+            extraction_path: "feed.person".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1walletclaim".into(),
+            source: "test".into(),
+            extraction_path: "feed.value".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_entity_links_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            link_type: "website".into(),
+            url: "https://example.com/feed".into(),
+            source: "test".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_release_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceReleaseClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            claim_type: "description".into(),
+            claim_value: "Feed description".into(),
+            source: "test".into(),
+            extraction_path: "feed.description".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_platform_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            platform_key: "wavlake".into(),
+            url: Some("https://wavlake.com/feed-w".into()),
+            owner_name: Some("Wavlake".into()),
+            source: "test".into(),
+            extraction_path: "feed.platform".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+
+    let claim_feeds = db::get_wallet_claim_feeds(&conn, &wallet_id).unwrap();
+    assert_eq!(claim_feeds.len(), 1, "wallet should touch one feed");
+    assert_eq!(claim_feeds[0].feed_guid, "feed-w");
+    assert_eq!(
+        claim_feeds[0].routes.len(),
+        1,
+        "route evidence should be included"
+    );
+    assert_eq!(claim_feeds[0].contributor_claims.len(), 1);
+    assert_eq!(claim_feeds[0].entity_id_claims.len(), 1);
+    assert_eq!(claim_feeds[0].link_claims.len(), 1);
+    assert_eq!(claim_feeds[0].release_claims.len(), 1);
+    assert_eq!(claim_feeds[0].platform_claims.len(), 1);
+}
+
 // ---- Soft-signal classification tests ----
 
 #[test]
@@ -935,12 +1285,25 @@ fn soft_signal_fountain_alias() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "7629169", "fountain_pod", Some("Fountain"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "abc123",
+        "7629169",
+        "fountain_pod",
+        Some("Fountain"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Should still be unknown/provisional after hard signals (no fee, no override)
     let (class, conf): (String, String) = conn
-        .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(class, "unknown");
     assert_eq!(conf, "provisional");
@@ -949,7 +1312,11 @@ fn soft_signal_fountain_alias() {
     assert!(classified);
 
     let (class, conf): (String, String) = conn
-        .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(class, "organization_platform");
     assert_eq!(conf, "provisional");
@@ -962,14 +1329,24 @@ fn soft_signal_no_override_high_confidence() {
 
     // Create endpoint and map route BEFORE creating wallet (so hard signals can find fee=true)
     let route_id = insert_track_route(&conn, "track-w", "Fountain", "abc123");
-    conn.execute("UPDATE payment_routes SET fee = 1 WHERE id = ?1", params![route_id]).unwrap();
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Fountain"), 1000).unwrap();
+    conn.execute(
+        "UPDATE payment_routes SET fee = 1 WHERE id = ?1",
+        params![route_id],
+    )
+    .unwrap();
+    let ep_id =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Fountain"), 1000)
+            .unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep_id, 1000).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
 
     let (class, conf): (String, String) = conn
-        .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(class, "bot_service");
     assert_eq!(conf, "high_confidence");
@@ -979,7 +1356,11 @@ fn soft_signal_no_override_high_confidence() {
     assert!(!classified);
 
     let (class2, conf2): (String, String) = conn
-        .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(class2, "bot_service");
     assert_eq!(conf2, "high_confidence");
@@ -990,7 +1371,9 @@ fn soft_signal_no_override_reviewed() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Fountain"), 1000).unwrap();
+    let ep_id =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Fountain"), 1000)
+            .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Force to reviewed via override
@@ -1009,14 +1392,27 @@ fn soft_signal_lnaddress_domain() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "lnaddress", "user@getalby.com", "", "", Some("SomeUser"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "lnaddress",
+        "user@getalby.com",
+        "",
+        "",
+        Some("SomeUser"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     let classified = db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     assert!(classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "organization_platform");
 }
@@ -1026,14 +1422,27 @@ fn soft_signal_unknown_alias_no_change() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("RandomPerson"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "abc123",
+        "",
+        "",
+        Some("RandomPerson"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     let classified = db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     assert!(!classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "unknown");
 }
@@ -1043,14 +1452,27 @@ fn soft_signal_partial_name_no_match() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Fountain Valley Podcast"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "abc123",
+        "",
+        "",
+        Some("Fountain Valley Podcast"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     let classified = db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     assert!(!classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "unknown");
 }
@@ -1061,10 +1483,25 @@ fn soft_signal_partial_name_no_match() {
 fn split_small_across_many_feeds() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
-    let credit_id: i64 = conn.query_row("SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'", [], |r| r.get(0)).unwrap();
+    let credit_id: i64 = conn
+        .query_row(
+            "SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
 
     // Create endpoint + wallet
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "platform_node", "7629169", "platform_val", Some("PlatformApp"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "platform_node",
+        "7629169",
+        "platform_val",
+        Some("PlatformApp"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Create feed-level routes in 4 different feeds with small non-fee splits
@@ -1088,7 +1525,11 @@ fn split_small_across_many_feeds() {
     assert!(classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "organization_platform");
 }
@@ -1098,7 +1539,16 @@ fn split_dominant_few_feeds() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "artist_node", "", "", Some("ArtistName"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "artist_node",
+        "",
+        "",
+        Some("ArtistName"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // One feed, dominant split (use feed-level route to avoid track FK)
@@ -1114,7 +1564,11 @@ fn split_dominant_few_feeds() {
     assert!(classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "person_artist");
 }
@@ -1124,13 +1578,19 @@ fn split_no_override_soft_signal() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Wavlake"), 1000).unwrap();
+    let ep_id =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Wavlake"), 1000)
+            .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Soft-classify first
     db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "organization_platform");
 
@@ -1145,8 +1605,14 @@ fn split_no_override_high_confidence() {
     seed_feed_and_track(&conn);
 
     let route_id = insert_track_route(&conn, "track-w", "SomeBot", "botnode");
-    conn.execute("UPDATE payment_routes SET fee = 1 WHERE id = ?1", params![route_id]).unwrap();
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "botnode", "", "", Some("SomeBot"), 1000).unwrap();
+    conn.execute(
+        "UPDATE payment_routes SET fee = 1 WHERE id = ?1",
+        params![route_id],
+    )
+    .unwrap();
+    let ep_id =
+        db::get_or_create_endpoint(&conn, "keysend", "botnode", "", "", Some("SomeBot"), 1000)
+            .unwrap();
     db::map_track_route_to_endpoint(&conn, route_id, ep_id, 1000).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
@@ -1159,9 +1625,17 @@ fn split_no_override_high_confidence() {
 fn split_fee_routes_excluded() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
-    let credit_id: i64 = conn.query_row("SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'", [], |r| r.get(0)).unwrap();
+    let credit_id: i64 = conn
+        .query_row(
+            "SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "feenode", "", "", Some("FeeBot"), 1000).unwrap();
+    let ep_id =
+        db::get_or_create_endpoint(&conn, "keysend", "feenode", "", "", Some("FeeBot"), 1000)
+            .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Create 4 feeds but all routes are fee=1 — should not count toward small-share signal
@@ -1189,9 +1663,24 @@ fn split_fee_routes_excluded() {
 fn split_below_feed_threshold() {
     let conn = common::test_db();
     seed_feed_and_track(&conn);
-    let credit_id: i64 = conn.query_row("SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'", [], |r| r.get(0)).unwrap();
+    let credit_id: i64 = conn
+        .query_row(
+            "SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-w'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
 
-    let ep_id = db::get_or_create_endpoint(&conn, "keysend", "twofeeds", "", "", Some("TwoFeedApp"), 1000).unwrap();
+    let ep_id = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "twofeeds",
+        "",
+        "",
+        Some("TwoFeedApp"),
+        1000,
+    )
+    .unwrap();
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Only 2 feeds — below the threshold of 3
@@ -1215,7 +1704,11 @@ fn split_below_feed_threshold() {
     assert!(!classified);
 
     let class: String = conn
-        .query_row("SELECT wallet_class FROM wallets WHERE wallet_id = ?1", params![wid], |r| r.get(0))
+        .query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| r.get(0),
+        )
         .unwrap();
     assert_eq!(class, "unknown");
 }
@@ -1227,9 +1720,11 @@ fn list_pending_reviews_filters_resolved() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
 
-    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
     let wid1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
-    let ep2 = db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr2", "", "", Some("Alice"), now).unwrap();
     let wid2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
 
     // Create two reviews — one pending, one resolved
@@ -1252,7 +1747,8 @@ fn set_override_resolves_review() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let review_id: i64 = conn.query_row(
@@ -1261,13 +1757,16 @@ fn set_override_resolves_review() {
         |r| r.get(0),
     ).unwrap();
 
-    db::set_wallet_identity_override_for_review(&conn, review_id, "do_not_merge", None, None).unwrap();
+    db::set_wallet_identity_override_for_review(&conn, review_id, "do_not_merge", None, None)
+        .unwrap();
 
-    let status: String = conn.query_row(
-        "SELECT status FROM wallet_identity_review WHERE id = ?1",
-        params![review_id],
-        |r| r.get(0),
-    ).unwrap();
+    let status: String = conn
+        .query_row(
+            "SELECT status FROM wallet_identity_review WHERE id = ?1",
+            params![review_id],
+            |r| r.get(0),
+        )
+        .unwrap();
     assert_eq!(status, "resolved");
 
     let override_count: i64 = conn.query_row(
@@ -1279,11 +1778,60 @@ fn set_override_resolves_review() {
 }
 
 #[test]
+fn backfill_refresh_applies_wallet_merge_overrides() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr-left", "", "", Some("Alice"), now)
+        .unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-right", "", "", Some("Alice"), now)
+            .unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let review_id: i64 = conn
+        .query_row(
+            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
+            params![w2, now],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    db::set_wallet_identity_override_for_review(&conn, review_id, "merge", Some(&w1), None)
+        .unwrap();
+
+    let stats = db::backfill_wallet_pass5(&conn).unwrap();
+    assert_eq!(stats.merges_from_overrides, 1);
+
+    let ep2_wallet: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1",
+            params![ep2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(ep2_wallet, w1, "override merge should repoint endpoints");
+
+    let redirect_target: String = conn
+        .query_row(
+            "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(redirect_target, w1);
+}
+
+#[test]
 fn force_class_override_consumed_by_hard_signals() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "addr1", "", "", Some("Alice"), now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let review_id: i64 = conn.query_row(
@@ -1294,14 +1842,23 @@ fn force_class_override_consumed_by_hard_signals() {
 
     // Force class via review tool path
     db::set_wallet_identity_override_for_review(
-        &conn, review_id, "force_class", None, Some("person_artist"),
-    ).unwrap();
+        &conn,
+        review_id,
+        "force_class",
+        None,
+        Some("person_artist"),
+    )
+    .unwrap();
 
     // Now hard signals should pick up the override
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
 
     let (class, conf): (String, String) = conn
-        .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
+        .query_row(
+            "SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1",
+            params![wid],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
         .unwrap();
     assert_eq!(class, "person_artist");
     assert_eq!(conf, "reviewed");
@@ -1312,7 +1869,8 @@ fn get_wallet_detail_returns_full_info() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
 
-    let ep = db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
+    let ep =
+        db::get_or_create_endpoint(&conn, "keysend", "abc123", "", "", Some("Alice"), now).unwrap();
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let detail = db::get_wallet_detail(&conn, &wid).unwrap().unwrap();
@@ -1328,7 +1886,10 @@ fn wallet_dirty_bit_after_promotions_before_search() {
     use stophammer::resolver::queue;
     // Wallet identity bit should be distinct from all other bits
     assert_eq!(queue::DIRTY_WALLET_IDENTITY, 1 << 5);
-    assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_PROMOTIONS);
+    assert_ne!(
+        queue::DIRTY_WALLET_IDENTITY,
+        queue::DIRTY_CANONICAL_PROMOTIONS
+    );
     assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_SEARCH);
 }
 
@@ -1377,7 +1938,12 @@ fn seed_wavlake_feed(conn: &rusqlite::Connection, feed_guid: &str, track_guid: &
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
          explicit, episode_count, created_at, updated_at) \
          VALUES (?1, ?2, 'WL Feed', 'wl feed', ?3, 0, 0, ?4, ?4)",
-        params![feed_guid, format!("https://wavlake.com/feed/music/{feed_guid}"), credit_id, now],
+        params![
+            feed_guid,
+            format!("https://wavlake.com/feed/music/{feed_guid}"),
+            credit_id,
+            now
+        ],
     )
     .unwrap();
     conn.execute(
@@ -1392,7 +1958,11 @@ fn seed_wavlake_feed(conn: &rusqlite::Connection, feed_guid: &str, track_guid: &
         "INSERT INTO source_platform_claims \
          (feed_guid, platform_key, url, source, extraction_path, observed_at) \
          VALUES (?1, 'wavlake', ?2, 'platform_classifier', 'request.canonical_url', ?3)",
-        params![feed_guid, format!("https://wavlake.com/feed/music/{feed_guid}"), now],
+        params![
+            feed_guid,
+            format!("https://wavlake.com/feed/music/{feed_guid}"),
+            now
+        ],
     )
     .unwrap();
     now
@@ -1418,7 +1988,10 @@ fn wavlake_routes_skipped_in_pass1() {
     .unwrap();
 
     let stats = db::backfill_wallet_pass1(&conn).unwrap();
-    assert_eq!(stats.endpoints_created, 0, "Wavlake routes should produce no endpoints");
+    assert_eq!(
+        stats.endpoints_created, 0,
+        "Wavlake routes should produce no endpoints"
+    );
     assert_eq!(stats.track_maps_created, 0);
     assert_eq!(stats.feed_maps_created, 0);
 }
@@ -1430,7 +2003,10 @@ fn non_wavlake_routes_unaffected() {
     insert_track_route(&conn, "track-w", "Alice", "alice-node-123");
 
     let stats = db::backfill_wallet_pass1(&conn).unwrap();
-    assert_eq!(stats.endpoints_created, 1, "non-Wavlake route should create an endpoint");
+    assert_eq!(
+        stats.endpoints_created, 1,
+        "non-Wavlake route should create an endpoint"
+    );
     assert_eq!(stats.track_maps_created, 1);
 }
 
@@ -1590,9 +2166,15 @@ fn purge_preserves_shared_endpoints() {
     // Purge Wavlake route maps — the shared endpoint should survive
     // because the non-Wavlake route map still references it.
     let removed = db::purge_wavlake_wallet_route_maps(&conn).unwrap();
-    assert_eq!(removed, 1, "only the Wavlake route map entry should be removed");
+    assert_eq!(
+        removed, 1,
+        "only the Wavlake route map entry should be removed"
+    );
 
     let cleanup = db::cleanup_orphaned_wallets(&conn).unwrap();
-    assert_eq!(cleanup.wallets_deleted, 0, "wallet should survive — endpoint still has a route map");
+    assert_eq!(
+        cleanup.wallets_deleted, 0,
+        "wallet should survive — endpoint still has a route map"
+    );
     assert_eq!(endpoint_count(&conn), 1, "endpoint should survive");
 }

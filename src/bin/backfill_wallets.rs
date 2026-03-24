@@ -82,8 +82,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Pass 5: global refresh / owner grouping...");
         let s5 = stophammer::db::backfill_wallet_pass5(&conn)?;
         println!(
-            "  feeds processed: {}, merges from grouping: {}",
-            s5.feeds_processed, s5.merges_from_grouping
+            "  feeds processed: {}, merges from overrides: {}, merges from grouping: {}",
+            s5.feeds_processed, s5.merges_from_overrides, s5.merges_from_grouping
         );
         println!(
             "  soft-classified: {}, split-classified: {}",

@@ -27,7 +27,7 @@ tokio-rustls   = "0.26"
 rustls-pemfile = "2"
 rcgen          = { version = "0.13", features = ["pem"] }
 axum-server    = { version = "0.7", features = ["tls-rustls"] }
-time           = "0.3"
+time           = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 subtle         = "2"
 quick-xml      = "0.36"
 roxmltree      = "0.20"
@@ -43,6 +43,8 @@ futures-util       = "0.3"
 url                = "2"
 r2d2               = "0.8"
 r2d2_sqlite        = "0.24"
+ratatui            = "0.29"
+crossterm          = "0.28"
 
 # CRIT-02 test-util feature gate — 2026-03-13
 [features]

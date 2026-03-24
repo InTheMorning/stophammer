@@ -19,8 +19,10 @@ pub const CANONICAL_DIRTY_MASK: i64 =
 /// Dirty mask for source feed/track search and quality rows.
 pub const SOURCE_READ_MODEL_DIRTY_MASK: i64 = DIRTY_SOURCE_READ_MODELS;
 /// Default dirty mask for normal write paths.
-pub const DEFAULT_DIRTY_MASK: i64 =
-    SOURCE_READ_MODEL_DIRTY_MASK | CANONICAL_DIRTY_MASK | DIRTY_ARTIST_IDENTITY | DIRTY_WALLET_IDENTITY;
+pub const DEFAULT_DIRTY_MASK: i64 = SOURCE_READ_MODEL_DIRTY_MASK
+    | CANONICAL_DIRTY_MASK
+    | DIRTY_ARTIST_IDENTITY
+    | DIRTY_WALLET_IDENTITY;
 
 /// Marks a feed dirty for normal resolver work.
 ///

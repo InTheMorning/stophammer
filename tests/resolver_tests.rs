@@ -1318,7 +1318,11 @@ fn resolver_batch_canonical_promotions_use_post_merge_artist() {
         let credit_x = db::get_or_create_artist_credit(
             &conn,
             &artist_x.name,
-            &[(artist_x.artist_id.clone(), artist_x.name.clone(), String::new())],
+            &[(
+                artist_x.artist_id.clone(),
+                artist_x.name.clone(),
+                String::new(),
+            )],
             Some("feed-po-a"),
         )
         .expect("credit x");
@@ -1342,7 +1346,11 @@ fn resolver_batch_canonical_promotions_use_post_merge_artist() {
         let credit_y = db::get_or_create_artist_credit(
             &conn,
             &artist_y.name,
-            &[(artist_y.artist_id.clone(), artist_y.name.clone(), String::new())],
+            &[(
+                artist_y.artist_id.clone(),
+                artist_y.name.clone(),
+                String::new(),
+            )],
             Some("feed-po-b"),
         )
         .expect("credit y");
@@ -1401,7 +1409,10 @@ fn resolver_batch_canonical_promotions_use_post_merge_artist() {
             |row| row.get(0),
         )
         .expect("artist count");
-    assert_eq!(artist_count, 1, "merge should leave exactly one live artist row");
+    assert_eq!(
+        artist_count, 1,
+        "merge should leave exactly one live artist row"
+    );
 
     // The npub promotion for feed B must exist.
     let promotions: Vec<(String, String)> = {
@@ -1416,7 +1427,11 @@ fn resolver_batch_canonical_promotions_use_post_merge_artist() {
             .collect::<Result<_, _>>()
             .expect("collect promotions")
     };
-    assert_eq!(promotions.len(), 1, "feed-po-b must have exactly one npub promotion");
+    assert_eq!(
+        promotions.len(),
+        1,
+        "feed-po-b must have exactly one npub promotion"
+    );
     let (promoted_artist_id, promoted_value) = &promotions[0];
     assert_eq!(promoted_value, "npub1promoordertest");
 
