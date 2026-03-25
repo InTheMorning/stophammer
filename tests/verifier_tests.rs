@@ -58,17 +58,25 @@ fn content_hash_unchanged() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. medium_music_only
+// 3. medium_music_or_publisher
 // ---------------------------------------------------------------------------
 
 #[test]
-fn medium_music_only() {
-    let valid = "music";
-    assert_eq!(valid, "music", "literal 'music' passes");
+fn medium_music_or_publisher() {
+    let accepted = ["music", "publisher"];
+    for m in &accepted {
+        assert!(
+            *m == "music" || *m == "publisher",
+            "'{m}' should be accepted"
+        );
+    }
 
     let invalid_mediums = ["podcast", "video", "audiobook", "Music", "MUSIC", ""];
     for m in &invalid_mediums {
-        assert_ne!(*m, "music", "should reject medium: '{m}'");
+        assert!(
+            *m != "music" && *m != "publisher",
+            "should reject medium: '{m}'"
+        );
     }
 
     let absent: Option<&str> = None;

@@ -44,6 +44,11 @@ impl Verifier for V4VPaymentVerifier {
             return VerifyResult::Pass; // fetch failed — handled elsewhere
         };
 
+        // Publisher feeds have no payment routes by design.
+        if feed_data.raw_medium.as_deref() == Some("publisher") {
+            return VerifyResult::Pass;
+        }
+
         // ── 1. Feed must have at least one valid feed-level route ─────────────
         if feed_data.feed_payment_routes.is_empty() {
             return VerifyResult::Fail(
