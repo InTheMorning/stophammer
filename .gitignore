@@ -10,3 +10,5 @@
 stophammer.sh
 rebuilddb.sh
 AGENTS.md
+stophammer-crawler/
+stophammer-parser/
