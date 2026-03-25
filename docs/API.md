@@ -625,7 +625,7 @@ This is an operator-facing inspection endpoint. It exposes:
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher_truth`, `canonical`
+- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`, `canonical`
 
 **Response (`200 OK`):**
 
@@ -723,7 +723,7 @@ Returns a single feed by its `podcast:guid`.
         "source": "podcast_remote_item"
       }
     ],
-    "publisher_truth": [
+    "publisher": [
       {
         "direction": "music_to_publisher",
         "remote_feed_guid": "publisher-feed-guid",
@@ -759,7 +759,7 @@ Returns a single feed by its `podcast:guid`.
 `remote_items` is the stored source-truth snapshot of feed-level
 `podcast:remoteItem` declarations.
 
-`publisher_truth` is a derived read-only view over those declarations. It
+`publisher` is a derived read-only view over those declarations. It
 reports direction and reciprocal validation exactly from RSS, but only emits
 `artist_signal` when the publisher feed and music feed already resolve to the
 same single canonical artist. There is no speculative value for unreviewed or
@@ -1010,7 +1010,7 @@ feed together with:
 Returns the mapped source feeds for one canonical release.
 
 - **Authentication:** None
-- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher_truth`, `canonical`)
+- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`, `canonical`)
 
 Use this when a client wants the full source/platform rows behind one canonical
 release instead of the lighter `sources` summary embedded in `GET /v1/releases/{id}`.

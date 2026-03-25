@@ -660,7 +660,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher_truth"
+                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher"
                 ))
                 .body(Body::empty())
                 .expect("publisher feed request"),
@@ -670,7 +670,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
     assert_eq!(pre_resolver_publisher_feed_resp.status(), 200);
     let pre_resolver_publisher_feed_json = body_json(pre_resolver_publisher_feed_resp).await;
     assert_eq!(
-        pre_resolver_publisher_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        pre_resolver_publisher_feed_json["data"]["publisher"][0]["artist_signal"],
         serde_json::Value::Null
     );
 
@@ -687,7 +687,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher_truth"
+                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher"
                 ))
                 .body(Body::empty())
                 .expect("publisher feed request"),
@@ -702,23 +702,23 @@ async fn feed_query_exposes_publisher_rss_truth() {
         "music"
     );
     assert_eq!(
-        publisher_feed_json["data"]["publisher_truth"][0]["direction"],
+        publisher_feed_json["data"]["publisher"][0]["direction"],
         "publisher_to_music"
     );
     assert_eq!(
-        publisher_feed_json["data"]["publisher_truth"][0]["publisher_feed_guid"],
+        publisher_feed_json["data"]["publisher"][0]["publisher_feed_guid"],
         publisher_feed_guid
     );
     assert_eq!(
-        publisher_feed_json["data"]["publisher_truth"][0]["music_feed_guid"],
+        publisher_feed_json["data"]["publisher"][0]["music_feed_guid"],
         child_feed_guid
     );
     assert_eq!(
-        publisher_feed_json["data"]["publisher_truth"][0]["two_way_validated"],
+        publisher_feed_json["data"]["publisher"][0]["two_way_validated"],
         true
     );
     assert_eq!(
-        publisher_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        publisher_feed_json["data"]["publisher"][0]["artist_signal"],
         "confirmed_artist"
     );
 
@@ -727,7 +727,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/feeds/{child_feed_guid}?include=remote_items,publisher_truth"
+                    "/v1/feeds/{child_feed_guid}?include=remote_items,publisher"
                 ))
                 .body(Body::empty())
                 .expect("child feed request"),
@@ -742,15 +742,15 @@ async fn feed_query_exposes_publisher_rss_truth() {
         "publisher"
     );
     assert_eq!(
-        child_feed_json["data"]["publisher_truth"][0]["direction"],
+        child_feed_json["data"]["publisher"][0]["direction"],
         "music_to_publisher"
     );
     assert_eq!(
-        child_feed_json["data"]["publisher_truth"][0]["two_way_validated"],
+        child_feed_json["data"]["publisher"][0]["two_way_validated"],
         true
     );
     assert_eq!(
-        child_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        child_feed_json["data"]["publisher"][0]["artist_signal"],
         "confirmed_artist"
     );
 }

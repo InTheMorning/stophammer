@@ -190,7 +190,7 @@ struct FeedResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     remote_items: Option<Vec<FeedRemoteItemResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    publisher_truth: Option<Vec<PublisherTruthResponse>>,
+    publisher: Option<Vec<PublisherResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     canonical: Option<CanonicalReleaseRef>,
 }
@@ -361,7 +361,7 @@ struct FeedRemoteItemResponse {
 }
 
 #[derive(Debug, Serialize)]
-struct PublisherTruthResponse {
+struct PublisherResponse {
     direction: String,
     remote_feed_guid: String,
     remote_feed_url: Option<String>,
@@ -900,7 +900,7 @@ async fn handle_get_artist_feeds(
                 source_platforms: None,
                 source_release_claims: None,
                 remote_items: None,
-                publisher_truth: None,
+                publisher: None,
                 canonical: None,
             });
         }
@@ -1155,7 +1155,7 @@ fn build_feed_response(
         source_platforms: None,
         source_release_claims: None,
         remote_items: None,
-        publisher_truth: None,
+        publisher: None,
         canonical: None,
     };
 
@@ -1256,8 +1256,8 @@ fn build_feed_response(
         );
     }
 
-    if params.includes("publisher_truth") {
-        resp.publisher_truth = Some(load_publisher_truth(conn, &feed_guid)?);
+    if params.includes("publisher") {
+        resp.publisher = Some(load_publisher(conn, &feed_guid)?);
     }
 
     if params.includes("canonical") {
@@ -1556,10 +1556,10 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
     }
 }
 
-fn load_publisher_truth(
+fn load_publisher(
     conn: &rusqlite::Connection,
     feed_guid: &str,
-) -> Result<Vec<PublisherTruthResponse>, api::ApiError> {
+) -> Result<Vec<PublisherResponse>, api::ApiError> {
     let Some(current_feed) = db::get_feed(conn, feed_guid)? else {
         return Ok(Vec::new());
     };
@@ -1616,7 +1616,7 @@ fn load_publisher_truth(
             )?)
         .then(|| "confirmed_artist".to_string());
 
-        rows.push(PublisherTruthResponse {
+        rows.push(PublisherResponse {
             direction: direction.to_string(),
             remote_feed_guid: item.remote_feed_guid,
             remote_feed_url: item.remote_feed_url,
@@ -2689,7 +2689,7 @@ async fn handle_get_recent_feeds(
                 source_platforms: None,
                 source_release_claims: None,
                 remote_items: None,
-                publisher_truth: None,
+                publisher: None,
                 canonical: None,
             });
         }
