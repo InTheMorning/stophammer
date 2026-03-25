@@ -4296,6 +4296,7 @@ struct ArtistIdentityEvidenceGroup {
 /// Pre-computed anchored-name groups, computed once per resolver batch so the
 /// global table scan in [`collect_artist_groups_by_anchored_name`] does not
 /// repeat for every feed in the batch.
+#[derive(Debug)]
 pub struct AnchoredNameGroupsCache(Vec<ArtistIdentityEvidenceGroup>);
 
 /// Computes [`AnchoredNameGroupsCache`] from the current DB state.
@@ -5005,24 +5006,6 @@ fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Resu
     Ok(count > 0)
 }
 
-fn artist_platforms(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<std::collections::BTreeSet<String>, DbError> {
-    let mut stmt = conn.prepare_cached(
-        "SELECT DISTINCT spc.platform_key \
-         FROM artist_credit_name acn \
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
-         JOIN feeds f ON f.artist_credit_id = ac.id \
-         JOIN source_platform_claims spc ON spc.feed_guid = f.feed_guid \
-         WHERE acn.artist_id = ?1 \
-           AND TRIM(spc.platform_key) <> ''",
-    )?;
-    let rows = stmt
-        .query_map(params![artist_id], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows.into_iter().collect())
-}
 
 fn collect_artist_groups_by_anchored_name(
     conn: &Connection,
@@ -9396,13 +9379,9 @@ pub fn get_source_item_enclosures_for_entity(
 ///
 /// Source route rows store addresses verbatim. This function produces the
 /// canonical form used as the identity key in `wallet_endpoints`.
-pub fn normalize_wallet_address(route_type: &str, address: &str) -> String {
-    match route_type {
-        "lnaddress" => address.trim().to_lowercase(),
-        "node" | "keysend" => address.trim().to_lowercase(),
-        "wallet" => address.trim().to_lowercase(),
-        _ => address.trim().to_lowercase(),
-    }
+#[must_use]
+pub fn normalize_wallet_address(_route_type: &str, address: &str) -> String {
+    address.trim().to_lowercase()
 }
 
 /// Look up or create a `wallet_endpoints` row for the given identity 4-tuple.
@@ -9593,7 +9572,7 @@ pub fn classify_wallet_hard_signals(conn: &Connection, wallet_id: &str) -> Resul
 }
 
 /// Known platform alias patterns for soft-signal classification.
-/// Each entry is (alias_lower exact match, wallet_class).
+/// Each entry is (`alias_lower` exact match, `wallet_class`).
 const PLATFORM_ALIAS_PATTERNS: &[(&str, &str)] = &[
     ("fountain", "organization_platform"),
     ("wavlake", "organization_platform"),
@@ -9737,7 +9716,7 @@ pub fn classify_wallet_split_heuristics(
     stmt.query_map(params![wallet_id], |r| {
         Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
     })?
-    .filter_map(|r| r.ok())
+    .filter_map(Result::ok)
     .for_each(|(split, fee, feed_guid)| {
         if fee == 0 {
             has_nonfee = true;
@@ -10085,7 +10064,7 @@ pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<u
 /// Create review items for ambiguous wallet identity patterns.
 ///
 /// Generates review items for:
-/// - Same alias_lower across multiple wallets with different endpoints
+/// - Same `alias_lower` across multiple wallets with different endpoints
 /// - Endpoints with conflicting fee/non-fee signals
 pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError> {
     let now = unix_now();
@@ -10476,7 +10455,7 @@ pub struct WalletRefreshStats {
 ///
 /// Run via `backfill_wallets --refresh` after major corpus changes.
 ///
-/// 1. group_same_feed_endpoints for each feed
+/// 1. `group_same_feed_endpoints` for each feed
 /// 2. Re-derive display names across grouped endpoints
 /// 3. Generate review items for ambiguous patterns
 /// 4. Orphan cleanup
@@ -10638,7 +10617,7 @@ pub struct WalletOverrideDetail {
 /// List pending wallet identity reviews.
 pub fn list_pending_wallet_reviews(
     conn: &Connection,
-    limit: usize,
+    limit: i64,
 ) -> Result<Vec<WalletReviewSummary>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
@@ -10650,7 +10629,7 @@ pub fn list_pending_wallet_reviews(
          LIMIT ?1",
     )?;
     let rows = stmt
-        .query_map(params![limit as i64], |r| {
+        .query_map(params![limit], |r| {
             Ok(WalletReviewSummary {
                 id: r.get(0)?,
                 wallet_id: r.get(1)?,

@@ -32,7 +32,7 @@ impl Verifier for MediumMusicVerifier {
                     .request
                     .feed_data
                     .as_ref()
-                    .map_or(false, |f| {
+                    .is_some_and(|f| {
                         f.remote_items
                             .iter()
                             .any(|ri| ri.medium.as_deref() == Some("music"))

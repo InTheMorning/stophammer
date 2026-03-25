@@ -634,7 +634,7 @@ fn backfill_is_idempotent() {
     let s2 = db::backfill_wallet_pass2(&conn).unwrap();
     assert!(s2.wallets_created >= 2);
 
-    let s3 = db::backfill_wallet_pass3(&conn).unwrap();
+    let _s3 = db::backfill_wallet_pass3(&conn).unwrap();
 
     // Capture counts
     let ep_count: i64 = conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0)).unwrap();
@@ -662,7 +662,7 @@ fn backfill_is_idempotent() {
 #[test]
 fn fee_true_wallet_gets_no_artist_link_in_backfill() {
     let conn = common::test_db();
-    let now = seed_feed_and_track(&conn);
+    let _now = seed_feed_and_track(&conn);
 
     // Insert a fee=true route with name matching the feed's artist credit
     conn.execute(
@@ -684,7 +684,7 @@ fn fee_true_wallet_gets_no_artist_link_in_backfill() {
 #[test]
 fn per_feed_resolver_creates_endpoints_and_wallets() {
     let conn = common::test_db();
-    let now = seed_feed_and_track(&conn);
+    let _now = seed_feed_and_track(&conn);
 
     // Insert routes for feed-w
     conn.execute(
@@ -729,9 +729,9 @@ fn per_feed_resolver_creates_endpoints_and_wallets() {
 #[test]
 fn wallet_dirty_bit_is_in_default_mask() {
     use stophammer::resolver::queue;
-    assert!(
-        queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY != 0,
-        "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
+    const _: () = assert!(
+        (queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY) != 0,
+        // "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
     );
 }
 
@@ -939,20 +939,20 @@ fn soft_signal_fountain_alias() {
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
 
     // Should still be unknown/provisional after hard signals (no fee, no override)
-    let (class, conf): (String, String) = conn
+    let (cls, cnf): (String, String) = conn
         .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
-    assert_eq!(class, "unknown");
-    assert_eq!(conf, "provisional");
+    assert_eq!(cls, "unknown");
+    assert_eq!(cnf, "provisional");
 
     let classified = db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     assert!(classified);
 
-    let (class, conf): (String, String) = conn
+    let (cls, cnf): (String, String) = conn
         .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
-    assert_eq!(class, "organization_platform");
-    assert_eq!(conf, "provisional");
+    assert_eq!(cls, "organization_platform");
+    assert_eq!(cnf, "provisional");
 }
 
 #[test]
@@ -968,21 +968,21 @@ fn soft_signal_no_override_high_confidence() {
     let wid = db::create_provisional_wallet(&conn, ep_id, 1000).unwrap();
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
 
-    let (class, conf): (String, String) = conn
+    let (cls, cnf): (String, String) = conn
         .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
-    assert_eq!(class, "bot_service");
-    assert_eq!(conf, "high_confidence");
+    assert_eq!(cls, "bot_service");
+    assert_eq!(cnf, "high_confidence");
 
     // Soft signals must not override
     let classified = db::classify_wallet_soft_signals(&conn, &wid).unwrap();
     assert!(!classified);
 
-    let (class2, conf2): (String, String) = conn
+    let (cls2, cnf2): (String, String) = conn
         .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
-    assert_eq!(class2, "bot_service");
-    assert_eq!(conf2, "high_confidence");
+    assert_eq!(cls2, "bot_service");
+    assert_eq!(cnf2, "high_confidence");
 }
 
 #[test]
@@ -1300,11 +1300,11 @@ fn force_class_override_consumed_by_hard_signals() {
     // Now hard signals should pick up the override
     db::classify_wallet_hard_signals(&conn, &wid).unwrap();
 
-    let (class, conf): (String, String) = conn
+    let (cls, cnf): (String, String) = conn
         .query_row("SELECT wallet_class, class_confidence FROM wallets WHERE wallet_id = ?1", params![wid], |r| Ok((r.get(0)?, r.get(1)?)))
         .unwrap();
-    assert_eq!(class, "person_artist");
-    assert_eq!(conf, "reviewed");
+    assert_eq!(cls, "person_artist");
+    assert_eq!(cnf, "reviewed");
 }
 
 #[test]
@@ -1336,7 +1336,7 @@ fn wallet_dirty_bit_after_promotions_before_search() {
 // Wavlake route exclusion
 // ---------------------------------------------------------------------------
 
-/// Create a Wavlake feed with a platform claim and a track, returning (credit_id, now).
+/// Create a Wavlake feed with a platform claim and a track, returning `now`.
 fn seed_wavlake_feed(conn: &rusqlite::Connection, feed_guid: &str, track_guid: &str) -> i64 {
     let now = common::now();
     // Reuse existing artist if present, otherwise create one.
@@ -1464,7 +1464,7 @@ fn purge_removes_wavlake_wallets() {
         [],
     )
     .unwrap();
-    let route_id: i64 = conn.last_insert_rowid();
+    let route_id = conn.last_insert_rowid();
 
     let now = common::now();
     conn.execute(
@@ -1473,7 +1473,7 @@ fn purge_removes_wavlake_wallets() {
         params![now],
     )
     .unwrap();
-    let ep_id: i64 = conn.last_insert_rowid();
+    let ep_id = conn.last_insert_rowid();
 
     conn.execute(
         "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
@@ -1545,7 +1545,7 @@ fn purge_preserves_shared_endpoints() {
         [],
     )
     .unwrap();
-    let wl_route_id: i64 = conn.last_insert_rowid();
+    let wl_route_id = conn.last_insert_rowid();
 
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
@@ -1553,7 +1553,7 @@ fn purge_preserves_shared_endpoints() {
         [],
     )
     .unwrap();
-    let normal_route_id: i64 = conn.last_insert_rowid();
+    let normal_route_id = conn.last_insert_rowid();
 
     // Create one shared endpoint.
     conn.execute(
@@ -1562,7 +1562,7 @@ fn purge_preserves_shared_endpoints() {
         params![now],
     )
     .unwrap();
-    let ep_id: i64 = conn.last_insert_rowid();
+    let ep_id = conn.last_insert_rowid();
     conn.execute(
         "INSERT INTO wallets (wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at) \
          VALUES ('shared-wallet', 'SharedAddr', 'sharedaddr', 'unknown', 'provisional', ?1, ?1)",

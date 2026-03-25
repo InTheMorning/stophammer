@@ -1182,9 +1182,9 @@ fn merge_artists_repoints_existing_redirect_chains() {
 // Required resolver correctness tests
 // ---------------------------------------------------------------------------
 
-/// publisher_guid is no longer a backfill evidence source.
-/// Two artists sharing a publisher_guid but no other evidence must NOT be
-/// merged by backfill_artist_identity.
+/// `publisher_guid` is no longer a backfill evidence source.
+/// Two artists sharing a `publisher_guid` but no other evidence must NOT be
+/// merged by `backfill_artist_identity`.
 #[test]
 fn backfill_does_not_merge_artists_by_publisher_guid() {
     let mut conn = common::test_db();
@@ -1349,7 +1349,7 @@ fn single_feed_artist_with_website_anchors_weak_duplicates() {
     );
 }
 
-/// A single-feed artist with one nostr_npub anchors same-name weak
+/// A single-feed artist with one `nostr_npub` anchors same-name weak
 /// single-feed duplicates on aggregator-only platforms.
 #[test]
 fn single_feed_artist_with_npub_anchors_weak_duplicates() {
@@ -1446,10 +1446,10 @@ fn single_feed_artist_with_npub_anchors_weak_duplicates() {
     );
 }
 
-/// preferred_artist_target chooses the artist with explicit identity evidence
+/// `preferred_artist_target` chooses the artist with explicit identity evidence
 /// over the one created earlier (which the old tie-break would have preferred).
 ///
-/// Setup: weak artist created first (older created_at), strong artist created
+/// Setup: weak artist created first (older `created_at`), strong artist created
 /// second (newer, but has explicit website evidence). Under the old ordering
 /// (no evidence weight), the older weak artist would win. Under the new
 /// ordering (evidence first), the strong artist must win.
@@ -1557,8 +1557,8 @@ fn merge_target_prefers_evidence_over_creation_order() {
 /// `artist_credit_name` rows) must run before the `DIRTY_CANONICAL_PROMOTIONS`
 /// phase (which emits external-id promotions scoped to the feed's current
 /// artist).  If the order were reversed, `single_artist_id_for_credit` would
-/// still return the pre-merge artist_id, and the surviving artist would not
-/// receive the nostr_npub evidence it owns.
+/// still return the pre-merge `artist_id`, and the surviving artist would not
+/// receive the `nostr_npub` evidence it owns.
 #[test]
 fn canonical_promotions_after_merge_reference_surviving_artist() {
     let mut conn = common::test_db();
@@ -1670,7 +1670,7 @@ fn canonical_promotions_after_merge_reference_surviving_artist() {
     );
 }
 
-/// cleanup_orphaned_artists deletes truly unreferenced artists and their
+/// `cleanup_orphaned_artists` deletes truly unreferenced artists and their
 /// associated rows, and leaves artists that are still referenced untouched.
 #[test]
 fn orphan_cleanup_deletes_unreferenced_artists_only() {
@@ -1794,7 +1794,6 @@ fn seed_feed_for_publisher(
 #[test]
 fn publisher_link_groups_two_way_validated() {
     let mut conn = common::test_db();
-    let now = common::now();
 
     // Create a publisher feed.
     let (_, _) = seed_feed_for_publisher(
@@ -1823,12 +1822,12 @@ fn publisher_link_groups_two_way_validated() {
     );
 
     // Publisher → child (medium='music')
-    for (pos, child) in ["child-feed-a", "child-feed-b"].iter().enumerate() {
+    for (pos, child) in (0i64..).zip(["child-feed-a", "child-feed-b"]) {
         conn.execute(
             "INSERT INTO feed_remote_items_raw \
              (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
              VALUES ('pub-feed-1', ?1, 'music', ?2, '', 'podcast_remote_item')",
-            rusqlite::params![pos as i64, child],
+            rusqlite::params![pos, child],
         )
         .expect("publisher→child");
     }
@@ -1915,14 +1914,14 @@ fn publisher_link_ignores_one_way() {
     );
 
     // Child feeds.
-    let (artist_a, _) = seed_feed_for_publisher(
+    let (_, _) = seed_feed_for_publisher(
         &conn,
         "child-feed-c",
         "https://wavlake.com/feed/music/child-c",
         "One Way Artist",
         "music",
     );
-    let (artist_b, _) = seed_feed_for_publisher(
+    let (_, _) = seed_feed_for_publisher(
         &conn,
         "child-feed-d",
         "https://wavlake.com/feed/music/child-d",
@@ -1931,31 +1930,21 @@ fn publisher_link_ignores_one_way() {
     );
 
     // Publisher → child only (no back-link from child → publisher).
-    for (pos, child) in ["child-feed-c", "child-feed-d"].iter().enumerate() {
+    for (pos, child) in (0i64..).zip(["child-feed-c", "child-feed-d"]) {
         conn.execute(
             "INSERT INTO feed_remote_items_raw \
              (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
              VALUES ('pub-feed-2', ?1, 'music', ?2, '', 'podcast_remote_item')",
-            rusqlite::params![pos as i64, child],
+            rusqlite::params![pos, child],
         )
         .expect("publisher→child");
     }
 
-    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    let _stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
 
     // Without back-links, publisher grouping should not fire.
     // The anchored_name strategy might still merge them (same name, single feed each),
     // but the publisher_link source should NOT appear.
-    let artist_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'one way artist'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("artist count");
-
-    // If anchored_name merged them, that's fine — but verify publisher_link was not the source.
-    // Check review items for the source.
     let publisher_reviews: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM artist_identity_review WHERE source = 'publisher_link'",

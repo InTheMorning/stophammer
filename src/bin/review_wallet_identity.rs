@@ -7,7 +7,7 @@ use serde::Serialize;
 #[derive(Debug)]
 struct Args {
     db_path: PathBuf,
-    limit: usize,
+    limit: i64,
     show_review: Option<i64>,
     show_wallet: Option<String>,
     resolve_merge: Option<i64>,
@@ -43,7 +43,7 @@ struct ReviewDetailReport {
 )]
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from("./stophammer.db");
-    let mut limit = 50usize;
+    let mut limit = 50i64;
     let mut show_review = None;
     let mut show_wallet = None;
     let mut resolve_merge = None;
@@ -70,8 +70,8 @@ fn parse_args() -> Result<Args, String> {
                     .next()
                     .ok_or_else(|| "--limit requires a number".to_string())?;
                 limit = value
-                    .parse::<usize>()
-                    .map_err(|_| format!("invalid --limit value: {value}"))?;
+                    .parse::<i64>()
+                    .map_err(|_err| format!("invalid --limit value: {value}"))?;
             }
             "--show-review" => {
                 let value = args
@@ -80,7 +80,7 @@ fn parse_args() -> Result<Args, String> {
                 show_review = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --show-review value: {value}"))?,
+                        .map_err(|_err| format!("invalid --show-review value: {value}"))?,
                 );
             }
             "--show-wallet" => {
@@ -96,7 +96,7 @@ fn parse_args() -> Result<Args, String> {
                 resolve_merge = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --resolve-merge value: {value}"))?,
+                        .map_err(|_err| format!("invalid --resolve-merge value: {value}"))?,
                 );
             }
             "--resolve-reject" => {
@@ -106,7 +106,7 @@ fn parse_args() -> Result<Args, String> {
                 resolve_reject = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --resolve-reject value: {value}"))?,
+                        .map_err(|_err| format!("invalid --resolve-reject value: {value}"))?,
                 );
             }
             "--resolve-class" => {
@@ -116,7 +116,7 @@ fn parse_args() -> Result<Args, String> {
                 resolve_class = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --resolve-class value: {value}"))?,
+                        .map_err(|_err| format!("invalid --resolve-class value: {value}"))?,
                 );
             }
             "--resolve-link" => {
@@ -126,7 +126,7 @@ fn parse_args() -> Result<Args, String> {
                 resolve_link = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --resolve-link value: {value}"))?,
+                        .map_err(|_err| format!("invalid --resolve-link value: {value}"))?,
                 );
             }
             "--resolve-block-link" => {
@@ -136,7 +136,7 @@ fn parse_args() -> Result<Args, String> {
                 resolve_block_link = Some(
                     value
                         .parse::<i64>()
-                        .map_err(|_| format!("invalid --resolve-block-link value: {value}"))?,
+                        .map_err(|_err| format!("invalid --resolve-block-link value: {value}"))?,
                 );
             }
             "--target-wallet" => {
@@ -328,6 +328,93 @@ fn resolve_action(
     Ok(())
 }
 
+fn show_review(
+    conn: &rusqlite::Connection,
+    review_id: i64,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let wallet_id: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
+            rusqlite::params![review_id],
+            |r| r.get(0),
+        )
+        .map_err(|_err| std::io::Error::other(format!("review not found: {review_id}")))?;
+    let detail = stophammer::db::get_wallet_detail(conn, &wallet_id)?
+        .ok_or_else(|| std::io::Error::other(format!("wallet not found: {wallet_id}")))?;
+
+    let review_summary = conn.query_row(
+        "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                r.review_type, r.details, r.created_at \
+         FROM wallet_identity_review r \
+         JOIN wallets w ON w.wallet_id = r.wallet_id \
+         WHERE r.id = ?1",
+        rusqlite::params![review_id],
+        |r| {
+            Ok(stophammer::db::WalletReviewSummary {
+                id: r.get(0)?,
+                wallet_id: r.get(1)?,
+                display_name: r.get(2)?,
+                wallet_class: r.get(3)?,
+                class_confidence: r.get(4)?,
+                review_type: r.get(5)?,
+                details: r.get(6)?,
+                created_at: r.get(7)?,
+            })
+        },
+    )?;
+
+    if json {
+        let report = ReviewDetailReport {
+            review: review_summary,
+            wallet: detail,
+        };
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "review {}  type={}  status=pending  details={:?}",
+            review_summary.id, review_summary.review_type, review_summary.details
+        );
+        print_wallet_detail(&detail);
+    }
+    Ok(())
+}
+
+fn show_wallet(
+    conn: &rusqlite::Connection,
+    wallet_id: &str,
+    json: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved_id = {
+        let mut current = wallet_id.to_string();
+        loop {
+            let redirect: Option<String> = conn
+                .query_row(
+                    "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                    rusqlite::params![current],
+                    |r| r.get(0),
+                )
+                .ok();
+            match redirect {
+                Some(new_id) => current = new_id,
+                None => break current,
+            }
+        }
+    };
+    let detail = stophammer::db::get_wallet_detail(conn, &resolved_id)?
+        .ok_or_else(|| std::io::Error::other(format!("wallet not found: {resolved_id}")))?;
+    if json {
+        let report = WalletDetailReport { wallet: detail };
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        if resolved_id != wallet_id {
+            println!("(redirected from {wallet_id})");
+        }
+        print_wallet_detail(&detail);
+    }
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
     let conn = stophammer::db::open_db(&args.db_path);
@@ -373,84 +460,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             args.json,
         )?;
     } else if let Some(review_id) = args.show_review {
-        let reviews = stophammer::db::list_pending_wallet_reviews(&conn, 1)?;
-        // Fetch the specific review
-        let wallet_id: String = conn
-            .query_row(
-                "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
-                rusqlite::params![review_id],
-                |r| r.get(0),
-            )
-            .map_err(|_| std::io::Error::other(format!("review not found: {review_id}")))?;
-        let detail = stophammer::db::get_wallet_detail(&conn, &wallet_id)?
-            .ok_or_else(|| std::io::Error::other(format!("wallet not found: {wallet_id}")))?;
-
-        let review_summary = conn.query_row(
-            "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
-                    r.review_type, r.details, r.created_at \
-             FROM wallet_identity_review r \
-             JOIN wallets w ON w.wallet_id = r.wallet_id \
-             WHERE r.id = ?1",
-            rusqlite::params![review_id],
-            |r| {
-                Ok(stophammer::db::WalletReviewSummary {
-                    id: r.get(0)?,
-                    wallet_id: r.get(1)?,
-                    display_name: r.get(2)?,
-                    wallet_class: r.get(3)?,
-                    class_confidence: r.get(4)?,
-                    review_type: r.get(5)?,
-                    details: r.get(6)?,
-                    created_at: r.get(7)?,
-                })
-            },
-        )?;
-
-        if args.json {
-            let report = ReviewDetailReport {
-                review: review_summary,
-                wallet: detail,
-            };
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        } else {
-            println!(
-                "review {}  type={}  status=pending  details={:?}",
-                review_summary.id, review_summary.review_type, review_summary.details
-            );
-            print_wallet_detail(&detail);
-        }
-        let _ = reviews; // suppress unused
+        show_review(&conn, review_id, args.json)?;
     } else if let Some(wallet_id) = args.show_wallet.as_deref() {
-        // Follow redirects
-        let resolved_id = {
-            let mut current = wallet_id.to_string();
-            loop {
-                let redirect: Option<String> = conn
-                    .query_row(
-                        "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
-                        rusqlite::params![current],
-                        |r| r.get(0),
-                    )
-                    .ok();
-                match redirect {
-                    Some(new_id) => current = new_id,
-                    None => break current,
-                }
-            }
-        };
-        let detail = stophammer::db::get_wallet_detail(&conn, &resolved_id)?
-            .ok_or_else(|| std::io::Error::other(format!("wallet not found: {resolved_id}")))?;
-        if args.json {
-            let report = WalletDetailReport { wallet: detail };
-            println!("{}", serde_json::to_string_pretty(&report)?);
-        } else {
-            if resolved_id != wallet_id {
-                println!("(redirected from {wallet_id})");
-            }
-            print_wallet_detail(&detail);
-        }
+        show_wallet(&conn, wallet_id, args.json)?;
     } else {
-        // Default: list pending reviews
         let reviews = stophammer::db::list_pending_wallet_reviews(&conn, args.limit)?;
         if args.json {
             let report = PendingReviewsReport { reviews };

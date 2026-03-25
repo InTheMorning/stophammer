@@ -3099,7 +3099,7 @@ async fn handle_get_wallet(
                     })
                 },
             )
-            .map_err(|_| api::ApiError {
+            .map_err(|_err| api::ApiError {
                 status: StatusCode::NOT_FOUND,
                 message: "wallet not found".into(),
                 www_authenticate: None,
