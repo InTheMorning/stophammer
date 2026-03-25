@@ -3,11 +3,11 @@ mod common;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
+use axum::body::Body;
 use http::Request;
 use http_body_util::BodyExt;
 use rusqlite::params;
 use tower::ServiceExt;
-use axum::body::Body;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -125,14 +125,16 @@ async fn get_track_json(
 ) -> serde_json::Value {
     let app = stophammer::api::build_router(state);
     let uri = format!("/v1/tracks/{track_guid}?include={include}");
-    let req = Request::builder()
-        .uri(&uri)
-        .body(Body::empty())
-        .unwrap();
+    let req = Request::builder().uri(&uri).body(Body::empty()).unwrap();
     let resp = app.oneshot(req).await.unwrap();
     let status = resp.status();
     let body = resp.into_body().collect().await.unwrap().to_bytes();
-    assert_eq!(status, 200, "GET {uri} → {}", String::from_utf8_lossy(&body));
+    assert_eq!(
+        status,
+        200,
+        "GET {uri} → {}",
+        String::from_utf8_lossy(&body)
+    );
     let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
     envelope["data"].clone()
 }

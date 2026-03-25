@@ -1356,8 +1356,7 @@ fn build_track_response(
     }
 
     if params.includes("source_contributors") {
-        let claims =
-            db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?;
+        let claims = db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?;
         // Feed→track inheritance: fall back to parent feed contributors when
         // the track has none of its own.
         let claims = if claims.is_empty() {
@@ -1365,9 +1364,8 @@ fn build_track_response(
         } else {
             claims
         };
-        resp.source_contributors = Some(
-            claims.into_iter().map(contributor_claim_response).collect(),
-        );
+        resp.source_contributors =
+            Some(claims.into_iter().map(contributor_claim_response).collect());
     }
 
     if params.includes("source_release_claims") {

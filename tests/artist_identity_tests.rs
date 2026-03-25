@@ -1195,7 +1195,11 @@ fn backfill_does_not_merge_artists_by_publisher_guid() {
     let credit_a = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_a.name,
-        &[(artist_a.artist_id.clone(), artist_a.name.clone(), String::new())],
+        &[(
+            artist_a.artist_id.clone(),
+            artist_a.name.clone(),
+            String::new(),
+        )],
         Some("feed-pguid-a"),
     )
     .expect("credit a");
@@ -1204,7 +1208,11 @@ fn backfill_does_not_merge_artists_by_publisher_guid() {
     let credit_b = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist_b.name,
-        &[(artist_b.artist_id.clone(), artist_b.name.clone(), String::new())],
+        &[(
+            artist_b.artist_id.clone(),
+            artist_b.name.clone(),
+            String::new(),
+        )],
         Some("feed-pguid-b"),
     )
     .expect("credit b");
@@ -1297,12 +1305,9 @@ fn single_feed_artist_with_website_anchors_weak_duplicates() {
     .expect("anchor platform");
 
     // Weak: 1 fountain-only feed, no identity evidence, same name.
-    let weak = stophammer::db::resolve_artist(
-        &conn,
-        "Single Anchor Artist",
-        Some("feed-weak-fountain"),
-    )
-    .expect("weak");
+    let weak =
+        stophammer::db::resolve_artist(&conn, "Single Anchor Artist", Some("feed-weak-fountain"))
+            .expect("weak");
     let weak_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &weak.name,
@@ -1397,9 +1402,8 @@ fn single_feed_artist_with_npub_anchors_weak_duplicates() {
     )
     .expect("npub source claim");
 
-    let weak =
-        stophammer::db::resolve_artist(&conn, "Npub Anchor Artist", Some("feed-npub-weak"))
-            .expect("weak");
+    let weak = stophammer::db::resolve_artist(&conn, "Npub Anchor Artist", Some("feed-npub-weak"))
+        .expect("weak");
     let weak_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &weak.name,
@@ -1460,9 +1464,8 @@ fn merge_target_prefers_evidence_over_creation_order() {
     let later = earlier + 1;
 
     // Weak: created FIRST (older created_at), single fountain feed, no evidence.
-    let weak =
-        stophammer::db::resolve_artist(&conn, "Target Pref Artist", Some("feed-tp-weak"))
-            .expect("weak");
+    let weak = stophammer::db::resolve_artist(&conn, "Target Pref Artist", Some("feed-tp-weak"))
+        .expect("weak");
     let weak_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &weak.name,
@@ -1565,9 +1568,12 @@ fn canonical_promotions_after_merge_reference_surviving_artist() {
     let now = common::now();
 
     // Strong: one wavlake feed, one nostr_npub — will be the merge target.
-    let strong =
-        stophammer::db::resolve_artist(&conn, "Promo Order Artist", Some("feed-promo-order-strong"))
-            .expect("strong artist");
+    let strong = stophammer::db::resolve_artist(
+        &conn,
+        "Promo Order Artist",
+        Some("feed-promo-order-strong"),
+    )
+    .expect("strong artist");
     let strong_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &strong.name,
@@ -1632,9 +1638,13 @@ fn canonical_promotions_after_merge_reference_surviving_artist() {
     .expect("weak platform");
 
     // Phase 1 (DIRTY_ARTIST_IDENTITY): merge weak into strong.
-    let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-promo-order-weak")
-        .expect("artist identity");
-    assert!(stats.merges_applied >= 1, "expected weak to be merged into strong");
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-promo-order-weak")
+            .expect("artist identity");
+    assert!(
+        stats.merges_applied >= 1,
+        "expected weak to be merged into strong"
+    );
 
     // Phase 2 (DIRTY_CANONICAL_PROMOTIONS): sync promotions for the strong feed
     // AFTER the merge.  The promotion must reference the surviving artist.
@@ -1765,7 +1775,8 @@ fn seed_feed_for_publisher(
     raw_medium: &str,
 ) -> (String, i64) {
     let now = common::now();
-    let artist = stophammer::db::resolve_artist(conn, artist_name, Some(feed_guid)).expect("artist");
+    let artist =
+        stophammer::db::resolve_artist(conn, artist_name, Some(feed_guid)).expect("artist");
     let credit = stophammer::db::get_or_create_artist_credit(
         conn,
         &artist.name,
@@ -1863,7 +1874,11 @@ fn publisher_link_groups_two_way_validated() {
     assert_eq!(child_to_pub, 2, "two child→publisher back-links");
 
     let pub_medium: String = conn
-        .query_row("SELECT raw_medium FROM feeds WHERE feed_guid = 'pub-feed-1'", [], |r| r.get(0))
+        .query_row(
+            "SELECT raw_medium FROM feeds WHERE feed_guid = 'pub-feed-1'",
+            [],
+            |r| r.get(0),
+        )
         .expect("pub medium");
     assert_eq!(pub_medium, "publisher");
 
@@ -1876,7 +1891,10 @@ fn publisher_link_groups_two_way_validated() {
         )
         .expect("pre count");
     // 3 artists: publisher feed + child-a + child-b (all share the name "Publisher Artist")
-    assert_eq!(pre_artist_count, 3, "should have 3 distinct artists before merge");
+    assert_eq!(
+        pre_artist_count, 3,
+        "should have 3 distinct artists before merge"
+    );
 
     // Run backfill — should merge the two child artists.
     let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
