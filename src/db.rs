@@ -179,6 +179,10 @@ const MIGRATIONS: &[&str] = &[
     // Migration 16: wallet entity tables — fact layer (endpoints, aliases, route maps)
     // and derived layer (owners, artist links, reviews, overrides).
     include_str!("../migrations/0016_wallet_entities.sql"),
+    // Migration 17: allow force_confidence wallet overrides for operator review tooling.
+    include_str!("../migrations/0017_wallet_force_confidence_override.sql"),
+    // Migration 18: audit applied wallet merge batches for operator undo.
+    include_str!("../migrations/0018_wallet_merge_apply_batches.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -4635,7 +4639,6 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
         website_groups,
         seed_ids,
     )?);
-
     let release_groups = collect_artist_groups_by_release_cluster(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(
         conn,
@@ -4905,7 +4908,6 @@ fn collect_artist_groups_by_publisher_link(
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
     Ok(collect_artist_groups_from_rows("publisher_link", rows))
 }
-
 fn collect_artist_groups_by_release_cluster(
     conn: &Connection,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
@@ -9564,12 +9566,28 @@ pub fn classify_wallet_hard_signals(conn: &Connection, wallet_id: &str) -> Resul
             |r| r.get(0),
         )
         .optional()?;
+    let override_confidence: Option<String> = conn
+        .query_row(
+            "SELECT value FROM wallet_identity_override \
+             WHERE wallet_id = ?1 AND override_type = 'force_confidence' \
+             ORDER BY created_at DESC LIMIT 1",
+            params![wallet_id],
+            |r| r.get(0),
+        )
+        .optional()?;
 
-    if let Some(class) = override_class {
+    if override_class.is_some() || override_confidence.is_some() {
+        let current_class: String = conn.query_row(
+            "SELECT wallet_class FROM wallets WHERE wallet_id = ?1",
+            params![wallet_id],
+            |r| r.get(0),
+        )?;
+        let class = override_class.unwrap_or(current_class);
+        let confidence = override_confidence.unwrap_or_else(|| "reviewed".to_string());
         conn.execute(
-            "UPDATE wallets SET wallet_class = ?1, class_confidence = 'reviewed', updated_at = ?2 \
-             WHERE wallet_id = ?3",
-            params![class, now, wallet_id],
+            "UPDATE wallets SET wallet_class = ?1, class_confidence = ?2, updated_at = ?3 \
+             WHERE wallet_id = ?4",
+            params![class, confidence, now, wallet_id],
         )?;
         return Ok(());
     }
@@ -9598,6 +9616,78 @@ pub fn classify_wallet_hard_signals(conn: &Connection, wallet_id: &str) -> Resul
             params![now, wallet_id],
         )?;
     }
+
+    Ok(())
+}
+
+/// Apply an operator-reviewed class override to a wallet.
+pub fn set_wallet_force_class(
+    conn: &Connection,
+    wallet_id: &str,
+    wallet_class: &str,
+) -> Result<(), DbError> {
+    let now = unix_now();
+
+    conn.execute(
+        "INSERT INTO wallet_identity_override (override_type, wallet_id, target_id, value, created_at) \
+         VALUES ('force_class', ?1, NULL, ?2, ?3)",
+        params![wallet_id, wallet_class, now],
+    )?;
+
+    conn.execute(
+        "UPDATE wallets SET wallet_class = ?1, class_confidence = 'reviewed', updated_at = ?2 \
+         WHERE wallet_id = ?3",
+        params![wallet_class, now, wallet_id],
+    )?;
+
+    Ok(())
+}
+
+/// Apply an operator-reviewed confidence override to a wallet.
+pub fn set_wallet_force_confidence(
+    conn: &Connection,
+    wallet_id: &str,
+    class_confidence: &str,
+) -> Result<(), DbError> {
+    let now = unix_now();
+
+    conn.execute(
+        "INSERT INTO wallet_identity_override (override_type, wallet_id, target_id, value, created_at) \
+         VALUES ('force_confidence', ?1, NULL, ?2, ?3)",
+        params![wallet_id, class_confidence, now],
+    )?;
+
+    conn.execute(
+        "UPDATE wallets SET class_confidence = ?1, updated_at = ?2 \
+         WHERE wallet_id = ?3",
+        params![class_confidence, now, wallet_id],
+    )?;
+
+    Ok(())
+}
+
+/// Clear operator classification overrides and re-derive the wallet classification.
+pub fn revert_wallet_operator_classification(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<(), DbError> {
+    let now = unix_now();
+
+    conn.execute(
+        "DELETE FROM wallet_identity_override \
+         WHERE wallet_id = ?1 AND override_type IN ('force_class', 'force_confidence')",
+        params![wallet_id],
+    )?;
+
+    conn.execute(
+        "UPDATE wallets SET wallet_class = 'unknown', class_confidence = 'provisional', updated_at = ?1 \
+         WHERE wallet_id = ?2",
+        params![now, wallet_id],
+    )?;
+
+    classify_wallet_hard_signals(conn, wallet_id)?;
+    let _ = classify_wallet_soft_signals(conn, wallet_id)?;
+    let _ = classify_wallet_split_heuristics(conn, wallet_id)?;
 
     Ok(())
 }
@@ -9922,6 +10012,206 @@ pub fn merge_wallets(conn: &Connection, old_id: &str, new_id: &str) -> Result<()
     Ok(())
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WalletUndoWalletRow {
+    wallet_id: String,
+    display_name: String,
+    display_name_lower: String,
+    wallet_class: String,
+    class_confidence: String,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WalletUndoArtistLinkRow {
+    artist_id: String,
+    confidence: String,
+    evidence_entity_type: String,
+    evidence_entity_id: String,
+    created_at: i64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WalletUndoReviewRow {
+    id: i64,
+    wallet_id: String,
+    review_type: String,
+    details: Option<String>,
+    status: String,
+    created_at: i64,
+    resolved_at: Option<i64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct WalletUndoRedirectRow {
+    old_wallet_id: String,
+    new_wallet_id: String,
+    created_at: i64,
+}
+
+#[derive(Debug, Default)]
+struct WalletMergeBatchRecorder {
+    batch_id: Option<i64>,
+    next_seq: i64,
+}
+
+fn ensure_wallet_merge_batch(
+    conn: &Connection,
+    recorder: &mut WalletMergeBatchRecorder,
+) -> Result<i64, DbError> {
+    if let Some(batch_id) = recorder.batch_id {
+        return Ok(batch_id);
+    }
+
+    let now = unix_now();
+    let batch_id: i64 = conn.query_row(
+        "INSERT INTO wallet_merge_apply_batch (source, created_at, merges_applied) \
+         VALUES ('refresh', ?1, 0) RETURNING id",
+        params![now],
+        |r| r.get(0),
+    )?;
+    recorder.batch_id = Some(batch_id);
+    Ok(batch_id)
+}
+
+fn audited_merge_wallets(
+    conn: &Connection,
+    old_id: &str,
+    new_id: &str,
+    reason: &str,
+    recorder: &mut WalletMergeBatchRecorder,
+) -> Result<bool, DbError> {
+    if old_id == new_id {
+        return Ok(false);
+    }
+
+    let old_wallet = conn
+        .query_row(
+            "SELECT wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at \
+             FROM wallets WHERE wallet_id = ?1",
+            params![old_id],
+            |r| {
+                Ok(WalletUndoWalletRow {
+                    wallet_id: r.get(0)?,
+                    display_name: r.get(1)?,
+                    display_name_lower: r.get(2)?,
+                    wallet_class: r.get(3)?,
+                    class_confidence: r.get(4)?,
+                    created_at: r.get(5)?,
+                    updated_at: r.get(6)?,
+                })
+            },
+        )
+        .optional()?;
+    let Some(old_wallet) = old_wallet else {
+        return Ok(false);
+    };
+
+    let target_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+        params![new_id],
+        |r| r.get(0),
+    )?;
+    if !target_exists {
+        return Err(DbError::Other(format!(
+            "wallet merge target does not exist: {new_id}"
+        )));
+    }
+
+    let old_endpoint_ids: Vec<i64> = conn
+        .prepare("SELECT id FROM wallet_endpoints WHERE wallet_id = ?1 ORDER BY id")?
+        .query_map(params![old_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let old_artist_links: Vec<WalletUndoArtistLinkRow> = conn
+        .prepare(
+            "SELECT artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at \
+             FROM wallet_artist_links WHERE wallet_id = ?1 ORDER BY artist_id",
+        )?
+        .query_map(params![old_id], |r| {
+            Ok(WalletUndoArtistLinkRow {
+                artist_id: r.get(0)?,
+                confidence: r.get(1)?,
+                evidence_entity_type: r.get(2)?,
+                evidence_entity_id: r.get(3)?,
+                created_at: r.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let new_artist_ids: Vec<String> = conn
+        .prepare(
+            "SELECT artist_id FROM wallet_artist_links WHERE wallet_id = ?1 ORDER BY artist_id",
+        )?
+        .query_map(params![new_id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let moved_reviews: Vec<WalletUndoReviewRow> = conn
+        .prepare(
+            "SELECT id, wallet_id, review_type, details, status, created_at, resolved_at \
+             FROM wallet_identity_review WHERE wallet_id = ?1 ORDER BY id",
+        )?
+        .query_map(params![old_id], |r| {
+            Ok(WalletUndoReviewRow {
+                id: r.get(0)?,
+                wallet_id: r.get(1)?,
+                review_type: r.get(2)?,
+                details: r.get(3)?,
+                status: r.get(4)?,
+                created_at: r.get(5)?,
+                resolved_at: r.get(6)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let redirect_rows: Vec<WalletUndoRedirectRow> = conn
+        .prepare(
+            "SELECT old_wallet_id, new_wallet_id, created_at \
+             FROM wallet_id_redirect \
+             WHERE old_wallet_id = ?1 OR new_wallet_id = ?1 \
+             ORDER BY old_wallet_id, new_wallet_id",
+        )?
+        .query_map(params![old_id], |r| {
+            Ok(WalletUndoRedirectRow {
+                old_wallet_id: r.get(0)?,
+                new_wallet_id: r.get(1)?,
+                created_at: r.get(2)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+
+    let batch_id = ensure_wallet_merge_batch(conn, recorder)?;
+    conn.execute(
+        "INSERT INTO wallet_merge_apply_entry \
+         (batch_id, seq, reason, old_wallet_id, new_wallet_id, old_wallet_json, \
+          old_endpoint_ids_json, old_artist_links_json, new_artist_ids_json, \
+          moved_reviews_json, redirect_rows_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            batch_id,
+            recorder.next_seq,
+            reason,
+            old_id,
+            new_id,
+            serde_json::to_string(&old_wallet)?,
+            serde_json::to_string(&old_endpoint_ids)?,
+            serde_json::to_string(&old_artist_links)?,
+            serde_json::to_string(&new_artist_ids)?,
+            serde_json::to_string(&moved_reviews)?,
+            serde_json::to_string(&redirect_rows)?,
+        ],
+    )?;
+    recorder.next_seq += 1;
+
+    merge_wallets(conn, old_id, new_id)?;
+    conn.execute(
+        "UPDATE wallet_merge_apply_batch SET merges_applied = merges_applied + 1 WHERE id = ?1",
+        params![batch_id],
+    )?;
+    Ok(true)
+}
+
 /// Stats returned by `cleanup_orphaned_wallets`.
 #[derive(Debug, Default)]
 pub struct WalletCleanupStats {
@@ -10022,7 +10312,11 @@ pub fn purge_wavlake_wallet_route_maps(conn: &Connection) -> Result<usize, DbErr
 /// evidence of the same entity. Run only in Pass 5 (--refresh).
 ///
 /// Returns the number of merges performed.
-pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
+fn group_same_feed_endpoints_with_recorder(
+    conn: &Connection,
+    feed_guid: &str,
+    recorder: &mut WalletMergeBatchRecorder,
+) -> Result<usize, DbError> {
     // Use the wallet's classification as a proxy for fee status (bot_service = fee endpoint).
     // This avoids expensive multi-JOIN back through route maps to source routes.
     // Endpoints sharing the same alias_lower within the same feed, with the same
@@ -10087,12 +10381,274 @@ pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<u
 
         let target = unique_wallets[0].clone();
         for other in &unique_wallets[1..] {
-            merge_wallets(conn, other, &target)?;
+            if audited_merge_wallets(conn, other, &target, "grouping", recorder)? {
+                merges += 1;
+            }
+        }
+    }
+
+    Ok(merges)
+}
+
+pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
+    let mut recorder = WalletMergeBatchRecorder::default();
+    group_same_feed_endpoints_with_recorder(conn, feed_guid, &mut recorder)
+}
+
+fn resolve_wallet_redirect(conn: &Connection, wallet_id: &str) -> Result<String, DbError> {
+    let mut current = wallet_id.to_string();
+    let mut seen = std::collections::BTreeSet::new();
+
+    loop {
+        if !seen.insert(current.clone()) {
+            return Err(DbError::Other(format!(
+                "wallet redirect cycle detected starting at {wallet_id}"
+            )));
+        }
+
+        let next = conn
+            .query_row(
+                "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                params![current.as_str()],
+                |r| r.get::<_, String>(0),
+            )
+            .optional()?;
+        match next {
+            Some(next_wallet_id) => current = next_wallet_id,
+            None => return Ok(current),
+        }
+    }
+}
+
+fn apply_wallet_merge_overrides_with_recorder(
+    conn: &Connection,
+    recorder: &mut WalletMergeBatchRecorder,
+) -> Result<usize, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT wallet_id, target_id \
+         FROM wallet_identity_override \
+         WHERE override_type = 'merge' AND target_id IS NOT NULL \
+         ORDER BY created_at ASC, id ASC",
+    )?;
+    let overrides: Vec<(String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+
+    let mut merges = 0usize;
+    for (wallet_id, target_id) in overrides {
+        let source_id = resolve_wallet_redirect(conn, &wallet_id)?;
+        let canonical_target_id = resolve_wallet_redirect(conn, &target_id)?;
+        if source_id == canonical_target_id {
+            continue;
+        }
+
+        let source_exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![source_id.as_str()],
+            |r| r.get(0),
+        )?;
+        if !source_exists {
+            continue;
+        }
+
+        let target_exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![canonical_target_id.as_str()],
+            |r| r.get(0),
+        )?;
+        if !target_exists {
+            return Err(DbError::Other(format!(
+                "wallet merge override target does not exist: {canonical_target_id}"
+            )));
+        }
+
+        if audited_merge_wallets(conn, &source_id, &canonical_target_id, "override", recorder)? {
             merges += 1;
         }
     }
 
     Ok(merges)
+}
+
+#[derive(Debug, Default)]
+pub struct WalletUndoStats {
+    pub batch_id: i64,
+    pub merges_reverted: usize,
+}
+
+pub fn undo_last_wallet_merge_batch(conn: &Connection) -> Result<Option<WalletUndoStats>, DbError> {
+    let batch = conn
+        .query_row(
+            "SELECT id FROM wallet_merge_apply_batch \
+             WHERE undone_at IS NULL \
+             ORDER BY id DESC LIMIT 1",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .optional()?;
+    let Some(batch_id) = batch else {
+        return Ok(None);
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT old_wallet_id, new_wallet_id, old_wallet_json, old_endpoint_ids_json, \
+                old_artist_links_json, new_artist_ids_json, moved_reviews_json, redirect_rows_json \
+         FROM wallet_merge_apply_entry \
+         WHERE batch_id = ?1 \
+         ORDER BY seq DESC, id DESC",
+    )?;
+    let entries = stmt.query_map(params![batch_id], |r| {
+        Ok((
+            r.get::<_, String>(0)?,
+            r.get::<_, String>(1)?,
+            r.get::<_, String>(2)?,
+            r.get::<_, String>(3)?,
+            r.get::<_, String>(4)?,
+            r.get::<_, String>(5)?,
+            r.get::<_, String>(6)?,
+            r.get::<_, String>(7)?,
+        ))
+    })?;
+
+    let mut merges_reverted = 0usize;
+    for row in entries {
+        let (
+            old_wallet_id,
+            new_wallet_id,
+            old_wallet_json,
+            old_endpoint_ids_json,
+            old_artist_links_json,
+            new_artist_ids_json,
+            moved_reviews_json,
+            redirect_rows_json,
+        ) = row?;
+
+        let old_wallet: WalletUndoWalletRow = serde_json::from_str(&old_wallet_json)?;
+        let old_endpoint_ids: Vec<i64> = serde_json::from_str(&old_endpoint_ids_json)?;
+        let old_artist_links: Vec<WalletUndoArtistLinkRow> =
+            serde_json::from_str(&old_artist_links_json)?;
+        let new_artist_ids: std::collections::BTreeSet<String> =
+            serde_json::from_str::<Vec<String>>(&new_artist_ids_json)?
+                .into_iter()
+                .collect();
+        let moved_reviews: Vec<WalletUndoReviewRow> = serde_json::from_str(&moved_reviews_json)?;
+        let redirect_rows: Vec<WalletUndoRedirectRow> = serde_json::from_str(&redirect_rows_json)?;
+
+        conn.execute(
+            "DELETE FROM wallets WHERE wallet_id = ?1",
+            params![old_wallet_id.as_str()],
+        )?;
+        conn.execute(
+            "INSERT INTO wallets (wallet_id, display_name, display_name_lower, wallet_class, class_confidence, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                old_wallet.wallet_id,
+                old_wallet.display_name,
+                old_wallet.display_name_lower,
+                old_wallet.wallet_class,
+                old_wallet.class_confidence,
+                old_wallet.created_at,
+                old_wallet.updated_at,
+            ],
+        )?;
+
+        for endpoint_id in &old_endpoint_ids {
+            conn.execute(
+                "UPDATE wallet_endpoints SET wallet_id = ?1 WHERE id = ?2",
+                params![old_wallet_id.as_str(), endpoint_id],
+            )?;
+        }
+
+        for review in &moved_reviews {
+            conn.execute(
+                "DELETE FROM wallet_identity_review WHERE id = ?1",
+                params![review.id],
+            )?;
+            conn.execute(
+                "INSERT INTO wallet_identity_review \
+                 (id, wallet_id, review_type, details, status, created_at, resolved_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    review.id,
+                    review.wallet_id,
+                    review.review_type,
+                    review.details,
+                    review.status,
+                    review.created_at,
+                    review.resolved_at,
+                ],
+            )?;
+        }
+
+        conn.execute(
+            "DELETE FROM wallet_artist_links WHERE wallet_id = ?1",
+            params![old_wallet_id.as_str()],
+        )?;
+        for link in &old_artist_links {
+            if !new_artist_ids.contains(&link.artist_id) {
+                conn.execute(
+                    "DELETE FROM wallet_artist_links WHERE wallet_id = ?1 AND artist_id = ?2",
+                    params![new_wallet_id.as_str(), link.artist_id.as_str()],
+                )?;
+            }
+            conn.execute(
+                "INSERT INTO wallet_artist_links \
+                 (wallet_id, artist_id, evidence_entity_type, evidence_entity_id, confidence, created_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    old_wallet_id.as_str(),
+                    link.artist_id.as_str(),
+                    link.evidence_entity_type.as_str(),
+                    link.evidence_entity_id.as_str(),
+                    link.confidence.as_str(),
+                    link.created_at,
+                ],
+            )?;
+        }
+
+        let affected_redirect_old_ids = redirect_rows
+            .iter()
+            .map(|row| row.old_wallet_id.as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        conn.execute(
+            "DELETE FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+            params![old_wallet_id.as_str()],
+        )?;
+        for redirect_old_id in affected_redirect_old_ids {
+            conn.execute(
+                "DELETE FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                params![redirect_old_id],
+            )?;
+        }
+        conn.execute(
+            "DELETE FROM wallet_id_redirect WHERE new_wallet_id = ?1",
+            params![old_wallet_id.as_str()],
+        )?;
+        for redirect in &redirect_rows {
+            conn.execute(
+                "INSERT OR REPLACE INTO wallet_id_redirect (old_wallet_id, new_wallet_id, created_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![
+                    redirect.old_wallet_id.as_str(),
+                    redirect.new_wallet_id.as_str(),
+                    redirect.created_at,
+                ],
+            )?;
+        }
+
+        update_wallet_display_name(conn, old_wallet_id.as_str())?;
+        update_wallet_display_name(conn, new_wallet_id.as_str())?;
+        merges_reverted += 1;
+    }
+
+    conn.execute(
+        "UPDATE wallet_merge_apply_batch SET undone_at = ?1 WHERE id = ?2",
+        params![unix_now(), batch_id],
+    )?;
+    Ok(Some(WalletUndoStats {
+        batch_id,
+        merges_reverted,
+    }))
 }
 
 /// Create review items for ambiguous wallet identity patterns.
@@ -10492,8 +11048,10 @@ pub fn backfill_wallet_pass3(conn: &Connection) -> Result<WalletBackfillStats, D
 /// Stats returned by Pass 5 (--refresh).
 #[derive(Debug, Default)]
 pub struct WalletRefreshStats {
+    pub apply_batch_id: Option<i64>,
     pub feeds_processed: usize,
     pub merges_from_grouping: usize,
+    pub merges_from_overrides: usize,
     pub soft_classified: usize,
     pub split_classified: usize,
     pub review_items_created: usize,
@@ -10510,6 +11068,9 @@ pub struct WalletRefreshStats {
 /// 4. Orphan cleanup
 pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, DbError> {
     let mut stats = WalletRefreshStats::default();
+    let mut recorder = WalletMergeBatchRecorder::default();
+
+    stats.merges_from_overrides = apply_wallet_merge_overrides_with_recorder(conn, &mut recorder)?;
 
     // Get feed GUIDs that have multiple distinct endpoints sharing an alias.
     // Only these feeds can possibly produce merges — skip the rest.
@@ -10539,13 +11100,14 @@ pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, Db
         .collect::<Result<_, _>>()?;
 
     for feed_guid in &candidate_feeds {
-        let merges = group_same_feed_endpoints(conn, feed_guid)?;
+        let merges = group_same_feed_endpoints_with_recorder(conn, feed_guid, &mut recorder)?;
         stats.merges_from_grouping += merges;
         stats.feeds_processed += 1;
     }
+    stats.apply_batch_id = recorder.batch_id;
 
     // Re-derive display names for all wallets that were involved in merges
-    if stats.merges_from_grouping > 0 {
+    if stats.merges_from_grouping > 0 || stats.merges_from_overrides > 0 {
         let mut wstmt = conn.prepare("SELECT wallet_id FROM wallets")?;
         let wallet_ids: Vec<String> = wstmt
             .query_map([], |r| r.get(0))?
@@ -10602,7 +11164,7 @@ pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, Db
 // ---------------------------------------------------------------------------
 
 /// Summary of a pending wallet identity review item.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletReviewSummary {
     pub id: i64,
     pub wallet_id: String,
@@ -10615,7 +11177,7 @@ pub struct WalletReviewSummary {
 }
 
 /// Full detail of a wallet for review display.
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletDetail {
     pub wallet_id: String,
     pub display_name: String,
@@ -10630,7 +11192,7 @@ pub struct WalletDetail {
     pub overrides: Vec<WalletOverrideDetail>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletEndpointDetail {
     pub id: i64,
     pub route_type: String,
@@ -10639,14 +11201,14 @@ pub struct WalletEndpointDetail {
     pub custom_value: String,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletAliasDetail {
     pub alias: String,
     pub first_seen_at: i64,
     pub last_seen_at: i64,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletArtistLinkDetail {
     pub artist_id: String,
     pub confidence: String,
@@ -10654,7 +11216,7 @@ pub struct WalletArtistLinkDetail {
     pub evidence_entity_id: String,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletOverrideDetail {
     pub id: i64,
     pub override_type: String,
@@ -10663,11 +11225,65 @@ pub struct WalletOverrideDetail {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletRouteEvidence {
+    pub route_scope: String,
+    pub route_id: i64,
+    pub track_guid: Option<String>,
+    pub track_title: Option<String>,
+    pub feed_guid: String,
+    pub feed_title: String,
+    pub feed_url: String,
+    pub recipient_name: Option<String>,
+    pub route_type: String,
+    pub address: String,
+    pub custom_key: String,
+    pub custom_value: String,
+    pub split: i64,
+    pub fee: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletClaimFeed {
+    pub feed_guid: String,
+    pub title: String,
+    pub feed_url: String,
+    pub routes: Vec<WalletRouteEvidence>,
+    pub contributor_claims: Vec<SourceContributorClaim>,
+    pub entity_id_claims: Vec<SourceEntityIdClaim>,
+    pub link_claims: Vec<SourceEntityLink>,
+    pub release_claims: Vec<SourceReleaseClaim>,
+    pub platform_claims: Vec<SourcePlatformClaim>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletEndpointPreview {
+    pub route_type: String,
+    pub normalized_address: String,
+    pub custom_key: String,
+    pub custom_value: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletAliasPeer {
+    pub wallet_id: String,
+    pub display_name: String,
+    pub wallet_class: String,
+    pub class_confidence: String,
+    pub endpoint_count: i64,
+    pub feed_count: i64,
+    pub alias_preview: Vec<String>,
+    pub endpoint_preview: Vec<WalletEndpointPreview>,
+    pub feed_title_preview: Vec<String>,
+}
+
 /// List pending wallet identity reviews.
 pub fn list_pending_wallet_reviews(
     conn: &Connection,
-    limit: i64,
+    limit: usize,
 ) -> Result<Vec<WalletReviewSummary>, DbError> {
+    let limit = i64::try_from(limit)
+        .map_err(|err| DbError::Other(format!("wallet review limit exceeds i64: {err}")))?;
     let mut stmt = conn.prepare(
         "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
                 r.review_type, r.details, r.created_at \
@@ -10816,6 +11432,221 @@ pub fn get_wallet_detail(
         feed_guids,
         overrides,
     }))
+}
+
+/// Returns all route rows and staged source claims for feeds touched by one wallet.
+pub fn get_wallet_claim_feeds(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<Vec<WalletClaimFeed>, DbError> {
+    let mut route_stmt = conn.prepare(
+        "SELECT route_scope, route_id, track_guid, track_title, feed_guid, feed_title, feed_url, recipient_name, \
+                route_type, address, custom_key, custom_value, split, fee \
+         FROM ( \
+             SELECT 'track' AS route_scope, pr.id AS route_id, pr.track_guid AS track_guid, \
+                    t.title AS track_title, \
+                    pr.feed_guid AS feed_guid, f.title AS feed_title, f.feed_url AS feed_url, \
+                    pr.recipient_name AS recipient_name, pr.route_type AS route_type, \
+                    pr.address AS address, COALESCE(pr.custom_key, '') AS custom_key, \
+                    COALESCE(pr.custom_value, '') AS custom_value, pr.split AS split, \
+                    pr.fee AS fee \
+             FROM wallet_endpoints we \
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             LEFT JOIN tracks t ON t.track_guid = pr.track_guid \
+             JOIN feeds f ON f.feed_guid = pr.feed_guid \
+             WHERE we.wallet_id = ?1 \
+             UNION ALL \
+             SELECT 'feed' AS route_scope, fpr.id AS route_id, NULL AS track_guid, NULL AS track_title, \
+                    fpr.feed_guid AS feed_guid, f.title AS feed_title, f.feed_url AS feed_url, \
+                    fpr.recipient_name AS recipient_name, fpr.route_type AS route_type, \
+                    fpr.address AS address, COALESCE(fpr.custom_key, '') AS custom_key, \
+                    COALESCE(fpr.custom_value, '') AS custom_value, fpr.split AS split, \
+                    fpr.fee AS fee \
+             FROM wallet_endpoints we \
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+             JOIN feeds f ON f.feed_guid = fpr.feed_guid \
+             WHERE we.wallet_id = ?1 \
+         ) \
+         ORDER BY feed_title COLLATE NOCASE, route_scope, route_id",
+    )?;
+    let route_rows = route_stmt.query_map(params![wallet_id], |row| {
+        Ok(WalletRouteEvidence {
+            route_scope: row.get(0)?,
+            route_id: row.get(1)?,
+            track_guid: row.get(2)?,
+            track_title: row.get(3)?,
+            feed_guid: row.get(4)?,
+            feed_title: row.get(5)?,
+            feed_url: row.get(6)?,
+            recipient_name: row.get(7)?,
+            route_type: row.get(8)?,
+            address: row.get(9)?,
+            custom_key: row.get(10)?,
+            custom_value: row.get(11)?,
+            split: row.get(12)?,
+            fee: row.get(13)?,
+        })
+    })?;
+
+    let mut all_routes = Vec::new();
+    for row in route_rows {
+        all_routes.push(row?);
+    }
+
+    let mut feed_stmt = conn.prepare(
+        "SELECT DISTINCT fg, title, feed_url FROM ( \
+             SELECT pr.feed_guid AS fg, f.title AS title, f.feed_url AS feed_url \
+             FROM wallet_endpoints we \
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             JOIN feeds f ON f.feed_guid = pr.feed_guid \
+             WHERE we.wallet_id = ?1 \
+             UNION \
+             SELECT fpr.feed_guid AS fg, f.title AS title, f.feed_url AS feed_url \
+             FROM wallet_endpoints we \
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+             JOIN feeds f ON f.feed_guid = fpr.feed_guid \
+             WHERE we.wallet_id = ?1 \
+         ) \
+         ORDER BY title COLLATE NOCASE, fg",
+    )?;
+    let feed_rows = feed_stmt.query_map(params![wallet_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    })?;
+
+    let mut claim_feeds = Vec::new();
+    for row in feed_rows {
+        let (feed_guid, title, feed_url) = row?;
+        let routes = all_routes
+            .iter()
+            .filter(|route| route.feed_guid == feed_guid)
+            .cloned()
+            .collect();
+        claim_feeds.push(WalletClaimFeed {
+            feed_guid: feed_guid.clone(),
+            title,
+            feed_url,
+            routes,
+            contributor_claims: get_source_contributor_claims_for_feed(conn, &feed_guid)?,
+            entity_id_claims: get_source_entity_ids_for_feed(conn, &feed_guid)?,
+            link_claims: get_source_entity_links_for_feed(conn, &feed_guid)?,
+            release_claims: get_source_release_claims_for_feed(conn, &feed_guid)?,
+            platform_claims: get_source_platform_claims_for_feed(conn, &feed_guid)?,
+        });
+    }
+
+    Ok(claim_feeds)
+}
+
+/// Returns other wallets that currently share one normalized alias.
+pub fn get_wallet_alias_peers(
+    conn: &Connection,
+    alias_lower: &str,
+) -> Result<Vec<WalletAliasPeer>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT w.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                (SELECT COUNT(*) FROM wallet_endpoints we2 WHERE we2.wallet_id = w.wallet_id), \
+                (SELECT COUNT(DISTINCT fg) FROM ( \
+                    SELECT pr.feed_guid AS fg \
+                    FROM wallet_endpoints we3 \
+                    JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we3.id \
+                    JOIN payment_routes pr ON pr.id = wtrm.route_id \
+                    WHERE we3.wallet_id = w.wallet_id \
+                    UNION \
+                    SELECT fpr.feed_guid AS fg \
+                    FROM wallet_endpoints we4 \
+                    JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we4.id \
+                    JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+                    WHERE we4.wallet_id = w.wallet_id \
+                )) \
+         FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         JOIN wallets w ON w.wallet_id = we.wallet_id \
+         WHERE wa.alias_lower = ?1 \
+         ORDER BY w.display_name_lower, w.wallet_id",
+    )?;
+    let rows = stmt.query_map(params![alias_lower], |row| {
+        Ok(WalletAliasPeer {
+            wallet_id: row.get(0)?,
+            display_name: row.get(1)?,
+            wallet_class: row.get(2)?,
+            class_confidence: row.get(3)?,
+            endpoint_count: row.get(4)?,
+            feed_count: row.get(5)?,
+            alias_preview: Vec::new(),
+            endpoint_preview: Vec::new(),
+            feed_title_preview: Vec::new(),
+        })
+    })?;
+
+    let mut peers = Vec::new();
+    for row in rows {
+        let mut peer = row?;
+        let mut alias_stmt = conn.prepare(
+            "SELECT DISTINCT wa.alias \
+             FROM wallet_aliases wa \
+             JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+             WHERE we.wallet_id = ?1 \
+             ORDER BY wa.first_seen_at ASC, wa.alias_lower ASC \
+             LIMIT 3",
+        )?;
+        peer.alias_preview = alias_stmt
+            .query_map(params![peer.wallet_id.as_str()], |alias_row| {
+                alias_row.get(0)
+            })?
+            .collect::<Result<Vec<String>, _>>()?;
+
+        let mut endpoint_stmt = conn.prepare(
+            "SELECT DISTINCT we.route_type, we.normalized_address, \
+                    COALESCE(we.custom_key, ''), COALESCE(we.custom_value, '') \
+             FROM wallet_endpoints we \
+             WHERE we.wallet_id = ?1 \
+             ORDER BY we.route_type, we.normalized_address, we.custom_key, we.custom_value \
+             LIMIT 3",
+        )?;
+        peer.endpoint_preview = endpoint_stmt
+            .query_map(params![peer.wallet_id.as_str()], |endpoint_row| {
+                Ok(WalletEndpointPreview {
+                    route_type: endpoint_row.get(0)?,
+                    normalized_address: endpoint_row.get(1)?,
+                    custom_key: endpoint_row.get(2)?,
+                    custom_value: endpoint_row.get(3)?,
+                })
+            })?
+            .collect::<Result<Vec<WalletEndpointPreview>, _>>()?;
+
+        let mut feed_title_stmt = conn.prepare(
+            "SELECT DISTINCT title FROM ( \
+                 SELECT f.title AS title \
+                 FROM wallet_endpoints we \
+                 JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+                 JOIN payment_routes pr ON pr.id = wtrm.route_id \
+                 JOIN feeds f ON f.feed_guid = pr.feed_guid \
+                 WHERE we.wallet_id = ?1 \
+                 UNION \
+                 SELECT f.title AS title \
+                 FROM wallet_endpoints we \
+                 JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+                 JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+                 JOIN feeds f ON f.feed_guid = fpr.feed_guid \
+                 WHERE we.wallet_id = ?1 \
+             ) \
+             ORDER BY title COLLATE NOCASE \
+             LIMIT 3",
+        )?;
+        peer.feed_title_preview = feed_title_stmt
+            .query_map(params![peer.wallet_id.as_str()], |feed_row| feed_row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        peers.push(peer);
+    }
+    Ok(peers)
 }
 
 /// Store a wallet identity override and resolve the associated review.

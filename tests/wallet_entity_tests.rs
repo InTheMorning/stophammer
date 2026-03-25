@@ -1163,6 +1163,121 @@ fn review_items_created_for_cross_wallet_aliases() {
     assert_eq!(created2, 0, "should not create duplicate review items");
 }
 
+#[test]
+fn wallet_claim_feeds_include_routes_and_source_claims() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let route_id = insert_feed_route(&conn, "feed-w", "Alice", "addr-claims");
+    let endpoint =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-claims", "", "", Some("Alice"), now)
+            .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_id, endpoint, now).unwrap();
+    let wallet_id = db::create_provisional_wallet(&conn, endpoint, now).unwrap();
+
+    db::replace_source_contributor_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceContributorClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            name: "Wallet Artist".into(),
+            role: Some("artist".into()),
+            role_norm: Some("artist".into()),
+            group_name: None,
+            href: Some("https://example.com/artist".into()),
+            img: None,
+            source: "test".into(),
+            extraction_path: "feed.person".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1walletclaim".into(),
+            source: "test".into(),
+            extraction_path: "feed.value".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_entity_links_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceEntityLink {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            link_type: "website".into(),
+            url: "https://example.com/feed".into(),
+            source: "test".into(),
+            extraction_path: "feed.link".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_release_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourceReleaseClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-w".into(),
+            position: 0,
+            claim_type: "description".into(),
+            claim_value: "Feed description".into(),
+            source: "test".into(),
+            extraction_path: "feed.description".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+    db::replace_source_platform_claims_for_feed(
+        &conn,
+        "feed-w",
+        &[stophammer::model::SourcePlatformClaim {
+            id: None,
+            feed_guid: "feed-w".into(),
+            platform_key: "wavlake".into(),
+            url: Some("https://wavlake.com/feed-w".into()),
+            owner_name: Some("Wavlake".into()),
+            source: "test".into(),
+            extraction_path: "feed.platform".into(),
+            observed_at: now,
+        }],
+    )
+    .unwrap();
+
+    let claim_feeds = db::get_wallet_claim_feeds(&conn, &wallet_id).unwrap();
+    assert_eq!(claim_feeds.len(), 1, "wallet should touch one feed");
+    assert_eq!(claim_feeds[0].feed_guid, "feed-w");
+    assert_eq!(
+        claim_feeds[0].routes.len(),
+        1,
+        "route evidence should be included"
+    );
+    assert_eq!(claim_feeds[0].contributor_claims.len(), 1);
+    assert_eq!(claim_feeds[0].entity_id_claims.len(), 1);
+    assert_eq!(claim_feeds[0].link_claims.len(), 1);
+    assert_eq!(claim_feeds[0].release_claims.len(), 1);
+    assert_eq!(claim_feeds[0].platform_claims.len(), 1);
+}
+
 // ---- Soft-signal classification tests ----
 
 #[test]
@@ -1660,6 +1775,119 @@ fn set_override_resolves_review() {
         |r| r.get(0),
     ).unwrap();
     assert_eq!(override_count, 1);
+}
+
+#[test]
+fn backfill_refresh_applies_wallet_merge_overrides() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "addr-left", "", "", Some("Alice"), now)
+        .unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-right", "", "", Some("Alice"), now)
+            .unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let review_id: i64 = conn
+        .query_row(
+            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
+            params![w2, now],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    db::set_wallet_identity_override_for_review(&conn, review_id, "merge", Some(&w1), None)
+        .unwrap();
+
+    let stats = db::backfill_wallet_pass5(&conn).unwrap();
+    assert_eq!(stats.merges_from_overrides, 1);
+    assert!(stats.apply_batch_id.is_some());
+
+    let ep2_wallet: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1",
+            params![ep2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(ep2_wallet, w1, "override merge should repoint endpoints");
+
+    let redirect_target: String = conn
+        .query_row(
+            "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(redirect_target, w1);
+}
+
+#[test]
+fn undo_last_wallet_merge_batch_restores_wallets() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep1 = db::get_or_create_endpoint(&conn, "keysend", "undo-left", "", "", Some("Alice"), now)
+        .unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "undo-right", "", "", Some("Alice"), now)
+            .unwrap();
+
+    let w1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let w2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    let review_id: i64 = conn
+        .query_row(
+            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
+            params![w2, now],
+            |r| r.get(0),
+        )
+        .unwrap();
+
+    db::set_wallet_identity_override_for_review(&conn, review_id, "merge", Some(&w1), None)
+        .unwrap();
+    let apply_stats = db::backfill_wallet_pass5(&conn).unwrap();
+    assert_eq!(apply_stats.merges_from_overrides, 1);
+
+    let undo_stats = db::undo_last_wallet_merge_batch(&conn)
+        .unwrap()
+        .expect("expected undo batch");
+    assert_eq!(undo_stats.merges_reverted, 1);
+
+    let old_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallets WHERE wallet_id = ?1)",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(old_exists, "old wallet should be restored");
+
+    let ep2_wallet: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_endpoints WHERE id = ?1",
+            params![ep2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        ep2_wallet, w2,
+        "endpoint should move back to restored wallet"
+    );
+
+    let redirect_exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallet_id_redirect WHERE old_wallet_id = ?1)",
+            params![w2],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!redirect_exists, "undo should remove the applied redirect");
 }
 
 #[test]

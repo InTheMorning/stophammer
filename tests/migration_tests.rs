@@ -2,6 +2,8 @@
 
 mod common;
 
+const ALLOWED_DROP_TABLE_LINES: &[&str] = &["DROP TABLE wallet_identity_override;"];
+
 // ---------------------------------------------------------------------------
 // migrations_are_idempotent: open_db twice on the same file, assert success
 // and that table structure is correct after both opens.
@@ -76,7 +78,7 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 16, "exactly sixteen migrations should be recorded");
+    assert_eq!(count, 18, "exactly eighteen migrations should be recorded");
 }
 
 // ---------------------------------------------------------------------------
@@ -104,6 +106,10 @@ fn no_drop_table_in_migrations() {
     let resolved_overlay_tables = include_str!("../migrations/0014_resolved_overlay_tables.sql");
     let live_events_feed_scoped =
         include_str!("../migrations/0015_live_events_feed_scoped_key.sql");
+    let wallet_entities = include_str!("../migrations/0016_wallet_entities.sql");
+    let wallet_force_override =
+        include_str!("../migrations/0017_wallet_force_confidence_override.sql");
+    let wallet_merge_batches = include_str!("../migrations/0018_wallet_merge_apply_batches.sql");
     let all_migrations = [
         baseline,
         feed_scope,
@@ -120,6 +126,9 @@ fn no_drop_table_in_migrations() {
         artist_identity_reviews,
         resolved_overlay_tables,
         live_events_feed_scoped,
+        wallet_entities,
+        wallet_force_override,
+        wallet_merge_batches,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {
@@ -128,9 +137,12 @@ fn no_drop_table_in_migrations() {
             if trimmed.starts_with("--") {
                 continue;
             }
+            if ALLOWED_DROP_TABLE_LINES.contains(&trimmed) {
+                continue;
+            }
             assert!(
                 !trimmed.to_lowercase().contains("drop table"),
-                "migration {} line {} contains DROP TABLE — this is forbidden: {trimmed}",
+                "migration {} line {} contains an unexpected DROP TABLE: {trimmed}",
                 i + 1,
                 line_no + 1,
             );

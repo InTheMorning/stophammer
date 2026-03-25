@@ -1,3 +1,12 @@
+#![allow(
+    clippy::map_err_ignore,
+    reason = "CLI argument parsing intentionally returns user-facing strings instead of preserving parse error types"
+)]
+#![allow(
+    clippy::too_many_lines,
+    reason = "the CLI entrypoint is a single dispatcher for operator review actions"
+)]
+
 use std::error::Error;
 use std::path::PathBuf;
 
@@ -7,7 +16,7 @@ use serde::Serialize;
 #[derive(Debug)]
 struct Args {
     db_path: PathBuf,
-    limit: i64,
+    limit: usize,
     show_review: Option<i64>,
     show_wallet: Option<String>,
     resolve_merge: Option<i64>,
@@ -43,7 +52,7 @@ struct ReviewDetailReport {
 )]
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from("./stophammer.db");
-    let mut limit = 50i64;
+    let mut limit = 50usize;
     let mut show_review = None;
     let mut show_wallet = None;
     let mut resolve_merge = None;
@@ -70,7 +79,7 @@ fn parse_args() -> Result<Args, String> {
                     .next()
                     .ok_or_else(|| "--limit requires a number".to_string())?;
                 limit = value
-                    .parse::<i64>()
+                    .parse::<usize>()
                     .map_err(|_err| format!("invalid --limit value: {value}"))?;
             }
             "--show-review" => {
