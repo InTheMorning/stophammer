@@ -108,6 +108,10 @@ Source endpoints still matter:
 - `/v1/tracks/{guid}`
 
 Those are useful for provenance, source claims, platform links, and audit views.
+`GET /v1/feeds/{guid}?include=remote_items,publisher_truth` is the RSS-truth
+debug view for publisher relationships. It only shows publisher-as-artist
+signals after identity is actually confirmed; it does not expose speculative
+guesses for unresolved feeds.
 
 ### I want to inspect or repair canonical data
 

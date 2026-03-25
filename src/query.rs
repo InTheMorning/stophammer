@@ -160,6 +160,7 @@ struct FeedResponse {
     feed_guid: String,
     feed_url: String,
     title: String,
+    raw_medium: Option<String>,
     artist_credit: CreditResponse,
     description: Option<String>,
     image_url: Option<String>,
@@ -186,6 +187,10 @@ struct FeedResponse {
     source_platforms: Option<Vec<SourcePlatformClaimResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_items: Option<Vec<FeedRemoteItemResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publisher_truth: Option<Vec<PublisherTruthResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     canonical: Option<CanonicalReleaseRef>,
 }
@@ -353,6 +358,23 @@ struct FeedRemoteItemResponse {
     remote_feed_guid: String,
     remote_feed_url: Option<String>,
     source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherTruthResponse {
+    direction: String,
+    remote_feed_guid: String,
+    remote_feed_url: Option<String>,
+    remote_feed_medium: Option<String>,
+    publisher_feed_guid: String,
+    publisher_feed_url: Option<String>,
+    music_feed_guid: String,
+    music_feed_url: Option<String>,
+    reciprocal_declared: bool,
+    reciprocal_medium: Option<String>,
+    two_way_validated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    artist_signal: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -541,6 +563,7 @@ struct FeedRow {
     feed_guid: String,
     feed_url: String,
     title: String,
+    raw_medium: Option<String>,
     credit_id: i64,
     description: Option<String>,
     image_url: Option<String>,
@@ -763,7 +786,7 @@ async fn handle_get_artist_feeds(
             let cursor_guid = parts[1];
 
             let mut stmt = conn.prepare(
-                "SELECT f.feed_guid, f.feed_url, f.title, f.artist_credit_id, \
+                "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
                  f.description, f.image_url, f.language, f.explicit, \
                  f.episode_count, f.newest_item_at, f.oldest_item_at, \
                  f.created_at, f.updated_at \
@@ -781,23 +804,24 @@ async fn handle_get_artist_feeds(
                         feed_guid: row.get(0)?,
                         feed_url: row.get(1)?,
                         title: row.get(2)?,
-                        credit_id: row.get(3)?,
-                        description: row.get(4)?,
-                        image_url: row.get(5)?,
-                        language: row.get(6)?,
-                        explicit_int: row.get(7)?,
-                        episode_count: row.get(8)?,
-                        newest_item_at: row.get(9)?,
-                        oldest_item_at: row.get(10)?,
-                        created_at: row.get(11)?,
-                        updated_at: row.get(12)?,
+                        raw_medium: row.get(3)?,
+                        credit_id: row.get(4)?,
+                        description: row.get(5)?,
+                        image_url: row.get(6)?,
+                        language: row.get(7)?,
+                        explicit_int: row.get(8)?,
+                        episode_count: row.get(9)?,
+                        newest_item_at: row.get(10)?,
+                        oldest_item_at: row.get(11)?,
+                        created_at: row.get(12)?,
+                        updated_at: row.get(13)?,
                     })
                 },
             )?
             .collect::<Result<_, _>>()?
         } else {
             let mut stmt = conn.prepare(
-                "SELECT f.feed_guid, f.feed_url, f.title, f.artist_credit_id, \
+                "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
                  f.description, f.image_url, f.language, f.explicit, \
                  f.episode_count, f.newest_item_at, f.oldest_item_at, \
                  f.created_at, f.updated_at \
@@ -812,16 +836,17 @@ async fn handle_get_artist_feeds(
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
                     title: row.get(2)?,
-                    credit_id: row.get(3)?,
-                    description: row.get(4)?,
-                    image_url: row.get(5)?,
-                    language: row.get(6)?,
-                    explicit_int: row.get(7)?,
-                    episode_count: row.get(8)?,
-                    newest_item_at: row.get(9)?,
-                    oldest_item_at: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
+                    raw_medium: row.get(3)?,
+                    credit_id: row.get(4)?,
+                    description: row.get(5)?,
+                    image_url: row.get(6)?,
+                    language: row.get(7)?,
+                    explicit_int: row.get(8)?,
+                    episode_count: row.get(9)?,
+                    newest_item_at: row.get(10)?,
+                    oldest_item_at: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -855,6 +880,7 @@ async fn handle_get_artist_feeds(
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
                 title: r.title,
+                raw_medium: r.raw_medium,
                 artist_credit: credit,
                 description: r.description,
                 image_url: r.image_url,
@@ -873,6 +899,8 @@ async fn handle_get_artist_feeds(
                 source_contributors: None,
                 source_platforms: None,
                 source_release_claims: None,
+                remote_items: None,
+                publisher_truth: None,
                 canonical: None,
             });
         }
@@ -918,7 +946,7 @@ async fn handle_get_feed(
 
         let row = conn
             .query_row(
-                "SELECT feed_guid, feed_url, title, artist_credit_id, description, image_url, \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, description, image_url, \
              language, explicit, episode_count, newest_item_at, oldest_item_at, \
              created_at, updated_at \
              FROM feeds WHERE feed_guid = ?1",
@@ -928,16 +956,17 @@ async fn handle_get_feed(
                         feed_guid: row.get(0)?,
                         feed_url: row.get(1)?,
                         title: row.get(2)?,
-                        credit_id: row.get(3)?,
-                        description: row.get(4)?,
-                        image_url: row.get(5)?,
-                        language: row.get(6)?,
-                        explicit_int: row.get(7)?,
-                        episode_count: row.get(8)?,
-                        newest_item_at: row.get(9)?,
-                        oldest_item_at: row.get(10)?,
-                        created_at: row.get(11)?,
-                        updated_at: row.get(12)?,
+                        raw_medium: row.get(3)?,
+                        credit_id: row.get(4)?,
+                        description: row.get(5)?,
+                        image_url: row.get(6)?,
+                        language: row.get(7)?,
+                        explicit_int: row.get(8)?,
+                        episode_count: row.get(9)?,
+                        newest_item_at: row.get(10)?,
+                        oldest_item_at: row.get(11)?,
+                        created_at: row.get(12)?,
+                        updated_at: row.get(13)?,
                     })
                 },
             )
@@ -1106,6 +1135,7 @@ fn build_feed_response(
         feed_guid: row.feed_guid,
         feed_url: row.feed_url,
         title: row.title,
+        raw_medium: row.raw_medium,
         artist_credit: credit,
         description: row.description,
         image_url: row.image_url,
@@ -1124,6 +1154,8 @@ fn build_feed_response(
         source_contributors: None,
         source_platforms: None,
         source_release_claims: None,
+        remote_items: None,
+        publisher_truth: None,
         canonical: None,
     };
 
@@ -1213,6 +1245,19 @@ fn build_feed_response(
                 .map(release_claim_response)
                 .collect(),
         );
+    }
+
+    if params.includes("remote_items") {
+        resp.remote_items = Some(
+            db::get_feed_remote_items_for_feed(conn, &feed_guid)?
+                .into_iter()
+                .map(feed_remote_item_response)
+                .collect(),
+        );
+    }
+
+    if params.includes("publisher_truth") {
+        resp.publisher_truth = Some(load_publisher_truth(conn, &feed_guid)?);
     }
 
     if params.includes("canonical") {
@@ -1511,6 +1556,137 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
     }
 }
 
+fn load_publisher_truth(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Vec<PublisherTruthResponse>, api::ApiError> {
+    let Some(current_feed) = db::get_feed(conn, feed_guid)? else {
+        return Ok(Vec::new());
+    };
+    let remote_items = db::get_feed_remote_items_for_feed(conn, feed_guid)?;
+    let mut rows = Vec::new();
+
+    for item in remote_items {
+        let Some(direction) = publisher_direction(item.medium.as_deref()) else {
+            continue;
+        };
+
+        let remote_feed = db::get_feed(conn, &item.remote_feed_guid)?;
+        let reciprocal = db::get_feed_remote_items_for_feed(conn, &item.remote_feed_guid)?
+            .into_iter()
+            .find(|candidate| {
+                candidate.remote_feed_guid == current_feed.feed_guid
+                    && candidate.medium.as_deref() == Some(expected_reciprocal_medium(direction))
+            });
+
+        let reciprocal_declared = reciprocal.is_some();
+        let reciprocal_medium = reciprocal
+            .as_ref()
+            .and_then(|candidate| candidate.medium.clone());
+        let two_way_validated = reciprocal_declared;
+
+        let (publisher_feed_guid, publisher_feed_url, music_feed_guid, music_feed_url) =
+            match direction {
+                "music_to_publisher" => (
+                    item.remote_feed_guid.clone(),
+                    remote_feed
+                        .as_ref()
+                        .map(|feed| feed.feed_url.clone())
+                        .or_else(|| item.remote_feed_url.clone()),
+                    current_feed.feed_guid.clone(),
+                    Some(current_feed.feed_url.clone()),
+                ),
+                "publisher_to_music" => (
+                    current_feed.feed_guid.clone(),
+                    Some(current_feed.feed_url.clone()),
+                    item.remote_feed_guid.clone(),
+                    remote_feed
+                        .as_ref()
+                        .map(|feed| feed.feed_url.clone())
+                        .or_else(|| item.remote_feed_url.clone()),
+                ),
+                _ => continue,
+            };
+
+        let artist_signal = (two_way_validated
+            && publisher_music_pair_has_confirmed_artist(
+                conn,
+                &publisher_feed_guid,
+                &music_feed_guid,
+            )?)
+        .then(|| "confirmed_artist".to_string());
+
+        rows.push(PublisherTruthResponse {
+            direction: direction.to_string(),
+            remote_feed_guid: item.remote_feed_guid,
+            remote_feed_url: item.remote_feed_url,
+            remote_feed_medium: remote_feed
+                .as_ref()
+                .and_then(|feed| feed.raw_medium.clone()),
+            publisher_feed_guid,
+            publisher_feed_url,
+            music_feed_guid,
+            music_feed_url,
+            reciprocal_declared,
+            reciprocal_medium,
+            two_way_validated,
+            artist_signal,
+        });
+    }
+
+    Ok(rows)
+}
+
+fn publisher_direction(medium: Option<&str>) -> Option<&'static str> {
+    match medium {
+        Some("publisher") => Some("music_to_publisher"),
+        Some("music") => Some("publisher_to_music"),
+        _ => None,
+    }
+}
+
+fn expected_reciprocal_medium(direction: &str) -> &'static str {
+    match direction {
+        "music_to_publisher" => "music",
+        "publisher_to_music" => "publisher",
+        _ => unreachable!("unexpected publisher direction"),
+    }
+}
+
+fn publisher_music_pair_has_confirmed_artist(
+    conn: &rusqlite::Connection,
+    publisher_feed_guid: &str,
+    music_feed_guid: &str,
+) -> Result<bool, api::ApiError> {
+    let publisher_artist_id = single_feed_artist_id(conn, publisher_feed_guid)?;
+    let music_artist_id = single_feed_artist_id(conn, music_feed_guid)?;
+    Ok(matches!(
+        (publisher_artist_id.as_deref(), music_artist_id.as_deref()),
+        (Some(left), Some(right)) if left == right
+    ))
+}
+
+fn single_feed_artist_id(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Option<String>, api::ApiError> {
+    let mut stmt = conn.prepare(
+        "SELECT acn.artist_id
+         FROM feeds f
+         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
+         WHERE f.feed_guid = ?1
+         ORDER BY acn.position, acn.artist_id",
+    )?;
+    let artist_ids = stmt
+        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if artist_ids.len() == 1 {
+        Ok(artist_ids.into_iter().next())
+    } else {
+        Ok(None)
+    }
+}
+
 // ── GET /v1/releases/{id} ──────────────────────────────────────────────────
 
 #[allow(
@@ -1731,6 +1907,7 @@ async fn handle_get_release_sources(
                 feed_guid: feed.feed_guid,
                 feed_url: feed.feed_url,
                 title: feed.title,
+                raw_medium: feed.raw_medium,
                 credit_id: feed.artist_credit_id,
                 description: feed.description,
                 image_url: feed.image_url,
@@ -2404,7 +2581,7 @@ async fn handle_get_recent_feeds(
             let cursor_guid = parts[1];
 
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, artist_credit_id, \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, \
                  description, image_url, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
@@ -2418,22 +2595,23 @@ async fn handle_get_recent_feeds(
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
                     title: row.get(2)?,
-                    credit_id: row.get(3)?,
-                    description: row.get(4)?,
-                    image_url: row.get(5)?,
-                    language: row.get(6)?,
-                    explicit_int: row.get(7)?,
-                    episode_count: row.get(8)?,
-                    newest_item_at: row.get(9)?,
-                    oldest_item_at: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
+                    raw_medium: row.get(3)?,
+                    credit_id: row.get(4)?,
+                    description: row.get(5)?,
+                    image_url: row.get(6)?,
+                    language: row.get(7)?,
+                    explicit_int: row.get(8)?,
+                    episode_count: row.get(9)?,
+                    newest_item_at: row.get(10)?,
+                    oldest_item_at: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
                 })
             })?
             .collect::<Result<_, _>>()?
         } else {
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, artist_credit_id, \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, \
                  description, image_url, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
@@ -2446,16 +2624,17 @@ async fn handle_get_recent_feeds(
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
                     title: row.get(2)?,
-                    credit_id: row.get(3)?,
-                    description: row.get(4)?,
-                    image_url: row.get(5)?,
-                    language: row.get(6)?,
-                    explicit_int: row.get(7)?,
-                    episode_count: row.get(8)?,
-                    newest_item_at: row.get(9)?,
-                    oldest_item_at: row.get(10)?,
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
+                    raw_medium: row.get(3)?,
+                    credit_id: row.get(4)?,
+                    description: row.get(5)?,
+                    image_url: row.get(6)?,
+                    language: row.get(7)?,
+                    explicit_int: row.get(8)?,
+                    episode_count: row.get(9)?,
+                    newest_item_at: row.get(10)?,
+                    oldest_item_at: row.get(11)?,
+                    created_at: row.get(12)?,
+                    updated_at: row.get(13)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -2490,6 +2669,7 @@ async fn handle_get_recent_feeds(
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
                 title: r.title,
+                raw_medium: r.raw_medium,
                 artist_credit: credit,
                 description: r.description,
                 image_url: r.image_url,
@@ -2508,6 +2688,8 @@ async fn handle_get_recent_feeds(
                 source_contributors: None,
                 source_platforms: None,
                 source_release_claims: None,
+                remote_items: None,
+                publisher_truth: None,
                 canonical: None,
             });
         }

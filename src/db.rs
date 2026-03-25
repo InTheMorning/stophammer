@@ -4633,6 +4633,14 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
         seed_ids,
     )?);
 
+    let wavlake_publisher_groups =
+        collect_artist_groups_by_wavlake_publisher_artist_confirmation(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        wavlake_publisher_groups,
+        seed_ids,
+    )?);
+
     let website_groups = collect_artist_groups_by_normalized_website(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(
         conn,
@@ -4908,6 +4916,66 @@ fn collect_artist_groups_by_publisher_link(
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
     Ok(collect_artist_groups_from_rows("publisher_link", rows))
 }
+
+fn collect_artist_groups_by_wavlake_publisher_artist_confirmation(
+    conn: &Connection,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    // Wavlake publisher feeds are artist-scoped. Once a publisher→music link is
+    // two-way validated by a child back-link, the publisher feed's own artist
+    // can be grouped with the child artists as confirmed artist identity.
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(pf.title), pf.feed_guid, pacn.artist_id
+         FROM feed_remote_items_raw pub_fri
+         JOIN feeds pf ON pf.feed_guid = pub_fri.feed_guid AND pf.raw_medium = 'publisher'
+         LEFT JOIN source_platform_claims psp
+               ON psp.feed_guid = pf.feed_guid AND psp.platform_key = 'wavlake'
+         JOIN feeds cf ON cf.feed_guid = pub_fri.remote_feed_guid
+         JOIN feed_remote_items_raw child_fri
+              ON child_fri.feed_guid = cf.feed_guid
+             AND child_fri.remote_feed_guid = pf.feed_guid
+             AND child_fri.medium = 'publisher'
+         JOIN artist_credit pac ON pac.id = pf.artist_credit_id
+         JOIN artist_credit_name pacn ON pacn.artist_credit_id = pac.id
+         WHERE pub_fri.medium = 'music'
+           AND (
+                psp.feed_guid IS NOT NULL
+                OR pf.feed_url LIKE 'https://wavlake.com/%'
+                OR pf.feed_url LIKE 'http://wavlake.com/%'
+                OR pf.feed_url LIKE 'https://www.wavlake.com/%'
+                OR pf.feed_url LIKE 'http://www.wavlake.com/%'
+           )
+         UNION
+         SELECT DISTINCT LOWER(pf.title), pf.feed_guid, cacn.artist_id
+         FROM feed_remote_items_raw pub_fri
+         JOIN feeds pf ON pf.feed_guid = pub_fri.feed_guid AND pf.raw_medium = 'publisher'
+         LEFT JOIN source_platform_claims psp
+               ON psp.feed_guid = pf.feed_guid AND psp.platform_key = 'wavlake'
+         JOIN feeds cf ON cf.feed_guid = pub_fri.remote_feed_guid
+         JOIN feed_remote_items_raw child_fri
+              ON child_fri.feed_guid = cf.feed_guid
+             AND child_fri.remote_feed_guid = pf.feed_guid
+             AND child_fri.medium = 'publisher'
+         JOIN artist_credit cac ON cac.id = cf.artist_credit_id
+         JOIN artist_credit_name cacn ON cacn.artist_credit_id = cac.id
+         WHERE pub_fri.medium = 'music'
+           AND (
+                psp.feed_guid IS NOT NULL
+                OR pf.feed_url LIKE 'https://wavlake.com/%'
+                OR pf.feed_url LIKE 'http://wavlake.com/%'
+                OR pf.feed_url LIKE 'https://www.wavlake.com/%'
+                OR pf.feed_url LIKE 'http://www.wavlake.com/%'
+           )
+         ORDER BY 1, 2, 3",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows(
+        "wavlake_publisher_artist",
+        rows,
+    ))
+}
+
 fn collect_artist_groups_by_release_cluster(
     conn: &Connection,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
@@ -5186,25 +5254,33 @@ fn preferred_artist_target(
             continue;
         };
         let has_strong = artist_has_strong_identity_claims(conn, &current_id)?;
+        let has_placeholder_name = is_placeholder_artist_name(&artist.name);
         ranked.push((
             has_strong,
+            !has_placeholder_name,
             artist_feed_count(conn, &current_id)?,
             artist.created_at,
             current_id,
         ));
     }
-    // Sort: explicit identity evidence first, then feed count desc, then
-    // oldest row, then stable artist_id.
+    // Sort: explicit identity evidence first, then non-placeholder names, then
+    // feed count desc, then oldest row, then stable artist_id.
     ranked.sort_by(|a, b| {
         b.0.cmp(&a.0)
             .then_with(|| b.1.cmp(&a.1))
-            .then_with(|| a.2.cmp(&b.2))
+            .then_with(|| b.2.cmp(&a.2))
             .then_with(|| a.3.cmp(&b.3))
+            .then_with(|| a.4.cmp(&b.4))
     });
     Ok(ranked
         .into_iter()
         .next()
-        .map(|(_, _, _, artist_id)| artist_id))
+        .map(|(_, _, _, _, artist_id)| artist_id))
+}
+
+fn is_placeholder_artist_name(name: &str) -> bool {
+    let normalized = name.trim().to_ascii_lowercase();
+    normalized.is_empty() || normalized == "unknown artist"
 }
 
 pub fn backfill_artist_identity(
@@ -5214,6 +5290,7 @@ pub fn backfill_artist_identity(
     let mut groups = Vec::new();
     groups.extend(collect_artist_groups_by_npub(&tx)?);
     groups.extend(collect_artist_groups_by_publisher_link(&tx)?);
+    groups.extend(collect_artist_groups_by_wavlake_publisher_artist_confirmation(&tx)?);
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);

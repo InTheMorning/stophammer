@@ -544,3 +544,213 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         "track"
     );
 }
+
+#[tokio::test]
+async fn feed_query_exposes_publisher_rss_truth() {
+    let crawl_token = "publisher-truth-crawl-token";
+    let db = common::test_db_arc();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("publisher-truth.key");
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token, &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let publisher_feed_guid = "feed-publisher-truth-publisher";
+    let child_feed_guid = "feed-publisher-truth-child";
+
+    let publisher_payload = serde_json::json!({
+        "canonical_url": "https://wavlake.com/feed/artist/publisher-truth",
+        "source_url": "https://wavlake.com/feed/artist/publisher-truth",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "publisher-truth-publisher-hash",
+        "feed_data": {
+            "feed_guid": publisher_feed_guid,
+            "title": "Publisher Truth Artist",
+            "description": "Publisher feed for rss truth query coverage",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "publisher",
+            "author_name": "Publisher Truth Artist",
+            "owner_name": "Wavlake",
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "music",
+                "remote_feed_guid": child_feed_guid,
+                "remote_feed_url": "https://wavlake.com/feed/music/publisher-truth-child"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let publisher_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &publisher_payload))
+        .await
+        .expect("publisher ingest");
+    assert_eq!(publisher_resp.status(), 200);
+
+    let child_payload = serde_json::json!({
+        "canonical_url": "https://wavlake.com/feed/music/publisher-truth-child",
+        "source_url": "https://wavlake.com/feed/music/publisher-truth-child",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "publisher-truth-child-hash",
+        "feed_data": {
+            "feed_guid": child_feed_guid,
+            "title": "Publisher Truth Release",
+            "description": "Child music feed for rss truth query coverage",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "music",
+            "author_name": "Publisher Truth Artist",
+            "owner_name": "Wavlake",
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "publisher",
+                "remote_feed_guid": publisher_feed_guid,
+                "remote_feed_url": "https://wavlake.com/feed/artist/publisher-truth"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": [{
+                "track_guid": "track-publisher-truth-child",
+                "title": "Publisher Truth Song",
+                "pub_date": 1700000100,
+                "duration_secs": 180,
+                "enclosure_url": "https://cdn.example.com/publisher-truth.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 1234567,
+                "alternate_enclosures": [],
+                "track_number": 1,
+                "season": null,
+                "explicit": false,
+                "description": null,
+                "author_name": null,
+                "persons": [],
+                "entity_ids": [],
+                "links": [],
+                "payment_routes": [],
+                "value_time_splits": []
+            }]
+        }
+    });
+
+    let child_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &child_payload))
+        .await
+        .expect("child ingest");
+    assert_eq!(child_resp.status(), 200);
+
+    let pre_resolver_publisher_feed_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher_truth"
+                ))
+                .body(Body::empty())
+                .expect("publisher feed request"),
+        )
+        .await
+        .expect("publisher feed response");
+    assert_eq!(pre_resolver_publisher_feed_resp.status(), 200);
+    let pre_resolver_publisher_feed_json = body_json(pre_resolver_publisher_feed_resp).await;
+    assert_eq!(
+        pre_resolver_publisher_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        serde_json::Value::Null
+    );
+
+    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
+    let resolver_summary =
+        stophammer::resolver::worker::run_batch(&resolver_pool, "publisher-truth-worker", 10)
+            .expect("run resolver batch");
+    assert_eq!(resolver_summary.claimed, 2);
+    assert_eq!(resolver_summary.resolved, 2);
+
+    let publisher_feed_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher_truth"
+                ))
+                .body(Body::empty())
+                .expect("publisher feed request"),
+        )
+        .await
+        .expect("publisher feed response");
+    assert_eq!(publisher_feed_resp.status(), 200);
+    let publisher_feed_json = body_json(publisher_feed_resp).await;
+    assert_eq!(publisher_feed_json["data"]["raw_medium"], "publisher");
+    assert_eq!(
+        publisher_feed_json["data"]["remote_items"][0]["medium"],
+        "music"
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["publisher_truth"][0]["direction"],
+        "publisher_to_music"
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["publisher_truth"][0]["publisher_feed_guid"],
+        publisher_feed_guid
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["publisher_truth"][0]["music_feed_guid"],
+        child_feed_guid
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["publisher_truth"][0]["two_way_validated"],
+        true
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        "confirmed_artist"
+    );
+
+    let child_feed_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{child_feed_guid}?include=remote_items,publisher_truth"
+                ))
+                .body(Body::empty())
+                .expect("child feed request"),
+        )
+        .await
+        .expect("child feed response");
+    assert_eq!(child_feed_resp.status(), 200);
+    let child_feed_json = body_json(child_feed_resp).await;
+    assert_eq!(child_feed_json["data"]["raw_medium"], "music");
+    assert_eq!(
+        child_feed_json["data"]["remote_items"][0]["medium"],
+        "publisher"
+    );
+    assert_eq!(
+        child_feed_json["data"]["publisher_truth"][0]["direction"],
+        "music_to_publisher"
+    );
+    assert_eq!(
+        child_feed_json["data"]["publisher_truth"][0]["two_way_validated"],
+        true
+    );
+    assert_eq!(
+        child_feed_json["data"]["publisher_truth"][0]["artist_signal"],
+        "confirmed_artist"
+    );
+}

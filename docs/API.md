@@ -146,7 +146,7 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
     "remote_items": [
       {
         "position": 0,
-        "medium": "music",
+        "medium": "publisher",
         "remote_feed_guid": "artist-feed-guid",
         "remote_feed_url": "https://example.com/artist.xml"
       }
@@ -251,11 +251,13 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
 
 `feed_data` is `null` when the crawler could not parse the feed (e.g. HTTP error). The verifier chain still runs to record the rejection.
 
-`remote_items` carries feed-level `podcast:remoteItem` references. `persons`,
-`entity_ids`, and `links` carry staged source claims from the parser. Track and
-live-item payloads also support `alternate_enclosures`. `live_items` carries parsed
-`podcast:liveItem` entries; `pending` and `live` rows are staged in `live_events`,
-while `ended` rows with enclosures are promoted into normal tracks.
+`remote_items` carries feed-level `podcast:remoteItem` references exactly as
+seen in RSS. For a music feed that points to a publisher feed, the relation
+hint is typically `medium="publisher"`. `persons`, `entity_ids`, and `links`
+carry staged source claims from the parser. Track and live-item payloads also
+support `alternate_enclosures`. `live_items` carries parsed `podcast:liveItem`
+entries; `pending` and `live` rows are staged in `live_events`, while `ended`
+rows with enclosures are promoted into normal tracks.
 
 **Response (`200 OK`):**
 
@@ -623,7 +625,7 @@ This is an operator-facing inspection endpoint. It exposes:
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `canonical`
+- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher_truth`, `canonical`
 
 **Response (`200 OK`):**
 
@@ -633,6 +635,7 @@ Returns a single feed by its `podcast:guid`.
     "feed_guid": "uuid",
     "feed_url": "https://...",
     "title": "Feed Title",
+    "raw_medium": "music",
     "artist_credit": {
       "id": 1,
       "display_name": "Artist Name",
@@ -711,6 +714,31 @@ Returns a single feed by its `podcast:guid`.
         "observed_at": 1710288000
       }
     ],
+    "remote_items": [
+      {
+        "position": 0,
+        "medium": "publisher",
+        "remote_feed_guid": "publisher-feed-guid",
+        "remote_feed_url": "https://example.com/publisher.xml",
+        "source": "podcast_remote_item"
+      }
+    ],
+    "publisher_truth": [
+      {
+        "direction": "music_to_publisher",
+        "remote_feed_guid": "publisher-feed-guid",
+        "remote_feed_url": "https://example.com/publisher.xml",
+        "remote_feed_medium": "publisher",
+        "publisher_feed_guid": "publisher-feed-guid",
+        "publisher_feed_url": "https://example.com/publisher.xml",
+        "music_feed_guid": "uuid",
+        "music_feed_url": "https://...",
+        "reciprocal_declared": true,
+        "reciprocal_medium": "music",
+        "two_way_validated": true,
+        "artist_signal": "confirmed_artist"
+      }
+    ],
     "canonical": {
       "release_id": "release-uuid",
       "match_type": "exact_release_signature_v1",
@@ -726,6 +754,16 @@ Returns a single feed by its `podcast:guid`.
 |------|---------|
 | 200  | Success |
 | 404  | Feed not found |
+
+`raw_medium` is the verbatim channel-level `podcast:medium` value from RSS.
+`remote_items` is the stored source-truth snapshot of feed-level
+`podcast:remoteItem` declarations.
+
+`publisher_truth` is a derived read-only view over those declarations. It
+reports direction and reciprocal validation exactly from RSS, but only emits
+`artist_signal` when the publisher feed and music feed already resolve to the
+same single canonical artist. There is no speculative value for unreviewed or
+unconfirmed cases.
 
 ---
 
@@ -972,7 +1010,7 @@ feed together with:
 Returns the mapped source feeds for one canonical release.
 
 - **Authentication:** None
-- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `canonical`)
+- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher_truth`, `canonical`)
 
 Use this when a client wants the full source/platform rows behind one canonical
 release instead of the lighter `sources` summary embedded in `GET /v1/releases/{id}`.

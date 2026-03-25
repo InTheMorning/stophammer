@@ -1896,10 +1896,11 @@ fn publisher_link_groups_two_way_validated() {
         "should have 3 distinct artists before merge"
     );
 
-    // Run backfill — should merge the two child artists.
+    // Run backfill — validated Wavlake publisher links should confirm the
+    // publisher feed's own artist row as well, so all three rows collapse.
     let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
     assert!(
-        stats.merges_applied >= 1,
+        stats.merges_applied >= 2,
         "publisher link should merge artists: {stats:?}"
     );
 
@@ -1910,11 +1911,9 @@ fn publisher_link_groups_two_way_validated() {
             |row| row.get(0),
         )
         .expect("artist count");
-    // Publisher link merges the 2 child artists; anchored_name may also pull in the
-    // publisher feed's own artist, so expect 1 (all merged) or 2 (children merged, pub separate).
-    assert!(
-        artist_count <= 2,
-        "child artists should merge via publisher link, got {artist_count}"
+    assert_eq!(
+        artist_count, 1,
+        "validated wavlake publisher feeds must confirm the publisher artist row"
     );
 }
 
@@ -1973,5 +1972,70 @@ fn publisher_link_ignores_one_way() {
     assert_eq!(
         publisher_reviews, 0,
         "one-way links should not produce publisher_link groups"
+    );
+}
+
+#[test]
+fn non_wavlake_publisher_link_keeps_publisher_artist_separate() {
+    let mut conn = common::test_db();
+
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "pub-feed-non-wavlake",
+        "https://publisher.example.com/artist/pub-feed",
+        "Publisher Artist",
+        "publisher",
+    );
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-non-wavlake-a",
+        "https://music.example.com/child-a.xml",
+        "Publisher Artist",
+        "music",
+    );
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-non-wavlake-b",
+        "https://music.example.com/child-b.xml",
+        "Publisher Artist",
+        "music",
+    );
+
+    for (pos, child) in (0i64..).zip(["child-feed-non-wavlake-a", "child-feed-non-wavlake-b"]) {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES ('pub-feed-non-wavlake', ?1, 'music', ?2, '', 'podcast_remote_item')",
+            rusqlite::params![pos, child],
+        )
+        .expect("publisher→child");
+    }
+
+    for child in ["child-feed-non-wavlake-a", "child-feed-non-wavlake-b"] {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, 0, 'publisher', 'pub-feed-non-wavlake', '', 'podcast_remote_item')",
+            rusqlite::params![child],
+        )
+        .expect("child→publisher");
+    }
+
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    assert!(
+        stats.merges_applied >= 1,
+        "expected child merge from publisher link"
+    );
+
+    let artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'publisher artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist count");
+    assert_eq!(
+        artist_count, 2,
+        "non-wavlake publisher links should remain a signal, not confirm the publisher artist"
     );
 }
