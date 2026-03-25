@@ -65,9 +65,15 @@ Each rule declares three things:
 - **Target** — which field on the output struct to populate
 
 Rules are grouped by **Phase** (RSS 2.0 Core, iTunes, Phase 1–6 of the podcast
-namespace spec). The builder selects which phases to enable; only matching rules
-execute. This makes adding Phase 4 support a matter of adding rules, not
-rewriting parser logic.
+namespace spec). The builder selects which normalized extractors to enable; only
+matching rules execute. This makes adding new typed support a matter of adding
+rules, not rewriting parser logic.
+
+Separately, the parser now preserves the complete Podcast Namespace 1.0 XML
+surface in a generic `podcast_namespace` snapshot on `IngestFeedData`. That
+snapshot is prefix-agnostic, accepts both the canonical namespace URI and the
+legacy GitHub-doc URI that the spec declares equivalent, and ensures callers do
+not lose tags that have not yet been promoted into dedicated typed fields.
 
 Payment routes (`podcast:value > podcast:valueRecipient`) and value time splits
 (`podcast:valueTimeSplit > podcast:remoteItem`) are nested repeated structures
@@ -95,8 +101,11 @@ Exit codes: 0 success, 1 parse error (JSON error on stderr), 2 no input.
 
 The parser defines its own `IngestFeedData`, `IngestTrackData`,
 `IngestPaymentRoute`, `IngestValueTimeSplit`, and `RouteType` types that
-serialize to the same JSON shape as the stophammer ingest wire format. This
-keeps the crate self-contained with no cross-crate dependency on stophammer.
+serialize to the same JSON shape as the stophammer ingest wire format. It also
+adds a crawler-side `podcast_namespace` snapshot containing every Podcast
+Namespace 1.0 element seen in the source XML. This keeps the crate
+self-contained with no cross-crate dependency on stophammer while still
+retaining the full RSS namespace surface.
 
 ### Dependencies
 
