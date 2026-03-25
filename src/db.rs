@@ -4625,6 +4625,9 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
         seed_ids,
     )?);
 
+    let publisher_groups = collect_artist_groups_by_publisher_link(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(conn, publisher_groups, seed_ids)?);
+
     let website_groups = collect_artist_groups_by_normalized_website(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(
         conn,
@@ -4877,6 +4880,29 @@ fn collect_artist_groups_by_npub(
     Ok(collect_artist_groups_from_rows("npub", rows))
 }
 
+fn collect_artist_groups_by_publisher_link(
+    conn: &Connection,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    // Two-way validated: publisher→child (medium='music') AND child→publisher (medium='publisher').
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT LOWER(ac.display_name), pub_fri.feed_guid, acn.artist_id \
+         FROM feed_remote_items_raw pub_fri \
+         JOIN feeds pf ON pf.feed_guid = pub_fri.feed_guid AND pf.raw_medium = 'publisher' \
+         JOIN feeds cf ON cf.feed_guid = pub_fri.remote_feed_guid \
+         JOIN feed_remote_items_raw child_fri \
+             ON child_fri.feed_guid = cf.feed_guid \
+             AND child_fri.remote_feed_guid = pf.feed_guid \
+             AND child_fri.medium = 'publisher' \
+         JOIN artist_credit ac ON ac.id = cf.artist_credit_id \
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
+         WHERE pub_fri.medium = 'music' \
+         ORDER BY LOWER(ac.display_name), pub_fri.feed_guid, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+    Ok(collect_artist_groups_from_rows("publisher_link", rows))
+}
 fn collect_artist_groups_by_release_cluster(
     conn: &Connection,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
@@ -5201,6 +5227,7 @@ pub fn backfill_artist_identity(
     let tx = conn.transaction()?;
     let mut groups = Vec::new();
     groups.extend(collect_artist_groups_by_npub(&tx)?);
+    groups.extend(collect_artist_groups_by_publisher_link(&tx)?);
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
     groups.extend(collect_artist_groups_by_anchored_name(&tx)?);

@@ -1,15 +1,14 @@
 // Rust guideline compliant (M-MODULE-DOCS) — 2026-03-09
 
-//! Verifier: podcast:medium tag must be "music".
+//! Verifier: podcast:medium tag must be "music" or "publisher".
 
 use crate::verify::{IngestContext, Verifier, VerifyResult};
 
-/// Rejects feeds where `podcast:medium` is explicitly set to a non-music value.
+/// Rejects feeds where `podcast:medium` is not "music" or "publisher".
 ///
-/// When `podcast:medium` is absent the verifier warns rather than failing,
-/// because adoption of the tag is near-zero in the wild. Operators that want
-/// strict enforcement should pair this with a classifier verifier that
-/// scores feeds without the tag.
+/// Publisher feeds (`medium=publisher`) are parent feeds that list child music
+/// feeds via `<podcast:remoteItem>`. They carry no tracks or payment routes
+/// but provide artist/label identity and feed grouping signals.
 #[derive(Debug)]
 pub struct MediumMusicVerifier;
 
@@ -26,8 +25,30 @@ impl Verifier for MediumMusicVerifier {
             .and_then(|f| f.raw_medium.as_deref())
         {
             Some("music") => VerifyResult::Pass,
-            Some(other) => VerifyResult::Fail(format!("medium is '{other}', not 'music'")),
-            None => VerifyResult::Fail("podcast:medium absent — must be 'music'".into()),
+            Some("publisher") => {
+                // Publisher feeds must reference at least one music child feed
+                // to be worth ingesting — otherwise they are empty shells.
+                let has_music_child = ctx
+                    .request
+                    .feed_data
+                    .as_ref()
+                    .map_or(false, |f| {
+                        f.remote_items
+                            .iter()
+                            .any(|ri| ri.medium.as_deref() == Some("music"))
+                    });
+                if has_music_child {
+                    VerifyResult::Pass
+                } else {
+                    VerifyResult::Fail(
+                        "publisher feed has no remoteItem with medium='music'".into(),
+                    )
+                }
+            }
+            Some(other) => {
+                VerifyResult::Fail(format!("medium is '{other}', expected 'music' or 'publisher'"))
+            }
+            None => VerifyResult::Fail("podcast:medium absent — must be 'music' or 'publisher'".into()),
         }
     }
 }

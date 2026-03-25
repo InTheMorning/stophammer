@@ -1761,3 +1761,220 @@ fn orphan_cleanup_deletes_unreferenced_artists_only() {
         .expect("post live");
     assert_eq!(post_live, 1, "referenced artist must not be deleted");
 }
+
+// ---------------------------------------------------------------------------
+// Publisher link grouping
+// ---------------------------------------------------------------------------
+
+/// Helper: create a feed + artist + credit for publisher link tests.
+fn seed_feed_for_publisher(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    feed_url: &str,
+    artist_name: &str,
+    raw_medium: &str,
+) -> (String, i64) {
+    let now = common::now();
+    let artist = stophammer::db::resolve_artist(conn, artist_name, Some(feed_guid)).expect("artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        conn,
+        &artist.name,
+        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        Some(feed_guid),
+    )
+    .expect("credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+         raw_medium, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        rusqlite::params![
+            feed_guid,
+            feed_url,
+            artist_name,
+            artist_name.to_ascii_lowercase(),
+            credit.id,
+            raw_medium,
+            now,
+        ],
+    )
+    .expect("feed");
+    (artist.artist_id, credit.id)
+}
+
+#[test]
+fn publisher_link_groups_two_way_validated() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    // Create a publisher feed.
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "pub-feed-1",
+        "https://wavlake.com/feed/artist/pub-feed-1",
+        "Publisher Artist",
+        "publisher",
+    );
+
+    // Create two child music feeds (separate artist_ids because resolve_artist
+    // creates distinct IDs per feed hint).
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-a",
+        "https://wavlake.com/feed/music/child-a",
+        "Publisher Artist",
+        "music",
+    );
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-b",
+        "https://wavlake.com/feed/music/child-b",
+        "Publisher Artist",
+        "music",
+    );
+
+    // Publisher → child (medium='music')
+    for (pos, child) in ["child-feed-a", "child-feed-b"].iter().enumerate() {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES ('pub-feed-1', ?1, 'music', ?2, '', 'podcast_remote_item')",
+            rusqlite::params![pos as i64, child],
+        )
+        .expect("publisher→child");
+    }
+
+    // Child → publisher back-links (medium='publisher')
+    for child in ["child-feed-a", "child-feed-b"] {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, 0, 'publisher', 'pub-feed-1', '', 'podcast_remote_item')",
+            rusqlite::params![child],
+        )
+        .expect("child→publisher");
+    }
+
+    // Verify both directions exist before backfill.
+    let pub_to_child: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM feed_remote_items_raw WHERE feed_guid = 'pub-feed-1' AND medium = 'music'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("pub→child count");
+    assert_eq!(pub_to_child, 2, "two publisher→child links");
+
+    let child_to_pub: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM feed_remote_items_raw WHERE medium = 'publisher' AND remote_feed_guid = 'pub-feed-1'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("child→pub count");
+    assert_eq!(child_to_pub, 2, "two child→publisher back-links");
+
+    let pub_medium: String = conn
+        .query_row("SELECT raw_medium FROM feeds WHERE feed_guid = 'pub-feed-1'", [], |r| r.get(0))
+        .expect("pub medium");
+    assert_eq!(pub_medium, "publisher");
+
+    // Count distinct artist_ids across child feeds — should be 2 before merge.
+    let pre_artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'publisher artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pre count");
+    // 3 artists: publisher feed + child-a + child-b (all share the name "Publisher Artist")
+    assert_eq!(pre_artist_count, 3, "should have 3 distinct artists before merge");
+
+    // Run backfill — should merge the two child artists.
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+    assert!(
+        stats.merges_applied >= 1,
+        "publisher link should merge artists: {stats:?}"
+    );
+
+    let artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'publisher artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist count");
+    // Publisher link merges the 2 child artists; anchored_name may also pull in the
+    // publisher feed's own artist, so expect 1 (all merged) or 2 (children merged, pub separate).
+    assert!(
+        artist_count <= 2,
+        "child artists should merge via publisher link, got {artist_count}"
+    );
+}
+
+#[test]
+fn publisher_link_ignores_one_way() {
+    let mut conn = common::test_db();
+
+    // Publisher feed.
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "pub-feed-2",
+        "https://wavlake.com/feed/artist/pub-feed-2",
+        "One Way Artist",
+        "publisher",
+    );
+
+    // Child feeds.
+    let (artist_a, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-c",
+        "https://wavlake.com/feed/music/child-c",
+        "One Way Artist",
+        "music",
+    );
+    let (artist_b, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-d",
+        "https://wavlake.com/feed/music/child-d",
+        "One Way Artist",
+        "music",
+    );
+
+    // Publisher → child only (no back-link from child → publisher).
+    for (pos, child) in ["child-feed-c", "child-feed-d"].iter().enumerate() {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES ('pub-feed-2', ?1, 'music', ?2, '', 'podcast_remote_item')",
+            rusqlite::params![pos as i64, child],
+        )
+        .expect("publisher→child");
+    }
+
+    let stats = stophammer::db::backfill_artist_identity(&mut conn).expect("backfill");
+
+    // Without back-links, publisher grouping should not fire.
+    // The anchored_name strategy might still merge them (same name, single feed each),
+    // but the publisher_link source should NOT appear.
+    let artist_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artists WHERE LOWER(name) = 'one way artist'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("artist count");
+
+    // If anchored_name merged them, that's fine — but verify publisher_link was not the source.
+    // Check review items for the source.
+    let publisher_reviews: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_identity_review WHERE source = 'publisher_link'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("publisher_link reviews");
+    assert_eq!(
+        publisher_reviews, 0,
+        "one-way links should not produce publisher_link groups"
+    );
+}

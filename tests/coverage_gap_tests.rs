@@ -1519,3 +1519,137 @@ fn validate_feed_url_accepts_public_https() {
     let result = stophammer::proof::validate_feed_url("https://8.8.8.8/feed.xml");
     assert!(result.is_ok(), "public IP over HTTPS should be accepted");
 }
+
+// ---------------------------------------------------------------------------
+// 26. MediumMusicVerifier accepts publisher medium
+// ---------------------------------------------------------------------------
+
+#[test]
+fn medium_music_verifier_pass_publisher_with_music_children() {
+    use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-pub".into(),
+            title: "Test Publisher".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("publisher".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![stophammer::ingest::IngestRemoteFeedRef {
+                position: 0,
+                medium: Some("music".into()),
+                remote_feed_guid: "child-guid-1".into(),
+                remote_feed_url: Some("https://example.com/feed/child1".into()),
+            }],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }),
+    };
+    let ctx = verifier_ctx(&req, &conn);
+    let v = MediumMusicVerifier;
+    assert!(matches!(v.verify(&ctx), VerifyResult::Pass));
+}
+
+// ---------------------------------------------------------------------------
+// 26b. MediumMusicVerifier rejects publisher with no music children
+// ---------------------------------------------------------------------------
+
+#[test]
+fn medium_music_verifier_rejects_publisher_no_music_children() {
+    use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-pub-empty".into(),
+            title: "Empty Publisher".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("publisher".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }),
+    };
+    let ctx = verifier_ctx(&req, &conn);
+    let v = MediumMusicVerifier;
+    assert!(matches!(v.verify(&ctx), VerifyResult::Fail(_)));
+}
+
+// ---------------------------------------------------------------------------
+// 27. V4VPaymentVerifier skips check for publisher feeds
+// ---------------------------------------------------------------------------
+
+#[test]
+fn v4v_payment_verifier_pass_publisher_no_routes() {
+    use stophammer::verifiers::v4v_payment::V4VPaymentVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-pub-v4v".into(),
+            title: "Test Publisher".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("publisher".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }),
+    };
+    let ctx = verifier_ctx(&req, &conn);
+    let v = V4VPaymentVerifier;
+    assert!(
+        matches!(v.verify(&ctx), VerifyResult::Pass),
+        "publisher feeds should pass V4V check even with no routes"
+    );
+}
