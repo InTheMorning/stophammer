@@ -1,7 +1,7 @@
 # ADR 0013: PodcastIndex Bulk Importer
 
 ## Status
-Accepted
+Superseded by [ADR 0030: PodcastIndex Importer Durable Attempt Memory](0030-podcastindex-importer-durable-attempt-memory.md)
 
 ## Context
 
