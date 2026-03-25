@@ -1,6 +1,10 @@
 # Cryptographic Security Black-Box Report
 
 **Date:** 2026-03-12
+
+> Historical snapshot. This report reflects the 2026-03-12 tree and is
+> superseded by `crypto-blackbox-report-v2.md` and `final-audit-report.md` for
+> current behavior.
 **Scope:** Signature verification, token binding, nonce handling, event IDs, payload canonicalization
 **Files audited:**
 - `src/signing.rs` -- Ed25519 key management and event signing/verification

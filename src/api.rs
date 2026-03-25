@@ -2553,7 +2553,7 @@ async fn handle_sync_register(
             })?;
     }
 
-    verify_sync_register_target(&req.node_url, &req.node_pubkey).await?;
+    verify_sync_register_target(&req.node_url, &req.node_pubkey, skip_ssrf).await?;
 
     let pubkey = req.node_pubkey.clone();
     let url = req.node_url.clone();
@@ -2641,6 +2641,7 @@ fn sync_register_node_info_url(node_url: &str) -> Result<String, String> {
 async fn verify_sync_register_target(
     node_url: &str,
     expected_pubkey: &str,
+    skip_ssrf_validation: bool,
 ) -> Result<(), ApiError> {
     let node_info_url = sync_register_node_info_url(node_url).map_err(|e| ApiError {
         status: StatusCode::UNPROCESSABLE_ENTITY,
@@ -2648,9 +2649,39 @@ async fn verify_sync_register_target(
         www_authenticate: None,
     })?;
 
-    let client = reqwest::Client::builder()
+    let mut client_builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(5));
+
+    if !skip_ssrf_validation {
+        // Issue-SYNC-SSRF-REBIND — 2026-03-25: resolve and validate the exact
+        // node/info URL inside spawn_blocking, then pin those addresses into
+        // the verification client so the ownership check cannot be redirected
+        // to a different host via DNS rebinding between validation and fetch.
+        let node_info_url_for_resolve = node_info_url.clone();
+        let (hostname, resolved_addrs) = tokio::task::spawn_blocking(move || {
+            let parsed = url::Url::parse(&node_info_url_for_resolve)
+                .map_err(|e| format!("invalid node/info URL: {e}"))?;
+            proof::resolve_and_validate_url(&parsed)
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("node/info SSRF validation task failed: {e}"),
+            www_authenticate: None,
+        })?
+        .map_err(|e| ApiError {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            message: format!("node/info URL rejected: {e}"),
+            www_authenticate: None,
+        })?;
+
+        for addr in resolved_addrs {
+            client_builder = client_builder.resolve(&hostname, addr);
+        }
+    }
+
+    let client = client_builder
         .build()
         .expect("sync/register node-info client uses only safe options");
 

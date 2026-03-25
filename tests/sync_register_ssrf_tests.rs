@@ -374,6 +374,52 @@ async fn register_node_info_pubkey_mismatch_rejected() {
     );
 }
 
+#[tokio::test]
+async fn register_node_info_redirect_rejected() {
+    let db = common::test_db_arc();
+    let state = state_with_ssrf_disabled(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+    let signer = common::temp_signer("test-sync-register-redirect");
+
+    let redirect_target = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "node_pubkey": signer.pubkey_hex()
+        })))
+        .mount(&redirect_target)
+        .await;
+
+    let redirector = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/node/info"))
+        .respond_with(
+            ResponseTemplate::new(302)
+                .insert_header("Location", format!("{}/node/info", redirect_target.uri())),
+        )
+        .mount(&redirector)
+        .await;
+
+    let node_url = format!("{}/sync/push", redirector.uri());
+    let body = common::signed_sync_register_body(&signer, &node_url);
+    let req = Request::builder()
+        .method("POST")
+        .uri("/sync/register")
+        .header("Content-Type", "application/json")
+        .header("X-Sync-Token", "test-sync-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&body).expect("serialize"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(
+        resp.status(),
+        422,
+        "node/info ownership verification must fail closed on redirects"
+    );
+}
+
 // ── Unit tests: validate_node_url directly ───────────────────────────────────
 
 #[test]

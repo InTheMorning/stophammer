@@ -1,7 +1,7 @@
 # Cryptographic Security Black-Box Report v2
 
-**Date:** 2026-03-13
-**Scope:** Re-audit of all v1 findings plus new attack surfaces introduced since v1
+**Date:** 2026-03-25
+**Scope:** Re-audit of all v1 findings plus follow-up verification against the current tree
 **Files audited:**
 - `src/proof.rs` -- `verify_podcast_txt`, `validate_feed_url`, `recompute_binding`, SSRF guard
 - `src/api.rs` -- `handle_proofs_assert` (3-phase RSS verification), `check_admin_token` (CS-02 constant-time), SSE event stream, tracing
@@ -21,7 +21,11 @@ The critical v1 finding (Finding #8 -- proof-of-possession bypass) has been **cl
 
 All other v1 findings remain CLOSED (no regressions).
 
-Five new attack surfaces were analyzed. Two observations are noted: (1) the RSS response body has no size limit, creating a memory-exhaustion vector, and (2) SSE events are unsigned, which is acceptable given the threat model. No new critical or high-severity vulnerabilities were found.
+The current tree closes the critical v1 proof bypass and now also hardens the
+RSS verification path with bounded response bodies, redirect re-validation, and
+DNS pinning across the fetch chain. SSE events remain unsigned by design, which
+is acceptable for their notification-only role. No new critical or high-severity
+vulnerabilities were identified.
 
 ---
 
@@ -73,7 +77,11 @@ Additionally, `proof::validate_feed_url` (proof.rs lines 358-394) implements SSR
 - Checks literal IP addresses in the hostname
 - Covers IPv4 (loopback, private, link-local, broadcast, unspecified, CGNAT 100.64.0.0/10) and IPv6 (loopback, unspecified, unique-local fc00::/7, link-local fe80::/10)
 
-One gap in SSRF protection: DNS rebinding is possible. The `validate_feed_url` resolves the hostname synchronously, then the `reqwest::Client` resolves it again asynchronously. An attacker with DNS control could return a public IP for the first resolution and a private IP for the second. However, the attacker would also need to control the `feed_url` stored in the database, which they cannot (see above). Severity: **not exploitable in practice**.
+The current implementation closes the earlier rebinding gap by resolving the
+initial hostname up front, validating those addresses, and then manually
+following redirects with per-hop validation and DNS pinning. The TCP
+connections are therefore made against the same validated addresses rather than
+against a second independent DNS lookup.
 
 ---
 
@@ -211,15 +219,12 @@ The tracing implementation is clean. No sensitive data is logged at any level (e
 
 ## New Observation: RSS Response Body Size Limit
 
-**Finding: LOW (Availability)**
+**Finding: FIXED**
 
-`verify_podcast_txt` (proof.rs line 260-263) calls `resp.text().await` without limiting the response body size. An attacker who controls the `feed_url` stored in the database (which requires admin or bearer token access -- see N1 analysis above) could point it at a server that returns a multi-gigabyte response, causing the stophammer process to allocate excessive memory.
-
-**Exploitability:** Very low. The attacker needs to already have a valid `feed:write` token or admin access to modify the `feed_url` via `PATCH /v1/feeds/{guid}`. Additionally, the 10-second timeout on the HTTP request (proof.rs line 255) bounds the amount of data that can be read to approximately 10 seconds of bandwidth.
-
-**Impact:** Process memory exhaustion, potential OOM kill. Only affects proof assertion for that specific feed.
-
-**Recommendation:** Consider adding a `Content-Length` check or streaming the XML parser with a byte budget. A 10 MiB limit would accommodate any legitimate RSS feed while preventing abuse.
+The current RSS proof fetch path enforces `MAX_RSS_BODY_BYTES = 5 MiB` and
+checks both `Content-Length` and the streamed body size before accepting the
+response. This closes the earlier memory-exhaustion concern for
+`POST /v1/proofs/assert`.
 
 ---
 
@@ -249,14 +254,12 @@ The tracing implementation is clean. No sensitive data is logged at any level (e
 | N3 | Token Binding Replay | PROTECTED | N/A |
 | N4 | SSE Event Stream Integrity | ACCEPTABLE RISK | Informational |
 | N5 | Tracing Sensitive Data Leakage | PROTECTED | N/A |
-| N6 | RSS Response Body Size | LOW (Availability) | Low |
+| N6 | RSS Response Body Size | FIXED | Low |
 
 ---
 
 ## Recommendations
 
-1. **Consider RSS body size limit in `verify_podcast_txt`** -- Add a byte budget to the RSS fetch to prevent memory exhaustion from oversized responses. This is low priority because exploitability requires existing privileged access.
+1. **Monitor SipHash collision rates** -- If the search index grows to millions of entities, hash collisions become more likely (birthday bound at ~2^31.5 entities for 63-bit output). Consider logging when a pre-delete affects a different entity than expected.
 
-2. **Monitor SipHash collision rates** -- If the search index grows to millions of entities, hash collisions become more likely (birthday bound at ~2^31.5 entities for 63-bit output). Consider logging when a pre-delete affects a different entity than expected.
-
-3. **Document SSE trust model** -- SSE events are informational notifications, not authoritative state. Client applications should query the REST API to confirm state before acting on SSE notifications.
+2. **Document SSE trust model** -- SSE events are informational notifications, not authoritative state. Client applications should query the REST API to confirm state before acting on SSE notifications.

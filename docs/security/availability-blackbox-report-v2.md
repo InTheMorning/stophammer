@@ -1,8 +1,9 @@
 # Availability / DoS Black-Box Security Report (v2)
 
 **Target:** stophammer v0.1.0 (Rust, axum 0.8, SQLite)
-**Date:** 2026-03-13
-**Scope:** Re-audit of v1 availability findings + new attack surfaces from
+**Date:** 2026-03-25
+**Scope:** Re-audit of v1 availability findings + follow-up verification of the
+current tree, including new attack surfaces from
 FG-02 (SSE), CS-01 (RSS fetch), SP-03 (rate limiting), SP-04 (push retry),
 FG-01 (structured logging).
 
@@ -22,7 +23,7 @@ were identified and remediated:
 
 **Findings:** 3 new vulnerabilities, all fixed
 **Tests added:** 5 (17 total availability tests, all passing)
-**Regressions:** 0 (full suite of 330 tests passes)
+**Regressions:** 0 (`cargo test` passes on the current tree)
 
 ---
 
@@ -30,9 +31,11 @@ were identified and remediated:
 
 ### AVAIL-01: Proof Challenge Table Exhaustion -- CLOSED
 
-The per-feed-guid cap of 20 pending challenges remains in place at
-`api.rs:1948-1961`. The `MAX_PENDING_CHALLENGES_PER_FEED = 20` constant and
-the `SELECT COUNT(*)` guard are unchanged.
+The current implementation no longer keeps a per-feed pending slot cap.
+Instead, it invalidates any older pending challenge for the same
+`feed_guid` + `scope` and separately enforces a global pending-challenge cap of
+5,000 rows. This prevents stale-row slot exhaustion while still bounding total
+storage growth.
 
 **Status:** CLOSED (no regression)
 
@@ -239,9 +242,9 @@ push now occupies a tokio task for 1.5 seconds (500ms + 1000ms retries)
 instead of failing immediately.
 
 **Assessment:** LOW RISK. Push peer registration (`POST /sync/register`)
-now requires `X-Admin-Token` authentication (`api.rs:1237`). An attacker
-cannot register fake peers without the admin token. Even if the admin token
-is compromised, the blast radius is bounded:
+now requires `X-Sync-Token` authentication. An attacker cannot register fake
+peers without the sync token. Even if that credential is compromised, the
+blast radius is bounded:
 
 - `PUSH_MAX_ATTEMPTS = 3` with delays of 0ms, 500ms, 1000ms.
 - Each push task completes in at most 31.5 seconds (3 attempts * 10s
@@ -294,7 +297,7 @@ enabled by default.
 | `MAX_BODY_BYTES` | 2 MiB | `api.rs` |
 | `MAX_TRACKS_PER_INGEST` | 500 | `api.rs` |
 | `MAX_RECONCILE_HAVE` | 10,000 | `api.rs` |
-| `MAX_PENDING_CHALLENGES_PER_FEED` | 20 | `api.rs` |
+| `MAX_PENDING_CHALLENGES_TOTAL` | 5,000 | `api.rs` |
 | `MAX_NONCE_BYTES` | 256 | `api.rs` |
 | `MAX_FTS_FIELD_BYTES` | 10,000 | `search.rs` |
 | `MAX_PUSH_EVENTS` | 1,000 | `community.rs` |

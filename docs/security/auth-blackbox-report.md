@@ -1,6 +1,10 @@
 # Authentication Security Audit Report
 
 **Date:** 2026-03-12
+
+> Historical snapshot. This report reflects the 2026-03-12 tree and is
+> superseded by `auth-blackbox-report-v2.md` and `final-audit-report.md` for
+> current behavior.
 **Scope:** Proof-of-possession token system, admin token authentication, challenge/assert flow
 **Files Audited:**
 - `src/api.rs` (authentication functions, HTTP handlers)

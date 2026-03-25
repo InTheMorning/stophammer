@@ -31,6 +31,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `TLS_KEY_PATH` | `./tls/key.pem` | No | Path to store the certificate private key (written with 0o600 permissions). |
 | `TLS_ACME_STAGING` | `false` | No | Set to `true` to use the Let's Encrypt staging environment (for testing). |
 | `TLS_ACME_ACCOUNT_PATH` | `./tls/acme-account.json` | No | Path to persist the ACME account credentials across restarts. |
+| `TLS_ACME_DIRECTORY_URL` | unset | No | Custom ACME directory URL. Overrides `TLS_ACME_STAGING` when set. Useful for Pebble or other non-Let's-Encrypt test endpoints. |
 
 ### Community Mode
 

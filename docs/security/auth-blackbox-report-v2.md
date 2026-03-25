@@ -1,7 +1,7 @@
 # Authentication Security Audit Report v2
 
-**Date:** 2026-03-13
-**Scope:** Re-audit of all v1 findings plus new attack surfaces introduced since v1
+**Date:** 2026-03-25
+**Scope:** Re-audit of all v1 findings plus follow-up verification against the current tree
 **Files Audited:**
 - `src/api.rs` (authentication, handlers, SSE registry, CORS, rate limiter config)
 - `src/proof.rs` (challenge/token lifecycle, verify_podcast_txt, is_podcast_txt_element)
@@ -18,15 +18,17 @@ This is a follow-up audit to `auth-blackbox-report.md` (v1, 2026-03-12). Signifi
 
 1. **CS-01 (RSS verification):** `handle_proofs_assert` now performs a three-phase flow that fetches the feed RSS and verifies `podcast:txt` before issuing tokens.
 2. **CS-02 (constant-time admin token):** Admin token comparison now uses SHA-256 + `subtle::ConstantTimeEq`, closing the v1 timing side-channel.
-3. **CS-03 (authenticated sync/register):** `POST /sync/register` now requires `X-Admin-Token`.
+3. **CS-03 (authenticated sync/register):** `POST /sync/register` now requires `X-Sync-Token`.
 4. **SG-07 (proof cleanup on feed delete):** Both `proof_tokens` and `proof_challenges` are cascade-deleted when a feed is retired.
-5. **SP-05 (epoch guard):** `SystemTime::now()` failure now panics via `.expect()` instead of silently returning epoch 0.
+5. **SP-05 (epoch guard):** time handling now goes through `db::unix_now()`, removing the earlier epoch-0 fallback behavior.
+6. **SYNC-SSRF-REBIND:** same-origin `GET /node/info` verification for `POST /sync/register` now disables redirects and pins validated DNS results before fetching.
 
-All 7 original v1 findings are now CLOSED. Four new vulnerabilities were identified across the new attack surfaces and all have been remediated:
+All 7 original v1 findings are now CLOSED. The follow-up findings identified across the new attack surfaces have been remediated:
 - **SSRF via feed_url** -- `validate_feed_url` guard added to `handle_proofs_assert` with private-IP and scheme validation
 - **TOCTOU double token issue** -- `resolve_challenge` now returns rows-affected count; Phase 3 rejects if 0 rows transitioned
 - **X-Forwarded-For rate limiter bypass** -- `TRUST_PROXY` config added; default ignores XFF to prevent spoofing
-- **SSE unbounded memory** -- `artists` query parameter capped at 50 IDs per connection
+- **SSE unbounded memory** -- per-connection artist caps plus global registry and connection caps
+- **sync/register ownership-check rebinding** -- redirects are disabled and validated DNS answers are pinned into the `node/info` verification client
 
 ---
 
@@ -182,7 +184,6 @@ The guard is placed at the API layer via `AppState.skip_ssrf_validation` flag (s
 **Severity:** Informational (architectural)
 
 The admin token is the sole credential for all privileged operations:
-- `POST /sync/register` (register push peers)
 - `POST /admin/artists/merge` (merge artists)
 - `POST /admin/artists/alias` (add aliases)
 - `DELETE /v1/feeds/{guid}` (delete feeds, as alternative to bearer token)
@@ -201,7 +202,8 @@ If compromised, an attacker gains full read-write access to the catalog. This is
 - Short-lived admin sessions with token rotation
 - Audit logging for all admin operations
 
-**Evidence:** Test `v2_cs03_admin_token_blast_radius`
+**Evidence:** This remains an architectural review point rather than a dedicated
+single test assertion.
 
 ---
 
@@ -262,17 +264,19 @@ When neither `X-Forwarded-For` nor `ConnectInfo` is available, all requests shar
 
 ### NEW-5: SSE Registry Unbounded Memory Growth
 
-**Finding: PARTIALLY_FIXED (was Low)**
+**Finding: FIXED**
 
 **Severity:** Low (availability only, no auth bypass)
 
 The `SseRegistry` creates a `tokio::sync::broadcast` channel per unique `artist_id` on `subscribe()`. Without a cap, an attacker could create unlimited channels.
 
-**Fix implemented:** `handle_sse_events` (`api.rs`) now caps the `artists` query parameter to `MAX_SSE_ARTISTS = 50` IDs per connection using `.take(MAX_SSE_ARTISTS)`. This limits the per-request blast radius.
+**Fix implemented:** the current code now layers three bounds:
 
-**Remaining risk:** The total number of distinct artist_ids in the `senders` map is still unbounded across requests. TTL-based eviction for channels with no active subscribers and/or an LRU cache would provide complete protection.
+- `MAX_SSE_ARTISTS = 50` artist IDs per connection
+- `MAX_SSE_REGISTRY_ARTISTS = 10_000` total tracked artist entries
+- `MAX_SSE_CONNECTIONS = 1_000` concurrent SSE connections server-wide
 
-**Evidence:** Test `v2_sse_unlimited_artist_registrations` confirms the per-connection cap is enforced.
+**Evidence:** Tests cover the per-connection cap, registry cap, and connection cap.
 
 ### NEW-5b: SSE Cross-Pollination (Information Leak)
 
@@ -300,7 +304,9 @@ Both `proof_tokens` and `proof_challenges` are now deleted in the `delete_feed_w
 
 **Finding: INFORMATIONAL**
 
-`build_cors_layer` (`api.rs` lines 355-371) uses `allow_origin(Any)`, meaning any web origin can make cross-origin requests. The allowed headers include `Authorization`, `Content-Type`, and `X-Admin-Token`.
+`build_cors_layer` uses `allow_origin(Any)`, meaning any web origin can make
+cross-origin requests. The allowed headers include `Authorization`,
+`Content-Type`, `X-Admin-Token`, and `X-Sync-Token`.
 
 Exposing `X-Admin-Token` in CORS `allow_headers` means browser JavaScript from any origin could make admin requests if it knows the token. In practice, the admin token should never be available to browser code (it is a server-side secret).
 
@@ -312,9 +318,31 @@ Exposing `X-Admin-Token` in CORS `allow_headers` means browser JavaScript from a
 
 **Finding: PROTECTED**
 
-`handle_proofs_challenge` (`api.rs` lines 1878-1892) enforces a maximum of 20 pending challenges per `feed_guid` (`MAX_PENDING_CHALLENGES_PER_FEED`). Exceeding this limit returns HTTP 429.
+`handle_proofs_challenge` now invalidates any older pending challenge for the
+same `feed_guid` + `scope` and separately enforces a global pending-challenge
+cap of 5,000 rows. This avoids stale-row slot exhaustion while still bounding
+storage growth.
 
-**Evidence:** Test `v2_challenge_flooding_capped_per_feed`
+**Evidence:** Tests cover challenge replacement for the same feed and pending
+challenge pruning behavior.
+
+---
+
+### NEW-9: sync/register Ownership-Check Redirect / Rebinding Gap
+
+**Finding: FIXED**
+
+The current tree hardens the same-origin `GET /node/info` ownership check used
+by `POST /sync/register` so that it:
+
+- does not follow redirects
+- resolves and validates the exact `node/info` URL before the fetch
+- pins the validated addresses into the reqwest client
+
+This closes the follow-up gap where validation happened first but the ownership
+fetch could otherwise re-resolve DNS or follow a redirect to a different host.
+
+**Evidence:** `tests/sync_register_ssrf_tests.rs::register_node_info_redirect_rejected`
 
 ---
 
@@ -343,11 +371,12 @@ Exposing `X-Admin-Token` in CORS `allow_headers` means browser JavaScript from a
 | NEW-3 | Three-phase TOCTOU double token issue | FIXED | Low | rows-affected check |
 | NEW-4a | X-Forwarded-For rate limiter bypass | FIXED | Medium | `TRUST_PROXY` config |
 | NEW-4b | "unknown" fallback shared bucket | INFORMATIONAL | None | No fix needed |
-| NEW-5 | SSE registry unbounded memory growth | PARTIALLY_FIXED | Low | Per-connection cap (50) |
+| NEW-5 | SSE registry unbounded memory growth | FIXED | Low | Per-connection + global caps |
 | NEW-5b | SSE cross-pollination | PROTECTED | N/A | No fix needed |
 | NEW-6 | Proof cleanup on feed delete | CLOSED | N/A | No fix needed |
 | NEW-7 | CORS X-Admin-Token exposure | INFORMATIONAL | Low | Optional |
 | NEW-8 | Challenge flooding | PROTECTED | N/A | No fix needed |
+| NEW-9 | sync/register redirect / rebinding gap | FIXED | Medium | Redirect-disabled DNS-pinned ownership fetch |
 
 ---
 
@@ -360,11 +389,10 @@ All critical and medium findings have been fixed in this audit cycle:
 | 1 | NEW-1c (SSRF) | DONE | `validate_feed_url` in `proof.rs`, called from `handle_proofs_assert` |
 | 2 | NEW-4a (XFF spoofing) | DONE | `TRUST_PROXY` env var in `apply_rate_limit` (`main.rs`) |
 | 3 | NEW-3 (TOCTOU) | DONE | `resolve_challenge` returns `usize`; Phase 3 checks rows == 0 |
-| 4 | NEW-5 (SSE memory) | PARTIAL | Per-connection cap of 50 artists; global TTL eviction still recommended |
+| 4 | NEW-5 (SSE memory) | DONE | Per-connection + global registry / connection caps |
 | 5 | NEW-7 (CORS) | OPEN | Optional: remove `x-admin-token` from CORS `allow_headers` |
 
 ### Remaining Recommendations
 
-1. **SSE global eviction:** Add TTL-based eviction for `SseRegistry` channels with no active subscribers to prevent slow-drip memory growth across many requests.
-2. **CORS hardening:** Remove `x-admin-token` from CORS `allow_headers` if admin operations are never performed from browsers.
-3. **Admin token rotation:** Consider short-lived admin sessions or separate tokens for different privilege levels (defense-in-depth).
+1. **CORS hardening:** Remove `x-admin-token` and `x-sync-token` from CORS `allow_headers` if browser clients never need them.
+2. **Admin token rotation:** Consider short-lived admin sessions or separate tokens for different privilege levels (defense-in-depth).

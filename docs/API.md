@@ -338,7 +338,7 @@ Paginated event log for community nodes to poll.
 | Code | Meaning |
 |------|---------|
 | 200  | Events returned successfully |
-| 403  | Invalid or missing sync/admin token |
+| 403  | Invalid or missing `X-Sync-Token`, or `SYNC_TOKEN` is not configured |
 
 ---
 
@@ -350,7 +350,7 @@ Community nodes announce their push URL with the primary. The primary stores the
 - **Available on:** Primary only
 - **Validation:**
   - `node_url` must end with `/sync/push`
-  - the primary fetches same-origin `GET /node/info` and requires its `node_pubkey` to match the signed payload
+  - the primary fetches same-origin `GET /node/info` without following redirects and requires its `node_pubkey` to match the signed payload
   - `signed_at` must fall within the primary's allowed clock-skew window
 
 **Request body:**
@@ -447,7 +447,7 @@ Returns all known active peer nodes. Acts as a built-in tracker -- a new node on
 | Code | Meaning |
 |------|---------|
 | 200  | Peer list returned successfully |
-| 403  | Invalid or missing sync/admin token |
+| 403  | Invalid or missing `X-Sync-Token`, or `SYNC_TOKEN` is not configured |
 
 ---
 
@@ -477,7 +477,9 @@ Set-diff catch-up for nodes rejoining after downtime. The community node sends t
 ```json
 {
   "send_to_node": [ { "...Event..." } ],
-  "unknown_to_us": [ { "event_id": "uuid-x", "seq": 99 } ]
+  "unknown_to_us": [ { "event_id": "uuid-x", "seq": 99 } ],
+  "has_more": false,
+  "next_seq": 99
 }
 ```
 
@@ -485,11 +487,14 @@ Set-diff catch-up for nodes rejoining after downtime. The community node sends t
 |-------|------|-------------|
 | `send_to_node` | Event[] | Events the requesting node is missing |
 | `unknown_to_us` | EventRef[] | Events the node reported that the primary does not recognize (anomaly) |
+| `has_more` | bool | `true` when the response is truncated and reconcile pagination should continue |
+| `next_seq` | i64 | Cursor to use as the next `since_seq` when `has_more` is `true` |
 
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
 | 400  | `have` array exceeds 10,000 entries |
+| 403  | Invalid or missing `X-Sync-Token`, or `SYNC_TOKEN` is not configured |
 
 ---
 
@@ -1225,13 +1230,16 @@ The feed owner must add a `<podcast:txt>` element to their RSS feed at channel l
 stophammer-proof <token_binding>
 ```
 
-Challenges expire after 24 hours. Max 20 pending challenges per feed.
+Challenges expire after 24 hours. Creating a new challenge for the same
+`feed_guid` + `scope` invalidates any older pending challenge for that pair.
+The server also enforces a global cap of 5,000 pending challenges.
 
 | Code | Meaning |
 |------|---------|
 | 201  | Challenge created |
 | 400  | Unsupported scope, nonce too short or too long |
-| 429  | Too many pending challenges for this feed (limit: 20) |
+| 404  | Feed not found in the database |
+| 429  | Too many pending challenges globally (limit: 5,000) |
 
 ---
 
@@ -1259,7 +1267,8 @@ Asserts a previously created challenge. Fetches the RSS feed, verifies the `podc
   "access_token": "base64url-128bit-token",
   "scope": "feed:write",
   "subject_feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "expires_at": 1710291600
+  "expires_at": 1710291600,
+  "proof_level": "rss_only"
 }
 ```
 
@@ -1268,8 +1277,9 @@ Access tokens expire after 1 hour.
 | Code | Meaning |
 |------|---------|
 | 200  | Token issued |
-| 400  | Nonce mismatch, challenge already resolved, or `podcast:txt` not found |
+| 400  | Nonce mismatch, feed URL rejected by SSRF validation, challenge already resolved, or `podcast:txt` not found |
 | 404  | Challenge not found or expired |
+| 409  | Feed URL changed during verification; retry the flow |
 | 503  | RSS fetch failed |
 
 ---

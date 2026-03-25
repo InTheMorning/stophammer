@@ -4,6 +4,10 @@
 **Date:** 2026-03-12
 **Scope:** Resource exhaustion, unbounded growth, denial-of-service vectors
 
+> Historical snapshot. This report reflects the 2026-03-12 tree and is
+> superseded by `availability-blackbox-report-v2.md` and
+> `final-audit-report.md` for current behavior.
+
 ---
 
 ## Executive Summary
