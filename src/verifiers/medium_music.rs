@@ -28,15 +28,11 @@ impl Verifier for MediumMusicVerifier {
             Some("publisher") => {
                 // Publisher feeds must reference at least one music child feed
                 // to be worth ingesting — otherwise they are empty shells.
-                let has_music_child = ctx
-                    .request
-                    .feed_data
-                    .as_ref()
-                    .is_some_and(|f| {
-                        f.remote_items
-                            .iter()
-                            .any(|ri| ri.medium.as_deref() == Some("music"))
-                    });
+                let has_music_child = ctx.request.feed_data.as_ref().is_some_and(|f| {
+                    f.remote_items
+                        .iter()
+                        .any(|ri| ri.medium.as_deref() == Some("music"))
+                });
                 if has_music_child {
                     VerifyResult::Pass
                 } else {
@@ -45,10 +41,12 @@ impl Verifier for MediumMusicVerifier {
                     )
                 }
             }
-            Some(other) => {
-                VerifyResult::Fail(format!("medium is '{other}', expected 'music' or 'publisher'"))
+            Some(other) => VerifyResult::Fail(format!(
+                "medium is '{other}', expected 'music' or 'publisher'"
+            )),
+            None => {
+                VerifyResult::Fail("podcast:medium absent — must be 'music' or 'publisher'".into())
             }
-            None => VerifyResult::Fail("podcast:medium absent — must be 'music' or 'publisher'".into()),
         }
     }
 }

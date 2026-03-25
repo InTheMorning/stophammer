@@ -241,7 +241,10 @@ fn print_wallet_detail(w: &stophammer::db::WalletDetail) {
         println!("  endpoints ({}):", w.endpoints.len());
         for ep in &w.endpoints {
             if ep.custom_key.is_empty() && ep.custom_value.is_empty() {
-                println!("    [{}] {} {}", ep.id, ep.route_type, ep.normalized_address);
+                println!(
+                    "    [{}] {} {}",
+                    ep.id, ep.route_type, ep.normalized_address
+                );
             } else {
                 println!(
                     "    [{}] {} {} key={} val={}",
@@ -432,7 +435,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .class_value
             .as_deref()
             .ok_or_else(|| std::io::Error::other("--resolve-class requires --class"))?;
-        resolve_action(&conn, review_id, "force_class", None, Some(class), args.json)?;
+        resolve_action(
+            &conn,
+            review_id,
+            "force_class",
+            None,
+            Some(class),
+            args.json,
+        )?;
     } else if let Some(review_id) = args.resolve_link {
         let artist = args
             .artist_id

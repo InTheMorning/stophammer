@@ -401,14 +401,15 @@ pub fn resolve_artist(
 }
 
 fn artist_feed_count(conn: &Connection, artist_id: &str) -> Result<i64, DbError> {
-    Ok(conn.prepare_cached(
-        "SELECT COUNT(DISTINCT f.feed_guid) \
+    Ok(conn
+        .prepare_cached(
+            "SELECT COUNT(DISTINCT f.feed_guid) \
          FROM artist_credit_name acn \
          JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
          JOIN feeds f ON f.artist_credit_id = ac.id \
          WHERE acn.artist_id = ?1",
-    )?
-    .query_row(params![artist_id], |row| row.get(0))?)
+        )?
+        .query_row(params![artist_id], |row| row.get(0))?)
 }
 
 fn canonical_artist_for_query(
@@ -465,7 +466,6 @@ fn find_existing_artist_by_npub_and_name(
         &[&npub, &artist_name_lower],
     )
 }
-
 
 fn find_existing_artist_by_website_url_and_name(
     conn: &Connection,
@@ -4304,8 +4304,12 @@ pub struct AnchoredNameGroupsCache(Vec<ArtistIdentityEvidenceGroup>);
 /// # Errors
 ///
 /// Returns [`DbError`] if the underlying queries fail.
-pub fn precompute_anchored_name_groups(conn: &Connection) -> Result<AnchoredNameGroupsCache, DbError> {
-    Ok(AnchoredNameGroupsCache(collect_artist_groups_by_anchored_name(conn)?))
+pub fn precompute_anchored_name_groups(
+    conn: &Connection,
+) -> Result<AnchoredNameGroupsCache, DbError> {
+    Ok(AnchoredNameGroupsCache(
+        collect_artist_groups_by_anchored_name(conn)?,
+    ))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4560,9 +4564,8 @@ fn filter_artist_groups_for_seed_ids(
     // per-group artist resolution is pure in-memory rather than one DB
     // round-trip per artist across potentially thousands of groups.
     let redirect_map: std::collections::HashMap<String, String> = {
-        let mut stmt = conn.prepare(
-            "SELECT old_artist_id, new_artist_id FROM artist_id_redirect",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT old_artist_id, new_artist_id FROM artist_id_redirect")?;
         stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
             .collect::<Result<_, _>>()?
     };
@@ -4613,22 +4616,42 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
     let mut groups = Vec::new();
     let npub_groups = collect_artist_groups_by_npub(conn)?;
-    groups.extend(filter_artist_groups_for_seed_ids(conn, npub_groups, seed_ids)?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        npub_groups,
+        seed_ids,
+    )?);
 
     let publisher_groups = collect_artist_groups_by_publisher_link(conn)?;
-    groups.extend(filter_artist_groups_for_seed_ids(conn, publisher_groups, seed_ids)?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        publisher_groups,
+        seed_ids,
+    )?);
 
     let website_groups = collect_artist_groups_by_normalized_website(conn)?;
-    groups.extend(filter_artist_groups_for_seed_ids(conn, website_groups, seed_ids)?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        website_groups,
+        seed_ids,
+    )?);
 
     let release_groups = collect_artist_groups_by_release_cluster(conn)?;
-    groups.extend(filter_artist_groups_for_seed_ids(conn, release_groups, seed_ids)?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        release_groups,
+        seed_ids,
+    )?);
 
     let name_groups = match anchored_cache {
         Some(cache) => cache.0.clone(),
         None => collect_artist_groups_by_anchored_name(conn)?,
     };
-    groups.extend(filter_artist_groups_for_seed_ids(conn, name_groups, seed_ids)?);
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        name_groups,
+        seed_ids,
+    )?);
 
     Ok(groups)
 }
@@ -4859,7 +4882,6 @@ fn collect_artist_groups_by_npub(
     Ok(collect_artist_groups_from_rows("npub", rows))
 }
 
-
 fn collect_artist_groups_by_publisher_link(
     conn: &Connection,
 ) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
@@ -4984,8 +5006,9 @@ fn collect_artist_groups_by_normalized_website(
 }
 
 fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
-    let count: i64 = conn.prepare_cached(
-        "SELECT COUNT(*) \
+    let count: i64 = conn
+        .prepare_cached(
+            "SELECT COUNT(*) \
          FROM artist_credit_name acn \
          JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
          JOIN feeds f ON f.artist_credit_id = ac.id \
@@ -5001,11 +5024,10 @@ fn artist_has_strong_identity_claims(conn: &Connection, artist_id: &str) -> Resu
                          AND sel.link_type = 'website' \
                          AND TRIM(sel.url) <> '') \
            )",
-    )?
-    .query_row(params![artist_id], |row| row.get(0))?;
+        )?
+        .query_row(params![artist_id], |row| row.get(0))?;
     Ok(count > 0)
 }
-
 
 fn collect_artist_groups_by_anchored_name(
     conn: &Connection,
@@ -5087,10 +5109,15 @@ fn collect_artist_groups_by_anchored_name(
              WHERE TRIM(spc.platform_key) <> ''",
         )?;
         let platform_rows = stmt
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
             .collect::<Result<Vec<_>, _>>()?;
         for (artist_id, platform_key) in platform_rows {
-            platform_map.entry(artist_id).or_default().insert(platform_key);
+            platform_map
+                .entry(artist_id)
+                .or_default()
+                .insert(platform_key);
         }
     }
 
@@ -5172,7 +5199,10 @@ fn preferred_artist_target(
             .then_with(|| a.2.cmp(&b.2))
             .then_with(|| a.3.cmp(&b.3))
     });
-    Ok(ranked.into_iter().next().map(|(_, _, _, artist_id)| artist_id))
+    Ok(ranked
+        .into_iter()
+        .next()
+        .map(|(_, _, _, artist_id)| artist_id))
 }
 
 pub fn backfill_artist_identity(
@@ -5355,39 +5385,40 @@ pub fn explain_artist_identity_for_feed(
         .iter()
         .map(|artist| artist.artist_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    let candidate_groups = collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?
-        .into_iter()
-        .map(|group| {
-            let artist_ids = current_ids_for_review(conn, &group.artist_ids)
-                .unwrap_or_else(|_err| group.artist_ids.clone())
-                .into_iter()
-                .collect::<Vec<_>>();
-            let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
-            let review = get_artist_identity_review_for_subject(
-                conn,
-                feed_guid,
-                &group.source,
-                &group.name_key,
-                &group.evidence_key,
-            )
-            .ok()
-            .flatten();
-            ArtistIdentityCandidateGroup {
-                source: group.source,
-                name_key: group.name_key,
-                evidence_key: group.evidence_key,
-                artist_ids,
-                artist_names,
-                review_id: review.as_ref().map(|item| item.review_id),
-                review_status: review.as_ref().map(|item| item.status.clone()),
-                override_type: review.as_ref().and_then(|item| item.override_type.clone()),
-                target_artist_id: review
-                    .as_ref()
-                    .and_then(|item| item.target_artist_id.clone()),
-                note: review.and_then(|item| item.note),
-            }
-        })
-        .collect::<Vec<_>>();
+    let candidate_groups =
+        collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?
+            .into_iter()
+            .map(|group| {
+                let artist_ids = current_ids_for_review(conn, &group.artist_ids)
+                    .unwrap_or_else(|_err| group.artist_ids.clone())
+                    .into_iter()
+                    .collect::<Vec<_>>();
+                let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
+                let review = get_artist_identity_review_for_subject(
+                    conn,
+                    feed_guid,
+                    &group.source,
+                    &group.name_key,
+                    &group.evidence_key,
+                )
+                .ok()
+                .flatten();
+                ArtistIdentityCandidateGroup {
+                    source: group.source,
+                    name_key: group.name_key,
+                    evidence_key: group.evidence_key,
+                    artist_ids,
+                    artist_names,
+                    review_id: review.as_ref().map(|item| item.review_id),
+                    review_status: review.as_ref().map(|item| item.status.clone()),
+                    override_type: review.as_ref().and_then(|item| item.override_type.clone()),
+                    target_artist_id: review
+                        .as_ref()
+                        .and_then(|item| item.target_artist_id.clone()),
+                    note: review.and_then(|item| item.note),
+                }
+            })
+            .collect::<Vec<_>>();
 
     Ok(ArtistIdentityFeedPlan {
         feed_guid: feed_guid.to_string(),
@@ -9598,10 +9629,7 @@ const PLATFORM_LNADDRESS_DOMAINS: &[(&str, &str)] = &[
 /// Apply soft-signal classification to a wallet. Produces only `provisional`
 /// confidence from known platform/app alias patterns and lnaddress domains.
 /// Never overrides `high_confidence`, `reviewed`, or `blocked`.
-pub fn classify_wallet_soft_signals(
-    conn: &Connection,
-    wallet_id: &str,
-) -> Result<bool, DbError> {
+pub fn classify_wallet_soft_signals(conn: &Connection, wallet_id: &str) -> Result<bool, DbError> {
     // Early exit: only classify wallets that are still unknown/provisional
     let (wallet_class, class_confidence): (String, String) = conn
         .query_row(
@@ -9714,7 +9742,11 @@ pub fn classify_wallet_split_heuristics(
     let mut nonfee_feed_guids = std::collections::HashSet::new();
 
     stmt.query_map(params![wallet_id], |r| {
-        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?))
+        Ok((
+            r.get::<_, i64>(0)?,
+            r.get::<_, i64>(1)?,
+            r.get::<_, String>(2)?,
+        ))
     })?
     .filter_map(Result::ok)
     .for_each(|(split, fee, feed_guid)| {
@@ -10017,7 +10049,9 @@ pub fn group_same_feed_endpoints(conn: &Connection, feed_guid: &str) -> Result<u
     )?;
 
     let groups: Vec<(String, String)> = stmt
-        .query_map(params![feed_guid], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .query_map(params![feed_guid], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?
         .collect::<Result<_, _>>()?;
 
     let mut merges = 0;
@@ -10160,22 +10194,31 @@ pub fn resolve_wallet_identity_for_feed(
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map(params![feed_guid], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
 
         for (route_id, route_type, address, ck, cv, name) in rows {
-            let before: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
+            let before: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
+            let ep = get_or_create_endpoint(
+                conn,
+                &route_type,
+                &address,
+                &ck,
+                &cv,
+                name.as_deref(),
+                now,
             )?;
-            let ep = get_or_create_endpoint(conn, &route_type, &address, &ck, &cv, name.as_deref(), now)?;
-            let after: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let after: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             if after > before {
                 stats.endpoints_created += 1;
             }
@@ -10198,22 +10241,31 @@ pub fn resolve_wallet_identity_for_feed(
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map(params![feed_guid], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
 
         for (route_id, route_type, address, ck, cv, name) in rows {
-            let before: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
+            let before: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
+            let ep = get_or_create_endpoint(
+                conn,
+                &route_type,
+                &address,
+                &ck,
+                &cv,
+                name.as_deref(),
+                now,
             )?;
-            let ep = get_or_create_endpoint(conn, &route_type, &address, &ck, &cv, name.as_deref(), now)?;
-            let after: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let after: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             if after > before {
                 stats.endpoints_created += 1;
             }
@@ -10273,16 +10325,20 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
 
         for (route_id, route_type, address, ck, cv, name) in rows {
-            let before: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let before: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             let ep = get_or_create_endpoint(
                 conn,
                 &route_type,
@@ -10292,11 +10348,8 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
                 name.as_deref(),
                 unix_now(),
             )?;
-            let after: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let after: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             if after > before {
                 stats.endpoints_created += 1;
             } else {
@@ -10326,16 +10379,20 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
         )?;
         let rows: Vec<(i64, String, String, String, String, Option<String>)> = stmt
             .query_map([], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                ))
             })?
             .collect::<Result<_, _>>()?;
 
         for (route_id, route_type, address, ck, cv, name) in rows {
-            let before: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let before: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             let ep = get_or_create_endpoint(
                 conn,
                 &route_type,
@@ -10345,11 +10402,8 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
                 name.as_deref(),
                 unix_now(),
             )?;
-            let after: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM wallet_endpoints",
-                [],
-                |r| r.get(0),
-            )?;
+            let after: i64 =
+                conn.query_row("SELECT COUNT(*) FROM wallet_endpoints", [], |r| r.get(0))?;
             if after > before {
                 stats.endpoints_created += 1;
             } else {
@@ -10367,11 +10421,8 @@ pub fn backfill_wallet_pass1(conn: &Connection) -> Result<WalletBackfillStats, D
         }
     }
 
-    stats.aliases_created = conn.query_row(
-        "SELECT COUNT(*) FROM wallet_aliases",
-        [],
-        |r| r.get(0),
-    )?;
+    stats.aliases_created =
+        conn.query_row("SELECT COUNT(*) FROM wallet_aliases", [], |r| r.get(0))?;
 
     Ok(stats)
 }
@@ -10382,9 +10433,7 @@ pub fn backfill_wallet_pass2(conn: &Connection) -> Result<WalletBackfillStats, D
     let mut stats = WalletBackfillStats::default();
     let now = unix_now();
 
-    let mut stmt = conn.prepare(
-        "SELECT id FROM wallet_endpoints WHERE wallet_id IS NULL",
-    )?;
+    let mut stmt = conn.prepare("SELECT id FROM wallet_endpoints WHERE wallet_id IS NULL")?;
     let ep_ids: Vec<i64> = stmt
         .query_map([], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
@@ -10646,7 +10695,10 @@ pub fn list_pending_wallet_reviews(
 }
 
 /// Get full wallet detail for review display.
-pub fn get_wallet_detail(conn: &Connection, wallet_id: &str) -> Result<Option<WalletDetail>, DbError> {
+pub fn get_wallet_detail(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<Option<WalletDetail>, DbError> {
     let row = conn
         .query_row(
             "SELECT wallet_id, display_name, wallet_class, class_confidence, created_at, updated_at \
