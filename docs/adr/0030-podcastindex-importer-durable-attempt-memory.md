@@ -115,6 +115,9 @@ This mode is optional and conservative:
 - the default importer behavior continues to fetch every candidate
 - skip decisions only apply to entries already known to have
   `fetch_http_status = 200`
+- skip eligibility may come from either a known non-`music`/non-`publisher`
+  `raw_medium` or a prior `[medium_music]` rejection such as
+  `podcast:medium absent`
 - the accepted set for v1 remains conservative so feeds relevant to current
   policy are not skipped accidentally
 - skipped rows still update memory with a machine-readable outcome such as

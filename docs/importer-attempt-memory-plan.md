@@ -155,8 +155,8 @@ Scope:
 - Before scheduling a fetch, consult `import_feed_memory`.
 - Skip only rows already known to have:
   - `fetch_http_status = 200`
-  - a non-NULL `raw_medium`
-  - a `raw_medium` outside the accepted set
+  - either a non-NULL `raw_medium` outside the accepted set
+  - or a prior `[medium_music]` rejection, including the `podcast:medium absent` case
 - Persist a new memory row for the skip event so `last_attempted_at` and
   `attempt_count` still move forward.
 
@@ -173,6 +173,7 @@ Acceptance:
 - Skip mode bypasses the network fetch for eligible rows and records
   `skipped_known_irrelevant`.
 - Tests prove that known `music` and `publisher` rows are not skipped.
+- Tests prove that prior `[medium_music]` rejections with absent medium are skipped.
 
 ### Phase 4: Operational Polish
 
