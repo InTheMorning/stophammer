@@ -9,6 +9,10 @@ use stophammer::db;
 use tower::ServiceExt;
 
 fn seed_feed(conn: &rusqlite::Connection, feed_guid: &str) {
+    seed_feed_with_medium(conn, feed_guid, "music");
+}
+
+fn seed_feed_with_medium(conn: &rusqlite::Connection, feed_guid: &str, raw_medium: &str) {
     let artist = db::resolve_artist(conn, "Resolver Artist", Some(feed_guid)).expect("artist");
     let credit = db::get_or_create_artist_credit(
         conn,
@@ -34,7 +38,7 @@ fn seed_feed(conn: &rusqlite::Connection, feed_guid: &str) {
         oldest_item_at: None,
         created_at: now,
         updated_at: now,
-        raw_medium: Some("music".into()),
+        raw_medium: Some(raw_medium.to_string()),
     };
     db::upsert_feed(conn, &feed).expect("feed");
 }
@@ -239,6 +243,21 @@ fn mark_claim_complete_queue_entry() {
     let claimed_again =
         db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim again");
     assert!(claimed_again.is_empty());
+}
+
+#[test]
+fn resolver_queue_skips_musicl_feeds() {
+    let conn = common::test_db();
+    seed_feed_with_medium(&conn, "feed-resolver-musicl", "musicL");
+
+    stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-musicl")
+        .expect("mark dirty");
+
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(
+        counts.total, 0,
+        "musicL feeds should not enter resolver queue"
+    );
 }
 
 #[test]

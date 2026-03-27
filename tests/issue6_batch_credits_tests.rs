@@ -65,8 +65,8 @@ fn insert_feed(
     let now = common::now();
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
-         explicit, episode_count, newest_item_at, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7, ?8)",
+         explicit, episode_count, newest_item_at, created_at, updated_at, raw_medium) \
+         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7, ?8, 'music')",
         rusqlite::params![
             guid,
             format!("https://example.com/{guid}"),

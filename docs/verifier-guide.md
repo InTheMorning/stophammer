@@ -8,7 +8,13 @@ This guide explains how the verifier chain works and how to create custom verifi
 
 The verifier chain is an ordered pipeline of validation steps that every `POST /ingest/feed` request passes through on the primary node. Each verifier inspects the incoming feed data and decides whether to pass, warn, or reject.
 
-The chain is the core quality gate: it is the reason Stophammer's index only contains verified V4V music feeds. Community nodes do NOT run verifiers -- they verify the ed25519 signature on events and trust the primary's verification result. Verifier warnings from the primary are stored in each event's `warnings` field as an audit trail replicated to all nodes.
+The chain is the core quality gate: it is the reason Stophammer's index
+primarily contains verified V4V music feeds, while still allowing selected
+container/source-layer mediums (`publisher`, `musicL`) through with narrower
+semantics. Community nodes do NOT run verifiers -- they verify the ed25519
+signature on events and trust the primary's verification result. Verifier
+warnings from the primary are stored in each event's `warnings` field as an
+audit trail replicated to all nodes.
 
 Architecture decision: [ADR-0015 -- Verifier Plugin Architecture](adr/0015-verifier-plugin-architecture.md).
 
@@ -67,7 +73,7 @@ When `feed_data` is `Some`, it contains:
 | `feed_guid` | `String` | `podcast:guid` value |
 | `title` | `String` | Feed title |
 | `description` | `Option<String>` | Feed description |
-| `raw_medium` | `Option<String>` | `podcast:medium` tag value (e.g. `"music"`) |
+| `raw_medium` | `Option<String>` | `podcast:medium` tag value (e.g. `"music"`, `"publisher"`, `"musicL"`) |
 | `author_name` | `Option<String>` | Feed author |
 | `owner_name` | `Option<String>` | Feed owner |
 | `feed_payment_routes` | `Vec<IngestPaymentRoute>` | Feed-level V4V payment routes |
@@ -219,10 +225,10 @@ No other files need to change. The chain order and which verifiers run is contro
 ### medium_music
 
 - **File:** `src/verifiers/medium_music.rs`
-- **Effect:** Rejects feeds where `podcast:medium` is absent or set to a non-music value
-- **Result:** `Pass` if `raw_medium == "music"`; `Fail` otherwise
+- **Effect:** Rejects feeds where `podcast:medium` is absent or set outside the accepted set
+- **Result:** `Pass` for `music`, `publisher`, and `musicL`; `Fail` otherwise
 - **Env vars:** None
-- **Notes:** When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
+- **Notes:** `publisher` and `musicL` are accepted as container/source-layer mediums. `publisher` still requires at least one `remoteItem` child with `medium="music"`. When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
 
 ### feed_blocklist
 

@@ -572,6 +572,8 @@ Returns a single artist by ID. Follows `artist_id_redirect` automatically (merge
 Lists feeds attributed to an artist, paginated by title (ascending).
 
 - **Authentication:** None
+- **Query parameters:**
+  - `medium` — optional feed medium filter; defaults to `music`
 
 **Response (`200 OK`):** Paginated array of feed objects (same structure as `GET /v1/feeds/{guid}` without includes).
 
@@ -759,6 +761,10 @@ Returns a single feed by its `podcast:guid`.
 `remote_items` is the stored source-truth snapshot of feed-level
 `podcast:remoteItem` declarations.
 
+For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
+remain visible, but local tracks are intentionally not materialized into the
+`tracks` table or resolver layer.
+
 `publisher` is a derived read-only view over those declarations. It
 reports direction and reciprocal validation exactly from RSS, but only emits
 `artist_signal` when the publisher feed and music feed already resolve to the
@@ -795,6 +801,8 @@ This endpoint is resolver-backed. Fresh ingests may not appear here until
 Lists source feeds ordered by `newest_item_at` descending (most recently updated first). This preserves the older source-oriented recent view for provenance/debugging workflows.
 
 - **Authentication:** None
+- **Query parameters:**
+  - `medium` — optional feed medium filter; defaults to `music`
 
 **Response:** Paginated array of feed objects.
 

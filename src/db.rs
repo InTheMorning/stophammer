@@ -18,6 +18,7 @@
 //! HTTP status codes, so the typed error is intentional.
 
 use crate::event::{Event, EventPayload, EventType};
+use crate::medium;
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, Recording, Release, ReleaseRecording, ResolvedEntitySourceByFeed,
@@ -7337,14 +7338,17 @@ pub struct ResolverImportState {
 
 /// Inserts or updates a dirty-feed row in the resolver queue.
 pub fn mark_feed_dirty(conn: &Connection, feed_guid: &str, dirty_mask: i64) -> Result<(), DbError> {
-    let feed_exists: Option<i64> = conn
+    let feed_medium: Option<Option<String>> = conn
         .query_row(
-            "SELECT 1 FROM feeds WHERE feed_guid = ?1",
+            "SELECT raw_medium FROM feeds WHERE feed_guid = ?1",
             params![feed_guid],
             |row| row.get(0),
         )
         .optional()?;
-    if feed_exists.is_none() {
+    let Some(feed_medium) = feed_medium else {
+        return Ok(());
+    };
+    if medium::resolver_excluded(feed_medium.as_deref()) {
         return Ok(());
     }
 

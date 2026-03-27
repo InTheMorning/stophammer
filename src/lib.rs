@@ -39,6 +39,7 @@ pub mod db;
 pub mod db_pool;
 pub mod event;
 pub mod ingest;
+pub mod medium;
 pub mod model;
 pub mod proof;
 pub mod quality;

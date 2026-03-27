@@ -35,7 +35,7 @@ use tower_http::cors::{Any, CorsLayer};
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-use crate::{db, db_pool, event, ingest, model, proof, query, signing, sync, verify};
+use crate::{db, db_pool, event, ingest, medium, model, proof, query, signing, sync, verify};
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
 
@@ -1455,14 +1455,21 @@ async fn handle_ingest_feed(
             message: "feed_data is required for successful ingest".into(),
             www_authenticate: None,
         })?;
+        let is_musicl = medium::is_musicl(feed_data.raw_medium.as_deref());
+        let tracks: &[ingest::IngestTrackData] = if is_musicl { &[] } else { &feed_data.tracks };
+        let live_items: &[ingest::IngestLiveItemData] = if is_musicl {
+            &[]
+        } else {
+            &feed_data.live_items
+        };
 
         // 3b. Enforce track count limit to prevent DB growth attacks.
-        if feed_data.tracks.len() > MAX_TRACKS_PER_INGEST {
+        if tracks.len() > MAX_TRACKS_PER_INGEST {
             return Err(ApiError {
                 status: StatusCode::BAD_REQUEST,
                 message: format!(
                     "feed contains {} tracks, maximum is {MAX_TRACKS_PER_INGEST}",
-                    feed_data.tracks.len()
+                    tracks.len()
                 ),
                 www_authenticate: None,
             });
@@ -1525,19 +1532,14 @@ async fn handle_ingest_feed(
             db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
 
         // 7. Compute newest_item_at and oldest_item_at from track pub_dates
-        let pub_dates: Vec<i64> = feed_data
-            .tracks
+        let pub_dates: Vec<i64> = tracks
             .iter()
             .filter_map(|t| t.pub_date)
-            .chain(
-                feed_data
-                    .live_items
-                    .iter()
-                    .filter(|li| {
-                        li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some()
-                    })
-                    .filter_map(|li| li.pub_date),
-            )
+            .chain(live_items.iter().filter_map(|li| {
+                (li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some())
+                    .then_some(li.pub_date)
+                    .flatten()
+            }))
             .collect();
 
         let newest_item_at = pub_dates.iter().copied().max();
@@ -1559,7 +1561,7 @@ async fn handle_ingest_feed(
                 clippy::cast_possible_wrap,
                 reason = "episode counts never approach i64::MAX"
             )]
-            episode_count: feed_data.tracks.len() as i64,
+            episode_count: tracks.len() as i64,
             newest_item_at,
             oldest_item_at,
             created_at: now,
@@ -1568,24 +1570,27 @@ async fn handle_ingest_feed(
         };
 
         // 8b. Build feed-level payment routes
-        let feed_routes: Vec<model::FeedPaymentRoute> = feed_data
-            .feed_payment_routes
-            .iter()
-            .map(|r| model::FeedPaymentRoute {
-                id: None,
-                feed_guid: feed_data.feed_guid.clone(),
-                recipient_name: r.recipient_name.clone(),
-                route_type: r.route_type.clone(),
-                address: r.address.clone(),
-                custom_key: r.custom_key.clone(),
-                custom_value: r.custom_value.clone(),
-                split: r.split,
-                fee: r.fee,
-            })
-            .collect();
+        let feed_routes: Vec<model::FeedPaymentRoute> = if is_musicl {
+            Vec::new()
+        } else {
+            feed_data
+                .feed_payment_routes
+                .iter()
+                .map(|r| model::FeedPaymentRoute {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
+                    recipient_name: r.recipient_name.clone(),
+                    route_type: r.route_type.clone(),
+                    address: r.address.clone(),
+                    custom_key: r.custom_key.clone(),
+                    custom_value: r.custom_value.clone(),
+                    split: r.split,
+                    fee: r.fee,
+                })
+                .collect()
+        };
 
-        let live_events: Vec<model::LiveEvent> = feed_data
-            .live_items
+        let live_events: Vec<model::LiveEvent> = live_items
             .iter()
             .filter(|item| matches!(item.status.as_str(), "pending" | "live"))
             .map(|item| model::LiveEvent {
@@ -1684,13 +1689,12 @@ async fn handle_ingest_feed(
             model::Track,
             Vec<model::PaymentRoute>,
             Vec<model::ValueTimeSplit>,
-        )> = Vec::with_capacity(feed_data.tracks.len());
+        )> = Vec::with_capacity(tracks.len());
 
         // Track artist credits for event generation
-        let mut track_credits: Vec<model::ArtistCredit> =
-            Vec::with_capacity(feed_data.tracks.len());
+        let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(tracks.len());
 
-        for track_data in &feed_data.tracks {
+        for track_data in tracks {
             source_contributor_claims.extend(build_source_contributor_claims(
                 &feed_data.feed_guid,
                 "track",
@@ -1817,7 +1821,7 @@ async fn handle_ingest_feed(
             track_credits.push(track_credit);
         }
 
-        for live_item in &feed_data.live_items {
+        for live_item in live_items {
             source_contributor_claims.extend(build_source_contributor_claims(
                 &feed_data.feed_guid,
                 "live_item",

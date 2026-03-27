@@ -1,6 +1,6 @@
 # Stophammer
 
-A quality-gated V4V music index.
+A quality-gated V4V music index with preserved source-layer container feeds.
 
 ## Documentation
 
@@ -44,12 +44,21 @@ actually music.
 
 ## What Stophammer is
 
-Stophammer is a **verified V4V music index**. It only contains RSS feeds that:
+Stophammer is a **verified V4V music index**. Its primary acceptance target is
+RSS feeds that:
 
 - declare `podcast:medium=music`
 - carry at least one structurally valid `podcast:value` payment route
   (non-empty address with a positive split — the verifier checks metadata
   presence, not Lightning node reachability or payment delivery)
+
+It also preserves two container/source-layer mediums:
+
+- `publisher` feeds, which group or reference music feeds
+- `musicL` feeds, which act as playlist/container feeds for remote public items
+
+Those container feeds are stored for source-truth API use, but they do not
+participate in resolver-driven canonical output.
 
 Every entry has been crawled and passed through a verifier chain. The index is an
 **append-only signed event log** — you can verify the integrity of every feed
@@ -113,9 +122,9 @@ crawl_token → content_hash → feed_blocklist → medium_music → feed_guid �
 | `crawl_token` | Rejects invalid crawl tokens |
 | `content_hash` | Short-circuits unchanged feeds (no DB write, no event) |
 | `feed_blocklist` | Rejects exact-match blocked feed GUIDs and URLs from `BLOCKED_FEED_GUIDS` / `BLOCKED_FEED_URLS` |
-| `medium_music` | Rejects feeds without `podcast:medium=music` |
+| `medium_music` | Rejects feeds whose `podcast:medium` is absent or outside the accepted set: `music`, `publisher`, `musicL` |
 | `feed_guid` | Rejects malformed or known-bad `podcast:guid` values |
-| `v4v_payment` | Rejects feeds with no structurally valid V4V payment routes (requires non-empty address + positive split; does not test reachability) |
+| `v4v_payment` | Rejects `music` feeds with no structurally valid V4V payment routes (container mediums `publisher` and `musicL` are exempt) |
 | `enclosure_type` | Warns on video MIME type enclosures |
 
 Override at runtime with `VERIFIER_CHAIN=crawl_token,content_hash,...`.

@@ -5,7 +5,8 @@ is for, and how to use it without reading the whole repo.
 
 ## What Stophammer Is
 
-`stophammer` is a quality-gated V4V music index.
+`stophammer` is a quality-gated V4V music index with a small source-layer
+exception for container feeds.
 
 It accepts music RSS feeds from crawlers, verifies that they look like real
 Podcasting 2.0 music feeds, stores the accepted data in SQLite, and republishes
@@ -18,8 +19,12 @@ It is not:
 - a Lightning payment sender
 - a generic metadata warehouse for every audio feed on the internet
 
-It is specifically for feeds that declare `podcast:medium=music` and carry
-usable V4V payment routes.
+It is primarily for feeds that declare `podcast:medium=music` and carry usable
+V4V payment routes.
+
+It also preserves `publisher` and `musicL` container feeds as source-layer API
+data. Those container feeds do not participate in resolver-driven canonical
+output.
 
 ## Who Should Read What
 

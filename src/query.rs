@@ -84,6 +84,7 @@ pub struct ListQuery {
     cursor: Option<String>,
     limit: Option<i64>,
     include: Option<String>,
+    medium: Option<String>,
 }
 
 impl ListQuery {
@@ -95,6 +96,10 @@ impl ListQuery {
         self.include
             .as_deref()
             .is_some_and(|s| s.split(',').any(|f| f.trim() == field))
+    }
+
+    fn feed_medium(&self) -> &str {
+        self.medium.as_deref().unwrap_or(crate::medium::MUSIC)
     }
 }
 
@@ -748,6 +753,7 @@ async fn handle_get_artist_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let medium_filter = params.feed_medium().to_string();
 
         // Resolve redirect.
         let resolved_id: String = conn
@@ -793,12 +799,19 @@ async fn handle_get_artist_feeds(
                  FROM feeds f \
                  JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
                  WHERE acn.artist_id = ?1 \
-                   AND (f.title_lower > ?2 OR (f.title_lower = ?2 AND f.feed_guid > ?3)) \
+                   AND lower(f.raw_medium) = lower(?2) \
+                   AND (f.title_lower > ?3 OR (f.title_lower = ?3 AND f.feed_guid > ?4)) \
                  ORDER BY f.title_lower ASC, f.feed_guid ASC \
-                 LIMIT ?4",
+                 LIMIT ?5",
             )?;
             stmt.query_map(
-                params![resolved_id, cursor_title, cursor_guid, limit + 1],
+                params![
+                    resolved_id,
+                    medium_filter,
+                    cursor_title,
+                    cursor_guid,
+                    limit + 1
+                ],
                 |row| {
                     Ok(FeedRow {
                         feed_guid: row.get(0)?,
@@ -827,11 +840,11 @@ async fn handle_get_artist_feeds(
                  f.created_at, f.updated_at \
                  FROM feeds f \
                  JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-                 WHERE acn.artist_id = ?1 \
+                 WHERE acn.artist_id = ?1 AND lower(f.raw_medium) = lower(?2) \
                  ORDER BY f.title_lower ASC, f.feed_guid ASC \
-                 LIMIT ?2",
+                 LIMIT ?3",
             )?;
-            stmt.query_map(params![resolved_id, limit + 1], |row| {
+            stmt.query_map(params![resolved_id, medium_filter, limit + 1], |row| {
                 Ok(FeedRow {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
@@ -2562,6 +2575,7 @@ async fn handle_get_recent_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let medium_filter = params.feed_medium().to_string();
 
         let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
             let decoded = decode_cursor(cursor_str)?;
@@ -2586,28 +2600,32 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
-                 WHERE (newest_item_at, feed_guid) < (?1, ?2) \
+                 WHERE lower(raw_medium) = lower(?1)
+                   AND (newest_item_at, feed_guid) < (?2, ?3) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?3",
+                 LIMIT ?4",
             )?;
-            stmt.query_map(params![cursor_ts, cursor_guid, limit + 1], |row| {
-                Ok(FeedRow {
-                    feed_guid: row.get(0)?,
-                    feed_url: row.get(1)?,
-                    title: row.get(2)?,
-                    raw_medium: row.get(3)?,
-                    credit_id: row.get(4)?,
-                    description: row.get(5)?,
-                    image_url: row.get(6)?,
-                    language: row.get(7)?,
-                    explicit_int: row.get(8)?,
-                    episode_count: row.get(9)?,
-                    newest_item_at: row.get(10)?,
-                    oldest_item_at: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
-                })
-            })?
+            stmt.query_map(
+                params![medium_filter, cursor_ts, cursor_guid, limit + 1],
+                |row| {
+                    Ok(FeedRow {
+                        feed_guid: row.get(0)?,
+                        feed_url: row.get(1)?,
+                        title: row.get(2)?,
+                        raw_medium: row.get(3)?,
+                        credit_id: row.get(4)?,
+                        description: row.get(5)?,
+                        image_url: row.get(6)?,
+                        language: row.get(7)?,
+                        explicit_int: row.get(8)?,
+                        episode_count: row.get(9)?,
+                        newest_item_at: row.get(10)?,
+                        oldest_item_at: row.get(11)?,
+                        created_at: row.get(12)?,
+                        updated_at: row.get(13)?,
+                    })
+                },
+            )?
             .collect::<Result<_, _>>()?
         } else {
             let mut stmt = conn.prepare(
@@ -2616,10 +2634,11 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
+                 WHERE lower(raw_medium) = lower(?1) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?1",
+                 LIMIT ?2",
             )?;
-            stmt.query_map(params![limit + 1], |row| {
+            stmt.query_map(params![medium_filter, limit + 1], |row| {
                 Ok(FeedRow {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,

@@ -3,6 +3,7 @@
 //! Verifier: V4V payment route presence and validity.
 
 use crate::ingest::IngestPaymentRoute;
+use crate::medium;
 use crate::verify::{IngestContext, Verifier, VerifyResult};
 
 /// Rejects feeds that do not participate in V4V (value-for-value) payments.
@@ -44,8 +45,8 @@ impl Verifier for V4VPaymentVerifier {
             return VerifyResult::Pass; // fetch failed — handled elsewhere
         };
 
-        // Publisher feeds have no payment routes by design.
-        if feed_data.raw_medium.as_deref() == Some("publisher") {
+        // Publisher and musicL feeds are source-layer containers by design.
+        if medium::payment_exempt(feed_data.raw_medium.as_deref()) {
             return VerifyResult::Pass;
         }
 

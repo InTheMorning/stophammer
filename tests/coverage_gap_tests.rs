@@ -1610,6 +1610,48 @@ fn medium_music_verifier_rejects_publisher_no_music_children() {
 }
 
 // ---------------------------------------------------------------------------
+// 26c. MediumMusicVerifier accepts musicL medium
+// ---------------------------------------------------------------------------
+
+#[test]
+fn medium_music_verifier_accepts_musicl() {
+    use stophammer::verifiers::medium_music::MediumMusicVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-musicl".into(),
+            title: "Playlist Feed".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("musicL".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }),
+    };
+    let ctx = verifier_ctx(&req, &conn);
+    let v = MediumMusicVerifier;
+    assert!(matches!(v.verify(&ctx), VerifyResult::Pass));
+}
+
+// ---------------------------------------------------------------------------
 // 27. V4VPaymentVerifier skips check for publisher feeds
 // ---------------------------------------------------------------------------
 
@@ -1651,5 +1693,46 @@ fn v4v_payment_verifier_pass_publisher_no_routes() {
     assert!(
         matches!(v.verify(&ctx), VerifyResult::Pass),
         "publisher feeds should pass V4V check even with no routes"
+    );
+}
+
+#[test]
+fn v4v_payment_verifier_pass_musicl_no_routes() {
+    use stophammer::verifiers::v4v_payment::V4VPaymentVerifier;
+    use stophammer::verify::{Verifier, VerifyResult};
+
+    let conn = common::test_db();
+    let req = stophammer::ingest::IngestFeedRequest {
+        crawl_token: String::new(),
+        canonical_url: String::new(),
+        source_url: String::new(),
+        http_status: 200,
+        content_hash: String::new(),
+        feed_data: Some(stophammer::ingest::IngestFeedData {
+            feed_guid: "guid-musicl-v4v".into(),
+            title: "Playlist Feed".into(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("musicL".into()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            live_items: vec![],
+            tracks: vec![],
+        }),
+    };
+    let ctx = verifier_ctx(&req, &conn);
+    let v = V4VPaymentVerifier;
+    assert!(
+        matches!(v.verify(&ctx), VerifyResult::Pass),
+        "musicL feeds should pass V4V check even with no routes"
     );
 }
