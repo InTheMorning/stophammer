@@ -1,7 +1,7 @@
 # ADR 0012: Podping Listener for Real-Time Music Feed Discovery
 
 ## Status
-Accepted
+Superseded — replaced by gossip-listener (gossip mode in stophammer-crawler)
 
 ## Context
 Stophammer needs to discover new and updated music feeds as quickly as possible. The naive alternative — periodic polling of the Podcast Index database — introduces latency measured in hours and requires crawling feeds that have not changed. Podping is the standard real-time gossip layer for the podcast namespace ecosystem: publishers fire a podping on the Hive blockchain whenever a feed changes, and a WebSocket relay at `wss://api.livewire.io/ws/podping` re-broadcasts those pings within seconds.
