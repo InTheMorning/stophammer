@@ -28,7 +28,8 @@ fn parse_args() -> Result<(PathBuf, Option<usize>), String> {
                 println!(
                     "Usage: backfill_canonical [--db PATH] [--limit N]\n\
                      Rebuilds canonical release/recording rows and high-confidence promotions\n\
-                     for feeds already stored in the stophammer SQLite database."
+                     for feeds already stored in the stophammer SQLite database.\n\
+                     Coordinates with resolverd via resolver_state.backfill_active while it runs."
                 );
                 std::process::exit(0);
             }

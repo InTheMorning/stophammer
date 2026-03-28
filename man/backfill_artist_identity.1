@@ -10,7 +10,10 @@ backfill_artist_identity \- merge split canonical artists using strong evidence
 .B backfill_artist_identity
 deterministically merges split canonical artists when strong staged source
 evidence agrees across source IDs, publisher links, websites, or release
-clusters.
+clusters. While it runs, it coordinates with
+.BR resolverd
+via
+.BR resolver_state.backfill_active .
 
 Stored artist-identity overrides are honored during this backfill. A durable
 do-not-merge override blocks the corresponding automatic merge, and a durable

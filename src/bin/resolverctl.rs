@@ -30,7 +30,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                      Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
                      \n\
                      Commands:\n\
-                       status         Print queue counts and import pause state\n\
+                       status         Print queue counts plus import/backfill pause state\n\
                        import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
                        import-idle    Set resolver_state.import_active=false"
                 )
@@ -63,7 +63,7 @@ fn print_usage() {
         "Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
          \n\
          Commands:\n\
-           status         Print queue counts and import pause state\n\
+           status         Print queue counts plus import/backfill pause state\n\
            import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
            import-idle    Set resolver_state.import_active=false"
     );

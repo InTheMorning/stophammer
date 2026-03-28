@@ -292,15 +292,17 @@ review:
 # Drain the durable canonical resolver queue
 cargo run --bin resolverd
 
-# Inspect or toggle resolver pause state
+# Inspect or toggle resolver import pause state, plus backfill pause status
 cargo run --bin resolverctl -- status
 cargo run --bin resolverctl -- import-active
 cargo run --bin resolverctl -- import-idle
 
 # Rebuild canonical releases / recordings and source-to-canonical maps
+# This automatically coordinates with resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run deterministic artist-identity merges from staged source evidence
+# This automatically coordinates with resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review remaining duplicate artist-name groups with supporting source evidence
@@ -368,10 +370,12 @@ Do not run `resolverd` on community nodes. The binary exits immediately when
 `NODE_MODE=community`; community nodes now wait for the primary to emit signed
 resolved-state events and then apply them.
 
-`resolverd` checks the import pause heartbeat before each batch. It skips work
-while `resolver_state.import_active=true` and the heartbeat is fresh. If that
-heartbeat goes stale, the worker logs a warning and resumes draining the queue
-so a crashed importer cannot leave resolution paused forever.
+`resolverd` checks both import and coordinated-backfill pause heartbeats
+before each batch. It skips work while `resolver_state.import_active=true` or
+`resolver_state.backfill_active=true` and the corresponding heartbeat is
+fresh. If either heartbeat goes stale, the worker logs a warning and resumes
+draining the queue so a crashed importer or backfill cannot leave resolution
+paused forever.
 
 Unless `RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`, the worker also appends
 signed `source_feed_read_models_resolved`,
@@ -399,7 +403,7 @@ curl http://127.0.0.1:8008/v1/resolver/status
 That response shows:
 
 - whether canonical views are caught up (`resolver.caught_up`)
-- whether a bulk import pause heartbeat is active or stale
+- whether bulk import or coordinated backfill pause heartbeats are active or stale
 - queue totals (`ready`, `locked`, `failed`)
 - which API endpoints are immediate source-layer reads versus resolver-backed
   canonical views
@@ -415,6 +419,10 @@ cargo run --bin resolverctl -- import-idle
 When the crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
 it performs this bracketing automatically and refreshes the import heartbeat
 while the bulk import is still active.
+
+The backfill binaries do their own coordination automatically via
+`resolver_state.backfill_active`; do not wrap them with `resolverctl
+import-active`.
 
 The staged plan for later phases lives in:
 

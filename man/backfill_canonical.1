@@ -11,7 +11,11 @@ backfill_canonical \- rebuild canonical release and recording rows
 .SH DESCRIPTION
 .B backfill_canonical
 rebuilds canonical release and recording rows, canonical promotions, and the
-canonical search index for feeds already stored in the SQLite database.
+canonical search index for feeds already stored in the SQLite database. While
+it runs, it coordinates with
+.BR resolverd
+via
+.BR resolver_state.backfill_active .
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -19,7 +23,7 @@ Path to the SQLite database. Defaults to
 .BR ./stophammer.db .
 .TP
 .BI --limit " N"
-Limit the number of feeds processed, ordered by creation time and feed GUID.
+Limit the number of feeds processed, ordered by feed GUID.
 .SH EXAMPLES
 .TP
 Backfill the whole database:

@@ -45,8 +45,9 @@ To inspect whether canonical views are caught up:
 curl http://127.0.0.1:8008/v1/resolver/status
 ```
 
-That endpoint reports queue backlog, import pause heartbeat state, and which
-HTTP endpoints are immediate source-layer reads versus resolver-backed.
+That endpoint reports queue backlog, import/backfill pause heartbeat state,
+and which HTTP endpoints are immediate source-layer reads versus
+resolver-backed.
 
 ### Rebuild canonical rows after schema or resolver changes
 
@@ -54,11 +55,17 @@ HTTP endpoints are immediate source-layer reads versus resolver-backed.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 ```
 
+This automatically coordinates with `resolverd` via
+`resolver_state.backfill_active`.
+
 ### Re-run deterministic artist identity backfill
 
 ```bash
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 ```
+
+This automatically coordinates with `resolverd` via
+`resolver_state.backfill_active`.
 
 ### Review unresolved duplicate artist-name groups
 

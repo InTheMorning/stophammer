@@ -195,6 +195,9 @@ curl http://127.0.0.1:8008/node/info
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 ```
 
+This automatically coordinates with `resolverd` via
+`resolver_state.backfill_active` while it runs.
+
 ### Run the resolver worker
 
 ```bash
@@ -219,6 +222,9 @@ cargo run --bin resolverctl -- import-idle
 If you are using the bundled crawler importer on the same host, set
 `RESOLVER_DB_PATH=/path/to/stophammer.db` and it will bracket the import and
 refresh the pause heartbeat automatically.
+
+The backfill binaries coordinate with `resolverd` automatically and do not
+need manual `resolverctl import-active` / `import-idle` bracketing.
 
 Promoted artist IDs, source feed/track search rows, source quality scores, and
 canonical source rows are now background-derived from the primary resolver. If

@@ -19,7 +19,7 @@ is a small operational helper for the durable resolver queue.
 
 It can:
 
-- print queue counts and current import pause state
+- print queue counts and current import/backfill pause state
 - set
 .BR resolver_state.import_active=true
 before a large import
@@ -38,6 +38,9 @@ Prints
 .BR import_active ,
 .BR import_stale ,
 .BR import_heartbeat_at ,
+.BR backfill_active ,
+.BR backfill_stale ,
+.BR backfill_heartbeat_at ,
 and queue total, ready, locked, and failed counts.
 .TP
 .B import-active

@@ -373,15 +373,17 @@ derived state from an existing database:
 # Drain the durable canonical resolver queue
 cargo run --bin resolverd
 
-# Inspect or toggle resolver pause state
+# Inspect or toggle resolver import pause state, plus backfill pause status
 cargo run --bin resolverctl -- status
 cargo run --bin resolverctl -- import-active
 cargo run --bin resolverctl -- import-idle
 
 # Rebuild canonical releases / recordings and mapping tables
+# This automatically coordinates with resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run artist identity merges from current source evidence
+# This automatically coordinates with resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review unresolved duplicate artist-name groups and their source evidence
@@ -414,12 +416,13 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 These do not fetch from the network. They operate on an existing local DB file.
 
 `resolverd` is the background worker for durable derived-state rebuilds. It
-drains `resolver_queue` incrementally and pauses while a fresh
-`resolver_state.import_active` heartbeat is present. Stale import heartbeats
-are ignored so a crashed importer cannot wedge the queue forever. Source
-feed/track search, source quality scores, canonical release/recording state,
-canonical-first search, promotions, and targeted artist identity now all
-converge through `resolverd` on the primary.
+drains `resolver_queue` incrementally and pauses while either a fresh
+`resolver_state.import_active` heartbeat or a coordinated
+`resolver_state.backfill_active` heartbeat is present. Stale heartbeats are
+ignored so a crashed importer or backfill cannot wedge the queue forever.
+Source feed/track search, source quality scores, canonical release/recording
+state, canonical-first search, promotions, and targeted artist identity now
+all converge through `resolverd` on the primary.
 
 The artist-identity review tool persists feed-scoped review items and durable
 merge or do-not-merge overrides on top of that automatic resolver path.
@@ -453,9 +456,9 @@ To see whether canonical views are caught up, query:
 curl http://127.0.0.1:8008/v1/resolver/status
 ```
 
-That endpoint reports resolver queue counts, import-pause heartbeat state, and
-which API surfaces are immediate source-layer reads versus resolver-backed
-canonical views.
+That endpoint reports resolver queue counts, import/backfill pause heartbeat
+state, and which API surfaces are immediate source-layer reads versus
+resolver-backed canonical views.
 
 For a resolver-aware load check, use:
 
@@ -469,10 +472,12 @@ separate layers instead of assuming search freshness is part of the ingest
 path.
 
 Use `resolverctl import-active` before a large bulk import and
-`resolverctl import-idle` after it finishes so the queue can drain again. When
-the crawler importer runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`, it
-does this automatically and refreshes the import heartbeat while the import is
-still running.
+`resolverctl import-idle` after it finishes so the queue can drain again. The
+backfill binaries coordinate automatically and do not need manual
+`resolverctl` bracketing. When the crawler importer runs with
+`RESOLVER_DB_PATH=/path/to/stophammer.db`, it does the import bracketing
+automatically and refreshes the import heartbeat while the import is still
+running.
 
 Schedule with cron:
 ```

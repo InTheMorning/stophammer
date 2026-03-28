@@ -86,6 +86,9 @@ drained `resolver_queue`.
     "import_active": false,
     "import_stale": false,
     "import_heartbeat_at": 1773883813,
+    "backfill_active": false,
+    "backfill_stale": false,
+    "backfill_heartbeat_at": null,
     "queue": {
       "total": 12,
       "ready": 12,
