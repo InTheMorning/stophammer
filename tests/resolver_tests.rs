@@ -584,6 +584,96 @@ fn resolver_queue_counts_are_zero_when_queue_is_empty() {
     assert_eq!(counts.failed, 0);
 }
 
+#[test]
+fn resolver_queue_stops_claiming_after_max_consecutive_failures() {
+    let mut conn = common::test_db();
+    seed_feed(&conn, "feed-resolver-dead-letter");
+
+    stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-dead-letter")
+        .expect("mark dirty");
+
+    for attempt in 1..=db::RESOLVER_MAX_CONSECUTIVE_FAILURES {
+        let claimed =
+            db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim");
+        assert_eq!(
+            claimed.len(),
+            1,
+            "attempt {attempt} should still be claimable"
+        );
+        db::fail_dirty_feed(&conn, "feed-resolver-dead-letter", "worker-a", "boom").expect("fail");
+    }
+
+    let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now())
+        .expect("claim after max failures");
+    assert!(
+        claimed.is_empty(),
+        "feed should stop being claimable after max consecutive failures"
+    );
+
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts after max failures");
+    assert_eq!(counts.total, 1);
+    assert_eq!(
+        counts.ready, 0,
+        "dead-lettered feed should not count as ready for claim"
+    );
+    assert_eq!(counts.locked, 0);
+    assert_eq!(counts.failed, 1);
+
+    let (attempt_count, last_error): (i64, Option<String>) = conn
+        .query_row(
+            "SELECT attempt_count, last_error FROM resolver_queue WHERE feed_guid = ?1",
+            ["feed-resolver-dead-letter"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("dead-letter row");
+    assert_eq!(attempt_count, db::RESOLVER_MAX_CONSECUTIVE_FAILURES);
+    assert_eq!(last_error.as_deref(), Some("boom"));
+}
+
+#[test]
+fn resolver_queue_remark_resets_dead_lettered_feed() {
+    let mut conn = common::test_db();
+    seed_feed(&conn, "feed-resolver-revive");
+
+    stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-revive")
+        .expect("mark dirty");
+
+    for _attempt in 1..=db::RESOLVER_MAX_CONSECUTIVE_FAILURES {
+        let claimed =
+            db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim");
+        assert_eq!(claimed.len(), 1);
+        db::fail_dirty_feed(&conn, "feed-resolver-revive", "worker-a", "boom").expect("fail");
+    }
+
+    let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now())
+        .expect("claim after dead-letter");
+    assert!(claimed.is_empty(), "dead-letter row should not be claimed");
+
+    stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-revive")
+        .expect("remark dirty");
+
+    let (attempt_count, last_error): (i64, Option<String>) = conn
+        .query_row(
+            "SELECT attempt_count, last_error FROM resolver_queue WHERE feed_guid = ?1",
+            ["feed-resolver-revive"],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("re-marked row");
+    assert_eq!(
+        attempt_count, 0,
+        "fresh dirty mark should reset failure count"
+    );
+    assert_eq!(last_error, None, "fresh dirty mark should clear last error");
+
+    let claimed = db::claim_dirty_feeds(&mut conn, "worker-c", 10, db::unix_now())
+        .expect("claim after re-mark");
+    assert_eq!(
+        claimed.len(),
+        1,
+        "re-marked feed should become claimable again"
+    );
+}
+
 #[tokio::test]
 async fn canonical_feed_state_snapshot_applies_without_local_resolver() {
     let signer = common::temp_signer("resolver-canonical-snapshot");

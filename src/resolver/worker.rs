@@ -80,80 +80,87 @@ pub fn run_batch_with_signer(
         eprintln!("resolver: WARNING: failed to disable FTS5 automerge: {e}");
     }
 
-    // Pre-compute anchored-name identity groups once for the whole batch.
-    // This avoids repeating the global table scan inside every per-feed call.
-    let anchored_cache = db::precompute_anchored_name_groups(&conn)?;
+    let batch_result = (|| -> Result<(), db::DbError> {
+        // Pre-compute anchored-name identity groups once for the whole batch.
+        // This avoids repeating the global table scan inside every per-feed call.
+        let anchored_cache = db::precompute_anchored_name_groups(&conn)?;
 
-    for entry in claimed {
-        match resolve_feed(
-            &mut conn,
-            &entry.feed_guid,
-            entry.dirty_mask,
-            signer,
-            Some(&anchored_cache),
-        ) {
-            Ok(feed_result) => {
-                match db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id) {
-                    Ok(()) => {
-                        result.resolved += 1;
-                        result.source_read_model_events_emitted +=
-                            feed_result.source_read_model_events_emitted;
-                        result.canonical_state_events_emitted +=
-                            feed_result.canonical_state_events_emitted;
-                        result.canonical_promotion_events_emitted +=
-                            feed_result.canonical_promotion_events_emitted;
-                        result.artist_merge_events_emitted +=
-                            feed_result.artist_merge_events_emitted;
-                        result.artist_identity_events_emitted +=
-                            feed_result.artist_identity_events_emitted;
-                        result.artist_seed_artists += feed_result.seed_artists;
-                        result.artist_candidate_groups += feed_result.candidate_groups;
-                        result.artist_groups_processed += feed_result.groups_processed;
-                        result.artist_merges_applied += feed_result.merges_applied;
-                        result.wallet_endpoints_created += feed_result.wallet_endpoints_created;
-                        result.wallet_wallets_created += feed_result.wallet_wallets_created;
+        for entry in claimed {
+            match resolve_feed(
+                &mut conn,
+                &entry.feed_guid,
+                entry.dirty_mask,
+                signer,
+                Some(&anchored_cache),
+            ) {
+                Ok(feed_result) => {
+                    match db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id) {
+                        Ok(()) => {
+                            result.resolved += 1;
+                            result.source_read_model_events_emitted +=
+                                feed_result.source_read_model_events_emitted;
+                            result.canonical_state_events_emitted +=
+                                feed_result.canonical_state_events_emitted;
+                            result.canonical_promotion_events_emitted +=
+                                feed_result.canonical_promotion_events_emitted;
+                            result.artist_merge_events_emitted +=
+                                feed_result.artist_merge_events_emitted;
+                            result.artist_identity_events_emitted +=
+                                feed_result.artist_identity_events_emitted;
+                            result.artist_seed_artists += feed_result.seed_artists;
+                            result.artist_candidate_groups += feed_result.candidate_groups;
+                            result.artist_groups_processed += feed_result.groups_processed;
+                            result.artist_merges_applied += feed_result.merges_applied;
+                            result.wallet_endpoints_created += feed_result.wallet_endpoints_created;
+                            result.wallet_wallets_created += feed_result.wallet_wallets_created;
+                        }
+                        Err(e) => {
+                            // Lock stays held; stale lock recovery (900 s) will reclaim it.
+                            eprintln!(
+                                "resolver: WARNING: failed to complete feed {} after resolution: {e}",
+                                entry.feed_guid,
+                            );
+                        }
                     }
-                    Err(e) => {
-                        // Lock stays held; stale lock recovery (900 s) will reclaim it.
+                }
+                Err(err) => {
+                    if let Err(e) =
+                        db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())
+                    {
                         eprintln!(
-                            "resolver: WARNING: failed to complete feed {} after resolution: {e}",
+                            "resolver: WARNING: failed to record failure for feed {}: {e}",
                             entry.feed_guid,
                         );
                     }
+                    result.failed += 1;
                 }
-            }
-            Err(err) => {
-                if let Err(e) =
-                    db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())
-                {
-                    eprintln!(
-                        "resolver: WARNING: failed to record failure for feed {}: {e}",
-                        entry.feed_guid,
-                    );
-                }
-                result.failed += 1;
             }
         }
+
+        if result.resolved > 0 {
+            db::cleanup_orphaned_canonical_rows(&conn)?;
+            db::cleanup_canonical_search_entities(&conn)?;
+        }
+        Ok(())
+    })();
+
+    // Re-enable automerge and run one merge pass to consolidate the segments
+    // created during this batch. This must run even if no feeds resolved so an
+    // all-fail or empty batch does not leave FTS5 automerge disabled.
+    if let Err(e) = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('automerge=8')",
+        [],
+    ) {
+        eprintln!("resolver: WARNING: failed to re-enable FTS5 automerge: {e}");
+    }
+    if let Err(e) = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('merge=500')",
+        [],
+    ) {
+        eprintln!("resolver: WARNING: failed to run FTS5 merge pass: {e}");
     }
 
-    if result.resolved > 0 {
-        db::cleanup_orphaned_canonical_rows(&conn)?;
-        db::cleanup_canonical_search_entities(&conn)?;
-        // Re-enable automerge and run one merge pass to consolidate the
-        // segments created during this batch.
-        if let Err(e) = conn.execute(
-            "INSERT INTO search_index(search_index) VALUES('automerge=8')",
-            [],
-        ) {
-            eprintln!("resolver: WARNING: failed to re-enable FTS5 automerge: {e}");
-        }
-        if let Err(e) = conn.execute(
-            "INSERT INTO search_index(search_index) VALUES('merge=500')",
-            [],
-        ) {
-            eprintln!("resolver: WARNING: failed to run FTS5 merge pass: {e}");
-        }
-    }
+    batch_result?;
 
     Ok(result)
 }

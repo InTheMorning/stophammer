@@ -49,5 +49,6 @@ pub mod search;
 pub mod signing;
 pub mod sync;
 pub mod tls;
+pub mod tui;
 pub mod verifiers;
 pub mod verify;

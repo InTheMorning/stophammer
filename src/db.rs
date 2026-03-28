@@ -7348,6 +7348,7 @@ pub const RESOLVER_DIRTY_WALLET_IDENTITY: i64 = 1 << 5;
 
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
 const RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS: i64 = 10 * 60;
+pub const RESOLVER_MAX_CONSECUTIVE_FAILURES: i64 = 5;
 
 /// A claimed resolver queue row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7403,6 +7404,7 @@ pub fn mark_feed_dirty(conn: &Connection, feed_guid: &str, dirty_mask: i64) -> R
          ON CONFLICT(feed_guid) DO UPDATE SET
              dirty_mask = resolver_queue.dirty_mask | excluded.dirty_mask,
              last_marked_at = excluded.last_marked_at,
+             attempt_count = 0,
              last_error = NULL",
         params![feed_guid, dirty_mask, now, now],
     )?;
@@ -7434,22 +7436,26 @@ pub fn claim_dirty_feeds(
              FROM resolver_queue
              WHERE dirty_mask != 0
                AND (locked_at IS NULL OR locked_at < ?1)
+               AND (last_error IS NULL OR attempt_count < ?3)
              ORDER BY last_marked_at ASC, first_marked_at ASC
              LIMIT ?2",
         )?;
 
-        let rows = stmt.query_map(params![stale_before, safe_limit], |row| {
-            Ok(ResolverQueueEntry {
-                feed_guid: row.get(0)?,
-                dirty_mask: row.get(1)?,
-                first_marked_at: row.get(2)?,
-                last_marked_at: row.get(3)?,
-                locked_at: row.get(4)?,
-                locked_by: row.get(5)?,
-                attempt_count: row.get(6)?,
-                last_error: row.get(7)?,
-            })
-        })?;
+        let rows = stmt.query_map(
+            params![stale_before, safe_limit, RESOLVER_MAX_CONSECUTIVE_FAILURES],
+            |row| {
+                Ok(ResolverQueueEntry {
+                    feed_guid: row.get(0)?,
+                    dirty_mask: row.get(1)?,
+                    first_marked_at: row.get(2)?,
+                    last_marked_at: row.get(3)?,
+                    locked_at: row.get(4)?,
+                    locked_by: row.get(5)?,
+                    attempt_count: row.get(6)?,
+                    last_error: row.get(7)?,
+                })
+            },
+        )?;
 
         let mut entries = Vec::new();
         for row in rows {
@@ -7628,11 +7634,13 @@ pub fn get_resolver_queue_counts(conn: &Connection) -> Result<ResolverQueueCount
     conn.query_row(
         "SELECT
              COUNT(*),
-             COALESCE(SUM(CASE WHEN locked_at IS NULL THEN 1 ELSE 0 END), 0),
+             COALESCE(SUM(CASE WHEN locked_at IS NULL
+                                  AND (last_error IS NULL OR attempt_count < ?1)
+                               THEN 1 ELSE 0 END), 0),
              COALESCE(SUM(CASE WHEN locked_at IS NOT NULL THEN 1 ELSE 0 END), 0),
              COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END), 0)
          FROM resolver_queue",
-        [],
+        [RESOLVER_MAX_CONSECUTIVE_FAILURES],
         |row| {
             Ok(ResolverQueueCounts {
                 total: row.get(0)?,
