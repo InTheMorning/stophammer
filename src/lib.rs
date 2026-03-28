@@ -45,6 +45,7 @@ pub mod proof;
 pub mod quality;
 pub mod query;
 pub mod resolver;
+pub mod resolver_coordination;
 pub mod search;
 pub mod signing;
 pub mod sync;

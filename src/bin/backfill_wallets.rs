@@ -44,6 +44,8 @@ fn parse_args() -> Result<Args, String> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
+    let _backfill_guard =
+        stophammer::resolver_coordination::ResolverBackfillGuard::enter(&args.db_path)?;
     let conn = stophammer::db::open_db(&args.db_path);
 
     println!("Purging Wavlake wallet entities...");

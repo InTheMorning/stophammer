@@ -45,6 +45,8 @@ const PAGE_SIZE: usize = 500;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (db_path, limit) = parse_args().map_err(std::io::Error::other)?;
+    let _backfill_guard =
+        stophammer::resolver_coordination::ResolverBackfillGuard::enter(&db_path)?;
     let mut conn = stophammer::db::open_db(&db_path);
 
     // Count how many feeds we will process (for progress output only).
@@ -65,62 +67,87 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut processed = 0usize;
     let mut last_guid = String::new();
 
-    loop {
-        let fetch = match limit {
-            Some(l) => PAGE_SIZE.min(l.saturating_sub(processed)),
-            None => PAGE_SIZE,
-        };
-        if fetch == 0 {
-            break;
-        }
+    if let Err(e) = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('automerge=0')",
+        [],
+    ) {
+        eprintln!("backfill_canonical: WARNING: failed to disable FTS5 automerge: {e}");
+    }
 
-        let page: Vec<String> = {
-            let mut stmt = conn.prepare(
-                "SELECT feed_guid FROM feeds \
-                 WHERE feed_guid > ?1 \
-                 ORDER BY feed_guid \
-                 LIMIT ?2",
-            )?;
-            let fetch_i64 = i64::try_from(fetch).map_err(|_err| {
-                rusqlite::Error::ToSqlConversionFailure(
-                    "page size exceeded supported SQLite integer range"
-                        .to_string()
-                        .into(),
-                )
-            })?;
-            stmt.query_map(rusqlite::params![last_guid, fetch_i64], |row| row.get(0))?
-                .collect::<Result<Vec<String>, _>>()?
-        };
+    let backfill_result = (|| -> Result<(), Box<dyn std::error::Error>> {
+        loop {
+            let fetch = match limit {
+                Some(l) => PAGE_SIZE.min(l.saturating_sub(processed)),
+                None => PAGE_SIZE,
+            };
+            if fetch == 0 {
+                break;
+            }
 
-        if page.is_empty() {
-            break;
-        }
+            let page: Vec<String> = {
+                let mut stmt = conn.prepare(
+                    "SELECT feed_guid FROM feeds \
+                     WHERE feed_guid > ?1 \
+                     ORDER BY feed_guid \
+                     LIMIT ?2",
+                )?;
+                let fetch_i64 = i64::try_from(fetch).map_err(|_err| {
+                    rusqlite::Error::ToSqlConversionFailure(
+                        "page size exceeded supported SQLite integer range"
+                            .to_string()
+                            .into(),
+                    )
+                })?;
+                stmt.query_map(rusqlite::params![last_guid, fetch_i64], |row| row.get(0))?
+                    .collect::<Result<Vec<String>, _>>()?
+            };
 
-        for feed_guid in &page {
-            let tx = conn.transaction()?;
-            stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)
-                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-            stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
-                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-            stophammer::db::sync_canonical_search_index_for_feed(&tx, feed_guid)
-                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-            tx.commit()
-                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+            if page.is_empty() {
+                break;
+            }
 
-            processed += 1;
-            if processed.is_multiple_of(100) || processed == total {
-                println!("backfill_canonical: processed {processed}/{total} feeds");
+            for feed_guid in &page {
+                let tx = conn.transaction()?;
+                stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)
+                    .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+                stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
+                    .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+                stophammer::db::sync_canonical_search_index_for_feed(&tx, feed_guid)
+                    .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+                tx.commit()
+                    .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+
+                processed += 1;
+                if processed.is_multiple_of(100) || processed == total {
+                    println!("backfill_canonical: processed {processed}/{total} feeds");
+                }
+            }
+
+            // Safe: loop only continues when page is non-empty.
+            last_guid.clone_from(page.last().unwrap());
+
+            if page.len() < fetch {
+                // Last page — no more feeds in the table.
+                break;
             }
         }
+        Ok(())
+    })();
 
-        // Safe: loop only continues when page is non-empty.
-        last_guid.clone_from(page.last().unwrap());
-
-        if page.len() < fetch {
-            // Last page — no more feeds in the table.
-            break;
-        }
+    if let Err(e) = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('automerge=8')",
+        [],
+    ) {
+        eprintln!("backfill_canonical: WARNING: failed to re-enable FTS5 automerge: {e}");
     }
+    if let Err(e) = conn.execute(
+        "INSERT INTO search_index(search_index) VALUES('merge=500')",
+        [],
+    ) {
+        eprintln!("backfill_canonical: WARNING: failed to run FTS5 merge pass: {e}");
+    }
+
+    backfill_result?;
 
     println!("backfill_canonical: complete");
     Ok(())

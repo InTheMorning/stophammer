@@ -324,6 +324,55 @@ fn resolver_batch_ignores_stale_import_active_heartbeat() {
 }
 
 #[test]
+fn resolver_batch_skips_when_backfill_is_active() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-backfill-pause");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(
+            &conn,
+            "feed-resolver-backfill-pause",
+        )
+        .expect("mark dirty");
+        db::set_resolver_backfill_active(&conn, true).expect("set backfill state");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+
+    assert!(summary.skipped_backfill_active);
+    let conn = pool.writer().lock().expect("writer");
+    let counts = db::get_resolver_queue_counts(&conn).expect("queue counts");
+    assert_eq!(
+        counts.total, 1,
+        "queue row should remain while backfill is active"
+    );
+}
+
+#[test]
+fn resolver_batch_ignores_stale_backfill_active_heartbeat() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-stale-backfill");
+        stophammer::resolver::queue::mark_feed_dirty_for_resolver(
+            &conn,
+            "feed-resolver-stale-backfill",
+        )
+        .expect("mark dirty");
+        db::set_resolver_backfill_active_with_now(&conn, true, db::unix_now() - (11 * 60))
+            .expect("set stale backfill state");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+
+    assert!(!summary.skipped_backfill_active);
+    assert!(summary.stale_backfill_active_ignored);
+    assert_eq!(summary.resolved, 1);
+}
+
+#[test]
 fn resolver_batch_drains_phase1_work() {
     let (pool, _dir) = common::test_db_pool();
     {
@@ -566,10 +615,17 @@ fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
     assert_eq!(counts.locked, 1);
     assert_eq!(counts.failed, 0);
 
-    db::fail_dirty_feed(&conn, "feed-resolver-counts", "worker-a", "boom").expect("fail");
+    db::fail_dirty_feed_with_now(
+        &conn,
+        "feed-resolver-counts",
+        "worker-a",
+        "boom",
+        db::unix_now(),
+    )
+    .expect("fail");
     let counts = db::get_resolver_queue_counts(&conn).expect("counts after fail");
     assert_eq!(counts.total, 1);
-    assert_eq!(counts.ready, 1);
+    assert_eq!(counts.ready, 0);
     assert_eq!(counts.locked, 0);
     assert_eq!(counts.failed, 1);
 }
@@ -588,23 +644,35 @@ fn resolver_queue_counts_are_zero_when_queue_is_empty() {
 fn resolver_queue_stops_claiming_after_max_consecutive_failures() {
     let mut conn = common::test_db();
     seed_feed(&conn, "feed-resolver-dead-letter");
+    let base = db::RESOLVER_RETRY_BACKOFF_BASE_SECS;
+    let start = 10_000;
 
     stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-dead-letter")
         .expect("mark dirty");
 
     for attempt in 1..=db::RESOLVER_MAX_CONSECUTIVE_FAILURES {
-        let claimed =
-            db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim");
+        let now = start + (base * (attempt - 1) * attempt / 2);
+        let claimed = db::claim_dirty_feeds(&mut conn, "worker-a", 10, now).expect("claim");
         assert_eq!(
             claimed.len(),
             1,
             "attempt {attempt} should still be claimable"
         );
-        db::fail_dirty_feed(&conn, "feed-resolver-dead-letter", "worker-a", "boom").expect("fail");
+        db::fail_dirty_feed_with_now(&conn, "feed-resolver-dead-letter", "worker-a", "boom", now)
+            .expect("fail");
     }
 
-    let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now())
-        .expect("claim after max failures");
+    let claimed = db::claim_dirty_feeds(
+        &mut conn,
+        "worker-b",
+        10,
+        start
+            + (base
+                * db::RESOLVER_MAX_CONSECUTIVE_FAILURES
+                * (db::RESOLVER_MAX_CONSECUTIVE_FAILURES + 1)
+                / 2),
+    )
+    .expect("claim after max failures");
     assert!(
         claimed.is_empty(),
         "feed should stop being claimable after max consecutive failures"
@@ -634,19 +702,31 @@ fn resolver_queue_stops_claiming_after_max_consecutive_failures() {
 fn resolver_queue_remark_resets_dead_lettered_feed() {
     let mut conn = common::test_db();
     seed_feed(&conn, "feed-resolver-revive");
+    let base = db::RESOLVER_RETRY_BACKOFF_BASE_SECS;
+    let start = 20_000;
 
     stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-revive")
         .expect("mark dirty");
 
-    for _attempt in 1..=db::RESOLVER_MAX_CONSECUTIVE_FAILURES {
-        let claimed =
-            db::claim_dirty_feeds(&mut conn, "worker-a", 10, db::unix_now()).expect("claim");
+    for attempt in 1..=db::RESOLVER_MAX_CONSECUTIVE_FAILURES {
+        let now = start + (base * (attempt - 1) * attempt / 2);
+        let claimed = db::claim_dirty_feeds(&mut conn, "worker-a", 10, now).expect("claim");
         assert_eq!(claimed.len(), 1);
-        db::fail_dirty_feed(&conn, "feed-resolver-revive", "worker-a", "boom").expect("fail");
+        db::fail_dirty_feed_with_now(&conn, "feed-resolver-revive", "worker-a", "boom", now)
+            .expect("fail");
     }
 
-    let claimed = db::claim_dirty_feeds(&mut conn, "worker-b", 10, db::unix_now())
-        .expect("claim after dead-letter");
+    let claimed = db::claim_dirty_feeds(
+        &mut conn,
+        "worker-b",
+        10,
+        start
+            + (base
+                * db::RESOLVER_MAX_CONSECUTIVE_FAILURES
+                * (db::RESOLVER_MAX_CONSECUTIVE_FAILURES + 1)
+                / 2),
+    )
+    .expect("claim after dead-letter");
     assert!(claimed.is_empty(), "dead-letter row should not be claimed");
 
     stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-revive")
@@ -671,6 +751,46 @@ fn resolver_queue_remark_resets_dead_lettered_feed() {
         claimed.len(),
         1,
         "re-marked feed should become claimable again"
+    );
+}
+
+#[test]
+fn resolver_queue_backs_off_transient_failures_before_reclaiming() {
+    let mut conn = common::test_db();
+    seed_feed(&conn, "feed-resolver-backoff");
+
+    stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-backoff")
+        .expect("mark dirty");
+
+    let first_attempt_at = 30_000;
+    let claimed =
+        db::claim_dirty_feeds(&mut conn, "worker-a", 10, first_attempt_at).expect("first claim");
+    assert_eq!(claimed.len(), 1, "fresh row should claim immediately");
+
+    db::fail_dirty_feed_with_now(
+        &conn,
+        "feed-resolver-backoff",
+        "worker-a",
+        "transient boom",
+        first_attempt_at,
+    )
+    .expect("fail");
+
+    let too_early = first_attempt_at + db::RESOLVER_RETRY_BACKOFF_BASE_SECS - 1;
+    let claimed =
+        db::claim_dirty_feeds(&mut conn, "worker-b", 10, too_early).expect("claim during backoff");
+    assert!(
+        claimed.is_empty(),
+        "row should not be reclaimed before backoff expires"
+    );
+
+    let on_time = first_attempt_at + db::RESOLVER_RETRY_BACKOFF_BASE_SECS;
+    let claimed =
+        db::claim_dirty_feeds(&mut conn, "worker-c", 10, on_time).expect("claim after backoff");
+    assert_eq!(
+        claimed.len(),
+        1,
+        "row should become claimable once backoff expires"
     );
 }
 
@@ -1285,6 +1405,7 @@ async fn resolver_status_reports_queue_counts_and_boundary_contract() {
         stophammer::resolver::queue::mark_feed_dirty_for_resolver(&conn, "feed-resolver-status")
             .expect("mark dirty");
         db::set_resolver_import_active(&conn, true).expect("set import state");
+        db::set_resolver_backfill_active(&conn, true).expect("set backfill state");
     }
 
     let app = stophammer::api::build_readonly_router(test_app_state(pool));
@@ -1307,6 +1428,7 @@ async fn resolver_status_reports_queue_counts_and_boundary_contract() {
     assert_eq!(body["source_layer"]["authoritative"], true);
     assert_eq!(body["source_layer"]["preserved"], true);
     assert_eq!(body["resolver"]["import_active"], true);
+    assert_eq!(body["resolver"]["backfill_active"], true);
     assert_eq!(body["resolver"]["caught_up"], false);
     assert_eq!(body["resolver"]["queue"]["total"], 1);
     assert_eq!(body["resolver"]["queue"]["ready"], 1);

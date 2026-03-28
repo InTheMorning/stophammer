@@ -3054,12 +3054,19 @@ struct ResolverQueueStatus {
     failed: i64,
 }
 
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "resolver status intentionally exposes independent import and backfill pause-state flags"
+)]
 #[derive(Debug, Serialize)]
 struct ResolverDerivedLayerStatus {
     caught_up: bool,
     import_active: bool,
     import_stale: bool,
     import_heartbeat_at: Option<i64>,
+    backfill_active: bool,
+    backfill_stale: bool,
+    backfill_heartbeat_at: Option<i64>,
     queue: ResolverQueueStatus,
     resolver_backed_endpoints: Vec<&'static str>,
 }
@@ -3132,6 +3139,7 @@ async fn handle_resolver_status(
         })?;
         let counts = db::get_resolver_queue_counts(&conn)?;
         let import_state = db::resolver_import_state(&conn)?;
+        let backfill_state = db::resolver_backfill_state(&conn)?;
         Ok::<_, api::ApiError>(ResolverStatusResponse {
             api_version: "v1",
             node_pubkey: state2.node_pubkey_hex.clone(),
@@ -3145,10 +3153,13 @@ async fn handle_resolver_status(
                 ],
             },
             resolver: ResolverDerivedLayerStatus {
-                caught_up: counts.total == 0 && !import_state.active,
+                caught_up: counts.total == 0 && !import_state.active && !backfill_state.active,
                 import_active: import_state.active,
                 import_stale: import_state.stale,
                 import_heartbeat_at: import_state.heartbeat_at,
+                backfill_active: backfill_state.active,
+                backfill_stale: backfill_state.stale,
+                backfill_heartbeat_at: backfill_state.heartbeat_at,
                 queue: ResolverQueueStatus {
                     total: counts.total,
                     ready: counts.ready,

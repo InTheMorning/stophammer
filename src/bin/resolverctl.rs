@@ -72,12 +72,19 @@ fn print_usage() {
 fn print_status(conn: &rusqlite::Connection) -> Result<(), db::DbError> {
     let counts = db::get_resolver_queue_counts(conn)?;
     let import_state = db::resolver_import_state(conn)?;
+    let backfill_state = db::resolver_backfill_state(conn)?;
 
     println!("import_active={}", import_state.active);
     println!("import_stale={}", import_state.stale);
     match import_state.heartbeat_at {
         Some(ts) => println!("import_heartbeat_at={ts}"),
         None => println!("import_heartbeat_at="),
+    }
+    println!("backfill_active={}", backfill_state.active);
+    println!("backfill_stale={}", backfill_state.stale);
+    match backfill_state.heartbeat_at {
+        Some(ts) => println!("backfill_heartbeat_at={ts}"),
+        None => println!("backfill_heartbeat_at="),
     }
     println!("queue_total={}", counts.total);
     println!("queue_ready={}", counts.ready);

@@ -3,10 +3,16 @@
 use crate::{db, db_pool, signing};
 
 /// Summary of one resolver batch.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "batch summaries expose independent operator-visible skip and stale-state flags"
+)]
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ResolverBatchResult {
     pub skipped_import_active: bool,
+    pub skipped_backfill_active: bool,
     pub stale_import_active_ignored: bool,
+    pub stale_backfill_active_ignored: bool,
     pub claimed: usize,
     pub resolved: usize,
     pub failed: usize,
@@ -44,6 +50,10 @@ pub fn run_batch(
 ///
 /// Returns [`db::DbError`] if queue coordination or resolution queries fail
 /// before individual feed-level error handling can record failures.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the batch body is kept inline so resolver coordination and cleanup order stay auditable"
+)]
 pub fn run_batch_with_signer(
     db_pool: &db_pool::DbPool,
     worker_id: &str,
@@ -61,11 +71,20 @@ pub fn run_batch_with_signer(
             ..ResolverBatchResult::default()
         });
     }
+    let backfill_state = db::resolver_backfill_state(&conn)?;
+    if backfill_state.active {
+        return Ok(ResolverBatchResult {
+            skipped_backfill_active: true,
+            ..ResolverBatchResult::default()
+        });
+    }
     let stale_import_active_ignored = import_state.stale;
+    let stale_backfill_active_ignored = backfill_state.stale;
 
     let claimed = db::claim_dirty_feeds(&mut conn, worker_id, limit, db::unix_now())?;
     let mut result = ResolverBatchResult {
         stale_import_active_ignored,
+        stale_backfill_active_ignored,
         claimed: claimed.len(),
         ..ResolverBatchResult::default()
     };
@@ -258,6 +277,9 @@ pub async fn run_forever(
             Ok(summary) if summary.skipped_import_active => {
                 tracing::info!("resolver: import_active=true, skipping batch");
             }
+            Ok(summary) if summary.skipped_backfill_active => {
+                tracing::info!("resolver: backfill_active=true, skipping batch");
+            }
             Ok(summary) if summary.stale_import_active_ignored => {
                 tracing::warn!(
                     claimed = summary.claimed,
@@ -269,6 +291,19 @@ pub async fn run_forever(
                     artist_merge_events_emitted = summary.artist_merge_events_emitted,
                     artist_identity_events_emitted = summary.artist_identity_events_emitted,
                     "resolver: stale import_active heartbeat ignored"
+                );
+            }
+            Ok(summary) if summary.stale_backfill_active_ignored => {
+                tracing::warn!(
+                    claimed = summary.claimed,
+                    resolved = summary.resolved,
+                    failed = summary.failed,
+                    source_read_model_events_emitted = summary.source_read_model_events_emitted,
+                    canonical_state_events_emitted = summary.canonical_state_events_emitted,
+                    canonical_promotion_events_emitted = summary.canonical_promotion_events_emitted,
+                    artist_merge_events_emitted = summary.artist_merge_events_emitted,
+                    artist_identity_events_emitted = summary.artist_identity_events_emitted,
+                    "resolver: stale backfill_active heartbeat ignored"
                 );
             }
             Ok(summary) if summary.claimed > 0 => {

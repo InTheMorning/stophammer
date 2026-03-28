@@ -7349,6 +7349,7 @@ pub const RESOLVER_DIRTY_WALLET_IDENTITY: i64 = 1 << 5;
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
 const RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS: i64 = 10 * 60;
 pub const RESOLVER_MAX_CONSECUTIVE_FAILURES: i64 = 5;
+pub const RESOLVER_RETRY_BACKOFF_BASE_SECS: i64 = 30;
 
 /// A claimed resolver queue row.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7375,6 +7376,14 @@ pub struct ResolverQueueCounts {
 /// Import pause state for the resolver worker.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolverImportState {
+    pub active: bool,
+    pub stale: bool,
+    pub heartbeat_at: Option<i64>,
+}
+
+/// Backfill pause state for the resolver worker.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolverBackfillState {
     pub active: bool,
     pub stale: bool,
     pub heartbeat_at: Option<i64>,
@@ -7436,13 +7445,25 @@ pub fn claim_dirty_feeds(
              FROM resolver_queue
              WHERE dirty_mask != 0
                AND (locked_at IS NULL OR locked_at < ?1)
-               AND (last_error IS NULL OR attempt_count < ?3)
+               AND (
+                    last_error IS NULL
+                    OR (
+                        attempt_count < ?3
+                        AND last_marked_at + (?4 * attempt_count) <= ?5
+                    )
+               )
              ORDER BY last_marked_at ASC, first_marked_at ASC
              LIMIT ?2",
         )?;
 
         let rows = stmt.query_map(
-            params![stale_before, safe_limit, RESOLVER_MAX_CONSECUTIVE_FAILURES],
+            params![
+                stale_before,
+                safe_limit,
+                RESOLVER_MAX_CONSECUTIVE_FAILURES,
+                RESOLVER_RETRY_BACKOFF_BASE_SECS,
+                now
+            ],
             |row| {
                 Ok(ResolverQueueEntry {
                     feed_guid: row.get(0)?,
@@ -7514,15 +7535,28 @@ pub fn fail_dirty_feed(
     worker_id: &str,
     error: &str,
 ) -> Result<(), DbError> {
+    fail_dirty_feed_with_now(conn, feed_guid, worker_id, error, unix_now())
+}
+
+/// Unlocks a claimed dirty-feed row and records an error at a specific
+/// timestamp.
+pub fn fail_dirty_feed_with_now(
+    conn: &Connection,
+    feed_guid: &str,
+    worker_id: &str,
+    error: &str,
+    now: i64,
+) -> Result<(), DbError> {
     conn.execute(
         "UPDATE resolver_queue
          SET locked_at = NULL,
              locked_by = NULL,
+             last_marked_at = ?4,
              attempt_count = attempt_count + 1,
              last_error = ?3
          WHERE feed_guid = ?1
            AND locked_by = ?2",
-        params![feed_guid, worker_id, error],
+        params![feed_guid, worker_id, error, now],
     )?;
     Ok(())
 }
@@ -7629,18 +7663,96 @@ pub fn resolver_import_state(conn: &Connection) -> Result<ResolverImportState, D
     })
 }
 
+/// Sets the `backfill_active` resolver coordination flag.
+pub fn set_resolver_backfill_active(conn: &Connection, active: bool) -> Result<(), DbError> {
+    set_resolver_backfill_active_with_now(conn, active, unix_now())
+}
+
+/// Sets the `backfill_active` resolver coordination flag at a specific timestamp.
+pub fn set_resolver_backfill_active_with_now(
+    conn: &Connection,
+    active: bool,
+    now: i64,
+) -> Result<(), DbError> {
+    set_resolver_state(
+        conn,
+        "backfill_active",
+        if active { "true" } else { "false" },
+    )?;
+    if active {
+        set_resolver_state(conn, "backfill_heartbeat_at", &now.to_string())?;
+    } else {
+        conn.execute(
+            "DELETE FROM resolver_state WHERE key = 'backfill_heartbeat_at'",
+            [],
+        )?;
+    }
+    Ok(())
+}
+
+/// Refreshes the backfill heartbeat while maintenance work is active.
+pub fn touch_resolver_backfill_active(conn: &Connection) -> Result<(), DbError> {
+    touch_resolver_backfill_active_with_now(conn, unix_now())
+}
+
+/// Refreshes the backfill heartbeat at a specific timestamp.
+pub fn touch_resolver_backfill_active_with_now(conn: &Connection, now: i64) -> Result<(), DbError> {
+    let active_flag = matches!(
+        get_resolver_state(conn, "backfill_active")?.as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    );
+    if active_flag {
+        set_resolver_state(conn, "backfill_heartbeat_at", &now.to_string())?;
+    }
+    Ok(())
+}
+
+/// Returns whether maintenance backfill is currently marked active.
+pub fn resolver_backfill_active(conn: &Connection) -> Result<bool, DbError> {
+    Ok(resolver_backfill_state(conn)?.active)
+}
+
+/// Returns backfill pause state, including whether the heartbeat is stale.
+pub fn resolver_backfill_state(conn: &Connection) -> Result<ResolverBackfillState, DbError> {
+    let flag = matches!(
+        get_resolver_state(conn, "backfill_active")?.as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    );
+    let heartbeat_at = get_resolver_state(conn, "backfill_heartbeat_at")?
+        .and_then(|value| value.parse::<i64>().ok());
+    let stale = flag
+        && heartbeat_at
+            .is_none_or(|ts| ts < unix_now() - RESOLVER_IMPORT_HEARTBEAT_STALE_AFTER_SECS);
+    Ok(ResolverBackfillState {
+        active: flag && !stale,
+        stale,
+        heartbeat_at,
+    })
+}
+
 /// Returns aggregate queue counts for operator inspection.
 pub fn get_resolver_queue_counts(conn: &Connection) -> Result<ResolverQueueCounts, DbError> {
+    let now = unix_now();
     conn.query_row(
         "SELECT
              COUNT(*),
              COALESCE(SUM(CASE WHEN locked_at IS NULL
-                                  AND (last_error IS NULL OR attempt_count < ?1)
+                                  AND (
+                                      last_error IS NULL
+                                      OR (
+                                          attempt_count < ?1
+                                          AND last_marked_at + (?2 * attempt_count) <= ?3
+                                      )
+                                  )
                                THEN 1 ELSE 0 END), 0),
              COALESCE(SUM(CASE WHEN locked_at IS NOT NULL THEN 1 ELSE 0 END), 0),
              COALESCE(SUM(CASE WHEN last_error IS NOT NULL THEN 1 ELSE 0 END), 0)
          FROM resolver_queue",
-        [RESOLVER_MAX_CONSECUTIVE_FAILURES],
+        params![
+            RESOLVER_MAX_CONSECUTIVE_FAILURES,
+            RESOLVER_RETRY_BACKOFF_BASE_SECS,
+            now
+        ],
         |row| {
             Ok(ResolverQueueCounts {
                 total: row.get(0)?,

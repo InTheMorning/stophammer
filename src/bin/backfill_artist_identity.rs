@@ -31,6 +31,8 @@ fn parse_args() -> Result<PathBuf, String> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db_path = parse_args().map_err(std::io::Error::other)?;
+    let _backfill_guard =
+        stophammer::resolver_coordination::ResolverBackfillGuard::enter(&db_path)?;
     let mut conn = stophammer::db::open_db(&db_path);
     let stats = stophammer::db::backfill_artist_identity(&mut conn)?;
     println!(
