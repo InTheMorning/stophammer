@@ -1,5 +1,4 @@
-// Sprint 1A: Issue-1 constant-time crawl token comparison
-// Issue-1 constant-time crawl token — 2026-03-13
+// Crawl token verifier behavior tests.
 
 mod common;
 

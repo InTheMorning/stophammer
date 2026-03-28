@@ -1,8 +1,6 @@
-// Finding-7 verifier fails-closed — 2026-03-13
-//
-// `build_chain` must panic on unknown verifier names instead of silently
-// skipping them. A typo in VERIFIER_CHAIN is a configuration error that
-// makes the security pipeline untrustworthy — fail fast at startup.
+//! Verifier-chain configuration tests.
+//!
+//! Unknown verifier names must fail closed rather than being skipped.
 
 use stophammer::verify::{ChainSpec, build_chain};
 

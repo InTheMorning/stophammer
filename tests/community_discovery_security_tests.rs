@@ -1,10 +1,10 @@
-// Sprint 3A: security and resilience behavior tests
-// Runtime coverage kept here; source-policy checks live in static_policy_tests.rs.
+// Community discovery security behavior tests.
+// Static source-policy checks live in static_policy_tests.rs.
 
 mod common;
 
 // ---------------------------------------------------------------------------
-// Issue #4: HTTPS pubkey auto-discovery
+// HTTPS pubkey auto-discovery.
 // ---------------------------------------------------------------------------
 
 /// Tests for `require_https_for_discovery`: HTTPS passes, HTTP fails without
@@ -14,7 +14,7 @@ mod common;
 /// test threads (Rust 2024 edition makes `set_var`/`remove_var` unsafe for
 /// this reason).
 #[test]
-fn issue4_require_https_for_discovery() {
+fn require_https_for_primary_pubkey_discovery() {
     // Safety: test-only single-threaded access to this env var; no other
     // thread reads ALLOW_INSECURE_PUBKEY_DISCOVERY concurrently.
     unsafe {

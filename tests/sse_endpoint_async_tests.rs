@@ -1,3 +1,5 @@
+//! Async SSE endpoint behavior tests.
+
 mod common;
 
 use std::collections::HashMap;
@@ -28,8 +30,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
 }
 
 // ---------------------------------------------------------------------------
-// Issue #14: SSE endpoint still connects and returns SSE content-type
-// (verifies the async stream refactor did not break the SSE endpoint)
+// SSE endpoint still connects and returns SSE content-type.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -71,7 +72,7 @@ async fn sse_endpoint_returns_event_stream_content_type() {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #14: SSE delivers broadcast message via async stream
+// SSE delivers broadcast messages via the async stream.
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

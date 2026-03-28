@@ -1,8 +1,6 @@
-// Finding-3 separate sync token — 2026-03-13
-//
-// POST /sync/register should use a separate SYNC_TOKEN, not ADMIN_TOKEN.
-// The sync token must NOT grant access to admin endpoints.
-// If SYNC_TOKEN is not configured, sync endpoints must reject requests.
+//! Sync-register authentication tests.
+//!
+//! `/sync/register` uses `SYNC_TOKEN`, not `ADMIN_TOKEN`.
 
 mod common;
 
