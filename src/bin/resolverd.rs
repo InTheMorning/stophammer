@@ -9,6 +9,11 @@ fn parse_truthy_opt_out(value: Option<&str>) -> bool {
 
 #[tokio::main]
 async fn main() -> ExitCode {
+    if std::env::args().any(|a| a == "--help" || a == "-h") {
+        print_help();
+        return ExitCode::SUCCESS;
+    }
+
     init_tracing();
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
@@ -23,6 +28,36 @@ type StartupError = Box<dyn std::error::Error + Send + Sync>;
 
 fn startup_error(msg: impl Into<String>) -> StartupError {
     Box::new(std::io::Error::other(msg.into()))
+}
+
+fn print_help() {
+    eprintln!(
+        "\
+resolverd — background resolver worker for stophammer
+
+Periodically resolves pending canonical-URL claims by fetching feeds,
+comparing content hashes, and emitting signed resolved-state events.
+
+USAGE:
+    resolverd [--help | -h]
+
+ENVIRONMENT VARIABLES:
+    DB_PATH                              Path to stophammer SQLite database
+                                         [default: ./stophammer.db]
+    RESOLVER_INTERVAL_SECS               Seconds between resolve batches
+                                         [default: 30]
+    RESOLVER_BATCH_SIZE                   Claims per batch
+                                         [default: 25]
+    RESOLVER_WORKER_ID                    Worker identifier for claim locking
+                                         [default: resolverd-<pid>]
+    RESOLVER_EMIT_RESOLVED_STATE_EVENTS   Emit signed resolved-state events
+                                         [default: true] (set 0/false/no/off to disable)
+    KEY_PATH                              Path to Ed25519 signing key
+                                         [default: signing.key]
+    RUST_LOG                              Tracing filter directive
+                                         [default: stophammer=info]
+    NODE_MODE                             Must not be \"community\" (resolverd is primary-only)"
+    );
 }
 
 fn init_tracing() {
