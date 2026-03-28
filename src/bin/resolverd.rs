@@ -31,7 +31,7 @@ fn startup_error(msg: impl Into<String>) -> StartupError {
 }
 
 fn print_help() {
-    eprintln!(
+    println!(
         "\
 resolverd — background resolver worker for stophammer
 
