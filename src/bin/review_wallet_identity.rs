@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 use rusqlite::Connection;
 use serde::Serialize;
+use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
 
 #[derive(Debug)]
 struct Args {
@@ -51,7 +52,7 @@ struct ReviewDetailReport {
     reason = "manual CLI parsing keeps the review tool dependency-free"
 )]
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 50usize;
     let mut show_review = None;
     let mut show_wallet = None;
@@ -158,16 +159,10 @@ fn parse_args() -> Result<Args, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--class requires a value".to_string())?;
-                let valid = [
-                    "person_artist",
-                    "organization_platform",
-                    "bot_service",
-                    "unknown",
-                ];
-                if !valid.contains(&value.as_str()) {
+                if !WALLET_CLASS_VALUES.contains(&value.as_str()) {
                     return Err(format!(
                         "invalid --class value: {value} (must be one of: {})",
-                        valid.join(", ")
+                        WALLET_CLASS_VALUES.join(", ")
                     ));
                 }
                 class_value = Some(value);

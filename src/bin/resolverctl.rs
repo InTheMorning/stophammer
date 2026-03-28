@@ -1,16 +1,19 @@
+use std::path::PathBuf;
+
 use stophammer::db;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut db_path = String::from("stophammer.db");
+    let mut db_path = PathBuf::from(db::DEFAULT_DB_PATH);
     let mut command: Option<String> = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--db" => {
-                db_path = args
-                    .next()
-                    .ok_or_else(|| "--db requires a path".to_string())?;
+                db_path = PathBuf::from(
+                    args.next()
+                        .ok_or_else(|| "--db requires a path".to_string())?,
+                );
             }
             "status" | "import-active" | "import-idle" => {
                 if command.replace(arg).is_some() {

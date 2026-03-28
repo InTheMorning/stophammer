@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
+use stophammer::db::DEFAULT_DB_PATH;
+
 fn parse_args() -> Result<(PathBuf, Option<usize>), String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = None;
 
     let mut args = std::env::args().skip(1);
@@ -38,7 +40,7 @@ fn parse_args() -> Result<(PathBuf, Option<usize>), String> {
 }
 
 /// Number of feed GUIDs fetched per database page. Bounds peak memory use to
-/// roughly PAGE_SIZE × (average GUID length) rather than the full table.
+/// roughly `PAGE_SIZE` × (average GUID length) rather than the full table.
 const PAGE_SIZE: usize = 500;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -47,8 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Count how many feeds we will process (for progress output only).
     let total: usize = {
-        let count: i64 =
-            conn.query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))?;
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))?;
         let count = usize::try_from(count).unwrap_or(usize::MAX);
         limit.map_or(count, |l| l.min(count))
     };
@@ -80,11 +81,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                  ORDER BY feed_guid \
                  LIMIT ?2",
             )?;
-            stmt.query_map(
-                rusqlite::params![last_guid, fetch as i64],
-                |row| row.get(0),
-            )?
-            .collect::<Result<Vec<String>, _>>()?
+            let fetch_i64 = i64::try_from(fetch).map_err(|_err| {
+                rusqlite::Error::ToSqlConversionFailure(
+                    "page size exceeded supported SQLite integer range"
+                        .to_string()
+                        .into(),
+                )
+            })?;
+            stmt.query_map(rusqlite::params![last_guid, fetch_i64], |row| row.get(0))?
+                .collect::<Result<Vec<String>, _>>()?
         };
 
         if page.is_empty() {
@@ -103,16 +108,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
 
             processed += 1;
-            if processed % 100 == 0 || processed == total {
-                println!(
-                    "backfill_canonical: processed {}/{} feeds",
-                    processed, total
-                );
+            if processed.is_multiple_of(100) || processed == total {
+                println!("backfill_canonical: processed {processed}/{total} feeds");
             }
         }
 
         // Safe: loop only continues when page is non-empty.
-        last_guid = page.last().unwrap().clone();
+        last_guid.clone_from(page.last().unwrap());
 
         if page.len() < fetch {
             // Last page — no more feeds in the table.

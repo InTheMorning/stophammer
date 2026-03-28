@@ -35,6 +35,7 @@ use ratatui::widgets::{
     Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
 };
 use rusqlite::{Connection, OptionalExtension};
+use stophammer::db::DEFAULT_DB_PATH;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -424,7 +425,7 @@ impl App {
     reason = "manual CLI parsing keeps the review tool dependency-free"
 )]
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 50usize;
 
     let mut args = std::env::args().skip(1);

@@ -144,9 +144,6 @@ impl SyncAuth {
 /// `pubkey_hex` is the hex-encoded ed25519 pubkey of this node's key, used
 /// in tracker and primary registration.
 ///
-/// # Panics
-///
-/// Panics if the `reqwest::Client` cannot be built (TLS backend unavailable).
 #[allow(
     clippy::too_many_lines,
     reason = "community sync keeps startup, registration, cursor bootstrap, and poll loop together"
@@ -160,10 +157,16 @@ pub async fn run_community_sync(
 ) {
     let pubkey_hex = signer.pubkey_hex().to_string();
     let sync_auth = SyncAuth::from_env();
-    let client = reqwest::Client::builder()
+    let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
         .build()
-        .expect("failed to build reqwest client");
+    {
+        Ok(client) => client,
+        Err(err) => {
+            tracing::error!(error = %err, "community: failed to build reqwest client");
+            return;
+        }
+    };
 
     // 1. Fire-and-forget tracker registration.
     register_with_tracker(

@@ -79,7 +79,7 @@ impl DbPool {
     /// cannot be set, or the reader pool fails to initialise.
     pub fn open(path: &Path) -> Result<Self, DbError> {
         // Writer connection — opens and migrates via the existing helper.
-        let writer = crate::db::open_db(path);
+        let writer = crate::db::try_open_db(path)?;
 
         // Reader pool — r2d2_sqlite opens separate connections.
         let manager = SqliteConnectionManager::file(path).with_init(|conn| {

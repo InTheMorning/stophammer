@@ -9,18 +9,47 @@ use mimalloc::MiMalloc;
 #[global_allocator]
 static GLOBAL: MiMalloc = MiMalloc;
 
+use std::process::ExitCode;
+
 use stophammer::{api, community, db, db_pool, proof, signing, tls, verify};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
+    init_tracing();
+    match run().await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(err) => {
+            tracing::error!(error = %err, "startup failed");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+type StartupError = Box<dyn std::error::Error + Send + Sync>;
+
+fn startup_error(msg: impl Into<String>) -> StartupError {
+    Box::new(std::io::Error::other(msg.into()))
+}
+
+fn init_tracing() {
     // FG-01 structured logging — 2026-03-13
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "stophammer=info".parse().expect("valid filter")),
-        )
-        .init();
-    let db_path = std::env::var("DB_PATH").unwrap_or_else(|_| "stophammer.db".into());
+    let (env_filter, invalid_filter_error) =
+        match tracing_subscriber::EnvFilter::try_from_default_env() {
+            Ok(filter) => (filter, None),
+            Err(err) => (
+                tracing_subscriber::EnvFilter::new("stophammer=info"),
+                Some(err),
+            ),
+        };
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
+    if let Some(err) = invalid_filter_error {
+        tracing::warn!(error = %err, "invalid RUST_LOG, defaulting to stophammer=info");
+    }
+}
+
+async fn run() -> Result<(), StartupError> {
+    let db_path =
+        std::env::var("DB_PATH").unwrap_or_else(|_| stophammer::db::DEFAULT_DB_PATH.into());
     let key_path = std::env::var("KEY_PATH").unwrap_or_else(|_| "signing.key".into());
     let bind_addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8008".into());
     let node_mode = std::env::var("NODE_MODE").unwrap_or_else(|_| "primary".into());
@@ -28,9 +57,9 @@ async fn main() {
     // Issue-WAL-POOL — 2026-03-14: use DbPool (writer + reader pool) instead of
     // single Arc<Mutex<Connection>>.
     let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
-        .expect("failed to open database pool");
-    let signer =
-        signing::NodeSigner::load_or_create(&key_path).expect("failed to load signing key");
+        .map_err(|err| startup_error(format!("failed to open database pool: {err}")))?;
+    let signer = signing::NodeSigner::load_or_create(&key_path)
+        .map_err(|err| startup_error(format!("failed to load signing key: {err}")))?;
     let pubkey = signer.pubkey_hex().to_string();
 
     // SP-02 pruner interval — 2026-03-13
@@ -50,8 +79,9 @@ async fn run_primary(
     signer: signing::NodeSigner,
     pubkey: String,
     bind_addr: String,
-) {
-    let crawl_token = std::env::var("CRAWL_TOKEN").expect("CRAWL_TOKEN env var required");
+) -> Result<(), StartupError> {
+    let crawl_token = std::env::var("CRAWL_TOKEN")
+        .map_err(|err| startup_error(format!("CRAWL_TOKEN env var required: {err}")))?;
     let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
     let sync_token = community::load_sync_auth_from_env();
     if sync_token.is_none() {
@@ -64,7 +94,10 @@ async fn run_primary(
     // Seed push_subscribers from DB at startup.
     // Issue-WAL-POOL — 2026-03-14: use writer for startup reads (pool not yet shared)
     let push_subscribers = {
-        let conn = db.writer().lock().expect("db mutex poisoned at startup");
+        let conn = db
+            .writer()
+            .lock()
+            .map_err(|_poison| startup_error("db mutex poisoned at startup"))?;
         let peers = db::get_push_peers(&conn).unwrap_or_default();
         drop(conn);
         let map: std::collections::HashMap<String, String> = peers
@@ -78,7 +111,7 @@ async fn run_primary(
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .expect("failed to build push HTTP client");
+        .map_err(|err| startup_error(format!("failed to build push HTTP client: {err}")))?;
 
     let state = std::sync::Arc::new(api::AppState {
         db,
@@ -96,7 +129,7 @@ async fn run_primary(
     });
 
     let router = api::build_router(state);
-    serve_with_optional_tls(router, &bind_addr).await;
+    serve_with_optional_tls(router, &bind_addr).await
 }
 
 // ── Community mode ───────────────────────────────────────────────────────────
@@ -106,14 +139,20 @@ async fn run_community(
     signer: signing::NodeSigner,
     pubkey: String,
     bind_addr: String,
-) {
+) -> Result<(), StartupError> {
     let signer = std::sync::Arc::new(signer);
-    let primary_url =
-        std::env::var("PRIMARY_URL").expect("PRIMARY_URL env var required in community mode");
+    let primary_url = std::env::var("PRIMARY_URL").map_err(|err| {
+        startup_error(format!(
+            "PRIMARY_URL env var required in community mode: {err}"
+        ))
+    })?;
     let tracker_url = std::env::var("TRACKER_URL")
         .unwrap_or_else(|_| "https://stophammer-tracker.workers.dev".into());
-    let node_address =
-        std::env::var("NODE_ADDRESS").expect("NODE_ADDRESS env var required in community mode");
+    let node_address = std::env::var("NODE_ADDRESS").map_err(|err| {
+        startup_error(format!(
+            "NODE_ADDRESS env var required in community mode: {err}"
+        ))
+    })?;
     let poll_interval_secs: u64 = std::env::var("POLL_INTERVAL_SECS")
         .ok()
         .and_then(|v| v.parse().ok())
@@ -135,21 +174,22 @@ async fn run_community(
         pk
     } else {
         // Issue-4 HTTPS pubkey discovery — 2026-03-13
-        community::require_https_for_discovery(&primary_url)
-            .expect("HTTPS required for pubkey auto-discovery");
+        community::require_https_for_discovery(&primary_url).map_err(|err| {
+            startup_error(format!("HTTPS required for pubkey auto-discovery: {err}"))
+        })?;
 
         let discovery_client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(5))
             .build()
-            .expect("failed to build discovery client");
+            .map_err(|err| startup_error(format!("failed to build discovery client: {err}")))?;
         // SP-06 startup guard — 2026-03-12
         community::fetch_primary_pubkey(&discovery_client, &primary_url, 10)
             .await
-            .expect(
-                "FATAL: cannot determine primary node public key. Set PRIMARY_PUBKEY env var \
-                 with the hex pubkey of the primary node, or ensure the primary is reachable \
-                 at TRACKER_URL.",
-            )
+            .ok_or_else(|| {
+                startup_error(format!(
+                    "cannot determine primary node public key. set PRIMARY_PUBKEY or ensure the primary is reachable at {primary_url}"
+                ))
+            })?
     };
 
     // Issue-SSE-PUBLISH — 2026-03-14: share a single SSE registry between the
@@ -190,7 +230,7 @@ async fn run_community(
     let push_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()
-        .expect("failed to build push HTTP client");
+        .map_err(|err| startup_error(format!("failed to build push HTTP client: {err}")))?;
     let readonly_state = std::sync::Arc::new(api::AppState {
         db,
         chain: std::sync::Arc::new(dummy_chain),
@@ -211,7 +251,7 @@ async fn run_community(
     let router = api::build_readonly_router(readonly_state)
         .merge(community::build_community_push_router(community_state));
 
-    serve_with_optional_tls(router, &bind_addr).await;
+    serve_with_optional_tls(router, &bind_addr).await
 }
 
 // ── Proof expiry pruner ──────────────────────────────────────────────────
@@ -304,13 +344,19 @@ fn apply_rate_limit(router: axum::Router) -> axum::Router {
 
 // ── TLS / plain HTTP decision ────────────────────────────────────────────────
 
-async fn serve_with_optional_tls(router: axum::Router, bind_addr: &str) {
+async fn serve_with_optional_tls(
+    router: axum::Router,
+    bind_addr: &str,
+) -> Result<(), StartupError> {
     // SP-03 rate limiting — 2026-03-13
     let router = apply_rate_limit(router);
 
     if let Ok(tls_domain) = std::env::var("TLS_DOMAIN") {
-        let acme_email = std::env::var("TLS_ACME_EMAIL")
-            .expect("TLS_ACME_EMAIL required when TLS_DOMAIN is set");
+        let acme_email = std::env::var("TLS_ACME_EMAIL").map_err(|err| {
+            startup_error(format!(
+                "TLS_ACME_EMAIL required when TLS_DOMAIN is set: {err}"
+            ))
+        })?;
         let cert_path = std::env::var("TLS_CERT_PATH").unwrap_or_else(|_| "./tls/cert.pem".into());
         let key_path = std::env::var("TLS_KEY_PATH").unwrap_or_else(|_| "./tls/key.pem".into());
         let staging = std::env::var("TLS_ACME_STAGING")
@@ -335,27 +381,33 @@ async fn serve_with_optional_tls(router: axum::Router, bind_addr: &str) {
         };
 
         if tls::cert_needs_renewal(&config.cert_path) {
-            tls::provision_certificate(&config)
-                .await
-                .expect("ACME provisioning failed — cannot start in TLS mode");
+            tls::provision_certificate(&config).await.map_err(|err| {
+                startup_error(format!(
+                    "ACME provisioning failed — cannot start in TLS mode: {err}"
+                ))
+            })?;
         }
         tls::spawn_renewal_task(config);
 
         let rustls_config =
             axum_server::tls_rustls::RustlsConfig::from_pem_file(&cert_path, &key_path)
                 .await
-                .expect("failed to load TLS cert/key");
+                .map_err(|err| startup_error(format!("failed to load TLS cert/key: {err}")))?;
 
-        let addr: std::net::SocketAddr = bind_addr
-            .parse()
-            .expect("BIND must be a valid socket address");
+        let addr: std::net::SocketAddr = bind_addr.parse().map_err(|err| {
+            startup_error(format!(
+                "BIND must be a valid socket address ({bind_addr}): {err}"
+            ))
+        })?;
 
         // Issue-15 expect messages — 2026-03-13
         tracing::info!(bind = %bind_addr, "stophammer listening (HTTPS)");
         axum_server::bind_rustls(addr, rustls_config)
             .serve(router.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await
-            .expect("failed to bind/serve HTTP — port may be in use or permission denied");
+            .map_err(|err| {
+                startup_error(format!("failed to bind/serve HTTPS on {bind_addr}: {err}"))
+            })?;
     } else {
         // Plain HTTP fallback.
         tracing::warn!(
@@ -365,13 +417,16 @@ async fn serve_with_optional_tls(router: axum::Router, bind_addr: &str) {
         // Issue-15 expect messages — 2026-03-13
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
-            .expect("failed to bind/serve HTTP — port may be in use or permission denied");
+            .map_err(|err| {
+                startup_error(format!("failed to bind/serve HTTP on {bind_addr}: {err}"))
+            })?;
         tracing::info!(bind = %bind_addr, "stophammer listening (plain HTTP)");
         axum::serve(
             listener,
             router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
         )
         .await
-        .expect("failed to bind/serve HTTP — port may be in use or permission denied");
+        .map_err(|err| startup_error(format!("failed to bind/serve HTTP on {bind_addr}: {err}")))?;
     }
+    Ok(())
 }

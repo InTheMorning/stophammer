@@ -62,6 +62,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use rusqlite::{Connection, OptionalExtension, params};
+use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -213,17 +214,10 @@ struct ReloadSelection {
     focus: Focus,
 }
 
-const WALLET_CLASSES: &[&str] = &[
-    "unknown",
-    "person_artist",
-    "organization_platform",
-    "bot_service",
-];
-
 const CLASS_CONFIDENCES: &[&str] = &["provisional", "reviewed", "high_confidence"];
 
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 200usize;
 
     let mut args = std::env::args().skip(1);
@@ -982,11 +976,11 @@ impl App {
             .as_ref()
             .map(|wallet| wallet.wallet_class.as_str())
             .unwrap_or("unknown");
-        let current_index = WALLET_CLASSES
+        let current_index = WALLET_CLASS_VALUES
             .iter()
             .position(|wallet_class| *wallet_class == current_class)
             .unwrap_or(0);
-        let wallet_class = WALLET_CLASSES[(current_index + 1) % WALLET_CLASSES.len()];
+        let wallet_class = WALLET_CLASS_VALUES[(current_index + 1) % WALLET_CLASS_VALUES.len()];
 
         stophammer::db::set_wallet_force_class(&self.conn, &main_review.wallet_id, wallet_class)?;
         let status = format!(

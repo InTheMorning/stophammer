@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use rusqlite::{Connection, OptionalExtension};
 use serde::Serialize;
+use stophammer::db::DEFAULT_DB_PATH;
 
 #[derive(Debug)]
 struct Args {
@@ -82,7 +83,7 @@ struct FeedEvidenceRow {
     reason = "manual CLI parsing keeps the review tool dependency-free"
 )]
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 20usize;
     let mut name_filter = None;
     let mut feed_guid = None;

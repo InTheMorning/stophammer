@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
+use stophammer::db::DEFAULT_DB_PATH;
+
 fn parse_args() -> Result<PathBuf, String> {
-    let mut db_path = PathBuf::from("./stophammer.db");
+    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {

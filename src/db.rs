@@ -34,6 +34,17 @@ use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
 
 pub type Db = Arc<Mutex<Connection>>;
 
+/// Default `SQLite` database path for local CLI tools and daemon env fallbacks.
+pub const DEFAULT_DB_PATH: &str = "./stophammer.db";
+
+/// Valid values for `wallets.wallet_class`.
+pub const WALLET_CLASS_VALUES: &[&str] = &[
+    "unknown",
+    "person_artist",
+    "organization_platform",
+    "bot_service",
+];
+
 // ── Errors ──────────────────────────────────────────────────────────────────
 
 /// Errors returned by all database operations in this module.
@@ -237,28 +248,39 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
 /// PRAGMAs are applied before migrations so that WAL mode, foreign keys, and
 /// synchronous settings are active for all subsequent operations.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if the file cannot be opened (e.g. permission denied) or if a
-/// migration fails to apply. Both are unrecoverable startup failures.
-#[must_use]
+/// Returns [`DbError`] if the file cannot be opened, the startup PRAGMAs
+/// cannot be applied, or migrations fail.
 // SP-01 stable FTS5 hash — 2026-03-13
 // Note: The FTS5 table uses content='' (contentless), so the 'rebuild' command
 // is not available. Hash stability is enforced by using SipHash-2-4 with fixed
 // keys in search::rowid_for. If the hash ever changes, the index must be
 // dropped and re-populated from the source tables.
 // HIGH-02 impl AsRef<Path> param — 2026-03-13
-pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
-    let mut conn = Connection::open(path.as_ref()).expect("failed to open database");
+pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbError> {
+    let mut conn = Connection::open(path.as_ref())?;
     conn.execute_batch(
         "PRAGMA journal_mode = WAL;\n\
          PRAGMA foreign_keys = ON;\n\
          PRAGMA synchronous = NORMAL;\n\
          PRAGMA cache_size = -65536;",
-    )
-    .expect("failed to set PRAGMAs");
-    run_migrations(&mut conn).expect("failed to apply migrations");
-    conn
+    )?;
+    run_migrations(&mut conn)?;
+    Ok(conn)
+}
+
+/// Opens the `SQLite` database at `path` and runs pending schema migrations.
+///
+/// This convenience wrapper preserves the existing panic-on-failure behavior
+/// for short-lived tools and tests that intentionally rely on immediate aborts.
+///
+/// # Panics
+///
+/// Panics if [`try_open_db`] returns an error.
+#[must_use]
+pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
+    try_open_db(path).expect("failed to open database")
 }
 
 // ── Helper: serialize EventType to snake_case string (no quotes) ─────────────
@@ -266,6 +288,21 @@ pub fn open_db(path: impl AsRef<std::path::Path>) -> Connection {
 fn event_type_str(et: &EventType) -> Result<String, DbError> {
     let s = serde_json::to_string(et)?;
     Ok(s.trim_matches('"').to_string())
+}
+
+fn route_type_from_db(rt_str: &str, context: &str) -> RouteType {
+    match serde_json::from_str::<RouteType>(&format!("\"{rt_str}\"")) {
+        Ok(route_type) => route_type,
+        Err(err) => {
+            tracing::warn!(
+                route_type = %rt_str,
+                context,
+                error = %err,
+                "db: invalid route_type in stored row, defaulting to node"
+            );
+            RouteType::Node
+        }
+    }
 }
 
 // ── Helper: current unix timestamp ──────────────────────────────────────────
@@ -624,7 +661,7 @@ pub fn get_payment_routes_for_track(
             track_guid: row.get(1)?,
             feed_guid: row.get(2)?,
             recipient_name: row.get(3)?,
-            route_type: serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
+            route_type: route_type_from_db(&rt_str, "payment_routes"),
             address: row.get(5)?,
             custom_key: row.get(6)?,
             custom_value: row.get(7)?,
@@ -5983,7 +6020,7 @@ pub fn get_feed_payment_routes_for_feed(
             id: row.get(0)?,
             feed_guid: row.get(1)?,
             recipient_name: row.get(2)?,
-            route_type: serde_json::from_str(&format!("\"{rt_str}\"")).unwrap_or(RouteType::Node),
+            route_type: route_type_from_db(&rt_str, "feed_payment_routes"),
             address: row.get(4)?,
             custom_key: row.get(5)?,
             custom_value: row.get(6)?,
