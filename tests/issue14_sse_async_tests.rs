@@ -113,23 +113,3 @@ async fn sse_delivers_broadcast_message() {
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(resp.status(), 200, "SSE endpoint should return 200");
 }
-
-// ---------------------------------------------------------------------------
-// Issue #14: Verify no busy-sleep pattern in source code (static analysis)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn source_does_not_contain_busy_sleep_in_sse_handler() {
-    // This is a meta-test: verify the file doesn't contain the old polling pattern.
-    // The presence of `try_recv()` in a loop with `sleep(Duration::from_millis(100))`
-    // is the anti-pattern we're eliminating.
-    let source = include_str!("../src/api.rs");
-
-    // After fix, the SSE live_stream should NOT use the old busy-sleep pattern
-    // with try_recv + sleep(100ms). Instead it should use BroadcastStream + select_all.
-    let has_busy_sleep = source.contains("from_millis(100)");
-    assert!(
-        !has_busy_sleep,
-        "api.rs should not contain the 100ms busy-sleep pattern after Issue #14 fix"
-    );
-}

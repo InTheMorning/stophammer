@@ -71,31 +71,6 @@ fn crawl_token_same_length_different_content_fails() {
     assert!(matches!(verifier.verify(&ctx), VerifyResult::Fail(_)));
 }
 
-/// The source code must use `ct_eq` (constant-time comparison), not `==`.
-/// This is a structural test that reads the source file and verifies the
-/// timing-safe pattern is present.
-#[test]
-fn crawl_token_source_uses_constant_time_eq() {
-    let src = std::fs::read_to_string(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/src/verifiers/crawl_token.rs"
-    ))
-    .expect("read crawl_token.rs source");
-
-    assert!(
-        src.contains("ct_eq"),
-        "crawl_token.rs must use constant-time comparison (ct_eq), found direct == instead"
-    );
-    assert!(
-        src.contains("Sha256"),
-        "crawl_token.rs must hash tokens with SHA-256 before comparing"
-    );
-    assert!(
-        !src.contains("crawl_token == self.expected") && !src.contains("self.expected == ctx"),
-        "crawl_token.rs must not use direct string equality"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------

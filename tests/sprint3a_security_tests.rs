@@ -1,5 +1,5 @@
-// Sprint 3A: security and resilience fixes
-// Issue-4, Issue-16, Issue-22, Issue-15
+// Sprint 3A: security and resilience behavior tests
+// Runtime coverage kept here; source-policy checks live in static_policy_tests.rs.
 
 mod common;
 
@@ -50,72 +50,4 @@ fn issue4_require_https_for_discovery() {
     unsafe {
         std::env::remove_var("ALLOW_INSECURE_PUBKEY_DISCOVERY");
     }
-}
-
-// ---------------------------------------------------------------------------
-// Issue #16: ADMIN_TOKEN empty warning
-// Finding-3 separate sync token — 2026-03-13
-// ---------------------------------------------------------------------------
-
-/// Static analysis: the `register_with_primary` path must warn when
-/// `SYNC_TOKEN` is not configured.
-#[test]
-fn issue16_admin_token_empty_warning_present_in_source() {
-    let src = include_str!("../src/community.rs");
-    assert!(
-        src.contains("SYNC_TOKEN env var is not set"),
-        "community.rs must warn when SYNC_TOKEN is not set"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #22: validate_feed_url must not block async runtime
-// ---------------------------------------------------------------------------
-
-/// Static analysis: api.rs must wrap `validate_feed_url` in `spawn_blocking`.
-#[test]
-fn issue22_validate_feed_url_wrapped_in_spawn_blocking() {
-    let src = include_str!("../src/api.rs");
-    // The call site must use spawn_blocking around validate_feed_url.
-    assert!(
-        src.contains("spawn_blocking") && src.contains("validate_feed_url"),
-        "api.rs must call validate_feed_url inside spawn_blocking"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #15: .expect() instead of .unwrap() on server bind
-// ---------------------------------------------------------------------------
-
-/// Static analysis: main.rs must not contain bare `.unwrap()` on serve calls.
-/// All server bind/serve must use `.expect(...)`.
-#[test]
-fn issue15_no_bare_unwrap_in_main_serve() {
-    let src = include_str!("../src/main.rs");
-    // The serve_with_optional_tls function must not have `.unwrap()` calls.
-    let fn_start = src
-        .find("async fn serve_with_optional_tls")
-        .expect("serve_with_optional_tls function must exist");
-    let fn_body = &src[fn_start..];
-    // Count braces to find the end of the function.
-    let mut depth = 0i32;
-    let mut fn_end = 0;
-    for (i, ch) in fn_body.char_indices() {
-        if ch == '{' {
-            depth += 1;
-        }
-        if ch == '}' {
-            depth -= 1;
-            if depth == 0 {
-                fn_end = i + 1;
-                break;
-            }
-        }
-    }
-    let fn_text = &fn_body[..fn_end];
-    // .unwrap() should not appear (replaced by .expect("..."))
-    assert!(
-        !fn_text.contains(".unwrap()"),
-        "serve_with_optional_tls must not contain .unwrap(); use .expect() instead"
-    );
 }
