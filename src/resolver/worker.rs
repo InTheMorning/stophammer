@@ -93,7 +93,7 @@ pub fn run_batch_with_signer(
     // populate_search_index call would otherwise trigger a merge, making bulk
     // resolution O(n·log n). We do a single merge pass after the loop.
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('automerge=0')",
+        "INSERT INTO search_index(search_index, rank) VALUES('automerge', 0)",
         [],
     ) {
         eprintln!("resolver: WARNING: failed to disable FTS5 automerge: {e}");
@@ -167,13 +167,13 @@ pub fn run_batch_with_signer(
     // created during this batch. This must run even if no feeds resolved so an
     // all-fail or empty batch does not leave FTS5 automerge disabled.
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('automerge=8')",
+        "INSERT INTO search_index(search_index, rank) VALUES('automerge', 8)",
         [],
     ) {
         eprintln!("resolver: WARNING: failed to re-enable FTS5 automerge: {e}");
     }
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('merge=500')",
+        "INSERT INTO search_index(search_index, rank) VALUES('merge', 500)",
         [],
     ) {
         eprintln!("resolver: WARNING: failed to run FTS5 merge pass: {e}");

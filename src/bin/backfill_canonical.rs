@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut last_guid = String::new();
 
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('automerge=0')",
+        "INSERT INTO search_index(search_index, rank) VALUES('automerge', 0)",
         [],
     ) {
         eprintln!("backfill_canonical: WARNING: failed to disable FTS5 automerge: {e}");
@@ -136,13 +136,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     })();
 
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('automerge=8')",
+        "INSERT INTO search_index(search_index, rank) VALUES('automerge', 8)",
         [],
     ) {
         eprintln!("backfill_canonical: WARNING: failed to re-enable FTS5 automerge: {e}");
     }
     if let Err(e) = conn.execute(
-        "INSERT INTO search_index(search_index) VALUES('merge=500')",
+        "INSERT INTO search_index(search_index, rank) VALUES('merge', 500)",
         [],
     ) {
         eprintln!("backfill_canonical: WARNING: failed to run FTS5 merge pass: {e}");
