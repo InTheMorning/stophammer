@@ -78,7 +78,10 @@ fn migration_runs_only_once() {
     let count: i64 = conn
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
-    assert_eq!(count, 18, "exactly eighteen migrations should be recorded");
+    assert_eq!(
+        count, 21,
+        "exactly twenty-one migrations should be recorded"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -110,6 +113,11 @@ fn no_drop_table_in_migrations() {
     let wallet_force_override =
         include_str!("../migrations/0017_wallet_force_confidence_override.sql");
     let wallet_merge_batches = include_str!("../migrations/0018_wallet_merge_apply_batches.sql");
+    let feed_delete_cleanup = include_str!("../migrations/0019_feed_delete_cleanup_triggers.sql");
+    let artist_credit_null_scope =
+        include_str!("../migrations/0020_artist_credit_null_scope_dedup.sql");
+    let route_custom_normalization =
+        include_str!("../migrations/0021_route_custom_value_normalization.sql");
     let all_migrations = [
         baseline,
         feed_scope,
@@ -129,6 +137,9 @@ fn no_drop_table_in_migrations() {
         wallet_entities,
         wallet_force_override,
         wallet_merge_batches,
+        feed_delete_cleanup,
+        artist_credit_null_scope,
+        route_custom_normalization,
     ];
     for (i, sql) in all_migrations.iter().enumerate() {
         for (line_no, line) in sql.lines().enumerate() {

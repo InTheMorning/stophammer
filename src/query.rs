@@ -1192,7 +1192,7 @@ fn build_feed_response(
 
     if params.includes("payment_routes") {
         let mut stmt = conn.prepare(
-            "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+            "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
              FROM feed_payment_routes WHERE feed_guid = ?1",
         )?;
         let routes: Vec<RouteResponse> = stmt
@@ -1330,7 +1330,7 @@ fn build_track_response(
 
     if params.includes("payment_routes") {
         let mut stmt = conn.prepare(
-            "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+            "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
              FROM payment_routes WHERE track_guid = ?1",
         )?;
         let routes: Vec<RouteResponse> = stmt
@@ -1350,7 +1350,7 @@ fn build_track_response(
         // track has none of its own.
         let routes = if routes.is_empty() {
             let mut fstmt = conn.prepare(
-                "SELECT recipient_name, route_type, address, custom_key, custom_value, split, fee \
+                "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
                  FROM feed_payment_routes WHERE feed_guid = ?1",
             )?;
             fstmt

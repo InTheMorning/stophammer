@@ -138,8 +138,8 @@ CREATE TABLE IF NOT EXISTS payment_routes (
     recipient_name  TEXT,
     route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
     address         TEXT NOT NULL,
-    custom_key      TEXT,
-    custom_value    TEXT,
+    custom_key      TEXT NOT NULL DEFAULT '',
+    custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0
 ) STRICT;
@@ -154,8 +154,8 @@ CREATE TABLE IF NOT EXISTS feed_payment_routes (
     recipient_name  TEXT,
     route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
     address         TEXT NOT NULL,
-    custom_key      TEXT,
-    custom_value    TEXT,
+    custom_key      TEXT NOT NULL DEFAULT '',
+    custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0
 ) STRICT;

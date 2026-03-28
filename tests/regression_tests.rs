@@ -227,38 +227,33 @@ fn duplicate_event_idempotent() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Artist credit display name not unique
+// 4. Artist credit display name uniqueness honors feed scope
 // ---------------------------------------------------------------------------
 
 #[test]
-fn artist_credit_display_name_not_unique() {
+fn artist_credit_display_name_duplicates_rejected_for_null_scope() {
     let conn = common::test_db();
     let now = common::now();
 
     insert_artist(&conn, "art-dup-name-1", "Same Name");
     insert_artist(&conn, "art-dup-name-2", "Same Name Too");
 
-    // Two credits with the same display_name should both succeed.
+    // Two legacy null-scoped credits with the same display_name should not both succeed.
     conn.execute(
         "INSERT INTO artist_credit (display_name, created_at) VALUES ('Same Display', ?1)",
         params![now],
     )
     .unwrap();
-    let cid1 = conn.last_insert_rowid();
 
-    conn.execute(
+    let duplicate = conn.execute(
         "INSERT INTO artist_credit (display_name, created_at) VALUES ('Same Display', ?1)",
         params![now],
-    )
-    .unwrap();
-    let cid2 = conn.last_insert_rowid();
-
-    assert_ne!(
-        cid1, cid2,
-        "IDs should be different for credits with same display_name"
+    );
+    assert!(
+        duplicate.is_err(),
+        "duplicate null-scoped artist credits should be rejected"
     );
 
-    // Both should be retrievable.
     let count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM artist_credit WHERE display_name = 'Same Display'",
@@ -266,7 +261,7 @@ fn artist_credit_display_name_not_unique() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(count, 2);
+    assert_eq!(count, 1);
 }
 
 // ---------------------------------------------------------------------------

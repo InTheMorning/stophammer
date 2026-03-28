@@ -195,6 +195,12 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0017_wallet_force_confidence_override.sql"),
     // Migration 18: audit applied wallet merge batches for operator undo.
     include_str!("../migrations/0018_wallet_merge_apply_batches.sql"),
+    // Migration 19: add cleanup triggers for direct feed/track deletes on legacy tables.
+    include_str!("../migrations/0019_feed_delete_cleanup_triggers.sql"),
+    // Migration 20: dedupe legacy NULL-scoped artist credits and enforce normalized uniqueness.
+    include_str!("../migrations/0020_artist_credit_null_scope_dedup.sql"),
+    // Migration 21: normalize route custom fields to empty strings instead of NULL.
+    include_str!("../migrations/0021_route_custom_value_normalization.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -650,7 +656,7 @@ pub fn get_payment_routes_for_track(
 ) -> Result<Vec<PaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
-         custom_key, custom_value, split, fee \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
          FROM payment_routes WHERE track_guid = ?1",
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
@@ -2908,8 +2914,8 @@ pub fn replace_payment_routes(
                 r.recipient_name,
                 route_type,
                 r.address,
-                r.custom_key,
-                r.custom_value,
+                r.custom_key.as_deref().unwrap_or(""),
+                r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
             ],
@@ -2946,8 +2952,8 @@ pub fn replace_feed_payment_routes(
                 r.recipient_name,
                 route_type,
                 r.address,
-                r.custom_key,
-                r.custom_value,
+                r.custom_key.as_deref().unwrap_or(""),
+                r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
             ],
@@ -6010,7 +6016,7 @@ pub fn get_feed_payment_routes_for_feed(
 ) -> Result<Vec<FeedPaymentRoute>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, recipient_name, route_type, address, \
-         custom_key, custom_value, split, fee \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
          FROM feed_payment_routes WHERE feed_guid = ?1",
     )?;
     let rows = stmt.query_map(params![feed_guid], |row| {
@@ -8133,8 +8139,8 @@ pub fn ingest_transaction(
                 r.recipient_name,
                 route_type,
                 r.address,
-                r.custom_key,
-                r.custom_value,
+                r.custom_key.as_deref().unwrap_or(""),
+                r.custom_value.as_deref().unwrap_or(""),
                 r.split,
                 i64::from(r.fee),
             ],
@@ -8409,8 +8415,8 @@ pub fn ingest_transaction(
                     r.recipient_name,
                     route_type,
                     r.address,
-                    r.custom_key,
-                    r.custom_value,
+                    r.custom_key.as_deref().unwrap_or(""),
+                    r.custom_value.as_deref().unwrap_or(""),
                     r.split,
                     i64::from(r.fee),
                 ],

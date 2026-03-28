@@ -1,0 +1,95 @@
+-- Issue-FEED-DELETE-CLEANUP — 2026-03-28
+-- Older baseline/source tables predate ON DELETE CASCADE. Add cleanup triggers
+-- so direct SQL deletes on feeds/tracks do not leave orphaned source rows.
+
+CREATE TRIGGER IF NOT EXISTS trg_tracks_cleanup_before_delete
+BEFORE DELETE ON tracks
+FOR EACH ROW
+BEGIN
+    DELETE FROM track_tag
+    WHERE track_guid = OLD.track_guid;
+
+    DELETE FROM value_time_splits
+    WHERE source_track_guid = OLD.track_guid;
+
+    DELETE FROM payment_routes
+    WHERE track_guid = OLD.track_guid;
+
+    DELETE FROM source_item_recording_map
+    WHERE track_guid = OLD.track_guid;
+
+    DELETE FROM track_rel
+    WHERE track_guid_a = OLD.track_guid
+       OR track_guid_b = OLD.track_guid;
+
+    UPDATE release_recordings
+    SET source_track_guid = NULL
+    WHERE source_track_guid = OLD.track_guid;
+
+    DELETE FROM entity_quality
+    WHERE entity_type = 'track'
+      AND entity_id = OLD.track_guid;
+
+    DELETE FROM entity_field_status
+    WHERE entity_type = 'track'
+      AND entity_id = OLD.track_guid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_feeds_cleanup_before_delete
+BEFORE DELETE ON feeds
+FOR EACH ROW
+BEGIN
+    DELETE FROM feed_tag
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM feed_payment_routes
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM entity_quality
+    WHERE entity_type = 'feed'
+      AND entity_id = OLD.feed_guid;
+
+    DELETE FROM entity_field_status
+    WHERE entity_type = 'feed'
+      AND entity_id = OLD.feed_guid;
+
+    DELETE FROM proof_tokens
+    WHERE subject_feed_guid = OLD.feed_guid;
+
+    DELETE FROM proof_challenges
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM feed_rel
+    WHERE feed_guid_a = OLD.feed_guid
+       OR feed_guid_b = OLD.feed_guid;
+
+    DELETE FROM feed_remote_items_raw
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM live_events
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_contributor_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_entity_ids
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_entity_links
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_release_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_item_enclosures
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_platform_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_feed_release_map
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM tracks
+    WHERE feed_guid = OLD.feed_guid;
+END;

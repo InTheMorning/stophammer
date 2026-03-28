@@ -7,6 +7,44 @@ mod common;
 
 use rusqlite::params;
 
+fn seed_feed_with_track(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    track_guid: &str,
+    title: &str,
+) {
+    let now = common::now();
+    let artist =
+        stophammer::db::resolve_artist(conn, &format!("Artist {feed_guid}"), Some(feed_guid))
+            .expect("resolve artist");
+    let credit = stophammer::db::get_or_create_artist_credit(
+        conn,
+        &artist.name,
+        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        Some(feed_guid),
+    )
+    .expect("artist credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![
+            feed_guid,
+            format!("https://example.com/{feed_guid}.xml"),
+            title,
+            title.to_lowercase(),
+            credit.id,
+            now
+        ],
+    )
+    .expect("insert feed");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params![track_guid, feed_guid, credit.id, title, title.to_lowercase(), now],
+    )
+    .expect("insert track");
+}
+
 // ---------------------------------------------------------------------------
 // 1. Schema creation on fresh :memory: DB
 // ---------------------------------------------------------------------------
@@ -180,6 +218,481 @@ fn resolved_overlay_tables_round_trip() {
     let got_sources = stophammer::db::get_resolved_entity_sources_for_feed(&conn, "feed-overlay")
         .expect("get sources");
     assert_eq!(got_sources, sources);
+}
+
+#[test]
+fn direct_feed_delete_cleans_legacy_child_rows() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    seed_feed_with_track(&conn, "feed-delete-a", "track-delete-a", "Delete A");
+    seed_feed_with_track(&conn, "feed-delete-b", "track-delete-b", "Delete B");
+    conn.execute(
+        "INSERT INTO tags (id, name, created_at) VALUES (1, 'cleanup-tag', ?1)",
+        params![now],
+    )
+    .expect("insert tag");
+
+    conn.execute(
+        "INSERT INTO feed_tag (feed_guid, tag_id, created_at) VALUES ('feed-delete-a', 1, ?1)",
+        params![now],
+    )
+    .expect("insert feed tag");
+    conn.execute(
+        "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES ('track-delete-a', 1, ?1)",
+        params![now],
+    )
+    .expect("insert track tag");
+    conn.execute(
+        "INSERT INTO feed_payment_routes (feed_guid, address, route_type, split) VALUES ('feed-delete-a', 'node://feed', 'node', 100)",
+        [],
+    )
+    .expect("insert feed route");
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, address, route_type, split) VALUES ('track-delete-a', 'feed-delete-a', 'node://track', 'node', 100)",
+        [],
+    )
+    .expect("insert track route");
+    conn.execute(
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
+         VALUES ('track-delete-a', 0, 'remote-feed', 'remote-item', 100, ?1)",
+        params![now],
+    )
+    .expect("insert value time split");
+    conn.execute(
+        "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) VALUES ('feed-delete-a', 'feed-delete-b', 1, ?1)",
+        params![now],
+    )
+    .expect("insert feed rel");
+    conn.execute(
+        "INSERT INTO feed_remote_items_raw (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+         VALUES ('feed-delete-a', 0, 'music', 'remote-feed', NULL, 'podcast_remote_item')",
+        [],
+    )
+    .expect("insert remote item");
+    conn.execute(
+        "INSERT INTO source_entity_ids (feed_guid, entity_type, entity_id, scheme, value, source, extraction_path, observed_at) \
+         VALUES ('feed-delete-a', 'feed', 'feed-delete-a', 'guid', 'src', 'test', '/feed', ?1)",
+        params![now],
+    )
+    .expect("insert source entity id");
+
+    conn.execute("DELETE FROM feeds WHERE feed_guid = 'feed-delete-a'", [])
+        .expect("direct feed delete should succeed");
+
+    for (table, predicate) in [
+        ("feeds", "feed_guid = 'feed-delete-a'"),
+        ("tracks", "feed_guid = 'feed-delete-a'"),
+        ("feed_tag", "feed_guid = 'feed-delete-a'"),
+        ("track_tag", "track_guid = 'track-delete-a'"),
+        ("feed_payment_routes", "feed_guid = 'feed-delete-a'"),
+        ("payment_routes", "track_guid = 'track-delete-a'"),
+        ("value_time_splits", "source_track_guid = 'track-delete-a'"),
+        (
+            "feed_rel",
+            "feed_guid_a = 'feed-delete-a' OR feed_guid_b = 'feed-delete-a'",
+        ),
+        ("feed_remote_items_raw", "feed_guid = 'feed-delete-a'"),
+        ("source_entity_ids", "feed_guid = 'feed-delete-a'"),
+    ] {
+        let query = format!("SELECT COUNT(*) FROM {table} WHERE {predicate}");
+        let count: i64 = conn
+            .query_row(&query, [], |row| row.get(0))
+            .expect("count child rows");
+        assert_eq!(
+            count, 0,
+            "{table} rows should be cleaned on direct feed delete"
+        );
+    }
+}
+
+#[test]
+fn direct_track_delete_cleans_legacy_child_rows() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    seed_feed_with_track(
+        &conn,
+        "feed-track-delete",
+        "track-track-delete",
+        "Track Delete",
+    );
+    seed_feed_with_track(
+        &conn,
+        "feed-track-delete-b",
+        "track-track-delete-b",
+        "Track Delete B",
+    );
+    conn.execute(
+        "INSERT INTO tags (id, name, created_at) VALUES (1, 'track-cleanup-tag', ?1)",
+        params![now],
+    )
+    .expect("insert tag");
+
+    conn.execute(
+        "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES ('track-track-delete', 1, ?1)",
+        params![now],
+    )
+    .expect("insert track tag");
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, address, route_type, split) VALUES ('track-track-delete', 'feed-track-delete', 'node://track', 'node', 100)",
+        [],
+    )
+    .expect("insert payment route");
+    conn.execute(
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
+         VALUES ('track-track-delete', 0, 'remote-feed', 'remote-item', 100, ?1)",
+        params![now],
+    )
+    .expect("insert value time split");
+    conn.execute(
+        "INSERT INTO track_rel (track_guid_a, track_guid_b, rel_type_id, created_at) \
+         VALUES ('track-track-delete', 'track-track-delete-b', 1, ?1)",
+        params![now],
+    )
+    .expect("insert track rel");
+
+    conn.execute(
+        "DELETE FROM tracks WHERE track_guid = 'track-track-delete'",
+        [],
+    )
+    .expect("direct track delete should succeed");
+
+    for table in [
+        "track_tag",
+        "payment_routes",
+        "value_time_splits",
+        "track_rel",
+    ] {
+        let count: i64 = conn
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+                row.get(0)
+            })
+            .expect("count child rows");
+        assert_eq!(
+            count, 0,
+            "{table} rows should be cleaned on direct track delete"
+        );
+    }
+}
+
+#[test]
+fn null_scoped_artist_credit_dedup_reuses_existing_row() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    conn.execute(
+        "INSERT INTO artist_credit (display_name, feed_guid, created_at) VALUES ('Legacy Artist', NULL, ?1)",
+        params![now],
+    )
+    .expect("insert initial legacy artist credit");
+    conn.execute(
+        "INSERT OR IGNORE INTO artist_credit (display_name, feed_guid, created_at) VALUES ('Legacy Artist', NULL, ?1)",
+        params![now + 1],
+    )
+    .expect("duplicate insert should be ignored");
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_credit WHERE display_name = 'Legacy Artist' AND feed_guid IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count artist credits");
+    assert_eq!(
+        count, 1,
+        "normalized unique index should collapse NULL-scoped duplicates"
+    );
+}
+
+#[test]
+fn migrations_dedup_legacy_null_scoped_artist_credits() {
+    let tmp = std::env::temp_dir().join("stophammer_artist_credit_null_scope.db");
+    let _ = std::fs::remove_file(&tmp);
+    let conn = rusqlite::Connection::open(&tmp).expect("open sqlite");
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA foreign_keys = ON;",
+    )
+    .expect("set pragmas");
+
+    for sql in [
+        include_str!("../migrations/0001_baseline.sql"),
+        include_str!("../migrations/0002_artist_credit_feed_scope.sql"),
+        include_str!("../migrations/0003_search_entities_unique.sql"),
+        include_str!("../migrations/0004_proof_level.sql"),
+        include_str!("../migrations/0005_live_events_and_remote_items.sql"),
+        include_str!("../migrations/0006_source_claim_staging.sql"),
+        include_str!("../migrations/0007_source_link_and_release_claims.sql"),
+        include_str!("../migrations/0008_source_contributor_role_norm.sql"),
+        include_str!("../migrations/0009_source_item_enclosures.sql"),
+        include_str!("../migrations/0010_source_platform_claims.sql"),
+        include_str!("../migrations/0011_canonical_release_recording.sql"),
+        include_str!("../migrations/0012_resolver_queue.sql"),
+        include_str!("../migrations/0013_artist_identity_reviews.sql"),
+        include_str!("../migrations/0014_resolved_overlay_tables.sql"),
+        include_str!("../migrations/0015_live_events_feed_scoped_key.sql"),
+        include_str!("../migrations/0016_wallet_entities.sql"),
+        include_str!("../migrations/0017_wallet_force_confidence_override.sql"),
+        include_str!("../migrations/0018_wallet_merge_apply_batches.sql"),
+        include_str!("../migrations/0019_feed_delete_cleanup_triggers.sql"),
+    ] {
+        conn.execute_batch(sql).expect("apply migration");
+    }
+
+    let now = common::now();
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) VALUES ('artist-legacy-a', 'Legacy A', 'legacy a', ?1, ?1)",
+        params![now],
+    )
+    .expect("insert artist a");
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) VALUES ('artist-legacy-b', 'Legacy B', 'legacy b', ?1, ?1)",
+        params![now],
+    )
+    .expect("insert artist b");
+    conn.execute(
+        "INSERT INTO artist_credit (id, display_name, created_at, feed_guid) VALUES (100, 'Legacy Artist', ?1, NULL)",
+        params![now],
+    )
+    .expect("insert credit 100");
+    conn.execute(
+        "INSERT INTO artist_credit (id, display_name, created_at, feed_guid) VALUES (101, 'Legacy Artist', ?1, NULL)",
+        params![now + 1],
+    )
+    .expect("insert credit 101");
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) VALUES (100, 'artist-legacy-a', 0, 'Legacy A', '')",
+        [],
+    )
+    .expect("insert credit name a");
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) VALUES (101, 'artist-legacy-b', 0, 'Legacy B', '')",
+        [],
+    )
+    .expect("insert credit name b");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) VALUES ('feed-legacy-credit', 'https://example.com/legacy-credit.xml', 'Legacy Credit', 'legacy credit', 101, ?1, ?1)",
+        params![now],
+    )
+    .expect("insert feed referencing duplicate credit");
+
+    conn.execute_batch(include_str!(
+        "../migrations/0020_artist_credit_null_scope_dedup.sql"
+    ))
+    .expect("apply dedup migration");
+
+    let count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_credit WHERE display_name = 'Legacy Artist' AND feed_guid IS NULL",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count deduped credits");
+    assert_eq!(
+        count, 1,
+        "migration should dedupe legacy null-scoped artist credits"
+    );
+
+    let feed_credit_id: i64 = conn
+        .query_row(
+            "SELECT artist_credit_id FROM feeds WHERE feed_guid = 'feed-legacy-credit'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("load repointed feed credit");
+    assert_eq!(
+        feed_credit_id, 100,
+        "references should be repointed to canonical artist credit"
+    );
+
+    let name_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM artist_credit_name WHERE artist_credit_id = 100",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count merged credit names");
+    assert_eq!(
+        name_count, 1,
+        "legacy duplicate names at the same position collapse safely"
+    );
+
+    drop(conn);
+    let _ = std::fs::remove_file(&tmp);
+}
+
+#[test]
+fn route_writes_normalize_empty_custom_fields_but_reads_stay_none() {
+    let conn = common::test_db();
+    seed_feed_with_track(
+        &conn,
+        "feed-route-normalize",
+        "track-route-normalize",
+        "Route Normalize",
+    );
+
+    let track_route = stophammer::model::PaymentRoute {
+        id: None,
+        track_guid: "track-route-normalize".into(),
+        feed_guid: "feed-route-normalize".into(),
+        recipient_name: Some("Track Route".into()),
+        route_type: stophammer::model::RouteType::Node,
+        address: "node://track".into(),
+        custom_key: None,
+        custom_value: None,
+        split: 100,
+        fee: false,
+    };
+    stophammer::db::replace_payment_routes(&conn, "track-route-normalize", &[track_route])
+        .expect("replace track routes");
+
+    let feed_route = stophammer::model::FeedPaymentRoute {
+        id: None,
+        feed_guid: "feed-route-normalize".into(),
+        recipient_name: Some("Feed Route".into()),
+        route_type: stophammer::model::RouteType::Node,
+        address: "node://feed".into(),
+        custom_key: None,
+        custom_value: None,
+        split: 100,
+        fee: false,
+    };
+    stophammer::db::replace_feed_payment_routes(&conn, "feed-route-normalize", &[feed_route])
+        .expect("replace feed routes");
+
+    let raw_track: (String, String) = conn
+        .query_row(
+            "SELECT custom_key, custom_value FROM payment_routes WHERE track_guid = 'track-route-normalize'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load raw stored track route fields");
+    assert_eq!(raw_track, (String::new(), String::new()));
+
+    let raw_feed: (String, String) = conn
+        .query_row(
+            "SELECT custom_key, custom_value FROM feed_payment_routes WHERE feed_guid = 'feed-route-normalize'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load raw stored feed route fields");
+    assert_eq!(raw_feed, (String::new(), String::new()));
+
+    let stored_track = stophammer::db::get_payment_routes_for_track(&conn, "track-route-normalize")
+        .expect("load normalized track routes");
+    assert_eq!(stored_track.len(), 1);
+    assert_eq!(stored_track[0].custom_key, None);
+    assert_eq!(stored_track[0].custom_value, None);
+
+    let stored_feed =
+        stophammer::db::get_feed_payment_routes_for_feed(&conn, "feed-route-normalize")
+            .expect("load normalized feed routes");
+    assert_eq!(stored_feed.len(), 1);
+    assert_eq!(stored_feed[0].custom_key, None);
+    assert_eq!(stored_feed[0].custom_value, None);
+}
+
+#[test]
+fn migration_normalizes_legacy_route_null_custom_fields() {
+    let tmp = std::env::temp_dir().join("stophammer_route_custom_normalization.db");
+    let _ = std::fs::remove_file(&tmp);
+    let conn = rusqlite::Connection::open(&tmp).expect("open sqlite");
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = NORMAL;
+         PRAGMA foreign_keys = ON;",
+    )
+    .expect("set pragmas");
+
+    for sql in [
+        include_str!("../migrations/0001_baseline.sql"),
+        include_str!("../migrations/0002_artist_credit_feed_scope.sql"),
+        include_str!("../migrations/0003_search_entities_unique.sql"),
+        include_str!("../migrations/0004_proof_level.sql"),
+        include_str!("../migrations/0005_live_events_and_remote_items.sql"),
+        include_str!("../migrations/0006_source_claim_staging.sql"),
+        include_str!("../migrations/0007_source_link_and_release_claims.sql"),
+        include_str!("../migrations/0008_source_contributor_role_norm.sql"),
+        include_str!("../migrations/0009_source_item_enclosures.sql"),
+        include_str!("../migrations/0010_source_platform_claims.sql"),
+        include_str!("../migrations/0011_canonical_release_recording.sql"),
+        include_str!("../migrations/0012_resolver_queue.sql"),
+        include_str!("../migrations/0013_artist_identity_reviews.sql"),
+        include_str!("../migrations/0014_resolved_overlay_tables.sql"),
+        include_str!("../migrations/0015_live_events_feed_scoped_key.sql"),
+        include_str!("../migrations/0016_wallet_entities.sql"),
+        include_str!("../migrations/0017_wallet_force_confidence_override.sql"),
+        include_str!("../migrations/0018_wallet_merge_apply_batches.sql"),
+        include_str!("../migrations/0019_feed_delete_cleanup_triggers.sql"),
+        include_str!("../migrations/0020_artist_credit_null_scope_dedup.sql"),
+    ] {
+        conn.execute_batch(sql).expect("apply migration");
+    }
+
+    let now = common::now();
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) VALUES ('artist-route-null', 'Route Null', 'route null', ?1, ?1)",
+        params![now],
+    )
+    .expect("insert artist");
+    conn.execute(
+        "INSERT INTO artist_credit (id, display_name, created_at, feed_guid) VALUES (200, 'Route Null', ?1, 'feed-route-null')",
+        params![now],
+    )
+    .expect("insert artist credit");
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) VALUES (200, 'artist-route-null', 0, 'Route Null', '')",
+        [],
+    )
+    .expect("insert artist credit name");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) VALUES ('feed-route-null', 'https://example.com/route-null.xml', 'Route Null', 'route null', 200, ?1, ?1)",
+        params![now],
+    )
+    .expect("insert feed");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, created_at, updated_at) VALUES ('track-route-null', 'feed-route-null', 200, 'Route Null Track', 'route null track', ?1, ?1)",
+        params![now],
+    )
+    .expect("insert track");
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) VALUES ('track-route-null', 'feed-route-null', 'Legacy Track', 'node', 'node://legacy-track', NULL, NULL, 100, 0)",
+        [],
+    )
+    .expect("insert legacy track route");
+    conn.execute(
+        "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) VALUES ('feed-route-null', 'Legacy Feed', 'node', 'node://legacy-feed', NULL, NULL, 100, 0)",
+        [],
+    )
+    .expect("insert legacy feed route");
+
+    conn.execute_batch(include_str!(
+        "../migrations/0021_route_custom_value_normalization.sql"
+    ))
+    .expect("apply normalization migration");
+
+    let raw_track: (String, String) = conn
+        .query_row(
+            "SELECT custom_key, custom_value FROM payment_routes WHERE track_guid = 'track-route-null'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load normalized track route");
+    assert_eq!(raw_track, (String::new(), String::new()));
+
+    let raw_feed: (String, String) = conn
+        .query_row(
+            "SELECT custom_key, custom_value FROM feed_payment_routes WHERE feed_guid = 'feed-route-null'",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("load normalized feed route");
+    assert_eq!(raw_feed, (String::new(), String::new()));
+
+    drop(conn);
+    let _ = std::fs::remove_file(&tmp);
 }
 
 #[test]
