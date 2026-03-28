@@ -1,8 +1,4 @@
-// SP-01 stable FTS5 hash — 2026-03-13
-//
-// Tests for the stable rowid_for hash function used by FTS5 contentless indexes.
-// If any of these tests fail, the hash algorithm has changed and all FTS5
-// indexes need rebuilding.
+// Stable FTS5 hash tests.
 
 use std::collections::HashSet;
 

@@ -1,4 +1,4 @@
-// Sprint 1B — Issue #17 & Issue #5 atomicity tests — 2026-03-13
+// Apply/ingest atomicity tests.
 
 #![recursion_limit = "256"]
 #![allow(

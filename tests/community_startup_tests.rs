@@ -1,13 +1,4 @@
-// SP-06 startup guard — 2026-03-12
-//
-// Document the expected behavior: community mode must panic (refuse to start)
-// if the primary pubkey cannot be determined.
-//
-// We cannot easily integration-test a process panic in community mode without
-// spawning a child process, so this test verifies the contract at the function
-// level: fetch_primary_pubkey returns None when the primary is unreachable,
-// and the caller is expected to .expect() on it rather than falling back to
-// the node's own pubkey.
+// Community startup helper tests.
 
 #[tokio::test]
 async fn fetch_primary_pubkey_returns_none_when_unreachable() {

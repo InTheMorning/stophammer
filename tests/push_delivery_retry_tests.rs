@@ -1,4 +1,4 @@
-// SP-04 push retry — 2026-03-13
+// Push delivery retry tests.
 
 mod common;
 

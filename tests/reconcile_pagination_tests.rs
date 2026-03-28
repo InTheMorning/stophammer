@@ -1,7 +1,4 @@
-// Finding-5 reconcile pagination — 2026-03-13
-//
-// Reconcile must return `has_more` and `next_seq` so callers can paginate.
-// `get_event_refs_since` must be bounded to prevent unbounded memory usage.
+// Reconcile pagination tests.
 
 mod common;
 

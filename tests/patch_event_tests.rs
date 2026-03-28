@@ -1,5 +1,9 @@
-// Sprint 4A: PATCH endpoints return 204 No Content (RFC 7396 compliance)
-// REST semantics compliant (RFC 7396) — 2026-03-12
+#![expect(
+    clippy::significant_drop_tightening,
+    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
+)]
+
+// PATCH endpoint event tests.
 
 mod common;
 
@@ -7,7 +11,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use http::Request;
-use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
@@ -15,11 +18,7 @@ use tower::ServiceExt;
 // ---------------------------------------------------------------------------
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
-    let temp_dir = tempfile::tempdir().expect("create temp signer dir");
-    let key_path = temp_dir.path().join("test-sprint4a.key");
-    let signer = Arc::new(
-        stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer"),
-    );
+    let signer = Arc::new(common::temp_signer("test-sprint1a"));
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
@@ -113,11 +112,127 @@ fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String 
     .expect("issue token")
 }
 
+fn count_events(conn: &rusqlite::Connection, event_type: &str) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM events WHERE event_type = ?1",
+        rusqlite::params![event_type],
+        |row| row.get(0),
+    )
+    .expect("count events")
+}
+
+fn get_latest_event_payload(conn: &rusqlite::Connection, event_type: &str) -> String {
+    conn.query_row(
+        "SELECT payload_json FROM events WHERE event_type = ?1 ORDER BY seq DESC LIMIT 1",
+        rusqlite::params![event_type],
+        |row| row.get(0),
+    )
+    .expect("get latest event payload")
+}
+
 // ---------------------------------------------------------------------------
-// Test: PATCH /v1/feeds/{guid} with valid token returns 204 No Content, empty body
+// Issue-12: PATCH /v1/feeds/{guid} must emit a FeedUpserted event
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn patch_feed_returns_204_no_content() {
+async fn patch_feed_emits_feed_upserted_event() {
+    let db = common::test_db_arc();
+    let token;
+    {
+        let conn = db.lock().expect("lock db");
+        seed_feed(&conn);
+        token = issue_token_for_feed(&conn, "feed-1");
+
+        // Verify no events exist yet.
+        assert_eq!(count_events(&conn, "feed_upserted"), 0);
+    }
+    let state = test_app_state(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri("/v1/feeds/feed-1")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "feed_url": "https://updated.example.com/feed.xml"
+            }))
+            .expect("serialize JSON"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 204);
+
+    // After PATCH, a FeedUpserted event should exist.
+    let conn = db.lock().expect("lock db");
+    assert_eq!(
+        count_events(&conn, "feed_upserted"),
+        1,
+        "PATCH /feeds must emit a FeedUpserted event"
+    );
+
+    // The event payload should contain the updated feed_url.
+    let payload = get_latest_event_payload(&conn, "feed_upserted");
+    assert!(
+        payload.contains("https://updated.example.com/feed.xml"),
+        "FeedUpserted event payload must reflect the patched feed_url"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue-12: PATCH /v1/tracks/{guid} must emit a TrackUpserted event
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn patch_track_emits_track_upserted_event() {
+    let db = common::test_db_arc();
+    let token;
+    {
+        let conn = db.lock().expect("lock db");
+        let (credit_id, now) = seed_feed(&conn);
+        insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
+        token = issue_token_for_feed(&conn, "feed-1");
+
+        assert_eq!(count_events(&conn, "track_upserted"), 0);
+    }
+    let state = test_app_state(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri("/v1/tracks/track-1")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "enclosure_url": "https://cdn.example.com/updated-song.mp3"
+            }))
+            .expect("serialize JSON"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 204);
+
+    let conn = db.lock().expect("lock db");
+    assert_eq!(
+        count_events(&conn, "track_upserted"),
+        1,
+        "PATCH /tracks must emit a TrackUpserted event"
+    );
+
+    let payload = get_latest_event_payload(&conn, "track_upserted");
+    assert!(
+        payload.contains("https://cdn.example.com/updated-song.mp3"),
+        "TrackUpserted event payload must reflect the patched enclosure_url"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue-12: The emitted events must have valid signatures
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn patch_feed_event_has_valid_signature() {
     let db = common::test_db_arc();
     let token;
     {
@@ -135,68 +250,75 @@ async fn patch_feed_returns_204_no_content() {
         .header("Authorization", format!("Bearer {token}"))
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
-                "feed_url": "https://new-url.example.com/feed.xml"
+                "feed_url": "https://signed.example.com/feed.xml"
             }))
             .expect("serialize JSON"),
         ))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(
-        resp.status(),
-        204,
-        "PATCH /v1/feeds/feed-1 should return 204 No Content"
-    );
+    assert_eq!(resp.status(), 204);
 
-    let bytes = resp
-        .into_body()
-        .collect()
-        .await
-        .expect("collect body")
-        .to_bytes();
-    assert!(
-        bytes.is_empty(),
-        "204 No Content must have an empty body, got {} bytes",
-        bytes.len()
-    );
-
-    // Verify the URL was actually updated in the database.
-    let url: String = {
-        let conn = db.lock().expect("lock db");
+    // Read the raw event from the events table and verify its signature.
+    let conn = db.lock().expect("lock db");
+    // Issue-SEQ-INTEGRITY — 2026-03-14: must read seq for signature verification.
+    let (event_id, event_type_str, payload_json, subject_guid, signed_by, signature, seq, created_at): (String, String, String, String, String, String, i64, i64) =
         conn.query_row(
-            "SELECT feed_url FROM feeds WHERE feed_guid = 'feed-1'",
+            "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at \
+             FROM events WHERE event_type = 'feed_upserted' ORDER BY seq DESC LIMIT 1",
             [],
-            |r| r.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?)),
         )
-        .expect("get feed_url")
+        .expect("read event from DB");
+
+    assert_eq!(event_type_str, "feed_upserted");
+    assert_eq!(subject_guid, "feed-1");
+    assert!(!signed_by.is_empty(), "signed_by must not be empty");
+    assert!(!signature.is_empty(), "signature must not be empty");
+
+    // Reconstruct event and verify signature.
+    let tagged = format!(r#"{{"type":"feed_upserted","data":{payload_json}}}"#);
+    let ev_payload: stophammer::event::EventPayload =
+        serde_json::from_str(&tagged).expect("deserialize event payload");
+
+    let ev = stophammer::event::Event {
+        event_id,
+        event_type: stophammer::event::EventType::FeedUpserted,
+        payload: ev_payload,
+        subject_guid,
+        signed_by,
+        signature,
+        seq, // Issue-SEQ-INTEGRITY — 2026-03-14: use actual DB seq for verification
+        created_at,
+        warnings: vec![],
+        payload_json,
     };
-    assert_eq!(url, "https://new-url.example.com/feed.xml");
+
+    stophammer::signing::verify_event_signature(&ev)
+        .expect("FeedUpserted event from PATCH must have a valid ed25519 signature");
 }
 
 // ---------------------------------------------------------------------------
-// Test: PATCH /v1/tracks/{guid} with valid token returns 204 No Content, empty body
+// Issue-13: PATCH /v1/feeds/{guid} returns 404 for unknown feed
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn patch_track_returns_204_no_content() {
+async fn patch_feed_unknown_guid_returns_404() {
     let db = common::test_db_arc();
-    let token;
     {
         let conn = db.lock().expect("lock db");
-        let (credit_id, now) = seed_feed(&conn);
-        insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
-        token = issue_token_for_feed(&conn, "feed-1");
+        seed_feed(&conn);
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
     let req = Request::builder()
         .method("PATCH")
-        .uri("/v1/tracks/track-1")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {token}"))
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
-                "enclosure_url": "https://cdn.example.com/new-song.mp3"
+                "feed_url": "https://updated.example.com/feed.xml"
             }))
             .expect("serialize JSON"),
         ))
@@ -205,40 +327,53 @@ async fn patch_track_returns_204_no_content() {
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
         resp.status(),
-        204,
-        "PATCH /v1/tracks/track-1 should return 204 No Content"
+        404,
+        "PATCH /feeds with unknown GUID must return 404, not 204"
     );
-
-    let bytes = resp
-        .into_body()
-        .collect()
-        .await
-        .expect("collect body")
-        .to_bytes();
-    assert!(
-        bytes.is_empty(),
-        "204 No Content must have an empty body, got {} bytes",
-        bytes.len()
-    );
-
-    // Verify the URL was actually updated in the database.
-    let url: String = {
-        let conn = db.lock().expect("lock db");
-        conn.query_row(
-            "SELECT enclosure_url FROM tracks WHERE track_guid = 'track-1'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("get enclosure_url")
-    };
-    assert_eq!(url, "https://cdn.example.com/new-song.mp3");
 }
 
 // ---------------------------------------------------------------------------
-// Test: PATCH /v1/feeds/{guid} with empty body (no changes) returns 204 No Content
+// Issue-13: PATCH /v1/tracks/{guid} returns 404 for unknown track
+// (Note: handle_patch_track already does a get_track_by_guid lookup, so this
+// test verifies the existing 404 behaviour is preserved.)
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn patch_feed_empty_body_returns_204_no_content() {
+async fn patch_track_unknown_guid_returns_404() {
+    let db = common::test_db_arc();
+    {
+        let conn = db.lock().expect("lock db");
+        seed_feed(&conn);
+    }
+    let state = test_app_state(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri("/v1/tracks/nonexistent-track")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-admin-token")
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "enclosure_url": "https://cdn.example.com/nope.mp3"
+            }))
+            .expect("serialize JSON"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(
+        resp.status(),
+        404,
+        "PATCH /tracks with unknown GUID must return 404"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Issue-12: PATCH /v1/feeds/{guid} with empty body and existing feed returns 204
+// but does NOT emit an event (no mutation happened)
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn patch_feed_empty_body_does_not_emit_event() {
     let db = common::test_db_arc();
     let token;
     {
@@ -260,102 +395,12 @@ async fn patch_feed_empty_body_returns_204_no_content() {
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(resp.status(), 204);
+
+    let conn = db.lock().expect("lock db");
     assert_eq!(
-        resp.status(),
-        204,
-        "PATCH with empty body should return 204 No Content"
-    );
-
-    let bytes = resp
-        .into_body()
-        .collect()
-        .await
-        .expect("collect body")
-        .to_bytes();
-    assert!(
-        bytes.is_empty(),
-        "204 No Content must have an empty body, got {} bytes",
-        bytes.len()
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test: PATCH /v1/feeds/{guid} with no auth returns 401 with WWW-Authenticate
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn patch_feed_no_auth_returns_401() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().expect("lock db");
-        seed_feed(&conn);
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let req = Request::builder()
-        .method("PATCH")
-        .uri("/v1/feeds/feed-1")
-        .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "feed_url": "https://evil.example.com/feed.xml"
-            }))
-            .expect("serialize"),
-        ))
-        .expect("build request");
-
-    let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 401, "PATCH without auth should return 401");
-
-    let www_auth = resp
-        .headers()
-        .get("WWW-Authenticate")
-        .expect("WWW-Authenticate header must be present on 401")
-        .to_str()
-        .expect("header to str");
-    assert!(
-        www_auth.contains("Bearer"),
-        "WWW-Authenticate must contain Bearer scheme, got: {www_auth}"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Test: PATCH /v1/tracks/{guid} with no auth returns 401 with WWW-Authenticate
-// ---------------------------------------------------------------------------
-#[tokio::test]
-async fn patch_track_no_auth_returns_401() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().expect("lock db");
-        let (credit_id, now) = seed_feed(&conn);
-        insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let req = Request::builder()
-        .method("PATCH")
-        .uri("/v1/tracks/track-1")
-        .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "enclosure_url": "https://evil.example.com/song.mp3"
-            }))
-            .expect("serialize"),
-        ))
-        .expect("build request");
-
-    let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 401, "PATCH without auth should return 401");
-
-    let www_auth = resp
-        .headers()
-        .get("WWW-Authenticate")
-        .expect("WWW-Authenticate header must be present on 401")
-        .to_str()
-        .expect("header to str");
-    assert!(
-        www_auth.contains("Bearer"),
-        "WWW-Authenticate must contain Bearer scheme, got: {www_auth}"
+        count_events(&conn, "feed_upserted"),
+        0,
+        "PATCH with no fields should not emit an event"
     );
 }

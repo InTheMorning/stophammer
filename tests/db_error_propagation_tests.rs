@@ -1,7 +1,4 @@
-// Sprint 2B tests: Poisoned mutex propagation + spawn_db helper
-//
-// Issue #5 — Poisoned mutex must produce HTTP 500, not silent recovery.
-// Issue #14 — spawn_db helper must correctly map DbError → ApiError.
+// Database error propagation tests.
 
 mod common;
 

@@ -1,4 +1,4 @@
-// SP-02 pruner interval — 2026-03-13
+// Proof pruner configuration tests.
 
 /// `prune_interval_from_env` should return default 300 when env var is absent.
 /// We cannot safely set env vars in the 2024 edition without `unsafe`, so we

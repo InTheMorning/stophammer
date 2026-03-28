@@ -1,7 +1,4 @@
-// Finding-2 atomic mutation+event tests — 2026-03-13
-//
-// Verify that mutation + event insert are atomic: if the event insert fails
-// (because the events table is missing), the mutation must be rolled back.
+// Write + event atomicity tests.
 
 mod common;
 

@@ -161,6 +161,33 @@ fn no_drop_table_in_migrations() {
     }
 }
 
+#[test]
+fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
+    let conn = common::test_db();
+
+    for name in ["feed_type", "artist_location", "manifest_source"] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+                rusqlite::params![name],
+                |row| row.get(0),
+            )
+            .expect("query sqlite_master");
+        assert!(!exists, "legacy table {name} should not exist in schema");
+    }
+
+    for name in ["artist_type", "track_rel", "feed_rel"] {
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+                rusqlite::params![name],
+                |row| row.get(0),
+            )
+            .expect("query sqlite_master");
+        assert!(exists, "table {name} should still exist");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helper
 // ---------------------------------------------------------------------------

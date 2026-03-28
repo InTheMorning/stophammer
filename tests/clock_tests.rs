@@ -1,7 +1,4 @@
-// SP-05 epoch guard — 2026-03-12
-//
-// Verify that the unix_now() helper exists, is public, and returns
-// a sane value under normal conditions.
+// Clock helper tests.
 
 #[test]
 fn unix_now_returns_positive_value() {

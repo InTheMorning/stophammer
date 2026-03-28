@@ -1,4 +1,4 @@
-// SP-08 CORS — 2026-03-13
+// CORS tests.
 
 mod common;
 

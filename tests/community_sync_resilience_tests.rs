@@ -1,4 +1,4 @@
-// TC-03 community resilience — 2026-03-13
+// Community sync resilience tests.
 
 #![expect(
     clippy::significant_drop_tightening,

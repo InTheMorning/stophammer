@@ -1,4 +1,4 @@
-// SP-03 rate limiting — 2026-03-13
+// Rate limiting tests.
 
 mod common;
 

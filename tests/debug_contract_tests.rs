@@ -1,6 +1,4 @@
-// Sprint 3B tests — 2026-03-13
-//
-// TDD tests for issues #8, #18, #19, #23, CRIT-02, CRIT-03, HIGH-02.
+// Debug/contract sanity tests.
 
 mod common;
 

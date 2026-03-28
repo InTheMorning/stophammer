@@ -1,4 +1,4 @@
-// TC-05 E2E golden path — 2026-03-13
+// Ingest-to-query end-to-end tests.
 
 #![recursion_limit = "256"]
 
