@@ -10041,11 +10041,8 @@ pub fn link_wallet_to_artist_if_confident(
     Ok(created)
 }
 
-/// Merge two wallets: repoint all references from `old_id` to `new_id`.
-///
-/// Updates endpoint assignments, artist links, review items, and inserts a
-/// redirect. Re-derives the display name of the surviving wallet.
-pub fn merge_wallets(conn: &Connection, old_id: &str, new_id: &str) -> Result<(), DbError> {
+/// Inner wallet merge logic. Caller must hold a transaction.
+fn merge_wallets_inner(conn: &Connection, old_id: &str, new_id: &str) -> Result<(), DbError> {
     let now = unix_now();
 
     // Repoint endpoints
@@ -10090,6 +10087,19 @@ pub fn merge_wallets(conn: &Connection, old_id: &str, new_id: &str) -> Result<()
     // Re-derive display name of surviving wallet
     update_wallet_display_name(conn, new_id)?;
 
+    Ok(())
+}
+
+/// Merge two wallets: repoint all references from `old_id` to `new_id`.
+///
+/// Updates endpoint assignments, artist links, review items, and inserts a
+/// redirect. Re-derives the display name of the surviving wallet.
+///
+/// All writes are performed atomically within a single transaction.
+pub fn merge_wallets(conn: &Connection, old_id: &str, new_id: &str) -> Result<(), DbError> {
+    let tx = conn.unchecked_transaction()?;
+    merge_wallets_inner(&tx, old_id, new_id)?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -10262,8 +10272,11 @@ fn audited_merge_wallets(
         })?
         .collect::<Result<_, _>>()?;
 
-    let batch_id = ensure_wallet_merge_batch(conn, recorder)?;
-    conn.execute(
+    // All writes — audit entry, merge, and batch counter — are committed atomically.
+    let tx = conn.unchecked_transaction()?;
+
+    let batch_id = ensure_wallet_merge_batch(&tx, recorder)?;
+    tx.execute(
         "INSERT INTO wallet_merge_apply_entry \
          (batch_id, seq, reason, old_wallet_id, new_wallet_id, old_wallet_json, \
           old_endpoint_ids_json, old_artist_links_json, new_artist_ids_json, \
@@ -10285,11 +10298,12 @@ fn audited_merge_wallets(
     )?;
     recorder.next_seq += 1;
 
-    merge_wallets(conn, old_id, new_id)?;
-    conn.execute(
+    merge_wallets_inner(&tx, old_id, new_id)?;
+    tx.execute(
         "UPDATE wallet_merge_apply_batch SET merges_applied = merges_applied + 1 WHERE id = ?1",
         params![batch_id],
     )?;
+    tx.commit()?;
     Ok(true)
 }
 

@@ -73,10 +73,12 @@ pub fn run_batch_with_signer(
     // Disable FTS5 background segment merging during the batch. Each
     // populate_search_index call would otherwise trigger a merge, making bulk
     // resolution O(n·log n). We do a single merge pass after the loop.
-    let _ = conn.execute(
+    if let Err(e) = conn.execute(
         "INSERT INTO search_index(search_index) VALUES('automerge=0')",
         [],
-    );
+    ) {
+        eprintln!("resolver: WARNING: failed to disable FTS5 automerge: {e}");
+    }
 
     // Pre-compute anchored-name identity groups once for the whole batch.
     // This avoids repeating the global table scan inside every per-feed call.
@@ -91,24 +93,44 @@ pub fn run_batch_with_signer(
             Some(&anchored_cache),
         ) {
             Ok(feed_result) => {
-                db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id)?;
-                result.resolved += 1;
-                result.source_read_model_events_emitted +=
-                    feed_result.source_read_model_events_emitted;
-                result.canonical_state_events_emitted += feed_result.canonical_state_events_emitted;
-                result.canonical_promotion_events_emitted +=
-                    feed_result.canonical_promotion_events_emitted;
-                result.artist_merge_events_emitted += feed_result.artist_merge_events_emitted;
-                result.artist_identity_events_emitted += feed_result.artist_identity_events_emitted;
-                result.artist_seed_artists += feed_result.seed_artists;
-                result.artist_candidate_groups += feed_result.candidate_groups;
-                result.artist_groups_processed += feed_result.groups_processed;
-                result.artist_merges_applied += feed_result.merges_applied;
-                result.wallet_endpoints_created += feed_result.wallet_endpoints_created;
-                result.wallet_wallets_created += feed_result.wallet_wallets_created;
+                match db::complete_dirty_feed(&conn, &entry.feed_guid, worker_id) {
+                    Ok(()) => {
+                        result.resolved += 1;
+                        result.source_read_model_events_emitted +=
+                            feed_result.source_read_model_events_emitted;
+                        result.canonical_state_events_emitted +=
+                            feed_result.canonical_state_events_emitted;
+                        result.canonical_promotion_events_emitted +=
+                            feed_result.canonical_promotion_events_emitted;
+                        result.artist_merge_events_emitted +=
+                            feed_result.artist_merge_events_emitted;
+                        result.artist_identity_events_emitted +=
+                            feed_result.artist_identity_events_emitted;
+                        result.artist_seed_artists += feed_result.seed_artists;
+                        result.artist_candidate_groups += feed_result.candidate_groups;
+                        result.artist_groups_processed += feed_result.groups_processed;
+                        result.artist_merges_applied += feed_result.merges_applied;
+                        result.wallet_endpoints_created += feed_result.wallet_endpoints_created;
+                        result.wallet_wallets_created += feed_result.wallet_wallets_created;
+                    }
+                    Err(e) => {
+                        // Lock stays held; stale lock recovery (900 s) will reclaim it.
+                        eprintln!(
+                            "resolver: WARNING: failed to complete feed {} after resolution: {e}",
+                            entry.feed_guid,
+                        );
+                    }
+                }
             }
             Err(err) => {
-                db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())?;
+                if let Err(e) =
+                    db::fail_dirty_feed(&conn, &entry.feed_guid, worker_id, &err.to_string())
+                {
+                    eprintln!(
+                        "resolver: WARNING: failed to record failure for feed {}: {e}",
+                        entry.feed_guid,
+                    );
+                }
                 result.failed += 1;
             }
         }
@@ -119,14 +141,18 @@ pub fn run_batch_with_signer(
         db::cleanup_canonical_search_entities(&conn)?;
         // Re-enable automerge and run one merge pass to consolidate the
         // segments created during this batch.
-        let _ = conn.execute(
+        if let Err(e) = conn.execute(
             "INSERT INTO search_index(search_index) VALUES('automerge=8')",
             [],
-        );
-        let _ = conn.execute(
+        ) {
+            eprintln!("resolver: WARNING: failed to re-enable FTS5 automerge: {e}");
+        }
+        if let Err(e) = conn.execute(
             "INSERT INTO search_index(search_index) VALUES('merge=500')",
             [],
-        );
+        ) {
+            eprintln!("resolver: WARNING: failed to run FTS5 merge pass: {e}");
+        }
     }
 
     Ok(result)
@@ -258,6 +284,17 @@ pub async fn run_forever(
                 );
             }
             Ok(_summary) => {}
+            Err(db::DbError::Poisoned) => {
+                // A thread panicked while holding the writer lock. The mutex is
+                // permanently poisoned and every subsequent batch will fail the
+                // same way. Exit so the process manager can restart with a
+                // clean mutex.
+                tracing::error!(
+                    "resolver: writer mutex poisoned — a thread panicked while holding the lock; \
+                     exiting so the process manager can restart"
+                );
+                std::process::exit(1);
+            }
             Err(err) => tracing::error!(error = %err, "resolver: batch failed"),
         }
     }

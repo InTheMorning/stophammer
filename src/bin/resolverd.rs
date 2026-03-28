@@ -30,10 +30,21 @@ async fn main() {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
+    if interval_secs == 0 {
+        tracing::error!("RESOLVER_INTERVAL_SECS must be >= 1; got 0 (would cause a busy loop)");
+        std::process::exit(1);
+    }
     let batch_size: i64 = std::env::var("RESOLVER_BATCH_SIZE")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(25);
+    if batch_size < 1 {
+        tracing::error!(
+            batch_size,
+            "RESOLVER_BATCH_SIZE must be >= 1; got {batch_size}"
+        );
+        std::process::exit(1);
+    }
     let worker_id = std::env::var("RESOLVER_WORKER_ID")
         .unwrap_or_else(|_| format!("resolverd-{}", std::process::id()));
     let emit_resolved_state_events = parse_truthy_opt_out(

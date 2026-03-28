@@ -37,56 +37,86 @@ fn parse_args() -> Result<(PathBuf, Option<usize>), String> {
     Ok((db_path, limit))
 }
 
+/// Number of feed GUIDs fetched per database page. Bounds peak memory use to
+/// roughly PAGE_SIZE × (average GUID length) rather than the full table.
+const PAGE_SIZE: usize = 500;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (db_path, limit) = parse_args().map_err(std::io::Error::other)?;
     let mut conn = stophammer::db::open_db(&db_path);
 
-    let feed_guids: Vec<String> = {
-        let sql = if limit.is_some() {
-            "SELECT feed_guid FROM feeds ORDER BY created_at, feed_guid LIMIT ?1"
-        } else {
-            "SELECT feed_guid FROM feeds ORDER BY created_at, feed_guid"
-        };
-        let mut stmt = conn.prepare(sql)?;
-        if let Some(limit) = limit {
-            let limit_i64 = i64::try_from(limit).map_err(|_err| {
-                rusqlite::Error::ToSqlConversionFailure(
-                    "backfill limit exceeded supported SQLite integer range"
-                        .to_string()
-                        .into(),
-                )
-            })?;
-            stmt.query_map([limit_i64], |row| row.get(0))?
-                .collect::<Result<Vec<String>, _>>()?
-        } else {
-            stmt.query_map([], |row| row.get(0))?
-                .collect::<Result<Vec<String>, _>>()?
-        }
+    // Count how many feeds we will process (for progress output only).
+    let total: usize = {
+        let count: i64 =
+            conn.query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))?;
+        let count = usize::try_from(count).unwrap_or(usize::MAX);
+        limit.map_or(count, |l| l.min(count))
     };
 
     println!(
         "backfill_canonical: rebuilding {} feeds from {}",
-        feed_guids.len(),
+        total,
         db_path.display()
     );
 
-    for (idx, feed_guid) in feed_guids.iter().enumerate() {
-        let tx = conn.transaction()?;
-        stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)
-            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-        stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
-            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-        stophammer::db::sync_canonical_search_index_for_feed(&tx, feed_guid)
-            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
-        tx.commit()
-            .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+    // Cursor-based pagination: advance `last_guid` after each page so only
+    // PAGE_SIZE GUIDs are held in memory at a time.
+    let mut processed = 0usize;
+    let mut last_guid = String::new();
 
-        if (idx + 1) % 100 == 0 || idx + 1 == feed_guids.len() {
-            println!(
-                "backfill_canonical: processed {}/{} feeds",
-                idx + 1,
-                feed_guids.len()
-            );
+    loop {
+        let fetch = match limit {
+            Some(l) => PAGE_SIZE.min(l.saturating_sub(processed)),
+            None => PAGE_SIZE,
+        };
+        if fetch == 0 {
+            break;
+        }
+
+        let page: Vec<String> = {
+            let mut stmt = conn.prepare(
+                "SELECT feed_guid FROM feeds \
+                 WHERE feed_guid > ?1 \
+                 ORDER BY feed_guid \
+                 LIMIT ?2",
+            )?;
+            stmt.query_map(
+                rusqlite::params![last_guid, fetch as i64],
+                |row| row.get(0),
+            )?
+            .collect::<Result<Vec<String>, _>>()?
+        };
+
+        if page.is_empty() {
+            break;
+        }
+
+        for feed_guid in &page {
+            let tx = conn.transaction()?;
+            stophammer::db::sync_canonical_state_for_feed(&tx, feed_guid)
+                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+            stophammer::db::sync_canonical_promotions_for_feed(&tx, feed_guid)
+                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+            stophammer::db::sync_canonical_search_index_for_feed(&tx, feed_guid)
+                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+            tx.commit()
+                .map_err(|err| std::io::Error::other(format!("feed {feed_guid}: {err}")))?;
+
+            processed += 1;
+            if processed % 100 == 0 || processed == total {
+                println!(
+                    "backfill_canonical: processed {}/{} feeds",
+                    processed, total
+                );
+            }
+        }
+
+        // Safe: loop only continues when page is non-empty.
+        last_guid = page.last().unwrap().clone();
+
+        if page.len() < fetch {
+            // Last page — no more feeds in the table.
+            break;
         }
     }
 
