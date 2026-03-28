@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -18,7 +19,7 @@ async fn main() -> ExitCode {
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            tracing::error!(error = %err, "resolver startup failed");
+            eprintln!("resolverd: {err}");
             ExitCode::FAILURE
         }
     }
@@ -28,6 +29,42 @@ type StartupError = Box<dyn std::error::Error + Send + Sync>;
 
 fn startup_error(msg: impl Into<String>) -> StartupError {
     Box::new(std::io::Error::other(msg.into()))
+}
+
+const LOCK_EX: i32 = 2;
+const LOCK_NB: i32 = 4;
+
+unsafe extern "C" {
+    fn flock(fd: i32, operation: i32) -> i32;
+}
+
+fn acquire_lock(path: &str) -> Result<File, StartupError> {
+    use std::os::unix::io::AsRawFd;
+
+    let file = File::options()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)
+        .map_err(|e| startup_error(format!("failed to open lock file {path}: {e}")))?;
+
+    // SAFETY: file descriptor is valid and open.
+    let ret = unsafe { flock(file.as_raw_fd(), LOCK_EX | LOCK_NB) };
+
+    if ret == -1 {
+        let err = std::io::Error::last_os_error();
+        return Err(if err.kind() == std::io::ErrorKind::WouldBlock {
+            startup_error("another resolverd instance is already running against this database")
+        } else {
+            startup_error(format!("failed to acquire lock on {path}: {err}"))
+        });
+    }
+
+    // Write our PID for diagnostics.
+    use std::io::Write;
+    let _ = (&file).write_all(format!("{}\n", std::process::id()).as_bytes());
+
+    Ok(file)
 }
 
 fn print_help() {
@@ -80,9 +117,6 @@ async fn run() -> Result<(), StartupError> {
         std::env::var("NODE_MODE").ok().as_deref(),
         Some("community")
     ) {
-        tracing::error!(
-            "resolverd is primary-only; community nodes follow primary-authored resolved events"
-        );
         return Err(startup_error(
             "resolverd is primary-only; community nodes follow primary-authored resolved events",
         ));
@@ -95,19 +129,18 @@ async fn run() -> Result<(), StartupError> {
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
     if interval_secs == 0 {
-        tracing::error!("RESOLVER_INTERVAL_SECS must be >= 1; got 0 (would cause a busy loop)");
-        std::process::exit(1);
+        return Err(startup_error(
+            "RESOLVER_INTERVAL_SECS must be >= 1; got 0 (would cause a busy loop)",
+        ));
     }
     let batch_size: i64 = std::env::var("RESOLVER_BATCH_SIZE")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(25);
     if batch_size < 1 {
-        tracing::error!(
-            batch_size,
+        return Err(startup_error(format!(
             "RESOLVER_BATCH_SIZE must be >= 1; got {batch_size}"
-        );
-        std::process::exit(1);
+        )));
     }
     let worker_id = std::env::var("RESOLVER_WORKER_ID")
         .unwrap_or_else(|_| format!("resolverd-{}", std::process::id()));
@@ -116,6 +149,12 @@ async fn run() -> Result<(), StartupError> {
             .ok()
             .as_deref(),
     );
+
+    // Advisory file lock prevents multiple resolver instances from running
+    // against the same database. The lock is held for the lifetime of the
+    // process and released automatically by the OS on exit or crash.
+    let lock_path = format!("{db_path}.resolverd.lock");
+    let _lock_file = acquire_lock(&lock_path)?;
 
     let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
         .map_err(|err| startup_error(format!("failed to open database pool: {err}")))?;
@@ -132,13 +171,8 @@ async fn run() -> Result<(), StartupError> {
         None
     };
 
-    tracing::info!(
-        db_path,
-        interval_secs,
-        batch_size,
-        worker_id,
-        emit_resolved_state_events,
-        "resolver: starting background worker"
+    println!(
+        "resolverd: db={db_path} interval={interval_secs}s batch={batch_size} worker={worker_id} events={emit_resolved_state_events}"
     );
 
     resolver::worker::run_forever(pool, interval_secs, batch_size, worker_id, signer).await;

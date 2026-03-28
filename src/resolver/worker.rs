@@ -270,6 +270,28 @@ pub async fn run_forever(
     worker_id: String,
     signer: Option<std::sync::Arc<signing::NodeSigner>>,
 ) {
+    // Show initial queue depth so the operator knows what to expect.
+    match db_pool.writer().lock() {
+        Ok(conn) => match db::dirty_queue_diagnostics(&conn) {
+            Ok(d) => {
+                let total = d.claimable + d.locked + d.exhausted + d.backing_off;
+                if total == 0 {
+                    println!("resolverd: 0 dirty feeds in queue");
+                } else {
+                    println!(
+                        "resolverd: {total} dirty feeds — {claimable} claimable, {locked} locked, {exhausted} exhausted, {backing_off} backing off",
+                        claimable = d.claimable,
+                        locked = d.locked,
+                        exhausted = d.exhausted,
+                        backing_off = d.backing_off,
+                    );
+                }
+            }
+            Err(e) => eprintln!("resolverd: failed to count dirty feeds: {e}"),
+        },
+        Err(_) => eprintln!("resolverd: failed to acquire writer lock for queue count"),
+    }
+
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
     loop {
         interval.tick().await;

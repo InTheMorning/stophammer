@@ -7420,6 +7420,76 @@ pub fn mark_feed_dirty(conn: &Connection, feed_guid: &str, dirty_mask: i64) -> R
     Ok(())
 }
 
+/// Returns the number of feeds with a non-zero dirty mask in the resolver queue.
+pub fn dirty_feed_count(conn: &Connection) -> Result<i64, DbError> {
+    Ok(conn.query_row(
+        "SELECT COUNT(*) FROM resolver_queue WHERE dirty_mask != 0",
+        [],
+        |row| row.get(0),
+    )?)
+}
+
+/// Breakdown of why dirty feeds in the resolver queue cannot be claimed.
+#[derive(Debug, Default)]
+pub struct DirtyQueueDiagnostics {
+    /// Feeds eligible to be claimed right now.
+    pub claimable: i64,
+    /// Feeds locked by a worker (lock not yet stale).
+    pub locked: i64,
+    /// Feeds that exhausted all retry attempts.
+    pub exhausted: i64,
+    /// Feeds waiting for retry backoff to expire.
+    pub backing_off: i64,
+}
+
+/// Diagnoses why dirty feeds in the queue are not being claimed.
+pub fn dirty_queue_diagnostics(conn: &Connection) -> Result<DirtyQueueDiagnostics, DbError> {
+    let now = unix_now();
+    let stale_before = now - RESOLVER_LOCK_STALE_AFTER_SECS;
+
+    let mut d = DirtyQueueDiagnostics::default();
+    let mut stmt = conn.prepare(
+        "SELECT locked_at, locked_by, attempt_count, last_error, last_marked_at
+         FROM resolver_queue WHERE dirty_mask != 0",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, Option<i64>>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, i64>(2)?,
+            row.get::<_, Option<String>>(3)?,
+            row.get::<_, i64>(4)?,
+        ))
+    })?;
+
+    for row in rows {
+        let (locked_at, _locked_by, attempt_count, last_error, last_marked_at) = row?;
+
+        // Locked and not stale?
+        if let Some(la) = locked_at {
+            if la >= stale_before {
+                d.locked += 1;
+                continue;
+            }
+        }
+
+        // Has a prior error?
+        if last_error.is_some() {
+            if attempt_count >= RESOLVER_MAX_CONSECUTIVE_FAILURES {
+                d.exhausted += 1;
+            } else if last_marked_at + (RESOLVER_RETRY_BACKOFF_BASE_SECS * attempt_count) > now {
+                d.backing_off += 1;
+            } else {
+                d.claimable += 1;
+            }
+        } else {
+            d.claimable += 1;
+        }
+    }
+
+    Ok(d)
+}
+
 /// Claims up to `limit` dirty feeds for `worker_id`.
 pub fn claim_dirty_feeds(
     conn: &mut Connection,
@@ -8898,7 +8968,7 @@ pub fn replace_resolved_entity_sources_for_feed(
     )?;
     for row in rows {
         conn.execute(
-            "INSERT INTO resolved_entity_sources_by_feed
+            "INSERT OR REPLACE INTO resolved_entity_sources_by_feed
              (feed_guid, entity_type, entity_id, source_type, source_url, trust_level, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
