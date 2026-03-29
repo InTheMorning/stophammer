@@ -13,6 +13,11 @@ The shipped maintenance binaries are:
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
+- `review_artist_identity_tui`
+- `backfill_wallets`
+- `review_wallet_identity`
+- `review_wallet_identity_tui`
+- `review_source_claims_tui`
 
 ## Typical Maintenance Flow
 
@@ -109,6 +114,36 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 ```
 
+Or use the interactive review console:
+
+```bash
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+```
+
+### Rebuild wallet identity and inspect pending wallet reviews
+
+```bash
+# Rebuild wallet endpoints, classifications, and artist links
+cargo run --bin backfill_wallets -- --db ./stophammer.db
+
+# Re-derive wallet display names and regenerate review items
+cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
+
+# Review pending wallet identity items
+cargo run --bin review_wallet_identity -- --db ./stophammer.db
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
+
+# Interactive wallet review
+cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+```
+
+### Inspect source claims and resolved promotions interactively
+
+```bash
+cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
+```
+
 ## Resolution Inspection via API
 
 You can also inspect why canonical mappings happened through HTTP:
@@ -127,7 +162,12 @@ These routes expose stored evidence such as:
 
 ## Related Docs
 
-- [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
-- [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
-- [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)
+- [operations.md](../operations.md)
+- [resolver-refactor-plan.md](../resolver-refactor-plan.md)
+- [schema-reference.md](../schema-reference.md)
+- [review_artist_identity.1](../../man/review_artist_identity.1)
+- [review_artist_identity_tui.1](../../man/review_artist_identity_tui.1)
+- [backfill_wallets.1](../../man/backfill_wallets.1)
+- [review_wallet_identity.1](../../man/review_wallet_identity.1)
+- [review_wallet_identity_tui.1](../../man/review_wallet_identity_tui.1)
+- [review_source_claims_tui.1](../../man/review_source_claims_tui.1)

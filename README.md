@@ -15,38 +15,15 @@ A quality-gated V4V music index with preserved source-layer container feeds.
 - packaging and distribution plan: [docs/packaging-plan.md](docs/packaging-plan.md)
 - verifier behavior: [docs/verifier-guide.md](docs/verifier-guide.md)
 - wiki-style navigation: [docs/wiki/Home.md](docs/wiki/Home.md)
-- manpages:
-  - [man/stophammer.1](man/stophammer.1)
-  - [man/stophammer-resolverd.1](man/stophammer-resolverd.1)
-  - [man/stophammer-resolverctl.1](man/stophammer-resolverctl.1)
-  - [man/backfill_canonical.1](man/backfill_canonical.1)
-  - [man/backfill_artist_identity.1](man/backfill_artist_identity.1)
-  - [man/review_artist_identity.1](man/review_artist_identity.1)
-  - [man/review_artist_identity_tui.1](man/review_artist_identity_tui.1)
-  - [man/backfill_wallets.1](man/backfill_wallets.1)
-  - [man/review_wallet_identity.1](man/review_wallet_identity.1)
-  - [man/review_wallet_identity_tui.1](man/review_wallet_identity_tui.1)
-  - [man/review_source_claims_tui.1](man/review_source_claims_tui.1)
 
 ## Ecosystem
 
 | Repository | Description |
 |---|---|
 | **[stophammer](https://github.com/dardevelin/stophammer)** | Primary / community node (this repo) |
-| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, and gossip-listener SSE/archive ingestion |
+| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, gossip-listener SSE/archive ingestion, and crawler-side analysis tools |
 | [stophammer-parser](https://github.com/dardevelin/stophammer-parser) | Declarative RSS/Podcast XML extraction engine (Rust library) |
 | [stophammer-tracker](https://github.com/dardevelin/stophammer-tracker) | Cloudflare Workers peer tracker (optional bootstrap) |
-
-## The problem
-
-The Lightning Network enables direct music payments — listeners send sats to artists
-as they listen, DJs split payments to the tracks they play. This works beautifully
-*if* you can look up a track and trust that its payment routes are real and working.
-
-PodcastIndex is the de-facto feed directory for Podcasting 2.0. It's comprehensive,
-but it doesn't enforce V4V participation — it indexes every podcast regardless of
-whether it has payment routes, whether those routes are valid, or whether it's
-actually music.
 
 ## What Stophammer is
 
@@ -76,8 +53,7 @@ dependency on a central server.
 - **App developers** building V4V music players or DJ tools that need a trustworthy
   source of feed GUIDs and payment routes
 - **Node operators** who want a local, independently-verifiable copy of the index
-- **Contributors** running crawlers (one-shot crawl, gossip real-time/archive replay, or PodcastIndex bulk
-  import) to grow the index
+- **Contributors** running the external crawler stack to grow the index
 
 ## Architecture
 
@@ -104,9 +80,9 @@ dependency on a central server.
   URL is publicly known.
 - **Crawlers** — independent untrusted processes, authenticated by `CRAWL_TOKEN`.
   Stophammer does **not** run or schedule crawlers — that is the operator's
-  responsibility (cron, systemd timer, external service). Current crawler
-  implementations: one-shot `crawl`, long-running `gossip`, and PodcastIndex
-  snapshot `import`.
+  responsibility (cron, systemd timer, external service). The crawler runtime,
+  modes, and analysis tools live in the separate
+  [stophammer-crawler](stophammer-crawler/README.md) repo.
   Treat crawlers as the SSRF-exposed fetch tier: they should be low-privilege,
   network-restricted processes that can reach public feed hosts and the primary's ingest
   endpoint, but not arbitrary internal services or primary secrets.
@@ -445,192 +421,17 @@ cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
   crawl feeds.txt
 ```
 
-## Maintenance utilities
+## Maintenance and crawlers
 
-This repo also ships local maintenance binaries for rebuilding and reviewing
-derived state from an existing database:
+Maintenance/review workflows live in the wiki and operator docs:
 
-```bash
-# Drain the durable canonical resolver queue
-cargo run --bin stophammer-resolverd
+- [docs/wiki/Maintenance-and-Review.md](docs/wiki/Maintenance-and-Review.md)
+- [docs/operations.md](docs/operations.md)
 
-# Inspect or toggle resolver import pause state, plus backfill pause status
-cargo run --bin stophammer-resolverctl -- status
-cargo run --bin stophammer-resolverctl -- import-active
-cargo run --bin stophammer-resolverctl -- import-idle
+Crawler runtime, import/gossip modes, and crawler-side analysis tools live in
+the separate crawler docs:
 
-# Wipe all resolved state and re-queue every feed for re-resolution (destructive)
-cargo run --bin stophammer-resolverctl -- re-resolve
-
-# Rebuild canonical releases / recordings and mapping tables
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_canonical -- --db ./stophammer.db
-
-# Re-run artist identity merges from current source evidence
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_artist_identity -- --db ./stophammer.db
-
-# Review unresolved duplicate artist-name groups and their source evidence
-cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
-
-# Inspect one duplicate-name group in detail
-cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
-
-# Inspect the targeted artist-identity plan for one feed
-cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
-
-# List feeds whose targeted artist-identity plan still has candidate groups
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
-
-# List stored pending resolver review items
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
-
-# Inspect one stored review item
-cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
-
-# Store a durable merge override for one review item
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
-
-# Store a durable do-not-merge override for one review item
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --reject-review 17 --note "different projects sharing one name"
-
-# Review pending artist identity items in the TUI
-cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
-
-# Rebuild wallet endpoints, classifications, and artist links
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_wallets -- --db ./stophammer.db
-# Re-derive display names and generate review items (refresh pass)
-cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
-
-# Review pending wallet identity items
-cargo run --bin review_wallet_identity -- --db ./stophammer.db
-cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
-cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
-
-# Inspect source-claim and resolved-promotion evidence in the TUI
-cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
-```
-
-These do not fetch from the network. They operate on an existing local DB file.
-
-`stophammer-resolverd` is the background worker for durable derived-state rebuilds. It
-drains `resolver_queue` incrementally and pauses while either a fresh
-`resolver_state.import_active` heartbeat or a coordinated
-`resolver_state.backfill_active` heartbeat is present. Stale heartbeats are
-ignored so a crashed importer or backfill cannot wedge the queue forever.
-Source feed/track search, source quality scores, canonical release/recording
-state, canonical-first search, promotions, and targeted artist identity now
-all converge through `stophammer-resolverd` on the primary.
-
-The artist-identity review tool persists feed-scoped review items and durable
-merge or do-not-merge overrides on top of that automatic resolver path.
-
-`stophammer-resolverd` consumes preserved source facts. It does not rewrite feed rows,
-track rows, or staged source claims; those remain the authoritative extracted
-RSS layer.
-
-Primary-authority resolved replication is now the default `stophammer-resolverd`
-behavior on primaries. Unless you explicitly disable it with
-`RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`, the worker emits signed:
-
-```bash
-source_feed_read_models_resolved
-canonical_feed_state_replaced
-canonical_feed_promotions_replaced
-artist_identity_feed_resolved
-artist_merged
-```
-
-Replicas apply those signed resolved events directly. Community nodes no
-longer run `stophammer-resolverd`; they follow the primary once its resolver has finished
-making changes. This is documented in
-[ADR 0029](docs/adr/0029-primary-resolved-replication-authority.md)
-and the rollout notes in
-[docs/primary-resolved-replication-plan.md](docs/primary-resolved-replication-plan.md).
-
-To see whether canonical views are caught up, query:
-
-```bash
-curl http://127.0.0.1:8008/v1/resolver/status
-```
-
-That endpoint reports resolver queue counts, import/backfill pause heartbeat
-state, and which API surfaces are immediate source-layer reads versus
-resolver-backed canonical views.
-
-For a resolver-aware load check, use:
-
-```bash
-FEED_GUID=feed-guid-here ./tests/load_test.sh
-FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
-```
-
-That script treats source feed/track reads and resolver-backed search as
-separate layers instead of assuming search freshness is part of the ingest
-path.
-
-Use `stophammer-resolverctl import-active` before a large bulk import and
-`stophammer-resolverctl import-idle` after it finishes so the queue can drain again. The
-backfill binaries coordinate automatically and do not need manual
-`stophammer-resolverctl` bracketing. When the crawler importer runs with
-`RESOLVER_DB_PATH=/path/to/stophammer.db`, it does the import bracketing
-automatically and refreshes the import heartbeat while the import is still
-running.
-
-Schedule with cron:
-```
-0 */6 * * *  CRAWL_TOKEN=secret INGEST_URL=http://primary:8008/ingest/feed \
-             stophammer-crawler crawl /etc/stophammer/feeds.txt
-```
-
-### Gossip listener
-
-Consumes a local `gossip-listener` SSE stream and optionally replays its
-archive database for durable catch-up:
-
-```bash
-CRAWL_TOKEN=secret \
-INGEST_URL=http://127.0.0.1:8008/ingest/feed \
-cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
-  gossip --archive-db /var/lib/podping-alpha-gossip-listener/archive.db --concurrency 3
-```
-
-### PodcastIndex snapshot importer
-
-Bulk-imports from a PodcastIndex database snapshot:
-
-```bash
-CRAWL_TOKEN=secret \
-INGEST_URL=http://127.0.0.1:8008/ingest/feed \
-cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
-  import --db /path/to/podcastindex_feeds.db
-```
-
-### Cached corpus replay and analysis
-
-The crawler repo also ships local analysis binaries for replaying cached RSS data
-without refetching the internet:
-
-```bash
-# Audit feeds into NDJSON
-cargo run --manifest-path stophammer-crawler/Cargo.toml --bin feed_audit -- \
-  --db ./stophammer-crawler/analysis/data/stophammer-feeds.db \
-  --output ./stophammer-crawler/analysis/data/feed_audit.ndjson
-
-# Re-analyze the NDJSON corpus
-cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_analyzer -- \
-  --input ./stophammer-crawler/analysis/data/feed_audit.ndjson
-
-# Replay cached feeds into the primary without refetching them
-CRAWL_TOKEN=secret \
-INGEST_URL=http://127.0.0.1:8008/ingest/feed \
-cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_import -- \
-  --input ./stophammer-crawler/analysis/data/feed_audit.ndjson \
-  --reset
-```
+- [stophammer-crawler/README.md](stophammer-crawler/README.md)
 
 ---
 
