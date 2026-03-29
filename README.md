@@ -20,10 +20,10 @@ A quality-gated V4V music index with preserved source-layer container feeds.
 
 | Repository | Description |
 |---|---|
-| **[stophammer](https://github.com/dardevelin/stophammer)** | Primary / community node (this repo) |
-| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, gossip-listener SSE/archive ingestion, and crawler-side analysis tools |
-| [stophammer-parser](https://github.com/dardevelin/stophammer-parser) | Declarative RSS/Podcast XML extraction engine (Rust library) |
-| [stophammer-tracker](https://github.com/dardevelin/stophammer-tracker) | Cloudflare Workers peer tracker (optional bootstrap) |
+| **[stophammer](https://github.com/inthemorning/stophammer)** | Primary / community node (this repo) |
+| [stophammer-crawler](https://github.com/inthemorning/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, gossip-listener SSE/archive ingestion, and crawler-side analysis tools |
+| [stophammer-parser](https://github.com/inthemorning/stophammer-parser) | Declarative RSS/Podcast XML extraction engine (Rust library) |
+| [stophammer-tracker](https://github.com/inthemorning/stophammer-tracker) | Cloudflare Workers peer tracker (optional bootstrap) |
 
 ## What Stophammer is
 
@@ -404,7 +404,7 @@ on-path tampering than HTTPS fetches, even when crawler SSRF blast radius is red
 
 ### RSS crawler
 
-All crawling modes live in [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler).
+All crawling modes live in [stophammer-crawler](https://github.com/inthemorning/stophammer-crawler).
 From this checkout, run them via the crawler submodule manifest:
 
 ```bash
