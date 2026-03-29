@@ -16,6 +16,12 @@ The assembly entrypoint is:
 ./scripts/assemble-release.sh
 ```
 
+To build the tarballs and emit a checksum file for publishing:
+
+```bash
+./scripts/publish-release.sh
+```
+
 By default it creates versioned tarballs under `dist/` using:
 
 - the main workspace release binaries from `target/release`

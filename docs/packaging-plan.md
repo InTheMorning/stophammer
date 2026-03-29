@@ -306,6 +306,10 @@ The common release base now has an explicit repo layout:
   - assembles `dist/stophammer-indexer-<version>.tar.gz`
   - assembles `dist/stophammer-node-<version>.tar.gz`
   - assembles `dist/stophammer-crawler-<version>.tar.gz`
+- `scripts/publish-release.sh`
+  - assembles the tarballs and emits `dist/SHA256SUMS-<version>.txt`
+- `.github/workflows/release.yml`
+  - publishes the tarballs and checksum file on `v*` tags
 
 The manifests map:
 
