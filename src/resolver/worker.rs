@@ -280,10 +280,10 @@ pub async fn run_forever(
             Ok(d) => {
                 let total = d.claimable + d.locked + d.exhausted + d.backing_off;
                 if total == 0 {
-                    println!("resolverd: 0 dirty feeds in queue");
+                    println!("stophammer-resolverd: 0 dirty feeds in queue");
                 } else {
                     println!(
-                        "resolverd: {total} dirty feeds — {claimable} claimable, {locked} locked, {exhausted} exhausted, {backing_off} backing off",
+                        "stophammer-resolverd: {total} dirty feeds — {claimable} claimable, {locked} locked, {exhausted} exhausted, {backing_off} backing off",
                         claimable = d.claimable,
                         locked = d.locked,
                         exhausted = d.exhausted,
@@ -291,9 +291,9 @@ pub async fn run_forever(
                     );
                 }
             }
-            Err(e) => eprintln!("resolverd: failed to count dirty feeds: {e}"),
+            Err(e) => eprintln!("stophammer-resolverd: failed to count dirty feeds: {e}"),
         },
-        Err(_) => eprintln!("resolverd: failed to acquire writer lock for queue count"),
+        Err(_) => eprintln!("stophammer-resolverd: failed to acquire writer lock for queue count"),
     }
 
     let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));

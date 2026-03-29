@@ -23,7 +23,7 @@ That created avoidable duplication and drift risk:
 
 - every community node pays the full resolver cost
 - resolver heuristics and override behavior must stay in lock-step everywhere
-- operationally, community nodes used to need `resolverd` even though the
+- operationally, community nodes used to need `stophammer-resolverd` even though the
   primary is already the place where review and approval happen
 
 The desired end state is:
@@ -53,7 +53,7 @@ Split replicated state into two layers:
    - keep source feed/track/claim rows reachable everywhere
 
 2. resolved-state events
-   - emitted by `resolverd` on the primary after durable resolver work commits
+   - emitted by `stophammer-resolverd` on the primary after durable resolver work commits
    - carry canonical clustering, promotions, and override-backed decisions as
      signed, replayable snapshots
 
@@ -71,7 +71,7 @@ Scope:
 - introduce feed-scoped resolved-state event types for canonical state
 - teach `apply_events` to replace canonical state from a primary-authored
   snapshot
-- let `resolverd` optionally emit those snapshot events after successful
+- let `stophammer-resolverd` optionally emit those snapshot events after successful
   canonical rebuilds on the primary
 
 Constraints:
@@ -114,11 +114,11 @@ Status:
   - `resolved_entity_sources_by_feed`
 - those tables are not the public read model; they stage authoritative
   primary-authored replacement
-- `resolverd` can now emit signed `canonical_feed_promotions_replaced` events
+- `stophammer-resolverd` can now emit signed `canonical_feed_promotions_replaced` events
   sourced from those overlays
 - `apply_events` can replace feed-scoped promoted external IDs and provenance
   directly from the signed snapshot
-- `resolverd` can now emit signed `artist_identity_feed_resolved` events so
+- `stophammer-resolverd` can now emit signed `artist_identity_feed_resolved` events so
   replicas can clear feed-scoped artist-identity work without local heuristics
 - override-backed artist identity merges can now be emitted as signed
   `artist_merged` events during primary resolver batches
@@ -127,7 +127,7 @@ Status:
 
 Scope:
 
-- stop requiring `resolverd` on community nodes for canonical convergence
+- stop requiring `stophammer-resolverd` on community nodes for canonical convergence
 - narrow community apply to source facts plus resolved snapshots
 - keep only cheap local indexing/projection work that does not make authority
   decisions
@@ -140,12 +140,12 @@ Outcome:
 Status:
 
 - done in the current replication contract
-- primary `resolverd` now emits signed `source_feed_read_models_resolved`,
+- primary `stophammer-resolverd` now emits signed `source_feed_read_models_resolved`,
   `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`,
   `artist_identity_feed_resolved`, and override-backed `artist_merged` events
 - community apply now treats `resolver_queue` as "awaiting primary-authored
   resolved state" instead of a backlog to process locally
-- `resolverd` is primary-only and exits immediately under
+- `stophammer-resolverd` is primary-only and exits immediately under
   `NODE_MODE=community`
 
 ### Phase 4: Replication contract cleanup
@@ -163,7 +163,7 @@ Outcome:
 Status:
 
 - in progress
-- operator docs now say community nodes do not run `resolverd`
+- operator docs now say community nodes do not run `stophammer-resolverd`
 - remaining cleanup is mostly doc/API wording rather than replication logic
 
 ## Event Design Principles

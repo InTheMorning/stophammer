@@ -44,7 +44,7 @@ first-class internal subsystem:
 - `src/resolver/mod.rs`
 - `src/resolver/queue.rs`
 - `src/resolver/worker.rs`
-- `src/bin/resolverd.rs`
+- `src/bin/stophammer_resolverd.rs`
 
 The long-term responsibility split is:
 
@@ -89,7 +89,7 @@ Scope:
 
 - add `resolver_queue` and `resolver_state`
 - add DB helpers for mark/claim/complete/fail/state read-write
-- add `resolverd`
+- add `stophammer-resolverd`
 - mark feeds dirty from ingest/apply
 - keep existing inline canonical sync in place
 - worker resolves only:
@@ -123,7 +123,7 @@ Important constraint:
 Scope:
 
 - have the bulk importer set `resolver_state.import_active=true` while it runs
-- `resolverd` pauses heavy work during import
+- `stophammer-resolverd` pauses heavy work during import
 - queue drains after import completes
 
 This avoids expensive cross-feed consolidation competing with a large import.
@@ -134,7 +134,7 @@ Status:
 - crawler import mode can set `import_active` automatically when
   `RESOLVER_DB_PATH` is configured
 - importer activity is heartbeat-based instead of a one-shot boolean pause
-- `resolverd` ignores stale import heartbeats so a crashed importer cannot
+- `stophammer-resolverd` ignores stale import heartbeats so a crashed importer cannot
   leave the queue paused forever
 
 ### Phase 4: Reduce inline work
@@ -143,7 +143,7 @@ Scope:
 
 - once the queue path is proven stable, reduce or remove redundant inline
   canonical sync from ingest/apply
-- let `resolverd` own the heavier post-ingest consolidation path
+- let `stophammer-resolverd` own the heavier post-ingest consolidation path
 
 This is deliberately later because it changes steady-state write behavior.
 
@@ -154,7 +154,7 @@ Status:
 - direct source feed/track rows still remain inline, but source feed/track
   search and quality are resolver-backed derived state too
 - later phase-4 slices can trim more inline rebuild work once operators are
-  comfortable relying on `resolverd` for convergence
+  comfortable relying on `stophammer-resolverd` for convergence
 
 ### Phase 5: Review and override tooling
 
@@ -169,7 +169,7 @@ This sits on top of the automatic resolver; it does not replace it.
 Status:
 
 - started for feed-scoped artist identity
-- `resolverd` now persists durable review items for feed-scoped candidate groups
+- `stophammer-resolverd` now persists durable review items for feed-scoped candidate groups
 - operator merge / do-not-merge overrides are now stored durably and checked by
   both targeted resolver batches and whole-db artist-identity backfills
 - the current review tool can:
@@ -190,7 +190,7 @@ Still deferred:
 Phase 1 landed with:
 
 - resolver queue schema and DB helpers
-- a minimal `resolverd` worker
+- a minimal `stophammer-resolverd` worker
 - dirty marking from current write paths
 - operator docs for running the worker
 
@@ -204,7 +204,7 @@ What Phase 1 still does not do:
 Phase 2 is complete in its feed-scoped form:
 
 - normal write paths now mark the artist-identity dirty bit
-- `resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
+- `stophammer-resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
 - the implementation reuses the existing deterministic merge heuristics from
   `backfill_artist_identity`
 - resolver batch output now reports seed-artist and candidate-group counts so

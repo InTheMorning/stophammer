@@ -8,8 +8,8 @@ merge happened.
 
 The shipped maintenance binaries are:
 
-- `resolverd`
-- `resolverctl`
+- `stophammer-resolverd`
+- `stophammer-resolverctl`
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
@@ -19,24 +19,24 @@ The shipped maintenance binaries are:
 ### Keep the durable canonical resolver queue drained
 
 ```bash
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 ```
 
-Run `resolverd` on the primary only. Community nodes now apply the primary's
+Run `stophammer-resolverd` on the primary only. Community nodes now apply the primary's
 signed source-read-model, canonical, promotion, and artist-identity resolver
 events instead of running local resolver batches.
 
 For large imports, pause background draining first:
 
 ```bash
-cargo run --bin resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-active
 # run import
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- import-idle
 ```
 
 When crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
 it performs this bracketing automatically and refreshes the import heartbeat.
-`resolverd` will ignore stale heartbeats and resume work if an importer dies
+`stophammer-resolverd` will ignore stale heartbeats and resume work if an importer dies
 without clearing the pause state.
 
 To inspect whether canonical views are caught up:
@@ -55,7 +55,7 @@ resolver-backed.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 ```
 
-This automatically coordinates with `resolverd` via
+This automatically coordinates with `stophammer-resolverd` via
 `resolver_state.backfill_active`.
 
 ### Re-run deterministic artist identity backfill
@@ -64,7 +64,7 @@ This automatically coordinates with `resolverd` via
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 ```
 
-This automatically coordinates with `resolverd` via
+This automatically coordinates with `stophammer-resolverd` via
 `resolver_state.backfill_active`.
 
 ### Review unresolved duplicate artist-name groups

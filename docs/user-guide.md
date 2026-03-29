@@ -122,8 +122,8 @@ guesses for unresolved feeds.
 
 The shipped utility binaries are:
 
-- `resolverd`
-- `resolverctl`
+- `stophammer-resolverd`
+- `stophammer-resolverctl`
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
@@ -133,8 +133,8 @@ The shipped utility binaries are:
 See:
 
 - [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- [resolverd.1](/home/citizen/build/stophammer/man/resolverd.1)
-- [resolverctl.1](/home/citizen/build/stophammer/man/resolverctl.1)
+- [stophammer-resolverd.1](/home/citizen/build/stophammer/man/stophammer-resolverd.1)
+- [stophammer-resolverctl.1](/home/citizen/build/stophammer/man/stophammer-resolverctl.1)
 - [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)
 - [backfill_canonical.1](/home/citizen/build/stophammer/man/backfill_canonical.1)
 - [backfill_artist_identity.1](/home/citizen/build/stophammer/man/backfill_artist_identity.1)
@@ -199,16 +199,16 @@ curl http://127.0.0.1:8008/node/info
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 ```
 
-This automatically coordinates with `resolverd` via
+This automatically coordinates with `stophammer-resolverd` via
 `resolver_state.backfill_active` while it runs.
 
 ### Run the resolver worker
 
 ```bash
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 ```
 
-Run `resolverd` on the primary only. Community nodes now follow the signed
+Run `stophammer-resolverd` on the primary only. Community nodes now follow the signed
 resolved-state events emitted by the primary and should not run their own
 resolver worker.
 
@@ -218,23 +218,23 @@ If you need to disable resolved-state event emission temporarily, use
 ### Pause resolver draining during a bulk import
 
 ```bash
-cargo run --bin resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-active
 # run import
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- import-idle
 ```
 
 If you are using the bundled crawler importer on the same host, set
 `RESOLVER_DB_PATH=/path/to/stophammer.db` and it will bracket the import and
 refresh the pause heartbeat automatically.
 
-The backfill binaries coordinate with `resolverd` automatically and do not
-need manual `resolverctl import-active` / `import-idle` bracketing.
+The backfill binaries coordinate with `stophammer-resolverd` automatically and do not
+need manual `stophammer-resolverctl import-active` / `import-idle` bracketing.
 
 Promoted artist IDs, source feed/track search rows, source quality scores, and
 canonical source rows are now background-derived from the primary resolver. If
 you ingest fresh data and immediately inspect `/v1/search`, `/v1/recent`,
 canonical releases, canonical recordings, promoted `external_ids`, or
-`entity_source`, run `resolverd` on the primary or wait for it to drain the
+`entity_source`, run `stophammer-resolverd` on the primary or wait for it to drain the
 queue first.
 
 You can check that backlog directly:
@@ -253,7 +253,7 @@ That endpoint also tells you which API surfaces are immediate source-layer
 reads and which are resolver-backed canonical views.
 
 The original feed/track data and staged source claims remain the preserved RSS
-layer. `resolverd` enriches canonical views on top of that data; it does not
+layer. `stophammer-resolverd` enriches canonical views on top of that data; it does not
 replace the source rows.
 
 For a quick resolver-aware load check:

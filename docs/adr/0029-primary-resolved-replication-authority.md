@@ -37,11 +37,11 @@ Community nodes:
 
 - preserve and apply replicated source events
 - apply signed primary-authored resolved-state events
-- do not run `resolverd`
+- do not run `stophammer-resolverd`
 - do not re-derive canonical state, promotions, search, or artist-identity
   decisions locally
 
-The primary `resolverd` emits signed feed-scoped resolved-state events for:
+The primary `stophammer-resolverd` emits signed feed-scoped resolved-state events for:
 
 - source read-model completion
   - `source_feed_read_models_resolved`
@@ -69,13 +69,13 @@ The source layer remains preserved and authoritative. Resolver events enrich
 read models on top of that preserved state; they do not rewrite source feed,
 track, or staged claim rows.
 
-`resolverd` is therefore primary-only. If `NODE_MODE=community`, it exits
+`stophammer-resolverd` is therefore primary-only. If `NODE_MODE=community`, it exits
 immediately.
 
 ## Consequences
 - Community nodes converge from primary-authored resolved events instead of
   running local resolver batches.
-- Primary nodes must run `resolverd` if they want canonical/search/promoted
+- Primary nodes must run `stophammer-resolverd` if they want canonical/search/promoted
   read models to advance and replicate.
 - Resolver review and override decisions now have a single replication
   authority.

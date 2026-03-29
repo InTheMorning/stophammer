@@ -7466,11 +7466,11 @@ pub fn dirty_queue_diagnostics(conn: &Connection) -> Result<DirtyQueueDiagnostic
         let (locked_at, _locked_by, attempt_count, last_error, last_marked_at) = row?;
 
         // Locked and not stale?
-        if let Some(la) = locked_at {
-            if la >= stale_before {
-                d.locked += 1;
-                continue;
-            }
+        if let Some(la) = locked_at
+            && la >= stale_before
+        {
+            d.locked += 1;
+            continue;
         }
 
         // Has a prior error?

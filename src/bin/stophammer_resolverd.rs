@@ -1,4 +1,5 @@
 use std::fs::File;
+use std::io::Write;
 use std::process::ExitCode;
 use std::sync::Arc;
 
@@ -19,7 +20,7 @@ async fn main() -> ExitCode {
     match run().await {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("resolverd: {err}");
+            eprintln!("stophammer-resolverd: {err}");
             ExitCode::FAILURE
         }
     }
@@ -54,14 +55,15 @@ fn acquire_lock(path: &str) -> Result<File, StartupError> {
     if ret == -1 {
         let err = std::io::Error::last_os_error();
         return Err(if err.kind() == std::io::ErrorKind::WouldBlock {
-            startup_error("another resolverd instance is already running against this database")
+            startup_error(
+                "another stophammer-resolverd instance is already running against this database",
+            )
         } else {
             startup_error(format!("failed to acquire lock on {path}: {err}"))
         });
     }
 
     // Write our PID for diagnostics.
-    use std::io::Write;
     let _ = (&file).write_all(format!("{}\n", std::process::id()).as_bytes());
 
     Ok(file)
@@ -70,14 +72,14 @@ fn acquire_lock(path: &str) -> Result<File, StartupError> {
 fn print_help() {
     println!(
         "\
-resolverd — background resolver worker for stophammer
+stophammer-resolverd — background resolver worker for stophammer
 
 Periodically drains the resolver queue, rebuilding canonical state,
 artist identity, wallet identity, and the search index for dirty feeds,
 then emitting signed resolved-state events.
 
 USAGE:
-    resolverd [--help | -h]
+    stophammer-resolverd [--help | -h]
 
 ENVIRONMENT VARIABLES:
     DB_PATH                              Path to stophammer SQLite database
@@ -87,14 +89,14 @@ ENVIRONMENT VARIABLES:
     RESOLVER_BATCH_SIZE                   Claims per batch
                                          [default: 25]
     RESOLVER_WORKER_ID                    Worker identifier for claim locking
-                                         [default: resolverd-<pid>]
+                                         [default: stophammer-resolverd-<pid>]
     RESOLVER_EMIT_RESOLVED_STATE_EVENTS   Emit signed resolved-state events
                                          [default: true] (set 0/false/no/off to disable)
     KEY_PATH                              Path to Ed25519 signing key
                                          [default: signing.key]
     RUST_LOG                              Tracing filter directive
                                          [default: stophammer=info]
-    NODE_MODE                             Must not be \"community\" (resolverd is primary-only)"
+    NODE_MODE                             Must not be \"community\" (stophammer-resolverd is primary-only)"
     );
 }
 
@@ -119,7 +121,7 @@ async fn run() -> Result<(), StartupError> {
         Some("community")
     ) {
         return Err(startup_error(
-            "resolverd is primary-only; community nodes follow primary-authored resolved events",
+            "stophammer-resolverd is primary-only; community nodes follow primary-authored resolved events",
         ));
     }
 
@@ -144,7 +146,7 @@ async fn run() -> Result<(), StartupError> {
         )));
     }
     let worker_id = std::env::var("RESOLVER_WORKER_ID")
-        .unwrap_or_else(|_| format!("resolverd-{}", std::process::id()));
+        .unwrap_or_else(|_| format!("stophammer-resolverd-{}", std::process::id()));
     let emit_resolved_state_events = parse_truthy_opt_out(
         std::env::var("RESOLVER_EMIT_RESOLVED_STATE_EVENTS")
             .ok()
@@ -154,7 +156,7 @@ async fn run() -> Result<(), StartupError> {
     // Advisory file lock prevents multiple resolver instances from running
     // against the same database. The lock is held for the lifetime of the
     // process and released automatically by the OS on exit or crash.
-    let lock_path = format!("{db_path}.resolverd.lock");
+    let lock_path = format!("{db_path}.stophammer-resolverd.lock");
     let _lock_file = acquire_lock(&lock_path)?;
 
     let pool = db_pool::DbPool::open(std::path::Path::new(&db_path))
@@ -173,20 +175,22 @@ async fn run() -> Result<(), StartupError> {
     };
 
     println!(
-        "resolverd: db={db_path} interval={interval_secs}s batch={batch_size} worker={worker_id} events={emit_resolved_state_events}"
+        "stophammer-resolverd: db={db_path} interval={interval_secs}s batch={batch_size} worker={worker_id} events={emit_resolved_state_events}"
     );
 
     // Show if there are review items awaiting operator action.
     {
-        let reader = pool
-            .reader()
-            .map_err(|_| startup_error("failed to get reader lock for review count"))?;
+        let reader = pool.reader().map_err(|err| {
+            startup_error(format!("failed to get reader lock for review count: {err}"))
+        })?;
         let artist_reviews = db::count_pending_artist_identity_reviews(&reader)
             .map_err(|e| startup_error(format!("failed to count pending artist reviews: {e}")))?;
         let wallet_reviews = db::count_pending_wallet_reviews(&reader)
             .map_err(|e| startup_error(format!("failed to count pending wallet reviews: {e}")))?;
         if artist_reviews > 0 || wallet_reviews > 0 {
-            println!("resolverd: {artist_reviews} artist identity reviews pending, {wallet_reviews} wallet reviews pending");
+            println!(
+                "stophammer-resolverd: {artist_reviews} artist identity reviews pending, {wallet_reviews} wallet reviews pending"
+            );
         }
     }
 

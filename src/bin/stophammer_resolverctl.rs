@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "status" | "import-active" | "import-idle" | "re-resolve" => {
                 if command.replace(arg).is_some() {
-                    return Err("only one resolverctl command may be specified".into());
+                    return Err("only one stophammer-resolverctl command may be specified".into());
                 }
             }
             "--help" | "-h" => {
@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             other => {
                 return Err(format!(
                     "unknown argument: {other}\n\n\
-                     Usage: resolverctl [--db PATH] <command>\n\
+                     Usage: stophammer-resolverctl [--db PATH] <command>\n\
                      \n\
                      Commands:\n\
                        status         Print queue counts plus import/backfill pause state\n\
@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn print_usage() {
     println!(
-        "Usage: resolverctl [--db PATH] <command>\n\
+        "Usage: stophammer-resolverctl [--db PATH] <command>\n\
          \n\
          Commands:\n\
            status         Print queue counts plus import/backfill pause state\n\
@@ -97,8 +97,8 @@ fn print_status(conn: &rusqlite::Connection) -> Result<(), db::DbError> {
     println!("queue_locked={}", counts.locked);
     println!("queue_failed={}", counts.failed);
 
-    let artist_reviews = db::count_pending_artist_identity_reviews(&conn)?;
-    let wallet_reviews = db::count_pending_wallet_reviews(&conn)?;
+    let artist_reviews = db::count_pending_artist_identity_reviews(conn)?;
+    let wallet_reviews = db::count_pending_wallet_reviews(conn)?;
     println!("review_artist_identity_pending={artist_reviews}");
     println!("review_wallet_pending={wallet_reviews}");
 

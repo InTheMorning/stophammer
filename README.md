@@ -12,12 +12,13 @@ A quality-gated V4V music index with preserved source-layer container feeds.
 - HTTP API reference: [docs/API.md](docs/API.md)
 - schema and source/canonical model: [docs/schema-reference.md](docs/schema-reference.md)
 - resolver refactor plan and phases: [docs/resolver-refactor-plan.md](docs/resolver-refactor-plan.md)
+- packaging and distribution plan: [docs/packaging-plan.md](docs/packaging-plan.md)
 - verifier behavior: [docs/verifier-guide.md](docs/verifier-guide.md)
 - wiki-style navigation: [docs/wiki/Home.md](docs/wiki/Home.md)
 - manpages:
   - [man/stophammer.1](man/stophammer.1)
-  - [man/resolverd.1](man/resolverd.1)
-  - [man/resolverctl.1](man/resolverctl.1)
+  - [man/stophammer-resolverd.1](man/stophammer-resolverd.1)
+  - [man/stophammer-resolverctl.1](man/stophammer-resolverctl.1)
   - [man/backfill_canonical.1](man/backfill_canonical.1)
   - [man/backfill_artist_identity.1](man/backfill_artist_identity.1)
   - [man/review_artist_identity.1](man/review_artist_identity.1)
@@ -373,22 +374,22 @@ derived state from an existing database:
 
 ```bash
 # Drain the durable canonical resolver queue
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 
 # Inspect or toggle resolver import pause state, plus backfill pause status
-cargo run --bin resolverctl -- status
-cargo run --bin resolverctl -- import-active
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- status
+cargo run --bin stophammer-resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-idle
 
 # Wipe all resolved state and re-queue every feed for re-resolution (destructive)
-cargo run --bin resolverctl -- re-resolve
+cargo run --bin stophammer-resolverctl -- re-resolve
 
 # Rebuild canonical releases / recordings and mapping tables
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run artist identity merges from current source evidence
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review unresolved duplicate artist-name groups and their source evidence
@@ -418,7 +419,7 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 
 # Rebuild wallet endpoints, classifications, and artist links
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_wallets -- --db ./stophammer.db
 # Re-derive display names and generate review items (refresh pass)
 cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
@@ -430,23 +431,23 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 
 These do not fetch from the network. They operate on an existing local DB file.
 
-`resolverd` is the background worker for durable derived-state rebuilds. It
+`stophammer-resolverd` is the background worker for durable derived-state rebuilds. It
 drains `resolver_queue` incrementally and pauses while either a fresh
 `resolver_state.import_active` heartbeat or a coordinated
 `resolver_state.backfill_active` heartbeat is present. Stale heartbeats are
 ignored so a crashed importer or backfill cannot wedge the queue forever.
 Source feed/track search, source quality scores, canonical release/recording
 state, canonical-first search, promotions, and targeted artist identity now
-all converge through `resolverd` on the primary.
+all converge through `stophammer-resolverd` on the primary.
 
 The artist-identity review tool persists feed-scoped review items and durable
 merge or do-not-merge overrides on top of that automatic resolver path.
 
-`resolverd` consumes preserved source facts. It does not rewrite feed rows,
+`stophammer-resolverd` consumes preserved source facts. It does not rewrite feed rows,
 track rows, or staged source claims; those remain the authoritative extracted
 RSS layer.
 
-Primary-authority resolved replication is now the default `resolverd`
+Primary-authority resolved replication is now the default `stophammer-resolverd`
 behavior on primaries. Unless you explicitly disable it with
 `RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`, the worker emits signed:
 
@@ -459,7 +460,7 @@ artist_merged
 ```
 
 Replicas apply those signed resolved events directly. Community nodes no
-longer run `resolverd`; they follow the primary once its resolver has finished
+longer run `stophammer-resolverd`; they follow the primary once its resolver has finished
 making changes. This is documented in
 [ADR 0029](/home/citizen/build/stophammer/docs/adr/0029-primary-resolved-replication-authority.md)
 and the rollout notes in
@@ -486,10 +487,10 @@ That script treats source feed/track reads and resolver-backed search as
 separate layers instead of assuming search freshness is part of the ingest
 path.
 
-Use `resolverctl import-active` before a large bulk import and
-`resolverctl import-idle` after it finishes so the queue can drain again. The
+Use `stophammer-resolverctl import-active` before a large bulk import and
+`stophammer-resolverctl import-idle` after it finishes so the queue can drain again. The
 backfill binaries coordinate automatically and do not need manual
-`resolverctl` bracketing. When the crawler importer runs with
+`stophammer-resolverctl` bracketing. When the crawler importer runs with
 `RESOLVER_DB_PATH=/path/to/stophammer.db`, it does the import bracketing
 automatically and refreshes the import heartbeat while the import is still
 running.
@@ -557,6 +558,6 @@ cargo run --manifest-path stophammer-crawler/Cargo.toml --bin audit_import -- \
 - **Do not sign events.** Community nodes have a signing key for identity
   (peer registration) but never sign events. All events in the log are signed
   by the primary.
-- **Do not run `resolverd`.** Community nodes now wait for the primary to emit
+- **Do not run `stophammer-resolverd`.** Community nodes now wait for the primary to emit
   signed source-read-model, canonical-state, promotion, and artist-identity
   resolver events.

@@ -24,7 +24,7 @@ fn parse_args() -> Result<Args, String> {
             "--help" | "-h" => {
                 println!(
                     "Usage: backfill_wallets [--db PATH] [--refresh]\n\n\
-                     Coordinates with resolverd via resolver_state.backfill_active while it runs.\n\n\
+                     Coordinates with stophammer-resolverd via resolver_state.backfill_active while it runs.\n\n\
                      Default mode (Passes 1-4):\n\
                      Pass 1: Normalize endpoint facts from all payment routes\n\
                      Pass 2: Create provisional wallets + hard-signal classification\n\

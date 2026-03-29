@@ -8,6 +8,14 @@ repository  = "https://github.com/v4v-tools/stophammer"
 keywords    = ["podcast", "v4v", "music", "rss"]
 categories  = ["web-programming"]
 
+[[bin]]
+name = "stophammer-resolverd"
+path = "src/bin/stophammer_resolverd.rs"
+
+[[bin]]
+name = "stophammer-resolverctl"
+path = "src/bin/stophammer_resolverctl.rs"
+
 [dependencies]
 mimalloc      = { version = "0.1" }
 rusqlite      = { version = "0.31", features = ["bundled"] }

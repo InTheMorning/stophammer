@@ -1,8 +1,8 @@
-.TH RESOLVERCTL 1 "2026-03-19" "stophammer" "User Commands"
+.TH STOPHAMMER-RESOLVERCTL 1 "2026-03-19" "stophammer" "User Commands"
 .SH NAME
-resolverctl \- inspect or toggle resolver queue state
+stophammer-resolverctl \- inspect or toggle resolver queue state
 .SH SYNOPSIS
-.B resolverctl
+.B stophammer-resolverctl
 [
 .BI --db " PATH"
 ]
@@ -16,7 +16,7 @@ resolverctl \- inspect or toggle resolver queue state
 .B re-resolve
 ]
 .SH DESCRIPTION
-.B resolverctl
+.B stophammer-resolverctl
 is a small operational helper for the durable resolver queue.
 
 It can:
@@ -26,7 +26,7 @@ It can:
 .BR resolver_state.import_active=true
 before a large import
 - clear that flag afterwards so
-.BR resolverd
+.BR stophammer-resolverd
 can resume draining the queue
 - wipe all resolved state and re-queue every feed for re-resolution
 .SH OPTIONS
@@ -67,16 +67,16 @@ re-run of the resolver across every feed in the database.
 .TP
 Check queue status:
 .nf
-cargo run --bin resolverctl -- status
+cargo run --bin stophammer-resolverctl -- status
 .fi
 .TP
 Pause the queue around a bulk import:
 .nf
-cargo run --bin resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-active
 # run bulk import
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- import-idle
 .fi
 .SH SEE ALSO
-.BR resolverd (1),
+.BR stophammer-resolverd (1),
 .BR backfill_canonical (1),
 .BR stophammer (1)

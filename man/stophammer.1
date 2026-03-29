@@ -124,12 +124,12 @@ and
 Resolver queue operation and artist-identity review are CLI-driven:
 
 .nf
-cargo run --bin resolverd
-cargo run --bin resolverctl -- status
+cargo run --bin stophammer-resolverd
+cargo run --bin stophammer-resolverctl -- status
 cargo run --bin review_artist_identity -- --pending-reviews --limit 20
 .fi
 
 Run
-.B resolverd
+.B stophammer-resolverd
 on the primary only. Community nodes now follow the primary's signed
 resolved-state events and should not run a local resolver worker.

@@ -1,10 +1,10 @@
-.TH RESOLVERD 1 "2026-03-19" "stophammer" "User Commands"
+.TH STOPHAMMER-RESOLVERD 1 "2026-03-19" "stophammer" "User Commands"
 .SH NAME
-resolverd \- drain the durable canonical resolver queue
+stophammer-resolverd \- drain the durable canonical resolver queue
 .SH SYNOPSIS
-.B resolverd
+.B stophammer-resolverd
 .SH DESCRIPTION
-.B resolverd
+.B stophammer-resolverd
 is the background worker for Stophammer's durable resolver queue.
 
 It claims dirty feeds from
@@ -13,7 +13,7 @@ rebuilds source feed and track search/quality, canonical release and recording
 state, canonical promotions, and the canonical search index, runs targeted
 artist identity cleanup, then marks those feeds complete.
 
-.B resolverd
+.B stophammer-resolverd
 is primary-only. If
 .B NODE_MODE=community
 is set, the binary exits immediately and expects that node to follow
@@ -21,10 +21,10 @@ primary-authored resolved-state events instead.
 
 Source feed/track search and quality, canonical release/recording state,
 canonical-first search, and promotions are expected to converge through
-.BR resolverd .
-.BR resolverd
+.BR stophammer-resolverd .
+.BR stophammer-resolverd
 does not rewrite source feed rows, source track rows, or staged source claims.
-.B resolverd
+.B stophammer-resolverd
 adds retryable background convergence on top of preserved source facts.
 .SH IMPORTANT ENVIRONMENT
 .TP
@@ -42,7 +42,7 @@ Maximum dirty feeds claimed per batch. Defaults to
 .TP
 .B RESOLVER_WORKER_ID
 Optional worker identifier used in logs and queue lock rows. Defaults to
-.BR resolverd-<pid> .
+.BR stophammer-resolverd-<pid> .
 .TP
 .B RESOLVER_EMIT_RESOLVED_STATE_EVENTS
 Primary-only opt-out. Unless set to
@@ -51,7 +51,7 @@ Primary-only opt-out. Unless set to
 .BR no ,
 or
 .BR off ,
-.B resolverd
+.B stophammer-resolverd
 loads
 .B KEY_PATH
 and emits signed
@@ -64,7 +64,7 @@ and override-backed
 events after resolver work succeeds.
 .SH BEHAVIOR
 Before each batch,
-.B resolverd
+.B stophammer-resolverd
 checks
 .BR resolver_state.import_active
 and its heartbeat timestamp. When the heartbeat is fresh, the worker skips the
@@ -81,7 +81,7 @@ events, to the sync log so replicas can apply them directly.
 .TP
 Run the worker against the default database:
 .nf
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 .fi
 .TP
 Run the worker with a custom interval and batch size:
@@ -89,10 +89,10 @@ Run the worker with a custom interval and batch size:
 DB_PATH=./stophammer.db \\
 RESOLVER_INTERVAL_SECS=15 \\
 RESOLVER_BATCH_SIZE=50 \\
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 .fi
 .SH SEE ALSO
-.BR resolverctl (1),
+.BR stophammer-resolverctl (1),
 .BR backfill_canonical (1),
 .BR backfill_artist_identity (1),
 .BR stophammer (1)

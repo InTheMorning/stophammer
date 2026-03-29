@@ -19,7 +19,7 @@ fn parse_args() -> Result<PathBuf, String> {
                     "Usage: backfill_artist_identity [--db PATH]\n\
                      Deterministically merges split canonical artists when strong source evidence\n\
                      agrees across staged IDs, publisher links, websites, or release clusters.\n\
-                     Coordinates with resolverd via resolver_state.backfill_active while it runs."
+                     Coordinates with stophammer-resolverd via resolver_state.backfill_active while it runs."
                 );
                 std::process::exit(0);
             }

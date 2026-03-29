@@ -63,7 +63,7 @@ This endpoint is the quickest way to answer two operator questions:
 - are canonical/enriched views caught up yet?
 - which API surfaces are immediate source-layer reads versus resolver-backed?
 
-Resolver-backed canonical endpoints may lag fresh ingest until `resolverd` has
+Resolver-backed canonical endpoints may lag fresh ingest until `stophammer-resolverd` has
 drained `resolver_queue`.
 
 - **Response:**
@@ -787,7 +787,7 @@ Lists canonical releases ordered by recency. The sort key is:
 Paginated with a composite `timestamp:release_id` cursor.
 
 This endpoint is resolver-backed. Fresh ingests may not appear here until
-`resolverd` has drained the queue for those feeds.
+`stophammer-resolverd` has drained the queue for those feeds.
 
 - **Authentication:** None
 
@@ -940,7 +940,7 @@ Returns a single track by its `track_guid`.
 Returns a single canonical release by `release_id`.
 
 This endpoint is resolver-backed. Fresh ingests may not expose a canonical
-release immediately until `resolverd` has rebuilt the feed's canonical state.
+release immediately until `stophammer-resolverd` has rebuilt the feed's canonical state.
 Source feed and track endpoints remain the immediate preserved-RSS layer.
 
 - **Authentication:** None
@@ -1040,7 +1040,7 @@ release instead of the lighter `sources` summary embedded in `GET /v1/releases/{
 Returns a single canonical recording by `recording_id`.
 
 This endpoint is resolver-backed. Fresh ingests may not expose a canonical
-recording immediately until `resolverd` has rebuilt the feed's canonical state.
+recording immediately until `stophammer-resolverd` has rebuilt the feed's canonical state.
 Source feed and track endpoints remain the immediate preserved-RSS layer.
 
 - **Authentication:** None
@@ -1153,7 +1153,7 @@ the default public search surface.
 
 All search surfaces are resolver-backed now. Fresh ingests may not appear
 under `artist`, `release`, `recording`, `feed`, or `track` search until
-`resolverd` has drained the queue for the touched feeds.
+`stophammer-resolverd` has drained the queue for the touched feeds.
 
 - **Authentication:** None
 

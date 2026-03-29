@@ -64,10 +64,10 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROOF_PRUNE_INTERVAL_SECS` | `300` | How often the background pruner deletes expired proof challenges and tokens (seconds). |
-| `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `resolverd` queue checks. |
-| `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `resolverd` batch. |
-| `RESOLVER_WORKER_ID` | `resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
-| `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
+| `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `stophammer-resolverd` queue checks. |
+| `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `stophammer-resolverd` batch. |
+| `RESOLVER_WORKER_ID` | `stophammer-resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
+| `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `stophammer-resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated exact GUID blocklist used by the `feed_blocklist` verifier. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated exact URL blocklist used by the `feed_blocklist` verifier. |
@@ -290,22 +290,22 @@ review:
 
 ```bash
 # Drain the durable canonical resolver queue
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 
 # Inspect or toggle resolver import pause state, plus backfill pause status
-cargo run --bin resolverctl -- status
-cargo run --bin resolverctl -- import-active
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- status
+cargo run --bin stophammer-resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-idle
 
 # Wipe all resolved state and re-queue every feed for re-resolution (destructive)
-cargo run --bin resolverctl -- re-resolve
+cargo run --bin stophammer-resolverctl -- re-resolve
 
 # Rebuild canonical releases / recordings and source-to-canonical maps
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
 
 # Re-run deterministic artist-identity merges from staged source evidence
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review remaining duplicate artist-name groups with supporting source evidence
@@ -335,7 +335,7 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 
 # Rebuild wallet endpoints, classifications, and artist links from source data
-# This automatically coordinates with resolverd via resolver_state.backfill_active.
+# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_wallets -- --db ./stophammer.db
 # Re-derive display names and generate review items (pass 5 / refresh mode)
 cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
@@ -374,7 +374,7 @@ is drained or explicitly waited out.
 A durable resolver queue now handles deferred derived-state work.
 
 - write paths now mark feeds dirty in `resolver_queue`
-- `resolverd` drains that queue incrementally
+- `stophammer-resolverd` drains that queue incrementally
 - queued work includes targeted artist identity cleanup for touched feeds
 - queued artist-identity work now persists review items and durable operator
   overrides for ambiguous feed-scoped candidate groups
@@ -386,14 +386,14 @@ Run the worker with:
 DB_PATH=./stophammer.db \
 RESOLVER_INTERVAL_SECS=30 \
 RESOLVER_BATCH_SIZE=25 \
-cargo run --bin resolverd
+cargo run --bin stophammer-resolverd
 ```
 
-Do not run `resolverd` on community nodes. The binary exits immediately when
+Do not run `stophammer-resolverd` on community nodes. The binary exits immediately when
 `NODE_MODE=community`; community nodes now wait for the primary to emit signed
 resolved-state events and then apply them.
 
-`resolverd` checks both import and coordinated-backfill pause heartbeats
+`stophammer-resolverd` checks both import and coordinated-backfill pause heartbeats
 before each batch. It skips work while `resolver_state.import_active=true` or
 `resolver_state.backfill_active=true` and the corresponding heartbeat is
 fresh. If either heartbeat goes stale, the worker logs a warning and resumes
@@ -409,7 +409,7 @@ primary-authored resolver events directly instead of running local resolver
 batches.
 
 Source feed/track search rows and quality scores now converge through
-primary-side `resolverd` too. Canonical promotions, canonical
+primary-side `stophammer-resolverd` too. Canonical promotions, canonical
 release/recording rows, and canonical search rows all converge through the
 queue, so those read models can lag until the primary resolver has drained the
 backlog and emitted the corresponding signed events. Direct source feed/track
@@ -434,9 +434,9 @@ That response shows:
 You can bracket large imports manually:
 
 ```bash
-cargo run --bin resolverctl -- import-active
+cargo run --bin stophammer-resolverctl -- import-active
 # run bulk import
-cargo run --bin resolverctl -- import-idle
+cargo run --bin stophammer-resolverctl -- import-idle
 ```
 
 When the crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
@@ -444,7 +444,7 @@ it performs this bracketing automatically and refreshes the import heartbeat
 while the bulk import is still active.
 
 The backfill binaries do their own coordination automatically via
-`resolver_state.backfill_active`; do not wrap them with `resolverctl
+`resolver_state.backfill_active`; do not wrap them with `stophammer-resolverctl
 import-active`.
 
 The staged plan for later phases lives in:

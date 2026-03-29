@@ -12,7 +12,7 @@ backfill_wallets \- rebuild wallet endpoints, classifications, and artist links
 .B backfill_wallets
 rebuilds wallet identity state from source payment-route data in four passes.
 While it runs, it coordinates with
-.BR resolverd
+.BR stophammer-resolverd
 via
 .BR resolver_state.backfill_active .
 
@@ -49,4 +49,4 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 .SH SEE ALSO
 .BR stophammer (1),
 .BR review_wallet_identity (1),
-.BR resolverd (1)
+.BR stophammer-resolverd (1)
