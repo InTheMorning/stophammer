@@ -169,6 +169,7 @@ The repo also now ships versioned deployment assets:
 
 - production-oriented compose file: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
 - packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
+- release assembly layout: [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 - systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
 - service-user/state-dir definitions:
@@ -178,6 +179,11 @@ The repo also now ships versioned deployment assets:
 `install.sh` still exists for direct binary installs, but it is now the legacy
 path. The packaged env/unit assets and container images are the intended
 operator-facing direction.
+
+Release tarball assembly is now driven by:
+
+- [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
+- [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 
 The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
 

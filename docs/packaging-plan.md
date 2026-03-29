@@ -291,8 +291,30 @@ Crawler:
 - `/etc/stophammer/stophammer-resolverd.env`
 - `/etc/stophammer/crawler-gossip.env`
 - optional:
-  - `/etc/stophammer/crawler-import.env`
+- `/etc/stophammer/crawler-import.env`
   - `/etc/stophammer/crawler-crawl.env`
+
+## Release Assembly Layout
+
+The common release base now has an explicit repo layout:
+
+- `packaging/releases/*.manifest`
+  - one manifest per role package
+- `packaging/releases/*.README.md`
+  - package-specific tarball readmes
+- `scripts/assemble-release.sh`
+  - assembles `dist/stophammer-indexer-<version>.tar.gz`
+  - assembles `dist/stophammer-node-<version>.tar.gz`
+  - assembles `dist/stophammer-crawler-<version>.tar.gz`
+
+The manifests map:
+
+- built binaries from `target/release`
+- the crawler binary from `stophammer-crawler/target/release`
+- versioned env/systemd/sysusers/tmpfiles assets from `packaging/`
+
+This gives the project a package-accurate tarball shape before distro-specific
+packaging automation lands.
 
 ## systemd Unit Shape
 

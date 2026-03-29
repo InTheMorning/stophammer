@@ -97,6 +97,7 @@ assets live in:
 
 - [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
 - [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
+- [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 - [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - [packaging/env](/home/citizen/build/stophammer/packaging/env)
 
@@ -117,11 +118,18 @@ The repository now ships versioned assets for the three operator roles:
 Asset roots:
 
 - packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
+- release assembly layout: [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 - systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
 - service users: [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)
 - state dirs: [packaging/tmpfiles.d](/home/citizen/build/stophammer/packaging/tmpfiles.d)
 - production compose skeleton: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+
+Release tarballs can be assembled with:
+
+```bash
+./scripts/assemble-release.sh
+```
 
 The compose file intentionally uses runnable sample env files:
 

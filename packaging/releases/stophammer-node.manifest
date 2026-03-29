@@ -1,0 +1,7 @@
+@ROOT_RELEASE@/stophammer|bin/stophammer
+@ROOT@/packaging/systemd/stophammer-community.service|systemd/stophammer-community.service
+@ROOT@/packaging/env/community.env.example|env/community.env.example
+@ROOT@/packaging/sysusers.d/stophammer.conf|sysusers.d/stophammer.conf
+@ROOT@/packaging/tmpfiles.d/stophammer.conf|tmpfiles.d/stophammer.conf
+@ROOT@/packaging/releases/stophammer-node.README.md|README.md
+@ROOT@/LICENSE|LICENSE

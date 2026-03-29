@@ -1,0 +1,13 @@
+@CRAWLER_RELEASE@/stophammer-crawler|bin/stophammer-crawler
+@ROOT@/packaging/systemd/stophammer-gossip.service|systemd/stophammer-gossip.service
+@ROOT@/packaging/systemd/stophammer-import.service|systemd/stophammer-import.service
+@ROOT@/packaging/systemd/stophammer-import.timer|systemd/stophammer-import.timer
+@ROOT@/packaging/systemd/stophammer-crawl.service|systemd/stophammer-crawl.service
+@ROOT@/packaging/systemd/stophammer-crawl.timer|systemd/stophammer-crawl.timer
+@ROOT@/packaging/env/crawler-gossip.env.example|env/crawler-gossip.env.example
+@ROOT@/packaging/env/crawler-import.env.example|env/crawler-import.env.example
+@ROOT@/packaging/env/crawler-crawl.env.example|env/crawler-crawl.env.example
+@ROOT@/packaging/sysusers.d/stophammer-crawler.conf|sysusers.d/stophammer-crawler.conf
+@ROOT@/packaging/tmpfiles.d/stophammer-crawler.conf|tmpfiles.d/stophammer-crawler.conf
+@ROOT@/packaging/releases/stophammer-crawler.README.md|README.md
+@ROOT@/LICENSE|LICENSE

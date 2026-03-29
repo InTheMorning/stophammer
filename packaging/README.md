@@ -21,6 +21,8 @@ Current intent:
 - `docker-compose.yml` is the common container-first reference stack
 - `systemd/`, `sysusers.d/`, and `tmpfiles.d/` are the first-party assets for
   later Arch packaging
+- `releases/` defines the package-to-tarball layout for role-specific release
+  bundles
 - `env/*.example` files are copied to `/etc/stophammer/` and edited per host
 
 These files are versioned deployment inputs, not generated artifacts.
