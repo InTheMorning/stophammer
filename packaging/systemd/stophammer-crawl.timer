@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Stophammer crawl pass on a schedule
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=stophammer-crawl.service
+
+[Install]
+WantedBy=timers.target

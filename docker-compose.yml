@@ -1,0 +1,48 @@
+name: stophammer
+
+services:
+  primary:
+    build:
+      context: .
+    command: ["/app/stophammer"]
+    env_file:
+      - ./packaging/env/primary.env.example
+    volumes:
+      - primary-data:/data
+    ports:
+      - "8008:8008"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8008/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  resolverd:
+    build:
+      context: .
+    command: ["/app/stophammer-resolverd"]
+    env_file:
+      - ./packaging/env/stophammer-resolverd.env.example
+    volumes:
+      - primary-data:/data
+    depends_on:
+      primary:
+        condition: service_healthy
+
+  gossip:
+    build:
+      context: .
+      dockerfile: stophammer-crawler/Dockerfile
+    command: ["/app/stophammer-crawler", "gossip"]
+    env_file:
+      - ./packaging/env/crawler-gossip.env.example
+    volumes:
+      - crawler-data:/data
+    depends_on:
+      primary:
+        condition: service_healthy
+
+volumes:
+  primary-data:
+  crawler-data:

@@ -1,0 +1,29 @@
+[Unit]
+Description=Stophammer resolver worker
+After=network-online.target stophammer-primary.service
+Wants=network-online.target
+PartOf=stophammer-primary.service
+
+[Service]
+Type=simple
+User=stophammer
+Group=stophammer
+EnvironmentFile=/etc/stophammer/stophammer-resolverd.env
+ExecStart=/usr/bin/stophammer-resolverd
+WorkingDirectory=/var/lib/stophammer
+Restart=on-failure
+RestartSec=5
+StateDirectory=stophammer
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,30 @@
+[Unit]
+Description=Stophammer gossip crawler
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=stophammer-crawler
+Group=stophammer-crawler
+SupplementaryGroups=podping
+EnvironmentFile=/etc/stophammer/crawler-gossip.env
+ExecStart=/bin/sh -lc 'exec /usr/bin/stophammer-crawler gossip --state "${GOSSIP_STATE_DB:-/var/lib/stophammer-crawler/gossip_state.db}" --skip-db "${FEED_SKIP_DB:-/var/lib/stophammer-crawler/feed_skip.db}" ${GOSSIP_SSE_URL:+--sse-url "$GOSSIP_SSE_URL"} ${GOSSIP_ARCHIVE_DB:+--archive-db "$GOSSIP_ARCHIVE_DB"} ${GOSSIP_SINCE_HOURS:+--since-hours "$GOSSIP_SINCE_HOURS"} ${GOSSIP_SKIP_TTL_DAYS:+--skip-ttl-days "$GOSSIP_SKIP_TTL_DAYS"} ${CONCURRENCY:+--concurrency "$CONCURRENCY"} --skip-known-non-music'
+WorkingDirectory=/var/lib/stophammer-crawler
+Restart=on-failure
+RestartSec=5
+StateDirectory=stophammer-crawler
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer-crawler
+ReadOnlyPaths=/var/lib/podping-alpha-gossip-listener
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Stophammer import on a schedule
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=stophammer-import.service
+
+[Install]
+WantedBy=timers.target

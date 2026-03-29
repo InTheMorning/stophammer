@@ -1,0 +1,26 @@
+[Unit]
+Description=Stophammer one-shot PodcastIndex import
+After=network-online.target stophammer-primary.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stophammer-crawler
+Group=stophammer-crawler
+EnvironmentFile=/etc/stophammer/crawler-import.env
+ExecStart=/bin/sh -lc 'exec /usr/bin/stophammer-crawler import --db "${PODCASTINDEX_DB:-/var/lib/stophammer-crawler/podcastindex_feeds.db}" --state "${IMPORT_STATE_DB:-/var/lib/stophammer-crawler/import_state.db}" --skip-db "${FEED_SKIP_DB:-/var/lib/stophammer-crawler/feed_skip.db}" ${CONCURRENCY:+--concurrency "$CONCURRENCY"} ${IMPORT_BATCH:+--batch "$IMPORT_BATCH"} ${IMPORT_CURSOR:+--cursor "$IMPORT_CURSOR"} ${IMPORT_SKIP_KNOWN_NON_MUSIC:+--skip-known-non-music} ${IMPORT_SKIP_KNOWN_SUCCESS:+--skip-known-success}'
+WorkingDirectory=/var/lib/stophammer-crawler
+StateDirectory=stophammer-crawler
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer-crawler
+
+[Install]
+WantedBy=multi-user.target

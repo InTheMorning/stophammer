@@ -1,5 +1,5 @@
 #!/bin/sh
-# install.sh — download and install the stophammer binary for your Linux architecture
+# install.sh — deprecated direct binary installer for stophammer
 # Usage: curl -fsSL https://raw.githubusercontent.com/stophammer/stophammer/main/install.sh | sh
 #        or with dry-run: sh install.sh --dry-run
 
@@ -88,6 +88,10 @@ fi
 
 echo ""
 echo "stophammer $TAG installed to $INSTALL_PATH"
+echo ""
+echo "Deprecated:"
+echo "  install.sh remains available for direct binary installs, but the project is"
+echo "  moving toward container images and packaged role-based installs."
 echo ""
 echo "Next steps:"
 echo "  1. Set required environment variable:"

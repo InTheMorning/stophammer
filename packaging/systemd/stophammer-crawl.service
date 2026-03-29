@@ -1,0 +1,26 @@
+[Unit]
+Description=Stophammer one-shot crawl pass
+After=network-online.target stophammer-primary.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stophammer-crawler
+Group=stophammer-crawler
+EnvironmentFile=/etc/stophammer/crawler-crawl.env
+ExecStart=/bin/sh -lc 'exec /usr/bin/stophammer-crawler batch ${CONCURRENCY:+--concurrency "$CONCURRENCY"} ${HOST_DELAY_MS:+--host-delay-ms "$HOST_DELAY_MS"} ${FAILED_FEEDS_OUTPUT:+--failed-feeds-output "$FAILED_FEEDS_OUTPUT"}'
+WorkingDirectory=/var/lib/stophammer-crawler
+StateDirectory=stophammer-crawler
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer-crawler
+
+[Install]
+WantedBy=multi-user.target
