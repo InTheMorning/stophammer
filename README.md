@@ -22,15 +22,18 @@ A quality-gated V4V music index with preserved source-layer container feeds.
   - [man/backfill_canonical.1](man/backfill_canonical.1)
   - [man/backfill_artist_identity.1](man/backfill_artist_identity.1)
   - [man/review_artist_identity.1](man/review_artist_identity.1)
+  - [man/review_artist_identity_tui.1](man/review_artist_identity_tui.1)
   - [man/backfill_wallets.1](man/backfill_wallets.1)
   - [man/review_wallet_identity.1](man/review_wallet_identity.1)
+  - [man/review_wallet_identity_tui.1](man/review_wallet_identity_tui.1)
+  - [man/review_source_claims_tui.1](man/review_source_claims_tui.1)
 
 ## Ecosystem
 
 | Repository | Description |
 |---|---|
 | **[stophammer](https://github.com/dardevelin/stophammer)** | Primary / community node (this repo) |
-| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, and Podping listener |
+| [stophammer-crawler](https://github.com/dardevelin/stophammer-crawler) | Unified feed crawler — one-shot crawl, PodcastIndex import, and gossip-listener SSE/archive ingestion |
 | [stophammer-parser](https://github.com/dardevelin/stophammer-parser) | Declarative RSS/Podcast XML extraction engine (Rust library) |
 | [stophammer-tracker](https://github.com/dardevelin/stophammer-tracker) | Cloudflare Workers peer tracker (optional bootstrap) |
 
@@ -73,7 +76,7 @@ dependency on a central server.
 - **App developers** building V4V music players or DJ tools that need a trustworthy
   source of feed GUIDs and payment routes
 - **Node operators** who want a local, independently-verifiable copy of the index
-- **Contributors** running crawlers (RSS, Podping real-time, or PodcastIndex bulk
+- **Contributors** running crawlers (one-shot crawl, gossip real-time/archive replay, or PodcastIndex bulk
   import) to grow the index
 
 ## Architecture
@@ -102,7 +105,8 @@ dependency on a central server.
 - **Crawlers** — independent untrusted processes, authenticated by `CRAWL_TOKEN`.
   Stophammer does **not** run or schedule crawlers — that is the operator's
   responsibility (cron, systemd timer, external service). Current crawler
-  implementations: RSS crawler, Podping listener, PodcastIndex snapshot importer.
+  implementations: one-shot `crawl`, long-running `gossip`, and PodcastIndex
+  snapshot `import`.
   Treat crawlers as the SSRF-exposed fetch tier: they should be low-privilege,
   network-restricted processes that can reach public feed hosts and the primary's ingest
   endpoint, but not arbitrary internal services or primary secrets.
@@ -492,6 +496,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 
+# Review pending artist identity items in the TUI
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+
 # Rebuild wallet endpoints, classifications, and artist links
 # This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_wallets -- --db ./stophammer.db
@@ -501,6 +508,10 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 # Review pending wallet identity items
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
+cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+
+# Inspect source-claim and resolved-promotion evidence in the TUI
+cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
 ```
 
 These do not fetch from the network. They operate on an existing local DB file.
@@ -575,15 +586,16 @@ Schedule with cron:
              stophammer-crawler crawl /etc/stophammer/feeds.txt
 ```
 
-### Podping listener
+### Gossip listener
 
-Listens to the Podping WebSocket stream and submits music feeds in real time:
+Consumes a local `gossip-listener` SSE stream and optionally replays its
+archive database for durable catch-up:
 
 ```bash
 CRAWL_TOKEN=secret \
 INGEST_URL=http://127.0.0.1:8008/ingest/feed \
 cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
-  podping --concurrency 3
+  gossip --archive-db /var/lib/podping-alpha-gossip-listener/archive.db --concurrency 3
 ```
 
 ### PodcastIndex snapshot importer
