@@ -1,201 +1,104 @@
 # Packaging Plan
 
-## Purpose
+This document describes the current packaging shape for Stophammer and the
+remaining rollout work. It is intentionally narrower than the earlier planning
+doc: the goal now is to record the decisions that survived implementation, not
+to preserve every intermediate branch.
 
-This document is a decision aid, not a frozen implementation spec.
+It extends [ADR 0010](adr/0010-distribution-and-deployment.md).
 
-It captures:
+## Product Roles
 
-- packaging decisions already made
-- packaging decisions that still need explicit operator choice
-- the recommended first release shape
-
-The goal is to make packaging decisions easy to review one at a time instead of
-mixing settled structure with speculative details.
-
-This plan extends [ADR 0010](adr/0010-distribution-and-deployment.md) rather
-than replacing it.
-
-## Already Decided
-
-These decisions are already the current direction and should be treated as
-settled unless there is a strong reason to undo them.
-
-### 1. Package by operator role
-
-The product should be packaged as:
+Packaging is by operator role:
 
 - `stophammer-indexer`
 - `stophammer-node`
 - `stophammer-crawler`
 
-Reason:
+This is the settled model.
 
-- this matches how the software is actually used
-- it keeps the community-node install small
-- it avoids the fuzzy `admin` vs `analysis` split
+Why:
 
-### 2. Resolver binaries must use stophammer-prefixed names
+- it matches how the software is actually operated
+- it keeps the node-runner install small
+- it avoids fuzzy package names like `admin` or `analysis`
 
-Installed binary names:
+`stophammer-parser` is not an end-user package. It is a crawler-internal library
+dependency.
 
-- `stophammer-resolverd`
-- `stophammer-resolverctl`
+## Current State
 
-Reason:
+These pieces are already implemented in the repo.
 
-- avoids collisions with generic system "resolver" tooling
-- makes logs, shell history, service names, and package contents clearer
+### Binary naming
 
-Status: already landed. `Cargo.toml` defines `stophammer-resolverd` and
-`stophammer-resolverctl` as `[[bin]]` names. Man pages are
-`man/stophammer-resolverd.1` and `man/stophammer-resolverctl.1`. The
-`RESOLVER_WORKER_ID` default is `stophammer-resolverd-<pid>`.
-
-Backfill and review binaries (`backfill_canonical`, `backfill_artist_identity`,
-`backfill_wallets`, `review_artist_identity`, etc.) intentionally keep their
-unprefixed underscore-separated names. They are operator-invoked maintenance tools,
-not long-running services, and do not risk namespace collisions in `/usr/bin`.
-
-### 3. Community node package must stay minimal
-
-`stophammer-node` should include:
-
-- `stophammer`
-- community-node env example
-- `stophammer-community.service`
-
-It should not include:
+Installed resolver binaries are prefixed:
 
 - `stophammer-resolverd`
 - `stophammer-resolverctl`
-- backfill binaries
-- review binaries
 
-Reason:
+This is already landed in:
 
-- the node-runner role is replication and read API serving, not indexing
+- [Cargo.toml](/home/citizen/build/stophammer/Cargo.toml)
+- [man/stophammer-resolverd.1](/home/citizen/build/stophammer/man/stophammer-resolverd.1)
+- [man/stophammer-resolverctl.1](/home/citizen/build/stophammer/man/stophammer-resolverctl.1)
 
-### 4. systemd is first-class
+### Versioned deployment assets
 
-First-party packaging should include systemd units for the main long-running
-roles:
+The repo already ships versioned assets under [packaging](/home/citizen/build/stophammer/packaging):
 
-- `stophammer-primary.service`
-- `stophammer-community.service`
-- `stophammer-resolverd.service`
-- `stophammer-gossip.service`
+- systemd units
+- env examples
+- `sysusers.d`
+- `tmpfiles.d`
+- release manifests
 
-Reason:
+These are the source of truth for later distro packaging.
 
-- this is the most realistic production deployment target right now
+### Container/runtime contract
 
-### 5. `stophammer-indexer` and `stophammer-node` are mutually exclusive
+The common deployment base now exists:
 
-Both packages install `/usr/bin/stophammer`. They declare mutual conflicts:
+- [Dockerfile](/home/citizen/build/stophammer/Dockerfile)
+- [stophammer-crawler/Dockerfile](/home/citizen/build/stophammer/stophammer-crawler/Dockerfile)
+- [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
 
-- `stophammer-indexer` → `conflicts=('stophammer-node')`
-- `stophammer-node` → `conflicts=('stophammer-indexer')`
+Current contract:
 
-`stophammer-indexer` carries `optdepends=('stophammer-crawler: crawl RSS feeds for
-ingestion')`. Crawlers are useful for primary operators now but may not be needed by
-everyone in the future.
+- `stophammer` image:
+  - binaries in `/usr/local/bin`
+  - working directory `/data`
+  - default command `stophammer`
+  - alternate role by overriding command, e.g. `stophammer-resolverd`
+- `stophammer-crawler` image:
+  - binary in `/usr/local/bin`
+  - working directory `/data`
+  - default command `stophammer-crawler gossip`
 
-Operators who need both an indexer and a node on the same machine use containers.
+### Role tarball assembly
 
-Reason:
+Release tarball assembly is already implemented:
 
-- simplest packaging rule
-- matches the operator-role split; these are distinct deployment targets
-- avoids inventing wrapper or replace= complexity
+- [packaging/releases](/home/citizen/build/stophammer/packaging/releases)
+- [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
+- [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
+- [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
+- [.github/workflows/release.yml](/home/citizen/build/stophammer/.github/workflows/release.yml)
 
-### 6. Default service files ship with each package
+Tagged releases now:
 
-Each package ships complete, usable service files so operators can spin up a role
-without writing unit files from scratch.
+1. assemble role tarballs
+2. generate checksums
+3. verify tarball contents and basic executability
+4. publish only after verification passes
 
-Service types:
-
-- Always-on daemons (`Type=simple`, `Restart=on-failure`):
-  - `stophammer-primary.service`
-  - `stophammer-community.service`
-  - `stophammer-resolverd.service`
-  - `stophammer-gossip.service`
-- Periodic / one-shot (`Type=oneshot` + example timer units):
-  - `stophammer-import.service` + `stophammer-import.timer`
-  - `stophammer-crawl.service` + `stophammer-crawl.timer`
-
-The one-shot units ship as examples, not installed defaults. Operators enable the
-timer or invoke them manually depending on their schedule.
-
-Reason:
-
-- each package should feel complete and runnable without operator boilerplate
-- mixing daemon and oneshot units in the same "always enable" story would confuse
-  new operators about what needs to run continuously
-
-### 7. Container images are the primary deploy surface; Arch is the first distro target after that
-
-Static musl builds remain the binary primitive. The release strategy proceeds in order:
-
-1. Multi-arch static musl builds (already the direction)
-2. Container images (Docker/OCI) with opinionated defaults
-3. Persistent data layout, port/interface contracts, and upgrade semantics documented
-4. Generated manifests and scripts (compose files, systemd units) derived from that base
-5. Distro-specific packaging (Arch, deb, rpm) automated against the above — later
-
-Arch PKGBUILD work is deferred, not dropped. It is the first distro-specific target
-after the common container/manifests base is in place. The first milestone covers
-steps 1–4; the next packaging milestone should be Arch.
-
-Reason:
-
-- establishes a portable, automatable base before committing to distro-specific layout
-- container images give operators a working deploy path faster than per-distro packaging
-- generated manifests are more maintainable than hand-maintained distro files
-
-### 8. `install.sh` is deprecated
-
-With container images and eventual packages as the primary install path, `install.sh`
-has no clear future role. It should be explicitly marked as deprecated, not extended.
-
-Reason:
-
-- a role-selecting installer designed now would conflict with packaging decisions not
-  yet finalized; better to let the actual packages become the install path
-
-### 9. Dedicated service users; `podping` group is conditional, not packaged
-
-Create two dedicated service users via `sysusers.d`:
-
-- `stophammer` / `stophammer` group — for the main node (primary and community)
-- `stophammer-crawler` / `stophammer-crawler` group — for the crawler
-
-The `podping` supplemental group grants `stophammer-crawler` read access to the
-`podping-alpha-gossip-listener` archive DB at runtime. It is handled at the service
-level, not in `sysusers.d`:
-
-- `stophammer-gossip.service` lists `SupplementaryGroups=podping`
-- This only takes effect if the `podping` group exists at service start time
-- `sysusers.d` must not attempt to add `stophammer-crawler` to `podping` — that
-  group is owned by `podping-alpha-gossip-listener` and may not be present at
-  package install time
-
-Default gossip env file has `GOSSIP_ARCHIVE_DB=` commented out. When an operator
-enables archive-backed mode they must also ensure:
-
-1. `podping-alpha-gossip-listener` is installed (creates the `podping` group)
-2. The `podping` group exists before starting `stophammer-gossip.service`
-
-Post-install notes (`.install` for Arch, or equivalent) should surface this clearly.
-
-## Recommended Package Shapes
+## Package Definitions
 
 ### `stophammer-indexer`
 
 For primary/index operators.
 
-Recommended contents:
+Contents:
 
 - `stophammer`
 - `stophammer-resolverd`
@@ -209,52 +112,64 @@ Recommended contents:
 - `review_wallet_identity_tui`
 - `review_source_claims_tui`
 
-Recommended assets:
+Assets:
 
 - `stophammer-primary.service`
 - `stophammer-resolverd.service`
-- `/etc/stophammer/primary.env`
-- `/etc/stophammer/stophammer-resolverd.env`
-
-Package relationships:
-
-- `conflicts=('stophammer-node')`
-- `optdepends=('stophammer-crawler: crawl RSS feeds for ingestion')`
+- `primary.env.example`
+- `stophammer-resolverd.env.example`
+- `stophammer.conf` `sysusers.d` and `tmpfiles.d` entries
 
 ### `stophammer-node`
 
 For community-node runners only.
 
-Recommended contents:
+Contents:
 
 - `stophammer`
 
-Recommended assets:
+Assets:
 
 - `stophammer-community.service`
-- `/etc/stophammer/community.env`
-
-Package relationships:
-
-- `conflicts=('stophammer-indexer')`
+- `community.env.example`
+- `stophammer.conf` `sysusers.d` and `tmpfiles.d` entries
 
 ### `stophammer-crawler`
 
 For crawler operators.
 
-Recommended contents:
+Contents:
 
 - `stophammer-crawler`
 
-Recommended assets:
+Assets:
 
 - `stophammer-gossip.service`
-- `/etc/stophammer/crawler-gossip.env`
-- optional example env files:
-  - `crawler-import.env`
-  - `crawler-crawl.env`
+- example one-shot units:
+  - `stophammer-import.service`
+  - `stophammer-import.timer`
+  - `stophammer-crawl.service`
+  - `stophammer-crawl.timer`
+- env examples:
+  - `crawler-gossip.env.example`
+  - `crawler-import.env.example`
+  - `crawler-crawl.env.example`
+- `stophammer-crawler.conf` `sysusers.d` and `tmpfiles.d` entries
 
-## Filesystem Layout
+## Package Relationships
+
+These are settled:
+
+- `stophammer-indexer` conflicts with `stophammer-node`
+- `stophammer-node` conflicts with `stophammer-indexer`
+- `stophammer-indexer` may declare `stophammer-crawler` as an optional dependency
+
+We are not designing for “indexer and node in one package”. If someone wants both
+roles on one machine, containers are the cleaner answer.
+
+## Installed Paths
+
+Intended packaged paths:
 
 ### Binaries
 
@@ -263,16 +178,26 @@ Recommended assets:
 - `/usr/bin/stophammer-resolverctl`
 - `/usr/bin/stophammer-crawler`
 
-### Service units
+### systemd units
 
 - `/usr/lib/systemd/system/stophammer-primary.service`
 - `/usr/lib/systemd/system/stophammer-community.service`
 - `/usr/lib/systemd/system/stophammer-resolverd.service`
 - `/usr/lib/systemd/system/stophammer-gossip.service`
 
-### Runtime state
+### Configuration
 
-Indexer / community node:
+- `/etc/stophammer/primary.env`
+- `/etc/stophammer/community.env`
+- `/etc/stophammer/stophammer-resolverd.env`
+- `/etc/stophammer/crawler-gossip.env`
+- optional examples:
+  - `/etc/stophammer/crawler-import.env`
+  - `/etc/stophammer/crawler-crawl.env`
+
+### State
+
+Node/indexer:
 
 - `/var/lib/stophammer/stophammer.db`
 - `/var/lib/stophammer/signing.key`
@@ -284,439 +209,110 @@ Crawler:
 - `/var/lib/stophammer-crawler/feed_skip.db`
 - `/var/lib/stophammer-crawler/podcastindex_feeds.db`
 
-### Config
+## systemd Conventions
 
-- `/etc/stophammer/primary.env`
-- `/etc/stophammer/community.env`
-- `/etc/stophammer/stophammer-resolverd.env`
-- `/etc/stophammer/crawler-gossip.env`
-- optional:
-- `/etc/stophammer/crawler-import.env`
-  - `/etc/stophammer/crawler-crawl.env`
+These are also settled.
 
-## Release Assembly Layout
+- service units use `EnvironmentFile=` under `/etc/stophammer/`
+- operators edit env files, not unit files
+- `stophammer-resolverd.service` uses:
+  - `After=stophammer-primary.service`
+  - `PartOf=stophammer-primary.service`
+- `stophammer-gossip.service` uses `SupplementaryGroups=podping`
+  when archive-backed gossip is desired
 
-The common release base now has an explicit repo layout:
+The `podping` group is conditional runtime integration, not something we create
+ourselves in `sysusers.d`.
 
-- `packaging/releases/*.manifest`
-  - one manifest per role package
-- `packaging/releases/*.README.md`
-  - package-specific tarball readmes
-- `scripts/assemble-release.sh`
-  - assembles `dist/stophammer-indexer-<version>.tar.gz`
-  - assembles `dist/stophammer-node-<version>.tar.gz`
-  - assembles `dist/stophammer-crawler-<version>.tar.gz`
-- `scripts/publish-release.sh`
-  - assembles the tarballs and emits `dist/SHA256SUMS-<version>.txt`
-- `scripts/verify-release.sh`
-  - checks checksums, extracts each tarball, and smoke-checks its expected layout
-- `.github/workflows/release.yml`
-  - assembles, verifies, and only then publishes the tarballs on `v*` tags
+## Release Artifacts
 
-The manifests map:
+The release layout is now role-accurate.
 
-- built binaries from `target/release`
-- the crawler binary from `stophammer-crawler/target/release`
-- versioned env/systemd/sysusers/tmpfiles assets from `packaging/`
+Tarballs:
 
-This gives the project a package-accurate tarball shape before distro-specific
-packaging automation lands.
+- `stophammer-indexer-<version>.tar.gz`
+- `stophammer-node-<version>.tar.gz`
+- `stophammer-crawler-<version>.tar.gz`
 
-## systemd Unit Shape
+Each tarball contains:
 
-These are the intended roles, not final unit file contents.
+- `bin/`
+- `env/`
+- `systemd/`
+- `sysusers.d/`
+- `tmpfiles.d/`
+- package-specific `README.md`
+- `LICENSE`
 
-### Configuration convention
+The manifests in [packaging/releases](/home/citizen/build/stophammer/packaging/releases)
+are the source of truth for these bundles.
 
-Every service file ships with an `EnvironmentFile=` directive pointing to a file
-under `/etc/stophammer/`. That file is installed with commented-out defaults and
-inline documentation for every variable. Operators edit the env file; the service
-file itself never needs to change.
+## What We Are Not Packaging
 
-```
-# /etc/stophammer/primary.env
-#
-# DB_PATH=/var/lib/stophammer/stophammer.db
-# BIND=0.0.0.0:8008
-# RUST_LOG=stophammer=info
-#
-# Required:
-# CRAWL_TOKEN=<secret>
-# SYNC_TOKEN=<secret>
-```
+For now, these stay source-built only:
 
-This means routine configuration changes (log level, bind address, batch sizes) do not
-require `systemctl edit` overrides or manual service file patching.
+- crawler analysis binaries such as `feed_audit`, `audit_import`, and
+  `musicl_backfill`
 
-### Always-on daemons (`Type=simple`, `Restart=on-failure`)
+That is intentional. They are useful expert tools, but they are not part of the
+main operator install surface.
 
-#### `stophammer-primary.service`
+## Remaining Phases
 
-- runs `stophammer`
-- primary/indexer mode
-- writes `/var/lib/stophammer`
+We are done with the common packaging base. The remaining work is narrower now.
 
-#### `stophammer-community.service`
-
-- runs `stophammer`
-- `NODE_MODE=community`
-- writes `/var/lib/stophammer`
-- no resolver worker
-
-#### `stophammer-resolverd.service`
-
-- runs `stophammer-resolverd`
-- primary-only
-- shares `/var/lib/stophammer`
-
-See Decisions Still Needed, Decision 2 for the `BindsTo` vs. `After=` question.
-
-#### `stophammer-gossip.service`
-
-- runs `stophammer-crawler gossip`
-- shares `/var/lib/stophammer-crawler`
-- includes `SupplementaryGroups=podping` in the unit file
-- `GOSSIP_ARCHIVE_DB=` is commented out in the default env file (live-only mode)
-- operator sets `GOSSIP_ARCHIVE_DB=/var/lib/podping-alpha-gossip-listener/archive.db`
-  to enable archive-backed mode; requires the `podping` group to exist at service start
-
-### Periodic / one-shot examples (`Type=oneshot` + timer)
-
-These ship as example files, not installed defaults. Operators enable the timer or
-invoke the service manually.
-
-#### `stophammer-import.service` + `stophammer-import.timer`
-
-- runs a one-shot bulk import against the indexer database
-- timer period is site-specific
-
-#### `stophammer-crawl.service` + `stophammer-crawl.timer`
-
-- runs a one-shot crawl pass
-- timer period is site-specific
-
-## Container Image Design
-
-### Images
-
-Two images, matching the two Dockerfiles already in the repo:
-
-- `stophammer` — for primary nodes, community nodes, and the resolverd worker.
-  Contains all binaries from the main workspace: `stophammer`,
-  `stophammer-resolverd`, `stophammer-resolverctl`, plus maintenance tools
-  (`backfill_canonical`, `backfill_artist_identity`, `backfill_wallets`,
-  `review_artist_identity`, `review_wallet_identity`, etc.).
-  The operator selects the role by choosing the container's command.
-- `stophammer-crawler` — for the crawler tier. Contains `stophammer-crawler` only.
-
-Container contract:
-
-- binaries live in `/usr/local/bin`
-- runtime working directory is `/data`
-- the `stophammer` image defaults to `CMD ["stophammer"]`
-- the `stophammer-crawler` image defaults to `CMD ["stophammer-crawler", "gossip"]`
-- alternate roles are selected by overriding the container `command`
-- both runtime images install `ca-certificates` so HTTPS fetches and sync work out
-  of the box
-
-### Base image
-
-Alpine-based multi-stage (already the pattern). Builder stage uses `rust:1.87-alpine`;
-runtime stage uses `alpine:3.20`. Non-root user.
-
-### Persistent data
-
-- `stophammer` image: `/data` volume
-  - `stophammer.db` — SQLite database
-  - `signing.key` — Ed25519 signing key (auto-generated if missing, 0600 perms)
-- `stophammer-crawler` image: `/data` volume
-  - `gossip_state.db`, `import_state.db`, `feed_skip.db`
-
-### Ports and health
-
-- Default port: `8008` (configurable via `BIND`)
-- Health check: `GET /health` → `"ok"` (200 OK)
-- Health check in compose: `wget -qO- http://127.0.0.1:8008/health`
-
-### Interface contract
-
-- API: versioned under `/v1/` — see [API.md](API.md)
-- Ingest: `POST /ingest/feed` (primary only, requires `CRAWL_TOKEN`)
-- Sync: `/sync/*` endpoints (requires `SYNC_TOKEN`)
-- Resolver status: `GET /v1/resolver/status`
-
-### Reference production compose
-
-Ship a `docker-compose.yml` alongside the existing `docker-compose.e2e.yml`. The
-production compose should show:
-
-- `primary` — runs `stophammer` (primary mode)
-- `resolverd` — runs `stophammer-resolverd` from the same image
-- `gossip` — runs `stophammer-crawler gossip` from the crawler image
-- `community` — optional, runs `stophammer` with `NODE_MODE=community`
-
-Each service uses `env_file:` pointing to a role-specific `.env` file. Named volumes
-for `/data`. Health check dependencies so resolverd waits for primary.
-
-## Upgrade Semantics
-
-### Database migrations
-
-Automatic. `stophammer` runs `run_migrations()` on every startup. There are currently
-21 SQL migrations in `migrations/`. Each runs inside a transaction; if it fails, the
-transaction rolls back and the binary exits. No manual migration step is needed.
-
-### Signing key
-
-Preserved across upgrades. `NodeSigner::load_or_create()` only generates a new key if
-the file is missing. Operators must back up the signing key separately — losing it
-means the node can no longer prove authorship of its existing events.
-
-### Downgrade safety
-
-Not guaranteed. Migrations are forward-only with no rollback support. Operators should
-back up the database (`cp stophammer.db stophammer.db.bak`) before upgrading. See the
-Backup and Restore section in [operations.md](operations.md) for the recommended
-procedure.
-
-### Rolling upgrade order (primary + community network)
-
-1. Stop `stophammer-resolverd` on the primary
-2. Upgrade and restart the primary (`stophammer`)
-3. Upgrade and restart `stophammer-resolverd`
-4. Upgrade community nodes in any order
-
-Community nodes tolerate a primary that is one version ahead. The sync protocol uses
-signed events with explicit schemas; a community node that doesn't understand a new
-event type logs a warning and skips it.
-
-## Migration From Today
-
-### What has already changed
-
-- `resolverd` → `stophammer-resolverd` (binary name, man page, worker ID default)
-- `resolverctl` → `stophammer-resolverctl` (binary name, man page)
-- Both renames are landed in `Cargo.toml` and the man pages
-
-### What changes when the first milestone ships
-
-- `install.sh` is deprecated; container images and release tarballs are the
-  recommended install path
-- Production-ready `docker-compose.yml` and systemd unit files ship with the release
-- Existing databases are auto-migrated on startup (no manual step)
-- Existing signing keys are preserved (no action needed)
-- Operators using custom systemd units should update `ExecStart` paths from
-  `resolverd` / `resolverctl` to `stophammer-resolverd` / `stophammer-resolverctl`
-
-## Versioning
-
-Semver. Version bumps are tagged as `v<major>.<minor>.<patch>` in git and trigger
-release builds. Database compatibility is forward-only: a newer binary can read an
-older database (and will auto-migrate it), but the reverse is not supported.
-
-Versioning policy details (when to bump major, API stability guarantees) are outside
-the scope of this packaging plan.
-
-## Arch Packaging Direction (Deferred)
-
-Arch split-package support is deferred until after container images and generated
-manifests are in place. It is still the first distro-specific packaging target,
-not an indefinite "later maybe".
-
-The Arch package should be a split package:
-
-- `stophammer-indexer`
-- `stophammer-node`
-- `stophammer-crawler`
-
-Recommended repository paths:
-
-- `packaging/arch/PKGBUILD`
-- `packaging/arch/stophammer.install`
-- `packaging/arch/stophammer.sysusers`
-- `packaging/arch/stophammer.tmpfiles`
-- `packaging/arch/stophammer-crawler.sysusers`
-- `packaging/arch/stophammer-crawler.tmpfiles`
-- `packaging/systemd/stophammer-primary.service`
-- `packaging/systemd/stophammer-community.service`
-- `packaging/systemd/stophammer-resolverd.service`
-- `packaging/systemd/stophammer-gossip.service`
-
-## Decisions Still Needed
-
-### Decision 1: Do crawler analysis binaries get packaged at all?
-
-Examples:
-
-- `feed_audit`
-- `audit_analyzer`
-- `audit_import`
-- `audit_expand_publishers`
-- `musicl_backfill`
-
-Options:
-
-1. Keep them source-built only.
-2. Add a fourth package later.
-3. Fold them into `stophammer-crawler`.
-
-Recommendation:
-
-- keep them source-built only for now
-
-Reason:
-
-- they are not part of the main operational surface
-- packaging them now muddies the role split
-
-### Decision 2: Relationship between `stophammer-resolverd.service` and `stophammer-primary.service`
-
-Settled:
-
-- `After=stophammer-primary.service`
-- `PartOf=stophammer-primary.service`
-
-Reason:
-
-- `After=` gives sane startup ordering
-- `PartOf=` means stopping or restarting the primary also carries the resolver
-- this is a better fit than `BindsTo=` for two services that share one host and DB
-
-## Recommended First Packaging Milestone
-
-The binary rename (prefixed resolver names, man pages, worker ID default) is already
-landed. The first milestone should deliver:
-
-- Updated `Dockerfile` including all indexer-role binaries (resolverd, resolverctl,
-  backfill, review tools) in the `stophammer` image
-- Reference `docker-compose.yml` for production use
-- Multi-arch static musl release tarballs (continuing existing pattern)
-- `packaging/systemd/` unit files with `EnvironmentFile=` convention
-- Commented-default env files for each role
-- `sysusers.d` / `tmpfiles.d` for `stophammer` and `stophammer-crawler` users
-- Documented upgrade semantics and migration notes
-- Deprecation notice on `install.sh`
-
-It should not include:
-
-- Arch PKGBUILD (next milestone, after the common container/manifests base)
-- A fourth analysis package
-- One-shot import/crawl timer units as installed defaults
-
-## Implementation Phases
-
-The work should proceed in small, operator-usable slices.
-
-### Phase 0: Naming and role model
+### Phase 1: Common base
 
 Status: done
 
 Delivered:
 
+- role split
 - prefixed resolver binaries
-- prefixed resolver man pages
-- role split decided:
-  - `stophammer-indexer`
-  - `stophammer-node`
-  - `stophammer-crawler`
+- versioned packaging assets
+- container/runtime contract
+- role tarball assembly
+- publish + verify release workflow
 
-### Phase 1: Common packaging base
-
-Goal:
-
-- establish the shared, non-distro-specific deployment base
-
-Scope:
-
-- update the main [Dockerfile](/home/citizen/build/stophammer/Dockerfile) so the
-  `stophammer` image includes the full indexer-role binary set:
-  - `stophammer`
-  - `stophammer-resolverd`
-  - `stophammer-resolverctl`
-  - backfill/review binaries
-- keep `stophammer-crawler` in its own image
-- add a production-oriented `docker-compose.yml`
-- add versioned unit files under `packaging/systemd/`
-- add commented env examples under `packaging/env/`
-- add `sysusers.d` / `tmpfiles.d` source files
-- document upgrade semantics and migration notes alongside these assets
-- mark `install.sh` as deprecated
-
-Exit criteria:
-
-- a new operator can run primary + resolver + crawler from versioned assets
-  without writing service files from scratch
-- the repository contains the canonical systemd/env manifests from which later
-  distro packaging can be derived
-
-### Phase 2: Local systemd-first operation
+### Phase 2: Arch packaging
 
 Goal:
 
-- make the project easy for you to run directly on your own Arch machines before
-  formal distro packaging exists
-
-Scope:
-
-- install and validate the packaged systemd units manually on your machines
-- validate:
-  - `stophammer-primary.service`
-  - `stophammer-community.service`
-  - `stophammer-resolverd.service`
-  - `stophammer-gossip.service`
-- validate `PartOf=` + `After=` behavior between primary and resolver
-- validate the env-file convention under `/etc/stophammer/`
-- validate `SupplementaryGroups=podping` behavior for archive-backed gossip
-- refine hardening, state paths, and defaults based on actual operator use
-
-Exit criteria:
-
-- the versioned unit files and env examples are proven usable in your own setup
-- no local-only overrides are required except secrets and site-specific addresses
-
-### Phase 3: Arch split packaging
-
-Goal:
-
-- turn the phase-1/2 assets into first-class Arch packages
+- turn the existing versioned assets into real Arch packages
 
 Scope:
 
 - add `packaging/arch/PKGBUILD`
-- add `.install` messaging
-- add Arch install targets for:
+- add Arch `.install` notes
+- package:
   - `stophammer-indexer`
   - `stophammer-node`
   - `stophammer-crawler`
-- encode:
-  - `conflicts=('stophammer-node')` / `conflicts=('stophammer-indexer')`
-  - `optdepends=('stophammer-crawler: crawl RSS feeds for ingestion')`
-- install the already-versioned systemd/env/sysusers/tmpfiles assets
-- verify package install, upgrade, and removal behavior on Arch
+- install the already-versioned binaries, units, env files, `sysusers.d`, and
+  `tmpfiles.d` data
+- encode package conflicts/optional dependencies correctly
 
-Exit criteria:
+Success means:
 
-- `makepkg -si` produces working packages for all three roles
-- package contents match the role split exactly
-- service enablement messages are clear and correct
+- `makepkg` produces all three role packages
+- file ownership and install paths match this document
+- post-install guidance is clear
 
-### Phase 4: Release automation
+### Phase 3: Broader release automation
 
 Goal:
 
-- make packaging and release repeatable
+- extend the now-working tarball release flow into the next artifact layers
 
 Scope:
 
-- publish multi-arch static musl tarballs for:
-  - `stophammer-indexer`
-  - `stophammer-node`
-  - `stophammer-crawler`
-- publish OCI images
-- automate release assembly from the same versioned packaging assets
-- optionally add Arch package build automation after the local PKGBUILD is stable
+- OCI image publishing
+- multi-arch release refinement
+- later, Arch package build automation after the local `PKGBUILD` stabilizes
 
-Exit criteria:
+This phase is about automation polish, not package shape discovery.
 
-- tagged releases produce the same artifacts every time
-- release assets match the documented package roles
+## Deprecated Path
+
+[install.sh](/home/citizen/build/stophammer/install.sh) is now legacy. It still
+exists, but it is no longer the direction for packaging or release work.
