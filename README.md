@@ -165,6 +165,35 @@ stophammer
 docker build -t stophammer .
 ```
 
+The repo also now ships versioned deployment assets:
+
+- production-oriented compose file: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+- systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
+- env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
+- service-user/state-dir definitions:
+  - [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)
+  - [packaging/tmpfiles.d](/home/citizen/build/stophammer/packaging/tmpfiles.d)
+
+`install.sh` still exists for direct binary installs, but it is now the legacy
+path. The packaged env/unit assets and container images are the intended
+operator-facing direction.
+
+The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
+
+- `compose-primary.env`
+- `compose-resolverd.env`
+- `compose-crawler-gossip.env`
+
+Edit those before using the compose stack.
+
+Container contract:
+
+- `stophammer` image contains the full indexer-role binary set
+- `stophammer` defaults to running `stophammer`
+- `stophammer-resolverd` is selected by overriding the container command
+- `stophammer-crawler` defaults to `stophammer-crawler gossip`
+- both images use `/data` as the runtime working directory / volume root
+
 ### Credentials
 
 The primary generates an ed25519 signing key at `KEY_PATH` on first start.
@@ -246,6 +275,23 @@ If `PRIMARY_URL` is plain `http://`, auto-discovery is rejected unless you eithe
 - set `ALLOW_INSECURE_PUBKEY_DISCOVERY=true` for local development / Docker only
 
 In production, use HTTPS for `PRIMARY_URL` or pin `PRIMARY_PUBKEY` explicitly.
+
+### Versioned service assets
+
+The shipped role units are:
+
+- `stophammer-primary.service`
+- `stophammer-community.service`
+- `stophammer-resolverd.service`
+- `stophammer-gossip.service`
+
+The repository also includes example one-shot units for operator-scheduled work:
+
+- `stophammer-import.service` + `stophammer-import.timer`
+- `stophammer-crawl.service` + `stophammer-crawl.timer`
+
+These packaged assets are the base for later distro packaging and should be the
+starting point for local systemd installs.
 
 ### Credentials
 

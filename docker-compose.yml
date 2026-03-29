@@ -4,9 +4,8 @@ services:
   primary:
     build:
       context: .
-    command: ["/app/stophammer"]
     env_file:
-      - ./packaging/env/primary.env.example
+      - ./packaging/env/compose-primary.env
     volumes:
       - primary-data:/data
     ports:
@@ -21,9 +20,9 @@ services:
   resolverd:
     build:
       context: .
-    command: ["/app/stophammer-resolverd"]
+    command: ["stophammer-resolverd"]
     env_file:
-      - ./packaging/env/stophammer-resolverd.env.example
+      - ./packaging/env/compose-resolverd.env
     volumes:
       - primary-data:/data
     depends_on:
@@ -34,11 +33,12 @@ services:
     build:
       context: .
       dockerfile: stophammer-crawler/Dockerfile
-    command: ["/app/stophammer-crawler", "gossip"]
     env_file:
-      - ./packaging/env/crawler-gossip.env.example
+      - ./packaging/env/compose-crawler-gossip.env
     volumes:
       - crawler-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
       primary:
         condition: service_healthy

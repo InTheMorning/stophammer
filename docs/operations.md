@@ -92,11 +92,72 @@ sh install.sh
 stophammer
 ```
 
+`install.sh` is now the legacy direct-binary path. The preferred deployment
+assets live in:
+
+- [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+- [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
+- [packaging/env](/home/citizen/build/stophammer/packaging/env)
+
 ### Container image
 
 ```bash
 docker build -t stophammer .
 ```
+
+### Versioned deployment assets
+
+The repository now ships versioned assets for the three operator roles:
+
+- indexer / primary
+- community node
+- crawler
+
+Asset roots:
+
+- systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
+- env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
+- service users: [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)
+- state dirs: [packaging/tmpfiles.d](/home/citizen/build/stophammer/packaging/tmpfiles.d)
+- production compose skeleton: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+
+The compose file intentionally uses runnable sample env files:
+
+- [compose-primary.env](/home/citizen/build/stophammer/packaging/env/compose-primary.env)
+- [compose-resolverd.env](/home/citizen/build/stophammer/packaging/env/compose-resolverd.env)
+- [compose-crawler-gossip.env](/home/citizen/build/stophammer/packaging/env/compose-crawler-gossip.env)
+
+Edit those sample values before using the compose stack outside local testing.
+
+Container runtime contract:
+
+- `stophammer` image:
+  - binaries installed in `/usr/local/bin`
+  - working directory `/data`
+  - default command `stophammer`
+  - alternate role via `command: ["stophammer-resolverd"]`
+- `stophammer-crawler` image:
+  - binary installed in `/usr/local/bin`
+  - working directory `/data`
+  - default command `stophammer-crawler gossip`
+
+Both images include `ca-certificates` so HTTPS sync/fetch behavior works without
+extra image customization.
+
+Shipped long-running units:
+
+- `stophammer-primary.service`
+- `stophammer-community.service`
+- `stophammer-resolverd.service`
+- `stophammer-gossip.service`
+
+Shipped example one-shot units:
+
+- `stophammer-import.service` + `stophammer-import.timer`
+- `stophammer-crawl.service` + `stophammer-crawl.timer`
+
+The oneshot import/crawl units are examples only. They are not intended to be
+enabled by default in the first packaging milestone.
 
 ### Primary Mode (default)
 

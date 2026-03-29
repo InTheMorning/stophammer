@@ -381,9 +381,15 @@ Two images, matching the two Dockerfiles already in the repo:
   The operator selects the role by choosing the container's command.
 - `stophammer-crawler` — for the crawler tier. Contains `stophammer-crawler` only.
 
-The current `Dockerfile` only copies the main `stophammer` binary. It needs to be
-updated to also copy `stophammer-resolverd`, `stophammer-resolverctl`, and the
-maintenance binaries so the single image serves the full indexer role.
+Container contract:
+
+- binaries live in `/usr/local/bin`
+- runtime working directory is `/data`
+- the `stophammer` image defaults to `CMD ["stophammer"]`
+- the `stophammer-crawler` image defaults to `CMD ["stophammer-crawler", "gossip"]`
+- alternate roles are selected by overriding the container `command`
+- both runtime images install `ca-certificates` so HTTPS fetches and sync work out
+  of the box
 
 ### Base image
 
