@@ -143,6 +143,12 @@ To unpack and smoke-check the produced bundles before publishing:
 ./scripts/verify-release.sh
 ```
 
+Tagged releases also publish multi-arch OCI images to GHCR for:
+
+- `stophammer-indexer`
+- `stophammer-node`
+- `stophammer-crawler`
+
 The compose file intentionally uses runnable sample env files:
 
 - [compose-primary.env](/home/citizen/build/stophammer/packaging/env/compose-primary.env)
@@ -162,6 +168,12 @@ Container runtime contract:
   - binary installed in `/usr/local/bin`
   - working directory `/data`
   - default command `stophammer-crawler gossip`
+- release automation publishes:
+  - `ghcr.io/<owner>/stophammer-indexer`
+  - `ghcr.io/<owner>/stophammer-node`
+  - `ghcr.io/<owner>/stophammer-crawler`
+- the indexer and node images share the same root Dockerfile and differ by
+  release target/default role
 
 Both images include `ca-certificates` so HTTPS sync/fetch behavior works without
 extra image customization.

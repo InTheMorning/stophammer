@@ -75,6 +75,15 @@ Current contract:
   - working directory `/data`
   - default command `stophammer-crawler gossip`
 
+Tagged releases now also publish multi-arch GHCR images for:
+
+- `stophammer-indexer`
+- `stophammer-node`
+- `stophammer-crawler`
+
+`stophammer-indexer` and `stophammer-node` are separate release targets built
+from the same root Dockerfile.
+
 ### Role tarball assembly
 
 Release tarball assembly is already implemented:
@@ -91,6 +100,27 @@ Tagged releases now:
 2. generate checksums
 3. verify tarball contents and basic executability
 4. publish only after verification passes
+
+### Arch packaging
+
+Phase 2 is now implemented in:
+
+- [packaging/arch/PKGBUILD](/home/citizen/build/stophammer/packaging/arch/PKGBUILD)
+- [packaging/arch/stophammer-indexer.install](/home/citizen/build/stophammer/packaging/arch/stophammer-indexer.install)
+- [packaging/arch/stophammer-node.install](/home/citizen/build/stophammer/packaging/arch/stophammer-node.install)
+- [packaging/arch/stophammer-crawler.install](/home/citizen/build/stophammer/packaging/arch/stophammer-crawler.install)
+- [packaging/arch/README.md](/home/citizen/build/stophammer/packaging/arch/README.md)
+
+Current contract:
+
+- `makepkg` produces exactly:
+  - `stophammer-indexer`
+  - `stophammer-node`
+  - `stophammer-crawler`
+- env files are installed as real config under `/etc/stophammer`
+- package conflicts and optional dependencies follow the role model in this
+  document
+- install notes provide role-specific post-install guidance
 
 ## Package Definitions
 
@@ -276,38 +306,37 @@ Delivered:
 
 ### Phase 2: Arch packaging
 
-Goal:
+Status: done
 
-- turn the existing versioned assets into real Arch packages
+Delivered:
 
-Scope:
-
-- add `packaging/arch/PKGBUILD`
-- add Arch `.install` notes
-- package:
+- split-package [PKGBUILD](/home/citizen/build/stophammer/packaging/arch/PKGBUILD)
+- role-specific Arch `.install` notes
+- `makepkg` buildability for:
   - `stophammer-indexer`
   - `stophammer-node`
   - `stophammer-crawler`
-- install the already-versioned binaries, units, env files, `sysusers.d`, and
-  `tmpfiles.d` data
-- encode package conflicts/optional dependencies correctly
-
-Success means:
-
-- `makepkg` produces all three role packages
-- file ownership and install paths match this document
-- post-install guidance is clear
+- packaged install paths that match this document
+- clear post-install guidance per role
 
 ### Phase 3: Broader release automation
 
-Goal:
+Status: in progress
+
+Delivered so far:
+
+- tagged-release OCI image publishing to GHCR
+- multi-arch image builds for:
+  - `stophammer-indexer`
+  - `stophammer-node`
+  - `stophammer-crawler`
+
+Remaining goal:
 
 - extend the now-working tarball release flow into the next artifact layers
 
-Scope:
+Remaining scope:
 
-- OCI image publishing
-- multi-arch release refinement
 - later, Arch package build automation after the local `PKGBUILD` stabilizes
 
 This phase is about automation polish, not package shape discovery.

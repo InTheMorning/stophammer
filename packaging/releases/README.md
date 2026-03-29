@@ -28,6 +28,12 @@ To smoke-check the produced tarballs locally:
 ./scripts/verify-release.sh
 ```
 
+Tagged releases also publish GHCR images for the same three operator roles:
+
+- `stophammer-indexer`
+- `stophammer-node`
+- `stophammer-crawler`
+
 By default it creates versioned tarballs under `dist/` using:
 
 - the main workspace release binaries from `target/release`
@@ -46,5 +52,5 @@ stophammer-indexer-<version>/
   LICENSE
 ```
 
-These manifests are the shared source of truth for later distro packaging and
-release automation.
+These manifests are the shared source of truth for tarball packaging, while the
+release workflow now layers OCI image publishing on top of the same role model.

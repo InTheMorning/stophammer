@@ -1,0 +1,22 @@
+post_install() {
+  cat <<'EOF'
+stophammer-crawler installed.
+
+Next steps:
+  1. Edit /etc/stophammer/crawler-gossip.env
+  2. Enable the long-running crawler:
+       systemctl enable --now stophammer-gossip.service
+
+Optional one-shot/timer units:
+  - stophammer-import.service / stophammer-import.timer
+  - stophammer-crawl.service / stophammer-crawl.timer
+
+If you use archive-backed gossip, ensure the service user can read the archive DB.
+The packaged unit expects SupplementaryGroups=podping, but it does not create that
+group for you.
+EOF
+}
+
+post_upgrade() {
+  post_install
+}

@@ -187,6 +187,13 @@ Release tarball assembly is now driven by:
 - [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
 - [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 
+Tagged releases also publish multi-arch OCI images to GHCR for the three role
+names:
+
+- `stophammer-indexer`
+- `stophammer-node`
+- `stophammer-crawler`
+
 The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
 
 - `compose-primary.env`
@@ -202,6 +209,12 @@ Container contract:
 - `stophammer-resolverd` is selected by overriding the container command
 - `stophammer-crawler` defaults to `stophammer-crawler gossip`
 - both images use `/data` as the runtime working directory / volume root
+- tagged releases publish:
+  - `ghcr.io/<owner>/stophammer-indexer`
+  - `ghcr.io/<owner>/stophammer-node`
+  - `ghcr.io/<owner>/stophammer-crawler`
+- `stophammer-indexer` and `stophammer-node` come from separate targets in the
+  same root Dockerfile
 
 ### Credentials
 

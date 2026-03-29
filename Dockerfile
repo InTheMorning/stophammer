@@ -12,7 +12,7 @@ RUN cargo build --release --bins
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 
-FROM alpine:3.20
+FROM alpine:3.20 AS stophammer-runtime
 
 RUN apk add --no-cache ca-certificates \
  && addgroup -S stophammer \
@@ -41,4 +41,13 @@ ENV BIND=0.0.0.0:8008
 
 EXPOSE 8008
 
+FROM stophammer-runtime AS stophammer-indexer
 CMD ["stophammer"]
+
+FROM stophammer-runtime AS stophammer-node
+
+ENV NODE_MODE=community
+
+CMD ["stophammer"]
+
+FROM stophammer-indexer

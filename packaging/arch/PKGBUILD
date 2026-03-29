@@ -1,0 +1,137 @@
+pkgbase=stophammer-packages
+pkgname=(
+  'stophammer-indexer'
+  'stophammer-node'
+  'stophammer-crawler'
+)
+pkgver=0.1.0
+pkgrel=1
+pkgdesc='Role-based Arch packages for the Stophammer music index stack'
+arch=('x86_64')
+url='https://github.com/v4v-tools/stophammer'
+license=('AGPL-3.0-only')
+makedepends=('cargo' 'git')
+options=('!debug')
+source=()
+sha256sums=()
+
+_repo_root="${startdir}/../.."
+_dist_dir="${_repo_root}/dist"
+
+build() {
+  cd "${_repo_root}"
+  CFLAGS='' \
+  CXXFLAGS='' \
+  CPPFLAGS='' \
+  LDFLAGS='' \
+  RUSTFLAGS='' \
+  STOPHAMMER_RELEASE_VERSION="${pkgver}" \
+    bash ./scripts/publish-release.sh "${pkgver}"
+}
+
+_extract_bundle() {
+  local package_name="$1"
+  local bundle_root="${srcdir}/${package_name}-${pkgver}"
+
+  rm -rf "${bundle_root}"
+  mkdir -p "${bundle_root}"
+  bsdtar -xzf "${_dist_dir}/${package_name}-${pkgver}.tar.gz" -C "${bundle_root}"
+  printf '%s\n' "${bundle_root}/${package_name}-${pkgver}"
+}
+
+_install_bundle_tree() {
+  local package_name="$1"
+  local bundle_dir
+  bundle_dir="$(_extract_bundle "${package_name}")"
+
+  local path rel target
+  while IFS= read -r -d '' path; do
+    rel="${path#${bundle_dir}/}"
+    case "${rel}" in
+      bin/*)
+        target="/usr/bin/${rel#bin/}"
+        install -Dm755 "${path}" "${pkgdir}${target}"
+        ;;
+      env/*.env.example)
+        target="/etc/stophammer/${rel#env/}"
+        target="${target%.example}"
+        install -Dm644 "${path}" "${pkgdir}${target}"
+        ;;
+      systemd/*)
+        target="/usr/lib/systemd/system/${rel#systemd/}"
+        install -Dm644 "${path}" "${pkgdir}${target}"
+        ;;
+      sysusers.d/*)
+        target="/usr/lib/sysusers.d/${rel#sysusers.d/}"
+        install -Dm644 "${path}" "${pkgdir}${target}"
+        ;;
+      tmpfiles.d/*)
+        target="/usr/lib/tmpfiles.d/${rel#tmpfiles.d/}"
+        install -Dm644 "${path}" "${pkgdir}${target}"
+        ;;
+      README.md)
+        install -Dm644 "${path}" "${pkgdir}/usr/share/doc/${pkgname}/README.md"
+        ;;
+      LICENSE)
+        install -Dm644 "${path}" "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+        ;;
+    esac
+  done < <(find "${bundle_dir}" -type f -print0)
+}
+
+_install_manpages() {
+  local manpage
+  for manpage in "$@"; do
+    install -Dm644 \
+      "${_repo_root}/man/${manpage}" \
+      "${pkgdir}/usr/share/man/man1/${manpage}"
+  done
+}
+
+package_stophammer-indexer() {
+  pkgdesc='Primary/indexer role package for Stophammer'
+  depends=('systemd')
+  conflicts=('stophammer-node')
+  optdepends=('stophammer-crawler: crawler/feed ingestion companion')
+  backup=(
+    'etc/stophammer/primary.env'
+    'etc/stophammer/stophammer-resolverd.env'
+  )
+  install='stophammer-indexer.install'
+
+  _install_bundle_tree 'stophammer-indexer'
+  _install_manpages \
+    'stophammer.1' \
+    'stophammer-resolverd.1' \
+    'stophammer-resolverctl.1' \
+    'backfill_canonical.1' \
+    'backfill_artist_identity.1' \
+    'backfill_wallets.1' \
+    'review_artist_identity.1' \
+    'review_wallet_identity.1'
+}
+
+package_stophammer-node() {
+  pkgdesc='Community-node role package for Stophammer'
+  depends=('systemd')
+  conflicts=('stophammer-indexer')
+  backup=('etc/stophammer/community.env')
+  install='stophammer-node.install'
+
+  _install_bundle_tree 'stophammer-node'
+  _install_manpages 'stophammer.1'
+}
+
+package_stophammer-crawler() {
+  pkgdesc='Crawler role package for Stophammer'
+  depends=('systemd')
+  optdepends=('stophammer-indexer: local ingest target for crawler services')
+  backup=(
+    'etc/stophammer/crawler-gossip.env'
+    'etc/stophammer/crawler-import.env'
+    'etc/stophammer/crawler-crawl.env'
+  )
+  install='stophammer-crawler.install'
+
+  _install_bundle_tree 'stophammer-crawler'
+}

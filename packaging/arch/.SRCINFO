@@ -1,0 +1,35 @@
+pkgbase = stophammer-packages
+	pkgdesc = Role-based Arch packages for the Stophammer music index stack
+	pkgver = 0.1.0
+	pkgrel = 1
+	url = https://github.com/v4v-tools/stophammer
+	arch = x86_64
+	license = AGPL-3.0-only
+	makedepends = cargo
+	makedepends = git
+	options = !debug
+
+pkgname = stophammer-indexer
+	pkgdesc = Primary/indexer role package for Stophammer
+	install = stophammer-indexer.install
+	depends = systemd
+	optdepends = stophammer-crawler: crawler/feed ingestion companion
+	conflicts = stophammer-node
+	backup = etc/stophammer/primary.env
+	backup = etc/stophammer/stophammer-resolverd.env
+
+pkgname = stophammer-node
+	pkgdesc = Community-node role package for Stophammer
+	install = stophammer-node.install
+	depends = systemd
+	conflicts = stophammer-indexer
+	backup = etc/stophammer/community.env
+
+pkgname = stophammer-crawler
+	pkgdesc = Crawler role package for Stophammer
+	install = stophammer-crawler.install
+	depends = systemd
+	optdepends = stophammer-indexer: local ingest target for crawler services
+	backup = etc/stophammer/crawler-gossip.env
+	backup = etc/stophammer/crawler-import.env
+	backup = etc/stophammer/crawler-crawl.env
