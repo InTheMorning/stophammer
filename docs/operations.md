@@ -143,11 +143,26 @@ To unpack and smoke-check the produced bundles before publishing:
 ./scripts/verify-release.sh
 ```
 
+To build the Arch split packages into `dist/arch/`:
+
+```bash
+./scripts/build-arch-packages.sh
+```
+
+To verify the built Arch packages before publishing:
+
+```bash
+./scripts/verify-arch-packages.sh
+```
+
 Tagged releases also publish multi-arch OCI images to GHCR for:
 
 - `stophammer-indexer`
 - `stophammer-node`
 - `stophammer-crawler`
+
+Tagged releases also attach the Arch split packages and an
+`SHA256SUMS-arch-<version>.txt` file to the GitHub release.
 
 The compose file intentionally uses runnable sample env files:
 

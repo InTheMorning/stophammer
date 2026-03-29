@@ -92,6 +92,8 @@ Release tarball assembly is already implemented:
 - [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
 - [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
 - [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
+- [scripts/build-arch-packages.sh](/home/citizen/build/stophammer/scripts/build-arch-packages.sh)
+- [scripts/verify-arch-packages.sh](/home/citizen/build/stophammer/scripts/verify-arch-packages.sh)
 - [.github/workflows/release.yml](/home/citizen/build/stophammer/.github/workflows/release.yml)
 
 Tagged releases now:
@@ -100,6 +102,8 @@ Tagged releases now:
 2. generate checksums
 3. verify tarball contents and basic executability
 4. publish only after verification passes
+5. publish multi-arch OCI images for the three role names
+6. build, verify, and attach the Arch split packages
 
 ### Arch packaging
 
@@ -321,7 +325,7 @@ Delivered:
 
 ### Phase 3: Broader release automation
 
-Status: in progress
+Status: done
 
 Delivered so far:
 
@@ -330,14 +334,13 @@ Delivered so far:
   - `stophammer-indexer`
   - `stophammer-node`
   - `stophammer-crawler`
+- tagged-release Arch package build automation
+- tagged-release Arch package verification automation
+- GitHub release attachment for the built `.pkg.tar.zst` role packages
 
-Remaining goal:
+Follow-up refinement, if needed:
 
-- extend the now-working tarball release flow into the next artifact layers
-
-Remaining scope:
-
-- later, Arch package build automation after the local `PKGBUILD` stabilizes
+- optional future refinement of OCI and Arch automation after real release usage
 
 This phase is about automation polish, not package shape discovery.
 

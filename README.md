@@ -185,6 +185,8 @@ Release tarball assembly is now driven by:
 - [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
 - [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
 - [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
+- [scripts/build-arch-packages.sh](/home/citizen/build/stophammer/scripts/build-arch-packages.sh)
+- [scripts/verify-arch-packages.sh](/home/citizen/build/stophammer/scripts/verify-arch-packages.sh)
 - [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 
 Tagged releases also publish multi-arch OCI images to GHCR for the three role
@@ -193,6 +195,9 @@ names:
 - `stophammer-indexer`
 - `stophammer-node`
 - `stophammer-crawler`
+
+Tagged releases also build the Arch split packages and attach them to the
+GitHub release as `.pkg.tar.zst` assets plus an Arch checksum file.
 
 The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
 

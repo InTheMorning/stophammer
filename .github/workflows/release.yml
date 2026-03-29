@@ -67,6 +67,73 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  build-arch-packages:
+    name: Build Arch packages
+    runs-on: ubuntu-latest
+    needs: verify-tarballs
+    container:
+      image: archlinux:latest
+    steps:
+      - name: Install Arch build dependencies
+        run: pacman -Syu --noconfirm base-devel cargo git
+
+      - uses: actions/checkout@v5
+
+      - name: Create build user
+        run: |
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build Arch packages
+        run: su builder -c "cd \"$GITHUB_WORKSPACE\" && bash ./scripts/build-arch-packages.sh \"${GITHUB_REF_NAME}\""
+
+      - name: Upload Arch package bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stophammer-arch-package-bundle
+          path: |
+            dist/arch/*.pkg.tar.zst
+            dist/arch/SHA256SUMS-arch-*.txt
+
+  verify-arch-packages:
+    name: Verify Arch packages
+    runs-on: ubuntu-latest
+    needs: build-arch-packages
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download Arch package bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: stophammer-arch-package-bundle
+          path: dist/arch
+
+      - name: Smoke-check Arch packages
+        run: bash ./scripts/verify-arch-packages.sh "${GITHUB_REF_NAME}"
+
+  release-arch-packages:
+    name: Publish Arch packages
+    runs-on: ubuntu-latest
+    needs:
+      - verify-arch-packages
+      - release-tarballs
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stophammer-arch-package-bundle
+          path: dist/arch
+
+      - name: Attach Arch packages to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/arch/*.pkg.tar.zst
+            dist/arch/SHA256SUMS-arch-*.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   publish-oci-images:
     name: Publish OCI images
     runs-on: ubuntu-latest

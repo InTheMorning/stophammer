@@ -28,11 +28,26 @@ To smoke-check the produced tarballs locally:
 ./scripts/verify-release.sh
 ```
 
+To build the Arch split packages from the committed `PKGBUILD`:
+
+```bash
+./scripts/build-arch-packages.sh
+```
+
+To verify the built Arch packages and their checksums:
+
+```bash
+./scripts/verify-arch-packages.sh
+```
+
 Tagged releases also publish GHCR images for the same three operator roles:
 
 - `stophammer-indexer`
 - `stophammer-node`
 - `stophammer-crawler`
+
+The release workflow also builds and uploads the matching Arch packages as
+release assets, after a separate verification step.
 
 By default it creates versioned tarballs under `dist/` using:
 
