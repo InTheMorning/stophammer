@@ -12,6 +12,8 @@ resolverctl \- inspect or toggle resolver queue state
 .B import-active
 |
 .B import-idle
+|
+.B re-resolve
 ]
 .SH DESCRIPTION
 .B resolverctl
@@ -19,13 +21,14 @@ is a small operational helper for the durable resolver queue.
 
 It can:
 
-- print queue counts and current import/backfill pause state
+- print queue counts, import/backfill pause state, and pending review counts
 - set
 .BR resolver_state.import_active=true
 before a large import
 - clear that flag afterwards so
 .BR resolverd
 can resume draining the queue
+- wipe all resolved state and re-queue every feed for re-resolution
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -41,7 +44,11 @@ Prints
 .BR backfill_active ,
 .BR backfill_stale ,
 .BR backfill_heartbeat_at ,
-and queue total, ready, locked, and failed counts.
+queue total, ready, locked, and failed counts, and pending
+.B review_artist_identity_pending
+and
+.B review_wallet_pending
+counts.
 .TP
 .B import-active
 Sets
@@ -51,6 +58,11 @@ and refreshes the import heartbeat timestamp.
 .B import-idle
 Sets
 .BR resolver_state.import_active=false .
+.TP
+.B re-resolve
+Wipes all resolved state and re-queues every feed for re-resolution. Use
+with caution: this discards all canonical derived state and forces a full
+re-run of the resolver across every feed in the database.
 .SH EXAMPLES
 .TP
 Check queue status:

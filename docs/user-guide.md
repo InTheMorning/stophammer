@@ -127,6 +127,8 @@ The shipped utility binaries are:
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
+- `backfill_wallets`
+- `review_wallet_identity`
 
 See:
 
@@ -136,6 +138,8 @@ See:
 - [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)
 - [backfill_canonical.1](/home/citizen/build/stophammer/man/backfill_canonical.1)
 - [backfill_artist_identity.1](/home/citizen/build/stophammer/man/backfill_artist_identity.1)
+- [backfill_wallets.1](/home/citizen/build/stophammer/man/backfill_wallets.1)
+- [review_wallet_identity.1](/home/citizen/build/stophammer/man/review_wallet_identity.1)
 
 ## The Data Model in One Page
 

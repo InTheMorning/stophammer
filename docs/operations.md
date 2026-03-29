@@ -297,6 +297,9 @@ cargo run --bin resolverctl -- status
 cargo run --bin resolverctl -- import-active
 cargo run --bin resolverctl -- import-idle
 
+# Wipe all resolved state and re-queue every feed for re-resolution (destructive)
+cargo run --bin resolverctl -- re-resolve
+
 # Rebuild canonical releases / recordings and source-to-canonical maps
 # This automatically coordinates with resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_canonical -- --db ./stophammer.db
@@ -330,6 +333,26 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 # Store a durable do-not-merge override
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
+
+# Rebuild wallet endpoints, classifications, and artist links from source data
+# This automatically coordinates with resolverd via resolver_state.backfill_active.
+cargo run --bin backfill_wallets -- --db ./stophammer.db
+# Re-derive display names and generate review items (pass 5 / refresh mode)
+cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
+
+# Review pending wallet identity items
+cargo run --bin review_wallet_identity -- --db ./stophammer.db
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
+
+# Store wallet identity overrides
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --resolve-merge 42 --target-wallet wallet-id-here
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --resolve-reject 42
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --resolve-class 42 --class personal
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --resolve-link 42 --artist artist-id-here
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local

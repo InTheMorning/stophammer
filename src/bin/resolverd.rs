@@ -72,8 +72,9 @@ fn print_help() {
         "\
 resolverd — background resolver worker for stophammer
 
-Periodically resolves pending canonical-URL claims by fetching feeds,
-comparing content hashes, and emitting signed resolved-state events.
+Periodically drains the resolver queue, rebuilding canonical state,
+artist identity, wallet identity, and the search index for dirty feeds,
+then emitting signed resolved-state events.
 
 USAGE:
     resolverd [--help | -h]

@@ -89,6 +89,10 @@ pub fn run_batch_with_signer(
         ..ResolverBatchResult::default()
     };
 
+    if claimed.is_empty() {
+        return Ok(result);
+    }
+
     // Disable FTS5 background segment merging during the batch. Each
     // populate_search_index call would otherwise trigger a merge, making bulk
     // resolution O(n·log n). We do a single merge pass after the loop.
