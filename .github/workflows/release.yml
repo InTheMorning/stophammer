@@ -9,11 +9,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  release-tarballs:
-    name: Build and publish role tarballs
+  assemble-tarballs:
+    name: Assemble role tarballs
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -23,6 +21,42 @@ jobs:
 
       - name: Assemble role tarballs
         run: bash ./scripts/publish-release.sh "${GITHUB_REF_NAME}"
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: stophammer-release-bundle
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-*.txt
+
+  verify-tarballs:
+    name: Verify release tarballs
+    runs-on: ubuntu-latest
+    needs: assemble-tarballs
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Download release bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: stophammer-release-bundle
+          path: dist
+
+      - name: Smoke-check tarballs
+        run: bash ./scripts/verify-release.sh "${GITHUB_REF_NAME}"
+
+  release-tarballs:
+    name: Publish role tarballs
+    runs-on: ubuntu-latest
+    needs: verify-tarballs
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: stophammer-release-bundle
+          path: dist
 
       - name: Create release
         uses: softprops/action-gh-release@v2

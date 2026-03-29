@@ -22,6 +22,12 @@ To build the tarballs and emit a checksum file for publishing:
 ./scripts/publish-release.sh
 ```
 
+To smoke-check the produced tarballs locally:
+
+```bash
+./scripts/verify-release.sh
+```
+
 By default it creates versioned tarballs under `dist/` using:
 
 - the main workspace release binaries from `target/release`

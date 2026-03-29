@@ -137,6 +137,12 @@ To produce the tarballs plus a checksum file suitable for a tagged release:
 ./scripts/publish-release.sh
 ```
 
+To unpack and smoke-check the produced bundles before publishing:
+
+```bash
+./scripts/verify-release.sh
+```
+
 The compose file intentionally uses runnable sample env files:
 
 - [compose-primary.env](/home/citizen/build/stophammer/packaging/env/compose-primary.env)

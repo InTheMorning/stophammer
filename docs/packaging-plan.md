@@ -308,8 +308,10 @@ The common release base now has an explicit repo layout:
   - assembles `dist/stophammer-crawler-<version>.tar.gz`
 - `scripts/publish-release.sh`
   - assembles the tarballs and emits `dist/SHA256SUMS-<version>.txt`
+- `scripts/verify-release.sh`
+  - checks checksums, extracts each tarball, and smoke-checks its expected layout
 - `.github/workflows/release.yml`
-  - publishes the tarballs and checksum file on `v*` tags
+  - assembles, verifies, and only then publishes the tarballs on `v*` tags
 
 The manifests map:
 

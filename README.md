@@ -184,6 +184,7 @@ Release tarball assembly is now driven by:
 
 - [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
 - [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
+- [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
 - [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
 
 The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
