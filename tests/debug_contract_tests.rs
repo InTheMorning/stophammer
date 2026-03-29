@@ -6,6 +6,9 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
+use http_body_util::BodyExt;
+use tower::ServiceExt;
+
 // ── Issue #8: VerifierChain::run() must have #[must_use] ─────────────────────
 
 /// Compile-time assertion: `VerifierChain::run()` returns Result and should
@@ -69,6 +72,39 @@ async fn cors_default_is_any_origin() {
         .expect("should have CORS header");
     // Default (no CORS_ALLOW_ORIGIN env var) should be wildcard
     assert_eq!(origin, "*", "default CORS should allow any origin");
+}
+
+#[tokio::test]
+async fn node_capabilities_lists_feed_remote_items_and_publisher_includes() {
+    let state = test_app_state();
+    let app = stophammer::api::build_router(state);
+
+    let resp = app
+        .oneshot(
+            http::Request::builder()
+                .method("GET")
+                .uri("/v1/node/capabilities")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), http::StatusCode::OK);
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let feed_includes = json["include_params"]["feed"]
+        .as_array()
+        .expect("feed include params should be an array");
+
+    assert!(
+        feed_includes.iter().any(|v| v == "remote_items"),
+        "feed include params should advertise remote_items"
+    );
+    assert!(
+        feed_includes.iter().any(|v| v == "publisher"),
+        "feed include params should advertise publisher"
+    );
 }
 
 // ── CRIT-03: Debug derives on public types ───────────────────────────────────

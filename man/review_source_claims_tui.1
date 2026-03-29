@@ -1,0 +1,42 @@
+.TH REVIEW_SOURCE_CLAIMS_TUI 1 "2026-03-29" "stophammer" "User Commands"
+.SH NAME
+review_source_claims_tui \- interactive source-claim and resolved-promotion inspection console
+.SH SYNOPSIS
+.B review_source_claims_tui
+[
+.BI --db " PATH"
+] [
+.BI --limit " N"
+]
+.SH DESCRIPTION
+.B review_source_claims_tui
+opens a terminal UI for feeds that carry staged source claims or resolved
+promotion rows. It is intended for operators inspecting provenance and
+promotion state without issuing ad hoc SQL queries.
+.SH OPTIONS
+.TP
+.BI --db " PATH"
+Path to the SQLite database. Defaults to
+.BR ./stophammer.db .
+.TP
+.BI --limit " N"
+Maximum number of feeds to load into the review queue. Defaults to 200.
+.SH CONTROLS
+The interface shows the feed queue, the feed's tracks, and the evidence panel.
+Use the on-screen key hints to switch focus, move through feeds and tracks, and
+scroll long evidence blocks.
+.SH EXAMPLES
+.TP
+Open the TUI against the default database:
+.nf
+cargo run --bin review_source_claims_tui -- --db ./stophammer.db
+.fi
+.TP
+Limit the initial queue size:
+.nf
+cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 100
+.fi
+.SH SEE ALSO
+.BR backfill_canonical (1),
+.BR review_artist_identity_tui (1),
+.BR review_wallet_identity_tui (1)

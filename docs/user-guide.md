@@ -30,10 +30,10 @@ output.
 
 If you are:
 
-- an app developer: start here, then read [API.md](/home/citizen/build/stophammer/docs/API.md)
-- a primary/community operator: start here, then read [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- a data curator/reviewer: start here, then read [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
-- a verifier maintainer: start here, then read [verifier-guide.md](/home/citizen/build/stophammer/docs/verifier-guide.md)
+- an app developer: start here, then read [API.md](API.md)
+- a primary/community operator: start here, then read [operations.md](operations.md)
+- a data curator/reviewer: start here, then read [schema-reference.md](schema-reference.md)
+- a verifier maintainer: start here, then read [verifier-guide.md](verifier-guide.md)
 
 ## The Basic Mental Model
 
@@ -56,8 +56,8 @@ while review and debugging often need the original source facts.
 
 ### I want to run a primary
 
-Read the primary sections in [README.md](/home/citizen/build/stophammer/README.md)
-and [operations.md](/home/citizen/build/stophammer/docs/operations.md).
+Read the primary sections in [README.md](../README.md)
+and [operations.md](operations.md).
 
 You will need:
 
@@ -81,8 +81,8 @@ decision and do not re-run verifiers locally.
 
 ### I want to run a community replica
 
-Read the community sections in [README.md](/home/citizen/build/stophammer/README.md)
-and [operations.md](/home/citizen/build/stophammer/docs/operations.md).
+Read the community sections in [README.md](../README.md)
+and [operations.md](operations.md).
 
 You will need:
 
@@ -98,7 +98,7 @@ the primary and serve a read-only version of the API.
 
 ### I want to build a client
 
-Start with [API.md](/home/citizen/build/stophammer/docs/API.md).
+Start with [API.md](API.md).
 
 The public read surface is now canonical-first:
 
@@ -127,19 +127,25 @@ The shipped utility binaries are:
 - `backfill_canonical`
 - `backfill_artist_identity`
 - `review_artist_identity`
+- `review_artist_identity_tui`
 - `backfill_wallets`
 - `review_wallet_identity`
+- `review_wallet_identity_tui`
+- `review_source_claims_tui`
 
 See:
 
-- [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- [stophammer-resolverd.1](/home/citizen/build/stophammer/man/stophammer-resolverd.1)
-- [stophammer-resolverctl.1](/home/citizen/build/stophammer/man/stophammer-resolverctl.1)
-- [review_artist_identity.1](/home/citizen/build/stophammer/man/review_artist_identity.1)
-- [backfill_canonical.1](/home/citizen/build/stophammer/man/backfill_canonical.1)
-- [backfill_artist_identity.1](/home/citizen/build/stophammer/man/backfill_artist_identity.1)
-- [backfill_wallets.1](/home/citizen/build/stophammer/man/backfill_wallets.1)
-- [review_wallet_identity.1](/home/citizen/build/stophammer/man/review_wallet_identity.1)
+- [operations.md](operations.md)
+- [stophammer-resolverd.1](../man/stophammer-resolverd.1)
+- [stophammer-resolverctl.1](../man/stophammer-resolverctl.1)
+- [review_artist_identity.1](../man/review_artist_identity.1)
+- [review_artist_identity_tui.1](../man/review_artist_identity_tui.1)
+- [backfill_canonical.1](../man/backfill_canonical.1)
+- [backfill_artist_identity.1](../man/backfill_artist_identity.1)
+- [backfill_wallets.1](../man/backfill_wallets.1)
+- [review_wallet_identity.1](../man/review_wallet_identity.1)
+- [review_wallet_identity_tui.1](../man/review_wallet_identity_tui.1)
+- [review_source_claims_tui.1](../man/review_source_claims_tui.1)
 
 ## The Data Model in One Page
 
@@ -295,11 +301,11 @@ cargo test --tests
 
 Read next depending on what you need:
 
-- quick architecture and startup: [README.md](/home/citizen/build/stophammer/README.md)
-- operator deployment and maintenance: [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- HTTP routes and payloads: [API.md](/home/citizen/build/stophammer/docs/API.md)
-- schema and source/canonical tables: [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
-- verifier chain behavior: [verifier-guide.md](/home/citizen/build/stophammer/docs/verifier-guide.md)
-- architecture history: [docs/adr](/home/citizen/build/stophammer/docs/adr)
-- wiki-style navigation: [wiki/Home.md](/home/citizen/build/stophammer/docs/wiki/Home.md)
-- manpages: [man](/home/citizen/build/stophammer/man)
+- quick architecture and startup: [README.md](../README.md)
+- operator deployment and maintenance: [operations.md](operations.md)
+- HTTP routes and payloads: [API.md](API.md)
+- schema and source/canonical tables: [schema-reference.md](schema-reference.md)
+- verifier chain behavior: [verifier-guide.md](verifier-guide.md)
+- architecture history: [docs/adr](adr)
+- wiki-style navigation: [wiki/Home.md](wiki/Home.md)
+- manpages: [man](../man)

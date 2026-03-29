@@ -121,7 +121,7 @@ The `VERIFIER_CHAIN` environment variable controls which verifiers run and in wh
 
 ```bash
 # Default (all built-ins in recommended order)
-VERIFIER_CHAIN=crawl_token,content_hash,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
 
 # Add an exact-match feed blocklist
 VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
@@ -130,7 +130,7 @@ VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4
 VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type
 
 # Add the strict payment_route_sum check
-VERIFIER_CHAIN=crawl_token,content_hash,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
+VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
 ```
 
 When `VERIFIER_CHAIN` is absent or empty, the default chain is used. Unknown names in the chain are logged as warnings and skipped -- they do not abort startup.

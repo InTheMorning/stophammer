@@ -1206,7 +1206,7 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "entity_types": ["artist", "feed", "track", "release", "recording"],
   "include_params": {
     "artist": ["aliases", "credits", "tags", "relationships"],
-    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "canonical"],
+    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher", "canonical"],
     "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "canonical"],
     "release": ["tracks", "sources"],
     "recording": ["sources", "releases"]
@@ -1215,6 +1215,67 @@ Returns the node's capabilities, supported entity types, and valid `include` par
 ```
 
 ---
+
+### GET /v1/wallets/{id}
+
+Returns one wallet entity, including normalized endpoints, historical aliases,
+and any resolved artist links. If the requested wallet ID has been merged, the
+endpoint follows the redirect and returns the surviving wallet.
+
+- **Authentication:** None
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "wallet_id": "wallet-123",
+    "display_name": "Alice",
+    "wallet_class": "unknown",
+    "class_confidence": "provisional",
+    "endpoints": [
+      {
+        "id": 1,
+        "route_type": "keysend",
+        "normalized_address": "abc123",
+        "custom_key": "7629169",
+        "custom_value": "pod1"
+      }
+    ],
+    "aliases": [
+      {
+        "alias": "Alice",
+        "first_seen_at": 1710288000,
+        "last_seen_at": 1710288000
+      }
+    ],
+    "artist_links": [
+      {
+        "artist_id": "artist-123",
+        "artist_name": "Alice",
+        "confidence": "reviewed",
+        "evidence_entity_type": "feed",
+        "evidence_entity_id": "feed-guid"
+      }
+    ],
+    "created_at": 1710288000,
+    "updated_at": 1710288000
+  },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Wallet found |
+| 404  | Wallet ID not found |
+
+Notes:
+
+- `custom_key` and `custom_value` are returned as empty strings when the stored
+  route omits them.
+- `artist_links` is empty when no artist relationship has been resolved for the
+  wallet yet.
 
 ### GET /v1/peers
 

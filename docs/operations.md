@@ -95,11 +95,11 @@ stophammer
 `install.sh` is now the legacy direct-binary path. The preferred deployment
 assets live in:
 
-- [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
-- [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
-- [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
-- [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
-- [packaging/env](/home/citizen/build/stophammer/packaging/env)
+- [docker-compose.yml](../docker-compose.yml)
+- [packaging/README.md](../packaging/README.md)
+- [packaging/releases/README.md](../packaging/releases/README.md)
+- [packaging/systemd](../packaging/systemd)
+- [packaging/env](../packaging/env)
 
 ### Container image
 
@@ -117,13 +117,13 @@ The repository now ships versioned assets for the three operator roles:
 
 Asset roots:
 
-- packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
-- release assembly layout: [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
-- systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
-- env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
-- service users: [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)
-- state dirs: [packaging/tmpfiles.d](/home/citizen/build/stophammer/packaging/tmpfiles.d)
-- production compose skeleton: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+- packaging asset index: [packaging/README.md](../packaging/README.md)
+- release assembly layout: [packaging/releases/README.md](../packaging/releases/README.md)
+- systemd units: [packaging/systemd](../packaging/systemd)
+- env examples: [packaging/env](../packaging/env)
+- service users: [packaging/sysusers.d](../packaging/sysusers.d)
+- state dirs: [packaging/tmpfiles.d](../packaging/tmpfiles.d)
+- production compose skeleton: [docker-compose.yml](../docker-compose.yml)
 
 Release tarballs can be assembled with:
 
@@ -166,9 +166,9 @@ Tagged releases also attach the Arch split packages and an
 
 The compose file intentionally uses runnable sample env files:
 
-- [compose-primary.env](/home/citizen/build/stophammer/packaging/env/compose-primary.env)
-- [compose-resolverd.env](/home/citizen/build/stophammer/packaging/env/compose-resolverd.env)
-- [compose-crawler-gossip.env](/home/citizen/build/stophammer/packaging/env/compose-crawler-gossip.env)
+- [compose-primary.env](../packaging/env/compose-primary.env)
+- [compose-resolverd.env](../packaging/env/compose-resolverd.env)
+- [compose-crawler-gossip.env](../packaging/env/compose-crawler-gossip.env)
 
 Edit those sample values before using the compose stack outside local testing.
 
@@ -444,6 +444,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 
+# Review pending artist identity items in the TUI
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+
 # Rebuild wallet endpoints, classifications, and artist links from source data
 # This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
 cargo run --bin backfill_wallets -- --db ./stophammer.db
@@ -455,6 +458,9 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
 
+# Review pending wallet identity items in the TUI
+cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+
 # Store wallet identity overrides
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \
   --resolve-merge 42 --target-wallet wallet-id-here
@@ -463,6 +469,9 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db \
   --resolve-class 42 --class personal
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \
   --resolve-link 42 --artist artist-id-here
+
+# Inspect source-claim and resolved-promotion evidence in the TUI
+cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
 ```
 
 These do not crawl or fetch from the network. They operate on an existing local
@@ -559,7 +568,7 @@ import-active`.
 
 The staged plan for later phases lives in:
 
-- [resolver-refactor-plan.md](/home/citizen/build/stophammer/docs/resolver-refactor-plan.md)
+- [resolver-refactor-plan.md](resolver-refactor-plan.md)
 
 ---
 

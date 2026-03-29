@@ -1,0 +1,42 @@
+.TH REVIEW_ARTIST_IDENTITY_TUI 1 "2026-03-29" "stophammer" "User Commands"
+.SH NAME
+review_artist_identity_tui \- interactive review console for pending artist identity items
+.SH SYNOPSIS
+.B review_artist_identity_tui
+[
+.BI --db " PATH"
+] [
+.BI --limit " N"
+]
+.SH DESCRIPTION
+.B review_artist_identity_tui
+opens a terminal UI for feed-scoped artist identity review items produced by
+the resolver. It is intended for operators who need to inspect evidence and
+store durable merge or reject decisions interactively.
+.SH OPTIONS
+.TP
+.BI --db " PATH"
+Path to the SQLite database. Defaults to
+.BR ./stophammer.db .
+.TP
+.BI --limit " N"
+Maximum number of pending review items to load. Defaults to 200.
+.SH CONTROLS
+The interface shows the pending review list, the competing artist candidates,
+and feed evidence. Use the on-screen key hints to move focus, inspect evidence,
+reload the queue, and store decisions.
+.SH EXAMPLES
+.TP
+Open the TUI against the default database:
+.nf
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db
+.fi
+.TP
+Limit the initial queue size:
+.nf
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 100
+.fi
+.SH SEE ALSO
+.BR review_artist_identity (1),
+.BR backfill_artist_identity (1),
+.BR stophammer-resolverd (1)

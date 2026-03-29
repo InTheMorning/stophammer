@@ -3096,6 +3096,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "source_contributors",
             "source_platforms",
             "source_release_claims",
+            "remote_items",
+            "publisher",
             "canonical",
         ],
     );

@@ -167,14 +167,14 @@ docker build -t stophammer .
 
 The repo also now ships versioned deployment assets:
 
-- production-oriented compose file: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
-- packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
-- release assembly layout: [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
-- systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
-- env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
+- production-oriented compose file: [docker-compose.yml](docker-compose.yml)
+- packaging asset index: [packaging/README.md](packaging/README.md)
+- release assembly layout: [packaging/releases/README.md](packaging/releases/README.md)
+- systemd units: [packaging/systemd](packaging/systemd)
+- env examples: [packaging/env](packaging/env)
 - service-user/state-dir definitions:
-  - [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)
-  - [packaging/tmpfiles.d](/home/citizen/build/stophammer/packaging/tmpfiles.d)
+  - [packaging/sysusers.d](packaging/sysusers.d)
+  - [packaging/tmpfiles.d](packaging/tmpfiles.d)
 
 `install.sh` still exists for direct binary installs, but it is now the legacy
 path. The packaged env/unit assets and container images are the intended
@@ -182,12 +182,12 @@ operator-facing direction.
 
 Release tarball assembly is now driven by:
 
-- [scripts/assemble-release.sh](/home/citizen/build/stophammer/scripts/assemble-release.sh)
-- [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
-- [scripts/verify-release.sh](/home/citizen/build/stophammer/scripts/verify-release.sh)
-- [scripts/build-arch-packages.sh](/home/citizen/build/stophammer/scripts/build-arch-packages.sh)
-- [scripts/verify-arch-packages.sh](/home/citizen/build/stophammer/scripts/verify-arch-packages.sh)
-- [packaging/releases/README.md](/home/citizen/build/stophammer/packaging/releases/README.md)
+- [scripts/assemble-release.sh](scripts/assemble-release.sh)
+- [scripts/publish-release.sh](scripts/publish-release.sh)
+- [scripts/verify-release.sh](scripts/verify-release.sh)
+- [scripts/build-arch-packages.sh](scripts/build-arch-packages.sh)
+- [scripts/verify-arch-packages.sh](scripts/verify-arch-packages.sh)
+- [packaging/releases/README.md](packaging/releases/README.md)
 
 Tagged releases also publish multi-arch OCI images to GHCR for the three role
 names:
@@ -199,7 +199,7 @@ names:
 Tagged releases also build the Arch split packages and attach them to the
 GitHub release as `.pkg.tar.zst` assets plus an Arch checksum file.
 
-The compose file uses sample env files under [packaging/env](/home/citizen/build/stophammer/packaging/env):
+The compose file uses sample env files under [packaging/env](packaging/env):
 
 - `compose-primary.env`
 - `compose-resolverd.env`
@@ -373,7 +373,7 @@ docker compose -f docker-compose.e2e-tls.yml down -v
 
 These compose files are still the dedicated E2E test environments. For a
 production-oriented reference stack, use the root
-[docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml).
+[docker-compose.yml](docker-compose.yml).
 
 ### Override the verifier chain (dev/test)
 
@@ -536,9 +536,9 @@ artist_merged
 Replicas apply those signed resolved events directly. Community nodes no
 longer run `stophammer-resolverd`; they follow the primary once its resolver has finished
 making changes. This is documented in
-[ADR 0029](/home/citizen/build/stophammer/docs/adr/0029-primary-resolved-replication-authority.md)
+[ADR 0029](docs/adr/0029-primary-resolved-replication-authority.md)
 and the rollout notes in
-[docs/primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md).
+[docs/primary-resolved-replication-plan.md](docs/primary-resolved-replication-plan.md).
 
 To see whether canonical views are caught up, query:
 
