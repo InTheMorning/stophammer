@@ -96,6 +96,7 @@ stophammer
 assets live in:
 
 - [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+- [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
 - [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - [packaging/env](/home/citizen/build/stophammer/packaging/env)
 
@@ -115,6 +116,7 @@ The repository now ships versioned assets for the three operator roles:
 
 Asset roots:
 
+- packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
 - systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
 - service users: [packaging/sysusers.d](/home/citizen/build/stophammer/packaging/sysusers.d)

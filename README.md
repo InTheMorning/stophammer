@@ -168,6 +168,7 @@ docker build -t stophammer .
 The repo also now ships versioned deployment assets:
 
 - production-oriented compose file: [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml)
+- packaging asset index: [packaging/README.md](/home/citizen/build/stophammer/packaging/README.md)
 - systemd units: [packaging/systemd](/home/citizen/build/stophammer/packaging/systemd)
 - env examples: [packaging/env](/home/citizen/build/stophammer/packaging/env)
 - service-user/state-dir definitions:
@@ -344,8 +345,9 @@ curl -k https://localhost:14000/dir
 docker compose -f docker-compose.e2e-tls.yml down -v
 ```
 
-These compose files are test environments, not a general production deployment stack.
-This repo does not ship a `docker-compose.yml` for day-to-day operation.
+These compose files are still the dedicated E2E test environments. For a
+production-oriented reference stack, use the root
+[docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml).
 
 ### Override the verifier chain (dev/test)
 

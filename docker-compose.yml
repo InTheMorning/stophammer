@@ -4,6 +4,7 @@ services:
   primary:
     build:
       context: .
+    restart: unless-stopped
     env_file:
       - ./packaging/env/compose-primary.env
     volumes:
@@ -21,6 +22,7 @@ services:
     build:
       context: .
     command: ["stophammer-resolverd"]
+    restart: unless-stopped
     env_file:
       - ./packaging/env/compose-resolverd.env
     volumes:
@@ -33,6 +35,7 @@ services:
     build:
       context: .
       dockerfile: stophammer-crawler/Dockerfile
+    restart: unless-stopped
     env_file:
       - ./packaging/env/compose-crawler-gossip.env
     volumes:
