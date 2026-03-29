@@ -7490,6 +7490,70 @@ pub fn dirty_queue_diagnostics(conn: &Connection) -> Result<DirtyQueueDiagnostic
     Ok(d)
 }
 
+/// Wipes all resolver-derived state and re-queues every eligible feed for
+/// full re-resolution. Returns the number of feeds queued.
+///
+/// This drops canonical releases, recordings, mappings, search index, quality
+/// scores, wallet identity, and overlay tables — then inserts every
+/// non-excluded feed into the resolver queue with a full dirty mask.
+pub fn reset_resolved_state(conn: &mut Connection) -> Result<usize, DbError> {
+    let full_mask: i64 = RESOLVER_DIRTY_CANONICAL_STATE
+        | RESOLVER_DIRTY_CANONICAL_PROMOTIONS
+        | RESOLVER_DIRTY_CANONICAL_SEARCH
+        | RESOLVER_DIRTY_ARTIST_IDENTITY
+        | RESOLVER_DIRTY_SOURCE_READ_MODELS
+        | RESOLVER_DIRTY_WALLET_IDENTITY;
+
+    let tx = conn.transaction()?;
+
+    // Wipe derived tables (order: dependents first to respect FK constraints)
+    for table in &[
+        "wallet_feed_route_map",
+        "wallet_track_route_map",
+        "wallet_aliases",
+        "wallet_endpoints",
+        "wallets",
+        "resolved_entity_sources_by_feed",
+        "resolved_external_ids_by_feed",
+        "entity_quality",
+        "entity_field_status",
+        "entity_source",
+        "search_entities",
+        "release_recordings",
+        "source_item_recording_map",
+        "source_feed_release_map",
+        "recordings",
+        "releases",
+        "artist_identity_review",
+        "resolver_queue",
+    ] {
+        tx.execute(&format!("DELETE FROM {table}"), [])?;
+    }
+
+    // Clear the contentless FTS5 index by dropping and recreating it.
+    tx.execute_batch(
+        "DROP TABLE IF EXISTS search_index;
+         CREATE VIRTUAL TABLE search_index USING fts5(
+             entity_type, entity_id, name, title, description, tags,
+             content='', tokenize='unicode61'
+         );",
+    )?;
+
+    // Re-queue every eligible feed
+    let now = unix_now();
+    let queued = tx.execute(
+        "INSERT INTO resolver_queue (feed_guid, dirty_mask, first_marked_at, last_marked_at)
+         SELECT feed_guid, ?1, ?2, ?2
+         FROM feeds
+         WHERE raw_medium IS NULL
+            OR LOWER(raw_medium) != 'musicl'",
+        params![full_mask, now],
+    )?;
+
+    tx.commit()?;
+    Ok(queued)
+}
+
 /// Claims up to `limit` dirty feeds for `worker_id`.
 pub fn claim_dirty_feeds(
     conn: &mut Connection,
@@ -7801,6 +7865,26 @@ pub fn resolver_backfill_state(conn: &Connection) -> Result<ResolverBackfillStat
 }
 
 /// Returns aggregate queue counts for operator inspection.
+/// Returns the count of artist identity reviews with `status = 'pending'`.
+pub fn count_pending_artist_identity_reviews(conn: &Connection) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM artist_identity_review WHERE status = 'pending'",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+/// Returns the count of wallet identity reviews with `status = 'pending'`.
+pub fn count_pending_wallet_reviews(conn: &Connection) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM wallet_identity_review WHERE status = 'pending'",
+        [],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
 pub fn get_resolver_queue_counts(conn: &Connection) -> Result<ResolverQueueCounts, DbError> {
     let now = unix_now();
     conn.query_row(

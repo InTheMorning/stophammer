@@ -2,7 +2,7 @@ use std::fs::File;
 use std::process::ExitCode;
 use std::sync::Arc;
 
-use stophammer::{db_pool, resolver, signing};
+use stophammer::{db, db_pool, resolver, signing};
 
 fn parse_truthy_opt_out(value: Option<&str>) -> bool {
     !matches!(value, Some("0" | "false" | "no" | "off"))
@@ -174,6 +174,20 @@ async fn run() -> Result<(), StartupError> {
     println!(
         "resolverd: db={db_path} interval={interval_secs}s batch={batch_size} worker={worker_id} events={emit_resolved_state_events}"
     );
+
+    // Show if there are review items awaiting operator action.
+    {
+        let reader = pool
+            .reader()
+            .map_err(|_| startup_error("failed to get reader lock for review count"))?;
+        let artist_reviews = db::count_pending_artist_identity_reviews(&reader)
+            .map_err(|e| startup_error(format!("failed to count pending artist reviews: {e}")))?;
+        let wallet_reviews = db::count_pending_wallet_reviews(&reader)
+            .map_err(|e| startup_error(format!("failed to count pending wallet reviews: {e}")))?;
+        if artist_reviews > 0 || wallet_reviews > 0 {
+            println!("resolverd: {artist_reviews} artist identity reviews pending, {wallet_reviews} wallet reviews pending");
+        }
+    }
 
     resolver::worker::run_forever(pool, interval_secs, batch_size, worker_id, signer).await;
     Ok(())

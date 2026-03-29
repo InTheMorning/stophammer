@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .ok_or_else(|| "--db requires a path".to_string())?,
                 );
             }
-            "status" | "import-active" | "import-idle" => {
+            "status" | "import-active" | "import-idle" | "re-resolve" => {
                 if command.replace(arg).is_some() {
                     return Err("only one resolverctl command may be specified".into());
                 }
@@ -27,12 +27,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             other => {
                 return Err(format!(
                     "unknown argument: {other}\n\n\
-                     Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
+                     Usage: resolverctl [--db PATH] <command>\n\
                      \n\
                      Commands:\n\
                        status         Print queue counts plus import/backfill pause state\n\
                        import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
-                       import-idle    Set resolver_state.import_active=false"
+                       import-idle    Set resolver_state.import_active=false\n\
+                       re-resolve     Wipe all resolved state and re-queue every feed"
                 )
                 .into());
             }
@@ -40,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let command = command.unwrap_or_else(|| "status".to_string());
-    let conn = db::open_db(&db_path);
+    let mut conn = db::open_db(&db_path);
 
     match command.as_str() {
         "status" => print_status(&conn)?,
@@ -52,6 +53,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             db::set_resolver_import_active(&conn, false)?;
             println!("resolver_state.import_active=false");
         }
+        "re-resolve" => {
+            let queued = db::reset_resolved_state(&mut conn)?;
+            println!("wiped all resolved state, queued {queued} feeds for re-resolution");
+        }
         _ => unreachable!("validated above"),
     }
 
@@ -60,12 +65,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn print_usage() {
     println!(
-        "Usage: resolverctl [--db PATH] <status|import-active|import-idle>\n\
+        "Usage: resolverctl [--db PATH] <command>\n\
          \n\
          Commands:\n\
            status         Print queue counts plus import/backfill pause state\n\
            import-active  Set resolver_state.import_active=true and refresh heartbeat\n\
-           import-idle    Set resolver_state.import_active=false"
+           import-idle    Set resolver_state.import_active=false\n\
+           re-resolve     Wipe all resolved state and re-queue every feed"
     );
 }
 
@@ -90,6 +96,11 @@ fn print_status(conn: &rusqlite::Connection) -> Result<(), db::DbError> {
     println!("queue_ready={}", counts.ready);
     println!("queue_locked={}", counts.locked);
     println!("queue_failed={}", counts.failed);
+
+    let artist_reviews = db::count_pending_artist_identity_reviews(&conn)?;
+    let wallet_reviews = db::count_pending_wallet_reviews(&conn)?;
+    println!("review_artist_identity_pending={artist_reviews}");
+    println!("review_wallet_pending={wallet_reviews}");
 
     Ok(())
 }
