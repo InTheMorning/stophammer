@@ -87,40 +87,10 @@ dependency on a central server.
   network-restricted processes that can reach public feed hosts and the primary's ingest
   endpoint, but not arbitrary internal services or primary secrets.
 
-## Verifier chain
-
-Every ingest runs through an ordered chain of verifiers on the **primary only**.
-Community nodes verify the ed25519 signature and trust the result — they do not
-re-run verifiers. The verifier warnings from the primary are stored in each event
-as an audit trail and replicated to all nodes.
-
-Default chain:
-
-```
-crawl_token → content_hash → feed_blocklist → medium_music → feed_guid → v4v_payment → enclosure_type
-```
-
-| Verifier | Effect |
-|---|---|
-| `crawl_token` | Rejects invalid crawl tokens |
-| `content_hash` | Short-circuits unchanged feeds (no DB write, no event) |
-| `feed_blocklist` | Rejects exact-match blocked feed GUIDs and URLs from `BLOCKED_FEED_GUIDS` / `BLOCKED_FEED_URLS` |
-| `medium_music` | Rejects feeds whose `podcast:medium` is absent or outside the accepted set: `music`, `publisher`, `musicL` |
-| `feed_guid` | Rejects malformed or known-bad `podcast:guid` values |
-| `v4v_payment` | Rejects `music` feeds with no structurally valid V4V payment routes (container mediums `publisher` and `musicL` are exempt) |
-| `enclosure_type` | Warns on video MIME type enclosures |
-
-Override at runtime with `VERIFIER_CHAIN=crawl_token,content_hash,...`.
-Changing the chain on a primary does not affect community nodes.
-
-To block a specific feed without changing crawler inputs:
-
-```bash
-BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
-BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
-```
-
----
+Verifier behavior now lives in the dedicated
+[Verifier Guide](docs/verifier-guide.md), including the default chain,
+`VERIFIER_CHAIN` examples, exact-feed blocklisting via `feed_blocklist`, and
+the accepted medium rules for `music`, `publisher`, and `musicL`.
 
 ## Running a primary node
 
@@ -175,7 +145,7 @@ The release-bundle contents for each role are documented in:
 `install.sh` still exists for legacy single-binary installs, but it is no
 longer the primary packaging path.
 
-### Build container images
+### Build or pull container images
 
 Build the role images explicitly:
 
@@ -198,6 +168,12 @@ docker build --target stophammer-node -t stophammer-node .
 
 The crawler image is built and released from the separate
 [stophammer-crawler README](https://github.com/inthemorning/stophammer-crawler).
+
+Tagged releases also publish OCI images to GHCR:
+
+- `ghcr.io/<owner>/stophammer-indexer`
+- `ghcr.io/<owner>/stophammer-node`
+- `ghcr.io/<owner>/stophammer-crawler`
 
 The repo also now ships versioned deployment assets:
 
@@ -247,12 +223,92 @@ Container contract:
 - `stophammer-resolverd` is selected by overriding the container command
 - `stophammer-crawler` defaults to `stophammer-crawler gossip`
 - both images use `/data` as the runtime working directory / volume root
-- tagged releases publish:
-  - `ghcr.io/<owner>/stophammer-indexer`
-  - `ghcr.io/<owner>/stophammer-node`
-  - `ghcr.io/<owner>/stophammer-crawler`
 - `stophammer-indexer` and `stophammer-node` come from separate targets in the
   same root Dockerfile
+
+### Configure a containerized primary
+
+For a primary/indexer container you normally need:
+
+- a persistent `/data` volume for `stophammer.db` and `signing.key`
+- `CRAWL_TOKEN` for crawler submissions
+- `SYNC_TOKEN` for node-to-node sync endpoints
+- optionally `ADMIN_TOKEN` for admin routes
+- optionally `TRUST_PROXY=true` if TLS is terminated by nginx/Caddy in front of
+  the container
+
+Minimal container env:
+
+```bash
+CRAWL_TOKEN=change-me
+SYNC_TOKEN=change-me-too
+ADMIN_TOKEN=optional-admin-token
+```
+
+### Run the primary with docker
+
+Start the main node:
+
+```bash
+docker run -d \
+  --name stophammer-primary \
+  -p 8008:8008 \
+  -v stophammer-data:/data \
+  -e CRAWL_TOKEN=change-me \
+  -e SYNC_TOKEN=change-me-too \
+  stophammer-indexer
+```
+
+Start the resolver worker as a second container against the same `/data`
+volume:
+
+```bash
+docker run -d \
+  --name stophammer-resolverd \
+  --depends-on stophammer-primary \
+  -v stophammer-data:/data \
+  -e RESOLVER_INTERVAL_SECS=30 \
+  -e RESOLVER_BATCH_SIZE=25 \
+  --entrypoint stophammer-resolverd \
+  stophammer-indexer
+```
+
+Useful checks:
+
+```bash
+docker logs -f stophammer-primary
+docker logs -f stophammer-resolverd
+curl http://127.0.0.1:8008/health
+curl http://127.0.0.1:8008/node/info
+```
+
+### Run the reference compose stack
+
+The root [docker-compose.yml](docker-compose.yml) is the reference packaged
+stack for:
+
+- `primary`
+- `resolverd`
+- `gossip`
+
+Edit the sample env files first:
+
+- `packaging/env/compose-primary.env`
+- `packaging/env/compose-resolverd.env`
+- `packaging/env/compose-crawler-gossip.env`
+
+Then start the stack:
+
+```bash
+docker compose up -d --build
+```
+
+For archive-backed gossip replay, also set the top-level compose variables
+described in [docs/operations.md](docs/operations.md):
+
+- `GOSSIP_ARCHIVE_HOST_DIR`
+- `GOSSIP_UID`
+- `GOSSIP_GID`
 
 ### Credentials
 
