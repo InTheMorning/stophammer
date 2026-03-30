@@ -35,11 +35,13 @@ services:
     build:
       context: .
       dockerfile: stophammer-crawler/Dockerfile
+    user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     restart: unless-stopped
     env_file:
       - ./packaging/env/compose-crawler-gossip.env
     volumes:
       - crawler-data:/data
+      - ${GOSSIP_ARCHIVE_HOST_DIR:-/var/lib/podping-alpha-gossip-listener}:/podping:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

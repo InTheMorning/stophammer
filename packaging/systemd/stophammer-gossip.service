@@ -24,7 +24,6 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 LockPersonality=true
 ReadWritePaths=/var/lib/stophammer-crawler
-ReadOnlyPaths=/var/lib/podping-alpha-gossip-listener
 
 [Install]
 WantedBy=multi-user.target
