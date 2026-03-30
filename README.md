@@ -82,7 +82,7 @@ dependency on a central server.
   Stophammer does **not** run or schedule crawlers — that is the operator's
   responsibility (cron, systemd timer, external service). The crawler runtime,
   modes, and analysis tools live in the separate
-  [stophammer-crawler](stophammer-crawler/README.md) repo.
+  [stophammer-crawler](https://github.com/inthemorning/stophammer-crawler) repo.
   Treat crawlers as the SSRF-exposed fetch tier: they should be low-privilege,
   network-restricted processes that can reach public feed hosts and the primary's ingest
   endpoint, but not arbitrary internal services or primary secrets.
@@ -124,26 +124,68 @@ BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podc
 
 ## Running a primary node
 
-### Build or install the binary
+### Build from source
 
-Choose one:
+Build the main node/runtime binaries from the repo root:
 
 ```bash
-# Build from source
-cargo build --release
+# Main node plus resolver and maintenance binaries
+cargo build --release --bins
+```
+
+That produces:
+
+- `target/release/stophammer`
+- `target/release/stophammer-resolverd`
+- `target/release/stophammer-resolverctl`
+- the backfill/review tools
+
+Typical local runs after building:
+
+```bash
 ./target/release/stophammer
+NODE_MODE=community ./target/release/stophammer
+./target/release/stophammer-resolverd
 ```
 
-```bash
-# Or install the latest published Linux binary
-sh install.sh
-stophammer
-```
+Crawler build and runtime instructions live in the separate
+[stophammer-crawler README](https://github.com/inthemorning/stophammer-crawler).
+
+### Install published release artifacts
+
+Tagged releases publish three role tarballs:
+
+- `stophammer-indexer-<version>.tar.gz`
+- `stophammer-node-<version>.tar.gz`
+- `stophammer-crawler-<version>.tar.gz`
+
+Install shape:
+
+- copy `bin/*` into your binary path
+- copy `systemd/*` into `/usr/lib/systemd/system/`
+- copy `env/*.example` to `/etc/stophammer/` and remove the `.example` suffix
+- copy `sysusers.d/*` and `tmpfiles.d/*` into the matching system locations
+
+The release-bundle contents for each role are documented in:
+
+- [packaging/releases/stophammer-indexer.README.md](packaging/releases/stophammer-indexer.README.md)
+- [packaging/releases/stophammer-node.README.md](packaging/releases/stophammer-node.README.md)
+- [packaging/releases/stophammer-crawler.README.md](packaging/releases/stophammer-crawler.README.md)
+
+`install.sh` still exists for legacy single-binary installs, but it is no
+longer the primary packaging path.
+
+### Build container images
+
+Build the role images explicitly:
 
 ```bash
-# Or build a container image
-docker build -t stophammer .
+docker build --target stophammer-indexer -t stophammer-indexer .
+docker build --target stophammer-node -t stophammer-node .
 ```
+
+The crawler image is built and released from the separate
+[stophammer-crawler README](https://github.com/inthemorning/stophammer-crawler).
 
 The repo also now ships versioned deployment assets:
 
@@ -156,9 +198,8 @@ The repo also now ships versioned deployment assets:
   - [packaging/sysusers.d](packaging/sysusers.d)
   - [packaging/tmpfiles.d](packaging/tmpfiles.d)
 
-`install.sh` still exists for direct binary installs, but it is now the legacy
-path. The packaged env/unit assets and container images are the intended
-operator-facing direction.
+The packaged env/unit assets, role tarballs, Arch packages, and container
+images are the intended operator-facing distribution paths.
 
 Release tarball assembly is now driven by:
 
@@ -402,25 +443,6 @@ but they should not have broad access to internal services, metadata endpoints, 
 credentials. Plain-HTTP feed fetches also remain weaker against DNS poisoning and
 on-path tampering than HTTPS fetches, even when crawler SSRF blast radius is reduced.
 
-### RSS crawler
-
-All crawling modes live in [stophammer-crawler](https://github.com/inthemorning/stophammer-crawler).
-From this checkout, run them via the crawler submodule manifest:
-
-```bash
-# One-shot: crawl specific feed URLs
-CRAWL_TOKEN=secret \
-INGEST_URL=http://127.0.0.1:8008/ingest/feed \
-cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
-  crawl https://feeds.rssblue.com/stereon-music
-
-# From a file
-CRAWL_TOKEN=secret \
-INGEST_URL=http://127.0.0.1:8008/ingest/feed \
-cargo run --manifest-path stophammer-crawler/Cargo.toml -- \
-  crawl feeds.txt
-```
-
 ## Maintenance and crawlers
 
 Maintenance/review workflows live in the wiki and operator docs:
@@ -431,7 +453,7 @@ Maintenance/review workflows live in the wiki and operator docs:
 Crawler runtime, import/gossip modes, and crawler-side analysis tools live in
 the separate crawler docs:
 
-- [stophammer-crawler/README.md](stophammer-crawler/README.md)
+- [stophammer-crawler README](https://github.com/inthemorning/stophammer-crawler)
 
 ---
 
