@@ -330,6 +330,57 @@ Plain HTTP is acceptable only for:
 
 If you prefer nginx or Caddy in front of the node, leave `TLS_DOMAIN` unset and set `TRUST_PROXY=true` so the node reads `X-Forwarded-For` correctly.
 
+Example primary setup behind nginx:
+
+```bash
+TRUST_PROXY=true \
+CRAWL_TOKEN=secret \
+SYNC_TOKEN=change-me \
+BIND=127.0.0.1:8008 \
+./stophammer
+```
+
+Example nginx TLS termination:
+
+```nginx
+server {
+    listen 80;
+    server_name node.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name node.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/node.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/node.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8008;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port 443;
+
+        # Useful for server-sent events
+        proxy_buffering off;
+    }
+}
+```
+
+Notes:
+- Keep `TLS_DOMAIN` unset when nginx terminates TLS.
+- Set `TRUST_PROXY=true` so Stophammer uses `X-Forwarded-For` instead of the
+  nginx loopback address for rate limiting and request logging.
+- Binding Stophammer to `127.0.0.1:8008` keeps the plain-HTTP upstream private
+  to the same host.
+- The same pattern works for community nodes; proxy to the community node's
+  local `BIND` address instead of the primary.
+
 ---
 
 ## Backup and Restore

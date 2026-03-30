@@ -66,6 +66,22 @@ This endpoint is the quickest way to answer two operator questions:
 Resolver-backed canonical endpoints may lag fresh ingest until `stophammer-resolverd` has
 drained `resolver_queue`.
 
+Interpretation notes:
+
+- This is a local-node status endpoint. It reports the resolver queue and
+  pause-state view of the node you are querying, not a cluster-wide or
+  primary-authoritative global watermark.
+- On primaries, this reflects live `stophammer-resolverd` queue state and
+  coordinated import/backfill pause state.
+- On community nodes, the route still exists, but communities do not run local
+  resolver batches. They apply primary-authored resolved events, so this
+  endpoint should be read as local database/status metadata rather than “what
+  the primary is currently resolving.”
+- `caught_up` means the local node currently has no queued resolver work and no
+  active coordinated import/backfill pause. It does not guarantee that every
+  entity a client cares about has already been resolved, nor does it expose a
+  separate resolved-version watermark.
+
 - **Response:**
 
 ```json
@@ -926,6 +942,21 @@ Returns a single track by its `track_guid`.
 }
 ```
 
+Notes:
+
+- `artist_credit` is the normalized top-level track credit used by the source
+  and canonical models. It is not the same thing as the staged contributor
+  claim list.
+- `source_contributors` is preserved RSS-truth evidence from Podcast Namespace
+  `person` extraction and related source parsing.
+- If a track has no track-level contributor claims of its own, the API falls
+  back to the parent feed's contributor claims. The inherited rows keep their
+  original `entity_type` / `entity_id`, so clients can tell whether the claim
+  came from the track or the feed.
+- Stophammer does not yet expose a canonical contributor graph for tracks or
+  recordings. `source_contributors` is a staged evidence layer, not a resolved
+  contributor-identity model.
+
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
@@ -985,6 +1016,18 @@ Source feed and track endpoints remain the immediate preserved-RSS layer.
 }
 ```
 
+Notes:
+
+- `artist_credit` is the normalized top-level release credit. It is not a full
+  contributor list for the album.
+- Stophammer does not yet expose a first-class canonical contributor graph on
+  release entities.
+- If a client needs contributor evidence for a release, the current path is:
+  1. load the release's `tracks`
+  2. inspect the mapped source tracks through `GET /v1/recordings/{id}/sources`
+     with `include=source_contributors`
+  3. or inspect individual source tracks through `GET /v1/tracks/{guid}?include=source_contributors`
+
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
@@ -1006,6 +1049,10 @@ feed together with:
 - platform claims
 - staged release claims
 - feed-level `podcast:remoteItem` refs
+
+Contributor claims are not exposed here because release resolution is currently
+feed-based. Contributor evidence remains attached to source feed and source
+track rows, not the canonical release entity itself.
 
 - **Authentication:** None
 
@@ -1084,6 +1131,15 @@ Source feed and track endpoints remain the immediate preserved-RSS layer.
   "meta": { "api_version": "v1", "node_pubkey": "..." }
 }
 ```
+
+Notes:
+
+- `artist_credit` is the normalized top-level recording credit, not a full
+  contributor list.
+- This endpoint does not expose staged contributor claims directly.
+- To inspect contributor evidence for a recording, use
+  `GET /v1/recordings/{id}/sources?include=source_contributors` or
+  `GET /v1/recordings/{id}/resolution`.
 
 | Code | Meaning |
 |------|---------|
