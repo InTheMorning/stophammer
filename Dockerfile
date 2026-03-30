@@ -1,7 +1,7 @@
 # Runtime image for stophammer indexer/community roles.
 # Build all main-workspace binaries, then copy the runtime subset into a minimal image.
 
-FROM rust:stable-alpine AS builder
+FROM rust:alpine AS builder
 
 RUN apk add --no-cache \
     build-base \
