@@ -3,7 +3,13 @@
 
 FROM rust:1.87-alpine AS builder
 
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache \
+    build-base \
+    cmake \
+    linux-headers \
+    musl-dev \
+    perl \
+    pkgconf
 
 WORKDIR /build
 COPY . .

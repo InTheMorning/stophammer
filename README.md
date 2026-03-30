@@ -180,12 +180,21 @@ longer the primary packaging path.
 Build the role images explicitly:
 
 ```bash
+# Preferred when the Docker buildx plugin is installed
 docker buildx build --load --target stophammer-indexer -t stophammer-indexer .
 docker buildx build --load --target stophammer-node -t stophammer-node .
 ```
 
 `--load` imports the built image into your local Docker image store. Omit it if
 you are only producing remote/pushed artifacts in CI.
+
+If your Docker CLI does not have the `buildx` plugin yet, the plain legacy
+builder still works for local builds:
+
+```bash
+docker build --target stophammer-indexer -t stophammer-indexer .
+docker build --target stophammer-node -t stophammer-node .
+```
 
 The crawler image is built and released from the separate
 [stophammer-crawler README](https://github.com/inthemorning/stophammer-crawler).

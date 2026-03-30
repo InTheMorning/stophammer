@@ -107,6 +107,12 @@ assets live in:
 docker build -t stophammer .
 ```
 
+If the Docker `buildx` plugin is installed, you can also use:
+
+```bash
+docker buildx build --load -t stophammer .
+```
+
 ### Versioned deployment assets
 
 The repository now ships versioned assets for the three operator roles:
