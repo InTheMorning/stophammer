@@ -152,6 +152,7 @@ jobs:
             dockerfile: ./Dockerfile
             target: stophammer-node
           - image_name: stophammer-crawler
+            context: ./stophammer-crawler
             dockerfile: ./stophammer-crawler/Dockerfile
             target: stophammer-crawler
     steps:
@@ -180,7 +181,7 @@ jobs:
       - name: Build and push ${{ matrix.image_name }}
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           target: ${{ matrix.target }}
           platforms: linux/amd64,linux/arm64
