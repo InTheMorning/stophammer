@@ -212,6 +212,7 @@ The compose file uses sample env files under [packaging/env](packaging/env):
 
 - `primary.compose.env`
 - `resolverd.compose.env`
+- `podping.compose.env`
 - `crawler-gossip.compose.env`
 
 Edit those before using the compose stack.
@@ -269,12 +270,15 @@ Then start the reference stack:
 docker compose up -d --build primary resolverd
 ```
 
-If you also want the bundled gossip crawler service, edit
-`packaging/env/crawler-gossip.compose.env` plus the archive-related compose
-variables described in [docs/operations.md](docs/operations.md), then run:
+If you also want the bundled podping listener plus gossip crawler, edit:
+
+- `packaging/env/podping.compose.env`
+- `packaging/env/crawler-gossip.compose.env`
+
+then run:
 
 ```bash
-docker compose up -d gossip
+docker compose up -d podping gossip
 ```
 
 To run the one-shot PodcastIndex importer, edit
@@ -294,6 +298,9 @@ docker compose up -d --build primary
 
 # after editing packaging/env/resolverd.compose.env
 docker compose up -d --build resolverd
+
+# after editing packaging/env/podping.compose.env
+docker compose up -d podping gossip
 
 # after editing packaging/env/crawler-gossip.compose.env
 docker compose up -d gossip
@@ -349,12 +356,14 @@ stack for:
 
 - `primary`
 - `resolverd`
+- `podping`
 - `gossip`
 
 Edit the sample env files first:
 
 - `packaging/env/primary.compose.env`
 - `packaging/env/resolverd.compose.env`
+- `packaging/env/podping.compose.env`
 - `packaging/env/crawler-gossip.compose.env`
 - `packaging/env/crawler-import.compose.env`
 
@@ -363,13 +372,6 @@ Then start the stack:
 ```bash
 docker compose up -d --build
 ```
-
-For archive-backed gossip replay, also set the top-level compose variables
-described in [docs/operations.md](docs/operations.md):
-
-- `GOSSIP_ARCHIVE_HOST_DIR`
-- `GOSSIP_UID`
-- `GOSSIP_GID`
 
 ### Credentials
 

@@ -174,19 +174,15 @@ The compose file intentionally uses runnable sample env files:
 
 - [primary.compose.env](../packaging/env/primary.compose.env)
 - [resolverd.compose.env](../packaging/env/resolverd.compose.env)
+- [podping.compose.env](../packaging/env/podping.compose.env)
 - [crawler-gossip.compose.env](../packaging/env/crawler-gossip.compose.env)
 - [crawler-import.compose.env](../packaging/env/crawler-import.compose.env)
 
 Edit those sample values before using the compose stack outside local testing.
-For the gossip container, also set these top-level compose variables in your
-shell or a project `.env` file when using archive-backed replay:
-
-- `GOSSIP_ARCHIVE_HOST_DIR` — host directory containing `archive.db`
-- `GOSSIP_UID` — host UID that should read the mounted archive
-- `GOSSIP_GID` — host GID that should read the mounted archive
-
-This lets the compose stack mount the podping archive from whichever host
-directory contains `archive.db`.
+The default stack now includes an in-network `podping` service based on
+`podping.alpha`'s `gossip-listener`, with a shared `podping-data` volume for
+the listener's node key, peer cache, `archive.db`, and the SSE stream that
+`gossip` consumes at `http://podping:8089/events`.
 
 Container runtime contract:
 

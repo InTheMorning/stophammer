@@ -31,6 +31,14 @@ services:
       primary:
         condition: service_healthy
 
+  podping:
+    image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
+    restart: unless-stopped
+    env_file:
+      - ./packaging/env/podping.compose.env
+    volumes:
+      - podping-data:/data
+
   gossip:
     image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
     command:
@@ -48,23 +56,21 @@ services:
         if [ "$${GOSSIP_SKIP_KNOWN_NON_MUSIC:-1}" = "1" ]; then set -- "$$@" --skip-known-non-music; fi;
         if [ "$${GOSSIP_QUIET:-0}" = "1" ]; then set -- "$$@" --quiet; fi;
         exec "$@"
-    user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     restart: unless-stopped
     env_file:
       - ./packaging/env/crawler-gossip.compose.env
     volumes:
       - crawler-data:/data
-      - ${GOSSIP_ARCHIVE_HOST_DIR:-/var/lib/podping-alpha-gossip-listener}:/podping:ro
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - podping-data:/podping:ro
     depends_on:
       primary:
         condition: service_healthy
+      podping:
+        condition: service_started
 
   import:
     profiles: ["tools"]
     image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
-    user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     command:
       - /bin/sh
       - -lc
@@ -97,3 +103,4 @@ services:
 volumes:
   primary-data:
   crawler-data:
+  podping-data:
