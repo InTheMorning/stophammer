@@ -1510,11 +1510,11 @@ Updates a track's mutable fields. Currently supports `enclosure_url` only. Beare
 
 ---
 
-## 11. Admin
+## 11. Admin and Diagnostics
 
-All admin endpoints require the `X-Admin-Token` header. The token is compared in constant time (SHA-256 hash comparison via `subtle::ConstantTimeEq`).
+Write-side admin endpoints require the `X-Admin-Token` header. The token is compared in constant time (SHA-256 hash comparison via `subtle::ConstantTimeEq`).
 
-If `ADMIN_TOKEN` is not configured on the node, all admin endpoints return `403`.
+If `ADMIN_TOKEN` is not configured on the node, write-side admin endpoints return `403`.
 
 ### POST /admin/artists/merge
 
@@ -1579,16 +1579,18 @@ Adds an alias to an artist (used for fuzzy matching during artist resolution).
 
 ---
 
-### GET /admin/diagnostics/feeds/{guid}
+### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.
 
-This endpoint is intended for operator tooling and review UIs. It exposes the
+This endpoint is intended for public debugging tools, feed-author explainers,
+and operator review UIs. It exposes the
 current feed artist credit, track artist credits, feed-scoped artist identity
 plan, stored review items, and wallet-linked evidence touching the feed.
 
-- **Authentication:** Admin token (`X-Admin-Token`)
+- **Authentication:** None
 - **Available on:** Primary only
+- **Compatibility:** `/admin/diagnostics/feeds/{guid}` remains as a read-only alias for now
 
 **Response (`200 OK`):**
 
@@ -1680,21 +1682,22 @@ plan, stored review items, and wallet-linked evidence touching the feed.
 | Code | Meaning |
 |------|---------|
 | 200  | Diagnostics returned |
-| 403  | Invalid or missing `X-Admin-Token` |
 | 404  | Feed not found |
 
 ---
 
-### GET /admin/diagnostics/artists/{id}
+### GET /v1/diagnostics/artists/{id}
 
 Returns a primary-only diagnostics bundle for one artist.
 
-This endpoint is intended for operator tooling and review UIs. It exposes the
+This endpoint is intended for public debugging tools, feed-author explainers,
+and operator review UIs. It exposes the
 current surviving artist row, redirected source IDs, credits, feeds, tracks,
 wallet links, and feed-scoped review items that currently involve the artist.
 
-- **Authentication:** Admin token (`X-Admin-Token`)
+- **Authentication:** None
 - **Available on:** Primary only
+- **Compatibility:** `/admin/diagnostics/artists/{id}` remains as a read-only alias for now
 
 **Response (`200 OK`):**
 
@@ -1727,21 +1730,22 @@ wallet links, and feed-scoped review items that currently involve the artist.
 | Code | Meaning |
 |------|---------|
 | 200  | Diagnostics returned |
-| 403  | Invalid or missing `X-Admin-Token` |
 | 404  | Artist not found |
 
 ---
 
-### GET /admin/diagnostics/wallets/{id}
+### GET /v1/diagnostics/wallets/{id}
 
 Returns a primary-only diagnostics bundle for one wallet.
 
-This endpoint is intended for operator tooling and review UIs. It exposes the
+This endpoint is intended for public debugging tools, feed-author explainers,
+and operator review UIs. It exposes the
 current surviving wallet row, redirected source IDs, wallet review rows,
 claim-feed evidence, and alias peers that currently share one normalized alias.
 
-- **Authentication:** Admin token (`X-Admin-Token`)
+- **Authentication:** None
 - **Available on:** Primary only
+- **Compatibility:** `/admin/diagnostics/wallets/{id}` remains as a read-only alias for now
 
 **Response (`200 OK`):**
 
@@ -1770,7 +1774,6 @@ claim-feed evidence, and alias peers that currently share one normalized alias.
 | Code | Meaning |
 |------|---------|
 | 200  | Diagnostics returned |
-| 403  | Invalid or missing `X-Admin-Token` |
 | 404  | Wallet not found |
 
 ---
@@ -1887,7 +1890,7 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `/admin/*`, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
+| Admin token | `X-Admin-Token` header | write-side `/admin/*`, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
 | Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}` |
 
 Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.

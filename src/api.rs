@@ -1338,6 +1338,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/artists/merge", post(handle_admin_merge_artists))
         .route("/admin/artists/alias", post(handle_admin_add_alias))
         .route(
+            "/v1/diagnostics/feeds/{guid}",
+            get(handle_admin_feed_diagnostics),
+        )
+        .route(
+            "/v1/diagnostics/artists/{id}",
+            get(handle_admin_artist_diagnostics),
+        )
+        .route(
+            "/v1/diagnostics/wallets/{id}",
+            get(handle_admin_wallet_diagnostics),
+        )
+        .route(
             "/admin/diagnostics/feeds/{guid}",
             get(handle_admin_feed_diagnostics),
         )
@@ -3478,11 +3490,8 @@ async fn handle_admin_add_alias(
 
 async fn handle_admin_feed_diagnostics(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     Path(guid): Path<String>,
 ) -> Result<Json<AdminFeedDiagnosticsResponse>, ApiError> {
-    check_admin_token(&headers, &state.admin_token)?;
-
     let guid_for_db = guid.clone();
     let result = spawn_db(state.db.clone(), move |conn| {
         let Some(feed) = db::get_feed_by_guid(conn, &guid_for_db)? else {
@@ -3541,11 +3550,8 @@ async fn handle_admin_feed_diagnostics(
 
 async fn handle_admin_artist_diagnostics(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<AdminArtistDiagnosticsResponse>, ApiError> {
-    check_admin_token(&headers, &state.admin_token)?;
-
     let requested_artist_id = id.clone();
     let result = spawn_db(state.db.clone(), move |conn| {
         admin_artist_diagnostics_response(conn, requested_artist_id)
@@ -3563,11 +3569,8 @@ async fn handle_admin_artist_diagnostics(
 
 async fn handle_admin_wallet_diagnostics(
     State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<AdminWalletDiagnosticsResponse>, ApiError> {
-    check_admin_token(&headers, &state.admin_token)?;
-
     let requested_wallet_id = id.clone();
     let result = spawn_db(state.db.clone(), move |conn| {
         admin_wallet_diagnostics_response(conn, requested_wallet_id)

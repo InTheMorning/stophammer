@@ -123,8 +123,7 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/admin/diagnostics/feeds/feed-wallet-variant")
-                .header("X-Admin-Token", "test-admin-token")
+                .uri("/v1/diagnostics/feeds/feed-wallet-variant")
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -241,8 +240,7 @@ async fn admin_artist_diagnostics_exposes_redirects_wallets_and_reviews() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/admin/diagnostics/artists/{canonical_artist_id}"))
-                .header("X-Admin-Token", "test-admin-token")
+                .uri(format!("/v1/diagnostics/artists/{canonical_artist_id}"))
                 .body(Body::empty())
                 .expect("request"),
         )
@@ -355,8 +353,7 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/admin/diagnostics/wallets/{wallet_id}"))
-                .header("X-Admin-Token", "test-admin-token")
+                .uri(format!("/v1/diagnostics/wallets/{wallet_id}"))
                 .body(Body::empty())
                 .expect("request"),
         )

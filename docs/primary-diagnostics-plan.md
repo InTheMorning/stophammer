@@ -21,8 +21,9 @@ expose the resolver's stored state and feed-scoped plans directly.
 ## Constraints
 
 - diagnostics must be primary-only
-- diagnostics must require `X-Admin-Token`
 - diagnostics must remain read-only
+- diagnostics are temporarily public for open debugging and feed-author tooling
+- write-side review actions remain admin-gated
 - the HTTP layer must not reimplement merge heuristics
 - responses should expose confidence and provenance, not just final merged IDs
 
@@ -45,11 +46,13 @@ That suggests three diagnostics surfaces:
 
 ## Proposed Endpoint Family
 
-All endpoints are primary-only and require `X-Admin-Token`.
+All endpoints are primary-only and read-only. For now they are intentionally
+open without `X-Admin-Token` so external tools can inspect resolver
+consequences. Write-side review APIs remain a separate admin-gated concern.
 
 Phase 1:
 
-- `GET /admin/diagnostics/feeds/{feed_guid}`
+- `GET /v1/diagnostics/feeds/{feed_guid}`
   - feed summary
   - feed and track artist credits
   - `explain_artist_identity_for_feed(...)`
@@ -62,7 +65,7 @@ Phase 1:
 
 Phase 2:
 
-- `GET /admin/diagnostics/artists/{artist_id}`
+- `GET /v1/diagnostics/artists/{artist_id}`
   - canonical artist row
   - redirected-from IDs
   - credits, feeds, tracks, releases
@@ -71,7 +74,7 @@ Phase 2:
 
 Phase 3:
 
-- `GET /admin/diagnostics/wallets/{wallet_id}`
+- `GET /v1/diagnostics/wallets/{wallet_id}`
   - wallet detail
   - endpoint facts and aliases
   - wallet review items
@@ -122,7 +125,7 @@ derived presentation data rather than canonical resolver state.
 
 ## Initial Slice
 
-Start with `GET /admin/diagnostics/feeds/{feed_guid}`.
+Start with `GET /v1/diagnostics/feeds/{feed_guid}`.
 
 Why this first:
 

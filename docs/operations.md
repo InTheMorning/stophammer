@@ -15,7 +15,7 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
 | `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
-| `ADMIN_TOKEN` | `""` (empty) | No | Token for admin endpoints (`X-Admin-Token` header). If empty, all admin endpoints return 403. It is not accepted on sync endpoints. |
+| `ADMIN_TOKEN` | `""` (empty) | No | Token for write-side admin endpoints (`X-Admin-Token` header). Read-only diagnostics under `/v1/diagnostics/*` are currently public on primary nodes. It is not accepted on sync endpoints. |
 | `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. If unset, those sync endpoints return 403. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
 
