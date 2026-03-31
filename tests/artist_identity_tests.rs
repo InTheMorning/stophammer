@@ -1552,6 +1552,107 @@ fn merge_target_prefers_evidence_over_creation_order() {
     );
 }
 
+#[test]
+fn wallet_name_variants_raise_review_without_auto_merge() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-wallet-variant"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-wallet-variant"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-wallet-variant', 'https://example.com/wallet-variant.xml', 'Wallet Variant', 'wallet variant', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let variant = stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-wallet-variant"))
+        .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-wallet-variant"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-wallet-variant', 'feed-wallet-variant', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+
+    conn.execute(
+        "INSERT INTO feed_payment_routes \
+         (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+         VALUES ('feed-wallet-variant', 'HeyCitizen', 'lnaddress', 'heycitizen@example.com', NULL, NULL, 100, 0)",
+        [],
+    )
+    .expect("insert feed route");
+
+    let wallet_stats =
+        stophammer::db::resolve_wallet_identity_for_feed(&conn, "feed-wallet-variant")
+            .expect("resolve wallet identity");
+    assert_eq!(
+        wallet_stats.wallets_created, 1,
+        "feed wallet route should create one provisional wallet"
+    );
+
+    let link_stats = stophammer::db::backfill_wallet_pass3(&conn).expect("wallet pass3");
+    assert_eq!(
+        link_stats.artist_links_created, 1,
+        "wallet alias should link to the feed artist"
+    );
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-wallet-variant")
+        .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "wallet-based name variants should raise review, not auto-merge"
+    );
+    assert_eq!(
+        stats.pending_reviews, 1,
+        "wallet-based name variants should create one pending review"
+    );
+
+    let reviews =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-wallet-variant")
+            .expect("list reviews");
+    let review = reviews
+        .iter()
+        .find(|review| review.source == "wallet_name_variant")
+        .expect("wallet_name_variant review");
+    assert_eq!(review.name_key, "heycitizen");
+    let review_artist_ids = review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [canonical.artist_id.clone(), variant.artist_id.clone()]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "review should include both canonical and variant artist ids"
+    );
+}
+
 /// Canonical promotions computed after an artist-identity merge reference the
 /// surviving artist, not the merged-away one.
 ///

@@ -4468,6 +4468,15 @@ fn apply_artist_identity_groups(
             continue;
         }
 
+        if override_row.is_none() && !artist_identity_source_allows_auto_merge(&group.source) {
+            if let Some(feed_guid) = review_feed_guid {
+                sync_artist_identity_review_item(
+                    conn, feed_guid, &group, "pending", None, None, None,
+                )?;
+            }
+            continue;
+        }
+
         let target_artist_id = match override_row.as_ref() {
             Some(override_row) if override_row.override_type == "merge" => {
                 let Some(target_artist_id) = override_row.target_artist_id.as_deref() else {
@@ -4751,6 +4760,99 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
     Ok(groups)
 }
 
+fn normalize_artist_similarity_key(name: &str) -> Option<String> {
+    let normalized = name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+    (normalized.len() >= 4).then_some(normalized)
+}
+
+fn collect_artist_groups_by_wallet_name_variant_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    seed_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    if seed_ids.len() <= 1 {
+        return Ok(vec![]);
+    }
+
+    let mut seed_artists_by_key: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for artist_id in seed_ids {
+        let Some(current_id) = current_artist_id(conn, artist_id)? else {
+            continue;
+        };
+        let Some(artist) = get_artist_by_id(conn, &current_id)? else {
+            continue;
+        };
+        let Some(name_key) = normalize_artist_similarity_key(&artist.name) else {
+            continue;
+        };
+        seed_artists_by_key
+            .entry(name_key)
+            .or_default()
+            .insert(current_id);
+    }
+
+    if seed_artists_by_key.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT we.wallet_id, wa.alias_lower
+         FROM wallet_endpoints we
+         JOIN wallet_aliases wa ON wa.endpoint_id = we.id
+         LEFT JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+         LEFT JOIN payment_routes pr ON pr.id = wtrm.route_id
+         LEFT JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+         LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+         WHERE we.wallet_id IS NOT NULL
+           AND (pr.feed_guid = ?1 OR fpr.feed_guid = ?1)
+           AND TRIM(wa.alias_lower) <> ''",
+    )?;
+    let wallet_alias_rows = stmt
+        .query_map(params![feed_guid], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut grouped: std::collections::BTreeMap<
+        (String, String),
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for (wallet_id, alias_lower) in wallet_alias_rows {
+        let Some(name_key) = normalize_artist_similarity_key(&alias_lower) else {
+            continue;
+        };
+        let Some(seed_artist_ids) = seed_artists_by_key.get(&name_key) else {
+            continue;
+        };
+        if seed_artist_ids.len() <= 1 {
+            continue;
+        }
+        grouped
+            .entry((name_key, wallet_id))
+            .or_default()
+            .extend(seed_artist_ids.iter().cloned());
+    }
+
+    Ok(grouped
+        .into_iter()
+        .map(
+            |((name_key, wallet_id), artist_ids)| ArtistIdentityEvidenceGroup {
+                source: "wallet_name_variant".to_string(),
+                name_key,
+                evidence_key: wallet_id,
+                artist_ids,
+            },
+        )
+        .collect())
+}
+
 fn current_ids_for_review(
     conn: &Connection,
     artist_ids: &std::collections::BTreeSet<String>,
@@ -4796,6 +4898,10 @@ fn artist_identity_override_for_group(
     )
     .optional()
     .map_err(Into::into)
+}
+
+fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
+    !matches!(source, "wallet_name_variant")
 }
 
 fn sync_artist_identity_review_item(
@@ -5509,7 +5615,10 @@ pub fn resolve_artist_identity_for_feed_with_signer(
         });
     }
 
-    let groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids, anchored_cache)?;
+    let mut groups = collect_artist_identity_groups_for_seed_ids(&tx, &seed_ids, anchored_cache)?;
+    groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
+        &tx, feed_guid, &seed_ids,
+    )?);
     let candidate_groups = groups.len();
     let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid), signer)?;
     let (pending_reviews, blocked_reviews) =
@@ -5548,40 +5657,44 @@ pub fn explain_artist_identity_for_feed(
         .iter()
         .map(|artist| artist.artist_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    let candidate_groups =
-        collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?
-            .into_iter()
-            .map(|group| {
-                let artist_ids = current_ids_for_review(conn, &group.artist_ids)
-                    .unwrap_or_else(|_err| group.artist_ids.clone())
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
-                let review = get_artist_identity_review_for_subject(
-                    conn,
-                    feed_guid,
-                    &group.source,
-                    &group.name_key,
-                    &group.evidence_key,
-                )
-                .ok()
-                .flatten();
-                ArtistIdentityCandidateGroup {
-                    source: group.source,
-                    name_key: group.name_key,
-                    evidence_key: group.evidence_key,
-                    artist_ids,
-                    artist_names,
-                    review_id: review.as_ref().map(|item| item.review_id),
-                    review_status: review.as_ref().map(|item| item.status.clone()),
-                    override_type: review.as_ref().and_then(|item| item.override_type.clone()),
-                    target_artist_id: review
-                        .as_ref()
-                        .and_then(|item| item.target_artist_id.clone()),
-                    note: review.and_then(|item| item.note),
-                }
-            })
-            .collect::<Vec<_>>();
+    let mut candidate_groups =
+        collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?;
+    candidate_groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
+        conn, feed_guid, &seed_ids,
+    )?);
+    let candidate_groups = candidate_groups
+        .into_iter()
+        .map(|group| {
+            let artist_ids = current_ids_for_review(conn, &group.artist_ids)
+                .unwrap_or_else(|_err| group.artist_ids.clone())
+                .into_iter()
+                .collect::<Vec<_>>();
+            let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
+            let review = get_artist_identity_review_for_subject(
+                conn,
+                feed_guid,
+                &group.source,
+                &group.name_key,
+                &group.evidence_key,
+            )
+            .ok()
+            .flatten();
+            ArtistIdentityCandidateGroup {
+                source: group.source,
+                name_key: group.name_key,
+                evidence_key: group.evidence_key,
+                artist_ids,
+                artist_names,
+                review_id: review.as_ref().map(|item| item.review_id),
+                review_status: review.as_ref().map(|item| item.status.clone()),
+                override_type: review.as_ref().and_then(|item| item.override_type.clone()),
+                target_artist_id: review
+                    .as_ref()
+                    .and_then(|item| item.target_artist_id.clone()),
+                note: review.and_then(|item| item.note),
+            }
+        })
+        .collect::<Vec<_>>();
 
     Ok(ArtistIdentityFeedPlan {
         feed_guid: feed_guid.to_string(),
