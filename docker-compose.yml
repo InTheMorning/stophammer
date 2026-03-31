@@ -38,15 +38,15 @@ services:
       - -lc
       - >
         set -- stophammer-crawler gossip
-        --state "${GOSSIP_STATE_DB:-/data/gossip_state.db}"
-        --skip-db "${FEED_SKIP_DB:-/data/feed_skip.db}";
-        if [ -n "${GOSSIP_SSE_URL:-}" ]; then set -- "$@" --sse-url "$GOSSIP_SSE_URL"; fi;
-        if [ -n "${GOSSIP_ARCHIVE_DB:-}" ]; then set -- "$@" --archive-db "$GOSSIP_ARCHIVE_DB"; fi;
-        if [ -n "${GOSSIP_SINCE_HOURS:-}" ]; then set -- "$@" --since-hours "$GOSSIP_SINCE_HOURS"; fi;
-        if [ -n "${GOSSIP_SKIP_TTL_DAYS:-}" ]; then set -- "$@" --skip-ttl-days "$GOSSIP_SKIP_TTL_DAYS"; fi;
-        if [ -n "${CONCURRENCY:-}" ]; then set -- "$@" --concurrency "$CONCURRENCY"; fi;
-        if [ "${GOSSIP_SKIP_KNOWN_NON_MUSIC:-1}" = "1" ]; then set -- "$@" --skip-known-non-music; fi;
-        if [ "${GOSSIP_QUIET:-0}" = "1" ]; then set -- "$@" --quiet; fi;
+        --state "$${GOSSIP_STATE_DB:-/data/gossip_state.db}"
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
+        if [ -n "$${GOSSIP_SSE_URL:-}" ]; then set -- "$$@" --sse-url "$$GOSSIP_SSE_URL"; fi;
+        if [ -n "$${GOSSIP_ARCHIVE_DB:-}" ]; then set -- "$$@" --archive-db "$$GOSSIP_ARCHIVE_DB"; fi;
+        if [ -n "$${GOSSIP_SINCE_HOURS:-}" ]; then set -- "$$@" --since-hours "$$GOSSIP_SINCE_HOURS"; fi;
+        if [ -n "$${GOSSIP_SKIP_TTL_DAYS:-}" ]; then set -- "$$@" --skip-ttl-days "$$GOSSIP_SKIP_TTL_DAYS"; fi;
+        if [ -n "$${CONCURRENCY:-}" ]; then set -- "$$@" --concurrency "$$CONCURRENCY"; fi;
+        if [ "$${GOSSIP_SKIP_KNOWN_NON_MUSIC:-1}" = "1" ]; then set -- "$$@" --skip-known-non-music; fi;
+        if [ "$${GOSSIP_QUIET:-0}" = "1" ]; then set -- "$$@" --quiet; fi;
         exec "$@"
     user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     restart: unless-stopped
