@@ -11753,6 +11753,17 @@ pub struct WalletReviewSummary {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WalletReviewItem {
+    pub id: i64,
+    pub wallet_id: String,
+    pub review_type: String,
+    pub details: Option<String>,
+    pub status: String,
+    pub created_at: i64,
+    pub resolved_at: Option<i64>,
+}
+
 /// Full detail of a wallet for review display.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletDetail {
@@ -11873,6 +11884,23 @@ pub fn get_wallet_ids_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec
         .map_err(Into::into)
 }
 
+/// Returns wallet ids currently linked to the given artist through
+/// `wallet_artist_links`.
+pub fn get_wallet_ids_for_artist(
+    conn: &Connection,
+    artist_id: &str,
+) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT wallet_id
+         FROM wallet_artist_links
+         WHERE artist_id = ?1
+         ORDER BY wallet_id",
+    )?;
+    stmt.query_map(params![artist_id], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
 /// List pending wallet identity reviews.
 pub fn list_pending_wallet_reviews(
     conn: &Connection,
@@ -11904,6 +11932,32 @@ pub fn list_pending_wallet_reviews(
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// List all wallet identity review rows for one wallet.
+pub fn list_wallet_reviews_for_wallet(
+    conn: &Connection,
+    wallet_id: &str,
+) -> Result<Vec<WalletReviewItem>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, wallet_id, review_type, details, status, created_at, resolved_at
+         FROM wallet_identity_review
+         WHERE wallet_id = ?1
+         ORDER BY created_at DESC, id DESC",
+    )?;
+    stmt.query_map(params![wallet_id], |row| {
+        Ok(WalletReviewItem {
+            id: row.get(0)?,
+            wallet_id: row.get(1)?,
+            review_type: row.get(2)?,
+            details: row.get(3)?,
+            status: row.get(4)?,
+            created_at: row.get(5)?,
+            resolved_at: row.get(6)?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
 }
 
 /// Get full wallet detail for review display.

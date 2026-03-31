@@ -28,7 +28,7 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 
@@ -1340,6 +1340,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/admin/diagnostics/feeds/{guid}",
             get(handle_admin_feed_diagnostics),
+        )
+        .route(
+            "/admin/diagnostics/artists/{id}",
+            get(handle_admin_artist_diagnostics),
+        )
+        .route(
+            "/admin/diagnostics/wallets/{id}",
+            get(handle_admin_wallet_diagnostics),
         )
         // Route versioning compliant — 2026-03-12
         .route(
@@ -3130,6 +3138,51 @@ struct AdminFeedDiagnosticsResponse {
     wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
 }
 
+#[derive(Debug, Serialize)]
+struct AdminArtistFeedDiagnosticsResponse {
+    feed_guid: String,
+    title: String,
+    feed_url: String,
+    artist_credit: AdminCreditResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminArtistTrackDiagnosticsResponse {
+    track_guid: String,
+    feed_guid: String,
+    title: String,
+    artist_credit: AdminCreditResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminArtistReviewDiagnosticsResponse {
+    feed_guid: String,
+    feed_title: String,
+    review: db::ArtistIdentityReviewItem,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminArtistDiagnosticsResponse {
+    requested_artist_id: String,
+    artist: crate::model::Artist,
+    redirected_from: Vec<String>,
+    credits: Vec<AdminCreditResponse>,
+    feeds: Vec<AdminArtistFeedDiagnosticsResponse>,
+    tracks: Vec<AdminArtistTrackDiagnosticsResponse>,
+    wallets: Vec<db::WalletDetail>,
+    reviews: Vec<AdminArtistReviewDiagnosticsResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminWalletDiagnosticsResponse {
+    requested_wallet_id: String,
+    wallet: db::WalletDetail,
+    redirected_from: Vec<String>,
+    reviews: Vec<db::WalletReviewItem>,
+    claim_feeds: Vec<db::WalletClaimFeed>,
+    alias_peers: Vec<db::WalletAliasPeer>,
+}
+
 fn admin_credit_response(
     conn: &rusqlite::Connection,
     credit_id: i64,
@@ -3150,6 +3203,260 @@ fn admin_credit_response(
             })
             .collect(),
     })
+}
+
+fn resolve_current_artist_id_for_admin(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+) -> Result<Option<String>, db::DbError> {
+    let mut current = artist_id.to_string();
+    for _ in 0..32 {
+        let redirect = conn
+            .query_row(
+                "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
+                params![current],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        match redirect {
+            Some(next) if next != current => current = next,
+            _ => break,
+        }
+    }
+    if db::get_artist_by_id(conn, &current)?.is_some() {
+        Ok(Some(current))
+    } else {
+        Ok(None)
+    }
+}
+
+fn admin_artist_redirected_from(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+) -> Result<Vec<String>, db::DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT old_artist_id
+         FROM artist_id_redirect
+         WHERE new_artist_id = ?1
+         ORDER BY old_artist_id",
+    )?;
+    stmt.query_map(params![artist_id], |row| row.get(0))?
+        .collect::<Result<Vec<String>, _>>()
+        .map_err(Into::into)
+}
+
+fn admin_artist_feeds(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+) -> Result<Vec<AdminArtistFeedDiagnosticsResponse>, db::DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT f.feed_guid, f.title, f.feed_url, f.artist_credit_id
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN feeds f ON f.artist_credit_id = ac.id
+         WHERE acn.artist_id = ?1
+         ORDER BY f.title_lower, f.feed_guid",
+    )?;
+    stmt.query_map(params![artist_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?
+    .collect::<Result<Vec<_>, _>>()?
+    .into_iter()
+    .map(|(feed_guid, title, feed_url, artist_credit_id)| {
+        Ok(AdminArtistFeedDiagnosticsResponse {
+            feed_guid,
+            title,
+            feed_url,
+            artist_credit: admin_credit_response(conn, artist_credit_id)?,
+        })
+    })
+    .collect::<Result<Vec<_>, db::DbError>>()
+}
+
+fn admin_artist_tracks(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+) -> Result<Vec<AdminArtistTrackDiagnosticsResponse>, db::DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT t.track_guid, t.feed_guid, t.title, t.artist_credit_id
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN tracks t ON t.artist_credit_id = ac.id
+         WHERE acn.artist_id = ?1
+         ORDER BY t.title_lower, t.track_guid",
+    )?;
+    stmt.query_map(params![artist_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+        ))
+    })?
+    .collect::<Result<Vec<_>, _>>()?
+    .into_iter()
+    .map(|(track_guid, feed_guid, title, artist_credit_id)| {
+        Ok(AdminArtistTrackDiagnosticsResponse {
+            track_guid,
+            feed_guid,
+            title,
+            artist_credit: admin_credit_response(conn, artist_credit_id)?,
+        })
+    })
+    .collect::<Result<Vec<_>, db::DbError>>()
+}
+
+fn admin_artist_reviews(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+) -> Result<Vec<AdminArtistReviewDiagnosticsResponse>, db::DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT f.feed_guid, f.title
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN feeds f ON f.artist_credit_id = ac.id
+         WHERE acn.artist_id = ?1
+         UNION
+         SELECT DISTINCT f.feed_guid, f.title
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN tracks t ON t.artist_credit_id = ac.id
+         JOIN feeds f ON f.feed_guid = t.feed_guid
+         WHERE acn.artist_id = ?1
+         ORDER BY 2, 1",
+    )?;
+    let feed_rows = stmt
+        .query_map(params![artist_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut reviews = Vec::new();
+    for (feed_guid, feed_title) in feed_rows {
+        for review in db::list_artist_identity_reviews_for_feed(conn, &feed_guid)? {
+            if review
+                .artist_ids
+                .iter()
+                .any(|candidate| candidate == artist_id)
+            {
+                reviews.push(AdminArtistReviewDiagnosticsResponse {
+                    feed_guid: feed_guid.clone(),
+                    feed_title: feed_title.clone(),
+                    review,
+                });
+            }
+        }
+    }
+    Ok(reviews)
+}
+
+fn resolve_current_wallet_id_for_admin(
+    conn: &rusqlite::Connection,
+    wallet_id: &str,
+) -> Result<Option<String>, db::DbError> {
+    let mut current = wallet_id.to_string();
+    for _ in 0..32 {
+        let redirect = conn
+            .query_row(
+                "SELECT new_wallet_id FROM wallet_id_redirect WHERE old_wallet_id = ?1",
+                params![current],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?;
+        match redirect {
+            Some(next) if next != current => current = next,
+            _ => break,
+        }
+    }
+    if db::get_wallet_detail(conn, &current)?.is_some() {
+        Ok(Some(current))
+    } else {
+        Ok(None)
+    }
+}
+
+fn admin_wallet_diagnostics_response(
+    conn: &rusqlite::Connection,
+    requested_wallet_id: String,
+) -> Result<Option<AdminWalletDiagnosticsResponse>, db::DbError> {
+    let Some(resolved_id) = resolve_current_wallet_id_for_admin(conn, &requested_wallet_id)? else {
+        return Ok(None);
+    };
+    let Some(wallet) = db::get_wallet_detail(conn, &resolved_id)? else {
+        return Ok(None);
+    };
+
+    let redirected_from = {
+        let mut stmt = conn.prepare(
+            "SELECT old_wallet_id
+             FROM wallet_id_redirect
+             WHERE new_wallet_id = ?1
+             ORDER BY old_wallet_id",
+        )?;
+        stmt.query_map(params![resolved_id.as_str()], |row| row.get(0))?
+            .collect::<Result<Vec<String>, _>>()?
+    };
+
+    let reviews = db::list_wallet_reviews_for_wallet(conn, &resolved_id)?;
+    let claim_feeds = db::get_wallet_claim_feeds(conn, &resolved_id)?;
+
+    let mut alias_peers = std::collections::BTreeMap::new();
+    for alias in &wallet.aliases {
+        for peer in db::get_wallet_alias_peers(conn, &alias.alias.to_lowercase())? {
+            if peer.wallet_id != resolved_id {
+                alias_peers.insert(peer.wallet_id.clone(), peer);
+            }
+        }
+    }
+
+    Ok(Some(AdminWalletDiagnosticsResponse {
+        requested_wallet_id,
+        wallet,
+        redirected_from,
+        reviews,
+        claim_feeds,
+        alias_peers: alias_peers.into_values().collect(),
+    }))
+}
+
+fn admin_artist_diagnostics_response(
+    conn: &rusqlite::Connection,
+    requested_artist_id: String,
+) -> Result<Option<AdminArtistDiagnosticsResponse>, db::DbError> {
+    let Some(resolved_id) = resolve_current_artist_id_for_admin(conn, &requested_artist_id)? else {
+        return Ok(None);
+    };
+    let Some(artist) = db::get_artist_by_id(conn, &resolved_id)? else {
+        return Ok(None);
+    };
+
+    let redirected_from = admin_artist_redirected_from(conn, &resolved_id)?;
+    let credits = db::get_artist_credits_for_artist(conn, &resolved_id)?
+        .into_iter()
+        .map(|credit| admin_credit_response(conn, credit.id))
+        .collect::<Result<Vec<_>, db::DbError>>()?;
+    let feeds = admin_artist_feeds(conn, &resolved_id)?;
+    let tracks = admin_artist_tracks(conn, &resolved_id)?;
+    let wallets = db::get_wallet_ids_for_artist(conn, &resolved_id)?
+        .into_iter()
+        .filter_map(|wallet_id| db::get_wallet_detail(conn, &wallet_id).ok().flatten())
+        .collect::<Vec<_>>();
+    let reviews = admin_artist_reviews(conn, &resolved_id)?;
+
+    Ok(Some(AdminArtistDiagnosticsResponse {
+        requested_artist_id,
+        artist,
+        redirected_from,
+        credits,
+        feeds,
+        tracks,
+        wallets,
+        reviews,
+    }))
 }
 
 async fn handle_admin_add_alias(
@@ -3226,6 +3533,50 @@ async fn handle_admin_feed_diagnostics(
     let response = result.ok_or_else(|| ApiError {
         status: StatusCode::NOT_FOUND,
         message: format!("feed {guid} not found"),
+        www_authenticate: None,
+    })?;
+
+    Ok(Json(response))
+}
+
+async fn handle_admin_artist_diagnostics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<AdminArtistDiagnosticsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let requested_artist_id = id.clone();
+    let result = spawn_db(state.db.clone(), move |conn| {
+        admin_artist_diagnostics_response(conn, requested_artist_id)
+    })
+    .await?;
+
+    let response = result.ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("artist {id} not found"),
+        www_authenticate: None,
+    })?;
+
+    Ok(Json(response))
+}
+
+async fn handle_admin_wallet_diagnostics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> Result<Json<AdminWalletDiagnosticsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let requested_wallet_id = id.clone();
+    let result = spawn_db(state.db.clone(), move |conn| {
+        admin_wallet_diagnostics_response(conn, requested_wallet_id)
+    })
+    .await?;
+
+    let response = result.ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("wallet {id} not found"),
         www_authenticate: None,
     })?;
 

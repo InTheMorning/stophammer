@@ -1685,6 +1685,96 @@ plan, stored review items, and wallet-linked evidence touching the feed.
 
 ---
 
+### GET /admin/diagnostics/artists/{id}
+
+Returns a primary-only diagnostics bundle for one artist.
+
+This endpoint is intended for operator tooling and review UIs. It exposes the
+current surviving artist row, redirected source IDs, credits, feeds, tracks,
+wallet links, and feed-scoped review items that currently involve the artist.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "requested_artist_id": "artist-id",
+  "artist": {
+    "artist_id": "artist-id",
+    "name": "HeyCitizen"
+  },
+  "redirected_from": ["old-artist-id"],
+  "credits": [],
+  "feeds": [],
+  "tracks": [],
+  "wallets": [],
+  "reviews": [
+    {
+      "feed_guid": "feed-guid",
+      "feed_title": "Feed Title",
+      "review": {
+        "source": "wallet_name_variant",
+        "name_key": "heycitizen",
+        "review_id": 42
+      }
+    }
+  ]
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Diagnostics returned |
+| 403  | Invalid or missing `X-Admin-Token` |
+| 404  | Artist not found |
+
+---
+
+### GET /admin/diagnostics/wallets/{id}
+
+Returns a primary-only diagnostics bundle for one wallet.
+
+This endpoint is intended for operator tooling and review UIs. It exposes the
+current surviving wallet row, redirected source IDs, wallet review rows,
+claim-feed evidence, and alias peers that currently share one normalized alias.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "requested_wallet_id": "wallet-id",
+  "wallet": {
+    "wallet_id": "wallet-id",
+    "display_name": "Shared Wallet Alias",
+    "wallet_class": "unknown",
+    "class_confidence": "provisional",
+    "artist_links": []
+  },
+  "redirected_from": ["old-wallet-id"],
+  "reviews": [
+    {
+      "review_type": "cross_wallet_alias",
+      "status": "pending"
+    }
+  ],
+  "claim_feeds": [],
+  "alias_peers": []
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Diagnostics returned |
+| 403  | Invalid or missing `X-Admin-Token` |
+| 404  | Wallet not found |
+
+---
+
 ### DELETE /v1/feeds/{guid}
 
 Retires a feed, cascade-deleting all its tracks, payment routes, and search index entries. Emits a `FeedRetired` event.
