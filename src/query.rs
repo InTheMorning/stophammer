@@ -457,6 +457,7 @@ struct ArtistResolutionResponse {
     artist_id: String,
     name: String,
     external_ids: Vec<ExternalIdResponse>,
+    redirected_from: Vec<String>,
     feeds: Vec<ArtistResolutionFeedEvidenceResponse>,
     tracks: Vec<ArtistResolutionTrackEvidenceResponse>,
 }
@@ -2417,6 +2418,14 @@ async fn handle_get_artist_resolution(
             .into_iter()
             .map(external_id_response)
             .collect();
+        let redirected_from = {
+            let mut stmt = conn.prepare(
+                "SELECT old_artist_id FROM artist_id_redirect \
+                 WHERE new_artist_id = ?1 ORDER BY old_artist_id",
+            )?;
+            stmt.query_map(params![artist_id], |row| row.get(0))?
+                .collect::<Result<Vec<String>, _>>()?
+        };
 
         let mut stmt = conn.prepare(
             "SELECT DISTINCT f.feed_guid, f.feed_url, f.title \
@@ -2540,6 +2549,7 @@ async fn handle_get_artist_resolution(
                 artist_id: artist.artist_id,
                 name: artist.name,
                 external_ids,
+                redirected_from,
                 feeds,
                 tracks,
             },

@@ -194,6 +194,15 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         (release_id, recording_id, artist_id)
     };
 
+    {
+        let conn = db.lock().expect("lock db");
+        conn.execute(
+            "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) VALUES (?1, ?2, ?3)",
+            rusqlite::params!["artist-canonical-query-old", artist_id, 1_700_000_001_i64],
+        )
+        .expect("insert artist redirect");
+    }
+
     let feed_resp = app
         .clone()
         .oneshot(
@@ -478,6 +487,10 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(
         artist_resolution_json["data"]["external_ids"][0]["scheme"],
         "nostr_npub"
+    );
+    assert_eq!(
+        artist_resolution_json["data"]["redirected_from"][0],
+        "artist-canonical-query-old"
     );
     assert_eq!(
         artist_resolution_json["data"]["feeds"][0]["feed_guid"],

@@ -625,6 +625,7 @@ Returns review/debug evidence for one canonical artist.
 
 This is an operator-facing inspection endpoint. It exposes:
 
+- old artist IDs that redirect into this canonical artist
 - canonical artist external IDs already promoted onto the artist row
 - source feeds currently credited to the artist
 - source tracks currently credited to the artist

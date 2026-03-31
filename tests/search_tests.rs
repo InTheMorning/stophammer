@@ -290,6 +290,39 @@ fn keyset_pagination() {
     );
 }
 
+#[test]
+fn redirected_artist_ids_are_suppressed_from_search_results() {
+    let conn = common::test_db();
+
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            "artist-new",
+            "HeyCitizen",
+            "heycitizen",
+            1_700_000_000_i64,
+            1_700_000_000_i64
+        ],
+    )
+    .unwrap();
+
+    search::populate_search_index(&conn, "artist", "artist-old", "HeyCitizen", "", "", "").unwrap();
+    search::populate_search_index(&conn, "artist", "artist-new", "HeyCitizen", "", "", "").unwrap();
+    conn.execute(
+        "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) VALUES (?1, ?2, ?3)",
+        params!["artist-old", "artist-new", 1_700_000_001_i64],
+    )
+    .unwrap();
+
+    let rows = search::search(&conn, "HeyCitizen", Some("artist"), 10, None, None).unwrap();
+    assert_eq!(
+        rows.len(),
+        1,
+        "redirected artist ids should not appear in search"
+    );
+    assert_eq!(rows[0].entity_id, "artist-new");
+}
+
 // ---------------------------------------------------------------------------
 // Issue-SEARCH-KEYSET — 2026-03-14
 // 8. keyset_cursor_stable_after_insert — fetch page 1, insert a new matching
