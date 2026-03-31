@@ -172,13 +172,13 @@ Tagged releases also attach the Arch split packages and an
 
 The compose file intentionally uses runnable sample env files:
 
-- [primary.compose.env](../packaging/env/primary.compose.env)
-- [resolverd.compose.env](../packaging/env/resolverd.compose.env)
-- [podping.compose.env](../packaging/env/podping.compose.env)
-- [crawler-gossip.compose.env](../packaging/env/crawler-gossip.compose.env)
-- [crawler-import.compose.env](../packaging/env/crawler-import.compose.env)
+- [primary.compose.env.example](../packaging/env/primary.compose.env.example)
+- [resolverd.compose.env.example](../packaging/env/resolverd.compose.env.example)
+- [podping.compose.env.example](../packaging/env/podping.compose.env.example)
+- [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
+- [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
 
-Edit those sample values before using the compose stack outside local testing.
+Copy them into local ignored `*.compose.env` files before using the compose stack.
 The default stack now includes an in-network `podping` service based on
 `podping.alpha`'s `gossip-listener`, with a shared `podping-data` volume for
 the listener's node key, peer cache, `archive.db`, and the SSE stream that

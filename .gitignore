@@ -7,7 +7,6 @@
 *.resolverd.lock
 *.key
 *.env
-!packaging/env/*.compose.env
 .vscode/
 .idea/
 AGENTS.md

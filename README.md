@@ -210,12 +210,20 @@ GitHub release as `.pkg.tar.zst` assets plus an Arch checksum file.
 
 The compose file uses sample env files under [packaging/env](packaging/env):
 
-- `primary.compose.env`
-- `resolverd.compose.env`
-- `podping.compose.env`
-- `crawler-gossip.compose.env`
+- `primary.compose.env.example`
+- `resolverd.compose.env.example`
+- `podping.compose.env.example`
+- `crawler-gossip.compose.env.example`
 
-Edit those before using the compose stack.
+Copy them once into local ignored `*.compose.env` files, then edit those:
+
+```bash
+cp packaging/env/primary.compose.env.example packaging/env/primary.compose.env
+cp packaging/env/resolverd.compose.env.example packaging/env/resolverd.compose.env
+cp packaging/env/podping.compose.env.example packaging/env/podping.compose.env
+cp packaging/env/crawler-gossip.compose.env.example packaging/env/crawler-gossip.compose.env
+cp packaging/env/crawler-import.compose.env.example packaging/env/crawler-import.compose.env
+```
 
 Container contract:
 
