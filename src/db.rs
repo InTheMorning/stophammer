@@ -201,6 +201,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0020_artist_credit_null_scope_dedup.sql"),
     // Migration 21: normalize route custom fields to empty strings instead of NULL.
     include_str!("../migrations/0021_route_custom_value_normalization.sql"),
+    // Migration 22: clear wallet route maps in direct delete triggers and legacy live events.
+    include_str!("../migrations/0022_wallet_route_delete_triggers.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -3701,6 +3703,12 @@ pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<()
         params![track_guid],
     )?;
     conn.execute(
+        "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
+             SELECT id FROM payment_routes WHERE track_guid = ?1 \
+         )",
+        params![track_guid],
+    )?;
+    conn.execute(
         "DELETE FROM payment_routes WHERE track_guid = ?1",
         params![track_guid],
     )?;
@@ -3785,12 +3793,24 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
 
     // 4. payment_routes for all tracks (subquery)
     conn.execute(
+        "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
+         SELECT id FROM payment_routes WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1))",
+        params![feed_guid],
+    )?;
+    conn.execute(
         "DELETE FROM payment_routes WHERE track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
         params![feed_guid],
     )?;
 
     // 5. feed_payment_routes
+    conn.execute(
+        "DELETE FROM wallet_feed_route_map WHERE route_id IN ( \
+             SELECT id FROM feed_payment_routes WHERE feed_guid = ?1 \
+         )",
+        params![feed_guid],
+    )?;
     conn.execute(
         "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
         params![feed_guid],
@@ -3857,6 +3877,10 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
     conn.execute(
         "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM live_events_legacy WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
     conn.execute(
@@ -3961,8 +3985,20 @@ pub fn delete_feed_with_event(
         params![feed_guid],
     )?;
     tx.execute(
+        "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
+         SELECT id FROM payment_routes WHERE track_guid IN \
+         (SELECT track_guid FROM tracks WHERE feed_guid = ?1))",
+        params![feed_guid],
+    )?;
+    tx.execute(
         "DELETE FROM payment_routes WHERE track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM wallet_feed_route_map WHERE route_id IN ( \
+             SELECT id FROM feed_payment_routes WHERE feed_guid = ?1 \
+         )",
         params![feed_guid],
     )?;
     tx.execute(
@@ -4023,6 +4059,10 @@ pub fn delete_feed_with_event(
     )?;
     tx.execute(
         "DELETE FROM live_events WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM live_events_legacy WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
     tx.execute(
@@ -8398,6 +8438,12 @@ pub fn ingest_transaction(
 
     // 3b. Replace feed-level payment routes
     tx.execute(
+        "DELETE FROM wallet_feed_route_map WHERE route_id IN ( \
+             SELECT id FROM feed_payment_routes WHERE feed_guid = ?1 \
+         )",
+        params![feed.feed_guid],
+    )?;
+    tx.execute(
         "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
         params![feed.feed_guid],
     )?;
@@ -8672,6 +8718,12 @@ pub fn ingest_transaction(
         )?;
 
         // replace payment routes
+        tx.execute(
+            "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
+                 SELECT id FROM payment_routes WHERE track_guid = ?1 \
+             )",
+            params![track.track_guid],
+        )?;
         tx.execute(
             "DELETE FROM payment_routes WHERE track_guid = ?1",
             params![track.track_guid],

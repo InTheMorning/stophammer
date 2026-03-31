@@ -248,11 +248,13 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
         [],
     )
     .expect("insert feed route");
+    let feed_route_id = conn.last_insert_rowid();
     conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, address, route_type, split) VALUES ('track-delete-a', 'feed-delete-a', 'node://track', 'node', 100)",
         [],
     )
     .expect("insert track route");
+    let track_route_id = conn.last_insert_rowid();
     conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
          VALUES ('track-delete-a', 0, 'remote-feed', 'remote-item', 100, ?1)",
@@ -276,6 +278,30 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
         params![now],
     )
     .expect("insert source entity id");
+    conn.execute(
+        "INSERT INTO live_events_legacy \
+         (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
+         VALUES ('legacy-live-delete-a', 'feed-delete-a', 'Legacy Event', NULL, 'pending', NULL, NULL, ?1, ?1)",
+        params![now],
+    )
+    .expect("insert legacy live event");
+    conn.execute(
+        "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, wallet_id, created_at) \
+         VALUES ('node', 'node://wallet-test', '', '', NULL, ?1)",
+        params![now],
+    )
+    .expect("insert wallet endpoint");
+    let endpoint_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO wallet_feed_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![feed_route_id, endpoint_id, now],
+    )
+    .expect("insert wallet feed route map");
+    conn.execute(
+        "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![track_route_id, endpoint_id, now],
+    )
+    .expect("insert wallet track route map");
 
     conn.execute("DELETE FROM feeds WHERE feed_guid = 'feed-delete-a'", [])
         .expect("direct feed delete should succeed");
@@ -293,6 +319,7 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
             "feed_guid_a = 'feed-delete-a' OR feed_guid_b = 'feed-delete-a'",
         ),
         ("feed_remote_items_raw", "feed_guid = 'feed-delete-a'"),
+        ("live_events_legacy", "feed_guid = 'feed-delete-a'"),
         ("source_entity_ids", "feed_guid = 'feed-delete-a'"),
     ] {
         let query = format!("SELECT COUNT(*) FROM {table} WHERE {predicate}");
@@ -304,6 +331,30 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
             "{table} rows should be cleaned on direct feed delete"
         );
     }
+
+    let wallet_feed_route_map_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_feed_route_map WHERE route_id = ?1",
+            params![feed_route_id],
+            |row| row.get(0),
+        )
+        .expect("count wallet feed route map rows");
+    assert_eq!(
+        wallet_feed_route_map_count, 0,
+        "wallet_feed_route_map rows should be cleaned on direct feed delete"
+    );
+
+    let wallet_track_route_map_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_track_route_map WHERE route_id = ?1",
+            params![track_route_id],
+            |row| row.get(0),
+        )
+        .expect("count wallet track route map rows");
+    assert_eq!(
+        wallet_track_route_map_count, 0,
+        "wallet_track_route_map rows should be cleaned on direct feed delete"
+    );
 }
 
 #[test]
@@ -339,6 +390,7 @@ fn direct_track_delete_cleans_legacy_child_rows() {
         [],
     )
     .expect("insert payment route");
+    let route_id = conn.last_insert_rowid();
     conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
          VALUES ('track-track-delete', 0, 'remote-feed', 'remote-item', 100, ?1)",
@@ -351,6 +403,18 @@ fn direct_track_delete_cleans_legacy_child_rows() {
         params![now],
     )
     .expect("insert track rel");
+    conn.execute(
+        "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, wallet_id, created_at) \
+         VALUES ('node', 'node://track-wallet-test', '', '', NULL, ?1)",
+        params![now],
+    )
+    .expect("insert wallet endpoint");
+    let endpoint_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO wallet_track_route_map (route_id, endpoint_id, created_at) VALUES (?1, ?2, ?3)",
+        params![route_id, endpoint_id, now],
+    )
+    .expect("insert wallet track route map");
 
     conn.execute(
         "DELETE FROM tracks WHERE track_guid = 'track-track-delete'",
@@ -374,6 +438,18 @@ fn direct_track_delete_cleans_legacy_child_rows() {
             "{table} rows should be cleaned on direct track delete"
         );
     }
+
+    let wallet_track_route_map_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_track_route_map WHERE route_id = ?1",
+            params![route_id],
+            |row| row.get(0),
+        )
+        .expect("count wallet track route map rows");
+    assert_eq!(
+        wallet_track_route_map_count, 0,
+        "wallet_track_route_map rows should be cleaned on direct track delete"
+    );
 }
 
 #[test]
