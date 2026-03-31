@@ -411,7 +411,12 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert!(
         search_types
             .iter()
-            .all(|kind| matches!(*kind, "artist" | "release" | "recording"))
+            .all(|kind| matches!(*kind, "artist" | "release" | "recording" | "feed"))
+    );
+    assert!(
+        search_results
+            .iter()
+            .any(|row| row["entity_type"] == "feed" && row["entity_id"] == feed_guid)
     );
     assert!(
         search_results

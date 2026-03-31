@@ -3032,7 +3032,7 @@ async fn handle_search(
             ))),
             None => {
                 let mut merged = Vec::new();
-                for entity_type in ["artist", "release", "recording"] {
+                for entity_type in ["artist", "release", "recording", "feed"] {
                     merged.extend(crate::search::search(
                         &conn,
                         &q,

@@ -1201,15 +1201,16 @@ enclosure variants, for one canonical recording.
 
 Full-text search using SQLite FTS5.
 
-Default search is canonical-first:
+Default search includes:
 
 - `artist`
 - `release`
 - `recording`
+- `feed`
 
-Source `feed` and `track` rows remain directly readable by ID and can still be
-requested explicitly with `type=feed` or `type=track`, but they are no longer
-the default public search surface.
+Source `track` rows remain directly readable by ID and can still be requested
+explicitly with `type=track`, but they are no longer part of the default public
+search surface.
 
 All search surfaces are resolver-backed now. Fresh ingests may not appear
 under `artist`, `release`, `recording`, `feed`, or `track` search until
@@ -1222,7 +1223,7 @@ under `artist`, `release`, `recording`, `feed`, or `track` search until
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `q` | string | **required** | Search query (FTS5 syntax) |
-| `type` | string | canonical-first | Filter by entity type: `artist`, `release`, `recording`, `feed`, `track` |
+| `type` | string | artist/release/recording/feed | Filter by entity type: `artist`, `release`, `recording`, `feed`, `track` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
 
