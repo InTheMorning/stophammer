@@ -1337,6 +1337,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/node/info", get(handle_node_info))
         .route("/admin/artists/merge", post(handle_admin_merge_artists))
         .route("/admin/artists/alias", post(handle_admin_add_alias))
+        .route(
+            "/admin/diagnostics/feeds/{guid}",
+            get(handle_admin_feed_diagnostics),
+        )
         // Route versioning compliant — 2026-03-12
         .route(
             "/v1/feeds/{guid}",
@@ -3085,6 +3089,69 @@ struct AddAliasResponse {
     ok: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct AdminCreditNameResponse {
+    artist_id: String,
+    position: i64,
+    name: String,
+    join_phrase: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminCreditResponse {
+    id: i64,
+    display_name: String,
+    names: Vec<AdminCreditNameResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminFeedTrackDiagnosticsResponse {
+    track_guid: String,
+    title: String,
+    artist_credit: AdminCreditResponse,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminFeedWalletDiagnosticsResponse {
+    wallet: db::WalletDetail,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    claim_feed: Option<db::WalletClaimFeed>,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminFeedDiagnosticsResponse {
+    feed_guid: String,
+    title: String,
+    feed_url: String,
+    artist_credit: AdminCreditResponse,
+    tracks: Vec<AdminFeedTrackDiagnosticsResponse>,
+    artist_identity_plan: db::ArtistIdentityFeedPlan,
+    artist_identity_reviews: Vec<db::ArtistIdentityReviewItem>,
+    wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
+}
+
+fn admin_credit_response(
+    conn: &rusqlite::Connection,
+    credit_id: i64,
+) -> Result<AdminCreditResponse, db::DbError> {
+    let credit = db::get_artist_credit(conn, credit_id)?
+        .ok_or_else(|| db::DbError::Other(format!("artist credit not found: {credit_id}")))?;
+    Ok(AdminCreditResponse {
+        id: credit.id,
+        display_name: credit.display_name,
+        names: credit
+            .names
+            .into_iter()
+            .map(|name| AdminCreditNameResponse {
+                artist_id: name.artist_id,
+                position: name.position,
+                name: name.name,
+                join_phrase: name.join_phrase,
+            })
+            .collect(),
+    })
+}
+
 async fn handle_admin_add_alias(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -3100,6 +3167,69 @@ async fn handle_admin_add_alias(
     .await?;
 
     Ok(Json(result))
+}
+
+async fn handle_admin_feed_diagnostics(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+) -> Result<Json<AdminFeedDiagnosticsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let guid_for_db = guid.clone();
+    let result = spawn_db(state.db.clone(), move |conn| {
+        let Some(feed) = db::get_feed_by_guid(conn, &guid_for_db)? else {
+            return Ok(None);
+        };
+        let tracks = db::get_tracks_for_feed(conn, &guid_for_db)?;
+        let artist_identity_plan = db::explain_artist_identity_for_feed(conn, &guid_for_db)?;
+        let artist_identity_reviews =
+            db::list_artist_identity_reviews_for_feed(conn, &guid_for_db)?;
+        let wallet_ids = db::get_wallet_ids_for_feed(conn, &guid_for_db)?;
+
+        let wallets = wallet_ids
+            .into_iter()
+            .filter_map(|wallet_id| {
+                let wallet = db::get_wallet_detail(conn, &wallet_id).ok().flatten()?;
+                let claim_feed = db::get_wallet_claim_feeds(conn, &wallet_id)
+                    .ok()?
+                    .into_iter()
+                    .find(|claim_feed| claim_feed.feed_guid == guid_for_db);
+                Some(AdminFeedWalletDiagnosticsResponse { wallet, claim_feed })
+            })
+            .collect::<Vec<_>>();
+
+        let response = AdminFeedDiagnosticsResponse {
+            feed_guid: feed.feed_guid,
+            title: feed.title,
+            feed_url: feed.feed_url,
+            artist_credit: admin_credit_response(conn, feed.artist_credit_id)?,
+            tracks: tracks
+                .into_iter()
+                .map(|track| {
+                    Ok(AdminFeedTrackDiagnosticsResponse {
+                        track_guid: track.track_guid,
+                        title: track.title,
+                        artist_credit: admin_credit_response(conn, track.artist_credit_id)?,
+                    })
+                })
+                .collect::<Result<Vec<_>, db::DbError>>()?,
+            artist_identity_plan,
+            artist_identity_reviews,
+            wallets,
+        };
+
+        Ok(Some(response))
+    })
+    .await?;
+
+    let response = result.ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("feed {guid} not found"),
+        www_authenticate: None,
+    })?;
+
+    Ok(Json(response))
 }
 
 // ── DELETE /feeds/{guid} ───────────────────────────────────────────────────

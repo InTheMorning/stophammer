@@ -11854,6 +11854,25 @@ pub struct WalletAliasPeer {
     pub feed_title_preview: Vec<String>,
 }
 
+/// Returns wallet ids that currently touch the given feed through either
+/// feed-level or track-level payment routes.
+pub fn get_wallet_ids_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT we.wallet_id
+         FROM wallet_endpoints we
+         LEFT JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+         LEFT JOIN payment_routes pr ON pr.id = wtrm.route_id
+         LEFT JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+         LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+         WHERE we.wallet_id IS NOT NULL
+           AND (pr.feed_guid = ?1 OR fpr.feed_guid = ?1)
+         ORDER BY we.wallet_id",
+    )?;
+    stmt.query_map(params![feed_guid], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(Into::into)
+}
+
 /// List pending wallet identity reviews.
 pub fn list_pending_wallet_reviews(
     conn: &Connection,

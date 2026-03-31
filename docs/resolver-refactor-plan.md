@@ -184,6 +184,8 @@ Still deferred:
 - release / recording override workflows
 - richer review lifecycle states beyond the current pending / merged / blocked /
   resolved feed-scoped flow
+- primary-only diagnostics API work is planned separately in
+  [primary-diagnostics-plan.md](primary-diagnostics-plan.md)
 
 ## Phase 1 Status
 

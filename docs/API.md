@@ -1579,6 +1579,112 @@ Adds an alias to an artist (used for fuzzy matching during artist resolution).
 
 ---
 
+### GET /admin/diagnostics/feeds/{guid}
+
+Returns a primary-only diagnostics bundle for one feed.
+
+This endpoint is intended for operator tooling and review UIs. It exposes the
+current feed artist credit, track artist credits, feed-scoped artist identity
+plan, stored review items, and wallet-linked evidence touching the feed.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "feed_guid": "feed-guid",
+  "title": "Feed Title",
+  "feed_url": "https://example.com/feed.xml",
+  "artist_credit": {
+    "id": 123,
+    "display_name": "HeyCitizen",
+    "names": [
+      {
+        "artist_id": "artist-id",
+        "position": 0,
+        "name": "HeyCitizen",
+        "join_phrase": ""
+      }
+    ]
+  },
+  "tracks": [
+    {
+      "track_guid": "track-guid",
+      "title": "Autistic Girl",
+      "artist_credit": {
+        "id": 456,
+        "display_name": "Hey Citizen",
+        "names": []
+      }
+    }
+  ],
+  "artist_identity_plan": {
+    "feed_guid": "feed-guid",
+    "seed_artists": [],
+    "candidate_groups": [
+      {
+        "source": "wallet_name_variant",
+        "name_key": "heycitizen",
+        "evidence_key": "wallet-id",
+        "artist_ids": ["artist-a", "artist-b"],
+        "artist_names": ["HeyCitizen", "Hey Citizen"],
+        "review_id": 42,
+        "review_status": "pending",
+        "override_type": null,
+        "target_artist_id": null,
+        "note": null
+      }
+    ]
+  },
+  "artist_identity_reviews": [],
+  "wallets": [
+    {
+      "wallet": {
+        "wallet_id": "wallet-id",
+        "display_name": "HeyCitizen",
+        "wallet_class": "unknown",
+        "class_confidence": "provisional",
+        "created_at": 1700000000,
+        "updated_at": 1700000000,
+        "endpoints": [],
+        "aliases": [],
+        "artist_links": [
+          {
+            "artist_id": "artist-id",
+            "confidence": "high_confidence",
+            "evidence_entity_type": "feed",
+            "evidence_entity_id": "feed-guid"
+          }
+        ],
+        "feed_guids": ["feed-guid"],
+        "overrides": []
+      },
+      "claim_feed": {
+        "feed_guid": "feed-guid",
+        "title": "Feed Title",
+        "feed_url": "https://example.com/feed.xml",
+        "routes": [],
+        "contributor_claims": [],
+        "entity_id_claims": [],
+        "link_claims": [],
+        "release_claims": [],
+        "platform_claims": []
+      }
+    }
+  ]
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Diagnostics returned |
+| 403  | Invalid or missing `X-Admin-Token` |
+| 404  | Feed not found |
+
+---
+
 ### DELETE /v1/feeds/{guid}
 
 Retires a feed, cascade-deleting all its tracks, payment routes, and search index entries. Emits a `FeedRetired` event.
