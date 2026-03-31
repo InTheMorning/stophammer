@@ -64,6 +64,7 @@ services:
   import:
     profiles: ["tools"]
     image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
+    user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     command:
       - /bin/sh
       - -lc
