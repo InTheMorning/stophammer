@@ -627,8 +627,11 @@ This is an operator-facing inspection endpoint. It exposes:
 
 - canonical artist external IDs already promoted onto the artist row
 - source feeds currently credited to the artist
+- source tracks currently credited to the artist
 - staged feed-level IDs, links, platform claims, and publisher `remoteItem` refs
+- staged track-level IDs, links, and contributor claims
 - canonical release mappings for those feeds when present
+- canonical recording mappings for those tracks when present
 
 - **Authentication:** None
 

@@ -2,6 +2,9 @@
 
 mod common;
 
+use std::fs;
+use std::path::PathBuf;
+
 const ALLOWED_DROP_TABLE_LINES: &[&str] = &["DROP TABLE wallet_identity_override;"];
 
 // ---------------------------------------------------------------------------
@@ -79,8 +82,9 @@ fn migration_runs_only_once() {
         .query_row("SELECT COUNT(*) FROM schema_migrations", [], |r| r.get(0))
         .expect("count migrations");
     assert_eq!(
-        count, 21,
-        "exactly twenty-one migrations should be recorded"
+        count,
+        migration_paths().len() as i64,
+        "schema_migrations count should match the number of migration files"
     );
 }
 
@@ -91,57 +95,8 @@ fn migration_runs_only_once() {
 
 #[test]
 fn no_drop_table_in_migrations() {
-    let baseline = include_str!("../migrations/0001_baseline.sql");
-    let feed_scope = include_str!("../migrations/0002_artist_credit_feed_scope.sql");
-    let search_unique = include_str!("../migrations/0003_search_entities_unique.sql");
-    let proof_level = include_str!("../migrations/0004_proof_level.sql");
-    let live_events = include_str!("../migrations/0005_live_events_and_remote_items.sql");
-    let source_claims = include_str!("../migrations/0006_source_claim_staging.sql");
-    let source_links_release =
-        include_str!("../migrations/0007_source_link_and_release_claims.sql");
-    let source_role_norm = include_str!("../migrations/0008_source_contributor_role_norm.sql");
-    let source_item_enclosures = include_str!("../migrations/0009_source_item_enclosures.sql");
-    let source_platform_claims = include_str!("../migrations/0010_source_platform_claims.sql");
-    let canonical_release_recording =
-        include_str!("../migrations/0011_canonical_release_recording.sql");
-    let resolver_queue = include_str!("../migrations/0012_resolver_queue.sql");
-    let artist_identity_reviews = include_str!("../migrations/0013_artist_identity_reviews.sql");
-    let resolved_overlay_tables = include_str!("../migrations/0014_resolved_overlay_tables.sql");
-    let live_events_feed_scoped =
-        include_str!("../migrations/0015_live_events_feed_scoped_key.sql");
-    let wallet_entities = include_str!("../migrations/0016_wallet_entities.sql");
-    let wallet_force_override =
-        include_str!("../migrations/0017_wallet_force_confidence_override.sql");
-    let wallet_merge_batches = include_str!("../migrations/0018_wallet_merge_apply_batches.sql");
-    let feed_delete_cleanup = include_str!("../migrations/0019_feed_delete_cleanup_triggers.sql");
-    let artist_credit_null_scope =
-        include_str!("../migrations/0020_artist_credit_null_scope_dedup.sql");
-    let route_custom_normalization =
-        include_str!("../migrations/0021_route_custom_value_normalization.sql");
-    let all_migrations = [
-        baseline,
-        feed_scope,
-        search_unique,
-        proof_level,
-        live_events,
-        source_claims,
-        source_links_release,
-        source_role_norm,
-        source_item_enclosures,
-        source_platform_claims,
-        canonical_release_recording,
-        resolver_queue,
-        artist_identity_reviews,
-        resolved_overlay_tables,
-        live_events_feed_scoped,
-        wallet_entities,
-        wallet_force_override,
-        wallet_merge_batches,
-        feed_delete_cleanup,
-        artist_credit_null_scope,
-        route_custom_normalization,
-    ];
-    for (i, sql) in all_migrations.iter().enumerate() {
+    for migration_path in migration_paths() {
+        let sql = fs::read_to_string(&migration_path).expect("read migration SQL");
         for (line_no, line) in sql.lines().enumerate() {
             let trimmed = line.trim();
             // Skip SQL comments
@@ -154,7 +109,7 @@ fn no_drop_table_in_migrations() {
             assert!(
                 !trimmed.to_lowercase().contains("drop table"),
                 "migration {} line {} contains an unexpected DROP TABLE: {trimmed}",
-                i + 1,
+                migration_path.display(),
                 line_no + 1,
             );
         }
@@ -200,4 +155,14 @@ fn table_names(conn: &rusqlite::Connection) -> Vec<String> {
         .expect("query tables")
         .collect::<Result<_, _>>()
         .expect("collect table names")
+}
+
+fn migration_paths() -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = fs::read_dir("migrations")
+        .expect("read migrations directory")
+        .map(|entry| entry.expect("read migration entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "sql"))
+        .collect();
+    paths.sort();
+    paths
 }

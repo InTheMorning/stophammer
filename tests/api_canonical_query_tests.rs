@@ -487,6 +487,14 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         artist_resolution_json["data"]["feeds"][0]["source_platforms"][0]["platform_key"],
         "wavlake"
     );
+    assert_eq!(
+        artist_resolution_json["data"]["tracks"][0]["track_guid"],
+        track_guid
+    );
+    assert_eq!(
+        artist_resolution_json["data"]["tracks"][0]["canonical_recording"]["recording_id"],
+        recording_id
+    );
 
     let release_resolution_resp = app
         .clone()

@@ -440,11 +440,25 @@ struct ArtistResolutionFeedEvidenceResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct ArtistResolutionTrackEvidenceResponse {
+    track_guid: String,
+    feed_guid: String,
+    feed_title: String,
+    title: String,
+    artist_credit: CreditResponse,
+    canonical_recording: Option<CanonicalRecordingRef>,
+    source_ids: Vec<SourceEntityIdResponse>,
+    source_links: Vec<SourceEntityLinkResponse>,
+    source_contributors: Vec<SourceContributorClaimResponse>,
+}
+
+#[derive(Debug, Serialize)]
 struct ArtistResolutionResponse {
     artist_id: String,
     name: String,
     external_ids: Vec<ExternalIdResponse>,
     feeds: Vec<ArtistResolutionFeedEvidenceResponse>,
+    tracks: Vec<ArtistResolutionTrackEvidenceResponse>,
 }
 
 #[derive(Debug, Serialize)]
@@ -2458,12 +2472,76 @@ async fn handle_get_artist_resolution(
             });
         }
 
+        let mut track_stmt = conn.prepare(
+            "SELECT DISTINCT t.track_guid, t.feed_guid, f.title, t.title, t.artist_credit_id \
+             FROM artist_credit_name acn \
+             JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
+             JOIN tracks t ON t.artist_credit_id = ac.id \
+             JOIN feeds f ON f.feed_guid = t.feed_guid \
+             WHERE acn.artist_id = ?1 \
+             ORDER BY f.title_lower, f.feed_guid, t.pub_date, t.track_guid",
+        )?;
+        let track_rows: Vec<(String, String, String, String, i64)> = track_stmt
+            .query_map(params![artist_id], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut tracks = Vec::new();
+        for (track_guid, feed_guid, feed_title, title, credit_id) in track_rows {
+            let canonical_recording = conn
+                .query_row(
+                    "SELECT recording_id, match_type, confidence \
+                     FROM source_item_recording_map WHERE track_guid = ?1",
+                    params![track_guid],
+                    |row| {
+                        Ok(CanonicalRecordingRef {
+                            recording_id: row.get(0)?,
+                            match_type: row.get(1)?,
+                            confidence: row.get(2)?,
+                        })
+                    },
+                )
+                .optional()?;
+            tracks.push(ArtistResolutionTrackEvidenceResponse {
+                track_guid: track_guid.clone(),
+                feed_guid,
+                feed_title,
+                title,
+                artist_credit: load_credit(&conn, credit_id)?,
+                canonical_recording,
+                source_ids: db::get_source_entity_ids_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+                source_links: db::get_source_entity_links_for_entity(&conn, "track", &track_guid)?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+                source_contributors: db::get_source_contributor_claims_for_entity(
+                    &conn,
+                    "track",
+                    &track_guid,
+                )?
+                .into_iter()
+                .map(contributor_claim_response)
+                .collect(),
+            });
+        }
+
         Ok::<_, api::ApiError>(QueryResponse {
             data: ArtistResolutionResponse {
                 artist_id: artist.artist_id,
                 name: artist.name,
                 external_ids,
                 feeds,
+                tracks,
             },
             pagination: Pagination {
                 cursor: None,
