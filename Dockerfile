@@ -1,7 +1,7 @@
 # Runtime image for stophammer indexer/community roles.
 # Build all main-workspace binaries, then copy the runtime subset into a minimal image.
 
-FROM rust:alpine AS builder
+FROM rust:alpine AS chef
 
 RUN apk add --no-cache \
     build-base \
@@ -9,11 +9,20 @@ RUN apk add --no-cache \
     linux-headers \
     musl-dev \
     perl \
-    pkgconf
+    pkgconf \
+ && cargo install cargo-chef
 
 WORKDIR /build
-COPY . .
 
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare --recipe-path recipe.json
+
+FROM chef AS builder
+COPY --from=planner /build/recipe.json recipe.json
+RUN cargo chef cook --release --bins --recipe-path recipe.json
+
+COPY . .
 RUN cargo build --release --bins
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
