@@ -3182,6 +3182,7 @@ struct AdminArtistDiagnosticsResponse {
     feeds: Vec<AdminArtistFeedDiagnosticsResponse>,
     tracks: Vec<AdminArtistTrackDiagnosticsResponse>,
     wallets: Vec<db::WalletDetail>,
+    unlinked_feed_wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
     reviews: Vec<AdminArtistReviewDiagnosticsResponse>,
 }
 
@@ -3453,10 +3454,32 @@ fn admin_artist_diagnostics_response(
         .collect::<Result<Vec<_>, db::DbError>>()?;
     let feeds = admin_artist_feeds(conn, &resolved_id)?;
     let tracks = admin_artist_tracks(conn, &resolved_id)?;
-    let wallets = db::get_wallet_ids_for_artist(conn, &resolved_id)?
-        .into_iter()
-        .filter_map(|wallet_id| db::get_wallet_detail(conn, &wallet_id).ok().flatten())
+    let linked_wallet_ids = db::get_wallet_ids_for_artist(conn, &resolved_id)?;
+    let wallets = linked_wallet_ids
+        .iter()
+        .filter_map(|wallet_id| db::get_wallet_detail(conn, wallet_id).ok().flatten())
         .collect::<Vec<_>>();
+    let linked_wallet_ids = linked_wallet_ids
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+
+    let mut unlinked_feed_wallets = std::collections::BTreeMap::new();
+    for feed in &feeds {
+        for wallet_id in db::get_wallet_ids_for_feed(conn, &feed.feed_guid)? {
+            if linked_wallet_ids.contains(&wallet_id) {
+                continue;
+            }
+            if let Some(wallet) = db::get_wallet_detail(conn, &wallet_id)? {
+                let claim_feed = db::get_wallet_claim_feeds(conn, &wallet_id)?
+                    .into_iter()
+                    .find(|claim_feed| claim_feed.feed_guid == feed.feed_guid);
+                unlinked_feed_wallets
+                    .entry(wallet_id)
+                    .or_insert(AdminFeedWalletDiagnosticsResponse { wallet, claim_feed });
+            }
+        }
+    }
+
     let reviews = admin_artist_reviews(conn, &resolved_id)?;
 
     Ok(Some(AdminArtistDiagnosticsResponse {
@@ -3467,6 +3490,7 @@ fn admin_artist_diagnostics_response(
         feeds,
         tracks,
         wallets,
+        unlinked_feed_wallets: unlinked_feed_wallets.into_values().collect(),
         reviews,
     }))
 }

@@ -1693,7 +1693,8 @@ Returns a primary-only diagnostics bundle for one artist.
 This endpoint is intended for public debugging tools, feed-author explainers,
 and operator review UIs. It exposes the
 current surviving artist row, redirected source IDs, credits, feeds, tracks,
-wallet links, and feed-scoped review items that currently involve the artist.
+wallet links, unlinked feed-touching wallets, and feed-scoped review items
+that currently involve the artist.
 
 - **Authentication:** None
 - **Available on:** Primary only
@@ -1713,6 +1714,7 @@ wallet links, and feed-scoped review items that currently involve the artist.
   "feeds": [],
   "tracks": [],
   "wallets": [],
+  "unlinked_feed_wallets": [],
   "reviews": [
     {
       "feed_guid": "feed-guid",
@@ -1726,6 +1728,14 @@ wallet links, and feed-scoped review items that currently involve the artist.
   ]
 }
 ```
+
+`wallets` contains wallets directly linked to the artist through
+`wallet_artist_links`.
+
+`unlinked_feed_wallets` contains wallets seen on one or more of the artist's
+feeds that are not currently linked to the artist. This is useful when a feed
+has payment routes, but the resolver does not consider them attributable to the
+artist.
 
 | Code | Meaning |
 |------|---------|

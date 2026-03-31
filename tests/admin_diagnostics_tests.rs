@@ -270,6 +270,77 @@ async fn admin_artist_diagnostics_exposes_redirects_wallets_and_reviews() {
 }
 
 #[tokio::test]
+async fn admin_artist_diagnostics_exposes_unlinked_feed_wallets() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    let artist_id = {
+        let conn = db.lock().expect("lock db");
+
+        let artist = stophammer::db::resolve_artist(
+            &conn,
+            "Artist With Feed Wallet",
+            Some("feed-artist-unlinked-wallet"),
+        )
+        .expect("artist");
+        let credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-artist-unlinked-wallet"),
+        )
+        .expect("credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-artist-unlinked-wallet', 'https://example.com/artist-unlinked-wallet.xml', 'Artist Unlinked Wallet', 'artist unlinked wallet', ?1, ?2, ?2)",
+            params![credit.id, now],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-artist-unlinked-wallet', 'Platform Wallet', 'lnaddress', 'platform@example.com', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert feed route");
+        artist.artist_id
+    };
+
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::resolve_wallet_identity_for_feed(&conn, "feed-artist-unlinked-wallet")
+            .expect("resolve wallet identity");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-artist-unlinked-wallet.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/diagnostics/artists/{artist_id}"))
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["wallets"], serde_json::json!([]));
+    assert_eq!(
+        json["unlinked_feed_wallets"][0]["wallet"]["display_name"],
+        "Platform Wallet"
+    );
+    assert_eq!(
+        json["unlinked_feed_wallets"][0]["claim_feed"]["feed_guid"],
+        "feed-artist-unlinked-wallet"
+    );
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();
