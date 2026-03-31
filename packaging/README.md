@@ -6,8 +6,8 @@ builds on.
 Layout:
 
 - `env/`
-  - example `EnvironmentFile=` payloads for systemd installs
-  - runnable compose env files for the reference container stack
+  - `*.example`: host/systemd `EnvironmentFile=` payloads
+  - `compose-*.env`: Docker Compose env files with container-internal `/data` paths
 - `systemd/`
   - long-running service units for primary, community, resolver, and gossip
   - example one-shot import/crawl units and timers
@@ -31,5 +31,8 @@ Current intent:
 - `releases/` defines the package-to-tarball layout for role-specific release
   bundles
 - `env/*.example` files are copied to `/etc/stophammer/` and edited per host
+- `env/compose-*.env` files are edited in-place for the reference Docker stack;
+  they are intentionally Docker-specific and should not reuse host `/var/lib/...`
+  path defaults
 
 These files are versioned deployment inputs, not generated artifacts.

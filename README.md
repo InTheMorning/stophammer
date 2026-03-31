@@ -237,15 +237,65 @@ For a primary/indexer container you normally need:
 - optionally `TRUST_PROXY=true` if TLS is terminated by nginx/Caddy in front of
   the container
 
-Minimal container env:
+Create the persistent volume once:
+
+```bash
+docker volume create stophammer-indexer-data
+```
+
+The preferred container workflow is to edit the shipped env files and use the
+root compose stack, rather than typing long `docker run` commands repeatedly.
+
+Edit:
+
+- `packaging/env/compose-primary.env`
+- `packaging/env/compose-resolverd.env`
+
+Basic settings for the primary are:
 
 ```bash
 CRAWL_TOKEN=change-me
 SYNC_TOKEN=change-me-too
 ADMIN_TOKEN=optional-admin-token
 ```
+Generating a long random hex string is ideal for these.
+```
+openssl rand -hex 32
+```
 
-### Run the primary with docker
+Then start the reference stack:
+
+```bash
+docker compose up -d --build primary resolverd
+```
+
+If you also want the bundled gossip crawler service, edit
+`packaging/env/compose-crawler-gossip.env` plus the archive-related compose
+variables described in [docs/operations.md](docs/operations.md), then run:
+
+```bash
+docker compose up -d --build
+```
+
+### Change configuration later
+
+Edit the relevant env file, then recreate the affected service:
+
+```bash
+# after editing packaging/env/compose-primary.env
+docker compose up -d --build primary
+
+# after editing packaging/env/compose-resolverd.env
+docker compose up -d --build resolverd
+
+# after editing packaging/env/compose-crawler-gossip.env
+docker compose up -d --build gossip
+```
+
+The persistent `/data` volume keeps `stophammer.db` and `signing.key` across
+these recreations.
+
+### Manual docker run alternative
 
 Start the main node:
 
