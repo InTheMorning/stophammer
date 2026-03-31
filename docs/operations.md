@@ -172,9 +172,9 @@ Tagged releases also attach the Arch split packages and an
 
 The compose file intentionally uses runnable sample env files:
 
-- [compose-primary.env](../packaging/env/compose-primary.env)
-- [compose-resolverd.env](../packaging/env/compose-resolverd.env)
-- [compose-crawler-gossip.env](../packaging/env/compose-crawler-gossip.env)
+- [primary.compose.env](../packaging/env/primary.compose.env)
+- [resolverd.compose.env](../packaging/env/resolverd.compose.env)
+- [crawler-gossip.compose.env](../packaging/env/crawler-gossip.compose.env)
 
 Edit those sample values before using the compose stack outside local testing.
 For the gossip container, also set these top-level compose variables in your
@@ -184,8 +184,8 @@ shell or a project `.env` file when using archive-backed replay:
 - `GOSSIP_UID` — host UID that should read the mounted archive
 - `GOSSIP_GID` — host GID that should read the mounted archive
 
-This lets the compose stack mount the podping archive from wherever it lives on
-the host instead of assuming `/var/lib/podping-alpha-gossip-listener`.
+This lets the compose stack mount the podping archive from whichever host
+directory contains `archive.db`.
 
 Container runtime contract:
 

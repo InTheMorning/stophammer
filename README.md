@@ -210,9 +210,9 @@ GitHub release as `.pkg.tar.zst` assets plus an Arch checksum file.
 
 The compose file uses sample env files under [packaging/env](packaging/env):
 
-- `compose-primary.env`
-- `compose-resolverd.env`
-- `compose-crawler-gossip.env`
+- `primary.compose.env`
+- `resolverd.compose.env`
+- `crawler-gossip.compose.env`
 
 Edit those before using the compose stack.
 
@@ -248,8 +248,8 @@ root compose stack, rather than typing long `docker run` commands repeatedly.
 
 Edit:
 
-- `packaging/env/compose-primary.env`
-- `packaging/env/compose-resolverd.env`
+- `packaging/env/primary.compose.env`
+- `packaging/env/resolverd.compose.env`
 
 Basic settings for the primary are:
 
@@ -270,11 +270,11 @@ docker compose up -d --build primary resolverd
 ```
 
 If you also want the bundled gossip crawler service, edit
-`packaging/env/compose-crawler-gossip.env` plus the archive-related compose
+`packaging/env/crawler-gossip.compose.env` plus the archive-related compose
 variables described in [docs/operations.md](docs/operations.md), then run:
 
 ```bash
-docker compose up -d --build
+docker compose up -d gossip
 ```
 
 ### Change configuration later
@@ -282,14 +282,14 @@ docker compose up -d --build
 Edit the relevant env file, then recreate the affected service:
 
 ```bash
-# after editing packaging/env/compose-primary.env
+# after editing packaging/env/primary.compose.env
 docker compose up -d --build primary
 
-# after editing packaging/env/compose-resolverd.env
+# after editing packaging/env/resolverd.compose.env
 docker compose up -d --build resolverd
 
-# after editing packaging/env/compose-crawler-gossip.env
-docker compose up -d --build gossip
+# after editing packaging/env/crawler-gossip.compose.env
+docker compose up -d gossip
 ```
 
 The persistent `/data` volume keeps `stophammer.db` and `signing.key` across
@@ -343,9 +343,9 @@ stack for:
 
 Edit the sample env files first:
 
-- `packaging/env/compose-primary.env`
-- `packaging/env/compose-resolverd.env`
-- `packaging/env/compose-crawler-gossip.env`
+- `packaging/env/primary.compose.env`
+- `packaging/env/resolverd.compose.env`
+- `packaging/env/crawler-gossip.compose.env`
 
 Then start the stack:
 

@@ -6,7 +6,7 @@ services:
       context: .
     restart: unless-stopped
     env_file:
-      - ./packaging/env/compose-primary.env
+      - ./packaging/env/primary.compose.env
     volumes:
       - primary-data:/data
     ports:
@@ -24,7 +24,7 @@ services:
     command: ["stophammer-resolverd"]
     restart: unless-stopped
     env_file:
-      - ./packaging/env/compose-resolverd.env
+      - ./packaging/env/resolverd.compose.env
     volumes:
       - primary-data:/data
     depends_on:
@@ -32,13 +32,26 @@ services:
         condition: service_healthy
 
   gossip:
-    build:
-      context: .
-      dockerfile: stophammer-crawler/Dockerfile
+    image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
+    command:
+      - /bin/sh
+      - -lc
+      - >
+        set -- stophammer-crawler gossip
+        --state "${GOSSIP_STATE_DB:-/data/gossip_state.db}"
+        --skip-db "${FEED_SKIP_DB:-/data/feed_skip.db}";
+        if [ -n "${GOSSIP_SSE_URL:-}" ]; then set -- "$@" --sse-url "$GOSSIP_SSE_URL"; fi;
+        if [ -n "${GOSSIP_ARCHIVE_DB:-}" ]; then set -- "$@" --archive-db "$GOSSIP_ARCHIVE_DB"; fi;
+        if [ -n "${GOSSIP_SINCE_HOURS:-}" ]; then set -- "$@" --since-hours "$GOSSIP_SINCE_HOURS"; fi;
+        if [ -n "${GOSSIP_SKIP_TTL_DAYS:-}" ]; then set -- "$@" --skip-ttl-days "$GOSSIP_SKIP_TTL_DAYS"; fi;
+        if [ -n "${CONCURRENCY:-}" ]; then set -- "$@" --concurrency "$CONCURRENCY"; fi;
+        if [ "${GOSSIP_SKIP_KNOWN_NON_MUSIC:-1}" = "1" ]; then set -- "$@" --skip-known-non-music; fi;
+        if [ "${GOSSIP_QUIET:-0}" = "1" ]; then set -- "$@" --quiet; fi;
+        exec "$@"
     user: "${GOSSIP_UID:-1000}:${GOSSIP_GID:-1000}"
     restart: unless-stopped
     env_file:
-      - ./packaging/env/compose-crawler-gossip.env
+      - ./packaging/env/crawler-gossip.compose.env
     volumes:
       - crawler-data:/data
       - ${GOSSIP_ARCHIVE_HOST_DIR:-/var/lib/podping-alpha-gossip-listener}:/podping:ro
