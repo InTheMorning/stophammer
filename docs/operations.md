@@ -183,6 +183,8 @@ The default stack now includes an in-network `podping` service based on
 `podping.alpha`'s `gossip-listener`, with a shared `podping-data` volume for
 the listener's node key, peer cache, `archive.db`, and the SSE stream that
 `gossip` consumes at `http://podping:8089/events`.
+One-shot `podping-init` and `crawler-init` services fix named-volume ownership
+before the long-running non-root containers start.
 
 Container runtime contract:
 

@@ -289,6 +289,10 @@ then run:
 docker compose up -d podping gossip
 ```
 
+The Compose stack now initializes the `podping-data` and `crawler-data` named
+volumes automatically on first boot so the non-root containers can write their
+state files without a manual `chown`.
+
 To run the one-shot PodcastIndex importer, edit
 `packaging/env/crawler-import.compose.env`, then run:
 
@@ -380,6 +384,9 @@ Then start the stack:
 ```bash
 docker compose up -d --build
 ```
+
+On first boot, the one-shot `podping-init` and `crawler-init` services fix
+volume ownership for the long-running non-root containers.
 
 ### Credentials
 

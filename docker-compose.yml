@@ -1,6 +1,14 @@
 name: stophammer
 
 services:
+  podping-init:
+    image: alpine:3.20
+    user: "0:0"
+    command: ["sh", "-lc", "mkdir -p /data && chown -R 1000:1000 /data"]
+    restart: "no"
+    volumes:
+      - podping-data:/data
+
   primary:
     build:
       context: .
@@ -38,6 +46,17 @@ services:
       - ./packaging/env/podping.compose.env
     volumes:
       - podping-data:/data
+    depends_on:
+      podping-init:
+        condition: service_completed_successfully
+
+  crawler-init:
+    image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
+    user: "0:0"
+    command: ["sh", "-lc", "mkdir -p /data && chown -R stophammer-crawler:stophammer-crawler /data"]
+    restart: "no"
+    volumes:
+      - crawler-data:/data
 
   gossip:
     image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
@@ -63,6 +82,8 @@ services:
       - crawler-data:/data
       - podping-data:/podping:ro
     depends_on:
+      crawler-init:
+        condition: service_completed_successfully
       primary:
         condition: service_healthy
       podping:
@@ -97,6 +118,8 @@ services:
     volumes:
       - crawler-data:/data
     depends_on:
+      crawler-init:
+        condition: service_completed_successfully
       primary:
         condition: service_healthy
 
