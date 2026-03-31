@@ -175,6 +175,7 @@ The compose file intentionally uses runnable sample env files:
 - [primary.compose.env](../packaging/env/primary.compose.env)
 - [resolverd.compose.env](../packaging/env/resolverd.compose.env)
 - [crawler-gossip.compose.env](../packaging/env/crawler-gossip.compose.env)
+- [crawler-import.compose.env](../packaging/env/crawler-import.compose.env)
 
 Edit those sample values before using the compose stack outside local testing.
 For the gossip container, also set these top-level compose variables in your
@@ -219,6 +220,13 @@ Shipped example one-shot units:
 
 - `stophammer-import.service` + `stophammer-import.timer`
 - `stophammer-crawl.service` + `stophammer-crawl.timer`
+
+The Docker Compose stack also includes a one-shot `import` service. Edit
+`crawler-import.compose.env`, then run:
+
+```bash
+docker compose run --rm import
+```
 
 The oneshot import/crawl units are examples only. They are not intended to be
 enabled by default in the first packaging milestone.

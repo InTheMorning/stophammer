@@ -277,6 +277,13 @@ variables described in [docs/operations.md](docs/operations.md), then run:
 docker compose up -d gossip
 ```
 
+To run the one-shot PodcastIndex importer, edit
+`packaging/env/crawler-import.compose.env`, then run:
+
+```bash
+docker compose run --rm import
+```
+
 ### Change configuration later
 
 Edit the relevant env file, then recreate the affected service:
@@ -290,6 +297,9 @@ docker compose up -d --build resolverd
 
 # after editing packaging/env/crawler-gossip.compose.env
 docker compose up -d gossip
+
+# after editing packaging/env/crawler-import.compose.env
+docker compose run --rm import
 ```
 
 The persistent `/data` volume keeps `stophammer.db` and `signing.key` across
@@ -346,6 +356,7 @@ Edit the sample env files first:
 - `packaging/env/primary.compose.env`
 - `packaging/env/resolverd.compose.env`
 - `packaging/env/crawler-gossip.compose.env`
+- `packaging/env/crawler-import.compose.env`
 
 Then start the stack:
 
