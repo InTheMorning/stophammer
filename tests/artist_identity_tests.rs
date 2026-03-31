@@ -1613,11 +1613,15 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
         wallet_stats.wallets_created, 1,
         "feed wallet route should create one provisional wallet"
     );
+    assert_eq!(
+        wallet_stats.artist_links_created, 1,
+        "incremental wallet resolver should create the feed artist link"
+    );
 
     let link_stats = stophammer::db::backfill_wallet_pass3(&conn).expect("wallet pass3");
     assert_eq!(
-        link_stats.artist_links_created, 1,
-        "wallet alias should link to the feed artist"
+        link_stats.artist_links_created, 0,
+        "global wallet pass3 should be idempotent after incremental linking"
     );
 
     let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-wallet-variant")

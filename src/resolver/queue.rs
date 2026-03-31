@@ -10,7 +10,7 @@ pub const DIRTY_CANONICAL_SEARCH: i64 = crate::db::RESOLVER_DIRTY_CANONICAL_SEAR
 pub const DIRTY_ARTIST_IDENTITY: i64 = crate::db::RESOLVER_DIRTY_ARTIST_IDENTITY;
 /// Dirty mask for source-layer search and quality read models.
 pub const DIRTY_SOURCE_READ_MODELS: i64 = crate::db::RESOLVER_DIRTY_SOURCE_READ_MODELS;
-/// Dirty mask for incremental wallet identity (per-feed Passes 1-2).
+/// Dirty mask for incremental wallet identity and feed-scoped wallet reviews.
 pub const DIRTY_WALLET_IDENTITY: i64 = crate::db::RESOLVER_DIRTY_WALLET_IDENTITY;
 
 /// Dirty mask for canonical derived state only.

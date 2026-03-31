@@ -7496,7 +7496,7 @@ pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
 pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
 /// Dirty bit for source-layer search and quality read models.
 pub const RESOLVER_DIRTY_SOURCE_READ_MODELS: i64 = 1 << 4;
-/// Dirty bit for incremental wallet identity (Passes 1-2 per feed).
+/// Dirty bit for incremental wallet identity and feed-scoped wallet reviews.
 pub const RESOLVER_DIRTY_WALLET_IDENTITY: i64 = 1 << 5;
 
 const RESOLVER_LOCK_STALE_AFTER_SECS: i64 = 15 * 60;
@@ -11291,15 +11291,126 @@ pub struct WalletBackfillStats {
     pub wallets_created: usize,
     pub hard_classified: usize,
     pub artist_links_created: usize,
+    pub soft_classified: usize,
+    pub split_classified: usize,
+    pub review_items_created: usize,
+    pub merges_from_grouping: usize,
 }
 
-/// Per-feed wallet resolver: runs Passes 1-2 for a single feed's routes.
+fn link_wallets_to_artists_for_feed(conn: &Connection, feed_guid: &str) -> Result<usize, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT w.wallet_id \
+         FROM wallets w \
+         JOIN wallet_endpoints we ON we.wallet_id = w.wallet_id \
+         LEFT JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id \
+         LEFT JOIN payment_routes pr ON pr.id = wtrm.route_id \
+         LEFT JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id \
+         LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+         WHERE pr.feed_guid = ?1 OR fpr.feed_guid = ?1",
+    )?;
+    let wallet_ids: Vec<String> = stmt
+        .query_map(params![feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    let mut created = 0;
+    for wallet_id in wallet_ids {
+        if link_wallet_to_artist_if_confident(conn, &wallet_id, feed_guid)? {
+            created += 1;
+        }
+    }
+
+    Ok(created)
+}
+
+fn generate_wallet_review_items_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<usize, DbError> {
+    let now = unix_now();
+    let mut created = 0;
+
+    let mut stmt = conn.prepare(
+        "SELECT wa.alias_lower, GROUP_CONCAT(DISTINCT we2.wallet_id) AS wallet_ids \
+         FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         JOIN wallet_aliases wa2 ON wa2.alias_lower = wa.alias_lower \
+         JOIN wallet_endpoints we2 ON we2.id = wa2.endpoint_id \
+         WHERE we.wallet_id IS NOT NULL \
+           AND we2.wallet_id IS NOT NULL \
+           AND we.id IN ( \
+               SELECT wtrm.endpoint_id FROM wallet_track_route_map wtrm \
+               JOIN payment_routes pr ON pr.id = wtrm.route_id \
+               WHERE pr.feed_guid = ?1 \
+               UNION \
+               SELECT wfrm.endpoint_id FROM wallet_feed_route_map wfrm \
+               JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+               WHERE fpr.feed_guid = ?1 \
+           ) \
+         GROUP BY wa.alias_lower \
+         HAVING COUNT(DISTINCT we2.wallet_id) > 1",
+    )?;
+
+    let rows: Vec<(String, String)> = stmt
+        .query_map(params![feed_guid], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+
+    for (alias, wallet_ids_str) in rows {
+        for wid in wallet_ids_str
+            .split(',')
+            .map(str::trim)
+            .filter(|wid| !wid.is_empty())
+        {
+            let exists: bool = conn.query_row(
+                "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
+                 WHERE wallet_id = ?1 AND review_type = 'cross_wallet_alias' AND details = ?2)",
+                params![wid, alias],
+                |r| r.get(0),
+            )?;
+            if !exists {
+                conn.execute(
+                    "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
+                     VALUES (?1, 'cross_wallet_alias', ?2, 'pending', ?3)",
+                    params![wid, alias, now],
+                )?;
+                created += 1;
+            }
+        }
+    }
+
+    Ok(created)
+}
+
+fn refresh_wallet_headaches_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    stats: &mut WalletBackfillStats,
+) -> Result<(), DbError> {
+    stats.merges_from_grouping = group_same_feed_endpoints(conn, feed_guid)?;
+
+    let wallet_ids = get_wallet_ids_for_feed(conn, feed_guid)?;
+    for wallet_id in &wallet_ids {
+        update_wallet_display_name(conn, wallet_id)?;
+        if classify_wallet_soft_signals(conn, wallet_id)? {
+            stats.soft_classified += 1;
+        }
+        if classify_wallet_split_heuristics(conn, wallet_id)? {
+            stats.split_classified += 1;
+        }
+    }
+
+    stats.artist_links_created = link_wallets_to_artists_for_feed(conn, feed_guid)?;
+    stats.review_items_created = generate_wallet_review_items_for_feed(conn, feed_guid)?;
+
+    Ok(())
+}
+
+/// Per-feed wallet resolver: runs incremental wallet passes for one feed.
 ///
 /// Called by the incremental resolver when `DIRTY_WALLET_IDENTITY` is set.
 /// Only normalizes endpoint facts and creates provisional wallets with
-/// hard-signal classification. Does NOT run Passes 3-5 (artist linking,
-/// review items, owner grouping) — those are corpus-level concerns handled
-/// by the backfill binary.
+/// hard-signal classification, then applies same-feed grouping, feed-scoped
+/// wallet review generation, and same-feed wallet→artist linking. It does not
+/// run the corpus-wide refresh heuristics from `backfill_wallet_pass5`.
 pub fn resolve_wallet_identity_for_feed(
     conn: &Connection,
     feed_guid: &str,
@@ -11434,6 +11545,8 @@ pub fn resolve_wallet_identity_for_feed(
             classify_wallet_hard_signals(conn, &wid)?;
         }
     }
+
+    refresh_wallet_headaches_for_feed(conn, feed_guid, &mut stats)?;
 
     Ok(stats)
 }
@@ -11609,14 +11722,15 @@ pub fn backfill_wallet_pass3(conn: &Connection) -> Result<WalletBackfillStats, D
          LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
          WHERE fpr.feed_guid IS NOT NULL",
     )?;
-    let pairs: Vec<(String, String)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<Result<_, _>>()?;
+    let feed_guids: std::collections::BTreeSet<String> = stmt
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .map(|(_wallet_id, feed_guid)| feed_guid)
+        .collect();
 
-    for (wallet_id, feed_guid) in pairs {
-        if link_wallet_to_artist_if_confident(conn, &wallet_id, &feed_guid)? {
-            stats.artist_links_created += 1;
-        }
+    for feed_guid in feed_guids {
+        stats.artist_links_created += link_wallets_to_artists_for_feed(conn, &feed_guid)?;
     }
 
     Ok(stats)

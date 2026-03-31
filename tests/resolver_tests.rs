@@ -595,6 +595,137 @@ fn resolver_batch_emits_source_and_canonical_snapshot_events_when_signer_present
 }
 
 #[test]
+fn resolver_batch_creates_wallet_artist_links_for_dirty_feed() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-wallet-link");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-resolver-wallet-link', 'Resolver Artist', 'lnaddress', 'resolver@example.com', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert feed route");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-wallet-link",
+            stophammer::resolver::queue::DIRTY_WALLET_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run wallet batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.wallet_endpoints_created, 1);
+    assert_eq!(summary.wallet_wallets_created, 1);
+    assert_eq!(summary.wallet_artist_links_created, 1);
+
+    let conn = pool.writer().lock().expect("writer");
+    let link_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM wallet_artist_links", [], |row| {
+            row.get(0)
+        })
+        .expect("wallet link count");
+    assert_eq!(link_count, 1);
+}
+
+#[test]
+fn resolver_batch_surfaces_wallet_review_items_for_ambiguous_feed_aliases() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-wallet-review");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-resolver-wallet-review', 'Alice', 'keysend', 'alice-artist', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert artist route");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-resolver-wallet-review', 'Alice', 'keysend', 'alice-fee', NULL, NULL, 5, 1)",
+            [],
+        )
+        .expect("insert fee route");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-wallet-review",
+            stophammer::resolver::queue::DIRTY_WALLET_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run wallet batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.wallet_review_items_created, 2);
+
+    let conn = pool.writer().lock().expect("writer");
+    let pending_review_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_identity_review WHERE status = 'pending'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pending wallet review count");
+    assert_eq!(pending_review_count, 2);
+}
+
+#[test]
+fn resolver_batch_surfaces_cross_feed_wallet_alias_reviews_from_dirty_feed() {
+    let (pool, _dir) = common::test_db_pool();
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-resolver-wallet-review-a");
+        seed_feed(&conn, "feed-resolver-wallet-review-b");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-resolver-wallet-review-a', 'Alice', 'keysend', 'alice-a', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert route a");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-resolver-wallet-review-b', 'Alice', 'keysend', 'alice-b', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert route b");
+        db::resolve_wallet_identity_for_feed(&conn, "feed-resolver-wallet-review-b")
+            .expect("prepare wallet b");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-resolver-wallet-review-a",
+            stophammer::resolver::queue::DIRTY_WALLET_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    let summary =
+        stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run wallet batch");
+    assert_eq!(summary.claimed, 1);
+    assert_eq!(summary.resolved, 1);
+    assert_eq!(summary.wallet_review_items_created, 2);
+
+    let conn = pool.writer().lock().expect("writer");
+    let pending_review_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_identity_review WHERE status = 'pending'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("pending cross-feed wallet review count");
+    assert_eq!(pending_review_count, 2);
+}
+
+#[test]
 fn resolver_queue_counts_reflect_ready_locked_and_failed_rows() {
     let mut conn = common::test_db();
     seed_feed(&conn, "feed-resolver-counts");
