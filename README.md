@@ -278,6 +278,10 @@ Then start the reference stack:
 docker compose up -d --build primary resolverd
 ```
 
+`primary` builds the shared `stophammer-indexer` image. `resolverd` now reuses
+that same image with a different command, so Compose no longer performs a
+second root image build just for the resolver worker.
+
 If you also want the bundled podping listener plus gossip crawler, edit:
 
 - `packaging/env/podping.compose.env`
@@ -309,7 +313,7 @@ Edit the relevant env file, then recreate the affected service:
 docker compose up -d --build primary
 
 # after editing packaging/env/resolverd.compose.env
-docker compose up -d --build resolverd
+docker compose up -d resolverd
 
 # after editing packaging/env/podping.compose.env
 docker compose up -d podping gossip
@@ -319,6 +323,13 @@ docker compose up -d gossip
 
 # after editing packaging/env/crawler-import.compose.env
 docker compose run --rm import
+```
+
+If you changed Rust code or the root Dockerfile and need both primary-side
+containers refreshed, rebuild `primary`; `resolverd` will pick up the same image:
+
+```bash
+docker compose up -d --build primary resolverd
 ```
 
 The persistent `/data` volume keeps `stophammer.db` and `signing.key` across

@@ -10,8 +10,10 @@ services:
       - podping-data:/data
 
   primary:
+    image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
     build:
       context: .
+      target: stophammer-indexer
     restart: unless-stopped
     env_file:
       - ./packaging/env/primary.compose.env
@@ -27,8 +29,7 @@ services:
       start_period: 10s
 
   resolverd:
-    build:
-      context: .
+    image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
     command: ["stophammer-resolverd"]
     restart: unless-stopped
     env_file:

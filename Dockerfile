@@ -23,7 +23,18 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --bins --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --bins
+RUN cargo build --release \
+    --bin stophammer \
+    --bin stophammer-resolverd \
+    --bin stophammer-resolverctl \
+    --bin backfill_canonical \
+    --bin backfill_artist_identity \
+    --bin backfill_wallets \
+    --bin review_artist_identity \
+    --bin review_artist_identity_tui \
+    --bin review_wallet_identity \
+    --bin review_wallet_identity_tui \
+    --bin review_source_claims_tui
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 

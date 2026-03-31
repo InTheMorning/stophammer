@@ -1,5 +1,11 @@
 .git
 .github
+AGENTS.md
+README.md
+docs
+dist
+man
+packaging
 target
 stophammer-crawler/target
 

@@ -193,6 +193,8 @@ Container runtime contract:
   - working directory `/data`
   - default command `stophammer`
   - alternate role via `command: ["stophammer-resolverd"]`
+  - in the reference Compose stack, `primary` builds this image once and
+    `resolverd` reuses it rather than triggering a second root build
 - `stophammer-crawler` image:
   - binary installed in `/usr/local/bin`
   - working directory `/data`
