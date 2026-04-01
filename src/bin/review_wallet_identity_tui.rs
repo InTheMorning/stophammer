@@ -243,6 +243,7 @@ fn parse_args() -> Result<Args, String> {
                      a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
                      n/N          Next/previous review group with same source family\n\
+                     g/G          Next/previous HIGH-confidence review group\n\
                      t            Show stale wallet reviews\n\
                      y            Show recent wallet reviews\n\
                      u            Undo last applied merge batch\n\
@@ -934,6 +935,91 @@ impl App {
             self.selected_group = index;
             self.group_state.select(Some(index));
             self.load_selected_group()?;
+        }
+        Ok(())
+    }
+
+    fn jump_next_high_confidence_group(&mut self) -> Result<(), Box<dyn Error>> {
+        let matching = self
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, group)| {
+                group
+                    .reviews
+                    .iter()
+                    .any(|review| review.confidence == "high_confidence")
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            self.status = "No HIGH-confidence wallet review groups loaded.".to_string();
+            return Ok(());
+        }
+        if matching.len() == 1 && matching[0] == self.selected_group {
+            self.status = "Only one HIGH-confidence wallet review group is loaded.".to_string();
+            return Ok(());
+        }
+        let next_index = matching
+            .iter()
+            .copied()
+            .find(|&index| index > self.selected_group)
+            .or_else(|| matching.first().copied());
+        if let Some(index) = next_index {
+            self.selected_group = index;
+            self.group_state.select(Some(index));
+            self.load_selected_group()?;
+            self.status = format!(
+                "Jumped to HIGH-confidence wallet group {} of {}.",
+                matching
+                    .iter()
+                    .position(|&candidate| candidate == index)
+                    .map_or(1, |position| position + 1),
+                matching.len()
+            );
+        }
+        Ok(())
+    }
+
+    fn jump_previous_high_confidence_group(&mut self) -> Result<(), Box<dyn Error>> {
+        let matching = self
+            .groups
+            .iter()
+            .enumerate()
+            .filter(|(_, group)| {
+                group
+                    .reviews
+                    .iter()
+                    .any(|review| review.confidence == "high_confidence")
+            })
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            self.status = "No HIGH-confidence wallet review groups loaded.".to_string();
+            return Ok(());
+        }
+        if matching.len() == 1 && matching[0] == self.selected_group {
+            self.status = "Only one HIGH-confidence wallet review group is loaded.".to_string();
+            return Ok(());
+        }
+        let previous_index = matching
+            .iter()
+            .rev()
+            .copied()
+            .find(|&index| index < self.selected_group)
+            .or_else(|| matching.last().copied());
+        if let Some(index) = previous_index {
+            self.selected_group = index;
+            self.group_state.select(Some(index));
+            self.load_selected_group()?;
+            self.status = format!(
+                "Jumped to HIGH-confidence wallet group {} of {}.",
+                matching
+                    .iter()
+                    .position(|&candidate| candidate == index)
+                    .map_or(1, |position| position + 1),
+                matching.len()
+            );
         }
         Ok(())
     }
@@ -2721,6 +2807,12 @@ fn run_app(
             }
             KeyCode::Char('N') => {
                 app.jump_previous_same_source_group()?;
+            }
+            KeyCode::Char('g') => {
+                app.jump_next_high_confidence_group()?;
+            }
+            KeyCode::Char('G') => {
+                app.jump_previous_high_confidence_group()?;
             }
             KeyCode::Char('?') => {
                 app.show_help_dialog();

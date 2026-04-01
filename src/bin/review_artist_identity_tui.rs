@@ -383,6 +383,85 @@ impl App {
         Ok(())
     }
 
+    fn jump_next_high_confidence(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_index) = self.review_state.selected() else {
+            return Ok(());
+        };
+        let matching = self
+            .reviews
+            .iter()
+            .enumerate()
+            .filter(|(_, review)| review.confidence == "high_confidence")
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            self.status = "No HIGH-confidence artist reviews loaded.".to_string();
+            return Ok(());
+        }
+        if matching.len() == 1 && matching[0] == current_index {
+            self.status = "Only one HIGH-confidence artist review is loaded.".to_string();
+            return Ok(());
+        }
+        let next_index = matching
+            .iter()
+            .copied()
+            .find(|&index| index > current_index)
+            .or_else(|| matching.first().copied());
+        if let Some(index) = next_index {
+            self.review_state.select(Some(index));
+            self.load_selected_review(None)?;
+            self.status = format!(
+                "Jumped to HIGH-confidence artist review {} of {}.",
+                matching
+                    .iter()
+                    .position(|&candidate| candidate == index)
+                    .map_or(1, |position| position + 1),
+                matching.len()
+            );
+        }
+        Ok(())
+    }
+
+    fn jump_previous_high_confidence(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_index) = self.review_state.selected() else {
+            return Ok(());
+        };
+        let matching = self
+            .reviews
+            .iter()
+            .enumerate()
+            .filter(|(_, review)| review.confidence == "high_confidence")
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        if matching.is_empty() {
+            self.status = "No HIGH-confidence artist reviews loaded.".to_string();
+            return Ok(());
+        }
+        if matching.len() == 1 && matching[0] == current_index {
+            self.status = "Only one HIGH-confidence artist review is loaded.".to_string();
+            return Ok(());
+        }
+        let previous_index = matching
+            .iter()
+            .rev()
+            .copied()
+            .find(|&index| index < current_index)
+            .or_else(|| matching.last().copied());
+        if let Some(index) = previous_index {
+            self.review_state.select(Some(index));
+            self.load_selected_review(None)?;
+            self.status = format!(
+                "Jumped to HIGH-confidence artist review {} of {}.",
+                matching
+                    .iter()
+                    .position(|&candidate| candidate == index)
+                    .map_or(1, |position| position + 1),
+                matching.len()
+            );
+        }
+        Ok(())
+    }
+
     fn approve_merge(&mut self) -> Result<(), Box<dyn Error>> {
         let (review_id, feed_guid, review_label) = {
             let Some(snapshot) = self.snapshot.as_ref() else {
@@ -739,7 +818,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source-family jump, ? help, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source-family jump, g/G HIGH-confidence jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1553,6 +1632,8 @@ fn run_app(
             KeyCode::Char('y') => app.show_recent_reviews()?,
             KeyCode::Char('n') => app.jump_next_same_source()?,
             KeyCode::Char('N') => app.jump_previous_same_source()?,
+            KeyCode::Char('g') => app.jump_next_high_confidence()?,
+            KeyCode::Char('G') => app.jump_previous_high_confidence()?,
             KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);

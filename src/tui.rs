@@ -405,6 +405,7 @@ pub fn build_review_playbook_lines<'a>(
                 "0. High-confidence queue first: {count} {} ({share}% of backlog).",
                 config.review_label_plural
             ));
+            lines.push("   Use g/G to stay on HIGH-confidence items before broad review_required sweeps.".to_string());
         }
     }
 
@@ -468,6 +469,7 @@ pub fn review_operator_help_lines(same_family_line: &str) -> Vec<String> {
         "t: stale reviews (>7d)".to_string(),
         "y: recent reviews (<24h)".to_string(),
         same_family_line.to_string(),
+        "g / G: next / previous HIGH-confidence item".to_string(),
     ]
 }
 
@@ -483,6 +485,7 @@ pub fn build_review_footer(prefix: &str) -> String {
     build_footer(&[
         prefix,
         "n/N same-family",
+        "g/G high-conf",
         "o overview",
         "p playbook",
         "s summary",
