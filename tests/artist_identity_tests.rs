@@ -1852,64 +1852,84 @@ fn collaboration_credit_raises_review_without_auto_merge() {
 }
 
 #[test]
-fn pending_artist_reviews_prioritize_high_confidence_sources() {
-    let conn = common::test_db();
+fn pending_artist_reviews_prioritize_scored_high_confidence_items() {
+    let mut conn = common::test_db();
     let now = common::now();
 
-    let artist =
-        stophammer::db::resolve_artist(&conn, "Priority Artist", Some("feed-priority-artist"))
-            .expect("artist");
-    let credit = stophammer::db::get_or_create_artist_credit(
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-priority-artist"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
-        &artist.name,
-        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
         Some("feed-priority-artist"),
     )
-    .expect("credit");
+    .expect("canonical credit");
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
          VALUES ('feed-priority-artist', 'https://example.com/feed-priority-artist.xml', 'Priority Artist Feed', 'priority artist feed', ?1, ?2, ?2)",
-        rusqlite::params![credit.id, now],
+        rusqlite::params![canonical_credit.id, now],
     )
     .expect("insert feed");
 
-    conn.execute(
-        "INSERT INTO artist_identity_review \
-         (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
-         VALUES ('feed-priority-artist', 'track_feed_name_variant', 'priorityartist', 'priority-track', 'pending', '[]', '[]', ?1, ?1)",
-        rusqlite::params![now],
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-priority-artist"))
+            .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-priority-artist"),
     )
-    .expect("insert review_required review");
+    .expect("variant credit");
     conn.execute(
-        "INSERT INTO artist_identity_review \
-         (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
-         VALUES ('feed-priority-artist', 'likely_same_artist', 'priorityartist', 'priority-likely', 'pending', '[]', '[]', ?1, ?1)",
-        rusqlite::params![now - 60],
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-priority-artist', 'feed-priority-artist', ?1, 'Priority Track', 'priority track', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
     )
-    .expect("insert high_confidence review");
+    .expect("insert track");
     conn.execute(
-        "INSERT INTO artist_identity_review \
-         (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
-         VALUES ('feed-priority-artist', 'collaboration_credit', 'priorityartist', 'priority-collab', 'pending', '[]', '[]', ?1, ?1)",
-        rusqlite::params![now + 60],
+        "INSERT INTO feed_payment_routes \
+         (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+         VALUES ('feed-priority-artist', 'HeyCitizen', 'lnaddress', 'priority@example.com', NULL, NULL, 100, 0)",
+        [],
     )
-    .expect("insert blocked review");
+    .expect("insert feed route");
 
-    let reviews = stophammer::db::list_pending_artist_identity_reviews(&conn, 10)
-        .expect("pending reviews");
-    let sources = reviews
+    let wallet_stats =
+        stophammer::db::resolve_wallet_identity_for_feed(&conn, "feed-priority-artist")
+            .expect("resolve wallet identity");
+    assert_eq!(wallet_stats.artist_links_created, 1);
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-priority-artist")
+        .expect("resolve artist identity");
+    assert_eq!(stats.merges_applied, 0);
+
+    let reviews =
+        stophammer::db::list_pending_artist_identity_reviews(&conn, 10).expect("pending reviews");
+    let likely_index = reviews
         .iter()
-        .map(|review| review.source.as_str())
-        .collect::<Vec<_>>();
-    assert_eq!(
-        sources,
-        vec![
-            "likely_same_artist",
-            "track_feed_name_variant",
-            "collaboration_credit",
-        ],
-        "pending artist reviews should prioritize high-confidence items ahead of review_required and blocked items"
+        .position(|review| review.source == "likely_same_artist")
+        .expect("likely_same_artist review");
+    let wallet_index = reviews
+        .iter()
+        .position(|review| review.source == "wallet_name_variant")
+        .expect("wallet_name_variant review");
+    assert!(
+        likely_index < wallet_index,
+        "scored high-confidence review should sort ahead of an unscored high-confidence review"
     );
+    assert_eq!(reviews[likely_index].score, Some(65));
+    assert_eq!(reviews[wallet_index].score, None);
 }
 
 #[test]

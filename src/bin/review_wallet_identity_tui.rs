@@ -2309,7 +2309,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         wallet_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} confidence={} family={}/{} key={} wallets={} created={}{}",
+                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} confidence={} score={} family={}/{} key={} wallets={} created={}{}",
                         group_position,
                         app.groups.len(),
                         wallet_position,
@@ -2319,6 +2319,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         short_id(&review.wallet_id),
                         review.source,
                         review.confidence,
+                        review
+                            .score
+                            .map_or_else(|| "-".to_string(), |score| score.to_string()),
                         family_position,
                         family_total,
                         abbreviate(&review.evidence_key, 24),
@@ -2366,13 +2369,18 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .filter(|candidate| candidate.source == group.source)
                 .count();
             let detail = format!(
-                "{}  {}  family={}  {}  {} wallets  newest {}  oldest {}{}",
+                "{}  {}  score={}  family={}  {}  {} wallets  newest {}  oldest {}{}",
                 group.source,
                 group
                     .reviews
                     .first()
                     .map(|review| stophammer::tui::review_confidence_badge(&review.confidence))
                     .unwrap_or("INFO"),
+                group
+                    .reviews
+                    .first()
+                    .and_then(|review| review.score)
+                    .map_or_else(|| "-".to_string(), |score| score.to_string()),
                 same_source_count,
                 newest_badge,
                 group.reviews.len(),

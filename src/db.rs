@@ -5460,6 +5460,10 @@ fn review_confidence_priority(confidence: &str) -> u8 {
     }
 }
 
+fn review_score_priority(score: Option<u16>) -> std::cmp::Reverse<u16> {
+    std::cmp::Reverse(score.unwrap_or(0))
+}
+
 fn sync_artist_identity_review_item(
     conn: &Connection,
     feed_guid: &str,
@@ -6624,6 +6628,7 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
     reviews.sort_by(|left, right| {
         review_confidence_priority(&left.confidence)
             .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| review_score_priority(left.score).cmp(&review_score_priority(right.score)))
             .then_with(|| right.created_at.cmp(&left.created_at))
             .then_with(|| right.review_id.cmp(&left.review_id))
     });
@@ -13294,6 +13299,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
     summaries.sort_by(|left, right| {
         review_confidence_priority(&left.confidence)
             .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| review_score_priority(left.score).cmp(&review_score_priority(right.score)))
             .then_with(|| right.created_at.cmp(&left.created_at))
             .then_with(|| right.id.cmp(&left.id))
     });

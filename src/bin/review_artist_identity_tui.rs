@@ -1062,6 +1062,13 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                         Style::default().fg(Color::LightBlue),
                     ),
                     Span::raw("  "),
+                    Span::styled(
+                        review
+                            .score
+                            .map_or_else(|| "score=-".to_string(), |score| format!("score={score}")),
+                        Style::default().fg(Color::Green),
+                    ),
+                    Span::raw("  "),
                     Span::styled(badge, Style::default().fg(badge_color)),
                     Span::raw("  "),
                     Span::styled(
@@ -1392,7 +1399,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         artist_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected {}/{}: {} | review={} feed={} source={} confidence={} family={}/{} key={} artists={} created={}{}",
+                        "Selected {}/{}: {} | review={} feed={} source={} confidence={} score={} family={}/{} key={} artists={} created={}{}",
                         position,
                         app.reviews.len(),
                         abbreviate(&review.title, 28),
@@ -1400,6 +1407,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         short_id(&review.feed_guid),
                         review.source,
                         review.confidence,
+                        review
+                            .score
+                            .map_or_else(|| "-".to_string(), |score| score.to_string()),
                         family_position,
                         family_total,
                         abbreviate(&review.evidence_key, 24),
