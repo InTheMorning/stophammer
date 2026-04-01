@@ -1095,10 +1095,7 @@ impl App {
         );
         self.reload()?;
         self.status = status;
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: "Apply Summary".to_string(),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::text_dialog("Apply Summary", lines));
         Ok(())
     }
 
@@ -1106,10 +1103,10 @@ impl App {
         let result = stophammer::db::undo_last_wallet_merge_batch(&self.conn)?;
         let Some(stats) = result else {
             self.status = "No applied merge batch to undo".to_string();
-            self.dialog = Some(stophammer::tui::TextDialog {
-                title: "Undo Summary".to_string(),
-                lines: vec!["No applied merge batch to undo.".to_string()],
-            });
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Undo Summary",
+                vec!["No applied merge batch to undo.".to_string()],
+            ));
             return Ok(());
         };
 
@@ -1119,14 +1116,14 @@ impl App {
         );
         self.reload()?;
         self.status = status;
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: "Undo Summary".to_string(),
-            lines: vec![
+        self.dialog = Some(stophammer::tui::text_dialog(
+            "Undo Summary",
+            vec![
                 format!("batch id: {}", stats.batch_id),
                 format!("merges reverted: {}", stats.merges_reverted),
                 "merge materialization was rolled back".to_string(),
             ],
-        });
+        ));
         Ok(())
     }
 

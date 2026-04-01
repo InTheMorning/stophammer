@@ -401,9 +401,9 @@ impl App {
             None,
         )?;
 
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: "Artist Merge Applied".to_string(),
-            lines: vec![
+        self.dialog = Some(stophammer::tui::text_dialog(
+            "Artist Merge Applied",
+            vec![
                 format!("Review {review_id} now targets {target_name} [{target_artist_id}]."),
                 format!("Feed: {feed_guid}"),
                 format!("Name key: {review_label}"),
@@ -420,7 +420,7 @@ impl App {
                 format!("Pending reviews: {}", outcome.resolve_stats.pending_reviews),
                 format!("Blocked reviews: {}", outcome.resolve_stats.blocked_reviews),
             ],
-        });
+        ));
 
         self.reload(Some(review_id), Some(target_artist_id.as_str()))?;
         Ok(())
@@ -445,9 +445,9 @@ impl App {
             None,
             None,
         )?;
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: "Artist Review Blocked".to_string(),
-            lines: vec![
+        self.dialog = Some(stophammer::tui::text_dialog(
+            "Artist Review Blocked",
+            vec![
                 format!(
                     "Review {review_id} for {:?} was marked do_not_merge.",
                     name_key
@@ -461,7 +461,7 @@ impl App {
                 format!("Pending reviews: {}", outcome.resolve_stats.pending_reviews),
                 format!("Blocked reviews: {}", outcome.resolve_stats.blocked_reviews),
             ],
-        });
+        ));
         self.reload(Some(review_id), None)?;
         Ok(())
     }

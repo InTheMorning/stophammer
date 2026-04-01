@@ -508,6 +508,15 @@ pub struct TextDialog {
     pub lines: Vec<String>,
 }
 
+/// Builds a plain text dialog payload shared by review TUIs.
+#[must_use]
+pub fn text_dialog(title: impl Into<String>, lines: Vec<String>) -> TextDialog {
+    TextDialog {
+        title: title.into(),
+        lines,
+    }
+}
+
 /// Builds a standard counted dialog payload shared by review TUIs.
 #[must_use]
 pub fn counted_dialog(label: &str, count: usize, lines: Vec<String>) -> TextDialog {
