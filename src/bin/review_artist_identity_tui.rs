@@ -343,6 +343,43 @@ impl App {
         Ok(())
     }
 
+    fn jump_next_same_source(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_review) = self.current_pending_review() else {
+            return Ok(());
+        };
+        let Some(current_index) = self.review_state.selected() else {
+            return Ok(());
+        };
+        let source = current_review.source.clone();
+        let next_index = ((current_index + 1)..self.reviews.len())
+            .chain(0..current_index)
+            .find(|&index| self.reviews[index].source == source);
+        if let Some(index) = next_index {
+            self.review_state.select(Some(index));
+            self.load_selected_review(None)?;
+        }
+        Ok(())
+    }
+
+    fn jump_previous_same_source(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_review) = self.current_pending_review() else {
+            return Ok(());
+        };
+        let Some(current_index) = self.review_state.selected() else {
+            return Ok(());
+        };
+        let source = current_review.source.clone();
+        let previous_index = (0..current_index)
+            .rev()
+            .chain(((current_index + 1)..self.reviews.len()).rev())
+            .find(|&index| self.reviews[index].source == source);
+        if let Some(index) = previous_index {
+            self.review_state.select(Some(index));
+            self.load_selected_review(None)?;
+        }
+        Ok(())
+    }
+
     fn approve_merge(&mut self) -> Result<(), Box<dyn Error>> {
         let (review_id, feed_guid, review_label) = {
             let Some(snapshot) = self.snapshot.as_ref() else {
@@ -650,6 +687,7 @@ impl App {
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
                 "y: recent reviews (<24h)".to_string(),
+                "n / N: next / previous review with same source".to_string(),
                 "r: reload pending reviews".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),
@@ -741,7 +779,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, ? help, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1483,7 +1521,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(evidence, body[2]);
 
     let footer = Paragraph::new(
-        "tab focus  arrows move  home/end jump  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+        "tab focus  arrows move  home/end jump  n/N same-source  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, layout[2]);
@@ -1585,6 +1623,8 @@ fn run_app(
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('t') => app.show_stale_reviews()?,
             KeyCode::Char('y') => app.show_recent_reviews()?,
+            KeyCode::Char('n') => app.jump_next_same_source()?,
+            KeyCode::Char('N') => app.jump_previous_same_source()?,
             KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);

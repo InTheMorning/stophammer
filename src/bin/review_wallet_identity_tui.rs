@@ -249,6 +249,7 @@ fn parse_args() -> Result<Args, String> {
                      p            Show review-next playbook\n\
                      a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
+                     n/N          Next/previous review group with same source\n\
                      t            Show stale wallet reviews\n\
                      y            Show recent wallet reviews\n\
                      u            Undo last applied merge batch\n\
@@ -899,6 +900,39 @@ impl App {
         Ok(())
     }
 
+    fn jump_next_same_source_group(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_group) = self.current_group() else {
+            return Ok(());
+        };
+        let source = current_group.source.clone();
+        let next_index = ((self.selected_group + 1)..self.groups.len())
+            .chain(0..self.selected_group)
+            .find(|&index| self.groups[index].source == source);
+        if let Some(index) = next_index {
+            self.selected_group = index;
+            self.group_state.select(Some(index));
+            self.load_selected_group()?;
+        }
+        Ok(())
+    }
+
+    fn jump_previous_same_source_group(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(current_group) = self.current_group() else {
+            return Ok(());
+        };
+        let source = current_group.source.clone();
+        let previous_index = (0..self.selected_group)
+            .rev()
+            .chain(((self.selected_group + 1)..self.groups.len()).rev())
+            .find(|&index| self.groups[index].source == source);
+        if let Some(index) = previous_index {
+            self.selected_group = index;
+            self.group_state.select(Some(index));
+            self.load_selected_group()?;
+        }
+        Ok(())
+    }
+
     fn toggle_selected_section(&mut self) {
         if let Some(node) = self
             .evidence_rows
@@ -1316,6 +1350,7 @@ impl App {
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
                 "y: recent reviews (<24h)".to_string(),
+                "n / N: next / previous review group with same source".to_string(),
                 "r: reload reviews and details".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),
@@ -2664,7 +2699,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(
-        "tab/left/right focus  [ ] target  arrows move  enter toggle  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+        "tab/left/right focus  [ ] target  arrows move  enter toggle  n/N same-source  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, root[2]);
@@ -2784,6 +2819,12 @@ fn run_app(
             }
             KeyCode::Char('y') => {
                 app.show_recent_reviews()?;
+            }
+            KeyCode::Char('n') => {
+                app.jump_next_same_source_group()?;
+            }
+            KeyCode::Char('N') => {
+                app.jump_previous_same_source_group()?;
             }
             KeyCode::Char('?') => {
                 app.show_help_dialog();
