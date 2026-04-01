@@ -455,7 +455,9 @@ impl App {
         let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
         self.queue_summary = stophammer::tui::format_source_count_summary(
             "wallet reviews",
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
         );
         self.groups = self.prune_review_groups(group_reviews(reviews))?;
         self.selected_group = selection
@@ -1138,12 +1140,18 @@ impl App {
             age.oldest_created_at,
         );
         lines.extend(stophammer::tui::build_queue_summary_lines(
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             total,
             "No pending wallet review sources",
             "Use n/N to stay within it.",
         ));
-        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Queue Summary", total, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Wallet Queue Summary",
+            total,
+            lines,
+        ));
         Ok(())
     }
 
@@ -1152,7 +1160,11 @@ impl App {
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
-        self.dialog = Some(stophammer::tui::counted_dialog("Feed Hotspots", hotspot_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Feed Hotspots",
+            hotspot_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -1167,8 +1179,12 @@ impl App {
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
         let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_operator_overview_lines(
-            artist_summary.iter().map(|item| (item.source.as_str(), item.count)),
-            wallet_summary.iter().map(|item| (item.source.as_str(), item.count)),
+            artist_summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
+            wallet_summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             &hotspots,
             stophammer::tui::OperatorOverviewConfig {
                 artist_total,
@@ -1212,7 +1228,11 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::counted_dialog("Stale Wallet Reviews", stale_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Stale Wallet Reviews",
+            stale_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -1238,7 +1258,11 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::counted_dialog("Recent Wallet Reviews", recent_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Recent Wallet Reviews",
+            recent_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -1262,7 +1286,11 @@ impl App {
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
         ]);
-        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Review TUI Help", self.groups.len(), lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Wallet Review TUI Help",
+            self.groups.len(),
+            lines,
+        ));
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
@@ -1272,24 +1300,27 @@ impl App {
         let total: usize = summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_review_playbook_lines(
             total,
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             &hotspots,
             stophammer::tui::ReviewPlaybookConfig {
                 review_label_plural: "wallet reviews",
                 created_last_24h: age.created_last_24h,
                 older_than_7d: age.older_than_7d,
-                backlog_idle_message:
-                    "Nothing pending. Reload after the next resolver or wallet pass.",
-                dominant_family_walk_template:
-                    "   Use n/N to walk the '{}' groups quickly before switching heuristics.",
-                final_step:
-                    "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
+                backlog_idle_message: "Nothing pending. Reload after the next resolver or wallet pass.",
+                dominant_family_walk_template: "   Use n/N to walk the '{}' groups quickly before switching heuristics.",
+                final_step: "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
             },
             short_id,
             abbreviate,
         );
 
-        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Review Playbook", total, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Wallet Review Playbook",
+            total,
+            lines,
+        ));
         Ok(())
     }
 }
@@ -2147,7 +2178,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         wallet_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} family={}/{} key={} wallets={} created={}",
+                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} confidence={} family={}/{} key={} wallets={} created={}",
                         group_position,
                         app.groups.len(),
                         wallet_position,
@@ -2156,6 +2187,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         review.id,
                         short_id(&review.wallet_id),
                         review.source,
+                        review.confidence,
                         family_position,
                         family_total,
                         abbreviate(&review.evidence_key, 24),
@@ -2195,8 +2227,13 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .filter(|candidate| candidate.source == group.source)
                 .count();
             let detail = format!(
-                "{}  family={}  {}  {} wallets  newest {}  oldest {}",
+                "{}  {}  family={}  {}  {} wallets  newest {}  oldest {}",
                 group.source,
+                group
+                    .reviews
+                    .first()
+                    .map(|review| stophammer::tui::review_confidence_badge(&review.confidence))
+                    .unwrap_or("INFO"),
                 same_source_count,
                 newest_badge,
                 group.reviews.len(),
@@ -2252,7 +2289,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .borders(Borders::ALL)
                 .title(group_title)
                 .border_style(stophammer::tui::block_style(app.focus == Focus::Groups))
-                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Groups)),
+                .border_type(stophammer::tui::block_border_type(
+                    app.focus == Focus::Groups,
+                )),
         )
         .highlight_style(
             Style::default()
@@ -2521,7 +2560,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 |feed| {
                     app.current_source_review().map_or_else(
                         || format!("Evidence {}", feed.title),
-                        |review| format!("Evidence {} (#{} {})", feed.title, review.id, review.source),
+                        |review| {
+                            format!("Evidence {} (#{} {})", feed.title, review.id, review.source)
+                        },
                     )
                 },
             ),

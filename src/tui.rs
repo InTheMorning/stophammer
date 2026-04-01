@@ -87,7 +87,9 @@ pub fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -
         .into_iter()
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
     let share = (count.saturating_mul(100)) / total.max(1);
-    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
+    Some(format!(
+        "Top source in this subset: {source} ({count}, {share}%)"
+    ))
 }
 
 /// Formats the compact queue summary line shared by review TUIs.
@@ -121,6 +123,28 @@ pub fn format_source_count_summary<'a>(
     )
 }
 
+/// Formats the short badge text used for deterministic review confidence bands.
+#[must_use]
+pub fn review_confidence_badge(confidence: &str) -> &'static str {
+    match confidence {
+        "high_confidence" => "HIGH",
+        "review_required" => "REVIEW",
+        "blocked" => "BLOCKED",
+        _ => "INFO",
+    }
+}
+
+/// Returns the standard color for deterministic review confidence bands.
+#[must_use]
+pub fn review_confidence_style(confidence: &str) -> Style {
+    match confidence {
+        "high_confidence" => Style::default().fg(Color::Green),
+        "review_required" => Style::default().fg(Color::Yellow),
+        "blocked" => Style::default().fg(Color::Red),
+        _ => Style::default().fg(Color::DarkGray),
+    }
+}
+
 /// Formats a dominant-source hint for operator dialogs.
 #[must_use]
 pub fn format_dominant_family_hint(source: &str, share: usize, suffix: &str) -> String {
@@ -140,7 +164,9 @@ pub fn format_operator_overview_title(
     wallet_total: usize,
     hotspot_count: usize,
 ) -> String {
-    format!("Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})")
+    format!(
+        "Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})"
+    )
 }
 
 /// Appends a ranked source-family section shared by operator dialogs.
@@ -486,10 +512,16 @@ pub fn build_operator_overview_header_lines(
         ),
     ];
     if let Some(oldest) = artist_age.oldest_created_at {
-        lines.push(format!("Oldest artist review: {}", format_local_timestamp(oldest)));
+        lines.push(format!(
+            "Oldest artist review: {}",
+            format_local_timestamp(oldest)
+        ));
     }
     if let Some(oldest) = wallet_age.oldest_created_at {
-        lines.push(format!("Oldest wallet review: {}", format_local_timestamp(oldest)));
+        lines.push(format!(
+            "Oldest wallet review: {}",
+            format_local_timestamp(oldest)
+        ));
     }
     lines.push(String::new());
     lines

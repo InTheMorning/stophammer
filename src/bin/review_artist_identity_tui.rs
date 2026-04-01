@@ -124,7 +124,9 @@ impl App {
         let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
         self.queue_summary = stophammer::tui::format_source_count_summary(
             "artist reviews",
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
         );
         let review_idx = match preferred_review_id {
             Some(review_id) => self
@@ -475,12 +477,18 @@ impl App {
             age.oldest_created_at,
         );
         lines.extend(stophammer::tui::build_queue_summary_lines(
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             total,
             "No pending artist review sources",
             "Use n/N to stay within it.",
         ));
-        self.dialog = Some(stophammer::tui::counted_dialog("Artist Queue Summary", total, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Artist Queue Summary",
+            total,
+            lines,
+        ));
         Ok(())
     }
 
@@ -489,7 +497,11 @@ impl App {
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
-        self.dialog = Some(stophammer::tui::counted_dialog("Feed Hotspots", hotspot_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Feed Hotspots",
+            hotspot_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -504,8 +516,12 @@ impl App {
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
         let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_operator_overview_lines(
-            artist_summary.iter().map(|item| (item.source.as_str(), item.count)),
-            wallet_summary.iter().map(|item| (item.source.as_str(), item.count)),
+            artist_summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
+            wallet_summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             &hotspots,
             stophammer::tui::OperatorOverviewConfig {
                 artist_total,
@@ -552,7 +568,11 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::counted_dialog("Stale Artist Reviews", stale_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Stale Artist Reviews",
+            stale_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -581,7 +601,11 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::counted_dialog("Recent Artist Reviews", recent_count, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Recent Artist Reviews",
+            recent_count,
+            lines,
+        ));
         Ok(())
     }
 
@@ -600,7 +624,11 @@ impl App {
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
         ]);
-        self.dialog = Some(stophammer::tui::counted_dialog("Artist Review TUI Help", self.reviews.len(), lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Artist Review TUI Help",
+            self.reviews.len(),
+            lines,
+        ));
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
@@ -610,23 +638,27 @@ impl App {
         let total: usize = summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_review_playbook_lines(
             total,
-            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            summary
+                .iter()
+                .map(|item| (item.source.as_str(), item.count)),
             &hotspots,
             stophammer::tui::ReviewPlaybookConfig {
                 review_label_plural: "artist reviews",
                 created_last_24h: age.created_last_24h,
                 older_than_7d: age.older_than_7d,
                 backlog_idle_message: "Nothing pending. Reload after the next resolver pass.",
-                dominant_family_walk_template:
-                    "   Use n/N to walk the '{}' family quickly before switching heuristics.",
-                final_step:
-                    "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
+                dominant_family_walk_template: "   Use n/N to walk the '{}' family quickly before switching heuristics.",
+                final_step: "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
             },
             short_id,
             abbreviate,
         );
 
-        self.dialog = Some(stophammer::tui::counted_dialog("Artist Review Playbook", total, lines));
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "Artist Review Playbook",
+            total,
+            lines,
+        ));
         Ok(())
     }
 }
@@ -878,7 +910,7 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
     app.reviews
         .iter()
         .map(|review| {
-        let (badge, badge_color) = stophammer::tui::recency_badge(review.created_at);
+            let (badge, badge_color) = stophammer::tui::recency_badge(review.created_at);
             let same_source_count = app
                 .reviews
                 .iter()
@@ -895,6 +927,11 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     Span::styled(review.name_key.clone(), Style::default().fg(Color::Cyan)),
                     Span::raw("  "),
                     Span::styled(review.source.clone(), Style::default().fg(Color::Yellow)),
+                    Span::raw("  "),
+                    Span::styled(
+                        stophammer::tui::review_confidence_badge(&review.confidence),
+                        stophammer::tui::review_confidence_style(&review.confidence),
+                    ),
                     Span::raw("  "),
                     Span::styled(
                         format!("family={same_source_count}"),
@@ -916,6 +953,10 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                         format_local_timestamp(review.created_at)
                     ),
                     Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::styled(
+                    abbreviate(&review.explanation, 88),
+                    Style::default().fg(Color::Gray),
                 )),
             ])
         })
@@ -1220,13 +1261,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         artist_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected {}/{}: {} | review={} feed={} source={} family={}/{} key={} artists={} created={}",
+                        "Selected {}/{}: {} | review={} feed={} source={} confidence={} family={}/{} key={} artists={} created={}",
                         position,
                         app.reviews.len(),
                         abbreviate(&review.title, 28),
                         review.review_id,
                         short_id(&review.feed_guid),
                         review.source,
+                        review.confidence,
                         family_position,
                         family_total,
                         abbreviate(&review.evidence_key, 24),
