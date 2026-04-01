@@ -1816,6 +1816,22 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
                 "selected track",
                 format!("{} [{}]", track.title, track.track_guid),
             );
+            if let Some((label, position, total)) = current_track_family_position(app) {
+                push_detail(
+                    &mut lines,
+                    "track family",
+                    format!("{label} ({position}/{total})"),
+                );
+            }
+            if let Some((label, _count, share)) =
+                dominant_track_claim_family(snapshot, &track.track_guid)
+            {
+                push_detail(
+                    &mut lines,
+                    "dominant family",
+                    format!("{label} ({share}%)"),
+                );
+            }
         }
 
         let mut any = false;
