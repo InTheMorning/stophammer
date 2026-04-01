@@ -12922,6 +12922,59 @@ fn list_pending_wallet_reviews_with_max_created_at(
     Ok(summaries)
 }
 
+/// Returns one pending-style wallet review summary row by `id`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review row cannot be loaded.
+pub fn get_wallet_review_summary(
+    conn: &Connection,
+    review_id: i64,
+) -> Result<Option<WalletReviewSummary>, DbError> {
+    conn.query_row(
+        "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                r.source, r.evidence_key, r.wallet_ids_json, r.endpoint_summary_json, \
+                r.created_at \
+         FROM wallet_identity_review r \
+         JOIN wallets w ON w.wallet_id = r.wallet_id \
+         WHERE r.id = ?1",
+        params![review_id],
+        |row| {
+            let source: String = row.get(5)?;
+            let wallet_ids_json: String = row.get(7)?;
+            let endpoint_summary_json: String = row.get(8)?;
+            Ok(WalletReviewSummary {
+                id: row.get(0)?,
+                wallet_id: row.get(1)?,
+                display_name: row.get(2)?,
+                wallet_class: row.get(3)?,
+                class_confidence: row.get(4)?,
+                source: source.clone(),
+                confidence: wallet_review_confidence(&source).to_string(),
+                explanation: wallet_review_explanation(&source).to_string(),
+                evidence_key: row.get(6)?,
+                wallet_ids: serde_json::from_str(&wallet_ids_json).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        7,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
+                endpoint_summary: serde_json::from_str(&endpoint_summary_json).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        8,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
+                created_at: row.get(9)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Lists pending wallet-identity reviews older than `min_age_secs`.
 ///
 /// # Errors

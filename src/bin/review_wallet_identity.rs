@@ -358,54 +358,8 @@ fn show_review(
     let detail = stophammer::db::get_wallet_detail(conn, &wallet_id)?
         .ok_or_else(|| std::io::Error::other(format!("wallet not found: {wallet_id}")))?;
 
-    let review_summary =
-        conn.query_row(
-            "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
-                r.source, r.evidence_key, r.wallet_ids_json, r.endpoint_summary_json, \
-                r.created_at \
-         FROM wallet_identity_review r \
-         JOIN wallets w ON w.wallet_id = r.wallet_id \
-         WHERE r.id = ?1",
-            rusqlite::params![review_id],
-            |r| {
-                let source: String = r.get(5)?;
-                let explanation = if source == "cross_wallet_alias" {
-                    "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
-                } else {
-                    "This wallet review source requires operator confirmation before identity state changes."
-                };
-                Ok(stophammer::db::WalletReviewSummary {
-                    id: r.get(0)?,
-                    wallet_id: r.get(1)?,
-                    display_name: r.get(2)?,
-                    wallet_class: r.get(3)?,
-                    class_confidence: r.get(4)?,
-                    source,
-                    confidence: "review_required".to_string(),
-                    explanation: explanation.to_string(),
-                    evidence_key: r.get(6)?,
-                    wallet_ids: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(7)?)
-                        .map_err(|err| {
-                            rusqlite::Error::FromSqlConversionFailure(
-                                7,
-                                rusqlite::types::Type::Text,
-                                Box::new(err),
-                            )
-                        })?,
-                    endpoint_summary: serde_json::from_str::<
-                        Vec<stophammer::db::WalletEndpointPreview>,
-                    >(&r.get::<_, String>(8)?)
-                    .map_err(|err| {
-                        rusqlite::Error::FromSqlConversionFailure(
-                            8,
-                            rusqlite::types::Type::Text,
-                            Box::new(err),
-                        )
-                    })?,
-                    created_at: r.get(9)?,
-                })
-            },
-        )?;
+    let review_summary = stophammer::db::get_wallet_review_summary(conn, review_id)?
+        .ok_or_else(|| std::io::Error::other(format!("review not found: {review_id}")))?;
 
     if json {
         let report = ReviewDetailReport {
