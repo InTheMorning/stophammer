@@ -215,6 +215,27 @@ fn current_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     Some((label, position, family_indices.len()))
 }
 
+fn current_track_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
+    let snapshot = app.current_snapshot()?;
+    let current_idx = app.track_state.selected()?;
+    let track = snapshot.tracks.get(current_idx)?;
+    let (label, _, _) = dominant_track_claim_family(snapshot, &track.track_guid)?;
+    let family_indices = snapshot
+        .tracks
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, track)| {
+            dominant_track_claim_family(snapshot, &track.track_guid)
+                .and_then(|(candidate, _, _)| (candidate == label).then_some(idx))
+        })
+        .collect::<Vec<_>>();
+    let position = family_indices
+        .iter()
+        .position(|idx| *idx == current_idx)?
+        .saturating_add(1);
+    Some((label, position, family_indices.len()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Feeds,
@@ -1928,6 +1949,13 @@ fn header_context_line(app: &App) -> Line<'static> {
                 ),
                 Style::default().fg(Color::Yellow),
             ));
+            if let Some((label, position, total)) = current_track_family_position(app) {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    format!("track-family {label} {position}/{total}"),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
     }
 
@@ -1999,13 +2027,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 "Tracks (0)".to_string()
             } else {
                 let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
-                app.current_track().map_or_else(
+                current_track_family_position(app).map_or_else(
                     || format!("Tracks ({position}/{})", snapshot.tracks.len()),
-                    |track| {
+                    |(label, family_position, family_total)| {
                         format!(
-                            "Tracks ({position}/{}, {})",
+                            "Tracks ({position}/{}, {label} {family_position}/{family_total})",
                             snapshot.tracks.len(),
-                            dominant_track_claim_family_summary(snapshot, &track.track_guid)
                         )
                     },
                 )
