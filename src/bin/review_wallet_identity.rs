@@ -184,7 +184,7 @@ fn parse_args() -> Result<Args, String> {
                      --limit N              Limit results (default: 50)\n\
                      --json                 Output JSON\n\n\
                      Display:\n\
-                     (default)              List pending wallet reviews\n\
+                     (default)              List pending wallet reviews with confidence, explanation, and scored supporting_sources\n\
                      --show-review ID       Show review detail with wallet info\n\
                      --show-wallet ID       Show wallet detail\n\n\
                      Resolve:\n\
@@ -225,8 +225,8 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
 
     for r in reviews {
         println!(
-            "review {}  wallet={}  name={:?}  class={}  confidence={}",
-            r.id, r.wallet_id, r.display_name, r.wallet_class, r.class_confidence
+            "review {}  wallet={}  name={:?}  class={}  class_confidence={}  review_confidence={}",
+            r.id, r.wallet_id, r.display_name, r.wallet_class, r.class_confidence, r.confidence
         );
         println!(
             "  source={}  evidence_key={:?}  related_wallets={}",
@@ -234,6 +234,13 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
             r.evidence_key,
             r.wallet_ids.len()
         );
+        println!("  explanation={}", r.explanation);
+        if !r.supporting_sources.is_empty() {
+            println!(
+                "  supporting_sources={}",
+                r.supporting_sources.join(", ")
+            );
+        }
     }
 }
 
@@ -369,9 +376,19 @@ fn show_review(
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!(
-            "review {}  source={}  status=pending  evidence_key={:?}",
-            review_summary.id, review_summary.source, review_summary.evidence_key
+            "review {}  source={}  review_confidence={}  status=pending  evidence_key={:?}",
+            review_summary.id,
+            review_summary.source,
+            review_summary.confidence,
+            review_summary.evidence_key
         );
+        println!("  explanation={}", review_summary.explanation);
+        if !review_summary.supporting_sources.is_empty() {
+            println!(
+                "  supporting_sources={}",
+                review_summary.supporting_sources.join(", ")
+            );
+        }
         print_wallet_detail(&detail);
     }
     Ok(())

@@ -181,6 +181,7 @@ fn parse_args() -> Result<Args, String> {
                     "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
                      behind each candidate so merge decisions can be reviewed safely.\n\
+                     Pending and review views include confidence, explanation, and any scored supporting_sources.\n\
                      With --feed-guid, prints the targeted resolver plan for one feed.\n\
                      With --pending-feeds, lists feeds whose targeted plan still has candidate groups.\n\
                      With --pending-reviews or --show-review, inspects stored resolver review items.\n\
@@ -532,11 +533,24 @@ fn print_feed_plan_text(report: &FeedPlanReport) {
             println!("      names: {}", group.artist_names.join(", "));
         }
         println!("      artist_ids: {}", group.artist_ids.join(", "));
+        if !group.supporting_sources.is_empty() {
+            println!(
+                "      supporting_sources: {}",
+                group.supporting_sources.join(", ")
+            );
+        }
         if let Some(review_id) = group.review_id {
             println!(
-                "      review_id={}  status={:?}  override={:?}  target={:?}",
-                review_id, group.review_status, group.override_type, group.target_artist_id
+                "      review_id={}  status={:?}  confidence={:?}  override={:?}  target={:?}",
+                review_id,
+                group.review_status,
+                group.confidence,
+                group.override_type,
+                group.target_artist_id
             );
+        }
+        if let Some(explanation) = &group.explanation {
+            println!("      explanation: {explanation}");
         }
         if let Some(note) = &group.note {
             println!("      note: {note}");
@@ -567,26 +581,41 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
 
     for review in &report.reviews {
         println!(
-            "review {}  feed={}  title={:?}  source={}  name_key={:?}  artists={}",
+            "review {}  feed={}  title={:?}  source={}  confidence={}  name_key={:?}  artists={}",
             review.review_id,
             review.feed_guid,
             review.title,
             review.source,
+            review.confidence,
             review.name_key,
             review.artist_count
         );
         println!("  evidence_key={}", review.evidence_key);
+        println!("  explanation={}", review.explanation);
+        if !review.supporting_sources.is_empty() {
+            println!(
+                "  supporting_sources={}",
+                review.supporting_sources.join(", ")
+            );
+        }
     }
 }
 
 fn print_review_item_text(report: &ReviewItemReport) {
     let review = &report.review;
     println!(
-        "review {}  feed={}  source={}  status={}",
-        review.review_id, review.feed_guid, review.source, review.status
+        "review {}  feed={}  source={}  confidence={}  status={}",
+        review.review_id, review.feed_guid, review.source, review.confidence, review.status
     );
     println!("  name_key={}", review.name_key);
     println!("  evidence_key={}", review.evidence_key);
+    println!("  explanation={}", review.explanation);
+    if !review.supporting_sources.is_empty() {
+        println!(
+            "  supporting_sources={}",
+            review.supporting_sources.join(", ")
+        );
+    }
     println!("  artist_ids={}", review.artist_ids.join(", "));
     if !review.artist_names.is_empty() {
         println!("  artist_names={}", review.artist_names.join(", "));
