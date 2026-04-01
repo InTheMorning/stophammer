@@ -133,6 +133,16 @@ The shipped utility binaries are:
 - `review_wallet_identity_tui`
 - `review_source_claims_tui`
 
+`review_source_claims_tui` is no longer just a raw evidence browser. It now
+has an operator workflow layer for:
+
+- queue overview
+- backlog playbook
+- feed hotspots
+- selected-feed summary
+- selected-feed conflicts
+- selected-feed claim-family mix
+
 See:
 
 - [operations.md](operations.md)

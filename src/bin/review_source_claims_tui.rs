@@ -1838,8 +1838,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         || "Evidence".to_string(),
         |feed| {
             format!(
-                "Evidence {} (claims={} resolved={})",
-                feed.title, feed.source_claim_count, feed.resolved_count
+                "Evidence {} (claims={} resolved={} {})",
+                feed.title,
+                feed.source_claim_count,
+                feed.resolved_count,
+                dominant_feed_claim_family_summary(feed)
             )
         },
     );

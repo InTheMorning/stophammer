@@ -548,6 +548,21 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db \
 cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
 ```
 
+Inside `review_source_claims_tui`, the operator shortcuts are:
+
+- `o` queue overview
+- `p` backlog playbook
+- `s` selected-feed summary
+- `h` source-claim hotspots
+- `c` selected-feed conflicts
+- `m` selected-feed claim mix
+
+That makes it useful both as a raw evidence browser and as a quick answer to:
+
+- which feeds are loudest
+- which claim family dominates the queue
+- what kind of claim mess is dominating one selected feed
+
 These do not crawl or fetch from the network. They operate on an existing local
 SQLite database.
 

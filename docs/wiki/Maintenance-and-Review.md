@@ -144,6 +144,15 @@ cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
 cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
 ```
 
+Useful keys once inside:
+
+- `o` queue overview
+- `p` backlog playbook
+- `s` selected-feed summary
+- `h` source-claim hotspots
+- `c` selected-feed conflicts
+- `m` selected-feed claim mix
+
 ## Resolution Inspection via API
 
 You can also inspect why canonical mappings happened through HTTP:

@@ -12,7 +12,10 @@ review_source_claims_tui \- interactive source-claim and resolved-promotion insp
 .B review_source_claims_tui
 opens a terminal UI for feeds that carry staged source claims or resolved
 promotion rows. It is intended for operators inspecting provenance and
-promotion state without issuing ad hoc SQL queries.
+promotion state without issuing ad hoc SQL queries. The TUI now includes a
+small operator workflow layer in addition to the raw evidence panes:
+queue overview, hotspots, playbook guidance, feed summaries, conflict
+inspection, and claim-family mix summaries.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -25,6 +28,27 @@ Maximum number of feeds to load into the review queue. Defaults to 200.
 The interface shows the feed queue, the feed's tracks, and the evidence panel.
 Use the on-screen key hints to switch focus, move through feeds and tracks, and
 scroll long evidence blocks.
+.TP
+.B o
+Show queue-level operator overview, including total queued feeds, source-claim
+load, resolved-overlay load, hotspots, and dominant claim-family mix.
+.TP
+.B p
+Show a review-next playbook for the current source-claims backlog.
+.TP
+.B s
+Show a feed summary for the selected feed, including feed-vs-track claim
+counts, overlay counts, and current selected-track claim load.
+.TP
+.B h
+Show the hottest feeds by source-claim load.
+.TP
+.B c
+Show feed-level conflict hints for the selected feed.
+.TP
+.B m
+Show the selected feed's claim-family mix, split between feed-scoped and
+track-scoped rows.
 .SH EXAMPLES
 .TP
 Open the TUI against the default database:
