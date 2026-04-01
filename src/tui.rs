@@ -352,6 +352,14 @@ pub fn review_operator_help_lines(same_family_line: &str) -> Vec<String> {
     ]
 }
 
+/// Builds the shared footer legend used by review TUIs.
+#[must_use]
+pub fn build_review_footer(prefix: &str) -> String {
+    format!(
+        "{prefix}  n/N same-family  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit"
+    )
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {

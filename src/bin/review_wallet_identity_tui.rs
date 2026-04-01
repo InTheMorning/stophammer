@@ -2693,9 +2693,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .highlight_symbol(">> ");
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
-    let footer = Paragraph::new(
-        "tab/left/right focus  [ ] target  arrows move  enter toggle  n/N same-family  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
-    )
+    let footer = Paragraph::new(stophammer::tui::build_review_footer(
+        "tab/left/right focus  [ ] target  arrows move  enter toggle  a apply  u undo  m merge  x block  c/v/z edit",
+    ))
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, root[2]);
 

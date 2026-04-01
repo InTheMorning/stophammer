@@ -1501,9 +1501,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .scroll((app.evidence_scroll, 0));
     frame.render_widget(evidence, body[2]);
 
-    let footer = Paragraph::new(
-        "tab focus  arrows move  home/end jump  n/N same-family  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
-    )
+    let footer = Paragraph::new(stophammer::tui::build_review_footer(
+        "tab focus  arrows move  home/end jump  m merge  x block",
+    ))
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, layout[2]);
 
