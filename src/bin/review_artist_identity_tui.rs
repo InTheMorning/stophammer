@@ -559,6 +559,7 @@ impl App {
         let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
+        let hotspot_count = hotspots.len();
 
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
         let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
@@ -650,7 +651,9 @@ impl App {
             }
         }
         self.dialog = Some(SummaryDialog {
-            title: "Operator Overview".to_string(),
+            title: format!(
+                "Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})"
+            ),
             lines,
         });
         Ok(())
