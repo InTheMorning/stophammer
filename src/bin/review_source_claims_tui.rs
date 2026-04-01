@@ -366,6 +366,7 @@ impl App {
                 "o: operator overview for the current source-claims queue".to_string(),
                 "p: review-next playbook for source-claims backlog".to_string(),
                 "s: feed summary for the selected source-claims bundle".to_string(),
+                "t: selected-track claim mix by claim family".to_string(),
                 "h: top source-claims hotspots".to_string(),
                 "c: current-feed conflict summary".to_string(),
                 "m: selected-feed claim mix by claim family".to_string(),
@@ -540,6 +541,81 @@ impl App {
                 format!("  detected={conflict_count}"),
                 selected_track_summary,
             ],
+        ));
+    }
+
+    fn show_track_claim_mix_dialog(&mut self) {
+        let Some(snapshot) = self.current_snapshot() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Track Claim Mix (0)",
+                vec!["No feed snapshot loaded.".to_string()],
+            ));
+            return;
+        };
+        let Some(track) = self.current_track() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Track Claim Mix (0)",
+                vec!["No track selected.".to_string()],
+            ));
+            return;
+        };
+
+        let contributor_count = snapshot
+            .contributor_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track" && claim.entity_id == track.track_guid)
+            .count();
+        let entity_id_count = snapshot
+            .entity_id_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track" && claim.entity_id == track.track_guid)
+            .count();
+        let link_count = snapshot
+            .link_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track" && claim.entity_id == track.track_guid)
+            .count();
+        let release_count = snapshot
+            .release_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track" && claim.entity_id == track.track_guid)
+            .count();
+        let enclosure_count = snapshot
+            .enclosures
+            .iter()
+            .filter(|claim| claim.entity_type == "track" && claim.entity_id == track.track_guid)
+            .count();
+        let rows = [
+            ("contributors", contributor_count),
+            ("entity_ids", entity_id_count),
+            ("links", link_count),
+            ("releases", release_count),
+            ("enclosures", enclosure_count),
+        ];
+        let total = rows.iter().map(|(_, count)| *count).sum::<usize>();
+
+        let mut lines = vec![
+            format!("Track: {} [{}]", track.title, short_id(&track.track_guid)),
+            format!("Feed: {} [{}]", snapshot.feed.title, short_id(&snapshot.feed.feed_guid)),
+            format!("Total track claim rows: {total}"),
+        ];
+        if let Some((label, _count, share)) = dominant_track_claim_family(snapshot, &track.track_guid)
+        {
+            lines.push(format!("Dominant family: {label} ({share}%)"));
+        }
+        lines.push(String::new());
+        lines.push("Track claim families:".to_string());
+        lines.extend(rows.into_iter().filter(|(_, count)| *count > 0).map(|(label, count)| {
+            let share = (count * 100) / total.max(1);
+            format!("  {label}: {count} ({share}%)")
+        }));
+        if total == 0 {
+            lines.push("  no track-scoped claim rows".to_string());
+        }
+
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!("Track Claim Mix [{}]", short_id(&track.track_guid)),
+            lines,
         ));
     }
 
@@ -1045,7 +1121,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive feed-scoped source claims and canonical promotions inspector.\n\
                      Shows source claim families, track-level claim evidence, and the current\n\
                      resolved promotions/provenance overlays for each feed.\n\
-                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, o overview, p playbook, s summary, h hotspots, c conflicts, m claim mix, n/N same-family jump, ? help, r reload, q quit."
+                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, o overview, p playbook, s summary, t track mix, h hotspots, c conflicts, m claim mix, n/N same-family jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1936,6 +2012,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         "O: overview",
         "P: playbook",
         "S: summary",
+        "T: track-mix",
         "H: hotspots",
         "C: conflicts",
         "M: mix",
@@ -1985,6 +2062,7 @@ fn run_app(
             KeyCode::Char('o') => app.show_operator_overview_dialog(),
             KeyCode::Char('p') => app.show_review_playbook(),
             KeyCode::Char('s') => app.show_summary_dialog(),
+            KeyCode::Char('t') => app.show_track_claim_mix_dialog(),
             KeyCode::Char('h') => app.show_hotspots_dialog(),
             KeyCode::Char('c') => app.show_conflicts_dialog(),
             KeyCode::Char('m') => app.show_claim_mix_dialog(),
