@@ -4380,6 +4380,7 @@ pub struct ArtistIdentityPendingReview {
     pub source: String,
     pub confidence: String,
     pub explanation: String,
+    pub supporting_sources: Vec<String>,
     pub name_key: String,
     pub evidence_key: String,
     pub artist_count: usize,
@@ -6524,27 +6525,35 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
          ORDER BY r.updated_at DESC, r.review_id DESC
          LIMIT ?2",
     )?;
-    stmt.query_map(params![max_created_at, limit_i64], |row| {
+    let mut rows = stmt.query(params![max_created_at, limit_i64])?;
+    let mut reviews = Vec::new();
+    while let Some(row) = rows.next()? {
+        let feed_guid: String = row.get(1)?;
         let source: String = row.get(3)?;
+        let name_key: String = row.get(4)?;
         let artist_ids_json: String = row.get(6)?;
-        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
-        })?;
-        Ok(ArtistIdentityPendingReview {
+        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
+        reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
-            feed_guid: row.get(1)?,
+            feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
             confidence: artist_identity_review_confidence(&source).to_string(),
             explanation: artist_identity_review_explanation(&source).to_string(),
-            name_key: row.get(4)?,
+            supporting_sources: artist_review_supporting_sources(
+                conn,
+                &feed_guid,
+                &source,
+                &name_key,
+                &artist_ids,
+            )?,
+            name_key,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
             created_at: row.get(7)?,
-        })
-    })?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(Into::into)
+        });
+    }
+    Ok(reviews)
 }
 
 /// Lists pending artist-identity reviews older than `min_age_secs`.
@@ -6595,27 +6604,35 @@ pub fn list_recent_pending_artist_identity_reviews(
          ORDER BY r.created_at DESC, r.review_id DESC
          LIMIT ?2",
     )?;
-    stmt.query_map(params![cutoff, limit_i64], |row| {
+    let mut rows = stmt.query(params![cutoff, limit_i64])?;
+    let mut reviews = Vec::new();
+    while let Some(row) = rows.next()? {
+        let feed_guid: String = row.get(1)?;
         let source: String = row.get(3)?;
+        let name_key: String = row.get(4)?;
         let artist_ids_json: String = row.get(6)?;
-        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
-            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
-        })?;
-        Ok(ArtistIdentityPendingReview {
+        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
+        reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
-            feed_guid: row.get(1)?,
+            feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
             confidence: artist_identity_review_confidence(&source).to_string(),
             explanation: artist_identity_review_explanation(&source).to_string(),
-            name_key: row.get(4)?,
+            supporting_sources: artist_review_supporting_sources(
+                conn,
+                &feed_guid,
+                &source,
+                &name_key,
+                &artist_ids,
+            )?,
+            name_key,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
             created_at: row.get(7)?,
-        })
-    })?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(Into::into)
+        });
+    }
+    Ok(reviews)
 }
 
 /// Returns pending artist-identity review counts grouped by `source`.

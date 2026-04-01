@@ -2178,7 +2178,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         wallet_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} confidence={} family={}/{} key={} wallets={} created={}",
+                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} confidence={} family={}/{} key={} wallets={} created={}{}",
                         group_position,
                         app.groups.len(),
                         wallet_position,
@@ -2192,7 +2192,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         family_total,
                         abbreviate(&review.evidence_key, 24),
                         review.wallet_ids.len(),
-                        format_local_timestamp(review.created_at)
+                        format_local_timestamp(review.created_at),
+                        if review.supporting_sources.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                " support={}",
+                                preview_join(&review.supporting_sources, 2, 22)
+                            )
+                        }
                     )
                 },
             ),
@@ -2227,7 +2235,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .filter(|candidate| candidate.source == group.source)
                 .count();
             let detail = format!(
-                "{}  {}  family={}  {}  {} wallets  newest {}  oldest {}",
+                "{}  {}  family={}  {}  {} wallets  newest {}  oldest {}{}",
                 group.source,
                 group
                     .reviews
@@ -2244,7 +2252,18 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     .unwrap_or_else(|| "-".to_string()),
                 oldest_ts
                     .map(format_local_timestamp)
-                    .unwrap_or_else(|| "-".to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                group
+                    .reviews
+                    .first()
+                    .filter(|review| !review.supporting_sources.is_empty())
+                    .map(|review| {
+                        format!(
+                            "  support={}",
+                            preview_join(&review.supporting_sources, 2, 20)
+                        )
+                    })
+                    .unwrap_or_default()
             );
             let min_review_id = group.reviews.iter().map(|review| review.id).min();
             let max_review_id = group.reviews.iter().map(|review| review.id).max();

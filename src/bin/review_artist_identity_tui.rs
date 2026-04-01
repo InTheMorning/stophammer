@@ -916,7 +916,7 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                 .iter()
                 .filter(|candidate| candidate.source == review.source)
                 .count();
-            ListItem::new(vec![
+            let mut lines = vec![
                 Line::from(vec![Span::styled(
                     format!("{} [{}]", review.title, review.review_id),
                     Style::default()
@@ -958,7 +958,14 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     abbreviate(&review.explanation, 88),
                     Style::default().fg(Color::Gray),
                 )),
-            ])
+            ];
+            if !review.supporting_sources.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("support={}", preview_join(&review.supporting_sources, 3, 42)),
+                    Style::default().fg(Color::DarkGray),
+                )));
+            }
+            ListItem::new(lines)
         })
         .collect()
 }
@@ -1261,7 +1268,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let (family_position, family_total) =
                         artist_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected {}/{}: {} | review={} feed={} source={} confidence={} family={}/{} key={} artists={} created={}",
+                        "Selected {}/{}: {} | review={} feed={} source={} confidence={} family={}/{} key={} artists={} created={}{}",
                         position,
                         app.reviews.len(),
                         abbreviate(&review.title, 28),
@@ -1273,7 +1280,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         family_total,
                         abbreviate(&review.evidence_key, 24),
                         review.artist_count,
-                        format_local_timestamp(review.created_at)
+                        format_local_timestamp(review.created_at),
+                        if review.supporting_sources.is_empty() {
+                            String::new()
+                        } else {
+                            format!(
+                                " support={}",
+                                preview_join(&review.supporting_sources, 2, 22)
+                            )
+                        }
                     )
                 },
             ),
@@ -1368,6 +1383,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 Style::default().fg(Color::White),
             ),
         ]));
+        if !snapshot.review.supporting_sources.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Supporting: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    preview_join(&snapshot.review.supporting_sources, 4, 52),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+        }
         lines
     } else {
         vec![Line::from("No review selected.")]
