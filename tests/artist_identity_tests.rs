@@ -1750,6 +1750,91 @@ fn track_feed_name_variants_raise_review_without_wallet_evidence() {
     );
 }
 
+#[test]
+fn collaboration_credit_raises_review_without_auto_merge() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-collaboration-credit"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-collaboration-credit"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-collaboration-credit', 'https://example.com/collaboration-credit.xml', 'Collaboration Credit', 'collaboration credit', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let collaboration = stophammer::db::resolve_artist(
+        &conn,
+        "HeyCitizen and Fletcher",
+        Some("feed-collaboration-credit"),
+    )
+    .expect("collaboration artist");
+    let collaboration_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &collaboration.name,
+        &[(
+            collaboration.artist_id.clone(),
+            collaboration.name.clone(),
+            String::new(),
+        )],
+        Some("feed-collaboration-credit"),
+    )
+    .expect("collaboration credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-collaboration-credit', 'feed-collaboration-credit', ?1, 'Hardware Store Lady (Screw and Bolt Mix)', 'hardware store lady (screw and bolt mix)', 0, ?2, ?2)",
+        rusqlite::params![collaboration_credit.id, now],
+    )
+    .expect("insert track");
+
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-collaboration-credit")
+            .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "collaboration credits should raise review, not auto-merge"
+    );
+    assert_eq!(
+        stats.pending_reviews, 1,
+        "collaboration credits should create one pending review"
+    );
+
+    let reviews =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-collaboration-credit")
+            .expect("list reviews");
+    let review = reviews
+        .iter()
+        .find(|review| review.source == "collaboration_credit")
+        .expect("collaboration_credit review");
+    assert_eq!(review.name_key, "heycitizen");
+    assert_eq!(review.evidence_key, collaboration.artist_id);
+    let review_artist_ids = review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [canonical.artist_id.clone(), collaboration.artist_id.clone()]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "review should include both the feed artist and the collaboration artist ids"
+    );
+}
+
 /// Canonical promotions computed after an artist-identity merge reference the
 /// surviving artist, not the merged-away one.
 ///

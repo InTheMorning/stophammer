@@ -4771,6 +4771,39 @@ fn normalize_artist_similarity_key(name: &str) -> Option<String> {
     (normalized.len() >= 4).then_some(normalized)
 }
 
+fn collaboration_name_keys(name: &str) -> std::collections::BTreeSet<String> {
+    let separators = [
+        " feat. ", " feat ", " ft. ", " ft ", " with ", " and ", "&", ",",
+    ];
+    let lowered = name.trim().to_ascii_lowercase();
+    let mut parts = vec![lowered];
+    for separator in separators {
+        parts = parts
+            .into_iter()
+            .flat_map(|part| {
+                part.split(separator)
+                    .map(str::trim)
+                    .filter(|piece| !piece.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+    }
+    parts
+        .into_iter()
+        .filter_map(|part| normalize_artist_similarity_key(&part))
+        .collect()
+}
+
+fn looks_like_collaboration_credit(name: &str) -> bool {
+    let lowered = name.trim().to_ascii_lowercase();
+    [
+        " feat. ", " feat ", " ft. ", " ft ", " with ", " and ", "&", ",",
+    ]
+    .iter()
+    .any(|separator| lowered.contains(separator))
+}
+
 fn collect_artist_groups_by_wallet_name_variant_for_feed(
     conn: &Connection,
     feed_guid: &str,
@@ -4937,6 +4970,97 @@ fn collect_artist_groups_by_track_feed_name_variant_for_feed(
         .collect())
 }
 
+fn collect_artist_groups_by_collaboration_credit_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    let mut feed_stmt = conn.prepare(
+        "SELECT DISTINCT acn.artist_id
+         FROM feeds f
+         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
+         WHERE f.feed_guid = ?1",
+    )?;
+    let feed_artist_ids = feed_stmt
+        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if feed_artist_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut feed_artists_by_key: std::collections::BTreeMap<
+        String,
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for artist_id in feed_artist_ids {
+        let Some(current_id) = current_artist_id(conn, &artist_id)? else {
+            continue;
+        };
+        let Some(artist) = get_artist_by_id(conn, &current_id)? else {
+            continue;
+        };
+        let Some(name_key) = normalize_artist_similarity_key(&artist.name) else {
+            continue;
+        };
+        feed_artists_by_key
+            .entry(name_key)
+            .or_default()
+            .insert(current_id);
+    }
+    if feed_artists_by_key.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut track_stmt = conn.prepare(
+        "SELECT DISTINCT acn.artist_id
+         FROM tracks t
+         JOIN artist_credit_name acn ON acn.artist_credit_id = t.artist_credit_id
+         WHERE t.feed_guid = ?1",
+    )?;
+    let track_artist_ids = track_stmt
+        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut grouped: std::collections::BTreeMap<
+        (String, String),
+        std::collections::BTreeSet<String>,
+    > = std::collections::BTreeMap::new();
+    for artist_id in track_artist_ids {
+        let Some(current_id) = current_artist_id(conn, &artist_id)? else {
+            continue;
+        };
+        let Some(artist) = get_artist_by_id(conn, &current_id)? else {
+            continue;
+        };
+        if !looks_like_collaboration_credit(&artist.name) {
+            continue;
+        }
+        let collab_keys = collaboration_name_keys(&artist.name);
+        for name_key in collab_keys {
+            let Some(feed_artist_ids) = feed_artists_by_key.get(&name_key) else {
+                continue;
+            };
+            let mut artist_ids = feed_artist_ids.clone();
+            artist_ids.insert(current_id.clone());
+            if artist_ids.len() <= 1 {
+                continue;
+            }
+            grouped.insert((name_key, current_id.clone()), artist_ids);
+        }
+    }
+
+    Ok(grouped
+        .into_iter()
+        .map(
+            |((name_key, collaboration_artist_id), artist_ids)| ArtistIdentityEvidenceGroup {
+                source: "collaboration_credit".to_string(),
+                name_key,
+                evidence_key: collaboration_artist_id,
+                artist_ids,
+            },
+        )
+        .collect())
+}
+
 fn current_ids_for_review(
     conn: &Connection,
     artist_ids: &std::collections::BTreeSet<String>,
@@ -4985,7 +5109,10 @@ fn artist_identity_override_for_group(
 }
 
 fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
-    !matches!(source, "wallet_name_variant" | "track_feed_name_variant")
+    !matches!(
+        source,
+        "wallet_name_variant" | "track_feed_name_variant" | "collaboration_credit"
+    )
 }
 
 fn sync_artist_identity_review_item(
@@ -5703,6 +5830,9 @@ pub fn resolve_artist_identity_for_feed_with_signer(
     groups.extend(collect_artist_groups_by_track_feed_name_variant_for_feed(
         &tx, feed_guid,
     )?);
+    groups.extend(collect_artist_groups_by_collaboration_credit_for_feed(
+        &tx, feed_guid,
+    )?);
     groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
         &tx, feed_guid, &seed_ids,
     )?);
@@ -5747,6 +5877,9 @@ pub fn explain_artist_identity_for_feed(
     let mut candidate_groups =
         collect_labeled_artist_identity_groups_for_seed_ids(conn, &seed_ids, None)?;
     candidate_groups.extend(collect_artist_groups_by_track_feed_name_variant_for_feed(
+        conn, feed_guid,
+    )?);
+    candidate_groups.extend(collect_artist_groups_by_collaboration_credit_for_feed(
         conn, feed_guid,
     )?);
     candidate_groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
