@@ -1447,8 +1447,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         || "Review Context".to_string(),
         |snapshot| {
             format!(
-                "Review Context #{} ({})",
-                snapshot.review.review_id, snapshot.review.source
+                "Review Context #{} ({}, key={})",
+                snapshot.review.review_id,
+                snapshot.review.source,
+                abbreviate(&snapshot.review.evidence_key, 18)
             )
         },
     );
@@ -1461,8 +1463,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         || "Evidence".to_string(),
         |snapshot| {
             format!(
-                "Evidence {} ({})",
-                snapshot.pending.title, snapshot.review.source
+                "Evidence {} ({}, key={})",
+                snapshot.pending.title,
+                snapshot.review.source,
+                abbreviate(&snapshot.review.evidence_key, 18)
             )
         },
     );
