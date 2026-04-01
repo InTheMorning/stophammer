@@ -1397,7 +1397,7 @@ impl App {
 
     fn show_help_dialog(&mut self) {
         self.dialog = Some(SummaryDialog {
-            title: "Wallet Review TUI Help".to_string(),
+            title: format!("Wallet Review TUI Help ({})", self.groups.len()),
             lines: vec![
                 "Tab / Left / Right: cycle focus".to_string(),
                 "Up / Down / Home / End: navigate".to_string(),
