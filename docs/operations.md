@@ -553,15 +553,19 @@ Inside `review_source_claims_tui`, the operator shortcuts are:
 - `o` queue overview
 - `p` backlog playbook
 - `s` selected-feed summary
+- `t` selected-track claim mix
 - `h` source-claim hotspots
 - `c` selected-feed conflicts
 - `m` selected-feed claim mix
+- `n` / `N` next / previous feed with the same dominant claim family
+- `[` / `]` previous / next track with the same dominant claim family
 
 That makes it useful both as a raw evidence browser and as a quick answer to:
 
 - which feeds are loudest
 - which claim family dominates the queue
 - what kind of claim mess is dominating one selected feed
+- what kind of claim mess is dominating one selected track
 
 These do not crawl or fetch from the network. They operate on an existing local
 SQLite database.

@@ -40,6 +40,9 @@ Show a review-next playbook for the current source-claims backlog.
 Show a feed summary for the selected feed, including feed-vs-track claim
 counts, overlay counts, and current selected-track claim load.
 .TP
+.B t
+Show the selected track's claim-family mix and dominant track claim family.
+.TP
 .B h
 Show the hottest feeds by source-claim load.
 .TP
@@ -49,6 +52,14 @@ Show feed-level conflict hints for the selected feed.
 .B m
 Show the selected feed's claim-family mix, split between feed-scoped and
 track-scoped rows.
+.TP
+.B n / N
+Jump to the next / previous feed whose dominant claim family matches the
+currently selected feed.
+.TP
+.B [ / ]
+Jump to the previous / next track whose dominant claim family matches the
+currently selected track.
 .SH EXAMPLES
 .TP
 Open the TUI against the default database:

@@ -149,9 +149,12 @@ Useful keys once inside:
 - `o` queue overview
 - `p` backlog playbook
 - `s` selected-feed summary
+- `t` selected-track claim mix
 - `h` source-claim hotspots
 - `c` selected-feed conflicts
 - `m` selected-feed claim mix
+- `n` / `N` next / previous feed with the same dominant claim family
+- `[` / `]` previous / next track with the same dominant claim family
 
 ## Resolution Inspection via API
 

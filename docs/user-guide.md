@@ -140,8 +140,10 @@ has an operator workflow layer for:
 - backlog playbook
 - feed hotspots
 - selected-feed summary
+- selected-track claim-family mix
 - selected-feed conflicts
 - selected-feed claim-family mix
+- same-family feed and track jumps
 
 See:
 
