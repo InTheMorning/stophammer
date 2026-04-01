@@ -773,6 +773,137 @@ async fn admin_stale_review_endpoints_filter_old_artist_and_wallet_items() {
 }
 
 #[tokio::test]
+async fn admin_recent_review_endpoints_filter_new_artist_and_wallet_items() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let conn = db.lock().expect("lock db");
+
+        let artist =
+            stophammer::db::resolve_artist(&conn, "Recent Artist", Some("feed-recent-reviews"))
+                .expect("artist");
+        let credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-recent-reviews"),
+        )
+        .expect("credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-recent-reviews', 'https://example.com/feed-recent-reviews.xml', 'Feed Recent Reviews', 'feed recent reviews', ?1, ?2, ?2)",
+            params![credit.id, now],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-recent-reviews', 'track_feed_name_variant', 'recentartist', 'feed-recent-reviews', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 12 * 60 * 60],
+        )
+        .expect("insert recent artist review");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-recent-reviews', 'collaboration_credit', 'recentartist', 'artist-recent-collab', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 3 * 24 * 60 * 60],
+        )
+        .expect("insert old artist review");
+
+        let ep_recent = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-recent",
+            "",
+            "",
+            Some("Recent Wallet"),
+            now,
+        )
+        .expect("recent endpoint");
+        let wallet_recent = stophammer::db::create_provisional_wallet(&conn, ep_recent, now)
+            .expect("recent wallet");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'recent wallet', json_array(?1), '[]', 'pending', ?2, ?2)",
+            params![wallet_recent, now - 6 * 60 * 60],
+        )
+        .expect("insert recent wallet review");
+
+        let ep_old = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-old",
+            "",
+            "",
+            Some("Old Wallet"),
+            now,
+        )
+        .expect("old endpoint");
+        let wallet_old =
+            stophammer::db::create_provisional_wallet(&conn, ep_old, now).expect("old wallet");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'old wallet', json_array(?1), '[]', 'pending', ?2, ?2)",
+            params![wallet_old, now - 5 * 24 * 60 * 60],
+        )
+        .expect("insert old wallet review");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-recent-review-queues.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending/recent?max_age_days=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("artist recent request"),
+        )
+        .await
+        .expect("artist recent response");
+    assert_eq!(artist_resp.status(), 200);
+    let artist_json = body_json(artist_resp).await;
+    assert_eq!(
+        artist_json["reviews"]
+            .as_array()
+            .expect("artist recent array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        artist_json["reviews"][0]["source"],
+        "track_feed_name_variant"
+    );
+
+    let wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/recent?max_age_days=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("wallet recent request"),
+        )
+        .await
+        .expect("wallet recent response");
+    assert_eq!(wallet_resp.status(), 200);
+    let wallet_json = body_json(wallet_resp).await;
+    assert_eq!(
+        wallet_json["reviews"]
+            .as_array()
+            .expect("wallet recent array")
+            .len(),
+        1
+    );
+    assert_eq!(wallet_json["reviews"][0]["evidence_key"], "recent wallet");
+}
+
+#[tokio::test]
 async fn admin_pending_review_summary_endpoints_group_by_source() {
     let db = common::test_db_arc();
     let now = common::now();

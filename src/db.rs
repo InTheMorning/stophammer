@@ -6192,6 +6192,57 @@ pub fn list_stale_pending_artist_identity_reviews(
     )
 }
 
+/// Lists pending artist-identity reviews newer than `max_age_secs`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn list_recent_pending_artist_identity_reviews(
+    conn: &Connection,
+    max_age_secs: i64,
+    limit: usize,
+) -> Result<Vec<ArtistIdentityPendingReview>, DbError> {
+    let cutoff = unix_now() - max_age_secs;
+    let limit_i64 = i64::try_from(limit).map_err(|_err| {
+        DbError::Other("pending review limit exceeded supported SQLite integer range".into())
+    })?;
+    let mut stmt = conn.prepare(
+        "SELECT
+             r.review_id,
+             r.feed_guid,
+             f.title,
+             r.source,
+             r.name_key,
+             r.evidence_key,
+             r.artist_ids_json,
+             r.created_at
+         FROM artist_identity_review r
+         JOIN feeds f ON f.feed_guid = r.feed_guid
+         WHERE r.status = 'pending'
+           AND r.created_at >= ?1
+         ORDER BY r.created_at DESC, r.review_id DESC
+         LIMIT ?2",
+    )?;
+    stmt.query_map(params![cutoff, limit_i64], |row| {
+        let artist_ids_json: String = row.get(6)?;
+        let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
+        })?;
+        Ok(ArtistIdentityPendingReview {
+            review_id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            title: row.get(2)?,
+            source: row.get(3)?,
+            name_key: row.get(4)?,
+            evidence_key: row.get(5)?,
+            artist_count: artist_ids.len(),
+            created_at: row.get(7)?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
 /// Returns pending artist-identity review counts grouped by `source`.
 ///
 /// # Errors
@@ -12663,6 +12714,51 @@ pub fn list_stale_pending_wallet_reviews(
     limit: usize,
 ) -> Result<Vec<WalletReviewSummary>, DbError> {
     list_pending_wallet_reviews_with_max_created_at(conn, Some(unix_now() - min_age_secs), limit)
+}
+
+/// Lists pending wallet-identity reviews newer than `max_age_secs`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn list_recent_pending_wallet_reviews(
+    conn: &Connection,
+    max_age_secs: i64,
+    limit: usize,
+) -> Result<Vec<WalletReviewSummary>, DbError> {
+    let cutoff = unix_now() - max_age_secs;
+    let limit = i64::try_from(limit)
+        .map_err(|err| DbError::Other(format!("wallet review limit exceeds i64: {err}")))?;
+    let mut stmt = conn.prepare(
+        "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                r.source, r.evidence_key, r.wallet_ids_json, r.endpoint_summary_json, \
+                r.created_at \
+         FROM wallet_identity_review r \
+         JOIN wallets w ON w.wallet_id = r.wallet_id \
+         WHERE r.status = 'pending' \
+           AND r.created_at >= ?1 \
+         ORDER BY r.created_at DESC, r.id DESC \
+         LIMIT ?2",
+    )?;
+    let mut rows = stmt.query(params![cutoff, limit])?;
+    let mut summaries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let wallet_ids_json: String = row.get(7)?;
+        let endpoint_summary_json: String = row.get(8)?;
+        summaries.push(WalletReviewSummary {
+            id: row.get(0)?,
+            wallet_id: row.get(1)?,
+            display_name: row.get(2)?,
+            wallet_class: row.get(3)?,
+            class_confidence: row.get(4)?,
+            source: row.get(5)?,
+            evidence_key: row.get(6)?,
+            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
+            created_at: row.get(9)?,
+        });
+    }
+    Ok(summaries)
 }
 
 /// Returns pending wallet-identity review counts grouped by `source`.
