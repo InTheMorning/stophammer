@@ -123,6 +123,39 @@ pub fn format_source_count_summary<'a>(
     )
 }
 
+/// Formats a compact hint about high-confidence and blocked backlog share.
+#[must_use]
+pub fn format_confidence_band_hint<'a>(
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+) -> Option<String> {
+    let items = items
+        .into_iter()
+        .map(|(confidence, count)| (confidence.to_string(), count))
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return None;
+    }
+    let total: usize = items.iter().map(|(_, count)| *count).sum();
+    let high = items
+        .iter()
+        .find(|(confidence, _)| confidence == "high_confidence")
+        .map_or(0, |(_, count)| *count);
+    let blocked = items
+        .iter()
+        .find(|(confidence, _)| confidence == "blocked")
+        .map_or(0, |(_, count)| *count);
+    let mut parts = Vec::new();
+    if high > 0 {
+        let share = (high.saturating_mul(100)) / total.max(1);
+        parts.push(format!("HIGH={high}({share}%)"));
+    }
+    if blocked > 0 {
+        let share = (blocked.saturating_mul(100)) / total.max(1);
+        parts.push(format!("BLOCKED={blocked}({share}%)"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
 /// Formats the short badge text used for deterministic review confidence bands.
 #[must_use]
 pub fn review_confidence_badge(confidence: &str) -> &'static str {
@@ -341,6 +374,7 @@ pub struct ReviewPlaybookConfig<'a> {
 pub fn build_review_playbook_lines<'a>(
     total: usize,
     source_items: impl IntoIterator<Item = (&'a str, usize)>,
+    confidence_items: impl IntoIterator<Item = (&'a str, usize)>,
     hotspots: &[crate::db::PendingReviewFeedHotspot],
     config: ReviewPlaybookConfig<'_>,
     short_id: impl Fn(&str) -> String,
@@ -350,11 +384,28 @@ pub fn build_review_playbook_lines<'a>(
         .into_iter()
         .map(|(source, count)| (source.to_string(), count))
         .collect::<Vec<_>>();
+    let confidence_items = confidence_items
+        .into_iter()
+        .map(|(confidence, count)| (confidence.to_string(), count))
+        .collect::<Vec<_>>();
 
     let mut lines = vec![format!("Pending {}: {total}", config.review_label_plural)];
     if total == 0 {
         lines.push(config.backlog_idle_message.to_string());
         return lines;
+    }
+
+    if let Some((_, count)) = confidence_items
+        .iter()
+        .find(|(confidence, _)| confidence == "high_confidence")
+    {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        if *count > 0 {
+            lines.push(format!(
+                "0. High-confidence queue first: {count} {} ({share}% of backlog).",
+                config.review_label_plural
+            ));
+        }
     }
 
     if config.older_than_7d > 0 {

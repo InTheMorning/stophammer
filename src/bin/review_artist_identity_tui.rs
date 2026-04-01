@@ -122,12 +122,20 @@ impl App {
         self.reviews =
             stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?;
         let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
-        self.queue_summary = stophammer::tui::format_source_count_summary(
+        let confidence_summary =
+            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
+        let source_summary = stophammer::tui::format_source_count_summary(
             "artist reviews",
             summary
                 .iter()
                 .map(|item| (item.source.as_str(), item.count)),
         );
+        self.queue_summary = stophammer::tui::format_confidence_band_hint(
+            confidence_summary
+                .iter()
+                .map(|item| (item.confidence.as_str(), item.count)),
+        )
+        .map_or(source_summary.clone(), |hint| format!("{source_summary} | {hint}"));
         let review_idx = match preferred_review_id {
             Some(review_id) => self
                 .reviews
@@ -665,6 +673,8 @@ impl App {
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
         let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
+        let confidence_summary =
+            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
         let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
@@ -673,6 +683,9 @@ impl App {
             summary
                 .iter()
                 .map(|item| (item.source.as_str(), item.count)),
+            confidence_summary
+                .iter()
+                .map(|item| (item.confidence.as_str(), item.count)),
             &hotspots,
             stophammer::tui::ReviewPlaybookConfig {
                 review_label_plural: "artist reviews",
