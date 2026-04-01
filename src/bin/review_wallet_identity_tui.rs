@@ -1174,12 +1174,22 @@ impl App {
         if hotspots.is_empty() {
             lines.push("No feed hotspots with pending reviews".to_string());
         } else {
+            let total_hotspot_load: usize = hotspots
+                .iter()
+                .map(|feed| feed.total_review_count)
+                .sum();
             for feed in hotspots {
+                let share = if total_hotspot_load > 0 {
+                    (feed.total_review_count * 100) / total_hotspot_load
+                } else {
+                    0
+                };
                 lines.push(format!(
-                    "{} [{}] | total={} artist={} wallet={}",
+                    "{} [{}] | total={} ({}%) artist={} wallet={}",
                     feed.title,
                     short_id(&feed.feed_guid),
                     feed.total_review_count,
+                    share,
                     feed.artist_review_count,
                     feed.wallet_review_count
                 ));
