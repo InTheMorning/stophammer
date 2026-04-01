@@ -2282,11 +2282,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let task = Paragraph::new(build_task_text(app))
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(stophammer::tui::styled_title(&task_title, Color::Cyan)),
-        )
+        .block(stophammer::tui::titled_block(
+            &task_title,
+            Color::Cyan,
+            false,
+            Style::default(),
+        ))
         .wrap(Wrap { trim: false });
     frame.render_widget(task, center[0]);
 
@@ -2310,11 +2311,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         app.source_wallet_detail.as_ref(),
         &app.claim_feeds,
     )))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(stophammer::tui::styled_title(&source_title, Color::Green)),
-    )
+    .block(stophammer::tui::titled_block(
+        &source_title,
+        Color::Green,
+        false,
+        Style::default(),
+    ))
     .wrap(Wrap { trim: false });
     frame.render_widget(source_card, compare[0]);
 
@@ -2333,11 +2335,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         app.candidate_wallet_detail.as_ref(),
         &app.candidate_claim_feeds,
     )))
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(stophammer::tui::styled_title(&candidate_title, Color::Yellow)),
-    )
+    .block(stophammer::tui::titled_block(
+        &candidate_title,
+        Color::Yellow,
+        false,
+        Style::default(),
+    ))
     .wrap(Wrap { trim: false });
     frame.render_widget(candidate_card, compare[1]);
 
@@ -2373,13 +2376,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let source_list = List::new(source_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(stophammer::tui::styled_title(&source_list_title, Color::Green))
-                .border_style(stophammer::tui::block_style(app.focus == Focus::SourceWallets))
-                .border_type(stophammer::tui::block_border_type(app.focus == Focus::SourceWallets)),
-        )
+        .block(stophammer::tui::titled_block(
+            &source_list_title,
+            Color::Green,
+            app.focus == Focus::SourceWallets,
+            Style::default(),
+        ))
         .highlight_style(
             Style::default()
                 .bg(Color::Green)
@@ -2418,13 +2420,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let candidate_list = List::new(candidate_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(stophammer::tui::styled_title(&candidate_list_title, Color::Yellow))
-                .border_style(stophammer::tui::block_style(app.focus == Focus::Candidates))
-                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Candidates)),
-        )
+        .block(stophammer::tui::titled_block(
+            &candidate_list_title,
+            Color::Yellow,
+            app.focus == Focus::Candidates,
+            Style::default(),
+        ))
         .highlight_style(
             Style::default()
                 .bg(Color::Yellow)
@@ -2469,13 +2470,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let feed_list = List::new(feed_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(stophammer::tui::styled_title(&feed_list_title, Color::Cyan))
-                .border_style(stophammer::tui::block_style(app.focus == Focus::Feeds))
-                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Feeds)),
-        )
+        .block(stophammer::tui::titled_block(
+            &feed_list_title,
+            Color::Cyan,
+            app.focus == Focus::Feeds,
+            Style::default(),
+        ))
         .highlight_style(
             Style::default()
                 .bg(Color::Cyan)
@@ -2515,29 +2515,20 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         })
         .collect::<Vec<_>>();
     let evidence_list = List::new(evidence_items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(stophammer::tui::styled_title(
-                    &app.current_feed().map_or_else(
-                        || "Evidence".to_string(),
-                        |feed| {
-                            app.current_source_review().map_or_else(
-                                || format!("Evidence {}", feed.title),
-                                |review| {
-                                    format!(
-                                        "Evidence {} (#{} {})",
-                                        feed.title, review.id, review.source
-                                    )
-                                },
-                            )
-                        },
-                    ),
-                    Color::Magenta,
-                ))
-                .border_style(stophammer::tui::block_style(app.focus == Focus::Evidence))
-                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Evidence)),
-        )
+        .block(stophammer::tui::titled_block(
+            &app.current_feed().map_or_else(
+                || "Evidence".to_string(),
+                |feed| {
+                    app.current_source_review().map_or_else(
+                        || format!("Evidence {}", feed.title),
+                        |review| format!("Evidence {} (#{} {})", feed.title, review.id, review.source),
+                    )
+                },
+            ),
+            Color::Magenta,
+            app.focus == Focus::Evidence,
+            Style::default(),
+        ))
         .highlight_style(
             Style::default()
                 .bg(Color::Magenta)
