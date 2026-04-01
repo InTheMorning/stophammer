@@ -2392,7 +2392,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     let task_title = app.current_group().map_or_else(
         || "Task".to_string(),
-        |group| format!("Task ({})", group.source),
+        |group| {
+            let review_id = group.reviews.first().map_or(0, |review| review.id);
+            format!("Task #{} ({})", review_id, group.source)
+        },
     );
     let task = Paragraph::new(build_task_text(app))
         .block(
@@ -2459,7 +2462,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     };
     let source_list_title = app.current_group().map_or_else(
         || "Choose Main Wallet".to_string(),
-        |group| format!("Choose Main Wallet ({})", group.source),
+        |group| {
+            let review_id = group.reviews.first().map_or(0, |review| review.id);
+            format!("Choose Main Wallet #{} ({})", review_id, group.source)
+        },
     );
     let source_list = List::new(source_items)
         .block(
@@ -2495,11 +2501,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             })
             .collect::<Vec<_>>()
     };
+    let candidate_list_title = app.current_source_review().map_or_else(
+        || "Choose Wallet To Merge [ / ]".to_string(),
+        |review| format!("Choose Wallet To Merge [ / ] #{}", review.id),
+    );
     let candidate_list = List::new(candidate_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title("Choose Wallet To Merge [ / ]", Color::Yellow))
+                .title(styled_title(&candidate_list_title, Color::Yellow))
                 .border_style(block_style(app.focus == Focus::Candidates))
                 .border_type(block_border_type(app.focus == Focus::Candidates)),
         )
