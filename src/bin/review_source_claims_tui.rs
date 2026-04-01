@@ -283,6 +283,10 @@ fn current_feed_family_position_label(app: &App) -> String {
     )
 }
 
+fn current_feed_family_header_label(app: &App) -> Option<String> {
+    current_family_position(app).map(|(label, position, total)| format!("family {label} {position}/{total}"))
+}
+
 fn current_feed_family_cluster_label(app: &App) -> String {
     feed_family_subset_summary(&app.feeds).unwrap_or_else(|| "none".to_string())
 }
@@ -339,6 +343,49 @@ fn current_track_family_position_label(app: &App) -> String {
 fn current_track_family_header_label(app: &App) -> Option<String> {
     current_track_family_position(app)
         .map(|(label, position, total)| format!("track-family {label} {position}/{total}"))
+}
+
+fn feed_pane_title(app: &App) -> String {
+    if app.feeds.is_empty() {
+        "Feeds".to_string()
+    } else {
+        let position = app.feed_state.selected().unwrap_or(0).saturating_add(1);
+        current_family_position(app).map_or_else(
+            || format!("Feeds ({position}/{})", app.feeds.len()),
+            |(label, family_position, family_total)| {
+                let cluster = feed_family_subset_short_summary(&app.feeds)
+                    .map_or_else(String::new, |summary| format!(", {summary}"));
+                format!(
+                    "Feeds ({position}/{}, {label} {family_position}/{family_total}{cluster})",
+                    app.feeds.len(),
+                )
+            },
+        )
+    }
+}
+
+fn track_pane_title(app: &App) -> String {
+    app.current_snapshot().map_or_else(
+        || "Tracks".to_string(),
+        |snapshot| {
+            if snapshot.tracks.is_empty() {
+                "Tracks (0)".to_string()
+            } else {
+                let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
+                let subset = track_family_subset_short_summary(snapshot)
+                    .unwrap_or_else(|| "no-track-family".to_string());
+                current_track_family_position(app).map_or_else(
+                    || format!("Tracks ({position}/{})", snapshot.tracks.len()),
+                    |(label, family_position, family_total)| {
+                        format!(
+                            "Tracks ({position}/{}, {label} {family_position}/{family_total}, {subset})",
+                            snapshot.tracks.len(),
+                        )
+                    },
+                )
+            }
+        },
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2128,10 +2175,10 @@ fn header_context_line(app: &App) -> Line<'static> {
             ),
             Style::default().fg(Color::White),
         ));
-        if let Some((label, position, total)) = current_family_position(app) {
+        if let Some(summary) = current_feed_family_header_label(app) {
             spans.push(Span::raw("  "));
             spans.push(Span::styled(
-                format!("family {label} {position}/{total}"),
+                summary,
                 Style::default().fg(Color::DarkGray),
             ));
         }
@@ -2209,22 +2256,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     ])
     .split(layout[1]);
 
-    let feed_title = if app.feeds.is_empty() {
-        "Feeds".to_string()
-    } else {
-        let position = app.feed_state.selected().unwrap_or(0).saturating_add(1);
-        current_family_position(app).map_or_else(
-            || format!("Feeds ({position}/{})", app.feeds.len()),
-            |(label, family_position, family_total)| {
-                let cluster = feed_family_subset_short_summary(&app.feeds)
-                    .map_or_else(String::new, |summary| format!(", {summary}"));
-                format!(
-                    "Feeds ({position}/{}, {label} {family_position}/{family_total}{cluster})",
-                    app.feeds.len(),
-                )
-            },
-        )
-    };
+    let feed_title = feed_pane_title(app);
     let feed_list = List::new(build_feed_items(app))
         .block(stophammer::tui::titled_block(
             &feed_title,
@@ -2241,27 +2273,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .highlight_symbol(">> ");
     frame.render_stateful_widget(feed_list, body[0], &mut app.feed_state);
 
-    let track_title = app.current_snapshot().map_or_else(
-        || "Tracks".to_string(),
-        |snapshot| {
-            if snapshot.tracks.is_empty() {
-                "Tracks (0)".to_string()
-            } else {
-                let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
-                let subset = track_family_subset_short_summary(snapshot)
-                    .unwrap_or_else(|| "no-track-family".to_string());
-                current_track_family_position(app).map_or_else(
-                    || format!("Tracks ({position}/{})", snapshot.tracks.len()),
-                    |(label, family_position, family_total)| {
-                        format!(
-                            "Tracks ({position}/{}, {label} {family_position}/{family_total}, {subset})",
-                            snapshot.tracks.len(),
-                        )
-                    },
-                )
-            }
-        },
-    );
+    let track_title = track_pane_title(app);
     let track_list = List::new(build_track_items(app))
         .block(stophammer::tui::titled_block(
             &track_title,
