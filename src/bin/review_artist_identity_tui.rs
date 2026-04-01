@@ -1368,9 +1368,13 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     ])
     .split(layout[1]);
 
+    let review_title = app.current_pending_review().map_or_else(
+        || "Pending Artist Reviews".to_string(),
+        |review| format!("Pending Artist Reviews ({})", review.source),
+    );
     let review_list = List::new(build_review_items(app))
         .block(focus_block(
-            "Pending Artist Reviews",
+            &review_title,
             app.focus == Focus::Reviews,
             Color::Cyan,
         ))

@@ -2347,11 +2347,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             ])
         })
         .collect::<Vec<_>>();
+    let group_title = app.current_group().map_or_else(
+        || format!("Review Groups ({})", app.groups.len()),
+        |group| format!("Review Groups ({}) - {}", app.groups.len(), group.source),
+    );
     let group_list = List::new(group_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(format!("Review Groups ({})", app.groups.len()))
+                .title(group_title)
                 .border_style(block_style(app.focus == Focus::Groups))
                 .border_type(block_border_type(app.focus == Focus::Groups)),
         )
