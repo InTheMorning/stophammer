@@ -2103,6 +2103,10 @@ fn header_context_line(app: &App) -> Line<'static> {
                 Style::default().fg(Color::DarkGray),
             ));
         }
+        if let Some(summary) = feed_family_subset_short_summary(&app.feeds) {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(summary, Style::default().fg(Color::DarkGray)));
+        }
     }
 
     if let Some(snapshot) = app.current_snapshot()
