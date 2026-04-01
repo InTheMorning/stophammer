@@ -1141,15 +1141,17 @@ impl App {
         if hotspots.is_empty() {
             lines.push("No feed hotspots with pending reviews".to_string());
         } else {
-            lines.extend(hotspots.into_iter().map(|feed| {
-                format!(
-                    "{} | total={} artist={} wallet={}",
+            for feed in hotspots {
+                lines.push(format!(
+                    "{} [{}] | total={} artist={} wallet={}",
                     feed.title,
+                    short_id(&feed.feed_guid),
                     feed.total_review_count,
                     feed.artist_review_count,
                     feed.wallet_review_count
-                )
-            }));
+                ));
+                lines.push(format!("  {}", abbreviate(&feed.feed_url, 72)));
+            }
         }
         self.dialog = Some(SummaryDialog {
             title: "Feed Hotspots".to_string(),
