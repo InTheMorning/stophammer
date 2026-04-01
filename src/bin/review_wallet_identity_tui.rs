@@ -2349,7 +2349,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .collect::<Vec<_>>();
     let group_title = app.current_group().map_or_else(
         || format!("Review Groups ({})", app.groups.len()),
-        |group| format!("Review Groups ({}) - {}", app.groups.len(), group.source),
+        |group| {
+            let position = app.selected_group.saturating_add(1);
+            format!(
+                "Review Groups ({}/{}) - {}",
+                position,
+                app.groups.len(),
+                group.source
+            )
+        },
     );
     let group_list = List::new(group_items)
         .block(

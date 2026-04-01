@@ -1370,7 +1370,18 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     let review_title = app.current_pending_review().map_or_else(
         || "Pending Artist Reviews".to_string(),
-        |review| format!("Pending Artist Reviews ({})", review.source),
+        |review| {
+            let position = app
+                .review_state
+                .selected()
+                .map_or(0, |idx| idx.saturating_add(1));
+            format!(
+                "Pending Artist Reviews ({}/{}, {})",
+                position,
+                app.reviews.len(),
+                review.source
+            )
+        },
     );
     let review_list = List::new(build_review_items(app))
         .block(focus_block(
