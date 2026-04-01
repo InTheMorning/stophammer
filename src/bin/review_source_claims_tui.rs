@@ -2131,12 +2131,21 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let evidence_title = app.current_feed_row().map_or_else(
         || "Evidence".to_string(),
         |feed| {
+            let track_summary = app.current_snapshot().and_then(|snapshot| {
+                app.current_track().map(|track| {
+                    format!(
+                        "track {}",
+                        dominant_track_claim_family_summary(snapshot, &track.track_guid)
+                    )
+                })
+            });
             format!(
-                "Evidence {} (claims={} resolved={} {})",
+                "Evidence {} (claims={} resolved={} {}{})",
                 feed.title,
                 feed.source_claim_count,
                 feed.resolved_count,
-                dominant_feed_claim_family_summary(feed)
+                dominant_feed_claim_family_summary(feed),
+                track_summary.map_or_else(String::new, |summary| format!(" · {summary}"))
             )
         },
     );
