@@ -124,8 +124,10 @@ impl App {
     ) -> Result<(), Box<dyn Error>> {
         self.reviews =
             stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?;
-        self.queue_summary = format_artist_review_summary(
-            &stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?,
+        let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
+        self.queue_summary = stophammer::tui::format_source_count_summary(
+            "artist reviews",
+            summary.iter().map(|item| (item.source.as_str(), item.count)),
         );
         let review_idx = match preferred_review_id {
             Some(review_id) => self
@@ -1440,15 +1442,6 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(dialog) = &app.dialog {
         stophammer::tui::render_text_dialog(frame, area, dialog);
     }
-}
-
-fn format_artist_review_summary(
-    summary: &[stophammer::db::ArtistIdentityPendingReviewSummary],
-) -> String {
-    stophammer::tui::format_source_count_summary(
-        "artist reviews",
-        summary.iter().map(|item| (item.source.as_str(), item.count)),
-    )
 }
 
 fn artist_source_family_position(app: &App) -> Option<(usize, usize)> {

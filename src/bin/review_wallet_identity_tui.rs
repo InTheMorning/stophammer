@@ -453,8 +453,10 @@ impl App {
     fn reload(&mut self) -> Result<(), Box<dyn Error>> {
         let selection = self.capture_reload_selection();
         let reviews = stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?;
-        self.queue_summary = format_wallet_review_summary(
-            &stophammer::db::summarize_pending_wallet_reviews(&self.conn)?,
+        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
+        self.queue_summary = stophammer::tui::format_source_count_summary(
+            "wallet reviews",
+            summary.iter().map(|item| (item.source.as_str(), item.count)),
         );
         self.groups = self.prune_review_groups(group_reviews(reviews))?;
         self.selected_group = selection
@@ -2632,13 +2634,6 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     if let Some(dialog) = &app.dialog {
         stophammer::tui::render_text_dialog(frame, frame.area(), dialog);
     }
-}
-
-fn format_wallet_review_summary(summary: &[stophammer::db::WalletPendingReviewSummary]) -> String {
-    stophammer::tui::format_source_count_summary(
-        "wallet reviews",
-        summary.iter().map(|item| (item.source.as_str(), item.count)),
-    )
 }
 
 fn run_app(
