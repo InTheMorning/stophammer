@@ -453,11 +453,14 @@ Guardrails:
 Status:
 
 - first review-first scored source is now live as `likely_same_artist`
+- wallet-side review-first scored source is now live as `likely_wallet_owner_match`
 - current implementation is intentionally narrow:
   - same feed only
   - requires at least two agreeing evidence families among feed/track credit
     variants, contributor variants, and wallet-name variants
   - still writes a normal pending artist review item, never an automatic merge
+  - wallet-side source requires same normalized alias plus shared-feed evidence,
+    and still writes a normal pending wallet review item, never an automatic merge
 
 Success criteria:
 

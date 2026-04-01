@@ -1767,6 +1767,20 @@ Returns the current pending wallet-identity review queue.
 {
   "reviews": [
     {
+      "id": 76,
+      "wallet_id": "wallet-id",
+      "display_name": "Shared Wallet Alias",
+      "wallet_class": "unknown",
+      "class_confidence": "provisional",
+      "source": "likely_wallet_owner_match",
+      "confidence": "high_confidence",
+      "explanation": "Multiple wallets share the same normalized alias and also appear on the same feed, so they likely belong to one owner but still require review.",
+      "evidence_key": "shared wallet alias:feed-guid",
+      "wallet_ids": ["wallet-a", "wallet-b"],
+      "endpoint_summary": [],
+      "created_at": 1710288000
+    },
+    {
       "id": 77,
       "wallet_id": "wallet-id",
       "display_name": "Shared Wallet Alias",
@@ -1788,6 +1802,11 @@ Each pending wallet review also includes:
 
 - `confidence`
 - `explanation`
+
+Current wallet review sources include:
+
+- `cross_wallet_alias`
+- `likely_wallet_owner_match`
 
 ### GET /admin/wallet-identity/reviews/pending/stale
 

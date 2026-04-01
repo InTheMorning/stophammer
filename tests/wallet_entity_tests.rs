@@ -1164,6 +1164,61 @@ fn review_items_created_for_cross_wallet_aliases() {
 }
 
 #[test]
+fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
+    let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
+
+    let ep_a = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-a",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let ep_b = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-b",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
+
+    let _wallet_a = db::create_provisional_wallet(&conn, ep_a, now).unwrap();
+    let _wallet_b = db::create_provisional_wallet(&conn, ep_b, now).unwrap();
+
+    let created = db::generate_wallet_review_items(&conn).unwrap();
+    assert!(
+        created >= 4,
+        "two same-alias wallets on one feed should produce both cross_wallet_alias and likely_wallet_owner_match reviews"
+    );
+
+    let sources = db::list_pending_wallet_reviews(&conn, 10)
+        .unwrap()
+        .into_iter()
+        .map(|review| (review.source, review.confidence, review.explanation))
+        .collect::<Vec<_>>();
+    assert!(
+        sources.iter().any(|(source, confidence, explanation)| {
+            source == "likely_wallet_owner_match"
+                && confidence == "high_confidence"
+                && explanation.contains("appear on the same feed")
+        }),
+        "same-feed alias overlap should create a high-confidence likely_wallet_owner_match review"
+    );
+}
+
+#[test]
 fn wallet_claim_feeds_include_routes_and_source_claims() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);

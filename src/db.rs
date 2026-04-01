@@ -5312,14 +5312,19 @@ fn artist_identity_review_explanation(source: &str) -> &'static str {
 }
 
 fn wallet_review_confidence(source: &str) -> &'static str {
-    let _ = source;
-    "review_required"
+    match source {
+        "likely_wallet_owner_match" => "high_confidence",
+        _ => "review_required",
+    }
 }
 
 fn wallet_review_explanation(source: &str) -> &'static str {
     match source {
         "cross_wallet_alias" => {
             "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
+        }
+        "likely_wallet_owner_match" => {
+            "Multiple wallets share the same normalized alias and also appear on the same feed, so they likely belong to one owner but still require review."
         }
         _ => {
             "This wallet review source requires operator confirmation before identity state changes."
@@ -12116,6 +12121,40 @@ fn insert_cross_wallet_alias_review(
     Ok(true)
 }
 
+fn insert_likely_wallet_owner_match_review(
+    conn: &Connection,
+    wallet_id: &str,
+    alias: &str,
+    feed_guid: &str,
+    related_wallet_ids: &[String],
+    now: i64,
+) -> Result<bool, DbError> {
+    let evidence_key = format!("{alias}:{feed_guid}");
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
+         WHERE wallet_id = ?1 AND source = 'likely_wallet_owner_match' AND evidence_key = ?2)",
+        params![wallet_id, evidence_key],
+        |r| r.get(0),
+    )?;
+    if exists {
+        return Ok(false);
+    }
+
+    conn.execute(
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'likely_wallet_owner_match', ?2, ?3, ?4, 'pending', ?5, ?5)",
+        params![
+            wallet_id,
+            evidence_key,
+            serde_json::to_string(related_wallet_ids)?,
+            serde_json::to_string(&get_wallet_endpoint_preview(conn, wallet_id, 3)?)?,
+            now,
+        ],
+    )?;
+    Ok(true)
+}
+
 pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError> {
     let now = unix_now();
     let mut created = 0;
@@ -12143,6 +12182,49 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
             .collect::<Vec<_>>();
         for wallet_id in &wallet_ids {
             if insert_cross_wallet_alias_review(conn, wallet_id, &alias, &wallet_ids, now)? {
+                created += 1;
+            }
+        }
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT wa.alias_lower, prf.feed_guid, GROUP_CONCAT(DISTINCT we.wallet_id) AS wallet_ids \
+         FROM wallet_aliases wa \
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+         JOIN ( \
+             SELECT wtrm.endpoint_id, pr.feed_guid \
+             FROM wallet_track_route_map wtrm \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             UNION ALL \
+             SELECT wfrm.endpoint_id, fpr.feed_guid \
+             FROM wallet_feed_route_map wfrm \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+         ) prf ON prf.endpoint_id = we.id \
+         WHERE we.wallet_id IS NOT NULL \
+         GROUP BY wa.alias_lower, prf.feed_guid \
+         HAVING COUNT(DISTINCT we.wallet_id) > 1",
+    )?;
+
+    let rows: Vec<(String, String, String)> = stmt
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+
+    for (alias, feed_guid, wallet_ids_str) in rows {
+        let wallet_ids = wallet_ids_str
+            .split(',')
+            .map(str::trim)
+            .filter(|wallet_id| !wallet_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        for wallet_id in &wallet_ids {
+            if insert_likely_wallet_owner_match_review(
+                conn,
+                wallet_id,
+                &alias,
+                &feed_guid,
+                &wallet_ids,
+                now,
+            )? {
                 created += 1;
             }
         }
@@ -12238,6 +12320,11 @@ fn generate_wallet_review_items_for_feed(
             .collect::<Vec<_>>();
         for wid in &wallet_ids {
             if insert_cross_wallet_alias_review(conn, wid, &alias, &wallet_ids, now)? {
+                created += 1;
+            }
+            if insert_likely_wallet_owner_match_review(
+                conn, wid, &alias, feed_guid, &wallet_ids, now,
+            )? {
                 created += 1;
             }
         }
