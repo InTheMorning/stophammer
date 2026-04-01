@@ -1580,6 +1580,70 @@ Adds an alias to an artist (used for fuzzy matching during artist resolution).
 
 ---
 
+### POST /admin/artist-identity/reviews/{id}/resolve
+
+Applies one durable action to an artist-identity review item, then reruns the
+feed-scoped artist resolver for that review's feed so the stored review state
+converges immediately.
+
+Supported actions:
+
+- `merge` — requires `target_artist_id`
+- `do_not_merge` — must not include `target_artist_id`
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Request body:**
+
+```json
+{
+  "action": "merge",
+  "target_artist_id": "uuid-to-keep",
+  "note": "operator rationale"
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "review": {
+    "review_id": 123,
+    "feed_guid": "feed-guid",
+    "source": "track_feed_name_variant",
+    "name_key": "heycitizen",
+    "evidence_key": "feed-guid",
+    "status": "merged",
+    "artist_ids": ["uuid-a", "uuid-b"],
+    "artist_names": ["HeyCitizen", "Hey Citizen"],
+    "override_type": "merge",
+    "target_artist_id": "uuid-to-keep",
+    "note": "operator rationale",
+    "created_at": 1710288000,
+    "updated_at": 1710288015
+  },
+  "resolve_stats": {
+    "seed_artists": 2,
+    "candidate_groups": 1,
+    "groups_processed": 1,
+    "merges_applied": 1,
+    "merge_events_emitted": 0,
+    "pending_reviews": 0,
+    "blocked_reviews": 0
+  }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Review action stored and feed-scoped resolver rerun |
+| 400  | Unsupported action, or invalid `target_artist_id` usage for the chosen action |
+| 403  | Invalid or missing `X-Admin-Token` |
+| 404  | Review item not found |
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.

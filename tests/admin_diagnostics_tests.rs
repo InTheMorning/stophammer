@@ -138,13 +138,25 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         json["tracks"][0]["artist_credit"]["display_name"],
         "Hey Citizen"
     );
-    assert_eq!(
-        json["artist_identity_plan"]["candidate_groups"][0]["source"],
-        "wallet_name_variant"
+    let candidate_sources = json["artist_identity_plan"]["candidate_groups"]
+        .as_array()
+        .expect("candidate_groups array")
+        .iter()
+        .filter_map(|group| group["source"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        candidate_sources.contains(&"wallet_name_variant"),
+        "wallet_name_variant should appear among candidate groups"
     );
-    assert_eq!(
-        json["artist_identity_reviews"][0]["source"],
-        "wallet_name_variant"
+    let review_sources = json["artist_identity_reviews"]
+        .as_array()
+        .expect("artist_identity_reviews array")
+        .iter()
+        .filter_map(|review| review["source"].as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        review_sources.contains(&"wallet_name_variant"),
+        "wallet_name_variant should appear among stored review items"
     );
     assert_eq!(
         json["wallets"][0]["wallet"]["artist_links"][0]["confidence"],
@@ -337,6 +349,111 @@ async fn admin_artist_diagnostics_exposes_unlinked_feed_wallets() {
     assert_eq!(
         json["unlinked_feed_wallets"][0]["claim_feed"]["feed_guid"],
         "feed-artist-unlinked-wallet"
+    );
+}
+
+#[tokio::test]
+async fn admin_artist_review_resolution_endpoint_applies_merge_override() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    let (review_id, canonical_artist_id) = {
+        let mut conn = db.lock().expect("lock db");
+
+        let canonical =
+            stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-admin-review-action"))
+                .expect("canonical artist");
+        let canonical_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &canonical.name,
+            &[(
+                canonical.artist_id.clone(),
+                canonical.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-review-action"),
+        )
+        .expect("canonical credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-admin-review-action', 'https://example.com/admin-review-action.xml', 'Admin Review Action', 'admin review action', ?1, ?2, ?2)",
+            params![canonical_credit.id, now],
+        )
+        .expect("insert feed");
+
+        let variant =
+            stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-admin-review-action"))
+                .expect("variant artist");
+        let variant_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &variant.name,
+            &[(
+                variant.artist_id.clone(),
+                variant.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-review-action"),
+        )
+        .expect("variant credit");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-admin-review-action', 'feed-admin-review-action', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+            params![variant_credit.id, now],
+        )
+        .expect("insert track");
+
+        let stats =
+            stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-admin-review-action")
+                .expect("resolve artist identity");
+        assert_eq!(stats.pending_reviews, 1, "expected one pending review");
+        let review = stophammer::db::list_artist_identity_reviews_for_feed(
+            &conn,
+            "feed-admin-review-action",
+        )
+        .expect("list reviews")
+        .into_iter()
+        .find(|review| review.source == "track_feed_name_variant")
+        .expect("track_feed_name_variant review");
+        (review.review_id, canonical.artist_id)
+    };
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-review-resolution.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let body = serde_json::json!({
+        "action": "merge",
+        "target_artist_id": canonical_artist_id,
+        "note": "merge feed/track variant"
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/admin/artist-identity/reviews/{review_id}/resolve"
+                ))
+                .header("Content-Type", "application/json")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::from(serde_json::to_vec(&body).expect("serialize")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["review"]["review_id"], review_id);
+    assert_eq!(json["review"]["status"], "merged");
+    assert_eq!(json["review"]["override_type"], "merge");
+    assert_eq!(json["review"]["target_artist_id"], canonical_artist_id);
+    assert_eq!(json["review"]["note"], "merge feed/track variant");
+    assert!(
+        json["resolve_stats"]["merges_applied"]
+            .as_u64()
+            .expect("merges_applied u64")
+            >= 1,
+        "merge action should cause at least one merge during the follow-up resolver pass"
     );
 }
 

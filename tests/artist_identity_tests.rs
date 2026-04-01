@@ -1630,14 +1630,26 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
         stats.merges_applied, 0,
         "wallet-based name variants should raise review, not auto-merge"
     );
-    assert_eq!(
-        stats.pending_reviews, 1,
-        "wallet-based name variants should create one pending review"
+    assert!(
+        stats.pending_reviews >= 1,
+        "wallet-based name variants should create at least one pending review"
     );
 
     let reviews =
         stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-wallet-variant")
             .expect("list reviews");
+    let review_sources = reviews
+        .iter()
+        .map(|review| review.source.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        review_sources.contains("wallet_name_variant"),
+        "wallet_name_variant review should be present"
+    );
+    assert!(
+        review_sources.contains("track_feed_name_variant"),
+        "track_feed_name_variant review should also be present for the same feed"
+    );
     let review = reviews
         .iter()
         .find(|review| review.source == "wallet_name_variant")
@@ -1654,6 +1666,87 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
     assert_eq!(
         review_artist_ids, expected_artist_ids,
         "review should include both canonical and variant artist ids"
+    );
+}
+
+#[test]
+fn track_feed_name_variants_raise_review_without_wallet_evidence() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-track-feed-variant"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-feed-variant"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-track-feed-variant', 'https://example.com/track-feed-variant.xml', 'Track Feed Variant', 'track feed variant', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-track-feed-variant"))
+            .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-feed-variant"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-track-feed-variant', 'feed-track-feed-variant', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-track-feed-variant")
+            .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "track/feed name variants should raise review, not auto-merge"
+    );
+    assert_eq!(
+        stats.pending_reviews, 1,
+        "track/feed name variants should create one pending review"
+    );
+
+    let reviews =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-track-feed-variant")
+            .expect("list reviews");
+    let review = reviews
+        .iter()
+        .find(|review| review.source == "track_feed_name_variant")
+        .expect("track_feed_name_variant review");
+    assert_eq!(review.name_key, "heycitizen");
+    let review_artist_ids = review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [canonical.artist_id.clone(), variant.artist_id.clone()]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "review should include both feed and track artist ids"
     );
 }
 

@@ -263,13 +263,21 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "search for 'Golden' should return at least one result"
     );
 
-    // Default search is canonical-first and should not surface source feeds.
+    // Default search now includes feeds alongside canonical artist/release/
+    // recording rows.
     assert!(search_data.iter().all(|r| {
         matches!(
             r["entity_type"].as_str(),
-            Some("artist" | "release" | "recording")
+            Some("artist" | "release" | "recording" | "feed")
         )
     }));
+    let default_feed_hit = search_data.iter().find(|r| {
+        r["entity_type"].as_str() == Some("feed") && r["entity_id"].as_str() == Some(feed_guid)
+    });
+    assert!(
+        default_feed_hit.is_some(),
+        "default search results should include the feed with entity_type='feed' and entity_id='{feed_guid}'"
+    );
 
     // Explicit feed search should still surface the source feed hit.
     let resp = app

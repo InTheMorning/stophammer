@@ -1338,6 +1338,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/admin/artists/merge", post(handle_admin_merge_artists))
         .route("/admin/artists/alias", post(handle_admin_add_alias))
         .route(
+            "/admin/artist-identity/reviews/{id}/resolve",
+            post(handle_admin_resolve_artist_identity_review),
+        )
+        .route(
             "/v1/diagnostics/feeds/{guid}",
             get(handle_admin_feed_diagnostics),
         )
@@ -3109,6 +3113,21 @@ struct AddAliasResponse {
     ok: bool,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResolveArtistIdentityReviewRequest {
+    action: String,
+    #[serde(default)]
+    target_artist_id: Option<String>,
+    #[serde(default)]
+    note: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ResolveArtistIdentityReviewResponse {
+    review: db::ArtistIdentityReviewItem,
+    resolve_stats: db::ArtistIdentityResolveStats,
+}
+
 #[derive(Debug, Serialize)]
 struct AdminCreditNameResponse {
     artist_id: String,
@@ -3510,6 +3529,69 @@ async fn handle_admin_add_alias(
     .await?;
 
     Ok(Json(result))
+}
+
+async fn handle_admin_resolve_artist_identity_review(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(req): Json<ResolveArtistIdentityReviewRequest>,
+) -> Result<Json<ResolveArtistIdentityReviewResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    match req.action.as_str() {
+        "merge" if req.target_artist_id.is_none() => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "merge action requires target_artist_id".into(),
+                www_authenticate: None,
+            });
+        }
+        "do_not_merge" if req.target_artist_id.is_some() => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "do_not_merge action must not include target_artist_id".into(),
+                www_authenticate: None,
+            });
+        }
+        "merge" | "do_not_merge" => {}
+        other => {
+            return Err(ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!("unsupported artist identity review action: {other}"),
+                www_authenticate: None,
+            });
+        }
+    }
+
+    let action = req.action;
+    let target_artist_id = req.target_artist_id;
+    let note = req.note;
+    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+        let Some(_review) = db::get_artist_identity_review(conn, id)? else {
+            return Ok(None);
+        };
+        let outcome = db::apply_artist_identity_review_action(
+            conn,
+            id,
+            &action,
+            target_artist_id.as_deref(),
+            note.as_deref(),
+        )?;
+        Ok(Some(outcome))
+    })
+    .await?;
+
+    let outcome = outcome.ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("artist identity review {id} not found"),
+        www_authenticate: None,
+    })?;
+
+    Ok(Json(ResolveArtistIdentityReviewResponse {
+        review: outcome.review,
+        resolve_stats: outcome.resolve_stats,
+    }))
 }
 
 async fn handle_admin_feed_diagnostics(

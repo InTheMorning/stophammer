@@ -97,16 +97,18 @@ Remaining:
 - confirm TUI tools read the same override tables the resolver writes (no
   shadow state)
 
-Exit gate:
+Exit gate (on a real corpus, not just tests):
 
-- all three success criteria below are met on a real corpus, not just in tests
+Run `stophammer-resolverctl re-resolve` against the production database and
+confirm all of the following:
 
-Success criteria:
-
-- a full `re-resolve` can visibly produce artist and wallet review items
-- diagnostics, CLI, and TUI agree about pending review counts
-- operator no longer has to guess whether "nothing happened" means "nothing was
-  found" or "nothing was surfaced"
+- `resolverctl status` shows non-zero `review_artist_identity_pending` AND
+  non-zero `review_wallet_pending`
+- both TUIs can list and inspect the review items those counts reflect
+- no review item exists that is visible in a TUI but invisible in
+  `resolverctl status` or the diagnostics API (no shadow state)
+- the batch-completed log for the re-resolve run reports non-zero
+  `artist_candidate_groups` and `wallet_review_items_created`
 
 ## Phase 1: Normalize Review State
 
@@ -141,27 +143,45 @@ TUI impact:
 - a review item shown in a TUI must map directly to something the API can also
   return
 
-Current schema divergence:
+Schema target:
 
-The two review tables have diverged structurally and must be reconciled before
-this phase can proceed:
+The artist pattern is the reference. `wallet_identity_review` aligns to it.
+No polymorphic union table — the two domains have different entity keys and
+JSON shapes, so they stay as separate tables with a shared column contract.
 
-- `artist_identity_review`: has `source`, `name_key`, `evidence_key`,
-  `artist_ids_json`, `artist_names_json`, status with 4 states
-  (`pending`/`merged`/`blocked`/`resolved`)
-- `wallet_identity_review`: has `review_type`, generic `details` text blob,
-  no `evidence_key`, no entity-specific JSON, status with 3 states
-  (`pending`/`resolved`/`blocked` — no `merged`)
+Shared columns (both tables):
 
-Likely direction: align `wallet_identity_review` toward the artist pattern
-(add `source`, `evidence_key`, entity-specific JSON columns) rather than
-creating a single polymorphic table. The wallet table's current `details` text
-blob should become structured.
+| Column | Type | Notes |
+|--------|------|-------|
+| `source` | TEXT NOT NULL | which heuristic created the item |
+| `evidence_key` | TEXT NOT NULL | specific evidence that triggered it |
+| `status` | TEXT NOT NULL | `pending` / `merged` / `blocked` / `resolved` |
+| `created_at` | INTEGER NOT NULL | epoch seconds |
+| `updated_at` | INTEGER NOT NULL | epoch seconds, replaces wallet's `resolved_at` |
+
+Entity-specific columns:
+
+- artist: `feed_guid`, `name_key`, `artist_ids_json`, `artist_names_json`
+- wallet: `wallet_id`, `wallet_ids_json`, `endpoint_summary_json`
+
+Migration path for `wallet_identity_review`:
+
+- rename `review_type` → `source`
+- add `evidence_key` (NOT NULL, populate from existing `review_type` +
+  `wallet_id` for legacy rows)
+- replace `details` text blob with `wallet_ids_json` (array of wallet IDs
+  involved) and `endpoint_summary_json` (structured endpoint evidence)
+- add `merged` to status CHECK constraint
+- rename `resolved_at` → `updated_at`, backfill from `resolved_at` or
+  `created_at` for existing rows
+
+The `artist_identity_review` table requires no schema changes. The artist
+pattern is already the target.
 
 Success criteria:
 
 - one review item can be fetched and explained identically via CLI, API, and
-  TUI
+  TUI using the same column names
 - operator actions change durable review state instead of only affecting one
   tool's local interpretation
 
@@ -175,17 +195,53 @@ Scope:
 
 - expand review-only heuristics before broadening auto-merge logic
 - candidate heuristics, in recommended priority order:
-  1. collaboration-credit detection (`feat`, `with`, `and`) — highest
-     real-world signal; catches common duplicate-artist problems from credit
-     strings
-  2. wallet-alias and artist-name normalization collisions — deterministic,
-     low-risk, builds on existing normalization
-  3. track-author vs feed-artist disagreement — also deterministic,
-     complements collaboration-credit
+  1. track-author vs feed-artist disagreement — first implementation slice;
+     fits the current artist review model cleanly
+  2. wallet-alias and artist-name normalization collisions
+  3. collaboration-credit detection (`feat`, `with`, `and`) — valuable, but
+     deferred until review state can represent credit-splitting cleanly
   4. same-feed name variants from contributor and author fields
-  5. cross-feed alias families that share publisher or platform evidence —
-     most complex, depends on publisher/platform evidence; save for later
+  5. cross-feed alias families (most complex, save for later)
 - represent these as new review sources rather than hidden side effects
+
+First implemented heuristic: track-author vs feed-artist disagreement.
+
+Current state: feed artist credits and track artist credits are preserved
+separately, but the resolver only notices some same-feed variant cases when a
+wallet alias or stronger cross-feed evidence happens to connect them.
+
+What to build:
+
+- a feed-scoped resolver heuristic that groups artist IDs when:
+  - one artist comes from the feed credit
+  - one artist comes from a track credit on that same feed
+  - their normalized similarity keys collapse to the same stripped key
+- for each match, raise a review item — do not auto-merge
+  - `source`: `track_feed_name_variant`
+  - `evidence_key`: `feed_guid`
+  - entity JSON: existing artist IDs and names already stored in the current
+    artist review table
+  - `status`: `pending`
+  - confidence remains implicit in the source for now; explicit confidence
+    becomes a Phase 1 follow-up
+- wire into the resolver's feed-scoped pass and the diagnostics plan builder
+  so the same review item appears in:
+  - resolver queue output
+  - diagnostics API
+  - CLI / TUI review surfaces
+
+What it does NOT do:
+
+- auto-merge artists
+- change the ingest path
+- parse multi-artist collaboration strings into `artist_credit_name` rows
+
+Deferred follow-up: collaboration-credit detection.
+
+That remains valuable, but it is a worse first slice because it is not a
+normal "these two artist rows may be the same" problem. It is really a
+credit-splitting problem, and needs richer review state before it can land
+cleanly.
 
 Confidence model:
 
@@ -213,13 +269,70 @@ Goal:
 
 Scope:
 
-- add admin-gated write endpoints for:
-  - merge
-  - do-not-merge
-  - force-link
-  - clear/undo override where safe
+- add admin-gated write endpoints for the four actions below
 - keep read-only diagnostics open for now
-- record actor, timestamp, and rationale
+- record actor, timestamp, and rationale on every write
+
+Write-action contract:
+
+**merge** — "these entities are the same; combine them."
+
+- writes an override row with `override_type = 'merge'` and `target_entity_id`
+  pointing to the surviving entity
+- artist path: insert into `artist_identity_override`, then re-resolve the
+  affected feed — resolver applies the merge via `merge_artists_sql()` and
+  emits a signed `artist_merged` event; review status becomes `merged`
+- wallet path: insert into `wallet_identity_override`, then
+  `apply_wallet_merge_overrides_with_recorder()` executes the merge with full
+  audit in `wallet_merge_apply_batch` / `wallet_merge_apply_entry`; review
+  status becomes `merged`
+- the override is durable: future resolver runs see it and skip re-raising
+  the same candidate group
+
+**do_not_merge** — "these are NOT the same; stop suggesting this."
+
+- writes an override row with `override_type = 'do_not_merge'`
+- artist path: insert into `artist_identity_override`; re-resolve marks the
+  review `blocked`
+- wallet path: insert into `wallet_identity_override`; review becomes
+  `resolved` (should become `blocked` after Phase 1 alignment)
+- the override is durable: future resolver runs see it and suppress the
+  candidate group
+
+**force_link** — "assert a relationship the resolver did not find."
+
+- writes an override row with a type-specific `override_type`:
+  - artist: `force_merge` (new — currently only merge/do_not_merge exist on
+    the artist side; this extends the artist override types to allow forcing
+    a merge the resolver never proposed)
+  - wallet: `force_artist_link` or `force_class` (already exist in
+    `wallet_identity_override`)
+- no review item is required as input — the operator can force a link
+  directly from a diagnostics view
+- re-resolve applies the forced relationship and emits the corresponding
+  event
+
+**undo** — "reverse a previous override."
+
+- deletes the override row (artist) or marks it undone (wallet, which has
+  `wallet_merge_apply_batch.undone_at` for audit)
+- re-resolve reprocesses the affected entities without the override
+- if the original action was a merge, undo must reverse the entity merge:
+  - wallet: restore from the JSON snapshots in `wallet_merge_apply_entry`
+    (`old_wallet_json`, `old_endpoint_ids_json`, etc.)
+  - artist: restore from the `artist_merged` event payload
+    (`source_artist_id`, `aliases_transferred`) — requires implementing
+    `unmerge_artists_sql()`
+- the review item reverts to `pending`
+- undo of a do_not_merge simply deletes the override; the candidate group
+  becomes eligible for review again
+
+Shared requirements for all four actions:
+
+- every write records `actor` (who), `rationale` (why), and `timestamp`
+- every write is exposed identically via API endpoint, CLI command, and TUI
+  action — same DB helper, same validation, same audit trail
+- the API endpoint is admin-gated; read-only diagnostics remain open
 
 Why before TUI consolidation:
 
@@ -230,8 +343,11 @@ Why before TUI consolidation:
 
 Success criteria:
 
-- web UI, CLI, and TUI can all apply the same override semantics
-- write-side actions are auditable
+- web UI, CLI, and TUI can all apply the same override semantics through the
+  same code path
+- every write action is auditable with actor, rationale, and timestamp
+- undo is possible for all four actions where the entity merge has not
+  propagated beyond the local node
 
 ## Phase 4: TUI Consolidation
 
@@ -379,7 +495,7 @@ The next practical slices:
 2. document current review table schemas and define the migration path to
    align `wallet_identity_review` with the artist pattern (Phase 1 entry)
 3. add collaboration-credit detection as the first review-only heuristic
-   with confidence and diagnostics exposure (Phase 2 entry)
+   after the simpler track/feed variant slice has proven out (Phase 2 follow-up)
 4. add one admin write endpoint for artist review resolution (Phase 3 entry)
 
 That gives us a real vertical slice:

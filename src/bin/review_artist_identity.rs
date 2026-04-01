@@ -602,16 +602,17 @@ fn print_review_item_text(report: &ReviewItemReport) {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = parse_args().map_err(std::io::Error::other)?;
-    let conn = stophammer::db::open_db(&args.db_path);
+    let mut conn = stophammer::db::open_db(&args.db_path);
     if let Some(review_id) = args.merge_review {
         let target_artist = args
             .target_artist
             .as_deref()
             .ok_or_else(|| std::io::Error::other("--merge-review requires --target-artist"))?;
-        stophammer::db::set_artist_identity_merge_override_for_review(
-            &conn,
+        stophammer::db::apply_artist_identity_review_action(
+            &mut conn,
             review_id,
-            target_artist,
+            "merge",
+            Some(target_artist),
             args.note.as_deref(),
         )?;
         let report = build_review_item_report(&conn, review_id)?;
@@ -621,9 +622,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_review_item_text(&report);
         }
     } else if let Some(review_id) = args.reject_review {
-        stophammer::db::set_artist_identity_do_not_merge_override_for_review(
-            &conn,
+        stophammer::db::apply_artist_identity_review_action(
+            &mut conn,
             review_id,
+            "do_not_merge",
+            None,
             args.note.as_deref(),
         )?;
         let report = build_review_item_report(&conn, review_id)?;

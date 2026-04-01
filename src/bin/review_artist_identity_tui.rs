@@ -354,13 +354,13 @@ impl App {
         let target_artist_id = main_artist.artist_id.clone();
         let target_name = main_artist.name.clone();
 
-        stophammer::db::set_artist_identity_merge_override_for_review(
-            &self.conn,
+        let outcome = stophammer::db::apply_artist_identity_review_action(
+            &mut self.conn,
             review_id,
-            &target_artist_id,
+            "merge",
+            Some(&target_artist_id),
             None,
         )?;
-        let stats = stophammer::db::resolve_artist_identity_for_feed(&mut self.conn, &feed_guid)?;
 
         self.dialog = Some(SummaryDialog {
             title: "Artist Merge Applied".to_string(),
@@ -368,12 +368,18 @@ impl App {
                 format!("Review {review_id} now targets {target_name} [{target_artist_id}]."),
                 format!("Feed: {feed_guid}"),
                 format!("Name key: {review_label}"),
-                format!("Seed artists: {}", stats.seed_artists),
-                format!("Candidate groups: {}", stats.candidate_groups),
-                format!("Groups processed: {}", stats.groups_processed),
-                format!("Merges applied: {}", stats.merges_applied),
-                format!("Pending reviews: {}", stats.pending_reviews),
-                format!("Blocked reviews: {}", stats.blocked_reviews),
+                format!("Seed artists: {}", outcome.resolve_stats.seed_artists),
+                format!(
+                    "Candidate groups: {}",
+                    outcome.resolve_stats.candidate_groups
+                ),
+                format!(
+                    "Groups processed: {}",
+                    outcome.resolve_stats.groups_processed
+                ),
+                format!("Merges applied: {}", outcome.resolve_stats.merges_applied),
+                format!("Pending reviews: {}", outcome.resolve_stats.pending_reviews),
+                format!("Blocked reviews: {}", outcome.resolve_stats.blocked_reviews),
             ],
         });
 
@@ -393,10 +399,13 @@ impl App {
             )
         };
 
-        stophammer::db::set_artist_identity_do_not_merge_override_for_review(
-            &self.conn, review_id, None,
+        let outcome = stophammer::db::apply_artist_identity_review_action(
+            &mut self.conn,
+            review_id,
+            "do_not_merge",
+            None,
+            None,
         )?;
-        let stats = stophammer::db::resolve_artist_identity_for_feed(&mut self.conn, &feed_guid)?;
         self.dialog = Some(SummaryDialog {
             title: "Artist Review Blocked".to_string(),
             lines: vec![
@@ -405,10 +414,13 @@ impl App {
                     name_key
                 ),
                 format!("Feed: {feed_guid}"),
-                format!("Groups processed: {}", stats.groups_processed),
-                format!("Merges applied: {}", stats.merges_applied),
-                format!("Pending reviews: {}", stats.pending_reviews),
-                format!("Blocked reviews: {}", stats.blocked_reviews),
+                format!(
+                    "Groups processed: {}",
+                    outcome.resolve_stats.groups_processed
+                ),
+                format!("Merges applied: {}", outcome.resolve_stats.merges_applied),
+                format!("Pending reviews: {}", outcome.resolve_stats.pending_reviews),
+                format!("Blocked reviews: {}", outcome.resolve_stats.blocked_reviews),
             ],
         });
         self.reload(Some(review_id), None)?;
