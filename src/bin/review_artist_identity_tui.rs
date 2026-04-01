@@ -19,7 +19,7 @@
     reason = "incremental construction keeps long ratatui line definitions readable"
 )]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -635,6 +635,10 @@ impl App {
         if stale.is_empty() {
             lines.push("No stale artist reviews".to_string());
         } else {
+            if let Some(summary) = dominant_source_summary(stale.iter().map(|review| review.source.as_str())) {
+                lines.push(summary);
+                lines.push(String::new());
+            }
             lines.extend(stale.into_iter().map(|review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} | created {}",
@@ -668,6 +672,12 @@ impl App {
         if recent.is_empty() {
             lines.push("No recent artist reviews".to_string());
         } else {
+            if let Some(summary) =
+                dominant_source_summary(recent.iter().map(|review| review.source.as_str()))
+            {
+                lines.push(summary);
+                lines.push(String::new());
+            }
             lines.extend(recent.into_iter().map(|review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} | created {}",
@@ -1109,6 +1119,18 @@ fn recency_badge(timestamp: i64) -> (&'static str, Color) {
     } else {
         ("MID", Color::Yellow)
     }
+}
+
+fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    let mut total = 0usize;
+    for source in sources {
+        total = total.saturating_add(1);
+        *counts.entry(source).or_default() += 1;
+    }
+    let (source, count) = counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
+    let share = (count.saturating_mul(100)) / total.max(1);
+    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
 
 fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {

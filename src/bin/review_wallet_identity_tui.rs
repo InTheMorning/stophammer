@@ -1296,6 +1296,10 @@ impl App {
         if stale.is_empty() {
             lines.push("No stale wallet reviews".to_string());
         } else {
+            if let Some(summary) = dominant_source_summary(stale.iter().map(|review| review.source.as_str())) {
+                lines.push(summary);
+                lines.push(String::new());
+            }
             lines.extend(stale.into_iter().map(|review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
@@ -1326,6 +1330,12 @@ impl App {
         if recent.is_empty() {
             lines.push("No recent wallet reviews".to_string());
         } else {
+            if let Some(summary) =
+                dominant_source_summary(recent.iter().map(|review| review.source.as_str()))
+            {
+                lines.push(summary);
+                lines.push(String::new());
+            }
             lines.extend(recent.into_iter().map(|review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
@@ -2267,6 +2277,18 @@ fn wallet_source_family_position(app: &App) -> Option<(usize, usize)> {
         .position(|&index| index == app.selected_group)
         .map(|index| index.saturating_add(1))?;
     Some((position, matching.len()))
+}
+
+fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    let mut total = 0usize;
+    for source in sources {
+        total = total.saturating_add(1);
+        *counts.entry(source).or_default() += 1;
+    }
+    let (source, count) = counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
+    let share = (count.saturating_mul(100)) / total.max(1);
+    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
 
 fn chooser_summary_lines(
