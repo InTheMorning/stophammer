@@ -2330,6 +2330,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 Line::from(title),
                 Line::from(Span::styled(detail, Style::default().fg(badge_color))),
                 Line::from(Span::styled(
+                    format!("key={}", abbreviate(&group.evidence_key, 24)),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::styled(
                     match (min_review_id, max_review_id) {
                         (Some(min_id), Some(max_id)) if min_id == max_id => {
                             format!("review row {min_id}")
