@@ -585,9 +585,10 @@ impl App {
         } else {
             lines.extend(stale.into_iter().map(|review| {
                 format!(
-                    "{} [{}] | {} | key={} | {} | created {}",
+                    "{} [{}] | review={} | {} | key={} | {} | created {}",
                     review.title,
                     short_id(&review.feed_guid),
+                    review.review_id,
                     review.source,
                     abbreviate(&review.evidence_key, 24),
                     review.artist_count,
@@ -617,9 +618,10 @@ impl App {
         } else {
             lines.extend(recent.into_iter().map(|review| {
                 format!(
-                    "{} [{}] | {} | key={} | {} | created {}",
+                    "{} [{}] | review={} | {} | key={} | {} | created {}",
                     review.title,
                     short_id(&review.feed_guid),
+                    review.review_id,
                     review.source,
                     abbreviate(&review.evidence_key, 24),
                     review.artist_count,

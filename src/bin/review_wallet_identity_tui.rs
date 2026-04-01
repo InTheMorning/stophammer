@@ -1249,9 +1249,10 @@ impl App {
         } else {
             lines.extend(stale.into_iter().map(|review| {
                 format!(
-                    "{} [{}] | {} | key={} | {} wallets | created {}",
+                    "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
                     review.display_name,
                     short_id(&review.wallet_id),
+                    review.id,
                     review.source,
                     abbreviate(&review.evidence_key, 24),
                     review.wallet_ids.len(),
@@ -1278,9 +1279,10 @@ impl App {
         } else {
             lines.extend(recent.into_iter().map(|review| {
                 format!(
-                    "{} [{}] | {} | key={} | {} wallets | created {}",
+                    "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
                     review.display_name,
                     short_id(&review.wallet_id),
+                    review.id,
                     review.source,
                     abbreviate(&review.evidence_key, 24),
                     review.wallet_ids.len(),
