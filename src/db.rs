@@ -4354,6 +4354,8 @@ pub struct ArtistIdentityReviewItem {
     pub review_id: i64,
     pub feed_guid: String,
     pub source: String,
+    pub confidence: String,
+    pub explanation: String,
     pub name_key: String,
     pub evidence_key: String,
     pub status: String,
@@ -4372,6 +4374,8 @@ pub struct ArtistIdentityPendingReview {
     pub feed_guid: String,
     pub title: String,
     pub source: String,
+    pub confidence: String,
+    pub explanation: String,
     pub name_key: String,
     pub evidence_key: String,
     pub artist_count: usize,
@@ -5224,6 +5228,51 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
             | "contributor_name_variant"
             | "publisher_name_variant"
     )
+}
+
+fn artist_identity_review_confidence(source: &str) -> &'static str {
+    match source {
+        "wallet_name_variant" => "high_confidence",
+        "collaboration_credit" => "blocked",
+        _ => "review_required",
+    }
+}
+
+fn artist_identity_review_explanation(source: &str) -> &'static str {
+    match source {
+        "wallet_name_variant" => {
+            "Multiple artist rows collapse to one normalized name and also match wallet alias evidence on the same feed."
+        }
+        "track_feed_name_variant" => {
+            "Feed and track artist credits collapse to the same normalized name on one feed but remain separate artist rows."
+        }
+        "contributor_name_variant" => {
+            "Contributor claims on the same feed collapse to the same normalized name as multiple artist rows."
+        }
+        "collaboration_credit" => {
+            "The track credit looks like a collaboration or compound artist string, so automatic merge is intentionally blocked."
+        }
+        "publisher_name_variant" => {
+            "Validated publisher-linked child feeds collapse to the same normalized artist name but still differ in raw spelling."
+        }
+        _ => "This review source requires operator confirmation before identity state changes.",
+    }
+}
+
+fn wallet_review_confidence(source: &str) -> &'static str {
+    let _ = source;
+    "review_required"
+}
+
+fn wallet_review_explanation(source: &str) -> &'static str {
+    match source {
+        "cross_wallet_alias" => {
+            "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
+        }
+        _ => {
+            "This wallet review source requires operator confirmation before identity state changes."
+        }
+    }
 }
 
 fn sync_artist_identity_review_item(
@@ -6306,6 +6355,7 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
          LIMIT ?2",
     )?;
     stmt.query_map(params![max_created_at, limit_i64], |row| {
+        let source: String = row.get(3)?;
         let artist_ids_json: String = row.get(6)?;
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
@@ -6314,7 +6364,9 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
             review_id: row.get(0)?,
             feed_guid: row.get(1)?,
             title: row.get(2)?,
-            source: row.get(3)?,
+            source: source.clone(),
+            confidence: artist_identity_review_confidence(&source).to_string(),
+            explanation: artist_identity_review_explanation(&source).to_string(),
             name_key: row.get(4)?,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
@@ -6374,6 +6426,7 @@ pub fn list_recent_pending_artist_identity_reviews(
          LIMIT ?2",
     )?;
     stmt.query_map(params![cutoff, limit_i64], |row| {
+        let source: String = row.get(3)?;
         let artist_ids_json: String = row.get(6)?;
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
@@ -6382,7 +6435,9 @@ pub fn list_recent_pending_artist_identity_reviews(
             review_id: row.get(0)?,
             feed_guid: row.get(1)?,
             title: row.get(2)?,
-            source: row.get(3)?,
+            source: source.clone(),
+            confidence: artist_identity_review_confidence(&source).to_string(),
+            explanation: artist_identity_review_explanation(&source).to_string(),
             name_key: row.get(4)?,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
@@ -6704,6 +6759,7 @@ fn set_artist_identity_override(
 fn artist_identity_review_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<ArtistIdentityReviewItem> {
+    let source: String = row.get(2)?;
     let artist_ids_json: String = row.get(6)?;
     let artist_names_json: String = row.get(7)?;
     let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
@@ -6715,7 +6771,9 @@ fn artist_identity_review_row(
     Ok(ArtistIdentityReviewItem {
         review_id: row.get(0)?,
         feed_guid: row.get(1)?,
-        source: row.get(2)?,
+        source: source.clone(),
+        confidence: artist_identity_review_confidence(&source).to_string(),
+        explanation: artist_identity_review_explanation(&source).to_string(),
         name_key: row.get(3)?,
         evidence_key: row.get(4)?,
         status: row.get(5)?,
@@ -12611,6 +12669,8 @@ pub struct WalletReviewSummary {
     pub wallet_class: String,
     pub class_confidence: String,
     pub source: String,
+    pub confidence: String,
+    pub explanation: String,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -12628,6 +12688,8 @@ pub struct WalletReviewItem {
     pub id: i64,
     pub wallet_id: String,
     pub source: String,
+    pub confidence: String,
+    pub explanation: String,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -12835,6 +12897,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
     let mut rows = stmt.query(params![max_created_at, limit])?;
     let mut summaries = Vec::new();
     while let Some(row) = rows.next()? {
+        let source: String = row.get(5)?;
         let wallet_ids_json: String = row.get(7)?;
         let endpoint_summary_json: String = row.get(8)?;
         summaries.push(WalletReviewSummary {
@@ -12843,7 +12906,9 @@ fn list_pending_wallet_reviews_with_max_created_at(
             display_name: row.get(2)?,
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
-            source: row.get(5)?,
+            source: source.clone(),
+            confidence: wallet_review_confidence(&source).to_string(),
+            explanation: wallet_review_explanation(&source).to_string(),
             evidence_key: row.get(6)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
@@ -12893,6 +12958,7 @@ pub fn list_recent_pending_wallet_reviews(
     let mut rows = stmt.query(params![cutoff, limit])?;
     let mut summaries = Vec::new();
     while let Some(row) = rows.next()? {
+        let source: String = row.get(5)?;
         let wallet_ids_json: String = row.get(7)?;
         let endpoint_summary_json: String = row.get(8)?;
         summaries.push(WalletReviewSummary {
@@ -12901,7 +12967,9 @@ pub fn list_recent_pending_wallet_reviews(
             display_name: row.get(2)?,
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
-            source: row.get(5)?,
+            source: source.clone(),
+            confidence: wallet_review_confidence(&source).to_string(),
+            explanation: wallet_review_explanation(&source).to_string(),
             evidence_key: row.get(6)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
@@ -13009,12 +13077,15 @@ pub fn list_wallet_reviews_for_wallet(
     let mut rows = stmt.query(params![wallet_id])?;
     let mut reviews = Vec::new();
     while let Some(row) = rows.next()? {
+        let source: String = row.get(2)?;
         let wallet_ids_json: String = row.get(4)?;
         let endpoint_summary_json: String = row.get(5)?;
         reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
-            source: row.get(2)?,
+            source: source.clone(),
+            confidence: wallet_review_confidence(&source).to_string(),
+            explanation: wallet_review_explanation(&source).to_string(),
             evidence_key: row.get(3)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,

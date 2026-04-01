@@ -368,13 +368,21 @@ fn show_review(
          WHERE r.id = ?1",
             rusqlite::params![review_id],
             |r| {
+                let source: String = r.get(5)?;
+                let explanation = if source == "cross_wallet_alias" {
+                    "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
+                } else {
+                    "This wallet review source requires operator confirmation before identity state changes."
+                };
                 Ok(stophammer::db::WalletReviewSummary {
                     id: r.get(0)?,
                     wallet_id: r.get(1)?,
                     display_name: r.get(2)?,
                     wallet_class: r.get(3)?,
                     class_confidence: r.get(4)?,
-                    source: r.get(5)?,
+                    source,
+                    confidence: "review_required".to_string(),
+                    explanation: explanation.to_string(),
                     evidence_key: r.get(6)?,
                     wallet_ids: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(7)?)
                         .map_err(|err| {

@@ -159,6 +159,17 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         "wallet_name_variant should appear among stored review items"
     );
     assert_eq!(
+        json["artist_identity_reviews"][0]["confidence"],
+        "high_confidence"
+    );
+    assert!(
+        json["artist_identity_reviews"][0]["explanation"]
+            .as_str()
+            .expect("artist review explanation")
+            .contains("wallet alias evidence"),
+        "artist review explanation should mention wallet alias evidence"
+    );
+    assert_eq!(
         json["wallets"][0]["wallet"]["artist_links"][0]["confidence"],
         "high_confidence"
     );
@@ -646,6 +657,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         artist_json["reviews"][0]["source"],
         "track_feed_name_variant"
     );
+    assert_eq!(artist_json["reviews"][0]["confidence"], "review_required");
 
     let wallet_resp = app
         .oneshot(
@@ -660,6 +672,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
     assert_eq!(wallet_resp.status(), 200);
     let wallet_json = body_json(wallet_resp).await;
     assert_eq!(wallet_json["reviews"][0]["source"], "cross_wallet_alias");
+    assert_eq!(wallet_json["reviews"][0]["confidence"], "review_required");
 }
 
 #[tokio::test]
@@ -1501,5 +1514,6 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
         "Shared Wallet Alias"
     );
     assert_eq!(json["reviews"][0]["source"], "cross_wallet_alias");
+    assert_eq!(json["reviews"][0]["confidence"], "review_required");
     assert_eq!(json["reviews"][0]["evidence_key"], "shared wallet alias");
 }
