@@ -771,6 +771,10 @@ impl App {
                     feed.artist_review_count,
                     feed.wallet_review_count
                 ));
+                lines.push(format!(
+                    "   {}",
+                    abbreviate(&feed.feed_url, 72)
+                ));
             }
 
             lines.push(
