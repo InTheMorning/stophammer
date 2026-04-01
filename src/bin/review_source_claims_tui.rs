@@ -205,6 +205,18 @@ fn track_cluster_membership_summary(snapshot: &FeedClaimSnapshot, track_guid: &s
     )
 }
 
+fn track_family_with_cluster_summary(snapshot: &FeedClaimSnapshot, track_guid: &str) -> String {
+    track_family_cluster_membership(snapshot, track_guid).map_or_else(
+        || dominant_track_claim_family_summary(snapshot, track_guid),
+        |(label, cluster_size, total_tracks)| {
+            format!(
+                "{} cluster={label}({cluster_size}/{total_tracks})",
+                dominant_track_claim_family_summary(snapshot, track_guid)
+            )
+        },
+    )
+}
+
 fn feed_family_subset_summary(feeds: &[FeedQueueRow]) -> Option<String> {
     let mut counts = BTreeMap::<&'static str, usize>::new();
     for feed in feeds {
@@ -1755,15 +1767,7 @@ fn build_track_items(app: &App) -> Vec<ListItem<'static>> {
                     ),
                 ]),
                 Line::from(Span::styled(
-                    track_family_cluster_membership(snapshot, &track.track_guid).map_or_else(
-                        || dominant_track_claim_family_summary(snapshot, &track.track_guid),
-                        |(label, cluster_size, total_tracks)| {
-                            format!(
-                                "{} cluster={label}({cluster_size}/{total_tracks})",
-                                dominant_track_claim_family_summary(snapshot, &track.track_guid)
-                            )
-                        },
-                    ),
+                    track_family_with_cluster_summary(snapshot, &track.track_guid),
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(Span::styled(
@@ -2295,14 +2299,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         |feed| {
             let track_summary = app.current_snapshot().and_then(|snapshot| {
                 app.current_track().map(|track| {
-                    let cluster = track_family_cluster_membership(snapshot, &track.track_guid)
-                        .map_or_else(String::new, |(label, cluster_size, total_tracks)| {
-                            format!(" cluster={label}({cluster_size}/{total_tracks})")
-                        });
                     format!(
-                        "track {}{}",
-                        dominant_track_claim_family_summary(snapshot, &track.track_guid),
-                        cluster
+                        "track {}",
+                        track_family_with_cluster_summary(snapshot, &track.track_guid)
                     )
                 })
             });
