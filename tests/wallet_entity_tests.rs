@@ -1216,6 +1216,12 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
         }),
         "same-feed alias overlap should create a high-confidence likely_wallet_owner_match review"
     );
+    let likely_review = db::list_pending_wallet_reviews(&conn, 10)
+        .unwrap()
+        .into_iter()
+        .find(|review| review.source == "likely_wallet_owner_match")
+        .expect("likely wallet review");
+    assert_eq!(likely_review.score, Some(65));
 }
 
 #[test]

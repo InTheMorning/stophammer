@@ -194,6 +194,7 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(supporting_sources.contains("track_feed_name_variant"));
     assert!(supporting_sources.contains("wallet_name_variant"));
+    assert_eq!(likely_artist_group["score"], 65);
     let wallet_variant_review = json["artist_identity_reviews"]
         .as_array()
         .expect("artist_identity_reviews array")
@@ -1638,4 +1639,5 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(supporting_sources.contains("cross_wallet_alias"));
     assert!(supporting_sources.contains("shared_feed_overlap"));
+    assert_eq!(likely_wallet_review["score"], 65);
 }

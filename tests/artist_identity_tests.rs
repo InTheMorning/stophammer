@@ -1676,6 +1676,7 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(65));
     assert!(
         likely_review
             .explanation
@@ -2746,6 +2747,7 @@ fn likely_same_artist_can_combine_publisher_family_with_track_variant() {
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(50));
     let supporting = likely_review
         .supporting_sources
         .iter()
