@@ -1651,13 +1651,20 @@ fn format_artist_review_summary(
     }
 
     let total: usize = summary.iter().map(|item| item.count).sum();
+    let dominant = summary.first().map(|item| {
+        let share = (item.count.saturating_mul(100)) / total.max(1);
+        format!("top={}({}%)", item.source, share)
+    });
     let details = summary
         .iter()
         .take(3)
         .map(|item| format!("{}={}", item.source, item.count))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("Pending artist reviews: {total} ({details})")
+    dominant.map_or_else(
+        || format!("Pending artist reviews: {total} ({details})"),
+        |dominant| format!("Pending artist reviews: {total} ({dominant}; {details})"),
+    )
 }
 
 fn artist_source_family_position(app: &App) -> Option<(usize, usize)> {

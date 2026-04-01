@@ -2849,13 +2849,20 @@ fn format_wallet_review_summary(summary: &[stophammer::db::WalletPendingReviewSu
     }
 
     let total: usize = summary.iter().map(|item| item.count).sum();
+    let dominant = summary.first().map(|item| {
+        let share = (item.count.saturating_mul(100)) / total.max(1);
+        format!("top={}({}%)", item.source, share)
+    });
     let details = summary
         .iter()
         .take(3)
         .map(|item| format!("{}={}", item.source, item.count))
         .collect::<Vec<_>>()
         .join(", ");
-    format!("Pending wallet reviews: {total} ({details})")
+    dominant.map_or_else(
+        || format!("Pending wallet reviews: {total} ({details})"),
+        |dominant| format!("Pending wallet reviews: {total} ({dominant}; {details})"),
+    )
 }
 
 fn run_app(
