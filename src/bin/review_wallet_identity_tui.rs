@@ -1096,8 +1096,19 @@ impl App {
 
     fn show_queue_summary(&mut self) -> Result<(), Box<dyn Error>> {
         let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
+        let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
-        let mut lines = vec![format!("Total pending wallet reviews: {total}")];
+        let mut lines = vec![
+            format!("Total pending wallet reviews: {total}"),
+            format!("Created in last 24h: {}", age.created_last_24h),
+            format!("Older than 7d: {}", age.older_than_7d),
+        ];
+        if let Some(oldest_created_at) = age.oldest_created_at {
+            lines.push(format!(
+                "Oldest created_at: {}",
+                format_local_timestamp(oldest_created_at)
+            ));
+        }
         if summary.is_empty() {
             lines.push("No pending wallet review sources".to_string());
         } else {
