@@ -124,6 +124,64 @@ fn dominant_feed_claim_family_summary(feed: &FeedQueueRow) -> String {
     )
 }
 
+fn dominant_track_claim_family(
+    snapshot: &FeedClaimSnapshot,
+    track_guid: &str,
+) -> Option<(&'static str, usize, usize)> {
+    let rows = [
+        (
+            "contributors",
+            snapshot
+                .contributor_claims
+                .iter()
+                .filter(|claim| claim.entity_type == "track" && claim.entity_id == track_guid)
+                .count(),
+        ),
+        (
+            "entity_ids",
+            snapshot
+                .entity_id_claims
+                .iter()
+                .filter(|claim| claim.entity_type == "track" && claim.entity_id == track_guid)
+                .count(),
+        ),
+        (
+            "links",
+            snapshot
+                .link_claims
+                .iter()
+                .filter(|claim| claim.entity_type == "track" && claim.entity_id == track_guid)
+                .count(),
+        ),
+        (
+            "releases",
+            snapshot
+                .release_claims
+                .iter()
+                .filter(|claim| claim.entity_type == "track" && claim.entity_id == track_guid)
+                .count(),
+        ),
+        (
+            "enclosures",
+            snapshot
+                .enclosures
+                .iter()
+                .filter(|claim| claim.entity_type == "track" && claim.entity_id == track_guid)
+                .count(),
+        ),
+    ];
+    let total = rows.iter().map(|(_, count)| *count).sum::<usize>();
+    let (label, count) = rows.into_iter().max_by_key(|(_, count)| *count)?;
+    (count > 0).then_some((label, count, (count * 100) / total.max(1)))
+}
+
+fn dominant_track_claim_family_summary(snapshot: &FeedClaimSnapshot, track_guid: &str) -> String {
+    dominant_track_claim_family(snapshot, track_guid).map_or_else(
+        || "top=no-claims".to_string(),
+        |(label, _count, share)| format!("top={label}({share}%)"),
+    )
+}
+
 fn feed_family_subset_summary(feeds: &[FeedQueueRow]) -> Option<String> {
     let mut counts = BTreeMap::<&'static str, usize>::new();
     for feed in feeds {
@@ -1344,6 +1402,10 @@ fn build_track_items(app: &App) -> Vec<ListItem<'static>> {
                     ),
                 ]),
                 Line::from(Span::styled(
+                    dominant_track_claim_family_summary(snapshot, &track.track_guid),
+                    Style::default().fg(Color::DarkGray),
+                )),
+                Line::from(Span::styled(
                     track
                         .enclosure_url
                         .as_deref()
@@ -1734,12 +1796,13 @@ fn header_context_line(app: &App) -> Line<'static> {
             spans.push(Span::raw("  "));
             spans.push(Span::styled(
                 format!(
-                    "track {}/{} {} [{}] claims={}",
+                    "track {}/{} {} [{}] claims={} {}",
                     track_position,
                     snapshot.tracks.len(),
                     abbreviate(&track.title, 24),
                     short_id(&track.track_guid),
-                    count_track_claims(snapshot, &track.track_guid)
+                    count_track_claims(snapshot, &track.track_guid),
+                    dominant_track_claim_family_summary(snapshot, &track.track_guid)
                 ),
                 Style::default().fg(Color::Yellow),
             ));
@@ -1814,7 +1877,16 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 "Tracks (0)".to_string()
             } else {
                 let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
-                format!("Tracks ({position}/{})", snapshot.tracks.len())
+                app.current_track().map_or_else(
+                    || format!("Tracks ({position}/{})", snapshot.tracks.len()),
+                    |track| {
+                        format!(
+                            "Tracks ({position}/{}, {})",
+                            snapshot.tracks.len(),
+                            dominant_track_claim_family_summary(snapshot, &track.track_guid)
+                        )
+                    },
+                )
             }
         },
     );
