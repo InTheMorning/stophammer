@@ -59,6 +59,15 @@ fn format_score_breakdown(score_breakdown: &[stophammer::db::ReviewScoreComponen
     }
 }
 
+fn score_band(score: Option<u16>) -> &'static str {
+    match score {
+        Some(80..=100) => "80_100",
+        Some(60..=79) => "60_79",
+        Some(1..=59) => "1_59",
+        _ => "unscored",
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "manual CLI parsing keeps the review tool dependency-free"
@@ -254,6 +263,10 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
         .iter()
         .filter_map(|review| review.score.map(|score| (score, review.source.as_str())))
         .max_by_key(|(score, _source)| *score);
+    let mut score_band_counts = std::collections::BTreeMap::<&str, usize>::new();
+    for review in reviews {
+        *score_band_counts.entry(score_band(review.score)).or_default() += 1;
+    }
     println!(
         "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
     );
@@ -263,6 +276,14 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
         top_scored
             .map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
         top_scored.map_or("-", |(_score, source)| source)
+    );
+    println!(
+        "score bands: {}",
+        ["80_100", "60_79", "1_59", "unscored"]
+            .into_iter()
+            .filter_map(|band| score_band_counts.get(band).map(|count| format!("{band}={count}")))
+            .collect::<Vec<_>>()
+            .join(" ")
     );
     println!();
 
