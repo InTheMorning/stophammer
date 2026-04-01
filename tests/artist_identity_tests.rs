@@ -2475,3 +2475,94 @@ fn non_wavlake_publisher_link_keeps_publisher_artist_separate() {
         "non-wavlake publisher links should remain a signal, not confirm the publisher artist"
     );
 }
+
+#[test]
+fn publisher_name_variants_raise_review_without_auto_merge() {
+    let mut conn = common::test_db();
+
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "pub-feed-publisher-variant",
+        "https://publisher.example.com/artist/pub-feed-variant",
+        "Publisher Curator",
+        "publisher",
+    );
+    let (first_artist_id, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-publisher-variant-a",
+        "https://music.example.com/heycitizen-a.xml",
+        "HeyCitizen",
+        "music",
+    );
+    let (second_artist_id, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-publisher-variant-b",
+        "https://music.example.com/heycitizen-b.xml",
+        "Hey Citizen",
+        "music",
+    );
+
+    for (pos, child) in (0i64..).zip([
+        "child-feed-publisher-variant-a",
+        "child-feed-publisher-variant-b",
+    ]) {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES ('pub-feed-publisher-variant', ?1, 'music', ?2, '', 'podcast_remote_item')",
+            rusqlite::params![pos, child],
+        )
+        .expect("publisher→child");
+    }
+
+    for child in [
+        "child-feed-publisher-variant-a",
+        "child-feed-publisher-variant-b",
+    ] {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, 0, 'publisher', 'pub-feed-publisher-variant', '', 'podcast_remote_item')",
+            rusqlite::params![child],
+        )
+        .expect("child→publisher");
+    }
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(
+        &mut conn,
+        "child-feed-publisher-variant-a",
+    )
+    .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "publisher-family name variants should raise review, not auto-merge"
+    );
+    assert_eq!(
+        stats.pending_reviews, 1,
+        "publisher-family name variants should create one pending review"
+    );
+
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "child-feed-publisher-variant-a",
+    )
+    .expect("list reviews");
+    let review = reviews
+        .iter()
+        .find(|review| review.source == "publisher_name_variant")
+        .expect("publisher_name_variant review");
+    assert_eq!(review.name_key, "heycitizen");
+    assert_eq!(review.evidence_key, "pub-feed-publisher-variant");
+    let review_artist_ids = review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [first_artist_id, second_artist_id]
+        .into_iter()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "review should include both child artists from the same publisher family"
+    );
+}

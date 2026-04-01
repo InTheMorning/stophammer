@@ -4755,6 +4755,13 @@ fn collect_labeled_artist_identity_groups_for_seed_ids(
         seed_ids,
     )?);
 
+    let publisher_variant_groups = collect_artist_groups_by_publisher_name_variant(conn)?;
+    groups.extend(filter_artist_groups_for_seed_ids(
+        conn,
+        publisher_variant_groups,
+        seed_ids,
+    )?);
+
     let wavlake_publisher_groups =
         collect_artist_groups_by_wavlake_publisher_artist_confirmation(conn)?;
     groups.extend(filter_artist_groups_for_seed_ids(
@@ -5215,6 +5222,7 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
             | "track_feed_name_variant"
             | "collaboration_credit"
             | "contributor_name_variant"
+            | "publisher_name_variant"
     )
 }
 
@@ -5419,6 +5427,65 @@ fn collect_artist_groups_by_publisher_link(
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<Vec<(String, String, String)>, _>>()?;
     Ok(collect_artist_groups_from_rows("publisher_link", rows))
+}
+
+fn collect_artist_groups_by_publisher_name_variant(
+    conn: &Connection,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT pub_fri.feed_guid, acn.artist_id, ac.display_name
+         FROM feed_remote_items_raw pub_fri
+         JOIN feeds pf ON pf.feed_guid = pub_fri.feed_guid AND pf.raw_medium = 'publisher'
+         JOIN feeds cf ON cf.feed_guid = pub_fri.remote_feed_guid
+         JOIN feed_remote_items_raw child_fri
+             ON child_fri.feed_guid = cf.feed_guid
+             AND child_fri.remote_feed_guid = pf.feed_guid
+             AND child_fri.medium = 'publisher'
+         JOIN artist_credit ac ON ac.id = cf.artist_credit_id
+         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id
+         WHERE pub_fri.medium = 'music'
+         ORDER BY pub_fri.feed_guid, ac.display_name, acn.artist_id",
+    )?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<(String, String, String)>, _>>()?;
+
+    let mut grouped: std::collections::BTreeMap<
+        (String, String),
+        (
+            std::collections::BTreeSet<String>,
+            std::collections::BTreeSet<String>,
+        ),
+    > = std::collections::BTreeMap::new();
+    for (publisher_feed_guid, artist_id, display_name) in rows {
+        let Some(name_key) = normalize_artist_similarity_key(&display_name) else {
+            continue;
+        };
+        let Some(current_id) = current_artist_id(conn, &artist_id)? else {
+            continue;
+        };
+        let entry = grouped.entry((name_key, publisher_feed_guid)).or_default();
+        entry.0.insert(current_id);
+        entry.1.insert(display_name.trim().to_ascii_lowercase());
+    }
+
+    Ok(grouped
+        .into_iter()
+        .filter_map(|((name_key, evidence_key), (artist_ids, raw_names))| {
+            (artist_ids.len() > 1 && raw_names.len() > 1).then_some(ArtistIdentityEvidenceGroup {
+                source: "publisher_name_variant".to_string(),
+                name_key,
+                evidence_key,
+                artist_ids,
+            })
+        })
+        .collect())
 }
 
 fn collect_artist_groups_by_wavlake_publisher_artist_confirmation(
@@ -5794,6 +5861,7 @@ pub fn backfill_artist_identity(
     let mut groups = Vec::new();
     groups.extend(collect_artist_groups_by_npub(&tx)?);
     groups.extend(collect_artist_groups_by_publisher_link(&tx)?);
+    groups.extend(collect_artist_groups_by_publisher_name_variant(&tx)?);
     groups.extend(collect_artist_groups_by_wavlake_publisher_artist_confirmation(&tx)?);
     groups.extend(collect_artist_groups_by_normalized_website(&tx)?);
     groups.extend(collect_artist_groups_by_release_cluster(&tx)?);
