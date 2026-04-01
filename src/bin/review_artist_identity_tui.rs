@@ -869,15 +869,7 @@ fn short_id(value: &str) -> String {
 }
 
 fn preview_join(values: &[String], max_items: usize, max_chars: usize) -> String {
-    if values.is_empty() {
-        return "-".to_string();
-    }
-    values
-        .iter()
-        .take(max_items)
-        .map(|value| abbreviate(value, max_chars))
-        .collect::<Vec<_>>()
-        .join(", ")
+    stophammer::tui::preview_join(values, max_items, max_chars, abbreviate)
 }
 
 fn focus_block<'a>(title: &'a str, is_focused: bool, accent: Color) -> Block<'a> {

@@ -409,6 +409,25 @@ pub fn recency_badge(timestamp: i64) -> (&'static str, Color) {
     }
 }
 
+/// Joins a short preview of a string list using a caller-provided abbreviation strategy.
+#[must_use]
+pub fn preview_join(
+    values: &[String],
+    max_items: usize,
+    max_chars: usize,
+    abbreviate: impl Fn(&str, usize) -> String,
+) -> String {
+    if values.is_empty() {
+        return "-".to_string();
+    }
+    values
+        .iter()
+        .take(max_items)
+        .map(|value| abbreviate(value, max_chars))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Builds the age/total preamble for queue-summary dialogs.
 #[must_use]
 pub fn build_queue_summary_header_lines(
