@@ -1153,11 +1153,10 @@ impl App {
             lines.push("No pending wallet review sources".to_string());
         } else {
             lines.push(String::new());
-            lines.extend(
-                summary
-                    .into_iter()
-                    .map(|item| format!("{}: {}", item.source, item.count)),
-            );
+            lines.extend(summary.into_iter().map(|item| {
+                let share = (item.count.saturating_mul(100)) / total.max(1);
+                format!("{}: {} ({}%)", item.source, item.count, share)
+            }));
         }
         self.dialog = Some(SummaryDialog {
             title: "Wallet Queue Summary".to_string(),
