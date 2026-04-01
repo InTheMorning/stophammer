@@ -1016,6 +1016,11 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     Span::styled(review.source.clone(), Style::default().fg(Color::Yellow)),
                     Span::raw("  "),
                     Span::styled(badge, Style::default().fg(badge_color)),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("key={}", abbreviate(&review.evidence_key, 18)),
+                        Style::default().fg(Color::DarkGray),
+                    ),
                 ]),
                 Line::from(Span::styled(
                     format!(
