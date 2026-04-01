@@ -1669,6 +1669,22 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
             .map(|value| abbreviate(&value, 120))
             .unwrap_or_else(|| "-".to_string()),
     );
+    if let Some((label, position, total)) = current_family_position(app) {
+        push_detail(
+            &mut lines,
+            "feed family",
+            format!("{label} ({position}/{total})"),
+        );
+    }
+    if let Some(feed_row) = app.current_feed_row()
+        && let Some((label, _count, share)) = dominant_feed_claim_family(feed_row)
+    {
+        push_detail(
+            &mut lines,
+            "dominant family",
+            format!("{label} ({share}%)"),
+        );
+    }
 
     push_section(&mut lines, "Conflicts", Color::LightRed);
     for conflict in feed_conflict_lines(snapshot) {
