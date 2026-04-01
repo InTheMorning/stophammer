@@ -504,7 +504,7 @@ impl App {
             }));
         }
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Artist Queue Summary ({total})"),
+            title: stophammer::tui::format_counted_dialog_title("Artist Queue Summary", total),
             lines,
         });
         Ok(())
@@ -543,7 +543,7 @@ impl App {
             }
         }
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Feed Hotspots ({hotspot_count})"),
+            title: stophammer::tui::format_counted_dialog_title("Feed Hotspots", hotspot_count),
             lines,
         });
         Ok(())
@@ -655,8 +655,10 @@ impl App {
             }
         }
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!(
-                "Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})"
+            title: stophammer::tui::format_operator_overview_title(
+                artist_total,
+                wallet_total,
+                hotspot_count,
             ),
             lines,
         });
@@ -695,7 +697,10 @@ impl App {
             }));
         }
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Stale Artist Reviews ({stale_count})"),
+            title: stophammer::tui::format_counted_dialog_title(
+                "Stale Artist Reviews",
+                stale_count,
+            ),
             lines,
         });
         Ok(())
@@ -735,7 +740,10 @@ impl App {
             }));
         }
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Recent Artist Reviews ({recent_count})"),
+            title: stophammer::tui::format_counted_dialog_title(
+                "Recent Artist Reviews",
+                recent_count,
+            ),
             lines,
         });
         Ok(())
@@ -743,7 +751,10 @@ impl App {
 
     fn show_help_dialog(&mut self) {
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Artist Review TUI Help ({})", self.reviews.len()),
+            title: stophammer::tui::format_counted_dialog_title(
+                "Artist Review TUI Help",
+                self.reviews.len(),
+            ),
             lines: vec![
                 "Tab / Shift-Tab: cycle focus".to_string(),
                 "Up / Down / Home / End: navigate".to_string(),
@@ -831,7 +842,7 @@ impl App {
         }
 
         self.dialog = Some(stophammer::tui::TextDialog {
-            title: format!("Artist Review Playbook ({total})"),
+            title: stophammer::tui::format_counted_dialog_title("Artist Review Playbook", total),
             lines,
         });
         Ok(())

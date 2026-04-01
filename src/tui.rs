@@ -125,6 +125,22 @@ pub fn format_dominant_family_hint(source: &str, share: usize, suffix: &str) -> 
     format!("Dominant family: {source} ({share}%). {suffix}")
 }
 
+/// Formats a standard counted dialog title shared by review TUIs.
+#[must_use]
+pub fn format_counted_dialog_title(label: &str, count: usize) -> String {
+    format!("{label} ({count})")
+}
+
+/// Formats the operator overview dialog title shared by review TUIs.
+#[must_use]
+pub fn format_operator_overview_title(
+    artist_total: usize,
+    wallet_total: usize,
+    hotspot_count: usize,
+) -> String {
+    format!("Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})")
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
