@@ -1961,6 +1961,118 @@ fn likely_same_artist_can_pair_track_variant_with_shared_external_id() {
 }
 
 #[test]
+fn likely_same_artist_can_pair_track_variant_with_shared_website() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical = stophammer::db::resolve_artist(
+        &conn,
+        "HeyCitizen",
+        Some("feed-track-plus-website-review"),
+    )
+    .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-plus-website-review"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-track-plus-website-review', 'https://example.com/track-plus-website.xml', 'Track Plus Website Review', 'track plus website review', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert review feed");
+    conn.execute(
+        "INSERT INTO source_entity_links \
+         (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+         VALUES ('feed-track-plus-website-review', 'feed', 'feed-track-plus-website-review', 0, 'website', 'https://artist.example.com/heycitizen', 'rss_link', 'feed.link', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("insert canonical website");
+
+    let variant = stophammer::db::resolve_artist(
+        &conn,
+        "Hey Citizen",
+        Some("feed-track-plus-website-review"),
+    )
+    .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-plus-website-review"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-track-plus-website-review', 'feed-track-plus-website-review', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+
+    let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        Some("feed-track-plus-website-variant"),
+    )
+    .expect("variant feed credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-track-plus-website-variant', 'https://example.com/track-plus-website-variant.xml', 'Track Plus Website Variant', 'track plus website variant', ?1, ?2, ?2)",
+        rusqlite::params![variant_feed_credit.id, now],
+    )
+    .expect("insert variant feed");
+    conn.execute(
+        "INSERT INTO source_entity_links \
+         (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
+         VALUES ('feed-track-plus-website-variant', 'feed', 'feed-track-plus-website-variant', 0, 'website', 'https://artist.example.com/heycitizen', 'rss_link', 'feed.link', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("insert variant website");
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(
+        &mut conn,
+        "feed-track-plus-website-review",
+    )
+    .expect("resolve artist identity");
+    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "feed-track-plus-website-review",
+    )
+    .expect("list reviews");
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_same_artist")
+        .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(60));
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting.contains("track_feed_name_variant"));
+    assert!(supporting.contains("normalized_website"));
+    assert!(
+        !supporting.contains("wallet_name_variant"),
+        "shared website should be enough without wallet alias evidence"
+    );
+}
+
+#[test]
 fn likely_same_artist_skips_conflicting_external_ids() {
     let mut conn = common::test_db();
     let now = common::now();
