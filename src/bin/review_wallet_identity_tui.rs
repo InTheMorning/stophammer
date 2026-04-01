@@ -2324,9 +2324,21 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     .map(format_local_timestamp)
                     .unwrap_or_else(|| "-".to_string())
             );
+            let min_review_id = group.reviews.iter().map(|review| review.id).min();
+            let max_review_id = group.reviews.iter().map(|review| review.id).max();
             ListItem::new(vec![
                 Line::from(title),
                 Line::from(Span::styled(detail, Style::default().fg(badge_color))),
+                Line::from(Span::styled(
+                    match (min_review_id, max_review_id) {
+                        (Some(min_id), Some(max_id)) if min_id == max_id => {
+                            format!("review row {min_id}")
+                        }
+                        (Some(min_id), Some(max_id)) => format!("review rows {min_id}-{max_id}"),
+                        _ => "review rows -".to_string(),
+                    },
+                    Style::default().fg(Color::DarkGray),
+                )),
             ])
         })
         .collect::<Vec<_>>();
