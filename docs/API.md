@@ -1644,6 +1644,57 @@ Supported actions:
 
 ---
 
+### POST /admin/wallet-identity/reviews/{id}/resolve
+
+Applies one durable action to a wallet-identity review item.
+
+Supported actions:
+
+- `merge` — requires `target_wallet_id`
+- `do_not_merge` — must not include `target_wallet_id`, `target_artist_id`, or `value`
+- `force_class` — requires `value`
+- `force_artist_link` — requires `target_artist_id`
+- `block_artist_link` — requires `target_artist_id`
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Request body:**
+
+```json
+{
+  "action": "merge",
+  "target_wallet_id": "wallet-id-to-keep"
+}
+```
+
+**Response (`200 OK`):**
+
+```json
+{
+  "review": {
+    "id": 77,
+    "wallet_id": "wallet-id-to-merge",
+    "source": "cross_wallet_alias",
+    "evidence_key": "shared wallet alias",
+    "wallet_ids": ["wallet-id-to-keep", "wallet-id-to-merge"],
+    "endpoint_summary": [],
+    "status": "resolved",
+    "created_at": 1710288000,
+    "updated_at": 1710288015
+  }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Review action stored |
+| 400  | Unsupported action, or invalid target/value fields for the chosen action |
+| 403  | Invalid or missing `X-Admin-Token` |
+| 404  | Review item not found |
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.

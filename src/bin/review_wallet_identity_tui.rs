@@ -920,7 +920,7 @@ impl App {
             return Ok(());
         };
 
-        stophammer::db::set_wallet_identity_override_for_review(
+        stophammer::db::apply_wallet_identity_review_action(
             &self.conn,
             merge_review.id,
             "merge",
@@ -943,7 +943,7 @@ impl App {
             return Ok(());
         };
 
-        stophammer::db::set_wallet_identity_override_for_review(
+        stophammer::db::apply_wallet_identity_review_action(
             &self.conn,
             merge_review.id,
             "do_not_merge",

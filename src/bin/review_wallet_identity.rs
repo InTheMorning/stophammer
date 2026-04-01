@@ -315,14 +315,17 @@ fn resolve_action(
     value: Option<&str>,
     json: bool,
 ) -> Result<(), Box<dyn Error>> {
-    stophammer::db::set_wallet_identity_override_for_review(
+    let outcome = stophammer::db::apply_wallet_identity_review_action(
         conn,
         review_id,
         override_type,
         target_id,
         value,
     )?;
-    println!("Resolved review {review_id} with override: {override_type}");
+    println!(
+        "Resolved review {review_id} with action: {override_type} (status={})",
+        outcome.review.status
+    );
 
     // Show the wallet detail after resolution
     let wallet_id: String = conn.query_row(

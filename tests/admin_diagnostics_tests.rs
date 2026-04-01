@@ -458,6 +458,95 @@ async fn admin_artist_review_resolution_endpoint_applies_merge_override() {
 }
 
 #[tokio::test]
+async fn admin_wallet_review_resolution_endpoint_applies_merge_override() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    let (review_id, canonical_wallet_id, merge_wallet_id) = {
+        let conn = db.lock().expect("lock db");
+        let ep_a = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-admin-a",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a");
+        let ep_b = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-admin-b",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint b");
+        let canonical_wallet_id =
+            stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
+        let merge_wallet_id =
+            stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
+        let review_id: i64 = conn
+            .query_row(
+                "INSERT INTO wallet_identity_review \
+                 (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, \
+                  status, created_at, updated_at) \
+                 VALUES (?1, 'cross_wallet_alias', 'shared wallet alias', json_array(?1, ?2), '[]', \
+                         'pending', ?3, ?3) \
+                 RETURNING id",
+                params![merge_wallet_id, canonical_wallet_id, now],
+                |row| row.get(0),
+            )
+            .expect("insert wallet review");
+        (review_id, canonical_wallet_id, merge_wallet_id)
+    };
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-wallet-review-resolution.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let body = serde_json::json!({
+        "action": "merge",
+        "target_wallet_id": canonical_wallet_id
+    });
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!(
+                    "/admin/wallet-identity/reviews/{review_id}/resolve"
+                ))
+                .header("Content-Type", "application/json")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::from(serde_json::to_vec(&body).expect("serialize")))
+                .expect("request"),
+        )
+        .await
+        .expect("response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["review"]["id"], review_id);
+    assert_eq!(json["review"]["wallet_id"], merge_wallet_id);
+    assert_eq!(json["review"]["status"], "resolved");
+    assert_eq!(json["review"]["source"], "cross_wallet_alias");
+    assert_eq!(json["review"]["evidence_key"], "shared wallet alias");
+
+    let conn = db.lock().expect("lock db after request");
+    let override_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM wallet_identity_override \
+             WHERE wallet_id = ?1 AND override_type = 'merge' AND target_id = ?2",
+            params![merge_wallet_id, canonical_wallet_id],
+            |row| row.get(0),
+        )
+        .expect("override count");
+    assert_eq!(override_count, 1);
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();

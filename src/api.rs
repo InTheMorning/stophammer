@@ -1342,6 +1342,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handle_admin_resolve_artist_identity_review),
         )
         .route(
+            "/admin/wallet-identity/reviews/{id}/resolve",
+            post(handle_admin_resolve_wallet_identity_review),
+        )
+        .route(
             "/v1/diagnostics/feeds/{guid}",
             get(handle_admin_feed_diagnostics),
         )
@@ -3128,6 +3132,99 @@ struct ResolveArtistIdentityReviewResponse {
     resolve_stats: db::ArtistIdentityResolveStats,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResolveWalletIdentityReviewRequest {
+    action: String,
+    #[serde(default)]
+    target_wallet_id: Option<String>,
+    #[serde(default)]
+    target_artist_id: Option<String>,
+    #[serde(default)]
+    value: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ResolveWalletIdentityReviewResponse {
+    review: db::WalletReviewItem,
+}
+
+fn validate_wallet_identity_review_action_request(
+    req: &ResolveWalletIdentityReviewRequest,
+) -> Result<(String, Option<String>, Option<String>), ApiError> {
+    match req.action.as_str() {
+        "merge" => {
+            let target_wallet_id = req.target_wallet_id.clone().ok_or_else(|| ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "merge action requires target_wallet_id".into(),
+                www_authenticate: None,
+            })?;
+            if req.target_artist_id.is_some() || req.value.is_some() {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "merge action must not include target_artist_id or value".into(),
+                    www_authenticate: None,
+                });
+            }
+            Ok((req.action.clone(), Some(target_wallet_id), None))
+        }
+        "do_not_merge" => {
+            if req.target_wallet_id.is_some()
+                || req.target_artist_id.is_some()
+                || req.value.is_some()
+            {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message:
+                        "do_not_merge action must not include target_wallet_id, target_artist_id, or value"
+                            .into(),
+                    www_authenticate: None,
+                });
+            }
+            Ok((req.action.clone(), None, None))
+        }
+        "force_class" => {
+            if req.target_wallet_id.is_some() || req.target_artist_id.is_some() {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message:
+                        "force_class action must not include target_wallet_id or target_artist_id"
+                            .into(),
+                    www_authenticate: None,
+                });
+            }
+            let value = req.value.clone().ok_or_else(|| ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "force_class action requires value".into(),
+                www_authenticate: None,
+            })?;
+            Ok((req.action.clone(), None, Some(value)))
+        }
+        "force_artist_link" | "block_artist_link" => {
+            let target_artist_id = req.target_artist_id.clone().ok_or_else(|| ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: format!("{} action requires target_artist_id", req.action),
+                www_authenticate: None,
+            })?;
+            if req.target_wallet_id.is_some() || req.value.is_some() {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: format!(
+                        "{} action must not include target_wallet_id or value",
+                        req.action
+                    ),
+                    www_authenticate: None,
+                });
+            }
+            Ok((req.action.clone(), Some(target_artist_id), None))
+        }
+        other => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: format!("unsupported wallet identity review action: {other}"),
+            www_authenticate: None,
+        }),
+    }
+}
+
 #[derive(Debug, Serialize)]
 struct AdminCreditNameResponse {
     artist_id: String,
@@ -3591,6 +3688,45 @@ async fn handle_admin_resolve_artist_identity_review(
     Ok(Json(ResolveArtistIdentityReviewResponse {
         review: outcome.review,
         resolve_stats: outcome.resolve_stats,
+    }))
+}
+
+async fn handle_admin_resolve_wallet_identity_review(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(req): Json<ResolveWalletIdentityReviewRequest>,
+) -> Result<Json<ResolveWalletIdentityReviewResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    let (action, target_id, value) = validate_wallet_identity_review_action_request(&req)?;
+    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+        let review_exists: bool = conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM wallet_identity_review WHERE id = ?1)",
+            params![id],
+            |row| row.get(0),
+        )?;
+        if !review_exists {
+            return Ok(None);
+        }
+        let outcome = db::apply_wallet_identity_review_action(
+            conn,
+            id,
+            &action,
+            target_id.as_deref(),
+            value.as_deref(),
+        )?;
+        Ok(Some(outcome))
+    })
+    .await?;
+
+    let outcome = outcome.ok_or_else(|| ApiError {
+        status: StatusCode::NOT_FOUND,
+        message: format!("wallet identity review {id} not found"),
+        www_authenticate: None,
+    })?;
+
+    Ok(Json(ResolveWalletIdentityReviewResponse {
+        review: outcome.review,
     }))
 }
 

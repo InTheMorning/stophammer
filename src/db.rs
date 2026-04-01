@@ -12082,6 +12082,11 @@ pub struct WalletReviewItem {
     pub updated_at: i64,
 }
 
+#[derive(Debug, Clone)]
+pub struct WalletIdentityReviewActionOutcome {
+    pub review: WalletReviewItem,
+}
+
 /// Full detail of a wallet for review display.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletDetail {
@@ -12690,4 +12695,82 @@ pub fn set_wallet_identity_override_for_review(
     )?;
 
     Ok(())
+}
+
+/// Applies one durable action to a wallet-identity review item.
+///
+/// Supported actions:
+///
+/// - `merge` requires `target_id`
+/// - `do_not_merge` requires neither `target_id` nor `value`
+/// - `force_class` requires `value`
+/// - `force_artist_link` requires `target_id`
+/// - `block_artist_link` requires `target_id`
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the review item does not exist or the action payload
+/// is invalid for the requested action.
+pub fn apply_wallet_identity_review_action(
+    conn: &Connection,
+    review_id: i64,
+    action: &str,
+    target_id: Option<&str>,
+    value: Option<&str>,
+) -> Result<WalletIdentityReviewActionOutcome, DbError> {
+    let wallet_id: String = conn
+        .query_row(
+            "SELECT wallet_id FROM wallet_identity_review WHERE id = ?1",
+            params![review_id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| DbError::Other(format!("wallet identity review not found: {review_id}")))?;
+
+    match action {
+        "merge" => {
+            if target_id.is_none() || value.is_some() {
+                return Err(DbError::Other(
+                    "wallet identity merge action requires target_id and does not accept value"
+                        .into(),
+                ));
+            }
+        }
+        "do_not_merge" => {
+            if target_id.is_some() || value.is_some() {
+                return Err(DbError::Other(
+                    "wallet identity do_not_merge action does not accept target_id or value".into(),
+                ));
+            }
+        }
+        "force_class" => {
+            if target_id.is_some() || value.is_none() {
+                return Err(DbError::Other(
+                    "wallet identity force_class action requires value and does not accept target_id"
+                        .into(),
+                ));
+            }
+        }
+        "force_artist_link" | "block_artist_link" => {
+            if target_id.is_none() || value.is_some() {
+                return Err(DbError::Other(format!(
+                    "wallet identity {action} action requires target_id and does not accept value"
+                )));
+            }
+        }
+        other => {
+            return Err(DbError::Other(format!(
+                "unsupported wallet identity review action: {other}"
+            )));
+        }
+    }
+
+    set_wallet_identity_override_for_review(conn, review_id, action, target_id, value)?;
+
+    let review = list_wallet_reviews_for_wallet(conn, &wallet_id)?
+        .into_iter()
+        .find(|review| review.id == review_id)
+        .ok_or_else(|| DbError::Other(format!("wallet identity review not found: {review_id}")))?;
+
+    Ok(WalletIdentityReviewActionOutcome { review })
 }
