@@ -1713,6 +1713,8 @@ Returns the current pending artist-identity review queue.
       "feed_guid": "feed-guid",
       "title": "Everything Is Lit",
       "source": "track_feed_name_variant",
+      "confidence": "review_required",
+      "explanation": "Feed and track artist credits collapse to the same normalized name on one feed but remain separate artist rows.",
       "name_key": "heycitizen",
       "evidence_key": "feed-guid",
       "artist_count": 2
@@ -1720,6 +1722,11 @@ Returns the current pending artist-identity review queue.
   ]
 }
 ```
+
+Each pending artist review also includes:
+
+- `confidence`
+- `explanation`
 
 ### GET /admin/artist-identity/reviews/pending/stale
 
@@ -1757,6 +1764,8 @@ Returns the current pending wallet-identity review queue.
       "wallet_class": "unknown",
       "class_confidence": "provisional",
       "source": "cross_wallet_alias",
+      "confidence": "review_required",
+      "explanation": "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous.",
       "evidence_key": "shared wallet alias",
       "wallet_ids": ["wallet-a", "wallet-b"],
       "endpoint_summary": [],
@@ -1765,6 +1774,11 @@ Returns the current pending wallet-identity review queue.
   ]
 }
 ```
+
+Each pending wallet review also includes:
+
+- `confidence`
+- `explanation`
 
 ### GET /admin/wallet-identity/reviews/pending/stale
 
@@ -2022,6 +2036,11 @@ plan, stored review items, and wallet-linked evidence touching the feed.
 }
 ```
 
+Each `artist_identity_reviews` row includes deterministic review metadata:
+
+- `confidence`
+- `explanation`
+
 | Code | Meaning |
 |------|---------|
 | 200  | Diagnostics returned |
@@ -2116,6 +2135,8 @@ claim-feed evidence, and alias peers that currently share one normalized alias.
   "reviews": [
     {
       "source": "cross_wallet_alias",
+      "confidence": "review_required",
+      "explanation": "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous.",
       "evidence_key": "shared-wallet-alias",
       "status": "pending"
     }
@@ -2124,6 +2145,11 @@ claim-feed evidence, and alias peers that currently share one normalized alias.
   "alias_peers": []
 }
 ```
+
+Each wallet review row also includes:
+
+- `confidence`
+- `explanation`
 
 | Code | Meaning |
 |------|---------|
