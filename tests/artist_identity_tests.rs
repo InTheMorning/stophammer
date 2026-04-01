@@ -1835,6 +1835,159 @@ fn collaboration_credit_raises_review_without_auto_merge() {
     );
 }
 
+#[test]
+fn contributor_name_variants_raise_review_without_auto_merge() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let feed_artist = stophammer::db::resolve_artist(
+        &conn,
+        "Compilation Host",
+        Some("feed-contributor-name-variant"),
+    )
+    .expect("feed artist");
+    let feed_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &feed_artist.name,
+        &[(
+            feed_artist.artist_id.clone(),
+            feed_artist.name.clone(),
+            String::new(),
+        )],
+        Some("feed-contributor-name-variant"),
+    )
+    .expect("feed credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-contributor-name-variant', 'https://example.com/contributor-name-variant.xml', 'Contributor Name Variant', 'contributor name variant', ?1, ?2, ?2)",
+        rusqlite::params![feed_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let first_variant =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-contributor-name-variant"))
+            .expect("first variant");
+    let first_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &first_variant.name,
+        &[(
+            first_variant.artist_id.clone(),
+            first_variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-contributor-name-variant"),
+    )
+    .expect("first credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-contributor-name-variant-a', 'feed-contributor-name-variant', ?1, 'Hardware Store Lady', 'hardware store lady', 0, ?2, ?2)",
+        rusqlite::params![first_credit.id, now],
+    )
+    .expect("insert first track");
+
+    let second_variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-contributor-name-variant"))
+            .expect("second variant");
+    let second_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &second_variant.name,
+        &[(
+            second_variant.artist_id.clone(),
+            second_variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-contributor-name-variant"),
+    )
+    .expect("second credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-contributor-name-variant-b', 'feed-contributor-name-variant', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![second_credit.id, now],
+    )
+    .expect("insert second track");
+
+    stophammer::db::replace_source_contributor_claims_for_feed(
+        &conn,
+        "feed-contributor-name-variant",
+        &[
+            stophammer::model::SourceContributorClaim {
+                id: None,
+                feed_guid: "feed-contributor-name-variant".into(),
+                entity_type: "track".into(),
+                entity_id: "track-contributor-name-variant-a".into(),
+                position: 0,
+                name: "HeyCitizen".into(),
+                role: Some("musician".into()),
+                role_norm: Some("musician".into()),
+                group_name: None,
+                href: None,
+                img: None,
+                source: "podcast_person".into(),
+                extraction_path: "track.podcast:person[0]".into(),
+                observed_at: now,
+            },
+            stophammer::model::SourceContributorClaim {
+                id: None,
+                feed_guid: "feed-contributor-name-variant".into(),
+                entity_type: "track".into(),
+                entity_id: "track-contributor-name-variant-b".into(),
+                position: 0,
+                name: "Hey Citizen".into(),
+                role: Some("musician".into()),
+                role_norm: Some("musician".into()),
+                group_name: None,
+                href: None,
+                img: None,
+                source: "podcast_person".into(),
+                extraction_path: "track.podcast:person[0]".into(),
+                observed_at: now,
+            },
+        ],
+    )
+    .expect("replace contributor claims");
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(
+        &mut conn,
+        "feed-contributor-name-variant",
+    )
+    .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "contributor name variants should raise review, not auto-merge"
+    );
+    assert_eq!(
+        stats.pending_reviews, 1,
+        "contributor name variants should create one pending review"
+    );
+
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "feed-contributor-name-variant",
+    )
+    .expect("list reviews");
+    let review = reviews
+        .iter()
+        .find(|review| review.source == "contributor_name_variant")
+        .expect("contributor_name_variant review");
+    assert_eq!(review.name_key, "heycitizen");
+    assert_eq!(review.evidence_key, "feed-contributor-name-variant");
+    let review_artist_ids = review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [
+        first_variant.artist_id.clone(),
+        second_variant.artist_id.clone(),
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "review should include both track artist ids backed by contributor claims"
+    );
+}
+
 /// Canonical promotions computed after an artist-identity merge reference the
 /// surviving artist, not the merged-away one.
 ///
