@@ -24,7 +24,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, params, params_from_iter};
 use stophammer::db::DEFAULT_DB_PATH;
 use stophammer::tui::format_local_timestamp;
 
@@ -62,6 +62,16 @@ struct FeedClaimSnapshot {
     platform_claims: Vec<SourcePlatformClaim>,
     resolved_external_ids: Vec<ResolvedExternalIdByFeed>,
     resolved_entity_sources: Vec<ResolvedEntitySourceByFeed>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ClaimFamilyTotals {
+    contributors: usize,
+    entity_ids: usize,
+    links: usize,
+    releases: usize,
+    platforms: usize,
+    enclosures: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -353,6 +363,22 @@ impl App {
         let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
         let total_claims: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
         let total_resolved: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
+        let claim_family_totals = load_queue_claim_family_totals(
+            &self.conn,
+            &self
+                .feeds
+                .iter()
+                .map(|feed| feed.feed_guid.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or(ClaimFamilyTotals {
+            contributors: 0,
+            entity_ids: 0,
+            links: 0,
+            releases: 0,
+            platforms: 0,
+            enclosures: 0,
+        });
         let top_claim_feed = self
             .feeds
             .iter()
@@ -412,6 +438,23 @@ impl App {
             "Claim hotspots:".to_string(),
         ];
         lines.extend(claim_hotspots);
+        lines.push(String::new());
+        lines.push("Claim family mix:".to_string());
+        let family_rows = vec![
+            ("contributors", claim_family_totals.contributors),
+            ("entity_ids", claim_family_totals.entity_ids),
+            ("links", claim_family_totals.links),
+            ("releases", claim_family_totals.releases),
+            ("platforms", claim_family_totals.platforms),
+            ("enclosures", claim_family_totals.enclosures),
+        ];
+        let total_family_claims = family_rows.iter().map(|(_, count)| *count).sum::<usize>();
+        lines.extend(family_rows.into_iter().filter(|(_, count)| *count > 0).map(
+            |(label, count)| {
+                let share = (count * 100) / total_family_claims.max(1);
+                format!("  {label}: {count} ({share}%)")
+            },
+        ));
 
         self.dialog = Some(stophammer::tui::text_dialog(
             format!("Source Claims Operator Overview ({feed_count})"),
@@ -891,6 +934,38 @@ fn load_feed_claim_snapshot(
         resolved_entity_sources: stophammer::db::get_resolved_entity_sources_for_feed(
             conn, feed_guid,
         )?,
+    })
+}
+
+fn count_rows_for_feed_guids(
+    conn: &Connection,
+    table: &str,
+    feed_guids: &[String],
+) -> Result<usize, Box<dyn Error>> {
+    if feed_guids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = std::iter::repeat_n("?", feed_guids.len())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!("SELECT COUNT(*) FROM {table} WHERE feed_guid IN ({placeholders})");
+    let count = conn.query_row(&sql, params_from_iter(feed_guids.iter()), |row| {
+        row.get::<_, i64>(0)
+    })?;
+    Ok(usize::try_from(count).map_err(|_err| io::Error::other("row count exceeded usize"))?)
+}
+
+fn load_queue_claim_family_totals(
+    conn: &Connection,
+    feed_guids: &[String],
+) -> Result<ClaimFamilyTotals, Box<dyn Error>> {
+    Ok(ClaimFamilyTotals {
+        contributors: count_rows_for_feed_guids(conn, "source_contributor_claims", feed_guids)?,
+        entity_ids: count_rows_for_feed_guids(conn, "source_entity_ids", feed_guids)?,
+        links: count_rows_for_feed_guids(conn, "source_entity_links", feed_guids)?,
+        releases: count_rows_for_feed_guids(conn, "source_release_claims", feed_guids)?,
+        platforms: count_rows_for_feed_guids(conn, "source_platform_claims", feed_guids)?,
+        enclosures: count_rows_for_feed_guids(conn, "source_item_enclosures", feed_guids)?,
     })
 }
 
