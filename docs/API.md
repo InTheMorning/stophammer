@@ -1717,6 +1717,10 @@ Returns the current pending artist-identity review queue.
       "explanation": "Multiple same-feed evidence families agree that these artist rows likely describe the same artist, but review is still required.",
       "supporting_sources": ["track_feed_name_variant", "wallet_name_variant"],
       "score": 65,
+      "score_breakdown": [
+        { "source": "track_feed_name_variant", "points": 30 },
+        { "source": "wallet_name_variant", "points": 35 }
+      ],
       "name_key": "heycitizen",
       "evidence_key": "feed-guid",
       "artist_count": 2
@@ -1734,6 +1738,7 @@ Scored review sources such as `likely_same_artist` may also include:
 
 - `supporting_sources`
 - `score`
+- `score_breakdown`
 
 Current artist review sources include deterministic families such as:
 
@@ -1784,6 +1789,10 @@ Returns the current pending wallet-identity review queue.
       "explanation": "Multiple wallets share the same normalized alias and also appear on the same feed, so they likely belong to one owner but still require review.",
       "supporting_sources": ["cross_wallet_alias", "shared_feed_overlap"],
       "score": 65,
+      "score_breakdown": [
+        { "source": "cross_wallet_alias", "points": 40 },
+        { "source": "shared_feed_overlap", "points": 25 }
+      ],
       "evidence_key": "shared wallet alias:feed-guid",
       "wallet_ids": ["wallet-a", "wallet-b"],
       "endpoint_summary": [],
@@ -1816,6 +1825,7 @@ Scored review sources such as `likely_wallet_owner_match` may also include:
 
 - `supporting_sources`
 - `score`
+- `score_breakdown`
 
 For `likely_wallet_owner_match`, `supporting_sources` may include:
 
@@ -2124,6 +2134,7 @@ Each `artist_identity_reviews` row includes deterministic review metadata:
 - `explanation`
 - `supporting_sources` on scored review sources such as `likely_same_artist`
 - `score` on scored review sources such as `likely_same_artist`
+- `score_breakdown` on scored review sources such as `likely_same_artist`
 
 When a candidate group already has a stored review row, the corresponding
 `artist_identity_plan.candidate_groups[]` item also includes:
@@ -2132,6 +2143,7 @@ When a candidate group already has a stored review row, the corresponding
 - `explanation`
 - `supporting_sources` on scored review sources such as `likely_same_artist`
 - `score` on scored review sources such as `likely_same_artist`
+- `score_breakdown` on scored review sources such as `likely_same_artist`
 
 | Code | Meaning |
 |------|---------|
@@ -2247,6 +2259,7 @@ Scored review sources such as `likely_wallet_owner_match` may also include:
 
 - `supporting_sources`
 - `score`
+- `score_breakdown`
 
 For `likely_wallet_owner_match`, `supporting_sources` may include:
 

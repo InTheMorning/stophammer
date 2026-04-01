@@ -47,6 +47,18 @@ struct ReviewDetailReport {
     wallet: stophammer::db::WalletDetail,
 }
 
+fn format_score_breakdown(score_breakdown: &[stophammer::db::ReviewScoreComponent]) -> String {
+    if score_breakdown.is_empty() {
+        "-".to_string()
+    } else {
+        score_breakdown
+            .iter()
+            .map(|component| format!("{}:{}", component.source, component.points))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "manual CLI parsing keeps the review tool dependency-free"
@@ -279,6 +291,12 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
                 r.supporting_sources.join(", ")
             );
         }
+        if !r.score_breakdown.is_empty() {
+            println!(
+                "  score_breakdown={}",
+                format_score_breakdown(&r.score_breakdown)
+            );
+        }
     }
 }
 
@@ -428,6 +446,12 @@ fn show_review(
             println!(
                 "  supporting_sources={}",
                 review_summary.supporting_sources.join(", ")
+            );
+        }
+        if !review_summary.score_breakdown.is_empty() {
+            println!(
+                "  score_breakdown={}",
+                format_score_breakdown(&review_summary.score_breakdown)
             );
         }
         print_wallet_detail(&detail);

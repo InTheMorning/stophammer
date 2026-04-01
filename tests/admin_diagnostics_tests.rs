@@ -195,6 +195,19 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
     assert!(supporting_sources.contains("track_feed_name_variant"));
     assert!(supporting_sources.contains("wallet_name_variant"));
     assert_eq!(likely_artist_group["score"], 65);
+    let score_breakdown = likely_artist_group["score_breakdown"]
+        .as_array()
+        .expect("score_breakdown array")
+        .iter()
+        .map(|component| {
+            (
+                component["source"].as_str().unwrap_or_default(),
+                component["points"].as_u64().unwrap_or_default(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(score_breakdown.contains(&("track_feed_name_variant", 30)));
+    assert!(score_breakdown.contains(&("wallet_name_variant", 35)));
     let wallet_variant_review = json["artist_identity_reviews"]
         .as_array()
         .expect("artist_identity_reviews array")
@@ -1668,4 +1681,17 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     assert!(supporting_sources.contains("cross_wallet_alias"));
     assert!(supporting_sources.contains("shared_feed_overlap"));
     assert_eq!(likely_wallet_review["score"], 65);
+    let score_breakdown = likely_wallet_review["score_breakdown"]
+        .as_array()
+        .expect("score_breakdown array")
+        .iter()
+        .map(|component| {
+            (
+                component["source"].as_str().unwrap_or_default(),
+                component["points"].as_u64().unwrap_or_default(),
+            )
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(score_breakdown.contains(&("cross_wallet_alias", 40)));
+    assert!(score_breakdown.contains(&("shared_feed_overlap", 25)));
 }

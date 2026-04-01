@@ -4328,6 +4328,7 @@ pub struct ArtistIdentityCandidateGroup {
     pub artist_names: Vec<String>,
     pub supporting_sources: Vec<String>,
     pub score: Option<u16>,
+    pub score_breakdown: Vec<ReviewScoreComponent>,
     pub review_id: Option<i64>,
     pub review_status: Option<String>,
     pub confidence: Option<String>,
@@ -4362,6 +4363,7 @@ pub struct ArtistIdentityReviewItem {
     pub explanation: String,
     pub supporting_sources: Vec<String>,
     pub score: Option<u16>,
+    pub score_breakdown: Vec<ReviewScoreComponent>,
     pub name_key: String,
     pub evidence_key: String,
     pub status: String,
@@ -4384,6 +4386,7 @@ pub struct ArtistIdentityPendingReview {
     pub explanation: String,
     pub supporting_sources: Vec<String>,
     pub score: Option<u16>,
+    pub score_breakdown: Vec<ReviewScoreComponent>,
     pub name_key: String,
     pub evidence_key: String,
     pub artist_count: usize,
@@ -4400,6 +4403,12 @@ pub struct ArtistIdentityPendingReviewSummary {
 pub struct PendingReviewConfidenceSummary {
     pub confidence: String,
     pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ReviewScoreComponent {
+    pub source: String,
+    pub points: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -5458,37 +5467,62 @@ fn wallet_review_supporting_sources(
     }
 }
 
-fn artist_review_score(source: &str, supporting_sources: &[String]) -> Option<u16> {
-    if source != "likely_same_artist" {
-        return None;
-    }
-    let mut score = 0u16;
-    for support in supporting_sources {
-        score = score.saturating_add(match support.as_str() {
-            "wallet_name_variant" => 35,
-            "track_feed_name_variant" => 30,
-            "contributor_name_variant" => 25,
-            "publisher_name_variant" => 20,
-            _ => 0,
-        });
-    }
-    Some(score.min(100))
+fn review_score_from_breakdown(score_breakdown: &[ReviewScoreComponent]) -> Option<u16> {
+    (!score_breakdown.is_empty()).then(|| {
+        score_breakdown
+            .iter()
+            .fold(0u16, |acc, component| acc.saturating_add(component.points))
+            .min(100)
+    })
 }
 
-fn wallet_review_score(source: &str, supporting_sources: &[String]) -> Option<u16> {
+fn artist_review_score_breakdown(
+    source: &str,
+    supporting_sources: &[String],
+) -> Vec<ReviewScoreComponent> {
+    if source != "likely_same_artist" {
+        return Vec::new();
+    }
+    supporting_sources
+        .iter()
+        .filter_map(|support| {
+            let points = match support.as_str() {
+                "wallet_name_variant" => 35,
+                "track_feed_name_variant" => 30,
+                "contributor_name_variant" => 25,
+                "publisher_name_variant" => 20,
+                _ => 0,
+            };
+            (points > 0).then_some(ReviewScoreComponent {
+                source: support.clone(),
+                points,
+            })
+        })
+        .collect()
+}
+
+fn wallet_review_score_breakdown(
+    source: &str,
+    supporting_sources: &[String],
+) -> Vec<ReviewScoreComponent> {
     if source != "likely_wallet_owner_match" {
-        return None;
+        return Vec::new();
     }
-    let mut score = 0u16;
-    for support in supporting_sources {
-        score = score.saturating_add(match support.as_str() {
-            "cross_wallet_alias" => 40,
-            "shared_feed_overlap" => 25,
-            "shared_artist_link" => 20,
-            _ => 0,
-        });
-    }
-    Some(score.min(100))
+    supporting_sources
+        .iter()
+        .filter_map(|support| {
+            let points = match support.as_str() {
+                "cross_wallet_alias" => 40,
+                "shared_feed_overlap" => 25,
+                "shared_artist_link" => 20,
+                _ => 0,
+            };
+            (points > 0).then_some(ReviewScoreComponent {
+                source: support.clone(),
+                points,
+            })
+        })
+        .collect()
 }
 
 fn review_confidence_priority(confidence: &str) -> u8 {
@@ -6381,7 +6415,8 @@ pub fn explain_artist_identity_for_feed(
                 &artist_ids,
             )
             .unwrap_or_default();
-            let score = artist_review_score(&group.source, &supporting_sources);
+            let score_breakdown = artist_review_score_breakdown(&group.source, &supporting_sources);
+            let score = review_score_from_breakdown(&score_breakdown);
             let review = get_artist_identity_review_for_subject(
                 conn,
                 feed_guid,
@@ -6399,6 +6434,7 @@ pub fn explain_artist_identity_for_feed(
                 artist_names,
                 supporting_sources,
                 score,
+                score_breakdown,
                 review_id: review.as_ref().map(|item| item.review_id),
                 review_status: review.as_ref().map(|item| item.status.clone()),
                 confidence: review.as_ref().map(|item| item.confidence.clone()),
@@ -6507,7 +6543,9 @@ pub fn list_artist_identity_reviews_for_feed(
             &review.name_key,
             &review.artist_ids,
         )?;
-        review.score = artist_review_score(&review.source, &review.supporting_sources);
+        review.score_breakdown =
+            artist_review_score_breakdown(&review.source, &review.supporting_sources);
+        review.score = review_score_from_breakdown(&review.score_breakdown);
         reviews.push(review);
     }
     Ok(reviews)
@@ -6558,7 +6596,9 @@ pub fn get_artist_identity_review(
                 &review.name_key,
                 &review.artist_ids,
             )?;
-            review.score = artist_review_score(&review.source, &review.supporting_sources);
+            review.score_breakdown =
+                artist_review_score_breakdown(&review.source, &review.supporting_sources);
+            review.score = review_score_from_breakdown(&review.score_breakdown);
             Ok(review)
         })
         .transpose()
@@ -6615,7 +6655,9 @@ pub fn get_artist_identity_review_for_subject(
                 &review.name_key,
                 &review.artist_ids,
             )?;
-            review.score = artist_review_score(&review.source, &review.supporting_sources);
+            review.score_breakdown =
+                artist_review_score_breakdown(&review.source, &review.supporting_sources);
+            review.score = review_score_from_breakdown(&review.score_breakdown);
             Ok(review)
         })
         .transpose()
@@ -6669,6 +6711,7 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
         let supporting_sources =
             artist_review_supporting_sources(conn, &feed_guid, &source, &name_key, &artist_ids)?;
+        let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
@@ -6676,7 +6719,8 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
             source: source.clone(),
             confidence: artist_identity_review_confidence(&source).to_string(),
             explanation: artist_identity_review_explanation(&source).to_string(),
-            score: artist_review_score(&source, &supporting_sources),
+            score: review_score_from_breakdown(&score_breakdown),
+            score_breakdown,
             supporting_sources,
             name_key,
             evidence_key: row.get(5)?,
@@ -6752,6 +6796,7 @@ pub fn list_recent_pending_artist_identity_reviews(
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
         let supporting_sources =
             artist_review_supporting_sources(conn, &feed_guid, &source, &name_key, &artist_ids)?;
+        let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
@@ -6759,8 +6804,9 @@ pub fn list_recent_pending_artist_identity_reviews(
             source: source.clone(),
             confidence: artist_identity_review_confidence(&source).to_string(),
             explanation: artist_identity_review_explanation(&source).to_string(),
-            score: artist_review_score(&source, &supporting_sources),
+            score: review_score_from_breakdown(&score_breakdown),
             supporting_sources,
+            score_breakdown,
             name_key,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
@@ -7154,6 +7200,7 @@ fn artist_identity_review_row(
         explanation: artist_identity_review_explanation(&source).to_string(),
         supporting_sources: vec![],
         score: None,
+        score_breakdown: vec![],
         name_key: row.get(3)?,
         evidence_key: row.get(4)?,
         status: row.get(5)?,
@@ -13135,6 +13182,7 @@ pub struct WalletReviewSummary {
     pub explanation: String,
     pub supporting_sources: Vec<String>,
     pub score: Option<u16>,
+    pub score_breakdown: Vec<ReviewScoreComponent>,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -13156,6 +13204,7 @@ pub struct WalletReviewItem {
     pub explanation: String,
     pub supporting_sources: Vec<String>,
     pub score: Option<u16>,
+    pub score_breakdown: Vec<ReviewScoreComponent>,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -13368,6 +13417,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
         let endpoint_summary_json: String = row.get(8)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13377,7 +13427,8 @@ fn list_pending_wallet_reviews_with_max_created_at(
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
-            score: wallet_review_score(&source, &supporting_sources),
+            score: review_score_from_breakdown(&score_breakdown),
+            score_breakdown,
             supporting_sources,
             evidence_key: row.get(6)?,
             wallet_ids,
@@ -13431,6 +13482,7 @@ pub fn get_wallet_review_summary(
                         Box::new(std::io::Error::other(err.to_string())),
                     )
                 })?;
+            let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
             Ok(WalletReviewSummary {
                 id: row.get(0)?,
                 wallet_id: row.get(1)?,
@@ -13440,7 +13492,8 @@ pub fn get_wallet_review_summary(
                 source: source.clone(),
                 confidence: wallet_review_confidence(&source).to_string(),
                 explanation: wallet_review_explanation(&source).to_string(),
-                score: wallet_review_score(&source, &supporting_sources),
+                score: review_score_from_breakdown(&score_breakdown),
+                score_breakdown,
                 supporting_sources,
                 evidence_key: row.get(6)?,
                 wallet_ids,
@@ -13504,6 +13557,7 @@ pub fn list_recent_pending_wallet_reviews(
         let endpoint_summary_json: String = row.get(8)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13513,7 +13567,8 @@ pub fn list_recent_pending_wallet_reviews(
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
-            score: wallet_review_score(&source, &supporting_sources),
+            score: review_score_from_breakdown(&score_breakdown),
+            score_breakdown,
             supporting_sources,
             evidence_key: row.get(6)?,
             wallet_ids,
@@ -13683,13 +13738,15 @@ pub fn list_wallet_reviews_for_wallet(
         let endpoint_summary_json: String = row.get(5)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
-            score: wallet_review_score(&source, &supporting_sources),
+            score: review_score_from_breakdown(&score_breakdown),
+            score_breakdown,
             supporting_sources,
             evidence_key: row.get(3)?,
             wallet_ids,

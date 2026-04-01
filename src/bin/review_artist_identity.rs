@@ -78,6 +78,18 @@ struct FeedEvidenceRow {
     publisher_remote_feed_guids: Vec<String>,
 }
 
+fn format_score_breakdown(score_breakdown: &[stophammer::db::ReviewScoreComponent]) -> String {
+    if score_breakdown.is_empty() {
+        "-".to_string()
+    } else {
+        score_breakdown
+            .iter()
+            .map(|component| format!("{}:{}", component.source, component.points))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
+
 #[allow(
     clippy::too_many_lines,
     reason = "manual CLI parsing keeps the review tool dependency-free"
@@ -634,6 +646,12 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
                 review.supporting_sources.join(", ")
             );
         }
+        if !review.score_breakdown.is_empty() {
+            println!(
+                "  score_breakdown={}",
+                format_score_breakdown(&review.score_breakdown)
+            );
+        }
     }
 }
 
@@ -657,6 +675,12 @@ fn print_review_item_text(report: &ReviewItemReport) {
         println!(
             "  supporting_sources={}",
             review.supporting_sources.join(", ")
+        );
+    }
+    if !review.score_breakdown.is_empty() {
+        println!(
+            "  score_breakdown={}",
+            format_score_breakdown(&review.score_breakdown)
         );
     }
     println!("  artist_ids={}", review.artist_ids.join(", "));
