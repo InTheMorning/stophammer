@@ -82,3 +82,10 @@ pub fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -
     let share = (count.saturating_mul(100)) / total.max(1);
     Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
+
+/// Simple text dialog payload shared by interactive review TUIs.
+#[derive(Debug, Clone)]
+pub struct TextDialog {
+    pub title: String,
+    pub lines: Vec<String>,
+}

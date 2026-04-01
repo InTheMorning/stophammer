@@ -109,12 +109,6 @@ struct EvidenceBranch {
     default_collapsed: bool,
 }
 
-#[derive(Debug, Clone)]
-struct SummaryDialog {
-    title: String,
-    lines: Vec<String>,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct SectionState {
     routes: bool,
@@ -195,7 +189,7 @@ struct App {
     evidence_rows: Vec<EvidenceRow>,
     sections: SectionState,
     collapsed_item_keys: BTreeSet<String>,
-    dialog: Option<SummaryDialog>,
+    dialog: Option<stophammer::tui::TextDialog>,
     focus: Focus,
     status: String,
 }
@@ -1100,7 +1094,7 @@ impl App {
         );
         self.reload()?;
         self.status = status;
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: "Apply Summary".to_string(),
             lines,
         });
@@ -1111,7 +1105,7 @@ impl App {
         let result = stophammer::db::undo_last_wallet_merge_batch(&self.conn)?;
         let Some(stats) = result else {
             self.status = "No applied merge batch to undo".to_string();
-            self.dialog = Some(SummaryDialog {
+            self.dialog = Some(stophammer::tui::TextDialog {
                 title: "Undo Summary".to_string(),
                 lines: vec!["No applied merge batch to undo.".to_string()],
             });
@@ -1124,7 +1118,7 @@ impl App {
         );
         self.reload()?;
         self.status = status;
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: "Undo Summary".to_string(),
             lines: vec![
                 format!("batch id: {}", stats.batch_id),
@@ -1172,7 +1166,7 @@ impl App {
                 format!("{}: {} ({}%)", item.source, item.count, share)
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Wallet Queue Summary ({total})"),
             lines,
         });
@@ -1211,7 +1205,7 @@ impl App {
                 lines.push(format!("  {}", abbreviate(&feed.feed_url, 72)));
             }
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Feed Hotspots ({hotspot_count})"),
             lines,
         });
@@ -1315,7 +1309,7 @@ impl App {
                 lines.push(format!("    {}", abbreviate(&feed.feed_url, 72)));
             }
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!(
                 "Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})"
             ),
@@ -1352,7 +1346,7 @@ impl App {
                 )
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Stale Wallet Reviews ({stale_count})"),
             lines,
         });
@@ -1389,7 +1383,7 @@ impl App {
                 )
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Recent Wallet Reviews ({recent_count})"),
             lines,
         });
@@ -1397,7 +1391,7 @@ impl App {
     }
 
     fn show_help_dialog(&mut self) {
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Wallet Review TUI Help ({})", self.groups.len()),
             lines: vec![
                 "Tab / Left / Right: cycle focus".to_string(),
@@ -1492,7 +1486,7 @@ impl App {
             );
         }
 
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Wallet Review Playbook ({total})"),
             lines,
         });

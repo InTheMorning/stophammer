@@ -76,12 +76,6 @@ struct ReviewSnapshot {
     artists: Vec<ArtistSummary>,
 }
 
-#[derive(Debug, Clone)]
-struct SummaryDialog {
-    title: String,
-    lines: Vec<String>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Reviews,
@@ -101,7 +95,7 @@ struct App {
     snapshot: Option<ReviewSnapshot>,
     evidence_scroll: u16,
     status: String,
-    dialog: Option<SummaryDialog>,
+    dialog: Option<stophammer::tui::TextDialog>,
 }
 
 impl App {
@@ -406,7 +400,7 @@ impl App {
             None,
         )?;
 
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: "Artist Merge Applied".to_string(),
             lines: vec![
                 format!("Review {review_id} now targets {target_name} [{target_artist_id}]."),
@@ -450,7 +444,7 @@ impl App {
             None,
             None,
         )?;
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: "Artist Review Blocked".to_string(),
             lines: vec![
                 format!(
@@ -508,7 +502,7 @@ impl App {
                 format!("{}: {} ({}%)", item.source, item.count, share)
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Artist Queue Summary ({total})"),
             lines,
         });
@@ -547,7 +541,7 @@ impl App {
                 lines.push(format!("  {}", abbreviate(&feed.feed_url, 72)));
             }
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Feed Hotspots ({hotspot_count})"),
             lines,
         });
@@ -651,7 +645,7 @@ impl App {
                 lines.push(format!("    {}", abbreviate(&feed.feed_url, 72)));
             }
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!(
                 "Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})"
             ),
@@ -691,7 +685,7 @@ impl App {
                 )
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Stale Artist Reviews ({stale_count})"),
             lines,
         });
@@ -731,7 +725,7 @@ impl App {
                 )
             }));
         }
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Recent Artist Reviews ({recent_count})"),
             lines,
         });
@@ -739,7 +733,7 @@ impl App {
     }
 
     fn show_help_dialog(&mut self) {
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Artist Review TUI Help ({})", self.reviews.len()),
             lines: vec![
                 "Tab / Shift-Tab: cycle focus".to_string(),
@@ -827,7 +821,7 @@ impl App {
             );
         }
 
-        self.dialog = Some(SummaryDialog {
+        self.dialog = Some(stophammer::tui::TextDialog {
             title: format!("Artist Review Playbook ({total})"),
             lines,
         });
