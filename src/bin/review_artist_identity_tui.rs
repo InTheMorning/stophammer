@@ -510,6 +510,18 @@ impl App {
                 wallet_total, wallet_age.created_last_24h, wallet_age.older_than_7d
             ),
         ];
+        if let Some(oldest) = artist_age.oldest_created_at {
+            lines.push(format!(
+                "Oldest artist review: {}",
+                format_local_timestamp(oldest)
+            ));
+        }
+        if let Some(oldest) = wallet_age.oldest_created_at {
+            lines.push(format!(
+                "Oldest wallet review: {}",
+                format_local_timestamp(oldest)
+            ));
+        }
         lines.push(String::new());
         lines.push("Top artist review sources:".to_string());
         if artist_summary.is_empty() {
