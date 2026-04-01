@@ -1150,9 +1150,10 @@ impl App {
             if let Some(top_source) = summary.first() {
                 let share = (top_source.count.saturating_mul(100)) / total.max(1);
                 if share >= 50 {
-                    lines.push(format!(
-                        "Dominant family: {} ({}%). Use n/N to stay within it.",
-                        top_source.source, share
+                    lines.push(stophammer::tui::format_dominant_family_hint(
+                        &top_source.source,
+                        share,
+                        "Use n/N to stay within it.",
                     ));
                     lines.push(String::new());
                 } else {
@@ -1253,8 +1254,12 @@ impl App {
                 let share = (top_source.count.saturating_mul(100)) / artist_total.max(1);
                 if share >= 50 {
                     lines.push(format!(
-                        "  Dominant family: {} ({}%). Use n/N in the artist TUI to stay within it.",
-                        top_source.source, share
+                        "  {}",
+                        stophammer::tui::format_dominant_family_hint(
+                            &top_source.source,
+                            share,
+                            "Use n/N in the artist TUI to stay within it.",
+                        )
                     ));
                 }
             }
@@ -1272,8 +1277,12 @@ impl App {
                 let share = (top_source.count.saturating_mul(100)) / wallet_total.max(1);
                 if share >= 50 {
                     lines.push(format!(
-                        "  Dominant family: {} ({}%). Use n/N to stay within it.",
-                        top_source.source, share
+                        "  {}",
+                        stophammer::tui::format_dominant_family_hint(
+                            &top_source.source,
+                            share,
+                            "Use n/N to stay within it.",
+                        )
                     ));
                 }
             }

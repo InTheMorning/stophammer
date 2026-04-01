@@ -119,6 +119,12 @@ pub fn format_source_count_summary<'a>(
     )
 }
 
+/// Formats a dominant-source hint for operator dialogs.
+#[must_use]
+pub fn format_dominant_family_hint(source: &str, share: usize, suffix: &str) -> String {
+    format!("Dominant family: {source} ({share}%). {suffix}")
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
