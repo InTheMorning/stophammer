@@ -324,6 +324,27 @@ fn queue_scoped_feed_dialog_title(base: &str, count: usize, feeds: &[FeedQueueRo
     )
 }
 
+fn track_scoped_dialog_title(
+    app: &App,
+    snapshot: &FeedClaimSnapshot,
+    base: &str,
+    track_guid: &str,
+) -> String {
+    current_track_family_position(app).map_or_else(
+        || format!("{base} [{}]", short_id(track_guid)),
+        |(label, position, total)| {
+            let cluster = track_family_subset_short_summary(snapshot)
+                .map_or_else(String::new, |summary| format!(" {summary}"));
+            let feed_cluster = feed_family_subset_short_summary(&app.feeds)
+                .map_or_else(String::new, |summary| format!(" {summary}"));
+            format!(
+                "{base} [{}] {label} {position}/{total}{cluster}{feed_cluster}",
+                short_id(track_guid),
+            )
+        },
+    )
+}
+
 fn current_track_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     let snapshot = app.current_snapshot()?;
     let current_idx = app.track_state.selected()?;
@@ -355,6 +376,15 @@ fn current_track_family_position_label(app: &App) -> String {
 fn current_track_family_header_label(app: &App) -> Option<String> {
     current_track_family_position(app)
         .map(|(label, position, total)| format!("track-family {label} {position}/{total}"))
+}
+
+fn current_track_evidence_summary(app: &App) -> Option<String> {
+    let snapshot = app.current_snapshot()?;
+    let track = app.current_track()?;
+    Some(format!(
+        "track {}",
+        track_family_with_cluster_summary(snapshot, &track.track_guid)
+    ))
 }
 
 fn feed_pane_title(app: &App) -> String {
@@ -882,19 +912,7 @@ impl App {
             lines.push("  no track-scoped claim rows".to_string());
         }
 
-        let title = current_track_family_position(self).map_or_else(
-            || format!("Track Claim Mix [{}]", short_id(&track.track_guid)),
-            |(label, position, total)| {
-                let cluster = track_family_subset_short_summary(snapshot)
-                    .map_or_else(String::new, |summary| format!(" {summary}"));
-                let feed_cluster = feed_family_subset_short_summary(&self.feeds)
-                    .map_or_else(String::new, |summary| format!(" {summary}"));
-                format!(
-                    "Track Claim Mix [{}] {label} {position}/{total}{cluster}{feed_cluster}",
-                    short_id(&track.track_guid),
-                )
-            },
-        );
+        let title = track_scoped_dialog_title(self, snapshot, "Track Claim Mix", &track.track_guid);
         self.dialog = Some(stophammer::tui::text_dialog(title, lines));
     }
 
@@ -2297,21 +2315,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let evidence_title = app.current_feed_row().map_or_else(
         || "Evidence".to_string(),
         |feed| {
-            let track_summary = app.current_snapshot().and_then(|snapshot| {
-                app.current_track().map(|track| {
-                    format!(
-                        "track {}",
-                        track_family_with_cluster_summary(snapshot, &track.track_guid)
-                    )
-                })
-            });
             format!(
                 "Evidence {} (claims={} resolved={} {}{})",
                 feed.title,
                 feed.source_claim_count,
                 feed.resolved_count,
                 dominant_feed_claim_family_summary(feed),
-                track_summary.map_or_else(String::new, |summary| format!(" · {summary}"))
+                current_track_evidence_summary(app)
+                    .map_or_else(String::new, |summary| format!(" · {summary}"))
             )
         },
     );
