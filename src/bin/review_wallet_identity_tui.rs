@@ -1174,43 +1174,21 @@ impl App {
 
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
         let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
-        let mut lines = stophammer::tui::build_operator_overview_header_lines(
-            artist_total,
-            &artist_age,
-            wallet_total,
-            &wallet_age,
-        );
-        stophammer::tui::push_source_family_section(
-            &mut lines,
-            "Top artist review sources:",
+        let lines = stophammer::tui::build_operator_overview_lines(
             artist_summary.iter().map(|item| (item.source.as_str(), item.count)),
-            artist_total,
-            3,
-            "Use n/N in the artist TUI to stay within it.",
-        );
-        lines.push(String::new());
-        stophammer::tui::push_source_family_section(
-            &mut lines,
-            "Top wallet review sources:",
             wallet_summary.iter().map(|item| (item.source.as_str(), item.count)),
-            wallet_total,
-            3,
-            "Use n/N to stay within it.",
+            &hotspots,
+            stophammer::tui::OperatorOverviewConfig {
+                artist_total,
+                artist_age: &artist_age,
+                wallet_total,
+                wallet_age: &wallet_age,
+                artist_dominant_suffix: "Use n/N in the artist TUI to stay within it.",
+                wallet_dominant_suffix: "Use n/N to stay within it.",
+            },
+            short_id,
+            abbreviate,
         );
-        lines.push(String::new());
-        lines.push("Hottest feeds:".to_string());
-        if hotspots.is_empty() {
-            lines.push("  none".to_string());
-        } else {
-            stophammer::tui::push_feed_hotspot_lines(
-                &mut lines,
-                &hotspots,
-                "  ",
-                "    ",
-                short_id,
-                abbreviate,
-            );
-        }
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_operator_overview_title(
                 artist_total,

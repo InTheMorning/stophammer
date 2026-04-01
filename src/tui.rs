@@ -447,6 +447,60 @@ pub fn build_operator_overview_header_lines(
     lines
 }
 
+/// Configuration for the shared operator-overview body.
+#[derive(Debug, Clone, Copy)]
+pub struct OperatorOverviewConfig<'a> {
+    pub artist_total: usize,
+    pub artist_age: &'a crate::db::PendingReviewAgeSummary,
+    pub wallet_total: usize,
+    pub wallet_age: &'a crate::db::PendingReviewAgeSummary,
+    pub artist_dominant_suffix: &'a str,
+    pub wallet_dominant_suffix: &'a str,
+}
+
+/// Builds the full operator-overview dialog body shared by review TUIs.
+#[must_use]
+pub fn build_operator_overview_lines<'a>(
+    artist_items: impl IntoIterator<Item = (&'a str, usize)>,
+    wallet_items: impl IntoIterator<Item = (&'a str, usize)>,
+    hotspots: &[crate::db::PendingReviewFeedHotspot],
+    config: OperatorOverviewConfig<'_>,
+    short_id: impl Fn(&str) -> String,
+    abbreviate: impl Fn(&str, usize) -> String,
+) -> Vec<String> {
+    let mut lines = build_operator_overview_header_lines(
+        config.artist_total,
+        config.artist_age,
+        config.wallet_total,
+        config.wallet_age,
+    );
+    push_source_family_section(
+        &mut lines,
+        "Top artist review sources:",
+        artist_items,
+        config.artist_total,
+        3,
+        config.artist_dominant_suffix,
+    );
+    lines.push(String::new());
+    push_source_family_section(
+        &mut lines,
+        "Top wallet review sources:",
+        wallet_items,
+        config.wallet_total,
+        3,
+        config.wallet_dominant_suffix,
+    );
+    lines.push(String::new());
+    lines.push("Hottest feeds:".to_string());
+    if hotspots.is_empty() {
+        lines.push("  none".to_string());
+    } else {
+        push_feed_hotspot_lines(&mut lines, hotspots, "  ", "    ", short_id, abbreviate);
+    }
+    lines
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
