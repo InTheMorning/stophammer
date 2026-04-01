@@ -5174,6 +5174,52 @@ fn collect_artist_groups_by_contributor_name_variant_for_feed(
         .collect())
 }
 
+fn collect_artist_groups_by_likely_same_artist_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    seed_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<ArtistIdentityEvidenceGroup>, DbError> {
+    let mut grouped: std::collections::BTreeMap<
+        String,
+        (
+            std::collections::BTreeSet<String>,
+            std::collections::BTreeSet<String>,
+        ),
+    > = std::collections::BTreeMap::new();
+
+    for group in collect_artist_groups_by_track_feed_name_variant_for_feed(conn, feed_guid)?
+        .into_iter()
+        .chain(
+            collect_artist_groups_by_contributor_name_variant_for_feed(conn, feed_guid, seed_ids)?
+                .into_iter(),
+        )
+        .chain(
+            collect_artist_groups_by_wallet_name_variant_for_feed(conn, feed_guid, seed_ids)?
+                .into_iter(),
+        )
+    {
+        let current_ids = current_ids_for_review(conn, &group.artist_ids)?;
+        if current_ids.len() <= 1 {
+            continue;
+        }
+        let entry = grouped.entry(group.name_key).or_default();
+        entry.0.extend(current_ids);
+        entry.1.insert(group.source);
+    }
+
+    Ok(grouped
+        .into_iter()
+        .filter_map(|(name_key, (artist_ids, sources))| {
+            (artist_ids.len() > 1 && sources.len() >= 2).then_some(ArtistIdentityEvidenceGroup {
+                source: "likely_same_artist".to_string(),
+                name_key,
+                evidence_key: feed_guid.to_string(),
+                artist_ids,
+            })
+        })
+        .collect())
+}
+
 fn current_ids_for_review(
     conn: &Connection,
     artist_ids: &std::collections::BTreeSet<String>,
@@ -5226,6 +5272,7 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
         source,
         "wallet_name_variant"
             | "track_feed_name_variant"
+            | "likely_same_artist"
             | "collaboration_credit"
             | "contributor_name_variant"
             | "publisher_name_variant"
@@ -5234,7 +5281,7 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
 
 fn artist_identity_review_confidence(source: &str) -> &'static str {
     match source {
-        "wallet_name_variant" => "high_confidence",
+        "wallet_name_variant" | "likely_same_artist" => "high_confidence",
         "collaboration_credit" => "blocked",
         _ => "review_required",
     }
@@ -5244,6 +5291,9 @@ fn artist_identity_review_explanation(source: &str) -> &'static str {
     match source {
         "wallet_name_variant" => {
             "Multiple artist rows collapse to one normalized name and also match wallet alias evidence on the same feed."
+        }
+        "likely_same_artist" => {
+            "Multiple same-feed evidence families agree that these artist rows likely describe the same artist, but review is still required."
         }
         "track_feed_name_variant" => {
             "Feed and track artist credits collapse to the same normalized name on one feed but remain separate artist rows."
@@ -6061,6 +6111,9 @@ pub fn resolve_artist_identity_for_feed_with_signer(
     groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
         &tx, feed_guid, &seed_ids,
     )?);
+    groups.extend(collect_artist_groups_by_likely_same_artist_for_feed(
+        &tx, feed_guid, &seed_ids,
+    )?);
     let candidate_groups = groups.len();
     let backfill_stats = apply_artist_identity_groups(&tx, groups, Some(feed_guid), signer)?;
     let (pending_reviews, blocked_reviews) =
@@ -6111,6 +6164,9 @@ pub fn explain_artist_identity_for_feed(
         conn, feed_guid, &seed_ids,
     )?);
     candidate_groups.extend(collect_artist_groups_by_wallet_name_variant_for_feed(
+        conn, feed_guid, &seed_ids,
+    )?);
+    candidate_groups.extend(collect_artist_groups_by_likely_same_artist_for_feed(
         conn, feed_guid, &seed_ids,
     )?);
     let candidate_groups = candidate_groups

@@ -148,6 +148,10 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         candidate_sources.contains(&"wallet_name_variant"),
         "wallet_name_variant should appear among candidate groups"
     );
+    assert!(
+        candidate_sources.contains(&"likely_same_artist"),
+        "likely_same_artist should appear when multiple same-feed signals agree"
+    );
     let wallet_variant_group = json["artist_identity_plan"]["candidate_groups"]
         .as_array()
         .expect("candidate_groups array")
@@ -172,12 +176,19 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         review_sources.contains(&"wallet_name_variant"),
         "wallet_name_variant should appear among stored review items"
     );
-    assert_eq!(
-        json["artist_identity_reviews"][0]["confidence"],
-        "high_confidence"
-    );
     assert!(
-        json["artist_identity_reviews"][0]["explanation"]
+        review_sources.contains(&"likely_same_artist"),
+        "likely_same_artist should appear among stored review items"
+    );
+    let wallet_variant_review = json["artist_identity_reviews"]
+        .as_array()
+        .expect("artist_identity_reviews array")
+        .iter()
+        .find(|review| review["source"].as_str() == Some("wallet_name_variant"))
+        .expect("wallet_name_variant review");
+    assert_eq!(wallet_variant_review["confidence"], "high_confidence");
+    assert!(
+        wallet_variant_review["explanation"]
             .as_str()
             .expect("artist review explanation")
             .contains("wallet alias evidence"),
@@ -293,11 +304,13 @@ async fn admin_artist_diagnostics_exposes_redirects_wallets_and_reviews() {
         json["wallets"][0]["artist_links"][0]["confidence"],
         "high_confidence"
     );
-    assert_eq!(
-        json["reviews"][0]["review"]["source"],
-        "wallet_name_variant"
-    );
-    let review_names = json["reviews"][0]["review"]["artist_names"]
+    let wallet_variant_review = json["reviews"]
+        .as_array()
+        .expect("reviews array")
+        .iter()
+        .find(|review| review["review"]["source"].as_str() == Some("wallet_name_variant"))
+        .expect("wallet_name_variant review");
+    let review_names = wallet_variant_review["review"]["artist_names"]
         .as_array()
         .expect("artist_names array");
     assert!(

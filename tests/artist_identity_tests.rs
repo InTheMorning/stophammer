@@ -1647,6 +1647,10 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
         "wallet_name_variant review should be present"
     );
     assert!(
+        review_sources.contains("likely_same_artist"),
+        "likely_same_artist review should appear when multiple same-feed signals agree"
+    );
+    assert!(
         review_sources.contains("track_feed_name_variant"),
         "track_feed_name_variant review should also be present for the same feed"
     );
@@ -1666,6 +1670,17 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
     assert_eq!(
         review_artist_ids, expected_artist_ids,
         "review should include both canonical and variant artist ids"
+    );
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_same_artist")
+        .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    assert!(
+        likely_review
+            .explanation
+            .contains("Multiple same-feed evidence families agree"),
+        "combined-signal review should explain why it is stronger than a single heuristic"
     );
 }
 
