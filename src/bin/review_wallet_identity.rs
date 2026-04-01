@@ -241,8 +241,15 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
 
     for r in reviews {
         println!(
-            "review {}  wallet={}  name={:?}  class={}  class_confidence={}  review_confidence={}",
-            r.id, r.wallet_id, r.display_name, r.wallet_class, r.class_confidence, r.confidence
+            "review {}  wallet={}  name={:?}  class={}  class_confidence={}  review_confidence={}  score={}",
+            r.id,
+            r.wallet_id,
+            r.display_name,
+            r.wallet_class,
+            r.class_confidence,
+            r.confidence,
+            r.score
+                .map_or_else(|| "-".to_string(), |score| score.to_string())
         );
         println!(
             "  source={}  evidence_key={:?}  related_wallets={}",
@@ -392,10 +399,13 @@ fn show_review(
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!(
-            "review {}  source={}  review_confidence={}  status=pending  evidence_key={:?}",
+            "review {}  source={}  review_confidence={}  score={}  status=pending  evidence_key={:?}",
             review_summary.id,
             review_summary.source,
             review_summary.confidence,
+            review_summary
+                .score
+                .map_or_else(|| "-".to_string(), |score| score.to_string()),
             review_summary.evidence_key
         );
         println!("  explanation={}", review_summary.explanation);

@@ -597,12 +597,15 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
 
     for review in &report.reviews {
         println!(
-            "review {}  feed={}  title={:?}  source={}  confidence={}  name_key={:?}  artists={}",
+            "review {}  feed={}  title={:?}  source={}  confidence={}  score={}  name_key={:?}  artists={}",
             review.review_id,
             review.feed_guid,
             review.title,
             review.source,
             review.confidence,
+            review
+                .score
+                .map_or_else(|| "-".to_string(), |score| score.to_string()),
             review.name_key,
             review.artist_count
         );
@@ -620,8 +623,15 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
 fn print_review_item_text(report: &ReviewItemReport) {
     let review = &report.review;
     println!(
-        "review {}  feed={}  source={}  confidence={}  status={}",
-        review.review_id, review.feed_guid, review.source, review.confidence, review.status
+        "review {}  feed={}  source={}  confidence={}  score={}  status={}",
+        review.review_id,
+        review.feed_guid,
+        review.source,
+        review.confidence,
+        review
+            .score
+            .map_or_else(|| "-".to_string(), |score| score.to_string()),
+        review.status
     );
     println!("  name_key={}", review.name_key);
     println!("  evidence_key={}", review.evidence_key);
