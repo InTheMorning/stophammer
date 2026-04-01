@@ -5242,17 +5242,23 @@ fn collect_artist_groups_by_likely_same_artist_for_feed(
         entry.1.insert(group.source);
     }
 
-    Ok(grouped
-        .into_iter()
-        .filter_map(|(name_key, (artist_ids, sources))| {
-            (artist_ids.len() > 1 && sources.len() >= 2).then_some(ArtistIdentityEvidenceGroup {
+    let mut likely_groups = Vec::new();
+    for (name_key, (artist_ids, sources)) in grouped {
+        if artist_ids.len() <= 1 || sources.len() < 2 {
+            continue;
+        }
+        if artists_have_conflicting_external_ids(conn, &artist_ids)? {
+            continue;
+        }
+        likely_groups.push(ArtistIdentityEvidenceGroup {
                 source: "likely_same_artist".to_string(),
                 name_key,
                 evidence_key: feed_guid.to_string(),
                 artist_ids,
-            })
-        })
-        .collect())
+        });
+    }
+
+    Ok(likely_groups)
 }
 
 fn current_ids_for_review(
@@ -5434,6 +5440,36 @@ fn artists_share_external_id(
         }
     }
     Ok(false)
+}
+
+fn artists_have_conflicting_external_ids(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<bool, DbError> {
+    let mut external_id_values_by_scheme =
+        std::collections::BTreeMap::<String, std::collections::BTreeSet<String>>::new();
+    let mut stmt = conn.prepare(
+        "SELECT scheme, value
+         FROM external_ids
+         WHERE entity_type = 'artist' AND entity_id = ?1
+         ORDER BY scheme, value",
+    )?;
+    for artist_id in artist_ids {
+        let external_ids = stmt
+            .query_map(params![artist_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for (scheme, value) in external_ids {
+            external_id_values_by_scheme
+                .entry(scheme)
+                .or_default()
+                .insert(value);
+        }
+    }
+    Ok(external_id_values_by_scheme
+        .into_values()
+        .any(|values| values.len() > 1))
 }
 
 fn wallet_review_confidence(source: &str) -> &'static str {
