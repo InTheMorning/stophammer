@@ -712,6 +712,9 @@ impl App {
             format!("Feed: {} [{}]", snapshot.feed.title, short_id(&snapshot.feed.feed_guid)),
             format!("Total track claim rows: {total}"),
         ];
+        if let Some(summary) = track_family_subset_summary(snapshot) {
+            lines.push(summary);
+        }
         if let Some((label, position, family_total)) = current_track_family_position(self) {
             lines.push(format!("Family: {label} ({position}/{family_total})"));
         }
