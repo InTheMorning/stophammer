@@ -33,7 +33,6 @@ use ratatui::widgets::{
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
 use stophammer::tui::format_local_timestamp;
-use time::OffsetDateTime;
 
 #[derive(Debug)]
 struct Args {
@@ -906,7 +905,7 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
     app.reviews
         .iter()
         .map(|review| {
-            let (badge, badge_color) = recency_badge(review.created_at);
+        let (badge, badge_color) = stophammer::tui::recency_badge(review.created_at);
             let same_source_count = app
                 .reviews
                 .iter()
@@ -948,17 +947,6 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
             ])
         })
         .collect()
-}
-
-fn recency_badge(timestamp: i64) -> (&'static str, Color) {
-    let age_secs = OffsetDateTime::now_utc().unix_timestamp() - timestamp;
-    if age_secs >= 7 * 24 * 60 * 60 {
-        ("STALE", Color::Red)
-    } else if age_secs <= 24 * 60 * 60 {
-        ("FRESH", Color::Green)
-    } else {
-        ("MID", Color::Yellow)
-    }
 }
 
 fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {

@@ -60,7 +60,6 @@ use ratatui::{Frame, Terminal};
 use rusqlite::{Connection, OptionalExtension, params};
 use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
 use stophammer::tui::format_local_timestamp;
-use time::OffsetDateTime;
 
 #[derive(Debug)]
 struct Args {
@@ -1316,17 +1315,6 @@ fn abbreviate(value: &str, max_chars: usize) -> String {
     format!("{truncated}...")
 }
 
-fn recency_badge(timestamp: i64) -> (&'static str, Color) {
-    let age_secs = OffsetDateTime::now_utc().unix_timestamp() - timestamp;
-    if age_secs >= 7 * 24 * 60 * 60 {
-        ("STALE", Color::Red)
-    } else if age_secs <= 24 * 60 * 60 {
-        ("FRESH", Color::Green)
-    } else {
-        ("MID", Color::Yellow)
-    }
-}
-
 fn short_id(value: &str) -> String {
     abbreviate(value, 12)
 }
@@ -2232,7 +2220,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             let (newest_badge, badge_color) = group
                 .reviews
                 .first()
-                .map(|review| recency_badge(review.created_at))
+                .map(|review| stophammer::tui::recency_badge(review.created_at))
                 .unwrap_or(("MID", Color::Yellow));
             let oldest_ts = group.reviews.iter().map(|review| review.created_at).min();
             let same_source_count = app

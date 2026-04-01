@@ -396,6 +396,19 @@ pub fn format_local_timestamp(timestamp: i64) -> String {
         .unwrap_or_else(|_| timestamp.to_string())
 }
 
+/// Categorizes item recency for list badges shared by review TUIs.
+#[must_use]
+pub fn recency_badge(timestamp: i64) -> (&'static str, Color) {
+    let age_secs = OffsetDateTime::now_utc().unix_timestamp() - timestamp;
+    if age_secs >= 7 * 24 * 60 * 60 {
+        ("STALE", Color::Red)
+    } else if age_secs <= 24 * 60 * 60 {
+        ("FRESH", Color::Green)
+    } else {
+        ("MID", Color::Yellow)
+    }
+}
+
 /// Builds the age/total preamble for queue-summary dialogs.
 #[must_use]
 pub fn build_queue_summary_header_lines(
