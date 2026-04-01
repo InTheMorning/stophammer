@@ -2237,6 +2237,22 @@ fn build_task_text(app: &App) -> String {
     text
 }
 
+fn wallet_source_family_position(app: &App) -> Option<(usize, usize)> {
+    let group = app.current_group()?;
+    let matching = app
+        .groups
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.source == group.source)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let position = matching
+        .iter()
+        .position(|&index| index == app.selected_group)
+        .map(|index| index.saturating_add(1))?;
+    Some((position, matching.len()))
+}
+
 fn chooser_summary_lines(
     wallet_id: &str,
     display_name: &str,
@@ -2305,8 +2321,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     let group_position = app.selected_group.saturating_add(1);
                     let wallet_position = app.selected_source.saturating_add(1);
                     let wallet_total = app.current_group().map_or(0, |group| group.reviews.len());
+                    let (family_position, family_total) =
+                        wallet_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} key={} wallets={} created={}",
+                        "Selected group {}/{} wallet {}/{}: {} | review={} wallet={} source={} family={}/{} key={} wallets={} created={}",
                         group_position,
                         app.groups.len(),
                         wallet_position,
@@ -2315,6 +2333,8 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         review.id,
                         short_id(&review.wallet_id),
                         review.source,
+                        family_position,
+                        family_total,
                         abbreviate(&review.evidence_key, 24),
                         review.wallet_ids.len(),
                         format_local_timestamp(review.created_at)

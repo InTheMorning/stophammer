@@ -1380,14 +1380,18 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         .review_state
                         .selected()
                         .map_or(0, |idx| idx.saturating_add(1));
+                    let (family_position, family_total) =
+                        artist_source_family_position(app).unwrap_or((0, 0));
                     format!(
-                        "Selected {}/{}: {} | review={} feed={} source={} key={} artists={} created={}",
+                        "Selected {}/{}: {} | review={} feed={} source={} family={}/{} key={} artists={} created={}",
                         position,
                         app.reviews.len(),
                         abbreviate(&review.title, 28),
                         review.review_id,
                         short_id(&review.feed_guid),
                         review.source,
+                        family_position,
+                        family_total,
                         abbreviate(&review.evidence_key, 24),
                         review.artist_count,
                         format_local_timestamp(review.created_at)
@@ -1413,12 +1417,16 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .review_state
                 .selected()
                 .map_or(0, |idx| idx.saturating_add(1));
+            let (family_position, family_total) =
+                artist_source_family_position(app).unwrap_or((0, 0));
             format!(
-                "Pending Artist Reviews ({}/{}, review={}, {}, key={})",
+                "Pending Artist Reviews ({}/{}, review={}, {} {}/{}, key={})",
                 position,
                 app.reviews.len(),
                 review.review_id,
                 review.source,
+                family_position,
+                family_total,
                 abbreviate(&review.evidence_key, 18)
             )
         },
@@ -1566,6 +1574,23 @@ fn format_artist_review_summary(
         .collect::<Vec<_>>()
         .join(", ");
     format!("Pending artist reviews: {total} ({details})")
+}
+
+fn artist_source_family_position(app: &App) -> Option<(usize, usize)> {
+    let review = app.current_pending_review()?;
+    let selected = app.review_state.selected()?;
+    let matching = app
+        .reviews
+        .iter()
+        .enumerate()
+        .filter(|(_, item)| item.source == review.source)
+        .map(|(index, _)| index)
+        .collect::<Vec<_>>();
+    let position = matching
+        .iter()
+        .position(|&index| index == selected)
+        .map(|index| index.saturating_add(1))?;
+    Some((position, matching.len()))
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
