@@ -573,11 +573,16 @@ impl App {
         let selected_track_summary = self.current_track().map_or_else(
             || "No track selected.".to_string(),
             |track| {
+                let family = current_track_family_position(self).map_or_else(
+                    || "family none".to_string(),
+                    |(label, position, total)| format!("family {label} ({position}/{total})"),
+                );
                 format!(
-                    "Selected track: {} [{}] with {} claim rows.",
+                    "Selected track: {} [{}] with {} claim rows, {}.",
                     track.title,
                     short_id(&track.track_guid),
-                    count_track_claims(snapshot, &track.track_guid)
+                    count_track_claims(snapshot, &track.track_guid),
+                    family
                 )
             },
         );
