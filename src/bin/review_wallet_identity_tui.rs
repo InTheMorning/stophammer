@@ -2304,20 +2304,24 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .iter()
         .map(|group| {
             let title = abbreviate(&group.label, 30);
-            let (badge, badge_color) = group
+            let (newest_badge, badge_color) = group
                 .reviews
                 .first()
                 .map(|review| recency_badge(review.created_at))
                 .unwrap_or(("MID", Color::Yellow));
+            let oldest_ts = group.reviews.iter().map(|review| review.created_at).min();
             let detail = format!(
-                "{}  {}  {} wallets  newest {}",
+                "{}  {}  {} wallets  newest {}  oldest {}",
                 group.source,
-                badge,
+                newest_badge,
                 group.reviews.len(),
                 group
                     .reviews
                     .first()
                     .map(|review| format_local_timestamp(review.created_at))
+                    .unwrap_or_else(|| "-".to_string()),
+                oldest_ts
+                    .map(format_local_timestamp)
                     .unwrap_or_else(|| "-".to_string())
             );
             ListItem::new(vec![
