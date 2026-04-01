@@ -809,9 +809,11 @@ impl App {
             |(label, position, total)| {
                 let cluster = track_family_subset_short_summary(snapshot)
                     .map_or_else(String::new, |summary| format!(" {summary}"));
+                let feed_cluster = feed_family_subset_short_summary(&self.feeds)
+                    .map_or_else(String::new, |summary| format!(" {summary}"));
                 format!(
-                    "Track Claim Mix [{}] {label} {position}/{total}{cluster}",
-                    short_id(&track.track_guid)
+                    "Track Claim Mix [{}] {label} {position}/{total}{cluster}{feed_cluster}",
+                    short_id(&track.track_guid),
                 )
             },
         );
