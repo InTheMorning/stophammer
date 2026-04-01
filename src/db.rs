@@ -4326,6 +4326,7 @@ pub struct ArtistIdentityCandidateGroup {
     pub evidence_key: String,
     pub artist_ids: Vec<String>,
     pub artist_names: Vec<String>,
+    pub supporting_sources: Vec<String>,
     pub review_id: Option<i64>,
     pub review_status: Option<String>,
     pub confidence: Option<String>,
@@ -4358,6 +4359,7 @@ pub struct ArtistIdentityReviewItem {
     pub source: String,
     pub confidence: String,
     pub explanation: String,
+    pub supporting_sources: Vec<String>,
     pub name_key: String,
     pub evidence_key: String,
     pub status: String,
@@ -5311,6 +5313,55 @@ fn artist_identity_review_explanation(source: &str) -> &'static str {
     }
 }
 
+fn artist_review_supporting_sources(
+    conn: &Connection,
+    feed_guid: &str,
+    source: &str,
+    name_key: &str,
+    artist_ids: &[String],
+) -> Result<Vec<String>, DbError> {
+    if source != "likely_same_artist" {
+        return Ok(vec![]);
+    }
+
+    let seed_ids = artist_ids_for_feed_scope(conn, feed_guid)?;
+    let target_ids = artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let target_current_ids = current_ids_for_review(conn, &target_ids)?;
+    let mut supporting_sources = Vec::new();
+
+    for (support_source, groups) in [
+        (
+            "track_feed_name_variant",
+            collect_artist_groups_by_track_feed_name_variant_for_feed(conn, feed_guid)?,
+        ),
+        (
+            "contributor_name_variant",
+            collect_artist_groups_by_contributor_name_variant_for_feed(conn, feed_guid, &seed_ids)?,
+        ),
+        (
+            "wallet_name_variant",
+            collect_artist_groups_by_wallet_name_variant_for_feed(conn, feed_guid, &seed_ids)?,
+        ),
+    ] {
+        let matched = groups.into_iter().any(|group| {
+            if group.name_key != name_key {
+                return false;
+            }
+            current_ids_for_review(conn, &group.artist_ids)
+                .map(|ids| ids == target_current_ids)
+                .unwrap_or(false)
+        });
+        if matched {
+            supporting_sources.push(support_source.to_string());
+        }
+    }
+
+    Ok(supporting_sources)
+}
+
 fn wallet_review_confidence(source: &str) -> &'static str {
     match source {
         "likely_wallet_owner_match" => "high_confidence",
@@ -5329,6 +5380,16 @@ fn wallet_review_explanation(source: &str) -> &'static str {
         _ => {
             "This wallet review source requires operator confirmation before identity state changes."
         }
+    }
+}
+
+fn wallet_review_supporting_sources(source: &str) -> Vec<String> {
+    match source {
+        "likely_wallet_owner_match" => vec![
+            "cross_wallet_alias".to_string(),
+            "shared_feed_overlap".to_string(),
+        ],
+        _ => vec![],
     }
 }
 
@@ -6182,6 +6243,14 @@ pub fn explain_artist_identity_for_feed(
                 .into_iter()
                 .collect::<Vec<_>>();
             let artist_names = artist_names_for_review_group(conn, &group.artist_ids);
+            let supporting_sources = artist_review_supporting_sources(
+                conn,
+                feed_guid,
+                &group.source,
+                &group.name_key,
+                &artist_ids,
+            )
+            .unwrap_or_default();
             let review = get_artist_identity_review_for_subject(
                 conn,
                 feed_guid,
@@ -6197,6 +6266,7 @@ pub fn explain_artist_identity_for_feed(
                 evidence_key: group.evidence_key,
                 artist_ids,
                 artist_names,
+                supporting_sources,
                 review_id: review.as_ref().map(|item| item.review_id),
                 review_status: review.as_ref().map(|item| item.status.clone()),
                 confidence: review.as_ref().map(|item| item.confidence.clone()),
@@ -6294,9 +6364,20 @@ pub fn list_artist_identity_reviews_for_feed(
          WHERE r.feed_guid = ?1
          ORDER BY r.updated_at DESC, r.review_id DESC",
     )?;
-    stmt.query_map(params![feed_guid], artist_identity_review_row)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(Into::into)
+    let mut rows = stmt.query(params![feed_guid])?;
+    let mut reviews = Vec::new();
+    while let Some(row) = rows.next()? {
+        let mut review = artist_identity_review_row(row)?;
+        review.supporting_sources = artist_review_supporting_sources(
+            conn,
+            &review.feed_guid,
+            &review.source,
+            &review.name_key,
+            &review.artist_ids,
+        )?;
+        reviews.push(review);
+    }
+    Ok(reviews)
 }
 
 /// Returns one review item by `review_id`.
@@ -6309,7 +6390,7 @@ pub fn get_artist_identity_review(
     conn: &Connection,
     review_id: i64,
 ) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
-    conn.query_row(
+    let review = conn.query_row(
         "SELECT
              r.review_id,
              r.feed_guid,
@@ -6329,12 +6410,24 @@ pub fn get_artist_identity_review(
            ON o.source = r.source
           AND o.name_key = r.name_key
           AND o.evidence_key = r.evidence_key
-         WHERE r.review_id = ?1",
+        WHERE r.review_id = ?1",
         params![review_id],
         artist_identity_review_row,
     )
     .optional()
-    .map_err(Into::into)
+    .map_err(DbError::from)?;
+    review
+        .map(|mut review| {
+            review.supporting_sources = artist_review_supporting_sources(
+                conn,
+                &review.feed_guid,
+                &review.source,
+                &review.name_key,
+                &review.artist_ids,
+            )?;
+            Ok(review)
+        })
+        .transpose()
 }
 
 /// Returns one review item for a specific feed and subject triple.
@@ -6350,7 +6443,7 @@ pub fn get_artist_identity_review_for_subject(
     name_key: &str,
     evidence_key: &str,
 ) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
-    conn.query_row(
+    let review = conn.query_row(
         "SELECT
              r.review_id,
              r.feed_guid,
@@ -6378,7 +6471,19 @@ pub fn get_artist_identity_review_for_subject(
         artist_identity_review_row,
     )
     .optional()
-    .map_err(Into::into)
+    .map_err(DbError::from)?;
+    review
+        .map(|mut review| {
+            review.supporting_sources = artist_review_supporting_sources(
+                conn,
+                &review.feed_guid,
+                &review.source,
+                &review.name_key,
+                &review.artist_ids,
+            )?;
+            Ok(review)
+        })
+        .transpose()
 }
 
 /// Lists unresolved artist-identity review items that still need an operator
@@ -6839,6 +6944,7 @@ fn artist_identity_review_row(
         source: source.clone(),
         confidence: artist_identity_review_confidence(&source).to_string(),
         explanation: artist_identity_review_explanation(&source).to_string(),
+        supporting_sources: vec![],
         name_key: row.get(3)?,
         evidence_key: row.get(4)?,
         status: row.get(5)?,
@@ -12818,6 +12924,7 @@ pub struct WalletReviewSummary {
     pub source: String,
     pub confidence: String,
     pub explanation: String,
+    pub supporting_sources: Vec<String>,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -12837,6 +12944,7 @@ pub struct WalletReviewItem {
     pub source: String,
     pub confidence: String,
     pub explanation: String,
+    pub supporting_sources: Vec<String>,
     pub evidence_key: String,
     pub wallet_ids: Vec<String>,
     pub endpoint_summary: Vec<WalletEndpointPreview>,
@@ -13056,6 +13164,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
+            supporting_sources: wallet_review_supporting_sources(&source),
             evidence_key: row.get(6)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
@@ -13095,6 +13204,7 @@ pub fn get_wallet_review_summary(
                 source: source.clone(),
                 confidence: wallet_review_confidence(&source).to_string(),
                 explanation: wallet_review_explanation(&source).to_string(),
+                supporting_sources: wallet_review_supporting_sources(&source),
                 evidence_key: row.get(6)?,
                 wallet_ids: serde_json::from_str(&wallet_ids_json).map_err(|err| {
                     rusqlite::Error::FromSqlConversionFailure(
@@ -13170,6 +13280,7 @@ pub fn list_recent_pending_wallet_reviews(
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
+            supporting_sources: wallet_review_supporting_sources(&source),
             evidence_key: row.get(6)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
@@ -13286,6 +13397,7 @@ pub fn list_wallet_reviews_for_wallet(
             source: source.clone(),
             confidence: wallet_review_confidence(&source).to_string(),
             explanation: wallet_review_explanation(&source).to_string(),
+            supporting_sources: wallet_review_supporting_sources(&source),
             evidence_key: row.get(3)?,
             wallet_ids: serde_json::from_str(&wallet_ids_json)?,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,

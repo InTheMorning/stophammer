@@ -180,6 +180,20 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         review_sources.contains(&"likely_same_artist"),
         "likely_same_artist should appear among stored review items"
     );
+    let likely_artist_group = json["artist_identity_plan"]["candidate_groups"]
+        .as_array()
+        .expect("candidate_groups array")
+        .iter()
+        .find(|group| group["source"].as_str() == Some("likely_same_artist"))
+        .expect("likely_same_artist candidate group");
+    let supporting_sources = likely_artist_group["supporting_sources"]
+        .as_array()
+        .expect("supporting_sources array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting_sources.contains("track_feed_name_variant"));
+    assert!(supporting_sources.contains("wallet_name_variant"));
     let wallet_variant_review = json["artist_identity_reviews"]
         .as_array()
         .expect("artist_identity_reviews array")
@@ -1570,4 +1584,18 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
             .any(|review| review["source"].as_str() == Some("likely_wallet_owner_match")),
         "wallet diagnostics should expose the stronger same-feed owner-match review too"
     );
+    let likely_wallet_review = json["reviews"]
+        .as_array()
+        .expect("reviews array")
+        .iter()
+        .find(|review| review["source"].as_str() == Some("likely_wallet_owner_match"))
+        .expect("likely_wallet_owner_match review");
+    let supporting_sources = likely_wallet_review["supporting_sources"]
+        .as_array()
+        .expect("supporting_sources array")
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting_sources.contains("cross_wallet_alias"));
+    assert!(supporting_sources.contains("shared_feed_overlap"));
 }
