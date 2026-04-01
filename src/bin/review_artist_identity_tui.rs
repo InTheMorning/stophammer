@@ -664,27 +664,26 @@ impl App {
     }
 
     fn show_help_dialog(&mut self) {
+        let mut lines = vec![
+            "Tab / Shift-Tab: cycle focus".to_string(),
+            "Up / Down / Home / End: navigate".to_string(),
+            "m: merge into selected main artist".to_string(),
+            "x: mark review do_not_merge".to_string(),
+        ];
+        lines.extend(stophammer::tui::review_operator_help_lines(
+            "n / N: next / previous review with same source family",
+        ));
+        lines.extend([
+            "r: reload pending reviews".to_string(),
+            "Enter / Space / Esc: close dialog".to_string(),
+            "q: quit".to_string(),
+        ]);
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title(
                 "Artist Review TUI Help",
                 self.reviews.len(),
             ),
-            lines: vec![
-                "Tab / Shift-Tab: cycle focus".to_string(),
-                "Up / Down / Home / End: navigate".to_string(),
-                "m: merge into selected main artist".to_string(),
-                "x: mark review do_not_merge".to_string(),
-                "o: operator overview".to_string(),
-                "p: review-next playbook".to_string(),
-                "s: queue source summary".to_string(),
-                "h: hottest feeds".to_string(),
-                "t: stale reviews (>7d)".to_string(),
-                "y: recent reviews (<24h)".to_string(),
-                "n / N: next / previous review with same source family".to_string(),
-                "r: reload pending reviews".to_string(),
-                "Enter / Space / Esc: close dialog".to_string(),
-                "q: quit".to_string(),
-            ],
+            lines,
         });
     }
 

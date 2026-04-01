@@ -338,6 +338,20 @@ pub fn build_review_playbook_lines<'a>(
     lines
 }
 
+/// Shared operator shortcut lines used by review-TUI help dialogs.
+#[must_use]
+pub fn review_operator_help_lines(same_family_line: &str) -> Vec<String> {
+    vec![
+        "o: operator overview".to_string(),
+        "p: review-next playbook".to_string(),
+        "s: queue source summary".to_string(),
+        "h: hottest feeds".to_string(),
+        "t: stale reviews (>7d)".to_string(),
+        "y: recent reviews (<24h)".to_string(),
+        same_family_line.to_string(),
+    ]
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
