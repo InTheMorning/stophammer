@@ -114,6 +114,12 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --reject-review 17 --note "different projects sharing one name"
 ```
 
+Stored artist review rows now include:
+
+- `confidence`
+- `explanation`
+- `supporting_sources` for scored sources such as `likely_same_artist`
+
 Or use the interactive review console:
 
 ```bash
@@ -137,6 +143,14 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wal
 # Interactive wallet review
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
 ```
+
+Wallet review rows now include:
+
+- review `confidence`
+- `explanation`
+- `supporting_sources` for scored sources such as `likely_wallet_owner_match`
+
+These are separate from the wallet's own `class_confidence`.
 
 ### Inspect source claims and resolved promotions interactively
 

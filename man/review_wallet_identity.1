@@ -31,7 +31,14 @@ review_wallet_identity \- inspect pending wallet identity reviews and store over
 .SH DESCRIPTION
 .B review_wallet_identity
 lists pending wallet identity review items and allows an operator to
-inspect wallet detail or store durable overrides.
+inspect wallet detail or store durable overrides. Pending review rows expose
+review
+.BR confidence ,
+.BR explanation ,
+and scored
+.B supporting_sources
+separately from the wallet's own
+.BR class_confidence .
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -114,6 +121,11 @@ Force a wallet classification:
 .nf
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \\
   --resolve-class 42 --class personal
+.fi
+.TP
+Inspect scored provenance on one review item:
+.nf
+cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 .fi
 .SH SEE ALSO
 .BR stophammer (1),

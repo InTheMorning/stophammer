@@ -301,6 +301,12 @@ Stored review items let you keep the automatic resolver conservative. It can
 continue merging deterministic cases while ambiguous feed-scoped candidate
 groups get a durable review row and an optional operator override.
 
+Pending artist review rows also expose deterministic review metadata:
+
+- `confidence`
+- `explanation`
+- `supporting_sources` for scored sources such as `likely_same_artist`
+
 ### Run the strict local quality gate
 
 ```bash

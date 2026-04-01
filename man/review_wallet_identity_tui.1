@@ -12,7 +12,13 @@ review_wallet_identity_tui \- interactive review console for pending wallet iden
 .B review_wallet_identity_tui
 opens a terminal UI for wallet review groups, candidate merges, classification
 overrides, and artist-link decisions. It is intended for operators curating the
-wallet identity layer after resolver or backfill passes.
+wallet identity layer after resolver or backfill passes. Queue rows and
+headers show review
+.BR confidence ,
+.BR explanation ,
+and scored
+.B supporting_sources
+when present, separately from wallet class confidence.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -24,7 +30,7 @@ Maximum number of pending review groups to load. Defaults to 200.
 .SH CONTROLS
 The interface shows pending wallet groups, candidate wallets, claim feeds, and
 evidence branches. Use the on-screen key hints to change focus, expand
-evidence, and store durable decisions.
+evidence, inspect same-family queue summaries, and store durable decisions.
 .SH EXAMPLES
 .TP
 Open the TUI against the default database:

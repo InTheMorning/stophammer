@@ -493,6 +493,9 @@ cargo run --bin backfill_canonical -- --db ./stophammer.db
 cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review remaining duplicate artist-name groups with supporting source evidence
+# Pending review rows now also expose deterministic review confidence,
+# explanation, and scored supporting_sources when a higher-order review
+# source such as likely_same_artist is involved.
 cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 
 # Narrow review to one lowercase artist-name key
@@ -528,6 +531,8 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db
 cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 
 # Review pending wallet identity items
+# Pending rows now show review confidence, explanation, and scored
+# supporting_sources separately from wallet class confidence.
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here

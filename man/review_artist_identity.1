@@ -31,7 +31,15 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 .SH DESCRIPTION
 .B review_artist_identity
 reports duplicate lowercased artist-name groups and the staged evidence behind
-each candidate so merge decisions can be reviewed safely.
+each candidate so merge decisions can be reviewed safely. Pending review rows
+also expose deterministic review
+.BR confidence ,
+.BR explanation ,
+and scored
+.B supporting_sources
+when higher-order sources such as
+.B likely_same_artist
+produce a review-only candidate.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -103,6 +111,11 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds -
 List pending stored review items:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+.fi
+.TP
+Inspect scored provenance on one stored review item:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
 .fi
 .TP
 Store a durable merge override:
