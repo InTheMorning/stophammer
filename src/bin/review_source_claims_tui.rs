@@ -278,12 +278,50 @@ impl App {
                 "h: top source-claims hotspots".to_string(),
                 "c: current-feed conflict summary".to_string(),
                 "m: selected-feed claim mix by claim family".to_string(),
+                "n / N: jump to next / previous feed with the same dominant claim family".to_string(),
                 "r: reload current feed and track selection".to_string(),
                 "? : show this help dialog".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),
             ],
         ));
+    }
+
+    fn current_feed_family_label(&self) -> Option<&'static str> {
+        let feed = self.current_feed_row()?;
+        dominant_feed_claim_family(feed).map(|(label, _, _)| label)
+    }
+
+    fn jump_same_family(&mut self, forward: bool) -> Result<(), Box<dyn Error>> {
+        let Some(target_family) = self.current_feed_family_label() else {
+            return Ok(());
+        };
+        if self.feeds.len() < 2 {
+            return Ok(());
+        }
+        let current_idx = self.feed_state.selected().unwrap_or(0);
+        let len = self.feeds.len();
+
+        for offset in 1..len {
+            let idx = if forward {
+                (current_idx + offset) % len
+            } else {
+                (current_idx + len - offset) % len
+            };
+            let Some((label, _, _)) = dominant_feed_claim_family(&self.feeds[idx]) else {
+                continue;
+            };
+            if label == target_family {
+                self.feed_state.select(Some(idx));
+                self.load_selected_feed(None)?;
+                self.status = format!(
+                    "Jumped to {}-dominant feed {:?}.",
+                    target_family, self.feeds[idx].title
+                );
+                break;
+            }
+        }
+        Ok(())
     }
 
     fn show_summary_dialog(&mut self) {
@@ -913,7 +951,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive feed-scoped source claims and canonical promotions inspector.\n\
                      Shows source claim families, track-level claim evidence, and the current\n\
                      resolved promotions/provenance overlays for each feed.\n\
-                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, o overview, p playbook, s summary, h hotspots, c conflicts, m claim mix, ? help, r reload, q quit."
+                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, o overview, p playbook, s summary, h hotspots, c conflicts, m claim mix, n/N same-family jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1775,6 +1813,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         "H: hotspots",
         "C: conflicts",
         "M: mix",
+        "N: same-family",
         "?: help",
         "R: reload",
         "Q: quit",
@@ -1823,6 +1862,8 @@ fn run_app(
             KeyCode::Char('h') => app.show_hotspots_dialog(),
             KeyCode::Char('c') => app.show_conflicts_dialog(),
             KeyCode::Char('m') => app.show_claim_mix_dialog(),
+            KeyCode::Char('n') => app.jump_same_family(true)?,
+            KeyCode::Char('N') => app.jump_same_family(false)?,
             KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let feed_guid = app.current_feed_row().map(|row| row.feed_guid.clone());
