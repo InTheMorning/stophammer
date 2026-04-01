@@ -987,7 +987,7 @@ impl App {
         if self.feeds.is_empty() {
             lines.push("Backlog idle: no feeds with source claims or resolved overlays are queued.".to_string());
             self.dialog = Some(stophammer::tui::text_dialog(
-                "Source Claims Playbook (0)",
+                "Source Claims Playbook (0)".to_string(),
                 lines,
             ));
             return;
@@ -1057,7 +1057,10 @@ impl App {
         );
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!("Source Claims Playbook ({feed_count})"),
+            feed_family_subset_short_summary(&self.feeds).map_or_else(
+                || format!("Source Claims Playbook ({feed_count})"),
+                |summary| format!("Source Claims Playbook ({feed_count}, {summary})"),
+            ),
             lines,
         ));
     }
