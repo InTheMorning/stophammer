@@ -2786,7 +2786,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(
-        "tab/left/right focus  [ ] target  arrows move  enter toggle  n/N same-source  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+        "tab/left/right focus  [ ] target  arrows move  enter toggle  n/N same-family  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, root[2]);

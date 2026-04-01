@@ -1600,7 +1600,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(evidence, body[2]);
 
     let footer = Paragraph::new(
-        "tab focus  arrows move  home/end jump  n/N same-source  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+        "tab focus  arrows move  home/end jump  n/N same-family  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, layout[2]);
