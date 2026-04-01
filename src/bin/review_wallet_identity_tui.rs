@@ -2352,10 +2352,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         |group| {
             let position = app.selected_group.saturating_add(1);
             format!(
-                "Review Groups ({}/{}) - {}",
+                "Review Groups ({}/{}) - {} key={}",
                 position,
                 app.groups.len(),
-                group.source
+                group.source,
+                abbreviate(&group.evidence_key, 18)
             )
         },
     );
