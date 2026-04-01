@@ -23,11 +23,10 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
-use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
 use rusqlite::{Connection, params};
 use stophammer::db::DEFAULT_DB_PATH;
-use time::macros::format_description;
-use time::{OffsetDateTime, UtcOffset};
+use stophammer::tui::format_local_timestamp;
 
 use stophammer::model::{
     Feed, ResolvedEntitySourceByFeed, ResolvedExternalIdByFeed, SourceContributorClaim,
@@ -453,45 +452,8 @@ fn short_id(value: &str) -> String {
     abbreviate(value, 12)
 }
 
-fn format_local_timestamp(timestamp: i64) -> String {
-    let Ok(dt) = OffsetDateTime::from_unix_timestamp(timestamp) else {
-        return timestamp.to_string();
-    };
-    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    dt.to_offset(offset)
-        .format(&format_description!(
-            "[year]-[month]-[day] [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]"
-        ))
-        .unwrap_or_else(|_| timestamp.to_string())
-}
-
-fn focus_block<'a>(title: &'a str, is_focused: bool, accent: Color) -> Block<'a> {
-    let mut block = Block::default().borders(Borders::ALL);
-    if is_focused {
-        block = block.border_type(BorderType::Thick).border_style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        );
-    } else {
-        block = block.border_style(Style::default().fg(Color::DarkGray));
-    }
-    block.title(Span::styled(
-        format!(" {title} "),
-        Style::default().fg(accent).add_modifier(Modifier::BOLD),
-    ))
-}
-
 fn preview_join(values: &[String], max_items: usize, max_chars: usize) -> String {
-    if values.is_empty() {
-        return "-".to_string();
-    }
-    values
-        .iter()
-        .take(max_items)
-        .map(|value| abbreviate(value, max_chars))
-        .collect::<Vec<_>>()
-        .join(", ")
+    stophammer::tui::preview_join(values, max_items, max_chars, abbreviate)
 }
 
 fn feed_conflict_lines(snapshot: &FeedClaimSnapshot) -> Vec<String> {
@@ -1012,10 +974,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     .split(layout[1]);
 
     let feed_list = List::new(build_feed_items(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             "Feeds",
-            app.focus == Focus::Feeds,
             Color::LightBlue,
+            app.focus == Focus::Feeds,
+            Style::default().fg(Color::DarkGray),
         ))
         .highlight_style(
             Style::default()
@@ -1027,10 +990,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(feed_list, body[0], &mut app.feed_state);
 
     let track_list = List::new(build_track_items(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             "Tracks",
-            app.focus == Focus::Tracks,
             Color::Yellow,
+            app.focus == Focus::Tracks,
+            Style::default().fg(Color::DarkGray),
         ))
         .highlight_style(
             Style::default()
@@ -1046,17 +1010,23 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         |feed| format!("Evidence {}", feed.title),
     );
     let evidence = Paragraph::new(build_evidence_lines(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             &evidence_title,
-            app.focus == Focus::Evidence,
             Color::Green,
+            app.focus == Focus::Evidence,
+            Style::default().fg(Color::DarkGray),
         ))
         .wrap(Wrap { trim: false })
         .scroll((app.evidence_scroll, 0));
     frame.render_widget(evidence, body[2]);
 
-    let footer =
-        Paragraph::new("TAB/LEFT/RIGHT: focus  UP/DOWN: move  HOME/END: jump  R: reload  Q: quit");
+    let footer = Paragraph::new(stophammer::tui::build_footer(&[
+        "TAB/LEFT/RIGHT: focus",
+        "UP/DOWN: move",
+        "HOME/END: jump",
+        "R: reload",
+        "Q: quit",
+    ]));
     frame.render_widget(footer, layout[2]);
 }
 

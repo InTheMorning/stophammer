@@ -373,12 +373,28 @@ pub fn review_operator_help_lines(same_family_line: &str) -> Vec<String> {
     ]
 }
 
+/// Joins footer legend segments into a consistent single-line help string.
+#[must_use]
+pub fn build_footer(segments: &[&str]) -> String {
+    segments.join("  ")
+}
+
 /// Builds the shared footer legend used by review TUIs.
 #[must_use]
 pub fn build_review_footer(prefix: &str) -> String {
-    format!(
-        "{prefix}  n/N same-family  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit"
-    )
+    build_footer(&[
+        prefix,
+        "n/N same-family",
+        "o overview",
+        "p playbook",
+        "s summary",
+        "h hotspots",
+        "t stale",
+        "y recent",
+        "? help",
+        "r reload",
+        "q quit",
+    ])
 }
 
 /// Formats a Unix timestamp in local wall-clock time for TUI surfaces.
