@@ -523,6 +523,7 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 
 # Review pending artist identity items in the TUI
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+# Use `g/G` inside the TUI to jump between HIGH-confidence review items.
 
 # Rebuild wallet endpoints, classifications, and artist links from source data
 # This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
@@ -539,6 +540,7 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wal
 
 # Review pending wallet identity items in the TUI
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+# Use `g/G` inside the TUI to jump between HIGH-confidence review groups.
 
 # Store wallet identity overrides
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \

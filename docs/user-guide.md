@@ -307,6 +307,11 @@ Pending artist review rows also expose deterministic review metadata:
 - `explanation`
 - `supporting_sources` for scored sources such as `likely_same_artist`
 
+Inside `review_artist_identity_tui`, use:
+
+- `n/N` to move within one source family
+- `g/G` to jump through `high_confidence` review items first
+
 ### Run the strict local quality gate
 
 ```bash

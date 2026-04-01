@@ -126,6 +126,11 @@ Or use the interactive review console:
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
 ```
 
+Inside the artist review TUI:
+
+- `n/N` jumps within the same source family
+- `g/G` jumps between `high_confidence` review items
+
 ### Rebuild wallet identity and inspect pending wallet reviews
 
 ```bash
@@ -143,6 +148,11 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wal
 # Interactive wallet review
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
 ```
+
+Inside the wallet review TUI:
+
+- `n/N` jumps within the same source family
+- `g/G` jumps between `high_confidence` review groups
 
 Wallet review rows now include:
 
