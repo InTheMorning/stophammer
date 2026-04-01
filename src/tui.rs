@@ -228,6 +228,35 @@ pub fn build_review_subset_lines<T>(
     lines
 }
 
+/// Appends formatted feed-hotspot lines shared by operator dialogs.
+pub fn push_feed_hotspot_lines(
+    lines: &mut Vec<String>,
+    hotspots: &[crate::db::PendingReviewFeedHotspot],
+    row_prefix: &str,
+    url_prefix: &str,
+    short_id: impl Fn(&str) -> String,
+    abbreviate: impl Fn(&str, usize) -> String,
+) {
+    let total_hotspot_load: usize = hotspots.iter().map(|feed| feed.total_review_count).sum();
+    for feed in hotspots {
+        let share = if total_hotspot_load > 0 {
+            (feed.total_review_count * 100) / total_hotspot_load
+        } else {
+            0
+        };
+        lines.push(format!(
+            "{row_prefix}{} [{}] | total={} ({}%) artist={} wallet={}",
+            feed.title,
+            short_id(&feed.feed_guid),
+            feed.total_review_count,
+            share,
+            feed.artist_review_count,
+            feed.wallet_review_count
+        ));
+        lines.push(format!("{url_prefix}{}", abbreviate(&feed.feed_url, 72)));
+    }
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {

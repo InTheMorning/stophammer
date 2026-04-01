@@ -1166,27 +1166,14 @@ impl App {
         if hotspots.is_empty() {
             lines.push("No feed hotspots with pending reviews".to_string());
         } else {
-            let total_hotspot_load: usize = hotspots
-                .iter()
-                .map(|feed| feed.total_review_count)
-                .sum();
-            for feed in hotspots {
-                let share = if total_hotspot_load > 0 {
-                    (feed.total_review_count * 100) / total_hotspot_load
-                } else {
-                    0
-                };
-                lines.push(format!(
-                    "{} [{}] | total={} ({}%) artist={} wallet={}",
-                    feed.title,
-                    short_id(&feed.feed_guid),
-                    feed.total_review_count,
-                    share,
-                    feed.artist_review_count,
-                    feed.wallet_review_count
-                ));
-                lines.push(format!("  {}", abbreviate(&feed.feed_url, 72)));
-            }
+            stophammer::tui::push_feed_hotspot_lines(
+                &mut lines,
+                &hotspots,
+                "",
+                "  ",
+                short_id,
+                abbreviate,
+            );
         }
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title("Feed Hotspots", hotspot_count),
@@ -1250,27 +1237,14 @@ impl App {
         if hotspots.is_empty() {
             lines.push("  none".to_string());
         } else {
-            let total_hotspot_load: usize = hotspots
-                .iter()
-                .map(|feed| feed.total_review_count)
-                .sum();
-            for feed in hotspots {
-                let share = if total_hotspot_load > 0 {
-                    (feed.total_review_count * 100) / total_hotspot_load
-                } else {
-                    0
-                };
-                lines.push(format!(
-                    "  {} [{}] | total={} ({}%) artist={} wallet={}",
-                    feed.title,
-                    short_id(&feed.feed_guid),
-                    feed.total_review_count,
-                    share,
-                    feed.artist_review_count,
-                    feed.wallet_review_count
-                ));
-                lines.push(format!("    {}", abbreviate(&feed.feed_url, 72)));
-            }
+            stophammer::tui::push_feed_hotspot_lines(
+                &mut lines,
+                &hotspots,
+                "  ",
+                "    ",
+                short_id,
+                abbreviate,
+            );
         }
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_operator_overview_title(
