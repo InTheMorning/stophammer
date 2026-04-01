@@ -508,7 +508,7 @@ impl App {
             }));
         }
         self.dialog = Some(SummaryDialog {
-            title: "Artist Queue Summary".to_string(),
+            title: format!("Artist Queue Summary ({total})"),
             lines,
         });
         Ok(())
@@ -516,6 +516,7 @@ impl App {
 
     fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
+        let hotspot_count = hotspots.len();
         let mut lines = vec![
             "Top feeds by pending combined review load".to_string(),
             String::new(),
@@ -546,7 +547,7 @@ impl App {
             }
         }
         self.dialog = Some(SummaryDialog {
-            title: "Feed Hotspots".to_string(),
+            title: format!("Feed Hotspots ({hotspot_count})"),
             lines,
         });
         Ok(())
@@ -643,6 +644,7 @@ impl App {
             7 * 24 * 60 * 60,
             10,
         )?;
+        let stale_count = stale.len();
         let mut lines = vec![
             "Pending artist reviews older than 7 days".to_string(),
             String::new(),
@@ -668,7 +670,7 @@ impl App {
             }));
         }
         self.dialog = Some(SummaryDialog {
-            title: "Stale Artist Reviews".to_string(),
+            title: format!("Stale Artist Reviews ({stale_count})"),
             lines,
         });
         Ok(())
@@ -680,6 +682,7 @@ impl App {
             24 * 60 * 60,
             10,
         )?;
+        let recent_count = recent.len();
         let mut lines = vec![
             "Pending artist reviews created in the last 24 hours".to_string(),
             String::new(),
@@ -707,7 +710,7 @@ impl App {
             }));
         }
         self.dialog = Some(SummaryDialog {
-            title: "Recent Artist Reviews".to_string(),
+            title: format!("Recent Artist Reviews ({recent_count})"),
             lines,
         });
         Ok(())
