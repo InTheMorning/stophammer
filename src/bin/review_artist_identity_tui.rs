@@ -490,6 +490,71 @@ impl App {
         });
         Ok(())
     }
+
+    fn show_operator_overview(&mut self) -> Result<(), Box<dyn Error>> {
+        let artist_summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
+        let wallet_summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
+        let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
+        let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
+        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
+
+        let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
+        let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
+        let mut lines = vec![
+            format!(
+                "Artist reviews: total={} last24h={} older7d={}",
+                artist_total, artist_age.created_last_24h, artist_age.older_than_7d
+            ),
+            format!(
+                "Wallet reviews: total={} last24h={} older7d={}",
+                wallet_total, wallet_age.created_last_24h, wallet_age.older_than_7d
+            ),
+        ];
+        lines.push(String::new());
+        lines.push("Top artist review sources:".to_string());
+        if artist_summary.is_empty() {
+            lines.push("  none".to_string());
+        } else {
+            lines.extend(
+                artist_summary
+                    .into_iter()
+                    .take(3)
+                    .map(|item| format!("  {}: {}", item.source, item.count)),
+            );
+        }
+        lines.push(String::new());
+        lines.push("Top wallet review sources:".to_string());
+        if wallet_summary.is_empty() {
+            lines.push("  none".to_string());
+        } else {
+            lines.extend(
+                wallet_summary
+                    .into_iter()
+                    .take(3)
+                    .map(|item| format!("  {}: {}", item.source, item.count)),
+            );
+        }
+        lines.push(String::new());
+        lines.push("Hottest feeds:".to_string());
+        if hotspots.is_empty() {
+            lines.push("  none".to_string());
+        } else {
+            lines.extend(hotspots.into_iter().map(|feed| {
+                format!(
+                    "  {} | total={} artist={} wallet={}",
+                    feed.title,
+                    feed.total_review_count,
+                    feed.artist_review_count,
+                    feed.wallet_review_count
+                )
+            }));
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Operator Overview".to_string(),
+            lines,
+        });
+        Ok(())
+    }
 }
 
 #[allow(
@@ -523,7 +588,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, s queue summary, h feed hotspots, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1281,6 +1346,7 @@ fn run_app(
             KeyCode::End => app.jump_bottom()?,
             KeyCode::Char('m') => app.approve_merge()?,
             KeyCode::Char('x') => app.reject_review()?,
+            KeyCode::Char('o') => app.show_operator_overview()?,
             KeyCode::Char('s') => app.show_queue_summary()?,
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('r') => {
