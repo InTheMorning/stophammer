@@ -32,8 +32,8 @@ use ratatui::widgets::{
 };
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
-use time::macros::format_description;
-use time::{OffsetDateTime, UtcOffset};
+use stophammer::tui::format_local_timestamp;
+use time::OffsetDateTime;
 
 #[derive(Debug)]
 struct Args {
@@ -468,17 +468,13 @@ impl App {
         let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
         let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
-        let mut lines = vec![
-            format!("Total pending artist reviews: {total}"),
-            format!("Created in last 24h: {}", age.created_last_24h),
-            format!("Older than 7d: {}", age.older_than_7d),
-        ];
-        if let Some(oldest_created_at) = age.oldest_created_at {
-            lines.push(format!(
-                "Oldest created_at: {}",
-                format_local_timestamp(oldest_created_at)
-            ));
-        }
+        let mut lines = stophammer::tui::build_queue_summary_header_lines(
+            "artist reviews",
+            total,
+            age.created_last_24h,
+            age.older_than_7d,
+            age.oldest_created_at,
+        );
         lines.extend(stophammer::tui::build_queue_summary_lines(
             summary.iter().map(|item| (item.source.as_str(), item.count)),
             total,
@@ -949,19 +945,6 @@ fn preview_join(values: &[String], max_items: usize, max_chars: usize) -> String
         .map(|value| abbreviate(value, max_chars))
         .collect::<Vec<_>>()
         .join(", ")
-}
-
-fn format_local_timestamp(timestamp: i64) -> String {
-    let Ok(dt) = OffsetDateTime::from_unix_timestamp(timestamp) else {
-        return timestamp.to_string();
-    };
-    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
-    let local = dt.to_offset(offset);
-    local
-        .format(&format_description!(
-            "[year]-[month]-[day] [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]"
-        ))
-        .unwrap_or_else(|_| timestamp.to_string())
 }
 
 fn focus_block<'a>(title: &'a str, is_focused: bool, accent: Color) -> Block<'a> {

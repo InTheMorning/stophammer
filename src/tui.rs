@@ -14,6 +14,8 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::{Color, Modifier, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
+use time::macros::format_description;
+use time::{OffsetDateTime, UtcOffset};
 
 /// Restores raw-mode and alternate-screen terminal state on both normal exit
 /// and panic unwinding.
@@ -377,6 +379,44 @@ pub fn build_review_footer(prefix: &str) -> String {
     format!(
         "{prefix}  n/N same-family  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit"
     )
+}
+
+/// Formats a Unix timestamp in local wall-clock time for TUI surfaces.
+#[must_use]
+pub fn format_local_timestamp(timestamp: i64) -> String {
+    let Ok(dt) = OffsetDateTime::from_unix_timestamp(timestamp) else {
+        return timestamp.to_string();
+    };
+    let offset = UtcOffset::current_local_offset().unwrap_or(UtcOffset::UTC);
+    let local = dt.to_offset(offset);
+    local
+        .format(&format_description!(
+            "[year]-[month]-[day] [hour]:[minute] [offset_hour sign:mandatory]:[offset_minute]"
+        ))
+        .unwrap_or_else(|_| timestamp.to_string())
+}
+
+/// Builds the age/total preamble for queue-summary dialogs.
+#[must_use]
+pub fn build_queue_summary_header_lines(
+    total_label: &str,
+    total: usize,
+    created_last_24h: usize,
+    older_than_7d: usize,
+    oldest_created_at: Option<i64>,
+) -> Vec<String> {
+    let mut lines = vec![
+        format!("Total pending {total_label}: {total}"),
+        format!("Created in last 24h: {created_last_24h}"),
+        format!("Older than 7d: {older_than_7d}"),
+    ];
+    if let Some(oldest_created_at) = oldest_created_at {
+        lines.push(format!(
+            "Oldest created_at: {}",
+            format_local_timestamp(oldest_created_at)
+        ));
+    }
+    lines
 }
 
 /// Simple text dialog payload shared by interactive review TUIs.
