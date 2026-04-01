@@ -88,6 +88,37 @@ pub fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -
     Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
 
+/// Formats the compact queue summary line shared by review TUIs.
+#[must_use]
+pub fn format_source_count_summary<'a>(
+    label: &str,
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+) -> String {
+    let items = items
+        .into_iter()
+        .map(|(source, count)| (source.to_string(), count))
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return format!("No pending {label}");
+    }
+
+    let total: usize = items.iter().map(|(_, count)| *count).sum();
+    let dominant = items.first().map(|(source, count)| {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        format!("top={source}({share}%)")
+    });
+    let details = items
+        .iter()
+        .take(3)
+        .map(|(source, count)| format!("{source}={count}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    dominant.map_or_else(
+        || format!("Pending {label}: {total} ({details})"),
+        |dominant| format!("Pending {label}: {total} ({dominant}; {details})"),
+    )
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {

@@ -1626,24 +1626,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 fn format_artist_review_summary(
     summary: &[stophammer::db::ArtistIdentityPendingReviewSummary],
 ) -> String {
-    if summary.is_empty() {
-        return "No pending artist review sources".to_string();
-    }
-
-    let total: usize = summary.iter().map(|item| item.count).sum();
-    let dominant = summary.first().map(|item| {
-        let share = (item.count.saturating_mul(100)) / total.max(1);
-        format!("top={}({}%)", item.source, share)
-    });
-    let details = summary
-        .iter()
-        .take(3)
-        .map(|item| format!("{}={}", item.source, item.count))
-        .collect::<Vec<_>>()
-        .join(", ");
-    dominant.map_or_else(
-        || format!("Pending artist reviews: {total} ({details})"),
-        |dominant| format!("Pending artist reviews: {total} ({dominant}; {details})"),
+    stophammer::tui::format_source_count_summary(
+        "artist reviews",
+        summary.iter().map(|item| (item.source.as_str(), item.count)),
     )
 }
 
