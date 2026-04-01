@@ -750,6 +750,13 @@ impl App {
         if let Some((label, position, family_total)) = current_track_family_position(self) {
             lines.push(format!("Family: {label} ({position}/{family_total})"));
         }
+        if let Some((label, cluster_size, total_tracks)) =
+            track_family_cluster_membership(snapshot, &track.track_guid)
+        {
+            lines.push(format!(
+                "Cluster membership: {label} ({cluster_size}/{total_tracks})"
+            ));
+        }
         if let Some((label, _count, share)) = dominant_track_claim_family(snapshot, &track.track_guid)
         {
             lines.push(format!("Dominant family: {label} ({share}%)"));
