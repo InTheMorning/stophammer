@@ -797,12 +797,13 @@ impl App {
             .take(5)
             .map(|feed| {
                 format!(
-                    "  {} [{}] claims={} resolved={} tracks={}",
+                    "  {} [{}] claims={} resolved={} tracks={} {}",
                     feed.title,
                     short_id(&feed.feed_guid),
                     feed.source_claim_count,
                     feed.resolved_count,
-                    feed.track_count
+                    feed.track_count,
+                    dominant_feed_claim_family_summary(feed)
                 )
             })
             .collect::<Vec<_>>();
