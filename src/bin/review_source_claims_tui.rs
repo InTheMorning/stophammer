@@ -276,6 +276,31 @@ fn current_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     Some((label, position, family_indices.len()))
 }
 
+fn current_feed_family_position_label(app: &App) -> String {
+    current_family_position(app).map_or_else(
+        || "none".to_string(),
+        |(label, position, total)| format!("{label} ({position}/{total})"),
+    )
+}
+
+fn current_feed_family_cluster_label(app: &App) -> String {
+    feed_family_subset_summary(&app.feeds).unwrap_or_else(|| "none".to_string())
+}
+
+fn feed_scoped_dialog_title(app: &App, base: &str, feed_guid: &str) -> String {
+    current_family_position(app).map_or_else(
+        || format!("{base} [{}]", short_id(feed_guid)),
+        |(label, position, total)| {
+            let cluster = feed_family_subset_short_summary(&app.feeds)
+                .map_or_else(String::new, |summary| format!(" {summary}"));
+            format!(
+                "{base} [{}] {label} {position}/{total}{cluster}",
+                short_id(feed_guid)
+            )
+        },
+    )
+}
+
 fn current_track_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     let snapshot = app.current_snapshot()?;
     let current_idx = app.track_state.selected()?;
@@ -665,26 +690,13 @@ impl App {
             },
         );
 
-        let title = current_family_position(self).map_or_else(
-            || format!("Source Claims Feed Summary [{}]", short_id(&feed_row.feed_guid)),
-            |(label, position, total)| {
-                let cluster = feed_family_subset_short_summary(&self.feeds)
-                    .map_or_else(String::new, |summary| format!(" {summary}"));
-                format!(
-                    "Source Claims Feed Summary [{}] {label} {position}/{total}{cluster}",
-                    short_id(&feed_row.feed_guid),
-                )
-            },
-        );
+        let title = feed_scoped_dialog_title(self, "Source Claims Feed Summary", &feed_row.feed_guid);
         self.dialog = Some(stophammer::tui::text_dialog(
             title,
             vec![
                 format!("Feed: {}", feed_row.title),
                 format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
-                current_family_position(self).map_or_else(
-                    || "Family: none".to_string(),
-                    |(label, position, total)| format!("Family: {label} ({position}/{total})"),
-                ),
+                format!("Family: {}", current_feed_family_position_label(self)),
                 format!(
                     "Tracks: {}  Source claims: {}  Resolved overlays: {}",
                     snapshot.tracks.len(),
@@ -1089,18 +1101,8 @@ impl App {
         let mut lines = vec![
             format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
-            format!(
-                "Family: {}",
-                current_family_position(self).map_or_else(
-                    || "none".to_string(),
-                    |(label, position, total)| format!("{label} ({position}/{total})")
-                )
-            ),
-            format!(
-                "Feed cluster: {}",
-                feed_family_subset_summary(&self.feeds)
-                    .unwrap_or_else(|| "none".to_string())
-            ),
+            format!("Family: {}", current_feed_family_position_label(self)),
+            format!("Feed cluster: {}", current_feed_family_cluster_label(self)),
             String::new(),
         ];
         if count == 0 {
@@ -1112,17 +1114,7 @@ impl App {
         }
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            current_family_position(self).map_or_else(
-                || format!("Feed Conflicts [{}]", short_id(&feed_row.feed_guid)),
-                |(label, position, total)| {
-                    let cluster = feed_family_subset_short_summary(&self.feeds)
-                        .map_or_else(String::new, |summary| format!(" {summary}"));
-                    format!(
-                        "Feed Conflicts [{}] {label} {position}/{total}{cluster}",
-                        short_id(&feed_row.feed_guid)
-                    )
-                },
-            ),
+            feed_scoped_dialog_title(self, "Feed Conflicts", &feed_row.feed_guid),
             lines,
         ));
     }
@@ -1206,18 +1198,8 @@ impl App {
         let mut lines = vec![
             format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
-            format!(
-                "Family: {}",
-                current_family_position(self).map_or_else(
-                    || "none".to_string(),
-                    |(label, position, total)| format!("{label} ({position}/{total})")
-                )
-            ),
-            format!(
-                "Feed cluster: {}",
-                feed_family_subset_summary(&self.feeds)
-                    .unwrap_or_else(|| "none".to_string())
-            ),
+            format!("Family: {}", current_feed_family_position_label(self)),
+            format!("Feed cluster: {}", current_feed_family_cluster_label(self)),
             format!(
                 "Tracks: {}  Total source claim rows: {}",
                 snapshot.tracks.len(),
@@ -1237,17 +1219,7 @@ impl App {
         }));
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            current_family_position(self).map_or_else(
-                || format!("Claim Mix [{}]", short_id(&feed_row.feed_guid)),
-                |(label, position, total)| {
-                    let cluster = feed_family_subset_short_summary(&self.feeds)
-                        .map_or_else(String::new, |summary| format!(" {summary}"));
-                    format!(
-                        "Claim Mix [{}] {label} {position}/{total}{cluster}",
-                        short_id(&feed_row.feed_guid)
-                    )
-                },
-            ),
+            feed_scoped_dialog_title(self, "Claim Mix", &feed_row.feed_guid),
             lines,
         ));
     }
