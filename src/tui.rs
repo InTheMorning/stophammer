@@ -202,6 +202,27 @@ pub fn push_source_family_section<'a>(
     }));
 }
 
+/// Appends a confidence-band section shared by operator dialogs.
+pub fn push_confidence_summary_section<'a>(
+    lines: &mut Vec<String>,
+    heading: &str,
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+) {
+    let items = items
+        .into_iter()
+        .map(|(confidence, count)| (confidence.to_string(), count))
+        .collect::<Vec<_>>();
+    lines.push(heading.to_string());
+    if items.is_empty() {
+        lines.push("  none".to_string());
+        return;
+    }
+    lines.extend(items.into_iter().map(|(confidence, count)| {
+        let badge = review_confidence_badge(&confidence);
+        format!("  {badge} {confidence}: {count}")
+    }));
+}
+
 /// Builds the body lines for a queue-summary dialog shared by review TUIs.
 #[must_use]
 pub fn build_queue_summary_lines<'a>(
