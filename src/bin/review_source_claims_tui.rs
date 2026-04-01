@@ -408,13 +408,16 @@ impl App {
 
     fn jump_same_family(&mut self, forward: bool) -> Result<(), Box<dyn Error>> {
         let Some(target_family) = self.current_feed_family_label() else {
+            self.status = "No dominant claim family on the current feed.".to_string();
             return Ok(());
         };
         if self.feeds.len() < 2 {
+            self.status = "Only one feed is loaded in the source-claims queue.".to_string();
             return Ok(());
         }
         let current_idx = self.feed_state.selected().unwrap_or(0);
         let len = self.feeds.len();
+        let mut jumped = false;
 
         for offset in 1..len {
             let idx = if forward {
@@ -432,8 +435,15 @@ impl App {
                     "Jumped to {}-dominant feed {:?}.",
                     target_family, self.feeds[idx].title
                 );
+                jumped = true;
                 break;
             }
+        }
+        if !jumped {
+            self.status = format!(
+                "No other feeds share the {} dominant claim family.",
+                target_family
+            );
         }
         Ok(())
     }
@@ -446,16 +456,20 @@ impl App {
 
     fn jump_track_same_family(&mut self, forward: bool) {
         let Some(snapshot) = self.current_snapshot() else {
+            self.status = "No feed snapshot loaded.".to_string();
             return;
         };
         let Some(target_family) = self.current_track_family_label() else {
+            self.status = "No dominant claim family on the current track.".to_string();
             return;
         };
         if snapshot.tracks.len() < 2 {
+            self.status = "Only one track is loaded for the selected feed.".to_string();
             return;
         }
         let current_idx = self.track_state.selected().unwrap_or(0);
         let len = snapshot.tracks.len();
+        let mut jumped = false;
 
         for offset in 1..len {
             let idx = if forward {
@@ -478,8 +492,15 @@ impl App {
                     "Jumped to {}-dominant track {:?}.",
                     target_family, track_title
                 );
+                jumped = true;
                 break;
             }
+        }
+        if !jumped {
+            self.status = format!(
+                "No other tracks share the {} dominant claim family.",
+                target_family
+            );
         }
     }
 
