@@ -1174,29 +1174,12 @@ impl App {
 
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
         let wallet_total: usize = wallet_summary.iter().map(|item| item.count).sum();
-        let mut lines = vec![
-            format!(
-                "Artist reviews: total={} last24h={} older7d={}",
-                artist_total, artist_age.created_last_24h, artist_age.older_than_7d
-            ),
-            format!(
-                "Wallet reviews: total={} last24h={} older7d={}",
-                wallet_total, wallet_age.created_last_24h, wallet_age.older_than_7d
-            ),
-        ];
-        if let Some(oldest) = artist_age.oldest_created_at {
-            lines.push(format!(
-                "Oldest artist review: {}",
-                format_local_timestamp(oldest)
-            ));
-        }
-        if let Some(oldest) = wallet_age.oldest_created_at {
-            lines.push(format!(
-                "Oldest wallet review: {}",
-                format_local_timestamp(oldest)
-            ));
-        }
-        lines.push(String::new());
+        let mut lines = stophammer::tui::build_operator_overview_header_lines(
+            artist_total,
+            &artist_age,
+            wallet_total,
+            &wallet_age,
+        );
         stophammer::tui::push_source_family_section(
             &mut lines,
             "Top artist review sources:",

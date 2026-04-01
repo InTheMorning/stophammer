@@ -419,6 +419,34 @@ pub fn build_queue_summary_header_lines(
     lines
 }
 
+/// Builds the shared age/totals preamble for operator overview dialogs.
+#[must_use]
+pub fn build_operator_overview_header_lines(
+    artist_total: usize,
+    artist_age: &crate::db::PendingReviewAgeSummary,
+    wallet_total: usize,
+    wallet_age: &crate::db::PendingReviewAgeSummary,
+) -> Vec<String> {
+    let mut lines = vec![
+        format!(
+            "Artist reviews: total={artist_total} last24h={} older7d={}",
+            artist_age.created_last_24h, artist_age.older_than_7d
+        ),
+        format!(
+            "Wallet reviews: total={wallet_total} last24h={} older7d={}",
+            wallet_age.created_last_24h, wallet_age.older_than_7d
+        ),
+    ];
+    if let Some(oldest) = artist_age.oldest_created_at {
+        lines.push(format!("Oldest artist review: {}", format_local_timestamp(oldest)));
+    }
+    if let Some(oldest) = wallet_age.oldest_created_at {
+        lines.push(format!("Oldest wallet review: {}", format_local_timestamp(oldest)));
+    }
+    lines.push(String::new());
+    lines
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
