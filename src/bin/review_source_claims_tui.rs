@@ -210,6 +210,18 @@ fn track_family_subset_summary(snapshot: &FeedClaimSnapshot) -> Option<String> {
     ))
 }
 
+fn track_family_subset_short_summary(snapshot: &FeedClaimSnapshot) -> Option<String> {
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for track in &snapshot.tracks {
+        if let Some((label, _, _)) = dominant_track_claim_family(snapshot, &track.track_guid) {
+            *counts.entry(label).or_default() += 1;
+        }
+    }
+    let total = counts.values().sum::<usize>();
+    let (label, count) = counts.into_iter().max_by_key(|(_, count)| *count)?;
+    Some(format!("cluster {label} ({count}/{total})"))
+}
+
 fn current_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     let current_idx = app.feed_state.selected()?;
     let (label, _, _) = dominant_feed_claim_family(app.feeds.get(current_idx)?)?;
@@ -735,8 +747,10 @@ impl App {
         let title = current_track_family_position(self).map_or_else(
             || format!("Track Claim Mix [{}]", short_id(&track.track_guid)),
             |(label, position, total)| {
+                let cluster = track_family_subset_short_summary(snapshot)
+                    .map_or_else(String::new, |summary| format!(" {summary}"));
                 format!(
-                    "Track Claim Mix [{}] {label} {position}/{total}",
+                    "Track Claim Mix [{}] {label} {position}/{total}{cluster}",
                     short_id(&track.track_guid)
                 )
             },
@@ -2117,7 +2131,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 "Tracks (0)".to_string()
             } else {
                 let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
-                let subset = track_family_subset_summary(snapshot)
+                let subset = track_family_subset_short_summary(snapshot)
                     .unwrap_or_else(|| "no-track-family".to_string());
                 current_track_family_position(app).map_or_else(
                     || format!("Tracks ({position}/{})", snapshot.tracks.len()),
