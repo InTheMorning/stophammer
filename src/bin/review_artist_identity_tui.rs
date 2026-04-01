@@ -93,6 +93,7 @@ struct App {
     conn: Connection,
     limit: usize,
     reviews: Vec<stophammer::db::ArtistIdentityPendingReview>,
+    queue_summary: String,
     review_state: ListState,
     artist_state: ListState,
     focus: Focus,
@@ -109,6 +110,7 @@ impl App {
             conn,
             limit,
             reviews: Vec::new(),
+            queue_summary: String::new(),
             review_state: ListState::default(),
             artist_state: ListState::default(),
             focus: Focus::Reviews,
@@ -128,6 +130,9 @@ impl App {
     ) -> Result<(), Box<dyn Error>> {
         self.reviews =
             stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?;
+        self.queue_summary = format_artist_review_summary(
+            &stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?,
+        );
         let review_idx = match preferred_review_id {
             Some(review_id) => self
                 .reviews
@@ -143,6 +148,7 @@ impl App {
             self.snapshot = None;
             self.evidence_scroll = 0;
             self.status = "No pending artist identity reviews.".to_string();
+            self.queue_summary = "No pending artist identity reviews".to_string();
             return Ok(());
         }
 
@@ -1010,22 +1016,28 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
 fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = frame.area();
     let layout = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(3),
         Constraint::Min(10),
         Constraint::Length(2),
     ])
     .split(area);
 
-    let header = Paragraph::new(Line::from(vec![
-        Span::styled(
-            "Artist Review TUI",
-            Style::default()
-                .fg(Color::Cyan)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(app.status.clone(), Style::default().fg(Color::White)),
-    ]));
+    let header = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled(
+                "Artist Review TUI",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(app.status.clone(), Style::default().fg(Color::White)),
+        ]),
+        Line::from(Span::styled(
+            app.queue_summary.clone(),
+            Style::default().fg(Color::Gray),
+        )),
+    ]);
     frame.render_widget(header, layout[0]);
 
     let body = Layout::horizontal([
@@ -1142,6 +1154,23 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             .wrap(Wrap { trim: false });
         frame.render_widget(widget, dialog_area);
     }
+}
+
+fn format_artist_review_summary(
+    summary: &[stophammer::db::ArtistIdentityPendingReviewSummary],
+) -> String {
+    if summary.is_empty() {
+        return "No pending artist review sources".to_string();
+    }
+
+    let total: usize = summary.iter().map(|item| item.count).sum();
+    let details = summary
+        .iter()
+        .take(3)
+        .map(|item| format!("{}={}", item.source, item.count))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Pending artist reviews: {total} ({details})")
 }
 
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

@@ -174,6 +174,7 @@ struct App {
     conn: Connection,
     limit: usize,
     groups: Vec<ReviewGroup>,
+    queue_summary: String,
     group_wallets: Vec<stophammer::db::WalletAliasPeer>,
     group_state: ListState,
     selected_group: usize,
@@ -289,6 +290,7 @@ impl App {
             conn,
             limit,
             groups: Vec::new(),
+            queue_summary: String::new(),
             group_wallets: Vec::new(),
             group_state: ListState::default(),
             selected_group: 0,
@@ -449,6 +451,9 @@ impl App {
     fn reload(&mut self) -> Result<(), Box<dyn Error>> {
         let selection = self.capture_reload_selection();
         let reviews = stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?;
+        self.queue_summary = format_wallet_review_summary(
+            &stophammer::db::summarize_pending_wallet_reviews(&self.conn)?,
+        );
         self.groups = self.prune_review_groups(group_reviews(reviews))?;
         self.selected_group = selection
             .group_key
@@ -476,6 +481,7 @@ impl App {
             self.candidate_claim_feeds.clear();
             self.evidence_rows.clear();
             self.status = "No pending review groups".to_string();
+            self.queue_summary = "No pending wallet review sources".to_string();
             return Ok(());
         }
 
@@ -1935,28 +1941,34 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
+            Constraint::Length(2),
             Constraint::Min(0),
             Constraint::Length(1),
         ])
         .split(frame.area());
 
-    let header = Paragraph::new(format!(
-        "Focus={:?}  groups={}  group-wallet={} of {}  candidates={}  feeds={}  {}",
-        app.focus,
-        app.groups.len(),
-        if app.current_group().is_some() {
-            app.selected_source + 1
-        } else {
-            0
-        },
-        app.current_group()
-            .map(|group| group.reviews.len())
-            .unwrap_or(0),
-        app.candidate_wallets.len(),
-        app.claim_feeds.len(),
-        app.status
-    ));
+    let header = Paragraph::new(vec![
+        Line::from(format!(
+            "Focus={:?}  groups={}  group-wallet={} of {}  candidates={}  feeds={}  {}",
+            app.focus,
+            app.groups.len(),
+            if app.current_group().is_some() {
+                app.selected_source + 1
+            } else {
+                0
+            },
+            app.current_group()
+                .map(|group| group.reviews.len())
+                .unwrap_or(0),
+            app.candidate_wallets.len(),
+            app.claim_feeds.len(),
+            app.status
+        )),
+        Line::from(Span::styled(
+            app.queue_summary.clone(),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ]);
     frame.render_widget(header, root[0]);
 
     let body = Layout::default()
@@ -2248,6 +2260,21 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             .wrap(Wrap { trim: false });
         frame.render_widget(dialog_widget, row[1]);
     }
+}
+
+fn format_wallet_review_summary(summary: &[stophammer::db::WalletPendingReviewSummary]) -> String {
+    if summary.is_empty() {
+        return "No pending wallet review sources".to_string();
+    }
+
+    let total: usize = summary.iter().map(|item| item.count).sum();
+    let details = summary
+        .iter()
+        .take(3)
+        .map(|item| format!("{}={}", item.source, item.count))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("Pending wallet reviews: {total} ({details})")
 }
 
 fn run_app(
