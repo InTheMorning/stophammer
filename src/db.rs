@@ -5416,7 +5416,7 @@ fn wallet_review_explanation(source: &str) -> &'static str {
             "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
         }
         "likely_wallet_owner_match" => {
-            "Multiple wallets share the same normalized alias and also appear on the same feed, so they likely belong to one owner but still require review."
+            "Multiple wallets share the same normalized alias and also share stronger feed or artist-link evidence, so they likely belong to one owner but still require review."
         }
         _ => {
             "This wallet review source requires operator confirmation before identity state changes."
@@ -5447,6 +5447,63 @@ fn wallets_share_artist_link(conn: &Connection, wallet_ids: &[String]) -> Result
     Ok(false)
 }
 
+fn wallets_share_feed(conn: &Connection, wallet_ids: &[String]) -> Result<bool, DbError> {
+    let mut feed_wallet_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT fg FROM (
+             SELECT pr.feed_guid AS fg
+             FROM wallet_endpoints we
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+             JOIN payment_routes pr ON pr.id = wtrm.route_id
+             WHERE we.wallet_id = ?1
+             UNION
+             SELECT fpr.feed_guid AS fg
+             FROM wallet_endpoints we
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+             WHERE we.wallet_id = ?1
+         )",
+    )?;
+    for wallet_id in wallet_ids {
+        let feed_guids = stmt
+            .query_map(params![wallet_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for feed_guid in feed_guids {
+            let count = feed_wallet_counts.entry(feed_guid).or_default();
+            *count += 1;
+            if *count >= 2 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn shared_artist_ids_for_wallets(
+    conn: &Connection,
+    wallet_ids: &[String],
+) -> Result<Vec<String>, DbError> {
+    let mut artist_wallet_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT artist_id
+         FROM wallet_artist_links
+         WHERE wallet_id = ?1
+         ORDER BY artist_id",
+    )?;
+    for wallet_id in wallet_ids {
+        let artist_ids = stmt
+            .query_map(params![wallet_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for artist_id in artist_ids {
+            *artist_wallet_counts.entry(artist_id).or_default() += 1;
+        }
+    }
+    Ok(artist_wallet_counts
+        .into_iter()
+        .filter_map(|(artist_id, count)| (count >= 2).then_some(artist_id))
+        .collect())
+}
+
 fn wallet_review_supporting_sources(
     conn: &Connection,
     source: &str,
@@ -5454,10 +5511,10 @@ fn wallet_review_supporting_sources(
 ) -> Result<Vec<String>, DbError> {
     match source {
         "likely_wallet_owner_match" => {
-            let mut supporting_sources = vec![
-                "cross_wallet_alias".to_string(),
-                "shared_feed_overlap".to_string(),
-            ];
+            let mut supporting_sources = vec!["cross_wallet_alias".to_string()];
+            if wallets_share_feed(conn, wallet_ids)? {
+                supporting_sources.push("shared_feed_overlap".to_string());
+            }
             if wallets_share_artist_link(conn, wallet_ids)? {
                 supporting_sources.push("shared_artist_link".to_string());
             }
@@ -12486,12 +12543,10 @@ fn insert_cross_wallet_alias_review(
 fn insert_likely_wallet_owner_match_review(
     conn: &Connection,
     wallet_id: &str,
-    alias: &str,
-    feed_guid: &str,
+    evidence_key: &str,
     related_wallet_ids: &[String],
     now: i64,
 ) -> Result<bool, DbError> {
-    let evidence_key = format!("{alias}:{feed_guid}");
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
          WHERE wallet_id = ?1 AND source = 'likely_wallet_owner_match' AND evidence_key = ?2)",
@@ -12547,6 +12602,20 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
                 created += 1;
             }
         }
+        for artist_id in shared_artist_ids_for_wallets(conn, &wallet_ids)? {
+            let evidence_key = format!("{alias}:artist:{artist_id}");
+            for wallet_id in &wallet_ids {
+                if insert_likely_wallet_owner_match_review(
+                    conn,
+                    wallet_id,
+                    &evidence_key,
+                    &wallet_ids,
+                    now,
+                )? {
+                    created += 1;
+                }
+            }
+        }
     }
 
     let mut stmt = conn.prepare(
@@ -12582,8 +12651,7 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
             if insert_likely_wallet_owner_match_review(
                 conn,
                 wallet_id,
-                &alias,
-                &feed_guid,
+                &format!("{alias}:{feed_guid}"),
                 &wallet_ids,
                 now,
             )? {
@@ -12649,24 +12717,22 @@ fn generate_wallet_review_items_for_feed(
     let mut created = 0;
 
     let mut stmt = conn.prepare(
-        "SELECT wa.alias_lower, GROUP_CONCAT(DISTINCT we2.wallet_id) AS wallet_ids \
+        "SELECT wa.alias_lower, GROUP_CONCAT(DISTINCT we.wallet_id) AS wallet_ids \
          FROM wallet_aliases wa \
          JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
-         JOIN wallet_aliases wa2 ON wa2.alias_lower = wa.alias_lower \
-         JOIN wallet_endpoints we2 ON we2.id = wa2.endpoint_id \
+         JOIN ( \
+             SELECT wtrm.endpoint_id, pr.feed_guid \
+             FROM wallet_track_route_map wtrm \
+             JOIN payment_routes pr ON pr.id = wtrm.route_id \
+             UNION ALL \
+             SELECT wfrm.endpoint_id, fpr.feed_guid \
+             FROM wallet_feed_route_map wfrm \
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+         ) prf ON prf.endpoint_id = we.id \
          WHERE we.wallet_id IS NOT NULL \
-           AND we2.wallet_id IS NOT NULL \
-           AND we.id IN ( \
-               SELECT wtrm.endpoint_id FROM wallet_track_route_map wtrm \
-               JOIN payment_routes pr ON pr.id = wtrm.route_id \
-               WHERE pr.feed_guid = ?1 \
-               UNION \
-               SELECT wfrm.endpoint_id FROM wallet_feed_route_map wfrm \
-               JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
-               WHERE fpr.feed_guid = ?1 \
-           ) \
+           AND prf.feed_guid = ?1 \
          GROUP BY wa.alias_lower \
-         HAVING COUNT(DISTINCT we2.wallet_id) > 1",
+         HAVING COUNT(DISTINCT we.wallet_id) > 1",
     )?;
 
     let rows: Vec<(String, String)> = stmt
@@ -12685,7 +12751,11 @@ fn generate_wallet_review_items_for_feed(
                 created += 1;
             }
             if insert_likely_wallet_owner_match_review(
-                conn, wid, &alias, feed_guid, &wallet_ids, now,
+                conn,
+                wid,
+                &format!("{alias}:{feed_guid}"),
+                &wallet_ids,
+                now,
             )? {
                 created += 1;
             }

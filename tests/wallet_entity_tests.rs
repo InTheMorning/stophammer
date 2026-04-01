@@ -1212,7 +1212,7 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
         sources.iter().any(|(source, confidence, explanation)| {
             source == "likely_wallet_owner_match"
                 && confidence == "high_confidence"
-                && explanation.contains("appear on the same feed")
+                && explanation.contains("likely belong to one owner")
         }),
         "same-feed alias overlap should create a high-confidence likely_wallet_owner_match review"
     );
@@ -1301,6 +1301,199 @@ fn likely_wallet_owner_match_includes_shared_artist_link_support() {
             .supporting_sources
             .contains(&"shared_artist_link".to_string()),
         "shared linked-artist evidence should strengthen likely owner matches"
+    );
+}
+
+#[test]
+fn likely_wallet_owner_match_created_for_same_alias_with_shared_artist_link() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+         VALUES ('artist-w-alt-link', 'Wallet Artist Alt Link', 'wallet artist alt link', ?1, ?1)",
+        params![now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Wallet Artist Alt Link', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let credit_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
+         VALUES (?1, 'artist-w-alt-link', 0, 'Wallet Artist Alt Link', '')",
+        params![credit_id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, episode_count, created_at, updated_at) \
+         VALUES ('feed-alt', 'https://example.com/feed-alt.xml', 'Wallet Feed Alt', 'wallet feed alt', ?1, 0, 0, ?2, ?2)",
+        params![credit_id, now],
+    )
+    .unwrap();
+
+    let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
+    let route_b = insert_feed_route(&conn, "feed-alt", "Alice", "addr-owner-b");
+
+    let ep_a = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-a",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let ep_b = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-b",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
+
+    let wallet_a = db::create_provisional_wallet(&conn, ep_a, now).unwrap();
+    let wallet_b = db::create_provisional_wallet(&conn, ep_b, now).unwrap();
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-alice-cross-feed".into(),
+        name: "Alice".into(),
+        name_lower: "alice".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    db::upsert_artist_if_absent(&conn, &artist).unwrap();
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, ?2, 'high_confidence', 'feed', 'feed-w', ?3)",
+        rusqlite::params![wallet_a, artist.artist_id, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, ?2, 'high_confidence', 'feed', 'feed-alt', ?3)",
+        rusqlite::params![wallet_b, artist.artist_id, now],
+    )
+    .unwrap();
+
+    let created = db::generate_wallet_review_items(&conn).unwrap();
+    assert!(
+        created >= 4,
+        "cross-feed alias overlap with a shared linked artist should still produce a likely owner match"
+    );
+
+    let likely_review = db::list_pending_wallet_reviews(&conn, 20)
+        .unwrap()
+        .into_iter()
+        .find(|review| {
+            review.source == "likely_wallet_owner_match"
+                && review.evidence_key.contains(":artist:")
+        })
+        .expect("artist-linked likely wallet review");
+    assert_eq!(likely_review.score, Some(60));
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting.contains("cross_wallet_alias"));
+    assert!(supporting.contains("shared_artist_link"));
+    assert!(
+        !supporting.contains("shared_feed_overlap"),
+        "cross-feed artist-linked owner matches should not claim feed overlap"
+    );
+}
+
+#[test]
+fn cross_feed_alias_peers_do_not_create_same_feed_owner_match() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    conn.execute(
+        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+         VALUES ('artist-w-alt', 'Wallet Artist Alt', 'wallet artist alt', ?1, ?1)",
+        params![now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Wallet Artist Alt', ?1)",
+        params![now],
+    )
+    .unwrap();
+    let credit_id = conn.last_insert_rowid();
+    conn.execute(
+        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
+         VALUES (?1, 'artist-w-alt', 0, 'Wallet Artist Alt', '')",
+        params![credit_id],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, episode_count, created_at, updated_at) \
+         VALUES ('feed-alt', 'https://example.com/feed-alt.xml', 'Wallet Feed Alt', 'wallet feed alt', ?1, 0, 0, ?2, ?2)",
+        params![credit_id, now],
+    )
+    .unwrap();
+
+    let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
+    let route_b = insert_feed_route(&conn, "feed-alt", "Alice", "addr-owner-b");
+
+    let ep_a = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-a",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let ep_b = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-b",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
+
+    let _wallet_a = db::create_provisional_wallet(&conn, ep_a, now).unwrap();
+    let _wallet_b = db::create_provisional_wallet(&conn, ep_b, now).unwrap();
+
+    db::resolve_wallet_identity_for_feed(&conn, "feed-w").unwrap();
+    db::resolve_wallet_identity_for_feed(&conn, "feed-alt").unwrap();
+    db::generate_wallet_review_items(&conn).unwrap();
+
+    let reviews = db::list_pending_wallet_reviews(&conn, 20).unwrap();
+    assert!(
+        reviews.iter().any(|review| review.source == "cross_wallet_alias"),
+        "cross-feed alias peers should still raise the baseline alias review"
+    );
+    assert!(
+        !reviews
+            .iter()
+            .any(|review| review.source == "likely_wallet_owner_match"),
+        "feed-scoped wallet review refresh should not invent same-feed owner matches from cross-feed alias peers"
     );
 }
 

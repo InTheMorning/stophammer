@@ -1151,7 +1151,7 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         .iter()
         .filter_map(|row| row["score_band"].as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    assert!(wallet_score_bands.contains("60_79"));
+    assert!(wallet_score_bands.contains("1_59"));
 }
 
 #[tokio::test]
@@ -1659,39 +1659,11 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     assert_eq!(cross_wallet_review["confidence"], "review_required");
     assert_eq!(cross_wallet_review["evidence_key"], "shared wallet alias");
     assert!(
-        json["reviews"]
+        !json["reviews"]
             .as_array()
             .expect("reviews array")
             .iter()
             .any(|review| review["source"].as_str() == Some("likely_wallet_owner_match")),
-        "wallet diagnostics should expose the stronger same-feed owner-match review too"
+        "cross-feed alias peers without shared feed or artist-link evidence should stay at cross_wallet_alias only"
     );
-    let likely_wallet_review = json["reviews"]
-        .as_array()
-        .expect("reviews array")
-        .iter()
-        .find(|review| review["source"].as_str() == Some("likely_wallet_owner_match"))
-        .expect("likely_wallet_owner_match review");
-    let supporting_sources = likely_wallet_review["supporting_sources"]
-        .as_array()
-        .expect("supporting_sources array")
-        .iter()
-        .filter_map(|value| value.as_str())
-        .collect::<std::collections::BTreeSet<_>>();
-    assert!(supporting_sources.contains("cross_wallet_alias"));
-    assert!(supporting_sources.contains("shared_feed_overlap"));
-    assert_eq!(likely_wallet_review["score"], 65);
-    let score_breakdown = likely_wallet_review["score_breakdown"]
-        .as_array()
-        .expect("score_breakdown array")
-        .iter()
-        .map(|component| {
-            (
-                component["source"].as_str().unwrap_or_default(),
-                component["points"].as_u64().unwrap_or_default(),
-            )
-        })
-        .collect::<std::collections::BTreeSet<_>>();
-    assert!(score_breakdown.contains(&("cross_wallet_alias", 40)));
-    assert!(score_breakdown.contains(&("shared_feed_overlap", 25)));
 }
