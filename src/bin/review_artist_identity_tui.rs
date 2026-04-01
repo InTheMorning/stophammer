@@ -464,6 +464,32 @@ impl App {
         });
         Ok(())
     }
+
+    fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
+        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
+        let mut lines = vec![
+            "Top feeds by pending combined review load".to_string(),
+            String::new(),
+        ];
+        if hotspots.is_empty() {
+            lines.push("No feed hotspots with pending reviews".to_string());
+        } else {
+            lines.extend(hotspots.into_iter().map(|feed| {
+                format!(
+                    "{} | total={} artist={} wallet={}",
+                    feed.title,
+                    feed.total_review_count,
+                    feed.artist_review_count,
+                    feed.wallet_review_count
+                )
+            }));
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Feed Hotspots".to_string(),
+            lines,
+        });
+        Ok(())
+    }
 }
 
 #[allow(
@@ -497,7 +523,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, s queue summary, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, s queue summary, h feed hotspots, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1256,6 +1282,7 @@ fn run_app(
             KeyCode::Char('m') => app.approve_merge()?,
             KeyCode::Char('x') => app.reject_review()?,
             KeyCode::Char('s') => app.show_queue_summary()?,
+            KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);
                 let artist_id = app

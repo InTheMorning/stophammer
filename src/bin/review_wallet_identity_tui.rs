@@ -251,6 +251,7 @@ fn parse_args() -> Result<Args, String> {
                      c            Cycle main wallet class (also sets confidence to reviewed)\n\
                      v            Cycle main wallet confidence\n\
                      s            Show pending queue source summary\n\
+                     h            Show hottest feeds by pending review load\n\
                      z            Revert main wallet operator classification edits\n\
                      r            Reload reviews and details\n\
                      Home/End     Jump to top/bottom in focused pane"
@@ -1121,6 +1122,32 @@ impl App {
         }
         self.dialog = Some(SummaryDialog {
             title: "Wallet Queue Summary".to_string(),
+            lines,
+        });
+        Ok(())
+    }
+
+    fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
+        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
+        let mut lines = vec![
+            "Top feeds by pending combined review load".to_string(),
+            String::new(),
+        ];
+        if hotspots.is_empty() {
+            lines.push("No feed hotspots with pending reviews".to_string());
+        } else {
+            lines.extend(hotspots.into_iter().map(|feed| {
+                format!(
+                    "{} | total={} artist={} wallet={}",
+                    feed.title,
+                    feed.total_review_count,
+                    feed.artist_review_count,
+                    feed.wallet_review_count
+                )
+            }));
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Feed Hotspots".to_string(),
             lines,
         });
         Ok(())
@@ -2356,6 +2383,9 @@ fn run_app(
             }
             KeyCode::Char('s') => {
                 app.show_queue_summary()?;
+            }
+            KeyCode::Char('h') => {
+                app.show_feed_hotspots()?;
             }
             KeyCode::Char('u') => {
                 app.undo_last_apply_batch()?;
