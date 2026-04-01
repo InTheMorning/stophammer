@@ -2222,9 +2222,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         |feed| {
             let track_summary = app.current_snapshot().and_then(|snapshot| {
                 app.current_track().map(|track| {
+                    let cluster = track_family_cluster_membership(snapshot, &track.track_guid)
+                        .map_or_else(String::new, |(label, cluster_size, total_tracks)| {
+                            format!(" cluster={label}({cluster_size}/{total_tracks})")
+                        });
                     format!(
-                        "track {}",
-                        dominant_track_claim_family_summary(snapshot, &track.track_guid)
+                        "track {}{}",
+                        dominant_track_claim_family_summary(snapshot, &track.track_guid),
+                        cluster
                     )
                 })
             });
