@@ -625,8 +625,12 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
         .filter_map(|review| review.score.map(|score| (score, review.source.as_str())))
         .max_by_key(|(score, _source)| *score);
     let mut score_band_counts = std::collections::BTreeMap::<&str, usize>::new();
+    let mut conflict_reason_counts = std::collections::BTreeMap::<&str, usize>::new();
     for review in &report.reviews {
         *score_band_counts.entry(score_band(review.score)).or_default() += 1;
+        for reason in &review.conflict_reasons {
+            *conflict_reason_counts.entry(reason).or_default() += 1;
+        }
     }
     println!(
         "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
@@ -646,6 +650,16 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
             .collect::<Vec<_>>()
             .join(" ")
     );
+    if !conflict_reason_counts.is_empty() {
+        println!(
+            "conflicts: {}",
+            conflict_reason_counts
+                .into_iter()
+                .map(|(reason, count)| format!("{reason}={count}"))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+    }
     println!();
 
     for review in &report.reviews {
