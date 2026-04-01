@@ -585,8 +585,9 @@ impl App {
         } else {
             lines.extend(stale.into_iter().map(|review| {
                 format!(
-                    "{} | {} | {} | created {}",
+                    "{} [{}] | {} | {} | created {}",
                     review.title,
+                    short_id(&review.feed_guid),
                     review.source,
                     review.artist_count,
                     format_local_timestamp(review.created_at)
@@ -615,8 +616,9 @@ impl App {
         } else {
             lines.extend(recent.into_iter().map(|review| {
                 format!(
-                    "{} | {} | {} | created {}",
+                    "{} [{}] | {} | {} | created {}",
                     review.title,
+                    short_id(&review.feed_guid),
                     review.source,
                     review.artist_count,
                     format_local_timestamp(review.created_at)
