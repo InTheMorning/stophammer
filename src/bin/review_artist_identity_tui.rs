@@ -1319,11 +1319,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 || "Selected: none".to_string(),
                 |review| {
                     format!(
-                        "Selected: review={} feed={} source={} key={}",
+                        "Selected: review={} feed={} source={} key={} created={}",
                         review.review_id,
                         short_id(&review.feed_guid),
                         review.source,
-                        abbreviate(&review.evidence_key, 24)
+                        abbreviate(&review.evidence_key, 24),
+                        format_local_timestamp(review.created_at)
                     )
                 },
             ),

@@ -2257,11 +2257,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 || "Selected: none".to_string(),
                 |review| {
                     format!(
-                        "Selected: review={} wallet={} source={} key={}",
+                        "Selected: review={} wallet={} source={} key={} created={}",
                         review.id,
                         short_id(&review.wallet_id),
                         review.source,
-                        abbreviate(&review.evidence_key, 24)
+                        abbreviate(&review.evidence_key, 24),
+                        format_local_timestamp(review.created_at)
                     )
                 },
             ),
