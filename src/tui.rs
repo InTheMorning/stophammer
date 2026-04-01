@@ -1,5 +1,6 @@
 //! Shared terminal-session helpers for ratatui/crossterm review tools.
 
+use std::collections::BTreeMap;
 use std::io;
 
 use crossterm::execute;
@@ -64,4 +65,20 @@ impl Drop for TerminalCleanupGuard {
             let _ = execute!(stdout, LeaveAlternateScreen);
         }
     }
+}
+
+/// Summarizes the dominant `source` within a review subset.
+#[must_use]
+pub fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut counts = BTreeMap::<&str, usize>::new();
+    let mut total = 0usize;
+    for source in sources {
+        total = total.saturating_add(1);
+        *counts.entry(source).or_default() += 1;
+    }
+    let (source, count) = counts
+        .into_iter()
+        .max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
+    let share = (count.saturating_mul(100)) / total.max(1);
+    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }

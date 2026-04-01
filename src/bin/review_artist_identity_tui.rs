@@ -19,7 +19,7 @@
     reason = "incremental construction keeps long ratatui line definitions readable"
 )]
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,7 @@ use ratatui::widgets::{
 };
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
+use stophammer::tui::dominant_source_summary;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -1179,18 +1180,6 @@ fn recency_badge(timestamp: i64) -> (&'static str, Color) {
     } else {
         ("MID", Color::Yellow)
     }
-}
-
-fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let mut counts = BTreeMap::<&str, usize>::new();
-    let mut total = 0usize;
-    for source in sources {
-        total = total.saturating_add(1);
-        *counts.entry(source).or_default() += 1;
-    }
-    let (source, count) = counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
-    let share = (count.saturating_mul(100)) / total.max(1);
-    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
 
 fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {

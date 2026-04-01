@@ -59,6 +59,7 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use ratatui::{Frame, Terminal};
 use rusqlite::{Connection, OptionalExtension, params};
 use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
+use stophammer::tui::dominant_source_summary;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -2337,18 +2338,6 @@ fn wallet_source_family_position(app: &App) -> Option<(usize, usize)> {
         .position(|&index| index == app.selected_group)
         .map(|index| index.saturating_add(1))?;
     Some((position, matching.len()))
-}
-
-fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -> Option<String> {
-    let mut counts = BTreeMap::<&str, usize>::new();
-    let mut total = 0usize;
-    for source in sources {
-        total = total.saturating_add(1);
-        *counts.entry(source).or_default() += 1;
-    }
-    let (source, count) = counts.into_iter().max_by(|a, b| a.1.cmp(&b.1).then_with(|| a.0.cmp(b.0)))?;
-    let share = (count.saturating_mul(100)) / total.max(1);
-    Some(format!("Top source in this subset: {source} ({count}, {share}%)"))
 }
 
 fn chooser_summary_lines(
