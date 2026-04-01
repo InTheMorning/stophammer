@@ -1721,6 +1721,14 @@ Returns the current pending artist-identity review queue.
 }
 ```
 
+### GET /admin/artist-identity/reviews/pending/stale
+
+Returns pending artist-identity review items older than `min_age_days`.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `limit` (default `100`), `min_age_days` (default `7`)
+
 ### GET /admin/wallet-identity/reviews/pending
 
 Returns the current pending wallet-identity review queue.
@@ -1749,6 +1757,14 @@ Returns the current pending wallet-identity review queue.
   ]
 }
 ```
+
+### GET /admin/wallet-identity/reviews/pending/stale
+
+Returns pending wallet-identity review items older than `min_age_days`.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `limit` (default `100`), `min_age_days` (default `7`)
 
 ---
 

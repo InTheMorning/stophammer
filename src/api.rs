@@ -1346,12 +1346,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handle_admin_pending_artist_identity_reviews),
         )
         .route(
+            "/admin/artist-identity/reviews/pending/stale",
+            get(handle_admin_stale_artist_identity_reviews),
+        )
+        .route(
             "/admin/artist-identity/reviews/pending/summary",
             get(handle_admin_pending_artist_identity_review_summary),
         )
         .route(
             "/admin/wallet-identity/reviews/pending",
             get(handle_admin_pending_wallet_identity_reviews),
+        )
+        .route(
+            "/admin/wallet-identity/reviews/pending/stale",
+            get(handle_admin_stale_wallet_identity_reviews),
         )
         .route(
             "/admin/wallet-identity/reviews/pending/summary",
@@ -3178,6 +3186,14 @@ struct PendingReviewQuery {
     limit: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct PendingStaleReviewQuery {
+    #[serde(default = "default_pending_review_limit")]
+    limit: usize,
+    #[serde(default = "default_stale_review_min_age_days")]
+    min_age_days: u64,
+}
+
 #[derive(Debug, Serialize)]
 struct PendingArtistIdentityReviewsResponse {
     reviews: Vec<db::ArtistIdentityPendingReview>,
@@ -3211,6 +3227,10 @@ struct PendingReviewFeedHotspotsResponse {
 
 const fn default_pending_review_limit() -> usize {
     100
+}
+
+const fn default_stale_review_min_age_days() -> u64 {
+    7
 }
 
 fn validate_wallet_identity_review_action_request(
@@ -3771,6 +3791,28 @@ async fn handle_admin_pending_artist_identity_reviews(
     Ok(Json(PendingArtistIdentityReviewsResponse { reviews }))
 }
 
+async fn handle_admin_stale_artist_identity_reviews(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingStaleReviewQuery>,
+) -> Result<Json<PendingArtistIdentityReviewsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let min_age_secs = i64::try_from(query.min_age_days).map_err(|_err| ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: "min_age_days exceeds supported range".into(),
+        www_authenticate: None,
+    })? * 24
+        * 60
+        * 60;
+    let reviews = spawn_db(state.db.clone(), move |conn| {
+        db::list_stale_pending_artist_identity_reviews(conn, min_age_secs, query.limit)
+    })
+    .await?;
+
+    Ok(Json(PendingArtistIdentityReviewsResponse { reviews }))
+}
+
 async fn handle_admin_pending_wallet_identity_reviews(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -3780,6 +3822,28 @@ async fn handle_admin_pending_wallet_identity_reviews(
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
         db::list_pending_wallet_reviews(conn, query.limit)
+    })
+    .await?;
+
+    Ok(Json(PendingWalletIdentityReviewsResponse { reviews }))
+}
+
+async fn handle_admin_stale_wallet_identity_reviews(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingStaleReviewQuery>,
+) -> Result<Json<PendingWalletIdentityReviewsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let min_age_secs = i64::try_from(query.min_age_days).map_err(|_err| ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: "min_age_days exceeds supported range".into(),
+        www_authenticate: None,
+    })? * 24
+        * 60
+        * 60;
+    let reviews = spawn_db(state.db.clone(), move |conn| {
+        db::list_stale_pending_wallet_reviews(conn, min_age_secs, query.limit)
     })
     .await?;
 

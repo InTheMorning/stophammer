@@ -4375,6 +4375,7 @@ pub struct ArtistIdentityPendingReview {
     pub name_key: String,
     pub evidence_key: String,
     pub artist_count: usize,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -6126,6 +6127,14 @@ pub fn list_pending_artist_identity_reviews(
     conn: &Connection,
     limit: usize,
 ) -> Result<Vec<ArtistIdentityPendingReview>, DbError> {
+    list_pending_artist_identity_reviews_with_min_created_at(conn, None, limit)
+}
+
+fn list_pending_artist_identity_reviews_with_min_created_at(
+    conn: &Connection,
+    max_created_at: Option<i64>,
+    limit: usize,
+) -> Result<Vec<ArtistIdentityPendingReview>, DbError> {
     let limit_i64 = i64::try_from(limit).map_err(|_err| {
         DbError::Other("pending review limit exceeded supported SQLite integer range".into())
     })?;
@@ -6137,14 +6146,16 @@ pub fn list_pending_artist_identity_reviews(
              r.source,
              r.name_key,
              r.evidence_key,
-             r.artist_ids_json
+             r.artist_ids_json,
+             r.created_at
          FROM artist_identity_review r
          JOIN feeds f ON f.feed_guid = r.feed_guid
          WHERE r.status = 'pending'
+           AND (?1 IS NULL OR r.created_at <= ?1)
          ORDER BY r.updated_at DESC, r.review_id DESC
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
-    stmt.query_map(params![limit_i64], |row| {
+    stmt.query_map(params![max_created_at, limit_i64], |row| {
         let artist_ids_json: String = row.get(6)?;
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(6, rusqlite::types::Type::Text, err.into())
@@ -6157,10 +6168,28 @@ pub fn list_pending_artist_identity_reviews(
             name_key: row.get(4)?,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
+            created_at: row.get(7)?,
         })
     })?
     .collect::<Result<Vec<_>, _>>()
     .map_err(Into::into)
+}
+
+/// Lists pending artist-identity reviews older than `min_age_secs`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn list_stale_pending_artist_identity_reviews(
+    conn: &Connection,
+    min_age_secs: i64,
+    limit: usize,
+) -> Result<Vec<ArtistIdentityPendingReview>, DbError> {
+    list_pending_artist_identity_reviews_with_min_created_at(
+        conn,
+        Some(unix_now() - min_age_secs),
+        limit,
+    )
 }
 
 /// Returns pending artist-identity review counts grouped by `source`.
@@ -12581,6 +12610,14 @@ pub fn list_pending_wallet_reviews(
     conn: &Connection,
     limit: usize,
 ) -> Result<Vec<WalletReviewSummary>, DbError> {
+    list_pending_wallet_reviews_with_max_created_at(conn, None, limit)
+}
+
+fn list_pending_wallet_reviews_with_max_created_at(
+    conn: &Connection,
+    max_created_at: Option<i64>,
+    limit: usize,
+) -> Result<Vec<WalletReviewSummary>, DbError> {
     let limit = i64::try_from(limit)
         .map_err(|err| DbError::Other(format!("wallet review limit exceeds i64: {err}")))?;
     let mut stmt = conn.prepare(
@@ -12590,10 +12627,11 @@ pub fn list_pending_wallet_reviews(
          FROM wallet_identity_review r \
          JOIN wallets w ON w.wallet_id = r.wallet_id \
          WHERE r.status = 'pending' \
+           AND (?1 IS NULL OR r.created_at <= ?1) \
          ORDER BY r.created_at DESC \
-         LIMIT ?1",
+         LIMIT ?2",
     )?;
-    let mut rows = stmt.query(params![limit])?;
+    let mut rows = stmt.query(params![max_created_at, limit])?;
     let mut summaries = Vec::new();
     while let Some(row) = rows.next()? {
         let wallet_ids_json: String = row.get(7)?;
@@ -12612,6 +12650,19 @@ pub fn list_pending_wallet_reviews(
         });
     }
     Ok(summaries)
+}
+
+/// Lists pending wallet-identity reviews older than `min_age_secs`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn list_stale_pending_wallet_reviews(
+    conn: &Connection,
+    min_age_secs: i64,
+    limit: usize,
+) -> Result<Vec<WalletReviewSummary>, DbError> {
+    list_pending_wallet_reviews_with_max_created_at(conn, Some(unix_now() - min_age_secs), limit)
 }
 
 /// Returns pending wallet-identity review counts grouped by `source`.

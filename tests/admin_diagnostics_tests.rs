@@ -663,6 +663,116 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
 }
 
 #[tokio::test]
+async fn admin_stale_review_endpoints_filter_old_artist_and_wallet_items() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let conn = db.lock().expect("lock db");
+
+        let artist =
+            stophammer::db::resolve_artist(&conn, "Stale Artist", Some("feed-stale-reviews"))
+                .expect("stale artist");
+        let credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-stale-reviews"),
+        )
+        .expect("stale credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-stale-reviews', 'https://example.com/feed-stale-reviews.xml', 'Feed Stale Reviews', 'feed stale reviews', ?1, ?2, ?2)",
+            params![credit.id, now],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-stale-reviews', 'track_feed_name_variant', 'staleartist', 'feed-stale-reviews', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 9 * 24 * 60 * 60],
+        )
+        .expect("insert stale artist review");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-stale-reviews', 'collaboration_credit', 'staleartist', 'artist-stale-collab', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 2 * 24 * 60 * 60],
+        )
+        .expect("insert fresh artist review");
+
+        let ep = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-stale",
+            "",
+            "",
+            Some("Stale Wallet"),
+            now,
+        )
+        .expect("endpoint");
+        let wallet_id = stophammer::db::create_provisional_wallet(&conn, ep, now).expect("wallet");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'stale wallet', json_array(?1), '[]', 'pending', ?2, ?2)",
+            params![wallet_id, now - 8 * 24 * 60 * 60],
+        )
+        .expect("insert stale wallet review");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-stale-review-queues.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending/stale?min_age_days=7")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("artist stale request"),
+        )
+        .await
+        .expect("artist stale response");
+    assert_eq!(artist_resp.status(), 200);
+    let artist_json = body_json(artist_resp).await;
+    assert_eq!(
+        artist_json["reviews"]
+            .as_array()
+            .expect("artist stale array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        artist_json["reviews"][0]["source"],
+        "track_feed_name_variant"
+    );
+
+    let wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/stale?min_age_days=7")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("wallet stale request"),
+        )
+        .await
+        .expect("wallet stale response");
+    assert_eq!(wallet_resp.status(), 200);
+    let wallet_json = body_json(wallet_resp).await;
+    assert_eq!(
+        wallet_json["reviews"]
+            .as_array()
+            .expect("wallet stale array")
+            .len(),
+        1
+    );
+    assert_eq!(wallet_json["reviews"][0]["source"], "cross_wallet_alias");
+}
+
+#[tokio::test]
 async fn admin_pending_review_summary_endpoints_group_by_source() {
     let db = common::test_db_arc();
     let now = common::now();
