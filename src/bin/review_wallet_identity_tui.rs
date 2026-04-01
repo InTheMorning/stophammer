@@ -1492,7 +1492,7 @@ impl App {
         }
 
         self.dialog = Some(SummaryDialog {
-            title: "Wallet Review Playbook".to_string(),
+            title: format!("Wallet Review Playbook ({total})"),
             lines,
         });
         Ok(())

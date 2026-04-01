@@ -827,7 +827,7 @@ impl App {
         }
 
         self.dialog = Some(SummaryDialog {
-            title: "Artist Review Playbook".to_string(),
+            title: format!("Artist Review Playbook ({total})"),
             lines,
         });
         Ok(())
