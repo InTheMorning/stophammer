@@ -3,12 +3,13 @@
 This document describes the staged refactor from today's inline canonical sync
 plus manual backfills to a durable, incremental resolver subsystem.
 
-Historical note:
+Status summary:
 
-- this document covers the local-resolver rollout that is now in place
-- the next architectural step, making the primary the authority for resolved
-  replication, is planned separately in
-  [primary-resolved-replication-plan.md](/home/citizen/build/stophammer/docs/primary-resolved-replication-plan.md)
+- this document: **complete** — covers the local-resolver rollout now in place
+- [primary-resolved-replication-plan.md](primary-resolved-replication-plan.md):
+  phases 1–3 **complete**, phase 4 (doc cleanup) in progress
+- [resolver-tui-rollout-plan.md](resolver-tui-rollout-plan.md): **active** —
+  phase 0 (stabilize) in progress, phases 1–6 not started
 
 ## Why
 
@@ -187,37 +188,3 @@ Still deferred:
 - primary-only diagnostics API work is planned separately in
   [primary-diagnostics-plan.md](primary-diagnostics-plan.md)
 
-## Phase 1 Status
-
-Phase 1 landed with:
-
-- resolver queue schema and DB helpers
-- a minimal `stophammer-resolverd` worker
-- dirty marking from current write paths
-- operator docs for running the worker
-
-What Phase 1 still does not do:
-
-- manual override workflow
-- removal of the current inline canonical rebuild path
-
-## Phase 2 Status
-
-Phase 2 is complete in its feed-scoped form:
-
-- normal write paths now mark the artist-identity dirty bit
-- `stophammer-resolverd` runs `resolve_artist_identity_for_feed(...)` for touched feeds
-- the implementation reuses the existing deterministic merge heuristics from
-  `backfill_artist_identity`
-- resolver batch output now reports seed-artist and candidate-group counts so
-  feed-scoped work is visible before the queue model becomes artist-group-based
-- review tooling can now:
-  - inspect one feed-scoped artist identity plan
-  - list feeds whose targeted plan still has candidate groups to review
-
-What remains deferred beyond Phase 2:
-
-- importer-aware prioritization beyond the coarse `import_active` pause flag
-- richer batching keyed by impacted artist groups instead of feed scope
-- richer manual override state and review lifecycle beyond the initial
-  feed-scoped artist identity review tables
