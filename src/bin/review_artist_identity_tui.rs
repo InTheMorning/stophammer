@@ -1002,6 +1002,7 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
     app.reviews
         .iter()
         .map(|review| {
+            let (badge, badge_color) = recency_badge(review.created_at);
             ListItem::new(vec![
                 Line::from(vec![Span::styled(
                     format!("{} [{}]", review.title, review.review_id),
@@ -1013,6 +1014,8 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     Span::styled(review.name_key.clone(), Style::default().fg(Color::Cyan)),
                     Span::raw("  "),
                     Span::styled(review.source.clone(), Style::default().fg(Color::Yellow)),
+                    Span::raw("  "),
+                    Span::styled(badge, Style::default().fg(badge_color)),
                 ]),
                 Line::from(Span::styled(
                     format!(
@@ -1026,6 +1029,17 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
             ])
         })
         .collect()
+}
+
+fn recency_badge(timestamp: i64) -> (&'static str, Color) {
+    let age_secs = OffsetDateTime::now_utc().unix_timestamp() - timestamp;
+    if age_secs >= 7 * 24 * 60 * 60 {
+        ("STALE", Color::Red)
+    } else if age_secs <= 24 * 60 * 60 {
+        ("FRESH", Color::Green)
+    } else {
+        ("MID", Color::Yellow)
+    }
 }
 
 fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {

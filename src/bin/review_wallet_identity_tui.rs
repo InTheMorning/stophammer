@@ -1399,6 +1399,17 @@ fn abbreviate(value: &str, max_chars: usize) -> String {
     format!("{truncated}...")
 }
 
+fn recency_badge(timestamp: i64) -> (&'static str, Color) {
+    let age_secs = OffsetDateTime::now_utc().unix_timestamp() - timestamp;
+    if age_secs >= 7 * 24 * 60 * 60 {
+        ("STALE", Color::Red)
+    } else if age_secs <= 24 * 60 * 60 {
+        ("FRESH", Color::Green)
+    } else {
+        ("MID", Color::Yellow)
+    }
+}
+
 fn short_id(value: &str) -> String {
     abbreviate(value, 12)
 }
@@ -2293,9 +2304,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .iter()
         .map(|group| {
             let title = abbreviate(&group.label, 30);
+            let (badge, badge_color) = group
+                .reviews
+                .first()
+                .map(|review| recency_badge(review.created_at))
+                .unwrap_or(("MID", Color::Yellow));
             let detail = format!(
-                "{}  {} wallets  newest {}",
+                "{}  {}  {} wallets  newest {}",
                 group.source,
+                badge,
                 group.reviews.len(),
                 group
                     .reviews
@@ -2305,7 +2322,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             );
             ListItem::new(vec![
                 Line::from(title),
-                Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))),
+                Line::from(Span::styled(detail, Style::default().fg(badge_color))),
             ])
         })
         .collect::<Vec<_>>();
