@@ -250,6 +250,7 @@ fn parse_args() -> Result<Args, String> {
                      x            Mark selected wallet as different from the main wallet\n\
                      c            Cycle main wallet class (also sets confidence to reviewed)\n\
                      v            Cycle main wallet confidence\n\
+                     s            Show pending queue source summary\n\
                      z            Revert main wallet operator classification edits\n\
                      r            Reload reviews and details\n\
                      Home/End     Jump to top/bottom in focused pane"
@@ -1089,6 +1090,27 @@ impl App {
                 format!("merges reverted: {}", stats.merges_reverted),
                 "merge materialization was rolled back".to_string(),
             ],
+        });
+        Ok(())
+    }
+
+    fn show_queue_summary(&mut self) -> Result<(), Box<dyn Error>> {
+        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
+        let total: usize = summary.iter().map(|item| item.count).sum();
+        let mut lines = vec![format!("Total pending wallet reviews: {total}")];
+        if summary.is_empty() {
+            lines.push("No pending wallet review sources".to_string());
+        } else {
+            lines.push(String::new());
+            lines.extend(
+                summary
+                    .into_iter()
+                    .map(|item| format!("{}: {}", item.source, item.count)),
+            );
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Wallet Queue Summary".to_string(),
+            lines,
         });
         Ok(())
     }
@@ -2320,6 +2342,9 @@ fn run_app(
             }
             KeyCode::Char('m') => {
                 app.approve_merge()?;
+            }
+            KeyCode::Char('s') => {
+                app.show_queue_summary()?;
             }
             KeyCode::Char('u') => {
                 app.undo_last_apply_batch()?;

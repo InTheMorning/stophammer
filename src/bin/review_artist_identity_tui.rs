@@ -432,6 +432,27 @@ impl App {
         self.reload(Some(review_id), None)?;
         Ok(())
     }
+
+    fn show_queue_summary(&mut self) -> Result<(), Box<dyn Error>> {
+        let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
+        let total: usize = summary.iter().map(|item| item.count).sum();
+        let mut lines = vec![format!("Total pending artist reviews: {total}")];
+        if summary.is_empty() {
+            lines.push("No pending artist review sources".to_string());
+        } else {
+            lines.push(String::new());
+            lines.extend(
+                summary
+                    .into_iter()
+                    .map(|item| format!("{}: {}", item.source, item.count)),
+            );
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Artist Queue Summary".to_string(),
+            lines,
+        });
+        Ok(())
+    }
 }
 
 #[allow(
@@ -464,7 +485,8 @@ fn parse_args() -> Result<Args, String> {
                     "Usage: review_artist_identity_tui [--db PATH] [--limit N]\n\
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
-                     inspect supporting feed evidence, then apply merge or do-not-merge decisions."
+                     inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, s queue summary, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1222,6 +1244,7 @@ fn run_app(
             KeyCode::End => app.jump_bottom()?,
             KeyCode::Char('m') => app.approve_merge()?,
             KeyCode::Char('x') => app.reject_review()?,
+            KeyCode::Char('s') => app.show_queue_summary()?,
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);
                 let artist_id = app
