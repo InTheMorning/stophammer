@@ -124,6 +124,25 @@ fn dominant_feed_claim_family_summary(feed: &FeedQueueRow) -> String {
     )
 }
 
+fn current_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
+    let current_idx = app.feed_state.selected()?;
+    let (label, _, _) = dominant_feed_claim_family(app.feeds.get(current_idx)?)?;
+    let family_indices = app
+        .feeds
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, feed)| {
+            dominant_feed_claim_family(feed)
+                .and_then(|(candidate, _, _)| (candidate == label).then_some(idx))
+        })
+        .collect::<Vec<_>>();
+    let position = family_indices
+        .iter()
+        .position(|idx| *idx == current_idx)?
+        .saturating_add(1);
+    Some((label, position, family_indices.len()))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Feeds,
@@ -1681,6 +1700,13 @@ fn header_context_line(app: &App) -> Line<'static> {
             ),
             Style::default().fg(Color::White),
         ));
+        if let Some((label, position, total)) = current_family_position(app) {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                format!("family {label} {position}/{total}"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
     }
 
     if let Some(snapshot) = app.current_snapshot()
@@ -1738,7 +1764,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         "Feeds".to_string()
     } else {
         let position = app.feed_state.selected().unwrap_or(0).saturating_add(1);
-        format!("Feeds ({position}/{})", app.feeds.len())
+        current_family_position(app).map_or_else(
+            || format!("Feeds ({position}/{})", app.feeds.len()),
+            |(label, family_position, family_total)| {
+                format!(
+                    "Feeds ({position}/{}, {label} {family_position}/{family_total})",
+                    app.feeds.len()
+                )
+            },
+        )
     };
     let feed_list = List::new(build_feed_items(app))
         .block(stophammer::tui::titled_block(
