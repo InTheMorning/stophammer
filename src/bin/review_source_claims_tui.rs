@@ -202,11 +202,355 @@ impl App {
             vec![
                 "Tab / Left / Right: cycle focus".to_string(),
                 "Up / Down / Home / End: navigate".to_string(),
+                "o: operator overview for the current source-claims queue".to_string(),
+                "p: review-next playbook for source-claims backlog".to_string(),
+                "s: feed summary for the selected source-claims bundle".to_string(),
+                "h: top source-claims hotspots".to_string(),
+                "c: current-feed conflict summary".to_string(),
                 "r: reload current feed and track selection".to_string(),
                 "? : show this help dialog".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),
             ],
+        ));
+    }
+
+    fn show_summary_dialog(&mut self) {
+        let Some(feed_row) = self.current_feed_row() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Source Claims Feed Summary (0)",
+                vec!["No feed selected.".to_string()],
+            ));
+            return;
+        };
+        let Some(snapshot) = self.current_snapshot() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                format!("Source Claims Feed Summary [{}]", short_id(&feed_row.feed_guid)),
+                vec!["No source-claims snapshot loaded.".to_string()],
+            ));
+            return;
+        };
+
+        let feed_contributor_claims = snapshot
+            .contributor_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "feed")
+            .count();
+        let feed_entity_id_claims = snapshot
+            .entity_id_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "feed")
+            .count();
+        let feed_link_claims = snapshot
+            .link_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "feed")
+            .count();
+        let feed_release_claims = snapshot
+            .release_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "feed")
+            .count();
+        let track_contributor_claims = snapshot
+            .contributor_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track")
+            .count();
+        let track_entity_id_claims = snapshot
+            .entity_id_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track")
+            .count();
+        let track_link_claims = snapshot
+            .link_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track")
+            .count();
+        let track_release_claims = snapshot
+            .release_claims
+            .iter()
+            .filter(|claim| claim.entity_type == "track")
+            .count();
+        let track_enclosures = snapshot
+            .enclosures
+            .iter()
+            .filter(|claim| claim.entity_type == "track")
+            .count();
+        let conflict_lines = feed_conflict_lines(snapshot);
+        let conflict_count = conflict_lines
+            .iter()
+            .filter(|line| *line != "no obvious feed-level claim conflicts detected")
+            .count();
+        let selected_track_summary = self.current_track().map_or_else(
+            || "No track selected.".to_string(),
+            |track| {
+                format!(
+                    "Selected track: {} [{}] with {} claim rows.",
+                    track.title,
+                    short_id(&track.track_guid),
+                    count_track_claims(snapshot, &track.track_guid)
+                )
+            },
+        );
+
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!(
+                "Source Claims Feed Summary [{}]",
+                short_id(&feed_row.feed_guid)
+            ),
+            vec![
+                format!("Feed: {}", feed_row.title),
+                format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
+                format!(
+                    "Tracks: {}  Source claims: {}  Resolved overlays: {}",
+                    snapshot.tracks.len(),
+                    feed_row.source_claim_count,
+                    feed_row.resolved_count
+                ),
+                String::new(),
+                "Feed-scoped claims:".to_string(),
+                format!(
+                    "  contributors={} ids={} links={} releases={} platforms={}",
+                    feed_contributor_claims,
+                    feed_entity_id_claims,
+                    feed_link_claims,
+                    feed_release_claims,
+                    snapshot.platform_claims.len()
+                ),
+                "Track-scoped claims:".to_string(),
+                format!(
+                    "  contributors={} ids={} links={} releases={} enclosures={}",
+                    track_contributor_claims,
+                    track_entity_id_claims,
+                    track_link_claims,
+                    track_release_claims,
+                    track_enclosures
+                ),
+                "Resolved overlays:".to_string(),
+                format!(
+                    "  external_ids={} entity_sources={}",
+                    snapshot.resolved_external_ids.len(),
+                    snapshot.resolved_entity_sources.len()
+                ),
+                "Conflicts:".to_string(),
+                format!("  detected={conflict_count}"),
+                selected_track_summary,
+            ],
+        ));
+    }
+
+    fn show_operator_overview_dialog(&mut self) {
+        let feed_count = self.feeds.len();
+        if feed_count == 0 {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Source Claims Operator Overview (0)",
+                vec!["No feeds with source claims or resolved overlays are queued.".to_string()],
+            ));
+            return;
+        }
+
+        let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
+        let total_claims: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
+        let total_resolved: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
+        let top_claim_feed = self
+            .feeds
+            .iter()
+            .max_by(|a, b| {
+                a.source_claim_count
+                    .cmp(&b.source_claim_count)
+                    .then_with(|| b.title.cmp(&a.title))
+            })
+            .expect("non-empty feeds");
+        let top_resolved_feed = self
+            .feeds
+            .iter()
+            .max_by(|a, b| {
+                a.resolved_count
+                    .cmp(&b.resolved_count)
+                    .then_with(|| b.title.cmp(&a.title))
+            })
+            .expect("non-empty feeds");
+
+        let claim_hotspots = self
+            .feeds
+            .iter()
+            .take(5)
+            .map(|feed| {
+                format!(
+                    "  {} [{}] claims={} resolved={} tracks={}",
+                    feed.title,
+                    short_id(&feed.feed_guid),
+                    feed.source_claim_count,
+                    feed.resolved_count,
+                    feed.track_count
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut lines = vec![
+            format!(
+                "Feeds queued: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
+                feed_count, total_tracks, total_claims, total_resolved
+            ),
+            String::new(),
+            format!(
+                "Top feed by source claims: {} [{}] ({} claims, {} resolved).",
+                top_claim_feed.title,
+                short_id(&top_claim_feed.feed_guid),
+                top_claim_feed.source_claim_count,
+                top_claim_feed.resolved_count
+            ),
+            format!(
+                "Top feed by resolved overlays: {} [{}] ({} resolved, {} claims).",
+                top_resolved_feed.title,
+                short_id(&top_resolved_feed.feed_guid),
+                top_resolved_feed.resolved_count,
+                top_resolved_feed.source_claim_count
+            ),
+            String::new(),
+            "Claim hotspots:".to_string(),
+        ];
+        lines.extend(claim_hotspots);
+
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!("Source Claims Operator Overview ({feed_count})"),
+            lines,
+        ));
+    }
+
+    fn show_hotspots_dialog(&mut self) {
+        let mut lines = vec![
+            "Top feeds by source-claims load".to_string(),
+            String::new(),
+        ];
+        if self.feeds.is_empty() {
+            lines.push("No source-claims hotspots queued.".to_string());
+        } else {
+            let total_claim_load: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
+            lines.extend(self.feeds.iter().take(10).map(|feed| {
+                let share = if total_claim_load > 0 {
+                    (feed.source_claim_count * 100) / total_claim_load
+                } else {
+                    0
+                };
+                format!(
+                    "{} [{}] | claims={} ({}%) resolved={} tracks={}",
+                    feed.title,
+                    short_id(&feed.feed_guid),
+                    feed.source_claim_count,
+                    share,
+                    feed.resolved_count,
+                    feed.track_count
+                )
+            }));
+        }
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!(
+                "Source Claims Hotspots ({})",
+                self.feeds.len().min(10)
+            ),
+            lines,
+        ));
+    }
+
+    fn show_review_playbook(&mut self) {
+        let feed_count = self.feeds.len();
+        let total_claim_load: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
+        let total_resolved_load: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
+        let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
+        let mut lines = vec![
+            format!(
+                "Queued feeds: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
+                feed_count, total_tracks, total_claim_load, total_resolved_load
+            ),
+        ];
+        if self.feeds.is_empty() {
+            lines.push("Backlog idle: no feeds with source claims or resolved overlays are queued.".to_string());
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Source Claims Playbook (0)",
+                lines,
+            ));
+            return;
+        }
+
+        let top_feed = &self.feeds[0];
+        let top_share = if total_claim_load > 0 {
+            (top_feed.source_claim_count * 100) / total_claim_load
+        } else {
+            0
+        };
+        lines.push(format!(
+            "1. Start with {} [{}] (claims={}, resolved={}, tracks={}).",
+            top_feed.title,
+            short_id(&top_feed.feed_guid),
+            top_feed.source_claim_count,
+            top_feed.resolved_count,
+            top_feed.track_count
+        ));
+        lines.push(format!("   {}", abbreviate(&top_feed.feed_url, 72)));
+        if top_share >= 50 {
+            lines.push(format!(
+                "2. This one feed holds {}% of current source-claims load; stay on it until the evidence story is clear.",
+                top_share
+            ));
+        } else {
+            lines.push(
+                "2. Use h to compare the top feeds before drilling into track evidence."
+                    .to_string(),
+            );
+        }
+        lines.push(
+            "3. Use s on the selected feed, then inspect track-scoped claim rows in the evidence pane."
+                .to_string(),
+        );
+        lines.push(
+            "4. Use o for backlog totals and q/r to leave or refresh after source data changes."
+                .to_string(),
+        );
+
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!("Source Claims Playbook ({feed_count})"),
+            lines,
+        ));
+    }
+
+    fn show_conflicts_dialog(&mut self) {
+        let Some(feed_row) = self.current_feed_row() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                "Feed Conflicts (0)",
+                vec!["No feed selected.".to_string()],
+            ));
+            return;
+        };
+        let Some(snapshot) = self.current_snapshot() else {
+            self.dialog = Some(stophammer::tui::text_dialog(
+                format!("Feed Conflicts [{}]", short_id(&feed_row.feed_guid)),
+                vec!["No feed snapshot loaded.".to_string()],
+            ));
+            return;
+        };
+
+        let conflicts = feed_conflict_lines(snapshot);
+        let count = conflicts
+            .iter()
+            .filter(|line| *line != "no obvious feed-level claim conflicts detected")
+            .count();
+        let mut lines = vec![
+            format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
+            format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
+            String::new(),
+        ];
+        if count == 0 {
+            lines.push("No obvious feed-level claim conflicts detected.".to_string());
+        } else {
+            lines.push(format!("Detected conflicts: {count}"));
+            lines.push(String::new());
+            lines.extend(conflicts);
+        }
+
+        self.dialog = Some(stophammer::tui::text_dialog(
+            format!("Feed Conflicts [{}]", short_id(&feed_row.feed_guid)),
+            lines,
         ));
     }
 
@@ -335,11 +679,11 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_source_claims_tui [--db PATH] [--limit N]\n\
+                     "Usage: review_source_claims_tui [--db PATH] [--limit N]\n\
                      Interactive feed-scoped source claims and canonical promotions inspector.\n\
                      Shows source claim families, track-level claim evidence, and the current\n\
                      resolved promotions/provenance overlays for each feed.\n\
-                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, ? help, r reload, q quit."
+                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, o overview, p playbook, s summary, h hotspots, c conflicts, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -962,25 +1306,70 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
     lines
 }
 
+fn header_context_line(app: &App) -> Line<'static> {
+    let mut spans = vec![Span::styled(
+        "Source Claims Review TUI",
+        Style::default()
+            .fg(Color::LightBlue)
+            .add_modifier(Modifier::BOLD),
+    )];
+
+    if let Some(feed) = app.current_feed_row() {
+        let feed_position = app.feed_state.selected().unwrap_or(0).saturating_add(1);
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled(
+            format!(
+                "feed {}/{} {} [{}] claims={} resolved={}",
+                feed_position,
+                app.feeds.len(),
+                abbreviate(&feed.title, 28),
+                short_id(&feed.feed_guid),
+                feed.source_claim_count,
+                feed.resolved_count
+            ),
+            Style::default().fg(Color::White),
+        ));
+    }
+
+    if let Some(snapshot) = app.current_snapshot()
+        && !snapshot.tracks.is_empty()
+    {
+        let track_position = app.track_state.selected().unwrap_or(0).saturating_add(1);
+        if let Some(track) = app.current_track() {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                format!(
+                    "track {}/{} {} [{}] claims={}",
+                    track_position,
+                    snapshot.tracks.len(),
+                    abbreviate(&track.title, 24),
+                    short_id(&track.track_guid),
+                    count_track_claims(snapshot, &track.track_guid)
+                ),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+    }
+
+    Line::from(spans)
+}
+
 fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = frame.area();
     let layout = Layout::vertical([
-        Constraint::Length(2),
+        Constraint::Length(3),
         Constraint::Min(10),
         Constraint::Length(2),
     ])
     .split(area);
 
-    let header = Paragraph::new(Line::from(vec![
-        Span::styled(
-            "Source Claims Review TUI",
-            Style::default()
-                .fg(Color::LightBlue)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw("  "),
-        Span::styled(app.status.clone(), Style::default().fg(Color::White)),
-    ]));
+    let header = Paragraph::new(vec![
+        header_context_line(app),
+        Line::from(Span::styled(
+            app.status.clone(),
+            Style::default().fg(Color::DarkGray),
+        )),
+    ]);
     frame.render_widget(header, layout[0]);
 
     let body = Layout::horizontal([
@@ -990,9 +1379,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     ])
     .split(layout[1]);
 
+    let feed_title = if app.feeds.is_empty() {
+        "Feeds".to_string()
+    } else {
+        let position = app.feed_state.selected().unwrap_or(0).saturating_add(1);
+        format!("Feeds ({position}/{})", app.feeds.len())
+    };
     let feed_list = List::new(build_feed_items(app))
         .block(stophammer::tui::titled_block(
-            "Feeds",
+            &feed_title,
             Color::LightBlue,
             app.focus == Focus::Feeds,
             Style::default().fg(Color::DarkGray),
@@ -1006,9 +1401,20 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .highlight_symbol(">> ");
     frame.render_stateful_widget(feed_list, body[0], &mut app.feed_state);
 
+    let track_title = app.current_snapshot().map_or_else(
+        || "Tracks".to_string(),
+        |snapshot| {
+            if snapshot.tracks.is_empty() {
+                "Tracks (0)".to_string()
+            } else {
+                let position = app.track_state.selected().unwrap_or(0).saturating_add(1);
+                format!("Tracks ({position}/{})", snapshot.tracks.len())
+            }
+        },
+    );
     let track_list = List::new(build_track_items(app))
         .block(stophammer::tui::titled_block(
-            "Tracks",
+            &track_title,
             Color::Yellow,
             app.focus == Focus::Tracks,
             Style::default().fg(Color::DarkGray),
@@ -1024,7 +1430,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     let evidence_title = app.current_feed_row().map_or_else(
         || "Evidence".to_string(),
-        |feed| format!("Evidence {}", feed.title),
+        |feed| {
+            format!(
+                "Evidence {} (claims={} resolved={})",
+                feed.title, feed.source_claim_count, feed.resolved_count
+            )
+        },
     );
     let evidence = Paragraph::new(build_evidence_lines(app))
         .block(stophammer::tui::titled_block(
@@ -1041,6 +1452,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         "TAB/LEFT/RIGHT: focus",
         "UP/DOWN: move",
         "HOME/END: jump",
+        "O: overview",
+        "P: playbook",
+        "S: summary",
+        "H: hotspots",
+        "C: conflicts",
         "?: help",
         "R: reload",
         "Q: quit",
@@ -1083,6 +1499,11 @@ fn run_app(
             KeyCode::Up => app.move_up()?,
             KeyCode::Home => app.jump_top()?,
             KeyCode::End => app.jump_bottom()?,
+            KeyCode::Char('o') => app.show_operator_overview_dialog(),
+            KeyCode::Char('p') => app.show_review_playbook(),
+            KeyCode::Char('s') => app.show_summary_dialog(),
+            KeyCode::Char('h') => app.show_hotspots_dialog(),
+            KeyCode::Char('c') => app.show_conflicts_dialog(),
             KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let feed_guid = app.current_feed_row().map(|row| row.feed_guid.clone());
