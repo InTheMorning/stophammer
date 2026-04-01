@@ -1712,9 +1712,9 @@ Returns the current pending artist-identity review queue.
       "review_id": 123,
       "feed_guid": "feed-guid",
       "title": "Everything Is Lit",
-      "source": "track_feed_name_variant",
-      "confidence": "review_required",
-      "explanation": "Feed and track artist credits collapse to the same normalized name on one feed but remain separate artist rows.",
+      "source": "likely_same_artist",
+      "confidence": "high_confidence",
+      "explanation": "Multiple same-feed evidence families agree that these artist rows likely describe the same artist, but review is still required.",
       "name_key": "heycitizen",
       "evidence_key": "feed-guid",
       "artist_count": 2
@@ -1727,6 +1727,15 @@ Each pending artist review also includes:
 
 - `confidence`
 - `explanation`
+
+Current artist review sources include deterministic families such as:
+
+- `track_feed_name_variant`
+- `wallet_name_variant`
+- `contributor_name_variant`
+- `collaboration_credit`
+- `publisher_name_variant`
+- `likely_same_artist`
 
 ### GET /admin/artist-identity/reviews/pending/stale
 

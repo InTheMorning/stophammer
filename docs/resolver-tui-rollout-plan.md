@@ -450,6 +450,15 @@ Guardrails:
 - no silent high-impact merges from the probabilistic layer initially
 - every scored claim must remain inspectable in diagnostics and TUI
 
+Status:
+
+- first review-first scored source is now live as `likely_same_artist`
+- current implementation is intentionally narrow:
+  - same feed only
+  - requires at least two agreeing evidence families among feed/track credit
+    variants, contributor variants, and wallet-name variants
+  - still writes a normal pending artist review item, never an automatic merge
+
 Success criteria:
 
 - the system raises better review candidates than today
