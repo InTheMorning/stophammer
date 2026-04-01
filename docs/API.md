@@ -1881,7 +1881,8 @@ Returns pending wallet-identity review items newer than `max_age_days`.
 ### GET /admin/artist-identity/reviews/pending/summary
 
 Returns counts of pending artist-identity review items grouped by `source`,
-plus a rollup grouped by derived review `confidence`.
+plus rollups grouped by derived review `confidence`, score band, and conflict
+reason.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -1902,6 +1903,9 @@ plus a rollup grouped by derived review `confidence`.
     { "score_band": "80_100", "count": 1 },
     { "score_band": "1_59", "count": 6 },
     { "score_band": "unscored", "count": 3 }
+  ],
+  "conflict_summary": [
+    { "reason": "conflicting_external_id", "count": 3 }
   ]
 }
 ```
@@ -1909,7 +1913,8 @@ plus a rollup grouped by derived review `confidence`.
 ### GET /admin/wallet-identity/reviews/pending/summary
 
 Returns counts of pending wallet-identity review items grouped by `source`,
-plus a rollup grouped by derived review `confidence`.
+plus rollups grouped by derived review `confidence`, score band, and conflict
+reason.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -1926,6 +1931,9 @@ plus a rollup grouped by derived review `confidence`.
   ],
   "score_summary": [
     { "score_band": "unscored", "count": 12 }
+  ],
+  "conflict_summary": [
+    { "reason": "conflicting_artist_link", "count": 2 }
   ]
 }
 ```
@@ -1990,6 +1998,12 @@ Returns the main operator dashboard payload for pending review work.
   ],
   "wallet_identity_score_summary": [
     { "score_band": "unscored", "count": 12 }
+  ],
+  "artist_identity_conflict_summary": [
+    { "reason": "conflicting_external_id", "count": 3 }
+  ],
+  "wallet_identity_conflict_summary": [
+    { "reason": "conflicting_artist_link", "count": 2 }
   ],
   "age_summary": {
     "artist_identity": {

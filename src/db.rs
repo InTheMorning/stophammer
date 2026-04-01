@@ -4421,6 +4421,12 @@ pub struct PendingReviewScoreSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingReviewConflictSummary {
+    pub reason: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PendingReviewAgeSummary {
     pub total: usize,
     pub created_last_24h: usize,
@@ -7241,6 +7247,36 @@ pub fn summarize_pending_artist_identity_review_scores(
             .cmp(&review_score_band_priority(&right.score_band))
             .then_with(|| right.count.cmp(&left.count))
             .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+    Ok(summary)
+}
+
+/// Returns pending artist-identity review counts grouped by derived conflict
+/// reason.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn summarize_pending_artist_identity_review_conflicts(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewConflictSummary>, DbError> {
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("pending review limit exceeds usize: {err}")))?;
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for review in list_pending_artist_identity_reviews(conn, max_limit)? {
+        for reason in review.conflict_reasons {
+            *counts.entry(reason).or_default() += 1;
+        }
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(reason, count)| PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
     });
     Ok(summary)
 }
@@ -14034,6 +14070,35 @@ pub fn summarize_pending_wallet_review_scores(
             .cmp(&review_score_band_priority(&right.score_band))
             .then_with(|| right.count.cmp(&left.count))
             .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+    Ok(summary)
+}
+
+/// Returns pending wallet review counts grouped by derived conflict reason.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn summarize_pending_wallet_review_conflicts(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewConflictSummary>, DbError> {
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("pending review limit exceeds usize: {err}")))?;
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for review in list_pending_wallet_reviews(conn, max_limit)? {
+        for reason in review.conflict_reasons {
+            *counts.entry(reason).or_default() += 1;
+        }
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(reason, count)| PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
     });
     Ok(summary)
 }

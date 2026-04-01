@@ -1127,6 +1127,10 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(artist_score_bands.contains("unscored"));
     assert_eq!(artist_json["confidence_summary"][1]["confidence"], "blocked");
+    assert!(
+        artist_json["conflict_summary"].is_array(),
+        "summary should expose artist conflict rollups"
+    );
 
     let wallet_resp = app
         .oneshot(
@@ -1152,6 +1156,13 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         .filter_map(|row| row["score_band"].as_str())
         .collect::<std::collections::BTreeSet<_>>();
     assert!(wallet_score_bands.contains("1_59"));
+    assert!(
+        wallet_json["conflict_summary"]
+            .as_array()
+            .expect("wallet conflict summary array")
+            .is_empty(),
+        "summary should expose an empty wallet conflict rollup when no conflicts exist"
+    );
 }
 
 #[tokio::test]
@@ -1346,6 +1357,10 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(artist_score_bands.contains("unscored"));
     assert!(
+        json["artist_identity_conflict_summary"].is_array(),
+        "dashboard should expose artist conflict summaries"
+    );
+    assert!(
         !json["wallet_identity_confidence_summary"]
             .as_array()
             .expect("wallet confidence summary")
@@ -1359,6 +1374,10 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
         .filter_map(|row| row["score_band"].as_str())
         .collect::<std::collections::BTreeSet<_>>();
     assert!(wallet_score_bands.contains("unscored"));
+    assert!(
+        json["wallet_identity_conflict_summary"].is_array(),
+        "dashboard should expose wallet conflict summaries"
+    );
     assert_eq!(json["age_summary"]["artist_identity"]["total"], 1);
     assert_eq!(json["feed_hotspots"][0]["feed_guid"], "feed-dashboard");
 }

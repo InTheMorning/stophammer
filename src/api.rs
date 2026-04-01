@@ -3235,6 +3235,7 @@ struct PendingArtistIdentityReviewSummaryResponse {
     summary: Vec<db::ArtistIdentityPendingReviewSummary>,
     confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
     score_summary: Vec<db::PendingReviewScoreSummary>,
+    conflict_summary: Vec<db::PendingReviewConflictSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3242,6 +3243,7 @@ struct PendingWalletIdentityReviewSummaryResponse {
     summary: Vec<db::WalletPendingReviewSummary>,
     confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
     score_summary: Vec<db::PendingReviewScoreSummary>,
+    conflict_summary: Vec<db::PendingReviewConflictSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3269,6 +3271,8 @@ struct PendingReviewDashboardResponse {
     wallet_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
     artist_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
     wallet_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
+    artist_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
+    wallet_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
     age_summary: PendingReviewAgeSummaryResponse,
     feed_hotspots: Vec<db::PendingReviewFeedHotspot>,
 }
@@ -3949,6 +3953,7 @@ async fn handle_admin_pending_artist_identity_review_summary(
                 db::summarize_pending_artist_identity_reviews(conn)?,
                 db::summarize_pending_artist_identity_review_confidence(conn)?,
                 db::summarize_pending_artist_identity_review_scores(conn)?,
+                db::summarize_pending_artist_identity_review_conflicts(conn)?,
             ))
         },
     )
@@ -3958,6 +3963,7 @@ async fn handle_admin_pending_artist_identity_review_summary(
         summary: summary.0,
         confidence_summary: summary.1,
         score_summary: summary.2,
+        conflict_summary: summary.3,
     }))
 }
 
@@ -3972,6 +3978,7 @@ async fn handle_admin_pending_wallet_identity_review_summary(
             db::summarize_pending_wallet_reviews(conn)?,
             db::summarize_pending_wallet_review_confidence(conn)?,
             db::summarize_pending_wallet_review_scores(conn)?,
+            db::summarize_pending_wallet_review_conflicts(conn)?,
         ))
     })
     .await?;
@@ -3980,6 +3987,7 @@ async fn handle_admin_pending_wallet_identity_review_summary(
         summary: summary.0,
         confidence_summary: summary.1,
         score_summary: summary.2,
+        conflict_summary: summary.3,
     }))
 }
 
@@ -4017,6 +4025,8 @@ async fn handle_admin_pending_review_dashboard(
         wallet_identity_confidence_summary,
         artist_identity_score_summary,
         wallet_identity_score_summary,
+        artist_identity_conflict_summary,
+        wallet_identity_conflict_summary,
         artist_identity,
         wallet_identity,
         feed_hotspots,
@@ -4028,6 +4038,8 @@ async fn handle_admin_pending_review_dashboard(
             db::summarize_pending_wallet_review_confidence(conn)?,
             db::summarize_pending_artist_identity_review_scores(conn)?,
             db::summarize_pending_wallet_review_scores(conn)?,
+            db::summarize_pending_artist_identity_review_conflicts(conn)?,
+            db::summarize_pending_wallet_review_conflicts(conn)?,
             db::summarize_pending_artist_identity_review_age(conn)?,
             db::summarize_pending_wallet_review_age(conn)?,
             db::list_pending_review_feed_hotspots(conn, query.hotspot_limit)?,
@@ -4042,6 +4054,8 @@ async fn handle_admin_pending_review_dashboard(
         wallet_identity_confidence_summary,
         artist_identity_score_summary,
         wallet_identity_score_summary,
+        artist_identity_conflict_summary,
+        wallet_identity_conflict_summary,
         age_summary: PendingReviewAgeSummaryResponse {
             artist_identity,
             wallet_identity,
