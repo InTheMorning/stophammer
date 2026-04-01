@@ -599,13 +599,13 @@ impl App {
                 .iter()
                 .map(|feed| feed.total_review_count)
                 .sum();
-            lines.extend(hotspots.into_iter().map(|feed| {
+            for feed in hotspots {
                 let share = if total_hotspot_load > 0 {
                     (feed.total_review_count * 100) / total_hotspot_load
                 } else {
                     0
                 };
-                format!(
+                lines.push(format!(
                     "  {} [{}] | total={} ({}%) artist={} wallet={}",
                     feed.title,
                     short_id(&feed.feed_guid),
@@ -613,8 +613,9 @@ impl App {
                     share,
                     feed.artist_review_count,
                     feed.wallet_review_count
-                )
-            }));
+                ));
+                lines.push(format!("    {}", abbreviate(&feed.feed_url, 72)));
+            }
         }
         self.dialog = Some(SummaryDialog {
             title: "Operator Overview".to_string(),
