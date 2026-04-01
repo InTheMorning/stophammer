@@ -1362,6 +1362,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handle_admin_pending_review_age_summary),
         )
         .route(
+            "/admin/reviews/feeds/hotspots",
+            get(handle_admin_pending_review_feed_hotspots),
+        )
+        .route(
             "/admin/wallet-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_wallet_identity_review),
         )
@@ -3200,6 +3204,11 @@ struct PendingReviewAgeSummaryResponse {
     wallet_identity: db::PendingReviewAgeSummary,
 }
 
+#[derive(Debug, Serialize)]
+struct PendingReviewFeedHotspotsResponse {
+    feeds: Vec<db::PendingReviewFeedHotspot>,
+}
+
 const fn default_pending_review_limit() -> usize {
     100
 }
@@ -3821,6 +3830,21 @@ async fn handle_admin_pending_review_age_summary(
         artist_identity,
         wallet_identity,
     }))
+}
+
+async fn handle_admin_pending_review_feed_hotspots(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingReviewQuery>,
+) -> Result<Json<PendingReviewFeedHotspotsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let feeds = spawn_db(state.db.clone(), move |conn| {
+        db::list_pending_review_feed_hotspots(conn, query.limit)
+    })
+    .await?;
+
+    Ok(Json(PendingReviewFeedHotspotsResponse { feeds }))
 }
 
 async fn handle_admin_resolve_wallet_identity_review(

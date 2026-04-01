@@ -4391,6 +4391,16 @@ pub struct PendingReviewAgeSummary {
     pub oldest_created_at: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingReviewFeedHotspot {
+    pub feed_guid: String,
+    pub title: String,
+    pub feed_url: String,
+    pub artist_review_count: usize,
+    pub wallet_review_count: usize,
+    pub total_review_count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArtistIdentityEvidenceGroup {
     source: String,
@@ -6233,6 +6243,82 @@ pub fn summarize_pending_artist_identity_review_age(
             })
         },
     )
+    .map_err(Into::into)
+}
+
+/// Returns feeds ordered by combined pending artist and wallet review load.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the hotspot rows cannot be loaded.
+pub fn list_pending_review_feed_hotspots(
+    conn: &Connection,
+    limit: usize,
+) -> Result<Vec<PendingReviewFeedHotspot>, DbError> {
+    let limit = i64::try_from(limit)
+        .map_err(|err| DbError::Other(format!("review hotspot limit exceeds i64: {err}")))?;
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, title, feed_url, artist_review_count, wallet_review_count
+         FROM (
+             SELECT
+                 f.feed_guid AS feed_guid,
+                 f.title AS title,
+                 f.feed_url AS feed_url,
+                 (
+                     SELECT COUNT(*)
+                     FROM artist_identity_review air
+                     WHERE air.feed_guid = f.feed_guid
+                       AND air.status = 'pending'
+                 ) AS artist_review_count,
+                 (
+                     SELECT COUNT(DISTINCT wir.id)
+                     FROM wallet_identity_review wir
+                     WHERE wir.status = 'pending'
+                       AND EXISTS (
+                           SELECT 1
+                           FROM wallet_endpoints we
+                           LEFT JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+                           LEFT JOIN payment_routes pr ON pr.id = wtrm.route_id
+                           LEFT JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+                           LEFT JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+                           WHERE we.wallet_id = wir.wallet_id
+                             AND (pr.feed_guid = f.feed_guid OR fpr.feed_guid = f.feed_guid)
+                       )
+                 ) AS wallet_review_count,
+                 f.title_lower AS title_lower
+             FROM feeds f
+         )
+         WHERE artist_review_count > 0 OR wallet_review_count > 0
+         ORDER BY (artist_review_count + wallet_review_count) DESC, title_lower, feed_guid
+         LIMIT ?1",
+    )?;
+    stmt.query_map(params![limit], |row| {
+        let artist_review_count_i64: i64 = row.get(3)?;
+        let wallet_review_count_i64: i64 = row.get(4)?;
+        let artist_review_count = usize::try_from(artist_review_count_i64).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                3,
+                rusqlite::types::Type::Integer,
+                Box::new(err),
+            )
+        })?;
+        let wallet_review_count = usize::try_from(wallet_review_count_i64).map_err(|err| {
+            rusqlite::Error::FromSqlConversionFailure(
+                4,
+                rusqlite::types::Type::Integer,
+                Box::new(err),
+            )
+        })?;
+        Ok(PendingReviewFeedHotspot {
+            feed_guid: row.get(0)?,
+            title: row.get(1)?,
+            feed_url: row.get(2)?,
+            artist_review_count,
+            wallet_review_count,
+            total_review_count: artist_review_count + wallet_review_count,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
     .map_err(Into::into)
 }
 

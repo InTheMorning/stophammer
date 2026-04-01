@@ -899,6 +899,179 @@ async fn admin_pending_review_age_summary_reports_recent_and_stale_counts() {
 }
 
 #[tokio::test]
+async fn admin_pending_review_feed_hotspots_orders_by_total_load() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let mut conn = db.lock().expect("lock db");
+
+        let primary_artist =
+            stophammer::db::resolve_artist(&conn, "Hot Artist", Some("feed-hotspot-a"))
+                .expect("primary artist");
+        let credit_a = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &primary_artist.name,
+            &[(
+                primary_artist.artist_id.clone(),
+                primary_artist.name.clone(),
+                String::new(),
+            )],
+            Some("feed-hotspot-a"),
+        )
+        .expect("credit a");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-hotspot-a', 'https://example.com/feed-hotspot-a.xml', 'Feed Hotspot A', 'feed hotspot a', ?1, ?2, ?2)",
+            params![credit_a.id, now],
+        )
+        .expect("insert feed a");
+
+        let variant_artist =
+            stophammer::db::resolve_artist(&conn, "Hot Artist and Friend", Some("feed-hotspot-a"))
+                .expect("variant artist");
+        let variant_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &variant_artist.name,
+            &[(
+                variant_artist.artist_id.clone(),
+                variant_artist.name.clone(),
+                String::new(),
+            )],
+            Some("feed-hotspot-a"),
+        )
+        .expect("variant credit");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-hotspot-a', 'feed-hotspot-a', ?1, 'Hotspot Track', 'hotspot track', 0, ?2, ?2)",
+            params![variant_credit.id, now],
+        )
+        .expect("insert hotspot track");
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-hotspot-a")
+            .expect("resolve feed hotspot a");
+
+        let ep_a = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-hotspot-a1",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a1");
+        let ep_b = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-hotspot-a2",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a2");
+        let _wallet_a =
+            stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
+        let _wallet_b =
+            stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
+        conn.execute(
+            "INSERT INTO feed_payment_routes (feed_guid, recipient_name, split, fee, route_type, address, custom_key, custom_value) \
+             VALUES ('feed-hotspot-a', 'Shared Wallet Alias', 100, 0, 'keysend', 'wallet-hotspot-a1', '', '')",
+            [],
+        )
+        .expect("insert feed route a1");
+        let route_id_a1 = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO wallet_feed_route_map (route_id, endpoint_id, created_at) \
+             VALUES (?1, ?2, ?3)",
+            params![route_id_a1, ep_a, now],
+        )
+        .expect("map wallet a1");
+        conn.execute(
+            "INSERT INTO feed_payment_routes (feed_guid, recipient_name, split, fee, route_type, address, custom_key, custom_value) \
+             VALUES ('feed-hotspot-a', 'Shared Wallet Alias', 100, 0, 'keysend', 'wallet-hotspot-a2', '', '')",
+            [],
+        )
+        .expect("insert feed route a2");
+        let route_id_a2 = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO wallet_feed_route_map (route_id, endpoint_id, created_at) \
+             VALUES (?1, ?2, ?3)",
+            params![route_id_a2, ep_b, now],
+        )
+        .expect("map wallet a2");
+        stophammer::db::generate_wallet_review_items(&conn).expect("wallet review items");
+
+        let artist_b = stophammer::db::resolve_artist(&conn, "Cool Artist", Some("feed-hotspot-b"))
+            .expect("artist b");
+        let credit_b = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist_b.name,
+            &[(
+                artist_b.artist_id.clone(),
+                artist_b.name.clone(),
+                String::new(),
+            )],
+            Some("feed-hotspot-b"),
+        )
+        .expect("credit b");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-hotspot-b', 'https://example.com/feed-hotspot-b.xml', 'Feed Hotspot B', 'feed hotspot b', ?1, ?2, ?2)",
+            params![credit_b.id, now],
+        )
+        .expect("insert feed b");
+        let collab_b =
+            stophammer::db::resolve_artist(&conn, "Cool Artist and Friend", Some("feed-hotspot-b"))
+                .expect("collab b");
+        let collab_credit_b = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &collab_b.name,
+            &[(
+                collab_b.artist_id.clone(),
+                collab_b.name.clone(),
+                String::new(),
+            )],
+            Some("feed-hotspot-b"),
+        )
+        .expect("collab credit b");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-hotspot-b', 'feed-hotspot-b', ?1, 'Collab Track', 'collab track', 0, ?2, ?2)",
+            params![collab_credit_b.id, now],
+        )
+        .expect("insert collab track b");
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-hotspot-b")
+            .expect("resolve feed hotspot b");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-pending-review-feed-hotspots.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/reviews/feeds/hotspots?limit=10")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("hotspots request"),
+        )
+        .await
+        .expect("hotspots response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["feeds"][0]["feed_guid"], "feed-hotspot-a");
+    assert_eq!(json["feeds"][0]["artist_review_count"], 1);
+    assert_eq!(json["feeds"][0]["wallet_review_count"], 2);
+    assert_eq!(json["feeds"][0]["total_review_count"], 3);
+    assert_eq!(json["feeds"][1]["feed_guid"], "feed-hotspot-b");
+    assert_eq!(json["feeds"][1]["artist_review_count"], 1);
+    assert_eq!(json["feeds"][1]["wallet_review_count"], 0);
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();

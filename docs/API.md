@@ -1817,6 +1817,33 @@ Returns age buckets for pending artist and wallet review queues.
 
 ---
 
+### GET /admin/reviews/feeds/hotspots
+
+Returns feeds ordered by combined pending artist and wallet review load.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `limit` (default `100`)
+
+**Response (`200 OK`):**
+
+```json
+{
+  "feeds": [
+    {
+      "feed_guid": "feed-guid",
+      "title": "Everything Is Lit",
+      "feed_url": "https://example.com/feed.xml",
+      "artist_review_count": 2,
+      "wallet_review_count": 1,
+      "total_review_count": 3
+    }
+  ]
+}
+```
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.
