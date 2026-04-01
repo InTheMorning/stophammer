@@ -1837,16 +1837,17 @@ fn likely_same_artist_includes_shared_external_id_support() {
     let stats =
         stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-shared-extid-review")
             .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
 
-    let likely_review = stophammer::db::list_artist_identity_reviews_for_feed(
-        &conn,
-        "feed-shared-extid-review",
-    )
-    .expect("list reviews")
-    .into_iter()
-    .find(|review| review.source == "likely_same_artist")
-    .expect("likely_same_artist review");
+    let likely_review =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-shared-extid-review")
+            .expect("list reviews")
+            .into_iter()
+            .find(|review| review.source == "likely_same_artist")
+            .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
     assert_eq!(likely_review.score, Some(100));
     let supporting = likely_review
@@ -1863,16 +1864,110 @@ fn likely_same_artist_includes_shared_external_id_support() {
 }
 
 #[test]
+fn likely_same_artist_can_pair_track_variant_with_shared_external_id() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-track-plus-extid-review"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-plus-extid-review"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-track-plus-extid-review', 'https://example.com/track-plus-extid.xml', 'Track Plus External Id Review', 'track plus external id review', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-track-plus-extid-review"))
+            .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-track-plus-extid-review"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-track-plus-extid-review', 'feed-track-plus-extid-review', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+
+    for artist_id in [&canonical.artist_id, &variant.artist_id] {
+        conn.execute(
+            "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at) \
+             VALUES ('artist', ?1, 'musicbrainz_artist', 'mbid-track-plus-extid-review', ?2)",
+            rusqlite::params![artist_id, now],
+        )
+        .expect("insert shared artist external id");
+    }
+
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-track-plus-extid-review")
+            .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
+
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "feed-track-plus-extid-review",
+    )
+    .expect("list reviews");
+    let review_sources = reviews
+        .iter()
+        .map(|review| review.source.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(review_sources.contains("track_feed_name_variant"));
+    assert!(
+        review_sources.contains("likely_same_artist"),
+        "track/feed name variance plus shared external id should be enough to raise a scored review"
+    );
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_same_artist")
+        .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(70));
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting.contains("track_feed_name_variant"));
+    assert!(supporting.contains("shared_external_id"));
+    assert!(
+        !supporting.contains("wallet_name_variant"),
+        "this case should not require wallet alias evidence"
+    );
+}
+
+#[test]
 fn likely_same_artist_skips_conflicting_external_ids() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let canonical = stophammer::db::resolve_artist(
-        &conn,
-        "HeyCitizen",
-        Some("feed-conflicting-extid-review"),
-    )
-    .expect("canonical artist");
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-conflicting-extid-review"))
+            .expect("canonical artist");
     let canonical_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &canonical.name,
@@ -1891,12 +1986,9 @@ fn likely_same_artist_skips_conflicting_external_ids() {
     )
     .expect("insert feed");
 
-    let variant = stophammer::db::resolve_artist(
-        &conn,
-        "Hey Citizen",
-        Some("feed-conflicting-extid-review"),
-    )
-    .expect("variant artist");
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-conflicting-extid-review"))
+            .expect("variant artist");
     let variant_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
@@ -1945,7 +2037,10 @@ fn likely_same_artist_skips_conflicting_external_ids() {
         "feed-conflicting-extid-review",
     )
     .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "conflicting ext ids should not auto-merge");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "conflicting ext ids should not auto-merge"
+    );
 
     let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
         &conn,
@@ -2041,7 +2136,11 @@ fn likely_same_artist_includes_normalized_website_support() {
     let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
-        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
         Some("feed-shared-website-variant"),
     )
     .expect("variant feed credit");
@@ -2068,16 +2167,17 @@ fn likely_same_artist_includes_normalized_website_support() {
     let stats =
         stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-shared-website-review")
             .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
 
-    let likely_review = stophammer::db::list_artist_identity_reviews_for_feed(
-        &conn,
-        "feed-shared-website-review",
-    )
-    .expect("list reviews")
-    .into_iter()
-    .find(|review| review.source == "likely_same_artist")
-    .expect("likely_same_artist review");
+    let likely_review =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-shared-website-review")
+            .expect("list reviews")
+            .into_iter()
+            .find(|review| review.source == "likely_same_artist")
+            .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
     assert_eq!(likely_review.score, Some(95));
     let supporting = likely_review
@@ -2167,7 +2267,11 @@ fn likely_same_artist_includes_shared_npub_support() {
     let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
-        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
         Some("feed-shared-npub-variant"),
     )
     .expect("variant feed credit");
@@ -2204,16 +2308,17 @@ fn likely_same_artist_includes_shared_npub_support() {
     let stats =
         stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-shared-npub-review")
             .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
 
-    let likely_review = stophammer::db::list_artist_identity_reviews_for_feed(
-        &conn,
-        "feed-shared-npub-review",
-    )
-    .expect("list reviews")
-    .into_iter()
-    .find(|review| review.source == "likely_same_artist")
-    .expect("likely_same_artist review");
+    let likely_review =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-shared-npub-review")
+            .expect("list reviews")
+            .into_iter()
+            .find(|review| review.source == "likely_same_artist")
+            .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
     assert_eq!(likely_review.score, Some(100));
     let supporting = likely_review
@@ -3180,12 +3285,9 @@ fn likely_same_artist_can_combine_publisher_family_with_track_variant() {
         .expect("child→publisher");
     }
 
-    let track_variant_artist = stophammer::db::resolve_artist(
-        &conn,
-        "Hey Citizen",
-        Some("child-feed-likely-publisher-a"),
-    )
-    .expect("track variant artist");
+    let track_variant_artist =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("child-feed-likely-publisher-a"))
+            .expect("track variant artist");
     let track_variant_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &track_variant_artist.name,
@@ -3214,7 +3316,10 @@ fn likely_same_artist_can_combine_publisher_family_with_track_variant() {
         "child-feed-likely-publisher-a",
     )
     .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
     assert!(
         stats.pending_reviews >= 2,
         "publisher-family plus track variant evidence should surface multiple review items"

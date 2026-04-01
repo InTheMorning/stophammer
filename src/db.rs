@@ -5253,7 +5253,12 @@ fn collect_artist_groups_by_likely_same_artist_for_feed(
 
     let mut likely_groups = Vec::new();
     for (name_key, (artist_ids, sources)) in grouped {
-        if artist_ids.len() <= 1 || sources.len() < 2 {
+        let has_strong_shared_signal = artists_share_normalized_website(conn, &artist_ids)?
+            || artists_share_external_id(conn, &artist_ids)?
+            || artists_share_npub_claim(conn, &artist_ids)?;
+        let has_enough_support =
+            sources.len() >= 2 || (!sources.is_empty() && has_strong_shared_signal);
+        if artist_ids.len() <= 1 || !has_enough_support {
             continue;
         }
         likely_groups.push(ArtistIdentityEvidenceGroup {
@@ -5743,7 +5748,8 @@ fn wallet_review_conflict_reasons(
     wallet_ids: &[String],
 ) -> Result<Vec<String>, DbError> {
     let mut conflict_reasons = Vec::new();
-    if source == "likely_wallet_owner_match" && wallets_have_conflicting_artist_links(conn, wallet_ids)?
+    if source == "likely_wallet_owner_match"
+        && wallets_have_conflicting_artist_links(conn, wallet_ids)?
     {
         conflict_reasons.push("conflicting_artist_link".to_string());
     }
@@ -6716,11 +6722,9 @@ pub fn explain_artist_identity_for_feed(
             .flatten();
             let derived_confidence =
                 artist_review_confidence(&group.source, &conflict_reasons).to_string();
-            let derived_explanation = artist_identity_review_explanation_with_conflicts(
-                &group.source,
-                &conflict_reasons,
-            )
-            .to_string();
+            let derived_explanation =
+                artist_identity_review_explanation_with_conflicts(&group.source, &conflict_reasons)
+                    .to_string();
             ArtistIdentityCandidateGroup {
                 source: group.source,
                 name_key: group.name_key,
@@ -6873,8 +6877,9 @@ pub fn get_artist_identity_review(
     conn: &Connection,
     review_id: i64,
 ) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
-    let review = conn.query_row(
-        "SELECT
+    let review = conn
+        .query_row(
+            "SELECT
              r.review_id,
              r.feed_guid,
              r.source,
@@ -6894,11 +6899,11 @@ pub fn get_artist_identity_review(
           AND o.name_key = r.name_key
           AND o.evidence_key = r.evidence_key
         WHERE r.review_id = ?1",
-        params![review_id],
-        artist_identity_review_row,
-    )
-    .optional()
-    .map_err(DbError::from)?;
+            params![review_id],
+            artist_identity_review_row,
+        )
+        .optional()
+        .map_err(DbError::from)?;
     review
         .map(|mut review| {
             review.supporting_sources = artist_review_supporting_sources(
@@ -6939,8 +6944,9 @@ pub fn get_artist_identity_review_for_subject(
     name_key: &str,
     evidence_key: &str,
 ) -> Result<Option<ArtistIdentityReviewItem>, DbError> {
-    let review = conn.query_row(
-        "SELECT
+    let review = conn
+        .query_row(
+            "SELECT
              r.review_id,
              r.feed_guid,
              r.source,
@@ -6963,11 +6969,11 @@ pub fn get_artist_identity_review_for_subject(
            AND r.source = ?2
            AND r.name_key = ?3
            AND r.evidence_key = ?4",
-        params![feed_guid, source, name_key, evidence_key],
-        artist_identity_review_row,
-    )
-    .optional()
-    .map_err(DbError::from)?;
+            params![feed_guid, source, name_key, evidence_key],
+            artist_identity_review_row,
+        )
+        .optional()
+        .map_err(DbError::from)?;
     review
         .map(|mut review| {
             review.supporting_sources = artist_review_supporting_sources(
@@ -7070,7 +7076,9 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
     reviews.sort_by(|left, right| {
         review_confidence_priority(&left.confidence)
             .cmp(&review_confidence_priority(&right.confidence))
-            .then_with(|| review_score_priority(left.score).cmp(&review_score_priority(right.score)))
+            .then_with(|| {
+                review_score_priority(left.score).cmp(&review_score_priority(right.score))
+            })
             .then_with(|| right.created_at.cmp(&left.created_at))
             .then_with(|| right.review_id.cmp(&left.review_id))
     });
@@ -13834,7 +13842,9 @@ fn list_pending_wallet_reviews_with_max_created_at(
     summaries.sort_by(|left, right| {
         review_confidence_priority(&left.confidence)
             .cmp(&review_confidence_priority(&right.confidence))
-            .then_with(|| review_score_priority(left.score).cmp(&review_score_priority(right.score)))
+            .then_with(|| {
+                review_score_priority(left.score).cmp(&review_score_priority(right.score))
+            })
             .then_with(|| right.created_at.cmp(&left.created_at))
             .then_with(|| right.id.cmp(&left.id))
     });
@@ -13862,21 +13872,22 @@ pub fn get_wallet_review_summary(
             let source: String = row.get(5)?;
             let wallet_ids_json: String = row.get(7)?;
             let endpoint_summary_json: String = row.get(8)?;
-            let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json).map_err(|err| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    7,
-                    rusqlite::types::Type::Text,
-                    Box::new(err),
-                )
-            })?;
-            let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)
-                .map_err(|err| {
+            let wallet_ids: Vec<String> =
+                serde_json::from_str(&wallet_ids_json).map_err(|err| {
                     rusqlite::Error::FromSqlConversionFailure(
                         7,
                         rusqlite::types::Type::Text,
-                        Box::new(std::io::Error::other(err.to_string())),
+                        Box::new(err),
                     )
                 })?;
+            let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)
+                .map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    7,
+                    rusqlite::types::Type::Text,
+                    Box::new(std::io::Error::other(err.to_string())),
+                )
+            })?;
             let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)
                 .map_err(|err| {
                     rusqlite::Error::FromSqlConversionFailure(
