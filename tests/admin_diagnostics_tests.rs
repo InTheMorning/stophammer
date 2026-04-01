@@ -803,6 +803,102 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
 }
 
 #[tokio::test]
+async fn admin_pending_review_age_summary_reports_recent_and_stale_counts() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let conn = db.lock().expect("lock db");
+
+        let artist = stophammer::db::resolve_artist(&conn, "Age Artist", Some("feed-age-a"))
+            .expect("age artist");
+        let credit_a = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-age-a"),
+        )
+        .expect("credit a");
+        let credit_b = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-age-b"),
+        )
+        .expect("credit b");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-age-a', 'https://example.com/feed-age-a.xml', 'Feed Age A', 'feed age a', ?1, ?2, ?2)",
+            params![credit_a.id, now],
+        )
+        .expect("insert feed age a");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-age-b', 'https://example.com/feed-age-b.xml', 'Feed Age B', 'feed age b', ?1, ?2, ?2)",
+            params![credit_b.id, now],
+        )
+        .expect("insert feed age b");
+
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-age-a', 'track_feed_name_variant', 'heycitizen', 'feed-age-a', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 2 * 60 * 60],
+        )
+        .expect("insert fresh artist review");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-age-b', 'collaboration_credit', 'heycitizen', 'artist-collab', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 8 * 24 * 60 * 60],
+        )
+        .expect("insert stale artist review");
+
+        let ep = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-age",
+            "",
+            "",
+            Some("Age Wallet"),
+            now,
+        )
+        .expect("endpoint");
+        let wallet_id = stophammer::db::create_provisional_wallet(&conn, ep, now).expect("wallet");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'age wallet', json_array(?1), '[]', 'pending', ?2, ?2)",
+            params![wallet_id, now - 10 * 24 * 60 * 60],
+        )
+        .expect("insert wallet review");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-pending-review-age-summary.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/reviews/pending/age-summary")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("age summary request"),
+        )
+        .await
+        .expect("age summary response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(json["artist_identity"]["total"], 2);
+    assert_eq!(json["artist_identity"]["created_last_24h"], 1);
+    assert_eq!(json["artist_identity"]["older_than_7d"], 1);
+    assert_eq!(json["wallet_identity"]["total"], 1);
+    assert_eq!(json["wallet_identity"]["older_than_7d"], 1);
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();

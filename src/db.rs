@@ -4383,6 +4383,14 @@ pub struct ArtistIdentityPendingReviewSummary {
     pub count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingReviewAgeSummary {
+    pub total: usize,
+    pub created_last_24h: usize,
+    pub older_than_7d: usize,
+    pub oldest_created_at: Option<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArtistIdentityEvidenceGroup {
     source: String,
@@ -6174,6 +6182,57 @@ pub fn summarize_pending_artist_identity_reviews(
         })
     })?
     .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
+/// Returns age buckets for pending artist-identity reviews.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the aggregate query fails.
+pub fn summarize_pending_artist_identity_review_age(
+    conn: &Connection,
+) -> Result<PendingReviewAgeSummary, DbError> {
+    let now = unix_now();
+    conn.query_row(
+        "SELECT
+             COUNT(*),
+             SUM(CASE WHEN created_at >= ?1 THEN 1 ELSE 0 END),
+             SUM(CASE WHEN created_at < ?2 THEN 1 ELSE 0 END),
+             MIN(created_at)
+         FROM artist_identity_review
+         WHERE status = 'pending'",
+        params![now - 24 * 60 * 60, now - 7 * 24 * 60 * 60],
+        |row| {
+            let total: i64 = row.get(0)?;
+            let created_last_24h: i64 = row.get(1)?;
+            let older_than_7d: i64 = row.get(2)?;
+            Ok(PendingReviewAgeSummary {
+                total: usize::try_from(total).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                created_last_24h: usize::try_from(created_last_24h).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        1,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                older_than_7d: usize::try_from(older_than_7d).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                oldest_created_at: row.get(3)?,
+            })
+        },
+    )
     .map_err(Into::into)
 }
 
@@ -12498,6 +12557,57 @@ pub fn summarize_pending_wallet_reviews(
         })
     })?
     .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
+/// Returns age buckets for pending wallet-identity reviews.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the aggregate query fails.
+pub fn summarize_pending_wallet_review_age(
+    conn: &Connection,
+) -> Result<PendingReviewAgeSummary, DbError> {
+    let now = unix_now();
+    conn.query_row(
+        "SELECT
+             COUNT(*),
+             SUM(CASE WHEN created_at >= ?1 THEN 1 ELSE 0 END),
+             SUM(CASE WHEN created_at < ?2 THEN 1 ELSE 0 END),
+             MIN(created_at)
+         FROM wallet_identity_review
+         WHERE status = 'pending'",
+        params![now - 24 * 60 * 60, now - 7 * 24 * 60 * 60],
+        |row| {
+            let total: i64 = row.get(0)?;
+            let created_last_24h: i64 = row.get(1)?;
+            let older_than_7d: i64 = row.get(2)?;
+            Ok(PendingReviewAgeSummary {
+                total: usize::try_from(total).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        0,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                created_last_24h: usize::try_from(created_last_24h).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        1,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                older_than_7d: usize::try_from(older_than_7d).map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        2,
+                        rusqlite::types::Type::Integer,
+                        Box::new(err),
+                    )
+                })?,
+                oldest_created_at: row.get(3)?,
+            })
+        },
+    )
     .map_err(Into::into)
 }
 

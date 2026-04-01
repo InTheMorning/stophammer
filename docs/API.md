@@ -1789,6 +1789,34 @@ Returns counts of pending wallet-identity review items grouped by `source`.
 
 ---
 
+### GET /admin/reviews/pending/age-summary
+
+Returns age buckets for pending artist and wallet review queues.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "artist_identity": {
+    "total": 10,
+    "created_last_24h": 4,
+    "older_than_7d": 2,
+    "oldest_created_at": 1710000000
+  },
+  "wallet_identity": {
+    "total": 6,
+    "created_last_24h": 1,
+    "older_than_7d": 0,
+    "oldest_created_at": 1710200000
+  }
+}
+```
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.

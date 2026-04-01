@@ -1358,6 +1358,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handle_admin_pending_wallet_identity_review_summary),
         )
         .route(
+            "/admin/reviews/pending/age-summary",
+            get(handle_admin_pending_review_age_summary),
+        )
+        .route(
             "/admin/wallet-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_wallet_identity_review),
         )
@@ -3190,6 +3194,12 @@ struct PendingWalletIdentityReviewSummaryResponse {
     summary: Vec<db::WalletPendingReviewSummary>,
 }
 
+#[derive(Debug, Serialize)]
+struct PendingReviewAgeSummaryResponse {
+    artist_identity: db::PendingReviewAgeSummary,
+    wallet_identity: db::PendingReviewAgeSummary,
+}
+
 const fn default_pending_review_limit() -> usize {
     100
 }
@@ -3791,6 +3801,26 @@ async fn handle_admin_pending_wallet_identity_review_summary(
     let summary = spawn_db(state.db.clone(), db::summarize_pending_wallet_reviews).await?;
 
     Ok(Json(PendingWalletIdentityReviewSummaryResponse { summary }))
+}
+
+async fn handle_admin_pending_review_age_summary(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<PendingReviewAgeSummaryResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let (artist_identity, wallet_identity) = spawn_db(state.db.clone(), move |conn| {
+        Ok((
+            db::summarize_pending_artist_identity_review_age(conn)?,
+            db::summarize_pending_wallet_review_age(conn)?,
+        ))
+    })
+    .await?;
+
+    Ok(Json(PendingReviewAgeSummaryResponse {
+        artist_identity,
+        wallet_identity,
+    }))
 }
 
 async fn handle_admin_resolve_wallet_identity_review(
