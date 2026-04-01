@@ -5406,11 +5406,50 @@ fn artist_review_supporting_sources(
         }
     }
 
+    if artists_share_normalized_website(conn, &target_current_ids)? {
+        supporting_sources.push("normalized_website".to_string());
+    }
     if artists_share_external_id(conn, &target_current_ids)? {
         supporting_sources.push("shared_external_id".to_string());
     }
 
     Ok(supporting_sources)
+}
+
+fn artists_share_normalized_website(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<bool, DbError> {
+    let mut website_artist_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT sel.url
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN feeds f ON f.artist_credit_id = ac.id
+         JOIN source_entity_links sel
+           ON sel.feed_guid = f.feed_guid
+          AND sel.entity_type = 'feed'
+          AND sel.entity_id = f.feed_guid
+          AND sel.link_type = 'website'
+         WHERE acn.artist_id = ?1
+           AND TRIM(sel.url) <> ''
+         ORDER BY sel.url",
+    )?;
+    for artist_id in artist_ids {
+        let site_keys = stmt
+            .query_map(params![artist_id], |row| row.get::<_, String>(0))?
+            .filter_map(Result::ok)
+            .filter_map(|raw_url| normalize_artist_website_key(&raw_url))
+            .collect::<std::collections::BTreeSet<_>>();
+        for site_key in site_keys {
+            let count = website_artist_counts.entry(site_key).or_default();
+            *count += 1;
+            if *count >= 2 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn artists_share_external_id(
@@ -5643,7 +5682,7 @@ fn artist_review_score_breakdown(
             let points = match support.as_str() {
                 "shared_external_id" => 40,
                 "wallet_name_variant" => 35,
-                "track_feed_name_variant" => 30,
+                "normalized_website" | "track_feed_name_variant" => 30,
                 "contributor_name_variant" => 25,
                 "publisher_name_variant" => 20,
                 _ => 0,
