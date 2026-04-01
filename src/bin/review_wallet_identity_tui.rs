@@ -238,6 +238,7 @@ fn parse_args() -> Result<Args, String> {
                 println!(
                     "Usage: review_wallet_identity_tui [--db PATH] [--limit N]\n\n\
                      Keys:\n\
+                     ?            Show help dialog\n\
                      q            Quit\n\
                      Tab          Cycle focus: groups -> source -> feeds -> evidence\n\
                     Left/Right   Move focus\n\
@@ -1273,6 +1274,31 @@ impl App {
             lines,
         });
         Ok(())
+    }
+
+    fn show_help_dialog(&mut self) {
+        self.dialog = Some(SummaryDialog {
+            title: "Wallet Review TUI Help".to_string(),
+            lines: vec![
+                "Tab / Left / Right: cycle focus".to_string(),
+                "Up / Down / Home / End: navigate".to_string(),
+                "[ / ]: previous/next merge candidate".to_string(),
+                "Enter / Space: expand evidence when focused there".to_string(),
+                "m: merge selected wallet into main wallet".to_string(),
+                "x: mark selected wallet different".to_string(),
+                "a: apply reviewed merges".to_string(),
+                "u: undo last apply batch".to_string(),
+                "c / v / z: class/confidence/edit controls".to_string(),
+                "o: operator overview".to_string(),
+                "s: queue source summary".to_string(),
+                "h: hottest feeds".to_string(),
+                "t: stale reviews (>7d)".to_string(),
+                "y: recent reviews (<24h)".to_string(),
+                "r: reload reviews and details".to_string(),
+                "Enter / Space / Esc: close dialog".to_string(),
+                "q: quit".to_string(),
+            ],
+        });
     }
 }
 
@@ -2517,6 +2543,9 @@ fn run_app(
             }
             KeyCode::Char('y') => {
                 app.show_recent_reviews()?;
+            }
+            KeyCode::Char('?') => {
+                app.show_help_dialog();
             }
             KeyCode::Char('u') => {
                 app.undo_last_apply_batch()?;

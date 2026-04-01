@@ -615,6 +615,26 @@ impl App {
         });
         Ok(())
     }
+
+    fn show_help_dialog(&mut self) {
+        self.dialog = Some(SummaryDialog {
+            title: "Artist Review TUI Help".to_string(),
+            lines: vec![
+                "Tab / Shift-Tab: cycle focus".to_string(),
+                "Up / Down / Home / End: navigate".to_string(),
+                "m: merge into selected main artist".to_string(),
+                "x: mark review do_not_merge".to_string(),
+                "o: operator overview".to_string(),
+                "s: queue source summary".to_string(),
+                "h: hottest feeds".to_string(),
+                "t: stale reviews (>7d)".to_string(),
+                "y: recent reviews (<24h)".to_string(),
+                "r: reload pending reviews".to_string(),
+                "Enter / Space / Esc: close dialog".to_string(),
+                "q: quit".to_string(),
+            ],
+        });
+    }
 }
 
 #[allow(
@@ -648,7 +668,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, t stale reviews, y recent reviews, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, t stale reviews, y recent reviews, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1411,6 +1431,7 @@ fn run_app(
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('t') => app.show_stale_reviews()?,
             KeyCode::Char('y') => app.show_recent_reviews()?,
+            KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);
                 let artist_id = app
