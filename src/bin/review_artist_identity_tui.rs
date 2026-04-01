@@ -625,6 +625,7 @@ impl App {
                 "m: merge into selected main artist".to_string(),
                 "x: mark review do_not_merge".to_string(),
                 "o: operator overview".to_string(),
+                "p: review-next playbook".to_string(),
                 "s: queue source summary".to_string(),
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
@@ -634,6 +635,58 @@ impl App {
                 "q: quit".to_string(),
             ],
         });
+    }
+
+    fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
+        let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
+        let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
+        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
+        let total: usize = summary.iter().map(|item| item.count).sum();
+
+        let mut lines = vec![format!("Pending artist reviews: {total}")];
+        if total == 0 {
+            lines.push("Nothing pending. Reload after the next resolver pass.".to_string());
+        } else {
+            if age.older_than_7d > 0 {
+                lines.push(format!(
+                    "1. Clear stale backlog first: {} artist reviews are older than 7 days.",
+                    age.older_than_7d
+                ));
+            } else if age.created_last_24h > 0 {
+                lines.push(format!(
+                    "1. Fresh churn only: {} artist reviews were created in the last 24 hours.",
+                    age.created_last_24h
+                ));
+            }
+
+            if let Some(top_source) = summary.first() {
+                lines.push(format!(
+                    "2. Main source family: {} ({} pending).",
+                    top_source.source, top_source.count
+                ));
+            }
+
+            if let Some(feed) = hotspots.first() {
+                lines.push(format!(
+                    "3. Start with feed hotspot: {} (total={}, artist={}, wallet={}).",
+                    feed.title,
+                    feed.total_review_count,
+                    feed.artist_review_count,
+                    feed.wallet_review_count
+                ));
+            }
+
+            lines.push(
+                "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items."
+                    .to_string(),
+            );
+        }
+
+        self.dialog = Some(SummaryDialog {
+            title: "Artist Review Playbook".to_string(),
+            lines,
+        });
+        Ok(())
     }
 }
 
@@ -668,7 +721,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, t stale reviews, y recent reviews, ? help, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1427,6 +1480,7 @@ fn run_app(
             KeyCode::Char('m') => app.approve_merge()?,
             KeyCode::Char('x') => app.reject_review()?,
             KeyCode::Char('o') => app.show_operator_overview()?,
+            KeyCode::Char('p') => app.show_review_playbook()?,
             KeyCode::Char('s') => app.show_queue_summary()?,
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('t') => app.show_stale_reviews()?,

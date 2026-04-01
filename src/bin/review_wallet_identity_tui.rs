@@ -246,6 +246,7 @@ fn parse_args() -> Result<Args, String> {
                      Up/Down      Move selection in focused pane\n\
                      Enter/Space  Expand/collapse selected evidence tree item\n\
                      o            Show operator overview\n\
+                     p            Show review-next playbook\n\
                      a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
                      t            Show stale wallet reviews\n\
@@ -1290,6 +1291,7 @@ impl App {
                 "u: undo last apply batch".to_string(),
                 "c / v / z: class/confidence/edit controls".to_string(),
                 "o: operator overview".to_string(),
+                "p: review-next playbook".to_string(),
                 "s: queue source summary".to_string(),
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
@@ -1299,6 +1301,60 @@ impl App {
                 "q: quit".to_string(),
             ],
         });
+    }
+
+    fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
+        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
+        let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
+        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
+        let total: usize = summary.iter().map(|item| item.count).sum();
+
+        let mut lines = vec![format!("Pending wallet reviews: {total}")];
+        if total == 0 {
+            lines.push(
+                "Nothing pending. Reload after the next resolver or wallet pass.".to_string(),
+            );
+        } else {
+            if age.older_than_7d > 0 {
+                lines.push(format!(
+                    "1. Clear stale backlog first: {} wallet reviews are older than 7 days.",
+                    age.older_than_7d
+                ));
+            } else if age.created_last_24h > 0 {
+                lines.push(format!(
+                    "1. Fresh churn only: {} wallet reviews were created in the last 24 hours.",
+                    age.created_last_24h
+                ));
+            }
+
+            if let Some(top_source) = summary.first() {
+                lines.push(format!(
+                    "2. Main source family: {} ({} pending).",
+                    top_source.source, top_source.count
+                ));
+            }
+
+            if let Some(feed) = hotspots.first() {
+                lines.push(format!(
+                    "3. Start with feed hotspot: {} (total={}, artist={}, wallet={}).",
+                    feed.title,
+                    feed.total_review_count,
+                    feed.artist_review_count,
+                    feed.wallet_review_count
+                ));
+            }
+
+            lines.push(
+                "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items."
+                    .to_string(),
+            );
+        }
+
+        self.dialog = Some(SummaryDialog {
+            title: "Wallet Review Playbook".to_string(),
+            lines,
+        });
+        Ok(())
     }
 }
 
@@ -2531,6 +2587,9 @@ fn run_app(
             }
             KeyCode::Char('o') => {
                 app.show_operator_overview()?;
+            }
+            KeyCode::Char('p') => {
+                app.show_review_playbook()?;
             }
             KeyCode::Char('s') => {
                 app.show_queue_summary()?;
