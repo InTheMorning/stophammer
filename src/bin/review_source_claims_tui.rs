@@ -175,6 +175,22 @@ fn dominant_track_claim_family(
     (count > 0).then_some((label, count, (count * 100) / total.max(1)))
 }
 
+fn track_family_cluster_membership(
+    snapshot: &FeedClaimSnapshot,
+    track_guid: &str,
+) -> Option<(&'static str, usize, usize)> {
+    let (label, _, _) = dominant_track_claim_family(snapshot, track_guid)?;
+    let cluster_size = snapshot
+        .tracks
+        .iter()
+        .filter(|track| {
+            dominant_track_claim_family(snapshot, &track.track_guid)
+                .is_some_and(|(candidate, _, _)| candidate == label)
+        })
+        .count();
+    Some((label, cluster_size, snapshot.tracks.len()))
+}
+
 fn dominant_track_claim_family_summary(snapshot: &FeedClaimSnapshot, track_guid: &str) -> String {
     dominant_track_claim_family(snapshot, track_guid).map_or_else(
         || "top=no-claims".to_string(),
@@ -1622,7 +1638,15 @@ fn build_track_items(app: &App) -> Vec<ListItem<'static>> {
                     ),
                 ]),
                 Line::from(Span::styled(
-                    dominant_track_claim_family_summary(snapshot, &track.track_guid),
+                    track_family_cluster_membership(snapshot, &track.track_guid).map_or_else(
+                        || dominant_track_claim_family_summary(snapshot, &track.track_guid),
+                        |(label, cluster_size, total_tracks)| {
+                            format!(
+                                "{} cluster={label}({cluster_size}/{total_tracks})",
+                                dominant_track_claim_family_summary(snapshot, &track.track_guid)
+                            )
+                        },
+                    ),
                     Style::default().fg(Color::DarkGray),
                 )),
                 Line::from(Span::styled(
