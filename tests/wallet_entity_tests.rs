@@ -1225,6 +1225,79 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
 }
 
 #[test]
+fn likely_wallet_owner_match_skips_conflicting_artist_links() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
+    let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
+
+    let ep_a = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-a",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let ep_b = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-b",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
+
+    let wallet_a = db::create_provisional_wallet(&conn, ep_a, now).unwrap();
+    let wallet_b = db::create_provisional_wallet(&conn, ep_b, now).unwrap();
+
+    for (artist_id, name) in [("artist-owner-a", "Alice A"), ("artist-owner-b", "Alice B")] {
+        conn.execute(
+            "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+             VALUES (?1, ?2, ?3, ?4, ?4)",
+            params![artist_id, name, name.to_lowercase(), now],
+        )
+        .unwrap();
+    }
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, 'artist-owner-a', 'high_confidence', 'feed', 'feed-w', ?2)",
+        params![wallet_a, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, 'artist-owner-b', 'high_confidence', 'feed', 'feed-w', ?2)",
+        params![wallet_b, now],
+    )
+    .unwrap();
+
+    let created = db::generate_wallet_review_items(&conn).unwrap();
+    assert!(
+        created >= 2,
+        "conflicting artist links should still surface the baseline alias review"
+    );
+
+    let reviews = db::list_pending_wallet_reviews(&conn, 10).unwrap();
+    assert!(reviews.iter().any(|review| review.source == "cross_wallet_alias"));
+    assert!(
+        !reviews
+            .iter()
+            .any(|review| review.source == "likely_wallet_owner_match"),
+        "same-alias wallets with conflicting artist links should not escalate to likely ownership"
+    );
+}
+
+#[test]
 fn likely_wallet_owner_match_includes_shared_artist_link_support() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);

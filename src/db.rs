@@ -5516,6 +5516,34 @@ fn wallets_share_artist_link(conn: &Connection, wallet_ids: &[String]) -> Result
     Ok(false)
 }
 
+fn wallets_have_conflicting_artist_links(
+    conn: &Connection,
+    wallet_ids: &[String],
+) -> Result<bool, DbError> {
+    if wallets_share_artist_link(conn, wallet_ids)? {
+        return Ok(false);
+    }
+
+    let mut all_artist_ids = std::collections::BTreeSet::new();
+    let mut stmt = conn.prepare(
+        "SELECT artist_id
+         FROM wallet_artist_links
+         WHERE wallet_id = ?1
+         ORDER BY artist_id",
+    )?;
+    for wallet_id in wallet_ids {
+        let artist_ids = stmt
+            .query_map(params![wallet_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        all_artist_ids.extend(artist_ids);
+        if all_artist_ids.len() > 1 {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 fn wallets_share_feed(conn: &Connection, wallet_ids: &[String]) -> Result<bool, DbError> {
     let mut feed_wallet_counts = std::collections::BTreeMap::<String, usize>::new();
     let mut stmt = conn.prepare(
@@ -12717,6 +12745,9 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
             .filter(|wallet_id| !wallet_id.is_empty())
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
+        if wallets_have_conflicting_artist_links(conn, &wallet_ids)? {
+            continue;
+        }
         for wallet_id in &wallet_ids {
             if insert_likely_wallet_owner_match_review(
                 conn,
@@ -12816,9 +12847,13 @@ fn generate_wallet_review_items_for_feed(
             .filter(|wid| !wid.is_empty())
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
+        let conflicting_artist_links = wallets_have_conflicting_artist_links(conn, &wallet_ids)?;
         for wid in &wallet_ids {
             if insert_cross_wallet_alias_review(conn, wid, &alias, &wallet_ids, now)? {
                 created += 1;
+            }
+            if conflicting_artist_links {
+                continue;
             }
             if insert_likely_wallet_owner_match_review(
                 conn,
