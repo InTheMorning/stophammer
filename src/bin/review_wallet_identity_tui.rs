@@ -2293,7 +2293,16 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .iter()
         .map(|group| {
             let title = abbreviate(&group.label, 30);
-            let detail = format!("{}  {} wallets", group.source, group.reviews.len());
+            let detail = format!(
+                "{}  {} wallets  newest {}",
+                group.source,
+                group.reviews.len(),
+                group
+                    .reviews
+                    .first()
+                    .map(|review| format_local_timestamp(review.created_at))
+                    .unwrap_or_else(|| "-".to_string())
+            );
             ListItem::new(vec![
                 Line::from(title),
                 Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))),

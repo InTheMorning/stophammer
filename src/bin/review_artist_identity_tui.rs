@@ -1016,9 +1016,10 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                 ]),
                 Line::from(Span::styled(
                     format!(
-                        "{} artists  {}",
+                        "{} artists  {}  created {}",
                         review.artist_count,
-                        abbreviate(&review.feed_guid, 20)
+                        abbreviate(&review.feed_guid, 20),
+                        format_local_timestamp(review.created_at)
                     ),
                     Style::default().fg(Color::DarkGray),
                 )),
