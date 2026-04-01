@@ -2092,6 +2092,15 @@ fn header_context_line(app: &App) -> Line<'static> {
                     Style::default().fg(Color::DarkGray),
                 ));
             }
+            if let Some((label, cluster_size, total_tracks)) =
+                track_family_cluster_membership(snapshot, &track.track_guid)
+            {
+                spans.push(Span::raw("  "));
+                spans.push(Span::styled(
+                    format!("cluster {label} {cluster_size}/{total_tracks}"),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
     }
 
