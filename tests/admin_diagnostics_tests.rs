@@ -557,5 +557,6 @@ async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
         json["alias_peers"][0]["display_name"],
         "Shared Wallet Alias"
     );
-    assert_eq!(json["reviews"][0]["review_type"], "cross_wallet_alias");
+    assert_eq!(json["reviews"][0]["source"], "cross_wallet_alias");
+    assert_eq!(json["reviews"][0]["evidence_key"], "shared wallet alias");
 }

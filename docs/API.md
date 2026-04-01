@@ -1837,7 +1837,8 @@ claim-feed evidence, and alias peers that currently share one normalized alias.
   "redirected_from": ["old-wallet-id"],
   "reviews": [
     {
-      "review_type": "cross_wallet_alias",
+      "source": "cross_wallet_alias",
+      "evidence_key": "shared-wallet-alias",
       "status": "pending"
     }
   ],

@@ -203,6 +203,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0021_route_custom_value_normalization.sql"),
     // Migration 22: clear wallet route maps in direct delete triggers and legacy live events.
     include_str!("../migrations/0022_wallet_route_delete_triggers.sql"),
+    // Migration 23: normalize wallet review rows onto source/evidence/payload fields.
+    include_str!("../migrations/0023_wallet_identity_review_normalization.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -10759,11 +10761,18 @@ struct WalletUndoArtistLinkRow {
 struct WalletUndoReviewRow {
     id: i64,
     wallet_id: String,
-    review_type: String,
-    details: Option<String>,
+    #[serde(alias = "review_type")]
+    source: String,
+    #[serde(default, alias = "details")]
+    evidence_key: Option<String>,
+    #[serde(default)]
+    wallet_ids: Vec<String>,
+    #[serde(default)]
+    endpoint_summary: Vec<WalletEndpointPreview>,
     status: String,
     created_at: i64,
-    resolved_at: Option<i64>,
+    #[serde(default, alias = "resolved_at")]
+    updated_at: Option<i64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -10872,18 +10881,38 @@ fn audited_merge_wallets(
 
     let moved_reviews: Vec<WalletUndoReviewRow> = conn
         .prepare(
-            "SELECT id, wallet_id, review_type, details, status, created_at, resolved_at \
+            "SELECT id, wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, \
+                    status, created_at, updated_at \
              FROM wallet_identity_review WHERE wallet_id = ?1 ORDER BY id",
         )?
         .query_map(params![old_id], |r| {
             Ok(WalletUndoReviewRow {
                 id: r.get(0)?,
                 wallet_id: r.get(1)?,
-                review_type: r.get(2)?,
-                details: r.get(3)?,
-                status: r.get(4)?,
-                created_at: r.get(5)?,
-                resolved_at: r.get(6)?,
+                source: r.get(2)?,
+                evidence_key: Some(r.get(3)?),
+                wallet_ids: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(4)?).map_err(
+                    |err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            4,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    },
+                )?,
+                endpoint_summary: serde_json::from_str::<Vec<WalletEndpointPreview>>(
+                    &r.get::<_, String>(5)?,
+                )
+                .map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        5,
+                        rusqlite::types::Type::Text,
+                        Box::new(err),
+                    )
+                })?,
+                status: r.get(6)?,
+                created_at: r.get(7)?,
+                updated_at: Some(r.get(8)?),
             })
         })?
         .collect::<Result<_, _>>()?;
@@ -11293,16 +11322,22 @@ pub fn undo_last_wallet_merge_batch(conn: &Connection) -> Result<Option<WalletUn
             )?;
             conn.execute(
                 "INSERT INTO wallet_identity_review \
-                 (id, wallet_id, review_type, details, status, created_at, resolved_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (id, wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, \
+                  status, created_at, updated_at) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
                     review.id,
                     review.wallet_id,
-                    review.review_type,
-                    review.details,
+                    review.source,
+                    review
+                        .evidence_key
+                        .as_deref()
+                        .unwrap_or(review.wallet_id.as_str()),
+                    serde_json::to_string(&review.wallet_ids)?,
+                    serde_json::to_string(&review.endpoint_summary)?,
                     review.status,
                     review.created_at,
-                    review.resolved_at,
+                    review.updated_at.unwrap_or(review.created_at),
                 ],
             )?;
         }
@@ -11383,6 +11418,38 @@ pub fn undo_last_wallet_merge_batch(conn: &Connection) -> Result<Option<WalletUn
 /// Generates review items for:
 /// - Same `alias_lower` across multiple wallets with different endpoints
 /// - Endpoints with conflicting fee/non-fee signals
+fn insert_cross_wallet_alias_review(
+    conn: &Connection,
+    wallet_id: &str,
+    alias: &str,
+    related_wallet_ids: &[String],
+    now: i64,
+) -> Result<bool, DbError> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
+         WHERE wallet_id = ?1 AND source = 'cross_wallet_alias' AND evidence_key = ?2)",
+        params![wallet_id, alias],
+        |r| r.get(0),
+    )?;
+    if exists {
+        return Ok(false);
+    }
+
+    conn.execute(
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', ?2, ?3, ?4, 'pending', ?5, ?5)",
+        params![
+            wallet_id,
+            alias,
+            serde_json::to_string(related_wallet_ids)?,
+            serde_json::to_string(&get_wallet_endpoint_preview(conn, wallet_id, 3)?)?,
+            now,
+        ],
+    )?;
+    Ok(true)
+}
+
 pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError> {
     let now = unix_now();
     let mut created = 0;
@@ -11402,22 +11469,14 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
         .collect::<Result<_, _>>()?;
 
     for (alias, wallet_ids_str) in rows {
-        let wallet_ids: Vec<&str> = wallet_ids_str.split(',').collect();
-        for wid in &wallet_ids {
-            let wid = wid.trim();
-            // Check if review item already exists
-            let exists: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
-                 WHERE wallet_id = ?1 AND review_type = 'cross_wallet_alias' AND details = ?2)",
-                params![wid, alias],
-                |r| r.get(0),
-            )?;
-            if !exists {
-                conn.execute(
-                    "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
-                     VALUES (?1, 'cross_wallet_alias', ?2, 'pending', ?3)",
-                    params![wid, alias, now],
-                )?;
+        let wallet_ids = wallet_ids_str
+            .split(',')
+            .map(str::trim)
+            .filter(|wallet_id| !wallet_id.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        for wallet_id in &wallet_ids {
+            if insert_cross_wallet_alias_review(conn, wallet_id, &alias, &wallet_ids, now)? {
                 created += 1;
             }
         }
@@ -11505,23 +11564,14 @@ fn generate_wallet_review_items_for_feed(
         .collect::<Result<_, _>>()?;
 
     for (alias, wallet_ids_str) in rows {
-        for wid in wallet_ids_str
+        let wallet_ids = wallet_ids_str
             .split(',')
             .map(str::trim)
             .filter(|wid| !wid.is_empty())
-        {
-            let exists: bool = conn.query_row(
-                "SELECT EXISTS(SELECT 1 FROM wallet_identity_review \
-                 WHERE wallet_id = ?1 AND review_type = 'cross_wallet_alias' AND details = ?2)",
-                params![wid, alias],
-                |r| r.get(0),
-            )?;
-            if !exists {
-                conn.execute(
-                    "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
-                     VALUES (?1, 'cross_wallet_alias', ?2, 'pending', ?3)",
-                    params![wid, alias, now],
-                )?;
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        for wid in &wallet_ids {
+            if insert_cross_wallet_alias_review(conn, wid, &alias, &wallet_ids, now)? {
                 created += 1;
             }
         }
@@ -12012,8 +12062,10 @@ pub struct WalletReviewSummary {
     pub display_name: String,
     pub wallet_class: String,
     pub class_confidence: String,
-    pub review_type: String,
-    pub details: Option<String>,
+    pub source: String,
+    pub evidence_key: String,
+    pub wallet_ids: Vec<String>,
+    pub endpoint_summary: Vec<WalletEndpointPreview>,
     pub created_at: i64,
 }
 
@@ -12021,11 +12073,13 @@ pub struct WalletReviewSummary {
 pub struct WalletReviewItem {
     pub id: i64,
     pub wallet_id: String,
-    pub review_type: String,
-    pub details: Option<String>,
+    pub source: String,
+    pub evidence_key: String,
+    pub wallet_ids: Vec<String>,
+    pub endpoint_summary: Vec<WalletEndpointPreview>,
     pub status: String,
     pub created_at: i64,
-    pub resolved_at: Option<i64>,
+    pub updated_at: i64,
 }
 
 /// Full detail of a wallet for review display.
@@ -12108,7 +12162,7 @@ pub struct WalletClaimFeed {
     pub platform_claims: Vec<SourcePlatformClaim>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletEndpointPreview {
     pub route_type: String,
     pub normalized_address: String,
@@ -12165,6 +12219,34 @@ pub fn get_wallet_ids_for_artist(
         .map_err(Into::into)
 }
 
+fn get_wallet_endpoint_preview(
+    conn: &Connection,
+    wallet_id: &str,
+    limit: usize,
+) -> Result<Vec<WalletEndpointPreview>, DbError> {
+    let limit = i64::try_from(limit).map_err(|err| {
+        DbError::Other(format!("wallet endpoint preview limit exceeds i64: {err}"))
+    })?;
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT route_type, normalized_address, \
+                COALESCE(custom_key, ''), COALESCE(custom_value, '') \
+         FROM wallet_endpoints \
+         WHERE wallet_id = ?1 \
+         ORDER BY route_type, normalized_address, custom_key, custom_value \
+         LIMIT ?2",
+    )?;
+    stmt.query_map(params![wallet_id, limit], |row| {
+        Ok(WalletEndpointPreview {
+            route_type: row.get(0)?,
+            normalized_address: row.get(1)?,
+            custom_key: row.get(2)?,
+            custom_value: row.get(3)?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
 /// List pending wallet identity reviews.
 pub fn list_pending_wallet_reviews(
     conn: &Connection,
@@ -12174,28 +12256,33 @@ pub fn list_pending_wallet_reviews(
         .map_err(|err| DbError::Other(format!("wallet review limit exceeds i64: {err}")))?;
     let mut stmt = conn.prepare(
         "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
-                r.review_type, r.details, r.created_at \
+                r.source, r.evidence_key, r.wallet_ids_json, r.endpoint_summary_json, \
+                r.created_at \
          FROM wallet_identity_review r \
          JOIN wallets w ON w.wallet_id = r.wallet_id \
          WHERE r.status = 'pending' \
          ORDER BY r.created_at DESC \
          LIMIT ?1",
     )?;
-    let rows = stmt
-        .query_map(params![limit], |r| {
-            Ok(WalletReviewSummary {
-                id: r.get(0)?,
-                wallet_id: r.get(1)?,
-                display_name: r.get(2)?,
-                wallet_class: r.get(3)?,
-                class_confidence: r.get(4)?,
-                review_type: r.get(5)?,
-                details: r.get(6)?,
-                created_at: r.get(7)?,
-            })
-        })?
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(rows)
+    let mut rows = stmt.query(params![limit])?;
+    let mut summaries = Vec::new();
+    while let Some(row) = rows.next()? {
+        let wallet_ids_json: String = row.get(7)?;
+        let endpoint_summary_json: String = row.get(8)?;
+        summaries.push(WalletReviewSummary {
+            id: row.get(0)?,
+            wallet_id: row.get(1)?,
+            display_name: row.get(2)?,
+            wallet_class: row.get(3)?,
+            class_confidence: row.get(4)?,
+            source: row.get(5)?,
+            evidence_key: row.get(6)?,
+            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
+            created_at: row.get(9)?,
+        });
+    }
+    Ok(summaries)
 }
 
 /// List all wallet identity review rows for one wallet.
@@ -12204,24 +12291,30 @@ pub fn list_wallet_reviews_for_wallet(
     wallet_id: &str,
 ) -> Result<Vec<WalletReviewItem>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, wallet_id, review_type, details, status, created_at, resolved_at
+        "SELECT id, wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, \
+                status, created_at, updated_at
          FROM wallet_identity_review
          WHERE wallet_id = ?1
          ORDER BY created_at DESC, id DESC",
     )?;
-    stmt.query_map(params![wallet_id], |row| {
-        Ok(WalletReviewItem {
+    let mut rows = stmt.query(params![wallet_id])?;
+    let mut reviews = Vec::new();
+    while let Some(row) = rows.next()? {
+        let wallet_ids_json: String = row.get(4)?;
+        let endpoint_summary_json: String = row.get(5)?;
+        reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
-            review_type: row.get(2)?,
-            details: row.get(3)?,
-            status: row.get(4)?,
-            created_at: row.get(5)?,
-            resolved_at: row.get(6)?,
-        })
-    })?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(Into::into)
+            source: row.get(2)?,
+            evidence_key: row.get(3)?,
+            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
+            status: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        });
+    }
+    Ok(reviews)
 }
 
 /// Get full wallet detail for review display.
@@ -12592,7 +12685,7 @@ pub fn set_wallet_identity_override_for_review(
 
     // Resolve the review
     conn.execute(
-        "UPDATE wallet_identity_review SET status = 'resolved', resolved_at = ?1 WHERE id = ?2",
+        "UPDATE wallet_identity_review SET status = 'resolved', updated_at = ?1 WHERE id = ?2",
         params![now, review_id],
     )?;
 

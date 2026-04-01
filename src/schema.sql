@@ -832,14 +832,16 @@ CREATE TABLE IF NOT EXISTS wallet_artist_links (
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS wallet_identity_review (
-    id          INTEGER PRIMARY KEY,
-    wallet_id   TEXT NOT NULL REFERENCES wallets(wallet_id),
-    review_type TEXT NOT NULL,
-    details     TEXT,
-    status      TEXT NOT NULL DEFAULT 'pending'
-                CHECK(status IN ('pending','resolved','blocked')),
-    created_at  INTEGER NOT NULL,
-    resolved_at INTEGER
+    id                    INTEGER PRIMARY KEY,
+    wallet_id             TEXT NOT NULL REFERENCES wallets(wallet_id),
+    source                TEXT NOT NULL,
+    evidence_key          TEXT NOT NULL,
+    wallet_ids_json       TEXT NOT NULL DEFAULT '[]',
+    endpoint_summary_json TEXT NOT NULL DEFAULT '[]',
+    status                TEXT NOT NULL DEFAULT 'pending'
+                          CHECK(status IN ('pending','resolved','blocked')),
+    created_at            INTEGER NOT NULL,
+    updated_at            INTEGER NOT NULL
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS wallet_identity_override (

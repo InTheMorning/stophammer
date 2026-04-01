@@ -164,8 +164,8 @@ impl SectionState {
 #[derive(Debug, Clone)]
 struct ReviewGroup {
     label: String,
-    review_type: String,
-    details: Option<String>,
+    source: String,
+    evidence_key: String,
     reviews: Vec<stophammer::db::WalletReviewSummary>,
 }
 
@@ -200,7 +200,7 @@ struct App {
 
 #[derive(Debug, Clone)]
 struct ReloadSelection {
-    group_key: Option<(String, Option<String>, String)>,
+    group_key: Option<(String, String, String)>,
     main_wallet_id: Option<String>,
     merge_wallet_id: Option<String>,
     feed_guid: Option<String>,
@@ -266,18 +266,15 @@ fn group_reviews(reviews: Vec<stophammer::db::WalletReviewSummary>) -> Vec<Revie
     let mut groups: Vec<ReviewGroup> = Vec::new();
     for review in reviews {
         if let Some(group) = groups.iter_mut().find(|group| {
-            group.review_type == review.review_type && group.details == review.details
+            group.source == review.source && group.evidence_key == review.evidence_key
         }) {
             group.reviews.push(review);
         } else {
-            let label = review
-                .details
-                .clone()
-                .unwrap_or_else(|| format!("review-type: {}", review.review_type));
+            let label = review.evidence_key.clone();
             groups.push(ReviewGroup {
                 label,
-                review_type: review.review_type.clone(),
-                details: review.details.clone(),
+                source: review.source.clone(),
+                evidence_key: review.evidence_key.clone(),
                 reviews: vec![review],
             });
         }
@@ -348,8 +345,8 @@ impl App {
         ReloadSelection {
             group_key: self.current_group().map(|group| {
                 (
-                    group.review_type.clone(),
-                    group.details.clone(),
+                    group.source.clone(),
+                    group.evidence_key.clone(),
                     group.label.clone(),
                 )
             }),
@@ -423,8 +420,8 @@ impl App {
     ) -> Result<Vec<ReviewGroup>, Box<dyn Error>> {
         let mut pruned = Vec::new();
         for mut group in groups {
-            if group.review_type == "cross_wallet_alias" {
-                let alias = group.details.as_deref();
+            if group.source == "cross_wallet_alias" {
+                let alias = Some(group.evidence_key.as_str());
                 let pending_peer_ids = group
                     .reviews
                     .iter()
@@ -456,10 +453,10 @@ impl App {
         self.selected_group = selection
             .group_key
             .clone()
-            .and_then(|(review_type, details, label)| {
+            .and_then(|(source, evidence_key, label)| {
                 self.groups.iter().position(|group| {
-                    group.review_type == review_type
-                        && group.details == details
+                    group.source == source
+                        && group.evidence_key == evidence_key
                         && group.label == label
                 })
             })
@@ -536,7 +533,7 @@ impl App {
     fn populate_group_wallets(&mut self) -> Result<(), Box<dyn Error>> {
         self.group_wallets = if let Some(alias) = self
             .current_group()
-            .and_then(|group| group.details.as_deref())
+            .map(|group| group.evidence_key.as_str())
         {
             let peers = stophammer::db::get_wallet_alias_peers(&self.conn, alias)?;
             let by_wallet_id = peers
@@ -602,7 +599,7 @@ impl App {
         self.candidate_wallets = self.load_candidate_wallets_for_review(
             &source_review,
             self.current_group()
-                .and_then(|group| group.details.as_deref()),
+                .map(|group| group.evidence_key.as_str()),
             Some(&pending_peer_ids),
         )?;
 
@@ -1976,7 +1973,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .iter()
         .map(|group| {
             let title = abbreviate(&group.label, 30);
-            let detail = format!("{}  {} wallets", group.review_type, group.reviews.len());
+            let detail = format!("{}  {} wallets", group.source, group.reviews.len());
             ListItem::new(vec![
                 Line::from(title),
                 Line::from(Span::styled(detail, Style::default().fg(Color::DarkGray))),

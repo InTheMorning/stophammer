@@ -1729,11 +1729,15 @@ fn list_pending_reviews_filters_resolved() {
 
     // Create two reviews — one pending, one resolved
     conn.execute(
-        "INSERT INTO wallet_identity_review (wallet_id, review_type, status, created_at) VALUES (?1, 'cross_wallet_alias', 'pending', ?2)",
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1), '[]', 'pending', ?2, ?2)",
         params![wid1, now],
     ).unwrap();
     conn.execute(
-        "INSERT INTO wallet_identity_review (wallet_id, review_type, status, resolved_at, created_at) VALUES (?1, 'cross_wallet_alias', 'resolved', ?2, ?3)",
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1), '[]', 'resolved', ?2, ?3)",
         params![wid2, now, now],
     ).unwrap();
 
@@ -1752,7 +1756,9 @@ fn set_override_resolves_review() {
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let review_id: i64 = conn.query_row(
-        "INSERT INTO wallet_identity_review (wallet_id, review_type, status, created_at) VALUES (?1, 'cross_wallet_alias', 'pending', ?2) RETURNING id",
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1), '[]', 'pending', ?2, ?2) RETURNING id",
         params![wid, now],
         |r| r.get(0),
     ).unwrap();
@@ -1793,9 +1799,10 @@ fn backfill_refresh_applies_wallet_merge_overrides() {
 
     let review_id: i64 = conn
         .query_row(
-            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
-             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
-            params![w2, now],
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1, ?3), '[]', 'pending', ?2, ?2) RETURNING id",
+            params![w2, now, w1],
             |r| r.get(0),
         )
         .unwrap();
@@ -1842,9 +1849,10 @@ fn undo_last_wallet_merge_batch_restores_wallets() {
 
     let review_id: i64 = conn
         .query_row(
-            "INSERT INTO wallet_identity_review (wallet_id, review_type, details, status, created_at) \
-             VALUES (?1, 'cross_wallet_alias', 'alice', 'pending', ?2) RETURNING id",
-            params![w2, now],
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1, ?3), '[]', 'pending', ?2, ?2) RETURNING id",
+            params![w2, now, w1],
             |r| r.get(0),
         )
         .unwrap();
@@ -1900,7 +1908,9 @@ fn force_class_override_consumed_by_hard_signals() {
     let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
 
     let review_id: i64 = conn.query_row(
-        "INSERT INTO wallet_identity_review (wallet_id, review_type, status, created_at) VALUES (?1, 'cross_wallet_alias', 'pending', ?2) RETURNING id",
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1), '[]', 'pending', ?2, ?2) RETURNING id",
         params![wid, now],
         |r| r.get(0),
     ).unwrap();

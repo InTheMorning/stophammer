@@ -228,7 +228,12 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
             "review {}  wallet={}  name={:?}  class={}  confidence={}",
             r.id, r.wallet_id, r.display_name, r.wallet_class, r.class_confidence
         );
-        println!("  type={}  details={:?}", r.review_type, r.details);
+        println!(
+            "  source={}  evidence_key={:?}  related_wallets={}",
+            r.source,
+            r.evidence_key,
+            r.wallet_ids.len()
+        );
     }
 }
 
@@ -350,26 +355,46 @@ fn show_review(
     let detail = stophammer::db::get_wallet_detail(conn, &wallet_id)?
         .ok_or_else(|| std::io::Error::other(format!("wallet not found: {wallet_id}")))?;
 
-    let review_summary = conn.query_row(
-        "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
-                r.review_type, r.details, r.created_at \
+    let review_summary =
+        conn.query_row(
+            "SELECT r.id, r.wallet_id, w.display_name, w.wallet_class, w.class_confidence, \
+                r.source, r.evidence_key, r.wallet_ids_json, r.endpoint_summary_json, \
+                r.created_at \
          FROM wallet_identity_review r \
          JOIN wallets w ON w.wallet_id = r.wallet_id \
          WHERE r.id = ?1",
-        rusqlite::params![review_id],
-        |r| {
-            Ok(stophammer::db::WalletReviewSummary {
-                id: r.get(0)?,
-                wallet_id: r.get(1)?,
-                display_name: r.get(2)?,
-                wallet_class: r.get(3)?,
-                class_confidence: r.get(4)?,
-                review_type: r.get(5)?,
-                details: r.get(6)?,
-                created_at: r.get(7)?,
-            })
-        },
-    )?;
+            rusqlite::params![review_id],
+            |r| {
+                Ok(stophammer::db::WalletReviewSummary {
+                    id: r.get(0)?,
+                    wallet_id: r.get(1)?,
+                    display_name: r.get(2)?,
+                    wallet_class: r.get(3)?,
+                    class_confidence: r.get(4)?,
+                    source: r.get(5)?,
+                    evidence_key: r.get(6)?,
+                    wallet_ids: serde_json::from_str::<Vec<String>>(&r.get::<_, String>(7)?)
+                        .map_err(|err| {
+                            rusqlite::Error::FromSqlConversionFailure(
+                                7,
+                                rusqlite::types::Type::Text,
+                                Box::new(err),
+                            )
+                        })?,
+                    endpoint_summary: serde_json::from_str::<
+                        Vec<stophammer::db::WalletEndpointPreview>,
+                    >(&r.get::<_, String>(8)?)
+                    .map_err(|err| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            8,
+                            rusqlite::types::Type::Text,
+                            Box::new(err),
+                        )
+                    })?,
+                    created_at: r.get(9)?,
+                })
+            },
+        )?;
 
     if json {
         let report = ReviewDetailReport {
@@ -379,8 +404,8 @@ fn show_review(
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!(
-            "review {}  type={}  status=pending  details={:?}",
-            review_summary.id, review_summary.review_type, review_summary.details
+            "review {}  source={}  status=pending  evidence_key={:?}",
+            review_summary.id, review_summary.source, review_summary.evidence_key
         );
         print_wallet_detail(&detail);
     }
