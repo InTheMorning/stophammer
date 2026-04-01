@@ -205,6 +205,29 @@ pub fn build_queue_summary_lines<'a>(
     lines
 }
 
+/// Builds lines for stale/recent review-subset dialogs while leaving row formatting local.
+#[must_use]
+pub fn build_review_subset_lines<T>(
+    description: &str,
+    empty_message: &str,
+    items: &[T],
+    source_of: impl Fn(&T) -> &str,
+    format_row: impl Fn(&T) -> String,
+) -> Vec<String> {
+    let mut lines = vec![description.to_string(), String::new()];
+    if items.is_empty() {
+        lines.push(empty_message.to_string());
+        return lines;
+    }
+
+    if let Some(summary) = dominant_source_summary(items.iter().map(source_of)) {
+        lines.push(summary);
+        lines.push(String::new());
+    }
+    lines.extend(items.iter().map(format_row));
+    lines
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {

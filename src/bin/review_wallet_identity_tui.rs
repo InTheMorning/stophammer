@@ -59,7 +59,6 @@ use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Pa
 use ratatui::{Frame, Terminal};
 use rusqlite::{Connection, OptionalExtension, params};
 use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
-use stophammer::tui::dominant_source_summary;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -1288,18 +1287,12 @@ impl App {
         let stale =
             stophammer::db::list_stale_pending_wallet_reviews(&self.conn, 7 * 24 * 60 * 60, 10)?;
         let stale_count = stale.len();
-        let mut lines = vec![
-            "Pending wallet reviews older than 7 days".to_string(),
-            String::new(),
-        ];
-        if stale.is_empty() {
-            lines.push("No stale wallet reviews".to_string());
-        } else {
-            if let Some(summary) = dominant_source_summary(stale.iter().map(|review| review.source.as_str())) {
-                lines.push(summary);
-                lines.push(String::new());
-            }
-            lines.extend(stale.into_iter().map(|review| {
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending wallet reviews older than 7 days",
+            "No stale wallet reviews",
+            &stale,
+            |review| review.source.as_str(),
+            |review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
                     review.display_name,
@@ -1310,8 +1303,8 @@ impl App {
                     review.wallet_ids.len(),
                     format_local_timestamp(review.created_at)
                 )
-            }));
-        }
+            },
+        );
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title(
                 "Stale Wallet Reviews",
@@ -1326,20 +1319,12 @@ impl App {
         let recent =
             stophammer::db::list_recent_pending_wallet_reviews(&self.conn, 24 * 60 * 60, 10)?;
         let recent_count = recent.len();
-        let mut lines = vec![
-            "Pending wallet reviews created in the last 24 hours".to_string(),
-            String::new(),
-        ];
-        if recent.is_empty() {
-            lines.push("No recent wallet reviews".to_string());
-        } else {
-            if let Some(summary) =
-                dominant_source_summary(recent.iter().map(|review| review.source.as_str()))
-            {
-                lines.push(summary);
-                lines.push(String::new());
-            }
-            lines.extend(recent.into_iter().map(|review| {
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending wallet reviews created in the last 24 hours",
+            "No recent wallet reviews",
+            &recent,
+            |review| review.source.as_str(),
+            |review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} wallets | created {}",
                     review.display_name,
@@ -1350,8 +1335,8 @@ impl App {
                     review.wallet_ids.len(),
                     format_local_timestamp(review.created_at)
                 )
-            }));
-        }
+            },
+        );
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title(
                 "Recent Wallet Reviews",

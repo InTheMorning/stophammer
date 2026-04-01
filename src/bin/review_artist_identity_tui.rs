@@ -32,7 +32,6 @@ use ratatui::widgets::{
 };
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
-use stophammer::tui::dominant_source_summary;
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
 
@@ -627,18 +626,12 @@ impl App {
             10,
         )?;
         let stale_count = stale.len();
-        let mut lines = vec![
-            "Pending artist reviews older than 7 days".to_string(),
-            String::new(),
-        ];
-        if stale.is_empty() {
-            lines.push("No stale artist reviews".to_string());
-        } else {
-            if let Some(summary) = dominant_source_summary(stale.iter().map(|review| review.source.as_str())) {
-                lines.push(summary);
-                lines.push(String::new());
-            }
-            lines.extend(stale.into_iter().map(|review| {
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending artist reviews older than 7 days",
+            "No stale artist reviews",
+            &stale,
+            |review| review.source.as_str(),
+            |review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} | created {}",
                     review.title,
@@ -649,8 +642,8 @@ impl App {
                     review.artist_count,
                     format_local_timestamp(review.created_at)
                 )
-            }));
-        }
+            },
+        );
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title(
                 "Stale Artist Reviews",
@@ -668,20 +661,12 @@ impl App {
             10,
         )?;
         let recent_count = recent.len();
-        let mut lines = vec![
-            "Pending artist reviews created in the last 24 hours".to_string(),
-            String::new(),
-        ];
-        if recent.is_empty() {
-            lines.push("No recent artist reviews".to_string());
-        } else {
-            if let Some(summary) =
-                dominant_source_summary(recent.iter().map(|review| review.source.as_str()))
-            {
-                lines.push(summary);
-                lines.push(String::new());
-            }
-            lines.extend(recent.into_iter().map(|review| {
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending artist reviews created in the last 24 hours",
+            "No recent artist reviews",
+            &recent,
+            |review| review.source.as_str(),
+            |review| {
                 format!(
                     "{} [{}] | review={} | {} | key={} | {} | created {}",
                     review.title,
@@ -692,8 +677,8 @@ impl App {
                     review.artist_count,
                     format_local_timestamp(review.created_at)
                 )
-            }));
-        }
+            },
+        );
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title(
                 "Recent Artist Reviews",
