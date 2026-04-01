@@ -2080,6 +2080,142 @@ fn likely_same_artist_includes_normalized_website_support() {
 }
 
 #[test]
+fn likely_same_artist_includes_shared_npub_support() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-shared-npub-review"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-shared-npub-review"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-shared-npub-review', 'https://example.com/shared-npub.xml', 'Shared Npub Review', 'shared npub review', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert canonical feed");
+    stophammer::db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-shared-npub-review",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-shared-npub-review".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-shared-npub-review".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1sharedreview".into(),
+            source: "rss_txt".into(),
+            extraction_path: "feed.podcast:txt[@purpose='npub']".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("insert canonical npub");
+
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-shared-npub-review"))
+            .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-shared-npub-review"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-shared-npub-review', 'feed-shared-npub-review', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+    conn.execute(
+        "INSERT INTO feed_payment_routes \
+         (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+         VALUES ('feed-shared-npub-review', 'HeyCitizen', 'lnaddress', 'heycitizen@example.com', NULL, NULL, 100, 0)",
+        [],
+    )
+    .expect("insert feed route");
+
+    let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        Some("feed-shared-npub-variant"),
+    )
+    .expect("variant feed credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-shared-npub-variant', 'https://example.com/shared-npub-variant.xml', 'Shared Npub Variant', 'shared npub variant', ?1, ?2, ?2)",
+        rusqlite::params![variant_feed_credit.id, now],
+    )
+    .expect("insert variant feed");
+    stophammer::db::replace_source_entity_ids_for_feed(
+        &conn,
+        "feed-shared-npub-variant",
+        &[stophammer::model::SourceEntityIdClaim {
+            id: None,
+            feed_guid: "feed-shared-npub-variant".into(),
+            entity_type: "feed".into(),
+            entity_id: "feed-shared-npub-variant".into(),
+            position: 0,
+            scheme: "nostr_npub".into(),
+            value: "npub1sharedreview".into(),
+            source: "rss_txt".into(),
+            extraction_path: "feed.podcast:txt[@purpose='npub']".into(),
+            observed_at: now,
+        }],
+    )
+    .expect("insert variant npub");
+
+    let wallet_stats =
+        stophammer::db::resolve_wallet_identity_for_feed(&conn, "feed-shared-npub-review")
+            .expect("resolve wallet identity");
+    assert_eq!(wallet_stats.wallets_created, 1);
+    assert_eq!(wallet_stats.artist_links_created, 1);
+
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-shared-npub-review")
+            .expect("resolve artist identity");
+    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+
+    let likely_review = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "feed-shared-npub-review",
+    )
+    .expect("list reviews")
+    .into_iter()
+    .find(|review| review.source == "likely_same_artist")
+    .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(100));
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting.contains("track_feed_name_variant"));
+    assert!(supporting.contains("wallet_name_variant"));
+    assert!(
+        supporting.contains("shared_npub"),
+        "shared feed-level npub claims should strengthen likely_same_artist"
+    );
+}
+
+#[test]
 fn collaboration_credit_raises_review_without_auto_merge() {
     let mut conn = common::test_db();
     let now = common::now();

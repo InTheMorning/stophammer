@@ -5411,6 +5411,8 @@ fn artist_review_supporting_sources(
     }
     if artists_share_external_id(conn, &target_current_ids)? {
         supporting_sources.push("shared_external_id".to_string());
+    } else if artists_share_npub_claim(conn, &target_current_ids)? {
+        supporting_sources.push("shared_npub".to_string());
     }
 
     Ok(supporting_sources)
@@ -5472,6 +5474,40 @@ fn artists_share_external_id(
             .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
         for external_id in external_ids {
             let count = external_id_artist_counts.entry(external_id).or_default();
+            *count += 1;
+            if *count >= 2 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn artists_share_npub_claim(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<bool, DbError> {
+    let mut npub_artist_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT sid.value
+         FROM artist_credit_name acn
+         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
+         JOIN feeds f ON f.artist_credit_id = ac.id
+         JOIN source_entity_ids sid
+           ON sid.feed_guid = f.feed_guid
+          AND sid.entity_type = 'feed'
+          AND sid.entity_id = f.feed_guid
+          AND sid.scheme = 'nostr_npub'
+         WHERE acn.artist_id = ?1
+           AND TRIM(sid.value) <> ''
+         ORDER BY sid.value",
+    )?;
+    for artist_id in artist_ids {
+        let npubs = stmt
+            .query_map(params![artist_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for npub in npubs {
+            let count = npub_artist_counts.entry(npub).or_default();
             *count += 1;
             if *count >= 2 {
                 return Ok(true);
@@ -5681,7 +5717,7 @@ fn artist_review_score_breakdown(
         .filter_map(|support| {
             let points = match support.as_str() {
                 "shared_external_id" => 40,
-                "wallet_name_variant" => 35,
+                "shared_npub" | "wallet_name_variant" => 35,
                 "normalized_website" | "track_feed_name_variant" => 30,
                 "contributor_name_variant" => 25,
                 "publisher_name_variant" => 20,

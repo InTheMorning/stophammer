@@ -1747,6 +1747,7 @@ For `likely_same_artist`, `supporting_sources` may include:
 - `contributor_name_variant`
 - `publisher_name_variant`
 - `normalized_website`
+- `shared_npub`
 - `shared_external_id`
 
 Current artist review sources include deterministic families such as:
