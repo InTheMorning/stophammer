@@ -517,6 +517,20 @@ pub fn counted_dialog(label: &str, count: usize, lines: Vec<String>) -> TextDial
     }
 }
 
+/// Builds the standard operator-overview dialog payload shared by review TUIs.
+#[must_use]
+pub fn operator_overview_dialog(
+    artist_total: usize,
+    wallet_total: usize,
+    hotspot_count: usize,
+    lines: Vec<String>,
+) -> TextDialog {
+    TextDialog {
+        title: format_operator_overview_title(artist_total, wallet_total, hotspot_count),
+        lines,
+    }
+}
+
 /// Centers a rectangle inside `area` by percentage.
 #[must_use]
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

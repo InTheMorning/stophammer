@@ -1185,14 +1185,12 @@ impl App {
             short_id,
             abbreviate,
         );
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_operator_overview_title(
-                artist_total,
-                wallet_total,
-                hotspot_count,
-            ),
+        self.dialog = Some(stophammer::tui::operator_overview_dialog(
+            artist_total,
+            wallet_total,
+            hotspot_count,
             lines,
-        });
+        ));
         Ok(())
     }
 
