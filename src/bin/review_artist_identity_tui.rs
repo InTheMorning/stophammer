@@ -27,9 +27,7 @@ use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
-use ratatui::widgets::{
-    Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap,
-};
+use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
 use stophammer::tui::format_local_timestamp;
@@ -872,23 +870,6 @@ fn preview_join(values: &[String], max_items: usize, max_chars: usize) -> String
     stophammer::tui::preview_join(values, max_items, max_chars, abbreviate)
 }
 
-fn focus_block<'a>(title: &'a str, is_focused: bool, accent: Color) -> Block<'a> {
-    let mut block = Block::default().borders(Borders::ALL);
-    if is_focused {
-        block = block.border_type(BorderType::Thick).border_style(
-            Style::default()
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        );
-    } else {
-        block = block.border_style(Style::default().fg(Color::DarkGray));
-    }
-    block.title(Span::styled(
-        format!(" {title} "),
-        Style::default().fg(accent).add_modifier(Modifier::BOLD),
-    ))
-}
-
 fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
     if app.reviews.is_empty() {
         return vec![ListItem::new("No pending reviews")];
@@ -1288,10 +1269,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let review_list = List::new(build_review_items(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             &review_title,
-            app.focus == Focus::Reviews,
             Color::Cyan,
+            app.focus == Focus::Reviews,
+            Style::default().fg(Color::DarkGray),
         ))
         .highlight_style(
             Style::default()
@@ -1306,10 +1288,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Layout::vertical([Constraint::Percentage(48), Constraint::Percentage(52)]).split(body[1]);
 
     let artist_list = List::new(build_artist_items(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             "Choose Main Artist",
-            app.focus == Focus::MainArtist,
             Color::Green,
+            app.focus == Focus::MainArtist,
+            Style::default().fg(Color::DarkGray),
         ))
         .highlight_style(
             Style::default()
@@ -1359,7 +1342,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let context = Paragraph::new(context_lines)
-        .block(focus_block(&context_title, false, Color::LightBlue))
+        .block(stophammer::tui::titled_block(
+            &context_title,
+            Color::LightBlue,
+            false,
+            Style::default().fg(Color::DarkGray),
+        ))
         .wrap(Wrap { trim: false });
     frame.render_widget(context, middle[1]);
 
@@ -1375,10 +1363,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         },
     );
     let evidence = Paragraph::new(build_evidence_lines(app))
-        .block(focus_block(
+        .block(stophammer::tui::titled_block(
             &evidence_title,
-            app.focus == Focus::Evidence,
             Color::LightBlue,
+            app.focus == Focus::Evidence,
+            Style::default().fg(Color::DarkGray),
         ))
         .wrap(Wrap { trim: false })
         .scroll((app.evidence_scroll, 0));

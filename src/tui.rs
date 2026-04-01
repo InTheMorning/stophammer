@@ -12,7 +12,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::prelude::{Color, Modifier, Style};
-use ratatui::text::Line;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 use time::macros::format_description;
 use time::{OffsetDateTime, UtcOffset};
@@ -570,6 +570,56 @@ pub fn operator_overview_dialog(
         title: format_operator_overview_title(artist_total, wallet_total, hotspot_count),
         lines,
     }
+}
+
+/// Border style for interactive TUI panels.
+#[must_use]
+pub fn block_style(active: bool) -> Style {
+    if active {
+        Style::default()
+            .fg(Color::White)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    }
+}
+
+/// Border type for interactive TUI panels.
+#[must_use]
+pub fn block_border_type(active: bool) -> BorderType {
+    if active {
+        BorderType::Thick
+    } else {
+        BorderType::Plain
+    }
+}
+
+/// Styled panel title line shared by review TUIs.
+#[must_use]
+pub fn styled_title(text: &str, color: Color) -> Line<'static> {
+    Line::from(Span::styled(
+        text.to_string(),
+        Style::default().fg(color).add_modifier(Modifier::BOLD),
+    ))
+}
+
+/// Builds a titled panel block with shared active/inactive styling.
+#[must_use]
+pub fn titled_block(
+    title: &str,
+    title_color: Color,
+    active: bool,
+    inactive_border_style: Style,
+) -> Block<'static> {
+    Block::default()
+        .borders(Borders::ALL)
+        .title(styled_title(title, title_color))
+        .border_style(if active {
+            block_style(true)
+        } else {
+            inactive_border_style
+        })
+        .border_type(block_border_type(active))
 }
 
 /// Centers a rectangle inside `area` by percentage.

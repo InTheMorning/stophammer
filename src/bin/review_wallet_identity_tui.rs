@@ -55,7 +55,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::prelude::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use rusqlite::{Connection, OptionalExtension, params};
 use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
@@ -1441,31 +1441,6 @@ fn shared_preview(left: &[String], right: &[String], max_items: usize, max_chars
     preview_join(&shared, max_items, max_chars)
 }
 
-fn block_style(active: bool) -> Style {
-    if active {
-        Style::default()
-            .fg(Color::White)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    }
-}
-
-fn block_border_type(active: bool) -> BorderType {
-    if active {
-        BorderType::Thick
-    } else {
-        BorderType::Plain
-    }
-}
-
-fn styled_title(text: &str, color: Color) -> Line<'static> {
-    Line::from(Span::styled(
-        text.to_string(),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    ))
-}
-
 fn section_line(text: &str, color: Color) -> Line<'static> {
     Line::from(vec![
         Span::styled("■ ", Style::default().fg(color)),
@@ -2276,8 +2251,8 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             Block::default()
                 .borders(Borders::ALL)
                 .title(group_title)
-                .border_style(block_style(app.focus == Focus::Groups))
-                .border_type(block_border_type(app.focus == Focus::Groups)),
+                .border_style(stophammer::tui::block_style(app.focus == Focus::Groups))
+                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Groups)),
         )
         .highlight_style(
             Style::default()
@@ -2310,7 +2285,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title(&task_title, Color::Cyan)),
+                .title(stophammer::tui::styled_title(&task_title, Color::Cyan)),
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(task, center[0]);
@@ -2338,7 +2313,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(styled_title(&source_title, Color::Green)),
+            .title(stophammer::tui::styled_title(&source_title, Color::Green)),
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(source_card, compare[0]);
@@ -2361,7 +2336,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(styled_title(&candidate_title, Color::Yellow)),
+            .title(stophammer::tui::styled_title(&candidate_title, Color::Yellow)),
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(candidate_card, compare[1]);
@@ -2401,9 +2376,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title(&source_list_title, Color::Green))
-                .border_style(block_style(app.focus == Focus::SourceWallets))
-                .border_type(block_border_type(app.focus == Focus::SourceWallets)),
+                .title(stophammer::tui::styled_title(&source_list_title, Color::Green))
+                .border_style(stophammer::tui::block_style(app.focus == Focus::SourceWallets))
+                .border_type(stophammer::tui::block_border_type(app.focus == Focus::SourceWallets)),
         )
         .highlight_style(
             Style::default()
@@ -2446,9 +2421,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title(&candidate_list_title, Color::Yellow))
-                .border_style(block_style(app.focus == Focus::Candidates))
-                .border_type(block_border_type(app.focus == Focus::Candidates)),
+                .title(stophammer::tui::styled_title(&candidate_list_title, Color::Yellow))
+                .border_style(stophammer::tui::block_style(app.focus == Focus::Candidates))
+                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Candidates)),
         )
         .highlight_style(
             Style::default()
@@ -2497,9 +2472,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title(&feed_list_title, Color::Cyan))
-                .border_style(block_style(app.focus == Focus::Feeds))
-                .border_type(block_border_type(app.focus == Focus::Feeds)),
+                .title(stophammer::tui::styled_title(&feed_list_title, Color::Cyan))
+                .border_style(stophammer::tui::block_style(app.focus == Focus::Feeds))
+                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Feeds)),
         )
         .highlight_style(
             Style::default()
@@ -2543,7 +2518,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title(
+                .title(stophammer::tui::styled_title(
                     &app.current_feed().map_or_else(
                         || "Evidence".to_string(),
                         |feed| {
@@ -2560,8 +2535,8 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                     ),
                     Color::Magenta,
                 ))
-                .border_style(block_style(app.focus == Focus::Evidence))
-                .border_type(block_border_type(app.focus == Focus::Evidence)),
+                .border_style(stophammer::tui::block_style(app.focus == Focus::Evidence))
+                .border_type(stophammer::tui::block_border_type(app.focus == Focus::Evidence)),
         )
         .highlight_style(
             Style::default()
