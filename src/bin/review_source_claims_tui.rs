@@ -124,6 +124,20 @@ fn dominant_feed_claim_family_summary(feed: &FeedQueueRow) -> String {
     )
 }
 
+fn feed_family_subset_summary(feeds: &[FeedQueueRow]) -> Option<String> {
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for feed in feeds {
+        if let Some((label, _, _)) = dominant_feed_claim_family(feed) {
+            *counts.entry(label).or_default() += 1;
+        }
+    }
+    let total = counts.values().sum::<usize>();
+    let (label, count) = counts.into_iter().max_by_key(|(_, count)| *count)?;
+    Some(format!(
+        "dominant feed family in this subset: {label} ({count}/{total})"
+    ))
+}
+
 fn current_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     let current_idx = app.feed_state.selected()?;
     let (label, _, _) = dominant_feed_claim_family(app.feeds.get(current_idx)?)?;
@@ -429,6 +443,10 @@ impl App {
             vec![
                 format!("Feed: {}", feed_row.title),
                 format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
+                current_family_position(self).map_or_else(
+                    || "Family: none".to_string(),
+                    |(label, position, total)| format!("Family: {label} ({position}/{total})"),
+                ),
                 format!(
                     "Tracks: {}  Source claims: {}  Resolved overlays: {}",
                     snapshot.tracks.len(),
@@ -539,6 +557,10 @@ impl App {
             String::new(),
             "Claim hotspots:".to_string(),
         ];
+        if let Some(summary) = feed_family_subset_summary(&self.feeds) {
+            lines.push(summary);
+            lines.push(String::new());
+        }
         lines.extend(claim_hotspots);
         lines.push(String::new());
         lines.push("Claim family mix:".to_string());
@@ -565,6 +587,12 @@ impl App {
         if self.feeds.is_empty() {
             lines.push("No source-claims hotspots queued.".to_string());
         } else {
+            if let Some(summary) = feed_family_subset_summary(
+                &self.feeds.iter().take(10).cloned().collect::<Vec<_>>(),
+            ) {
+                lines.push(summary);
+                lines.push(String::new());
+            }
             let total_claim_load: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
             lines.extend(self.feeds.iter().take(10).map(|feed| {
                 let share = if total_claim_load > 0 {
@@ -598,28 +626,17 @@ impl App {
         let total_claim_load: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
         let total_resolved_load: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
         let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
-        let claim_family_totals = load_queue_claim_family_totals(
-            &self.conn,
-            &self
-                .feeds
-                .iter()
-                .map(|feed| feed.feed_guid.clone())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or(ClaimFamilyTotals {
-            contributors: 0,
-            entity_ids: 0,
-            links: 0,
-            releases: 0,
-            platforms: 0,
-            enclosures: 0,
-        });
+        let claim_family_totals = self.queue_claim_family_totals;
         let mut lines = vec![
             format!(
                 "Queued feeds: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
                 feed_count, total_tracks, total_claim_load, total_resolved_load
             ),
         ];
+        if let Some(summary) = feed_family_subset_summary(&self.feeds) {
+            lines.push(summary);
+        }
+        lines.push(String::new());
         if self.feeds.is_empty() {
             lines.push("Backlog idle: no feeds with source claims or resolved overlays are queued.".to_string());
             self.dialog = Some(stophammer::tui::text_dialog(
