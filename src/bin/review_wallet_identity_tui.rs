@@ -2227,7 +2227,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .constraints([
             Constraint::Length(3),
             Constraint::Min(0),
-            Constraint::Length(1),
+            Constraint::Length(2),
         ])
         .split(frame.area());
 
@@ -2518,8 +2518,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(
-        "Wallet Review TUI  TAB/LEFT/RIGHT: focus  [ / ]: merge target  UP/DOWN: move  ENTER: toggle tree item  A: apply  U: undo batch  M: merge into main  X: do not merge  C: cycle class  V: cycle confidence  Z: revert edits  R: reload  Q: quit",
-    );
+        "tab/left/right focus  [ ] target  arrows move  enter toggle  a apply  u undo  m merge  x block  c/v/z edit  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+    )
+    .wrap(Wrap { trim: false });
     frame.render_widget(footer, root[2]);
 
     if let Some(dialog) = &app.dialog {

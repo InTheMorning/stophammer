@@ -1419,8 +1419,9 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(evidence, body[2]);
 
     let footer = Paragraph::new(
-        "TAB/LEFT/RIGHT: focus  UP/DOWN: move  HOME/END: jump  M: merge into main artist  X: do not merge  R: reload  Q: quit",
-    );
+        "tab focus  arrows move  home/end jump  m merge  x block  o overview  p playbook  s summary  h hotspots  t stale  y recent  ? help  r reload  q quit",
+    )
+    .wrap(Wrap { trim: false });
     frame.render_widget(footer, layout[2]);
 
     if let Some(dialog) = &app.dialog {
