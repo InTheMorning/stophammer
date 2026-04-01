@@ -1716,6 +1716,7 @@ Returns the current pending artist-identity review queue.
       "confidence": "high_confidence",
       "explanation": "Multiple same-feed evidence families agree that these artist rows likely describe the same artist, but review is still required.",
       "supporting_sources": ["track_feed_name_variant", "wallet_name_variant"],
+      "conflict_reasons": [],
       "score": 65,
       "score_breakdown": [
         { "source": "track_feed_name_variant", "points": 30 },
@@ -1737,6 +1738,7 @@ Each pending artist review also includes:
 Scored review sources such as `likely_same_artist` may also include:
 
 - `supporting_sources`
+- `conflict_reasons`
 - `score`
 - `score_breakdown`
 
@@ -1749,6 +1751,10 @@ For `likely_same_artist`, `supporting_sources` may include:
 - `normalized_website`
 - `shared_npub`
 - `shared_external_id`
+
+For `likely_same_artist`, `conflict_reasons` may include:
+
+- `conflicting_external_id`
 
 Current artist review sources include deterministic families such as:
 
@@ -1796,8 +1802,9 @@ Returns the current pending wallet-identity review queue.
       "class_confidence": "provisional",
       "source": "likely_wallet_owner_match",
       "confidence": "high_confidence",
-      "explanation": "Multiple wallets share the same normalized alias and also appear on the same feed, so they likely belong to one owner but still require review.",
+      "explanation": "Multiple wallets share the same normalized alias and also share stronger feed or artist-link evidence, so they likely belong to one owner but still require review.",
       "supporting_sources": ["cross_wallet_alias", "shared_feed_overlap"],
+      "conflict_reasons": [],
       "score": 65,
       "score_breakdown": [
         { "source": "cross_wallet_alias", "points": 40 },
@@ -1834,6 +1841,7 @@ Each pending wallet review also includes:
 Scored review sources such as `likely_wallet_owner_match` may also include:
 
 - `supporting_sources`
+- `conflict_reasons`
 - `score`
 - `score_breakdown`
 
@@ -1842,6 +1850,10 @@ For `likely_wallet_owner_match`, `supporting_sources` may include:
 - `cross_wallet_alias`
 - `shared_feed_overlap`
 - `shared_artist_link`
+
+For `likely_wallet_owner_match`, `conflict_reasons` may include:
+
+- `conflicting_artist_link`
 
 Current wallet review sources include:
 

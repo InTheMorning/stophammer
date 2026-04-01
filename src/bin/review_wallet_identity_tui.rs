@@ -2366,6 +2366,13 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                                     preview_join(&review.supporting_sources, 2, 22)
                                 );
                             }
+                            if !review.conflict_reasons.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " conflicts={}",
+                                    preview_join(&review.conflict_reasons, 2, 18)
+                                );
+                            }
                             if !review.score_breakdown.is_empty() {
                                 let _ = write!(
                                     suffix,
@@ -2414,7 +2421,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .filter(|candidate| candidate.source == group.source)
                 .count();
             let detail = format!(
-                "{}  {}  score={}  family={}  {}  {} wallets  newest {}  oldest {}{}{}",
+                "{}  {}  score={}  family={}  {}  {} wallets  newest {}  oldest {}{}{}{}",
                 group.source,
                 group
                     .reviews
@@ -2445,6 +2452,17 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         format!(
                             "  support={}",
                             preview_join(&review.supporting_sources, 2, 20)
+                        )
+                    })
+                    .unwrap_or_default(),
+                group
+                    .reviews
+                    .first()
+                    .filter(|review| !review.conflict_reasons.is_empty())
+                    .map(|review| {
+                        format!(
+                            "  conflicts={}",
+                            preview_join(&review.conflict_reasons, 2, 18)
                         )
                     })
                     .unwrap_or_default(),

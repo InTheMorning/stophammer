@@ -4327,6 +4327,7 @@ pub struct ArtistIdentityCandidateGroup {
     pub artist_ids: Vec<String>,
     pub artist_names: Vec<String>,
     pub supporting_sources: Vec<String>,
+    pub conflict_reasons: Vec<String>,
     pub score: Option<u16>,
     pub score_breakdown: Vec<ReviewScoreComponent>,
     pub review_id: Option<i64>,
@@ -4362,6 +4363,7 @@ pub struct ArtistIdentityReviewItem {
     pub confidence: String,
     pub explanation: String,
     pub supporting_sources: Vec<String>,
+    pub conflict_reasons: Vec<String>,
     pub score: Option<u16>,
     pub score_breakdown: Vec<ReviewScoreComponent>,
     pub name_key: String,
@@ -4385,6 +4387,7 @@ pub struct ArtistIdentityPendingReview {
     pub confidence: String,
     pub explanation: String,
     pub supporting_sources: Vec<String>,
+    pub conflict_reasons: Vec<String>,
     pub score: Option<u16>,
     pub score_breakdown: Vec<ReviewScoreComponent>,
     pub name_key: String,
@@ -5247,14 +5250,11 @@ fn collect_artist_groups_by_likely_same_artist_for_feed(
         if artist_ids.len() <= 1 || sources.len() < 2 {
             continue;
         }
-        if artists_have_conflicting_external_ids(conn, &artist_ids)? {
-            continue;
-        }
         likely_groups.push(ArtistIdentityEvidenceGroup {
-                source: "likely_same_artist".to_string(),
-                name_key,
-                evidence_key: feed_guid.to_string(),
-                artist_ids,
+            source: "likely_same_artist".to_string(),
+            name_key,
+            evidence_key: feed_guid.to_string(),
+            artist_ids,
         });
     }
 
@@ -5318,14 +5318,6 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
             | "contributor_name_variant"
             | "publisher_name_variant"
     )
-}
-
-fn artist_identity_review_confidence(source: &str) -> &'static str {
-    match source {
-        "wallet_name_variant" | "likely_same_artist" => "high_confidence",
-        "collaboration_credit" => "blocked",
-        _ => "review_required",
-    }
 }
 
 fn artist_identity_review_explanation(source: &str) -> &'static str {
@@ -5547,15 +5539,46 @@ fn artists_have_conflicting_external_ids(
         .any(|values| values.len() > 1))
 }
 
-fn wallet_review_confidence(source: &str) -> &'static str {
+fn artist_review_confidence(source: &str, conflict_reasons: &[String]) -> &'static str {
     match source {
+        "likely_same_artist" if !conflict_reasons.is_empty() => "blocked",
+        "wallet_name_variant" | "likely_same_artist" => "high_confidence",
+        "collaboration_credit" => "blocked",
+        _ => "review_required",
+    }
+}
+
+fn wallet_review_confidence(source: &str, conflict_reasons: &[String]) -> &'static str {
+    match source {
+        "likely_wallet_owner_match" if !conflict_reasons.is_empty() => "blocked",
         "likely_wallet_owner_match" => "high_confidence",
         _ => "review_required",
     }
 }
 
-fn wallet_review_explanation(source: &str) -> &'static str {
+fn artist_identity_review_explanation_with_conflicts(
+    source: &str,
+    conflict_reasons: &[String],
+) -> &'static str {
+    if source == "likely_same_artist"
+        && conflict_reasons
+            .iter()
+            .any(|reason| reason == "conflicting_external_id")
+    {
+        return "Multiple evidence families agree these artist rows are related, but conflicting external IDs block automatic escalation.";
+    }
+    artist_identity_review_explanation(source)
+}
+
+fn wallet_review_explanation(source: &str, conflict_reasons: &[String]) -> &'static str {
     match source {
+        "likely_wallet_owner_match"
+            if conflict_reasons
+                .iter()
+                .any(|reason| reason == "conflicting_artist_link") =>
+        {
+            "Multiple wallets share the same normalized alias, but conflicting artist links block likely-owner escalation."
+        }
         "cross_wallet_alias" => {
             "Multiple wallets share the same normalized alias across feed evidence, but ownership is still ambiguous."
         }
@@ -5589,6 +5612,18 @@ fn wallets_share_artist_link(conn: &Connection, wallet_ids: &[String]) -> Result
         }
     }
     Ok(false)
+}
+
+fn artist_review_conflict_reasons(
+    conn: &Connection,
+    source: &str,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<Vec<String>, DbError> {
+    let mut conflict_reasons = Vec::new();
+    if source == "likely_same_artist" && artists_have_conflicting_external_ids(conn, artist_ids)? {
+        conflict_reasons.push("conflicting_external_id".to_string());
+    }
+    Ok(conflict_reasons)
 }
 
 fn wallets_have_conflicting_artist_links(
@@ -5694,6 +5729,19 @@ fn wallet_review_supporting_sources(
         }
         _ => Ok(vec![]),
     }
+}
+
+fn wallet_review_conflict_reasons(
+    conn: &Connection,
+    source: &str,
+    wallet_ids: &[String],
+) -> Result<Vec<String>, DbError> {
+    let mut conflict_reasons = Vec::new();
+    if source == "likely_wallet_owner_match" && wallets_have_conflicting_artist_links(conn, wallet_ids)?
+    {
+        conflict_reasons.push("conflicting_artist_link".to_string());
+    }
+    Ok(conflict_reasons)
 }
 
 fn review_score_from_breakdown(score_breakdown: &[ReviewScoreComponent]) -> Option<u16> {
@@ -6645,6 +6693,10 @@ pub fn explain_artist_identity_for_feed(
                 &artist_ids,
             )
             .unwrap_or_default();
+            let artist_id_set = artist_ids.iter().cloned().collect();
+            let conflict_reasons =
+                artist_review_conflict_reasons(conn, &group.source, &artist_id_set)
+                    .unwrap_or_default();
             let score_breakdown = artist_review_score_breakdown(&group.source, &supporting_sources);
             let score = review_score_from_breakdown(&score_breakdown);
             let review = get_artist_identity_review_for_subject(
@@ -6656,6 +6708,13 @@ pub fn explain_artist_identity_for_feed(
             )
             .ok()
             .flatten();
+            let derived_confidence =
+                artist_review_confidence(&group.source, &conflict_reasons).to_string();
+            let derived_explanation = artist_identity_review_explanation_with_conflicts(
+                &group.source,
+                &conflict_reasons,
+            )
+            .to_string();
             ArtistIdentityCandidateGroup {
                 source: group.source,
                 name_key: group.name_key,
@@ -6663,12 +6722,19 @@ pub fn explain_artist_identity_for_feed(
                 artist_ids,
                 artist_names,
                 supporting_sources,
+                conflict_reasons: conflict_reasons.clone(),
                 score,
                 score_breakdown,
                 review_id: review.as_ref().map(|item| item.review_id),
                 review_status: review.as_ref().map(|item| item.status.clone()),
-                confidence: review.as_ref().map(|item| item.confidence.clone()),
-                explanation: review.as_ref().map(|item| item.explanation.clone()),
+                confidence: review
+                    .as_ref()
+                    .map(|item| item.confidence.clone())
+                    .or(Some(derived_confidence)),
+                explanation: review
+                    .as_ref()
+                    .map(|item| item.explanation.clone())
+                    .or(Some(derived_explanation)),
                 override_type: review.as_ref().and_then(|item| item.override_type.clone()),
                 target_artist_id: review
                     .as_ref()
@@ -6773,6 +6839,16 @@ pub fn list_artist_identity_reviews_for_feed(
             &review.name_key,
             &review.artist_ids,
         )?;
+        let artist_id_set = review.artist_ids.iter().cloned().collect();
+        review.conflict_reasons =
+            artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+        review.confidence =
+            artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+        review.explanation = artist_identity_review_explanation_with_conflicts(
+            &review.source,
+            &review.conflict_reasons,
+        )
+        .to_string();
         review.score_breakdown =
             artist_review_score_breakdown(&review.source, &review.supporting_sources);
         review.score = review_score_from_breakdown(&review.score_breakdown);
@@ -6826,6 +6902,16 @@ pub fn get_artist_identity_review(
                 &review.name_key,
                 &review.artist_ids,
             )?;
+            let artist_id_set = review.artist_ids.iter().cloned().collect();
+            review.conflict_reasons =
+                artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+            review.confidence =
+                artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+            review.explanation = artist_identity_review_explanation_with_conflicts(
+                &review.source,
+                &review.conflict_reasons,
+            )
+            .to_string();
             review.score_breakdown =
                 artist_review_score_breakdown(&review.source, &review.supporting_sources);
             review.score = review_score_from_breakdown(&review.score_breakdown);
@@ -6885,6 +6971,16 @@ pub fn get_artist_identity_review_for_subject(
                 &review.name_key,
                 &review.artist_ids,
             )?;
+            let artist_id_set = review.artist_ids.iter().cloned().collect();
+            review.conflict_reasons =
+                artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+            review.confidence =
+                artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+            review.explanation = artist_identity_review_explanation_with_conflicts(
+                &review.source,
+                &review.conflict_reasons,
+            )
+            .to_string();
             review.score_breakdown =
                 artist_review_score_breakdown(&review.source, &review.supporting_sources);
             review.score = review_score_from_breakdown(&review.score_breakdown);
@@ -6941,17 +7037,24 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
         let supporting_sources =
             artist_review_supporting_sources(conn, &feed_guid, &source, &name_key, &artist_ids)?;
+        let artist_id_set = artist_ids.iter().cloned().collect();
+        let conflict_reasons = artist_review_conflict_reasons(conn, &source, &artist_id_set)?;
         let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
-            confidence: artist_identity_review_confidence(&source).to_string(),
-            explanation: artist_identity_review_explanation(&source).to_string(),
+            confidence: artist_review_confidence(&source, &conflict_reasons).to_string(),
+            explanation: artist_identity_review_explanation_with_conflicts(
+                &source,
+                &conflict_reasons,
+            )
+            .to_string(),
             score: review_score_from_breakdown(&score_breakdown),
             score_breakdown,
             supporting_sources,
+            conflict_reasons,
             name_key,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
@@ -7026,16 +7129,23 @@ pub fn list_recent_pending_artist_identity_reviews(
         let artist_ids = serde_json::from_str::<Vec<String>>(&artist_ids_json)?;
         let supporting_sources =
             artist_review_supporting_sources(conn, &feed_guid, &source, &name_key, &artist_ids)?;
+        let artist_id_set = artist_ids.iter().cloned().collect();
+        let conflict_reasons = artist_review_conflict_reasons(conn, &source, &artist_id_set)?;
         let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
-            confidence: artist_identity_review_confidence(&source).to_string(),
-            explanation: artist_identity_review_explanation(&source).to_string(),
+            confidence: artist_review_confidence(&source, &conflict_reasons).to_string(),
+            explanation: artist_identity_review_explanation_with_conflicts(
+                &source,
+                &conflict_reasons,
+            )
+            .to_string(),
             score: review_score_from_breakdown(&score_breakdown),
             supporting_sources,
+            conflict_reasons,
             score_breakdown,
             name_key,
             evidence_key: row.get(5)?,
@@ -7088,9 +7198,10 @@ pub fn summarize_pending_artist_identity_review_confidence(
     conn: &Connection,
 ) -> Result<Vec<PendingReviewConfidenceSummary>, DbError> {
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
-    for summary in summarize_pending_artist_identity_reviews(conn)? {
-        *counts.entry(artist_identity_review_confidence(&summary.source).to_string())
-            .or_default() += summary.count;
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("pending review limit exceeds usize: {err}")))?;
+    for summary in list_pending_artist_identity_reviews(conn, max_limit)? {
+        *counts.entry(summary.confidence).or_default() += 1;
     }
     let mut summary = counts
         .into_iter()
@@ -7426,9 +7537,10 @@ fn artist_identity_review_row(
         review_id: row.get(0)?,
         feed_guid: row.get(1)?,
         source: source.clone(),
-        confidence: artist_identity_review_confidence(&source).to_string(),
-        explanation: artist_identity_review_explanation(&source).to_string(),
+        confidence: String::new(),
+        explanation: String::new(),
         supporting_sources: vec![],
+        conflict_reasons: vec![],
         score: None,
         score_breakdown: vec![],
         name_key: row.get(3)?,
@@ -12820,9 +12932,6 @@ pub fn generate_wallet_review_items(conn: &Connection) -> Result<usize, DbError>
             .filter(|wallet_id| !wallet_id.is_empty())
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
-        if wallets_have_conflicting_artist_links(conn, &wallet_ids)? {
-            continue;
-        }
         for wallet_id in &wallet_ids {
             if insert_likely_wallet_owner_match_review(
                 conn,
@@ -12922,13 +13031,9 @@ fn generate_wallet_review_items_for_feed(
             .filter(|wid| !wid.is_empty())
             .map(ToOwned::to_owned)
             .collect::<Vec<_>>();
-        let conflicting_artist_links = wallets_have_conflicting_artist_links(conn, &wallet_ids)?;
         for wid in &wallet_ids {
             if insert_cross_wallet_alias_review(conn, wid, &alias, &wallet_ids, now)? {
                 created += 1;
-            }
-            if conflicting_artist_links {
-                continue;
             }
             if insert_likely_wallet_owner_match_review(
                 conn,
@@ -13431,6 +13536,7 @@ pub struct WalletReviewSummary {
     pub confidence: String,
     pub explanation: String,
     pub supporting_sources: Vec<String>,
+    pub conflict_reasons: Vec<String>,
     pub score: Option<u16>,
     pub score_breakdown: Vec<ReviewScoreComponent>,
     pub evidence_key: String,
@@ -13453,6 +13559,7 @@ pub struct WalletReviewItem {
     pub confidence: String,
     pub explanation: String,
     pub supporting_sources: Vec<String>,
+    pub conflict_reasons: Vec<String>,
     pub score: Option<u16>,
     pub score_breakdown: Vec<ReviewScoreComponent>,
     pub evidence_key: String,
@@ -13667,6 +13774,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
         let endpoint_summary_json: String = row.get(8)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
@@ -13675,8 +13783,9 @@ fn list_pending_wallet_reviews_with_max_created_at(
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source).to_string(),
-            explanation: wallet_review_explanation(&source).to_string(),
+            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
+            conflict_reasons,
             score: review_score_from_breakdown(&score_breakdown),
             score_breakdown,
             supporting_sources,
@@ -13732,6 +13841,14 @@ pub fn get_wallet_review_summary(
                         Box::new(std::io::Error::other(err.to_string())),
                     )
                 })?;
+            let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)
+                .map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        7,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::other(err.to_string())),
+                    )
+                })?;
             let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
             Ok(WalletReviewSummary {
                 id: row.get(0)?,
@@ -13740,8 +13857,9 @@ pub fn get_wallet_review_summary(
                 wallet_class: row.get(3)?,
                 class_confidence: row.get(4)?,
                 source: source.clone(),
-                confidence: wallet_review_confidence(&source).to_string(),
-                explanation: wallet_review_explanation(&source).to_string(),
+                confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+                explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
+                conflict_reasons,
                 score: review_score_from_breakdown(&score_breakdown),
                 score_breakdown,
                 supporting_sources,
@@ -13807,6 +13925,7 @@ pub fn list_recent_pending_wallet_reviews(
         let endpoint_summary_json: String = row.get(8)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
@@ -13815,8 +13934,9 @@ pub fn list_recent_pending_wallet_reviews(
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source).to_string(),
-            explanation: wallet_review_explanation(&source).to_string(),
+            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
+            conflict_reasons,
             score: review_score_from_breakdown(&score_breakdown),
             score_breakdown,
             supporting_sources,
@@ -13871,9 +13991,10 @@ pub fn summarize_pending_wallet_review_confidence(
     conn: &Connection,
 ) -> Result<Vec<PendingReviewConfidenceSummary>, DbError> {
     let mut counts = std::collections::BTreeMap::<String, usize>::new();
-    for summary in summarize_pending_wallet_reviews(conn)? {
-        *counts.entry(wallet_review_confidence(&summary.source).to_string())
-            .or_default() += summary.count;
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("wallet review limit exceeds usize: {err}")))?;
+    for summary in list_pending_wallet_reviews(conn, max_limit)? {
+        *counts.entry(summary.confidence).or_default() += 1;
     }
     let mut summary = counts
         .into_iter()
@@ -13988,13 +14109,15 @@ pub fn list_wallet_reviews_for_wallet(
         let endpoint_summary_json: String = row.get(5)?;
         let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
+        let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
         reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source).to_string(),
-            explanation: wallet_review_explanation(&source).to_string(),
+            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
+            conflict_reasons,
             score: review_score_from_breakdown(&score_breakdown),
             score_breakdown,
             supporting_sources,

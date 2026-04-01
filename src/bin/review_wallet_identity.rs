@@ -312,6 +312,9 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
                 r.supporting_sources.join(", ")
             );
         }
+        if !r.conflict_reasons.is_empty() {
+            println!("  conflict_reasons={}", r.conflict_reasons.join(", "));
+        }
         if !r.score_breakdown.is_empty() {
             println!(
                 "  score_breakdown={}",
@@ -467,6 +470,12 @@ fn show_review(
             println!(
                 "  supporting_sources={}",
                 review_summary.supporting_sources.join(", ")
+            );
+        }
+        if !review_summary.conflict_reasons.is_empty() {
+            println!(
+                "  conflict_reasons={}",
+                review_summary.conflict_reasons.join(", ")
             );
         }
         if !review_summary.score_breakdown.is_empty() {

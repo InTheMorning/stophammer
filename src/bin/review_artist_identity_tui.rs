@@ -1128,6 +1128,12 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     Style::default().fg(Color::DarkGray),
                 )));
             }
+            if !review.conflict_reasons.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("conflicts={}", preview_join(&review.conflict_reasons, 2, 36)),
+                    Style::default().fg(Color::Red),
+                )));
+            }
             ListItem::new(lines)
         })
         .collect()
@@ -1456,6 +1462,13 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                                     preview_join(&review.supporting_sources, 2, 22)
                                 );
                             }
+                            if !review.conflict_reasons.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " conflicts={}",
+                                    preview_join(&review.conflict_reasons, 2, 18)
+                                );
+                            }
                             if !review.score_breakdown.is_empty() {
                                 let _ = write!(
                                     suffix,
@@ -1570,6 +1583,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 Span::styled(
                     preview_join(&snapshot.review.supporting_sources, 4, 52),
                     Style::default().fg(Color::White),
+                ),
+            ]));
+        }
+        if !snapshot.review.conflict_reasons.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Conflicts: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    preview_join(&snapshot.review.conflict_reasons, 4, 52),
+                    Style::default().fg(Color::Red),
                 ),
             ]));
         }

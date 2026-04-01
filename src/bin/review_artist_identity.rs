@@ -560,6 +560,9 @@ fn print_feed_plan_text(report: &FeedPlanReport) {
                 group.supporting_sources.join(", ")
             );
         }
+        if !group.conflict_reasons.is_empty() {
+            println!("      conflict_reasons: {}", group.conflict_reasons.join(", "));
+        }
         if let Some(review_id) = group.review_id {
             println!(
                 "      review_id={}  status={:?}  confidence={:?}  override={:?}  target={:?}",
@@ -667,6 +670,9 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
                 review.supporting_sources.join(", ")
             );
         }
+        if !review.conflict_reasons.is_empty() {
+            println!("  conflict_reasons={}", review.conflict_reasons.join(", "));
+        }
         if !review.score_breakdown.is_empty() {
             println!(
                 "  score_breakdown={}",
@@ -697,6 +703,9 @@ fn print_review_item_text(report: &ReviewItemReport) {
             "  supporting_sources={}",
             review.supporting_sources.join(", ")
         );
+    }
+    if !review.conflict_reasons.is_empty() {
+        println!("  conflict_reasons={}", review.conflict_reasons.join(", "));
     }
     if !review.score_breakdown.is_empty() {
         println!(

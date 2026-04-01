@@ -1289,11 +1289,22 @@ fn likely_wallet_owner_match_skips_conflicting_artist_links() {
 
     let reviews = db::list_pending_wallet_reviews(&conn, 10).unwrap();
     assert!(reviews.iter().any(|review| review.source == "cross_wallet_alias"));
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_wallet_owner_match")
+        .expect("blocked likely wallet review");
+    assert_eq!(likely_review.confidence, "blocked");
     assert!(
-        !reviews
-            .iter()
-            .any(|review| review.source == "likely_wallet_owner_match"),
-        "same-alias wallets with conflicting artist links should not escalate to likely ownership"
+        likely_review
+            .conflict_reasons
+            .contains(&"conflicting_artist_link".to_string()),
+        "conflicting artist links should be surfaced explicitly"
+    );
+    assert!(
+        likely_review
+            .explanation
+            .contains("conflicting artist links"),
+        "blocked likely owner review should explain the conflict"
     );
 }
 

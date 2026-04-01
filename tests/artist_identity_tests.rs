@@ -1947,19 +1947,33 @@ fn likely_same_artist_skips_conflicting_external_ids() {
     .expect("resolve artist identity");
     assert_eq!(stats.merges_applied, 0, "conflicting ext ids should not auto-merge");
 
-    let review_sources = stophammer::db::list_artist_identity_reviews_for_feed(
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
         &conn,
         "feed-conflicting-extid-review",
     )
-    .expect("list reviews")
-    .into_iter()
-    .map(|review| review.source)
-    .collect::<std::collections::BTreeSet<_>>();
+    .expect("list reviews");
+    let review_sources = reviews
+        .iter()
+        .map(|review| review.source.as_str())
+        .collect::<std::collections::BTreeSet<_>>();
     assert!(review_sources.contains("track_feed_name_variant"));
     assert!(review_sources.contains("wallet_name_variant"));
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_same_artist")
+        .expect("blocked likely_same_artist review");
+    assert_eq!(likely_review.confidence, "blocked");
     assert!(
-        !review_sources.contains("likely_same_artist"),
-        "conflicting artist external ids should suppress likely_same_artist"
+        likely_review
+            .conflict_reasons
+            .contains(&"conflicting_external_id".to_string()),
+        "conflicting artist external ids should be surfaced explicitly"
+    );
+    assert!(
+        likely_review
+            .explanation
+            .contains("conflicting external IDs"),
+        "blocked likely_same_artist review should explain the conflict"
     );
 }
 
