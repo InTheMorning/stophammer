@@ -693,65 +693,23 @@ impl App {
         let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
-
-        let mut lines = vec![format!("Pending artist reviews: {total}")];
-        if total == 0 {
-            lines.push("Nothing pending. Reload after the next resolver pass.".to_string());
-        } else {
-            if age.older_than_7d > 0 {
-                lines.push(format!(
-                    "1. Clear stale backlog first: {} artist reviews are older than 7 days.",
-                    age.older_than_7d
-                ));
-            } else if age.created_last_24h > 0 {
-                lines.push(format!(
-                    "1. Fresh churn only: {} artist reviews were created in the last 24 hours.",
-                    age.created_last_24h
-                ));
-            }
-
-            if let Some(top_source) = summary.first() {
-                let share = (top_source.count.saturating_mul(100)) / total.max(1);
-                lines.push(format!(
-                    "2. Main source family: {} ({} pending, {}% of backlog).",
-                    top_source.source, top_source.count, share
-                ));
-                if share >= 50 {
-                    lines.push(format!(
-                        "   Use n/N to walk the '{}' family quickly before switching heuristics.",
-                        top_source.source
-                    ));
-                }
-            }
-
-            if let Some(feed) = hotspots.first() {
-                let total_hotspot_load: usize =
-                    hotspots.iter().map(|candidate| candidate.total_review_count).sum();
-                let share = if total_hotspot_load > 0 {
-                    (feed.total_review_count * 100) / total_hotspot_load
-                } else {
-                    0
-                };
-                lines.push(format!(
-                    "3. Start with feed hotspot: {} [{}] (total={}, {}% of hotspot load, artist={}, wallet={}).",
-                    feed.title,
-                    short_id(&feed.feed_guid),
-                    feed.total_review_count,
-                    share,
-                    feed.artist_review_count,
-                    feed.wallet_review_count
-                ));
-                lines.push(format!(
-                    "   {}",
-                    abbreviate(&feed.feed_url, 72)
-                ));
-            }
-
-            lines.push(
-                "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items."
-                    .to_string(),
-            );
-        }
+        let lines = stophammer::tui::build_review_playbook_lines(
+            total,
+            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            &hotspots,
+            stophammer::tui::ReviewPlaybookConfig {
+                review_label_plural: "artist reviews",
+                created_last_24h: age.created_last_24h,
+                older_than_7d: age.older_than_7d,
+                backlog_idle_message: "Nothing pending. Reload after the next resolver pass.",
+                dominant_family_walk_template:
+                    "   Use n/N to walk the '{}' family quickly before switching heuristics.",
+                final_step:
+                    "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
+            },
+            short_id,
+            abbreviate,
+        );
 
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title("Artist Review Playbook", total),

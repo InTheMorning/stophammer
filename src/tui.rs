@@ -257,6 +257,87 @@ pub fn push_feed_hotspot_lines(
     }
 }
 
+/// Parameters for a shared review-playbook dialog body.
+#[derive(Debug, Clone, Copy)]
+pub struct ReviewPlaybookConfig<'a> {
+    pub review_label_plural: &'a str,
+    pub created_last_24h: usize,
+    pub older_than_7d: usize,
+    pub backlog_idle_message: &'a str,
+    pub dominant_family_walk_template: &'a str,
+    pub final_step: &'a str,
+}
+
+/// Builds the shared backlog/source/hotspot guidance body for review playbooks.
+#[must_use]
+pub fn build_review_playbook_lines<'a>(
+    total: usize,
+    source_items: impl IntoIterator<Item = (&'a str, usize)>,
+    hotspots: &[crate::db::PendingReviewFeedHotspot],
+    config: ReviewPlaybookConfig<'_>,
+    short_id: impl Fn(&str) -> String,
+    abbreviate: impl Fn(&str, usize) -> String,
+) -> Vec<String> {
+    let source_items = source_items
+        .into_iter()
+        .map(|(source, count)| (source.to_string(), count))
+        .collect::<Vec<_>>();
+
+    let mut lines = vec![format!("Pending {}: {total}", config.review_label_plural)];
+    if total == 0 {
+        lines.push(config.backlog_idle_message.to_string());
+        return lines;
+    }
+
+    if config.older_than_7d > 0 {
+        lines.push(format!(
+            "1. Clear stale backlog first: {} {} are older than 7 days.",
+            config.older_than_7d, config.review_label_plural
+        ));
+    } else if config.created_last_24h > 0 {
+        lines.push(format!(
+            "1. Fresh churn only: {} {} were created in the last 24 hours.",
+            config.created_last_24h, config.review_label_plural
+        ));
+    }
+
+    if let Some((source, count)) = source_items.first() {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        lines.push(format!(
+            "2. Main source family: {source} ({count} pending, {share}% of backlog)."
+        ));
+        if share >= 50 {
+            lines.push(
+                config
+                    .dominant_family_walk_template
+                    .replace("{}", source.as_str()),
+            );
+        }
+    }
+
+    if let Some(feed) = hotspots.first() {
+        let total_hotspot_load: usize = hotspots.iter().map(|item| item.total_review_count).sum();
+        let share = if total_hotspot_load > 0 {
+            (feed.total_review_count * 100) / total_hotspot_load
+        } else {
+            0
+        };
+        lines.push(format!(
+            "3. Start with feed hotspot: {} [{}] (total={}, {}% of hotspot load, artist={}, wallet={}).",
+            feed.title,
+            short_id(&feed.feed_guid),
+            feed.total_review_count,
+            share,
+            feed.artist_review_count,
+            feed.wallet_review_count
+        ));
+        lines.push(format!("   {}", abbreviate(&feed.feed_url, 72)));
+    }
+
+    lines.push(config.final_step.to_string());
+    lines
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
