@@ -4394,6 +4394,12 @@ pub struct ArtistIdentityPendingReviewSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingReviewConfidenceSummary {
+    pub confidence: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PendingReviewAgeSummary {
     pub total: usize,
     pub created_last_24h: usize,
@@ -6680,6 +6686,33 @@ pub fn summarize_pending_artist_identity_reviews(
     })?
     .collect::<Result<Vec<_>, _>>()
     .map_err(Into::into)
+}
+
+/// Returns pending artist-identity review counts grouped by derived
+/// `confidence`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the grouped rows cannot be loaded.
+pub fn summarize_pending_artist_identity_review_confidence(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewConfidenceSummary>, DbError> {
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for summary in summarize_pending_artist_identity_reviews(conn)? {
+        *counts.entry(artist_identity_review_confidence(&summary.source).to_string())
+            .or_default() += summary.count;
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(confidence, count)| PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+    Ok(summary)
 }
 
 /// Returns age buckets for pending artist-identity reviews.
@@ -13358,6 +13391,33 @@ pub fn summarize_pending_wallet_reviews(
     })?
     .collect::<Result<Vec<_>, _>>()
     .map_err(Into::into)
+}
+
+/// Returns pending wallet-identity review counts grouped by derived
+/// `confidence`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the grouped rows cannot be loaded.
+pub fn summarize_pending_wallet_review_confidence(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewConfidenceSummary>, DbError> {
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for summary in summarize_pending_wallet_reviews(conn)? {
+        *counts.entry(wallet_review_confidence(&summary.source).to_string())
+            .or_default() += summary.count;
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(confidence, count)| PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+    Ok(summary)
 }
 
 /// Returns age buckets for pending wallet-identity reviews.

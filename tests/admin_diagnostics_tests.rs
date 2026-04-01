@@ -669,11 +669,18 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
             now,
         )
         .expect("endpoint b");
-        let _wallet_a =
+        let wallet_a =
             stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
-        let _wallet_b =
+        let wallet_b =
             stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
         stophammer::db::generate_wallet_review_items(&conn).expect("generate wallet reviews");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'likely_wallet_owner_match', 'dashboard-wallet-match', json_array(?1, ?2), '[]', 'pending', ?3, ?3)",
+            params![wallet_a, wallet_b, now - 30],
+        )
+        .expect("insert high-confidence wallet review");
     }
 
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -712,8 +719,8 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         .expect("wallet response");
     assert_eq!(wallet_resp.status(), 200);
     let wallet_json = body_json(wallet_resp).await;
-    assert_eq!(wallet_json["reviews"][0]["source"], "cross_wallet_alias");
-    assert_eq!(wallet_json["reviews"][0]["confidence"], "review_required");
+    assert_eq!(wallet_json["reviews"][0]["source"], "likely_wallet_owner_match");
+    assert_eq!(wallet_json["reviews"][0]["confidence"], "high_confidence");
 }
 
 #[tokio::test]
@@ -1048,11 +1055,24 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
             now,
         )
         .expect("endpoint b");
-        let _wallet_a =
+        let wallet_a =
             stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
-        let _wallet_b =
+        let wallet_b =
             stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
-        stophammer::db::generate_wallet_review_items(&conn).expect("generate wallet reviews");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'cross_wallet_alias', 'dashboard-wallet-alias', json_array(?1, ?2), '[]', 'pending', ?3, ?3)",
+            params![wallet_a, wallet_b, now - 120],
+        )
+        .expect("insert wallet alias review");
+        conn.execute(
+            "INSERT INTO wallet_identity_review \
+             (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+             VALUES (?1, 'likely_wallet_owner_match', 'dashboard-wallet-match', json_array(?1, ?2), '[]', 'pending', ?3, ?3)",
+            params![wallet_a, wallet_b, now - 30],
+        )
+        .expect("insert high-confidence wallet review");
     }
 
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -1081,6 +1101,11 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(artist_sources.contains("track_feed_name_variant"));
     assert!(artist_sources.contains("collaboration_credit"));
+    assert_eq!(
+        artist_json["confidence_summary"][0]["confidence"],
+        "review_required"
+    );
+    assert_eq!(artist_json["confidence_summary"][1]["confidence"], "blocked");
 
     let wallet_resp = app
         .oneshot(
@@ -1095,6 +1120,10 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
     assert_eq!(wallet_resp.status(), 200);
     let wallet_json = body_json(wallet_resp).await;
     assert_eq!(wallet_json["summary"][0]["source"], "cross_wallet_alias");
+    assert_eq!(
+        wallet_json["confidence_summary"][0]["confidence"],
+        "high_confidence"
+    );
 }
 
 #[tokio::test]
@@ -1276,6 +1305,17 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
     assert_eq!(
         json["wallet_identity_summary"][0]["source"],
         "cross_wallet_alias"
+    );
+    assert_eq!(
+        json["artist_identity_confidence_summary"][0]["confidence"],
+        "review_required"
+    );
+    assert!(
+        !json["wallet_identity_confidence_summary"]
+            .as_array()
+            .expect("wallet confidence summary")
+            .is_empty(),
+        "dashboard should expose wallet confidence summaries"
     );
     assert_eq!(json["age_summary"]["artist_identity"]["total"], 1);
     assert_eq!(json["feed_hotspots"][0]["feed_guid"], "feed-dashboard");

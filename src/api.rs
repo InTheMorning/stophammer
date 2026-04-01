@@ -3233,11 +3233,13 @@ struct PendingWalletIdentityReviewsResponse {
 #[derive(Debug, Serialize)]
 struct PendingArtistIdentityReviewSummaryResponse {
     summary: Vec<db::ArtistIdentityPendingReviewSummary>,
+    confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
 }
 
 #[derive(Debug, Serialize)]
 struct PendingWalletIdentityReviewSummaryResponse {
     summary: Vec<db::WalletPendingReviewSummary>,
+    confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3261,6 +3263,8 @@ struct PendingReviewDashboardQuery {
 struct PendingReviewDashboardResponse {
     artist_identity_summary: Vec<db::ArtistIdentityPendingReviewSummary>,
     wallet_identity_summary: Vec<db::WalletPendingReviewSummary>,
+    artist_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
+    wallet_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
     age_summary: PendingReviewAgeSummaryResponse,
     feed_hotspots: Vec<db::PendingReviewFeedHotspot>,
 }
@@ -3936,11 +3940,19 @@ async fn handle_admin_pending_artist_identity_review_summary(
 
     let summary = spawn_db(
         state.db.clone(),
-        db::summarize_pending_artist_identity_reviews,
+        move |conn| {
+            Ok((
+                db::summarize_pending_artist_identity_reviews(conn)?,
+                db::summarize_pending_artist_identity_review_confidence(conn)?,
+            ))
+        },
     )
     .await?;
 
-    Ok(Json(PendingArtistIdentityReviewSummaryResponse { summary }))
+    Ok(Json(PendingArtistIdentityReviewSummaryResponse {
+        summary: summary.0,
+        confidence_summary: summary.1,
+    }))
 }
 
 async fn handle_admin_pending_wallet_identity_review_summary(
@@ -3949,9 +3961,18 @@ async fn handle_admin_pending_wallet_identity_review_summary(
 ) -> Result<Json<PendingWalletIdentityReviewSummaryResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
-    let summary = spawn_db(state.db.clone(), db::summarize_pending_wallet_reviews).await?;
+    let summary = spawn_db(state.db.clone(), move |conn| {
+        Ok((
+            db::summarize_pending_wallet_reviews(conn)?,
+            db::summarize_pending_wallet_review_confidence(conn)?,
+        ))
+    })
+    .await?;
 
-    Ok(Json(PendingWalletIdentityReviewSummaryResponse { summary }))
+    Ok(Json(PendingWalletIdentityReviewSummaryResponse {
+        summary: summary.0,
+        confidence_summary: summary.1,
+    }))
 }
 
 async fn handle_admin_pending_review_age_summary(
@@ -3984,6 +4005,8 @@ async fn handle_admin_pending_review_dashboard(
     let (
         artist_identity_summary,
         wallet_identity_summary,
+        artist_identity_confidence_summary,
+        wallet_identity_confidence_summary,
         artist_identity,
         wallet_identity,
         feed_hotspots,
@@ -3991,6 +4014,8 @@ async fn handle_admin_pending_review_dashboard(
         Ok((
             db::summarize_pending_artist_identity_reviews(conn)?,
             db::summarize_pending_wallet_reviews(conn)?,
+            db::summarize_pending_artist_identity_review_confidence(conn)?,
+            db::summarize_pending_wallet_review_confidence(conn)?,
             db::summarize_pending_artist_identity_review_age(conn)?,
             db::summarize_pending_wallet_review_age(conn)?,
             db::list_pending_review_feed_hotspots(conn, query.hotspot_limit)?,
@@ -4001,6 +4026,8 @@ async fn handle_admin_pending_review_dashboard(
     Ok(Json(PendingReviewDashboardResponse {
         artist_identity_summary,
         wallet_identity_summary,
+        artist_identity_confidence_summary,
+        wallet_identity_confidence_summary,
         age_summary: PendingReviewAgeSummaryResponse {
             artist_identity,
             wallet_identity,

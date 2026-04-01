@@ -1838,7 +1838,8 @@ Returns pending wallet-identity review items newer than `max_age_days`.
 
 ### GET /admin/artist-identity/reviews/pending/summary
 
-Returns counts of pending artist-identity review items grouped by `source`.
+Returns counts of pending artist-identity review items grouped by `source`,
+plus a rollup grouped by derived review `confidence`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -1850,13 +1851,18 @@ Returns counts of pending artist-identity review items grouped by `source`.
   "summary": [
     { "source": "track_feed_name_variant", "count": 7 },
     { "source": "collaboration_credit", "count": 3 }
+  ],
+  "confidence_summary": [
+    { "confidence": "review_required", "count": 7 },
+    { "confidence": "blocked", "count": 3 }
   ]
 }
 ```
 
 ### GET /admin/wallet-identity/reviews/pending/summary
 
-Returns counts of pending wallet-identity review items grouped by `source`.
+Returns counts of pending wallet-identity review items grouped by `source`,
+plus a rollup grouped by derived review `confidence`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -1867,6 +1873,9 @@ Returns counts of pending wallet-identity review items grouped by `source`.
 {
   "summary": [
     { "source": "cross_wallet_alias", "count": 12 }
+  ],
+  "confidence_summary": [
+    { "confidence": "review_required", "count": 12 }
   ]
 }
 ```
@@ -1918,6 +1927,12 @@ Returns the main operator dashboard payload for pending review work.
   ],
   "wallet_identity_summary": [
     { "source": "cross_wallet_alias", "count": 12 }
+  ],
+  "artist_identity_confidence_summary": [
+    { "confidence": "review_required", "count": 7 }
+  ],
+  "wallet_identity_confidence_summary": [
+    { "confidence": "review_required", "count": 12 }
   ],
   "age_summary": {
     "artist_identity": {
