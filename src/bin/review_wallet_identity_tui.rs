@@ -2387,11 +2387,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(body[1]);
 
+    let task_title = app.current_group().map_or_else(
+        || "Task".to_string(),
+        |group| format!("Task ({})", group.source),
+    );
     let task = Paragraph::new(build_task_text(app))
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title("Task", Color::Cyan)),
+                .title(styled_title(&task_title, Color::Cyan)),
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(task, center[0]);
@@ -2401,6 +2405,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(center[1]);
 
+    let source_title = app.current_source_review().map_or_else(
+        || "Main Wallet".to_string(),
+        |review| format!("Main Wallet #{}", review.id),
+    );
     let source_card = Paragraph::new(Text::from(wallet_card_lines(
         app.source_wallet_detail.as_ref(),
         &app.claim_feeds,
@@ -2408,11 +2416,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(styled_title("Main Wallet", Color::Green)),
+            .title(styled_title(&source_title, Color::Green)),
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(source_card, compare[0]);
 
+    let candidate_title = app.current_candidate_review().map_or_else(
+        || "Wallet To Merge".to_string(),
+        |review| format!("Wallet To Merge #{}", review.id),
+    );
     let candidate_card = Paragraph::new(Text::from(wallet_card_lines(
         app.candidate_wallet_detail.as_ref(),
         &app.candidate_claim_feeds,
@@ -2420,7 +2432,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     .block(
         Block::default()
             .borders(Borders::ALL)
-            .title(styled_title("Wallet To Merge", Color::Yellow)),
+            .title(styled_title(&candidate_title, Color::Yellow)),
     )
     .wrap(Wrap { trim: false });
     frame.render_widget(candidate_card, compare[1]);
@@ -2442,11 +2454,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     } else {
         vec![ListItem::new("No source wallets")]
     };
+    let source_list_title = app.current_group().map_or_else(
+        || "Choose Main Wallet".to_string(),
+        |group| format!("Choose Main Wallet ({})", group.source),
+    );
     let source_list = List::new(source_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title("Choose Main Wallet", Color::Green))
+                .title(styled_title(&source_list_title, Color::Green))
                 .border_style(block_style(app.focus == Focus::SourceWallets))
                 .border_type(block_border_type(app.focus == Focus::SourceWallets)),
         )

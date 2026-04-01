@@ -1443,14 +1443,28 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     } else {
         vec![Line::from("No review selected.")]
     };
+    let context_title = app.current_snapshot().map_or_else(
+        || "Review Context".to_string(),
+        |snapshot| {
+            format!(
+                "Review Context #{} ({})",
+                snapshot.review.review_id, snapshot.review.source
+            )
+        },
+    );
     let context = Paragraph::new(context_lines)
-        .block(focus_block("Review Context", false, Color::LightBlue))
+        .block(focus_block(&context_title, false, Color::LightBlue))
         .wrap(Wrap { trim: false });
     frame.render_widget(context, middle[1]);
 
     let evidence_title = app.current_snapshot().map_or_else(
         || "Evidence".to_string(),
-        |snapshot| format!("Evidence {}", snapshot.pending.title),
+        |snapshot| {
+            format!(
+                "Evidence {} ({})",
+                snapshot.pending.title, snapshot.review.source
+            )
+        },
     );
     let evidence = Paragraph::new(build_evidence_lines(app))
         .block(focus_block(
