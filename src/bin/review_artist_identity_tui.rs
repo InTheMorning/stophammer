@@ -483,10 +483,7 @@ impl App {
             "No pending artist review sources",
             "Use n/N to stay within it.",
         ));
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Artist Queue Summary", total),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Artist Queue Summary", total, lines));
         Ok(())
     }
 
@@ -495,10 +492,7 @@ impl App {
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Feed Hotspots", hotspot_count),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Feed Hotspots", hotspot_count, lines));
         Ok(())
     }
 
@@ -563,13 +557,7 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Stale Artist Reviews",
-                stale_count,
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Stale Artist Reviews", stale_count, lines));
         Ok(())
     }
 
@@ -598,13 +586,7 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Recent Artist Reviews",
-                recent_count,
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Recent Artist Reviews", recent_count, lines));
         Ok(())
     }
 
@@ -623,13 +605,7 @@ impl App {
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
         ]);
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Artist Review TUI Help",
-                self.reviews.len(),
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Artist Review TUI Help", self.reviews.len(), lines));
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
@@ -655,10 +631,7 @@ impl App {
             abbreviate,
         );
 
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Artist Review Playbook", total),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Artist Review Playbook", total, lines));
         Ok(())
     }
 }

@@ -508,6 +508,15 @@ pub struct TextDialog {
     pub lines: Vec<String>,
 }
 
+/// Builds a standard counted dialog payload shared by review TUIs.
+#[must_use]
+pub fn counted_dialog(label: &str, count: usize, lines: Vec<String>) -> TextDialog {
+    TextDialog {
+        title: format_counted_dialog_title(label, count),
+        lines,
+    }
+}
+
 /// Centers a rectangle inside `area` by percentage.
 #[must_use]
 pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {

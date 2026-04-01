@@ -1147,10 +1147,7 @@ impl App {
             "No pending wallet review sources",
             "Use n/N to stay within it.",
         ));
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Wallet Queue Summary", total),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Queue Summary", total, lines));
         Ok(())
     }
 
@@ -1159,10 +1156,7 @@ impl App {
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Feed Hotspots", hotspot_count),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Feed Hotspots", hotspot_count, lines));
         Ok(())
     }
 
@@ -1224,13 +1218,7 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Stale Wallet Reviews",
-                stale_count,
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Stale Wallet Reviews", stale_count, lines));
         Ok(())
     }
 
@@ -1256,13 +1244,7 @@ impl App {
                 )
             },
         );
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Recent Wallet Reviews",
-                recent_count,
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Recent Wallet Reviews", recent_count, lines));
         Ok(())
     }
 
@@ -1286,13 +1268,7 @@ impl App {
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
         ]);
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title(
-                "Wallet Review TUI Help",
-                self.groups.len(),
-            ),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Review TUI Help", self.groups.len(), lines));
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
@@ -1319,10 +1295,7 @@ impl App {
             abbreviate,
         );
 
-        self.dialog = Some(stophammer::tui::TextDialog {
-            title: stophammer::tui::format_counted_dialog_title("Wallet Review Playbook", total),
-            lines,
-        });
+        self.dialog = Some(stophammer::tui::counted_dialog("Wallet Review Playbook", total, lines));
         Ok(())
     }
 }
