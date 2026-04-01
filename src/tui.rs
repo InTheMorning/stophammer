@@ -141,6 +141,39 @@ pub fn format_operator_overview_title(
     format!("Operator Overview (artist={artist_total} wallet={wallet_total} hotspots={hotspot_count})")
 }
 
+/// Appends a ranked source-family section shared by operator dialogs.
+pub fn push_source_family_section<'a>(
+    lines: &mut Vec<String>,
+    heading: &str,
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+    total: usize,
+    max_items: usize,
+    dominant_suffix: &str,
+) {
+    let items = items
+        .into_iter()
+        .map(|(source, count)| (source.to_string(), count))
+        .collect::<Vec<_>>();
+    lines.push(heading.to_string());
+    if items.is_empty() {
+        lines.push("  none".to_string());
+        return;
+    }
+    if let Some((source, count)) = items.first() {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        if share >= 50 {
+            lines.push(format!(
+                "  {}",
+                format_dominant_family_hint(source, share, dominant_suffix),
+            ));
+        }
+    }
+    lines.extend(items.into_iter().take(max_items).map(|(source, count)| {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        format!("  {source}: {count} ({share}%)")
+    }));
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {

@@ -582,51 +582,23 @@ impl App {
             ));
         }
         lines.push(String::new());
-        lines.push("Top artist review sources:".to_string());
-        if artist_summary.is_empty() {
-            lines.push("  none".to_string());
-        } else {
-            if let Some(top_source) = artist_summary.first() {
-                let share = (top_source.count.saturating_mul(100)) / artist_total.max(1);
-                if share >= 50 {
-                    lines.push(format!(
-                        "  {}",
-                        stophammer::tui::format_dominant_family_hint(
-                            &top_source.source,
-                            share,
-                            "Use n/N to stay within it.",
-                        )
-                    ));
-                }
-            }
-            lines.extend(artist_summary.into_iter().take(3).map(|item| {
-                let share = (item.count.saturating_mul(100)) / artist_total.max(1);
-                format!("  {}: {} ({}%)", item.source, item.count, share)
-            }));
-        }
+        stophammer::tui::push_source_family_section(
+            &mut lines,
+            "Top artist review sources:",
+            artist_summary.iter().map(|item| (item.source.as_str(), item.count)),
+            artist_total,
+            3,
+            "Use n/N to stay within it.",
+        );
         lines.push(String::new());
-        lines.push("Top wallet review sources:".to_string());
-        if wallet_summary.is_empty() {
-            lines.push("  none".to_string());
-        } else {
-            if let Some(top_source) = wallet_summary.first() {
-                let share = (top_source.count.saturating_mul(100)) / wallet_total.max(1);
-                if share >= 50 {
-                    lines.push(format!(
-                        "  {}",
-                        stophammer::tui::format_dominant_family_hint(
-                            &top_source.source,
-                            share,
-                            "Use n/N in the wallet TUI to stay within it.",
-                        )
-                    ));
-                }
-            }
-            lines.extend(wallet_summary.into_iter().take(3).map(|item| {
-                let share = (item.count.saturating_mul(100)) / wallet_total.max(1);
-                format!("  {}: {} ({}%)", item.source, item.count, share)
-            }));
-        }
+        stophammer::tui::push_source_family_section(
+            &mut lines,
+            "Top wallet review sources:",
+            wallet_summary.iter().map(|item| (item.source.as_str(), item.count)),
+            wallet_total,
+            3,
+            "Use n/N in the wallet TUI to stay within it.",
+        );
         lines.push(String::new());
         lines.push("Hottest feeds:".to_string());
         if hotspots.is_empty() {
