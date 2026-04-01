@@ -1328,15 +1328,63 @@ fn build_cors_layer() -> CorsLayer {
 
 /// Builds the full read-write router used by the primary node.
 pub fn build_router(state: Arc<AppState>) -> Router {
-    Router::new()
-        .route("/ingest/feed", post(handle_ingest_feed))
-        .route("/sync/events", get(handle_sync_events))
-        .route("/sync/reconcile", post(handle_sync_reconcile))
-        .route("/sync/register", post(handle_sync_register))
-        .route("/sync/peers", get(handle_sync_peers))
-        .route("/node/info", get(handle_node_info))
-        .route("/admin/artists/merge", post(handle_admin_merge_artists))
-        .route("/admin/artists/alias", post(handle_admin_add_alias))
+    with_admin_review_routes(
+        Router::<Arc<AppState>>::new()
+            .route("/ingest/feed", post(handle_ingest_feed))
+            .route("/sync/events", get(handle_sync_events))
+            .route("/sync/reconcile", post(handle_sync_reconcile))
+            .route("/sync/register", post(handle_sync_register))
+            .route("/sync/peers", get(handle_sync_peers))
+            .route("/node/info", get(handle_node_info))
+            .route("/admin/artists/merge", post(handle_admin_merge_artists))
+            .route("/admin/artists/alias", post(handle_admin_add_alias))
+            .route(
+                "/v1/diagnostics/feeds/{guid}",
+                get(handle_admin_feed_diagnostics),
+            )
+            .route(
+                "/v1/diagnostics/artists/{id}",
+                get(handle_admin_artist_diagnostics),
+            )
+            .route(
+                "/v1/diagnostics/wallets/{id}",
+                get(handle_admin_wallet_diagnostics),
+            )
+            .route(
+                "/admin/diagnostics/feeds/{guid}",
+                get(handle_admin_feed_diagnostics),
+            )
+            .route(
+                "/admin/diagnostics/artists/{id}",
+                get(handle_admin_artist_diagnostics),
+            )
+            .route(
+                "/admin/diagnostics/wallets/{id}",
+                get(handle_admin_wallet_diagnostics),
+            )
+            // Route versioning compliant — 2026-03-12
+            .route(
+                "/v1/feeds/{guid}",
+                delete(handle_retire_feed).patch(handle_patch_feed),
+            )
+            .route(
+                "/v1/feeds/{guid}/tracks/{track_guid}",
+                delete(handle_remove_track),
+            )
+            .route("/v1/tracks/{guid}", patch(handle_patch_track))
+            .route("/v1/proofs/challenge", post(handle_proofs_challenge))
+            .route("/v1/proofs/assert", post(handle_proofs_assert))
+            .route("/v1/events", get(handle_sse_events))
+            .route("/health", get(|| async { "ok" }))
+            .merge(query::query_routes())
+            .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+            .layer(build_cors_layer()),
+    )
+    .with_state(state)
+}
+
+fn with_admin_review_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
+    router
         .route(
             "/admin/artist-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_artist_identity_review),
@@ -1378,6 +1426,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handle_admin_pending_review_age_summary),
         )
         .route(
+            "/admin/reviews/dashboard",
+            get(handle_admin_pending_review_dashboard),
+        )
+        .route(
             "/admin/reviews/feeds/hotspots",
             get(handle_admin_pending_review_feed_hotspots),
         )
@@ -1385,48 +1437,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/admin/wallet-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_wallet_identity_review),
         )
-        .route(
-            "/v1/diagnostics/feeds/{guid}",
-            get(handle_admin_feed_diagnostics),
-        )
-        .route(
-            "/v1/diagnostics/artists/{id}",
-            get(handle_admin_artist_diagnostics),
-        )
-        .route(
-            "/v1/diagnostics/wallets/{id}",
-            get(handle_admin_wallet_diagnostics),
-        )
-        .route(
-            "/admin/diagnostics/feeds/{guid}",
-            get(handle_admin_feed_diagnostics),
-        )
-        .route(
-            "/admin/diagnostics/artists/{id}",
-            get(handle_admin_artist_diagnostics),
-        )
-        .route(
-            "/admin/diagnostics/wallets/{id}",
-            get(handle_admin_wallet_diagnostics),
-        )
-        // Route versioning compliant — 2026-03-12
-        .route(
-            "/v1/feeds/{guid}",
-            delete(handle_retire_feed).patch(handle_patch_feed),
-        )
-        .route(
-            "/v1/feeds/{guid}/tracks/{track_guid}",
-            delete(handle_remove_track),
-        )
-        .route("/v1/tracks/{guid}", patch(handle_patch_track))
-        .route("/v1/proofs/challenge", post(handle_proofs_challenge))
-        .route("/v1/proofs/assert", post(handle_proofs_assert))
-        .route("/v1/events", get(handle_sse_events))
-        .route("/health", get(|| async { "ok" }))
-        .merge(query::query_routes())
-        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
-        .layer(build_cors_layer())
-        .with_state(state)
 }
 
 /// Read-only router for community nodes.
@@ -3241,8 +3251,26 @@ struct PendingReviewFeedHotspotsResponse {
     feeds: Vec<db::PendingReviewFeedHotspot>,
 }
 
+#[derive(Debug, Deserialize)]
+struct PendingReviewDashboardQuery {
+    #[serde(default = "default_dashboard_hotspot_limit")]
+    hotspot_limit: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingReviewDashboardResponse {
+    artist_identity_summary: Vec<db::ArtistIdentityPendingReviewSummary>,
+    wallet_identity_summary: Vec<db::WalletPendingReviewSummary>,
+    age_summary: PendingReviewAgeSummaryResponse,
+    feed_hotspots: Vec<db::PendingReviewFeedHotspot>,
+}
+
 const fn default_pending_review_limit() -> usize {
     100
+}
+
+const fn default_dashboard_hotspot_limit() -> usize {
+    20
 }
 
 const fn default_stale_review_min_age_days() -> u64 {
@@ -3943,6 +3971,41 @@ async fn handle_admin_pending_review_age_summary(
     Ok(Json(PendingReviewAgeSummaryResponse {
         artist_identity,
         wallet_identity,
+    }))
+}
+
+async fn handle_admin_pending_review_dashboard(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingReviewDashboardQuery>,
+) -> Result<Json<PendingReviewDashboardResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let (
+        artist_identity_summary,
+        wallet_identity_summary,
+        artist_identity,
+        wallet_identity,
+        feed_hotspots,
+    ) = spawn_db(state.db.clone(), move |conn| {
+        Ok((
+            db::summarize_pending_artist_identity_reviews(conn)?,
+            db::summarize_pending_wallet_reviews(conn)?,
+            db::summarize_pending_artist_identity_review_age(conn)?,
+            db::summarize_pending_wallet_review_age(conn)?,
+            db::list_pending_review_feed_hotspots(conn, query.hotspot_limit)?,
+        ))
+    })
+    .await?;
+
+    Ok(Json(PendingReviewDashboardResponse {
+        artist_identity_summary,
+        wallet_identity_summary,
+        age_summary: PendingReviewAgeSummaryResponse {
+            artist_identity,
+            wallet_identity,
+        },
+        feed_hotspots,
     }))
 }
 

@@ -1849,6 +1849,52 @@ Returns age buckets for pending artist and wallet review queues.
 
 ---
 
+### GET /admin/reviews/dashboard
+
+Returns the main operator dashboard payload for pending review work.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `hotspot_limit` (default `20`)
+
+**Response (`200 OK`):**
+
+```json
+{
+  "artist_identity_summary": [
+    { "source": "track_feed_name_variant", "count": 7 }
+  ],
+  "wallet_identity_summary": [
+    { "source": "cross_wallet_alias", "count": 12 }
+  ],
+  "age_summary": {
+    "artist_identity": {
+      "total": 10,
+      "created_last_24h": 4,
+      "older_than_7d": 2,
+      "oldest_created_at": 1710000000
+    },
+    "wallet_identity": {
+      "total": 6,
+      "created_last_24h": 1,
+      "older_than_7d": 0,
+      "oldest_created_at": 1710200000
+    }
+  },
+  "feed_hotspots": [
+    {
+      "feed_guid": "feed-guid",
+      "title": "Everything Is Lit",
+      "artist_review_count": 2,
+      "wallet_review_count": 1,
+      "total_review_count": 3
+    }
+  ]
+}
+```
+
+---
+
 ### GET /admin/reviews/feeds/hotspots
 
 Returns feeds ordered by combined pending artist and wallet review load.

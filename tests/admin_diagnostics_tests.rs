@@ -1140,6 +1140,94 @@ async fn admin_pending_review_age_summary_reports_recent_and_stale_counts() {
 }
 
 #[tokio::test]
+async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let conn = db.lock().expect("lock db");
+
+        let artist =
+            stophammer::db::resolve_artist(&conn, "Dashboard Artist", Some("feed-dashboard"))
+                .expect("artist");
+        let credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &artist.name,
+            &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
+            Some("feed-dashboard"),
+        )
+        .expect("credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-dashboard', 'https://example.com/feed-dashboard.xml', 'Feed Dashboard', 'feed dashboard', ?1, ?2, ?2)",
+            params![credit.id, now],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO artist_identity_review \
+             (feed_guid, source, name_key, evidence_key, status, artist_ids_json, artist_names_json, created_at, updated_at) \
+             VALUES ('feed-dashboard', 'track_feed_name_variant', 'dashboardartist', 'feed-dashboard', 'pending', '[]', '[]', ?1, ?1)",
+            params![now - 60 * 60],
+        )
+        .expect("insert artist review");
+
+        let ep_a = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-dashboard-a",
+            "",
+            "",
+            Some("Dashboard Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a");
+        let ep_b = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-dashboard-b",
+            "",
+            "",
+            Some("Dashboard Wallet Alias"),
+            now,
+        )
+        .expect("endpoint b");
+        let _wallet_a =
+            stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
+        let _wallet_b =
+            stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
+        stophammer::db::generate_wallet_review_items(&conn).expect("generate wallet reviews");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-pending-review-dashboard.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/reviews/dashboard?hotspot_limit=5")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("dashboard request"),
+        )
+        .await
+        .expect("dashboard response");
+    assert_eq!(resp.status(), 200);
+
+    let json = body_json(resp).await;
+    assert_eq!(
+        json["artist_identity_summary"][0]["source"],
+        "track_feed_name_variant"
+    );
+    assert_eq!(
+        json["wallet_identity_summary"][0]["source"],
+        "cross_wallet_alias"
+    );
+    assert_eq!(json["age_summary"]["artist_identity"]["total"], 1);
+    assert_eq!(json["feed_hotspots"][0]["feed_guid"], "feed-dashboard");
+}
+
+#[tokio::test]
 async fn admin_pending_review_feed_hotspots_orders_by_total_load() {
     let db = common::test_db_arc();
     let now = common::now();
