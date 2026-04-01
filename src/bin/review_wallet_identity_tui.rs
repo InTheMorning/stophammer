@@ -2351,10 +2351,12 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         || format!("Review Groups ({})", app.groups.len()),
         |group| {
             let position = app.selected_group.saturating_add(1);
+            let review_id = group.reviews.first().map_or(0, |review| review.id);
             format!(
-                "Review Groups ({}/{}) - {} key={}",
+                "Review Groups ({}/{}) - review={} {} key={}",
                 position,
                 app.groups.len(),
+                review_id,
                 group.source,
                 abbreviate(&group.evidence_key, 18)
             )

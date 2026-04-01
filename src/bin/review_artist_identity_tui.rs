@@ -1376,9 +1376,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .selected()
                 .map_or(0, |idx| idx.saturating_add(1));
             format!(
-                "Pending Artist Reviews ({}/{}, {}, key={})",
+                "Pending Artist Reviews ({}/{}, review={}, {}, key={})",
                 position,
                 app.reviews.len(),
+                review.review_id,
                 review.source,
                 abbreviate(&review.evidence_key, 18)
             )
