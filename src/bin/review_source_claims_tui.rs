@@ -74,6 +74,24 @@ struct ClaimFamilyTotals {
     enclosures: usize,
 }
 
+fn claim_family_rows(totals: ClaimFamilyTotals) -> Vec<(&'static str, usize)> {
+    vec![
+        ("contributors", totals.contributors),
+        ("entity_ids", totals.entity_ids),
+        ("links", totals.links),
+        ("releases", totals.releases),
+        ("platforms", totals.platforms),
+        ("enclosures", totals.enclosures),
+    ]
+}
+
+fn dominant_claim_family(totals: ClaimFamilyTotals) -> Option<(&'static str, usize, usize)> {
+    let rows = claim_family_rows(totals);
+    let total = rows.iter().map(|(_, count)| *count).sum::<usize>();
+    let (label, count) = rows.into_iter().max_by_key(|(_, count)| *count)?;
+    (count > 0).then_some((label, count, (count * 100) / total.max(1)))
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Focus {
     Feeds,
@@ -440,14 +458,7 @@ impl App {
         lines.extend(claim_hotspots);
         lines.push(String::new());
         lines.push("Claim family mix:".to_string());
-        let family_rows = vec![
-            ("contributors", claim_family_totals.contributors),
-            ("entity_ids", claim_family_totals.entity_ids),
-            ("links", claim_family_totals.links),
-            ("releases", claim_family_totals.releases),
-            ("platforms", claim_family_totals.platforms),
-            ("enclosures", claim_family_totals.enclosures),
-        ];
+        let family_rows = claim_family_rows(claim_family_totals);
         let total_family_claims = family_rows.iter().map(|(_, count)| *count).sum::<usize>();
         lines.extend(family_rows.into_iter().filter(|(_, count)| *count > 0).map(
             |(label, count)| {
@@ -502,6 +513,22 @@ impl App {
         let total_claim_load: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
         let total_resolved_load: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
         let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
+        let claim_family_totals = load_queue_claim_family_totals(
+            &self.conn,
+            &self
+                .feeds
+                .iter()
+                .map(|feed| feed.feed_guid.clone())
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or(ClaimFamilyTotals {
+            contributors: 0,
+            entity_ids: 0,
+            links: 0,
+            releases: 0,
+            platforms: 0,
+            enclosures: 0,
+        });
         let mut lines = vec![
             format!(
                 "Queued feeds: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
@@ -543,12 +570,39 @@ impl App {
                     .to_string(),
             );
         }
+        if let Some((label, count, share)) = dominant_claim_family(claim_family_totals) {
+            lines.push(format!(
+                "3. Dominant claim family: {label} ({count} rows, {share}% of queued claim load)."
+            ));
+            let hint = match label {
+                "contributors" => {
+                    "Start by reading role/name disagreement and group-name drift in the evidence pane."
+                }
+                "entity_ids" => {
+                    "Check whether the queue is mostly external-ID drift before trusting canonical overlays."
+                }
+                "links" => {
+                    "Look for website/social link disagreement before assuming artist or platform identity splits."
+                }
+                "releases" => {
+                    "Inspect release-title and release-type rows before focusing on track-level claim noise."
+                }
+                "platforms" => {
+                    "Platform claims dominate; compare owner names and URLs before trusting publisher/platform lineage."
+                }
+                "enclosures" => {
+                    "Media variants dominate; inspect enclosure rows before treating differences as identity issues."
+                }
+                _ => "Inspect the dominant claim family first before drilling into secondary evidence.",
+            };
+            lines.push(format!("   {hint}"));
+        }
         lines.push(
-            "3. Use s on the selected feed, then inspect track-scoped claim rows in the evidence pane."
+            "4. Use s on the selected feed, then inspect track-scoped claim rows in the evidence pane."
                 .to_string(),
         );
         lines.push(
-            "4. Use o for backlog totals and q/r to leave or refresh after source data changes."
+            "5. Use o for backlog totals and q/r to leave or refresh after source data changes."
                 .to_string(),
         );
 
