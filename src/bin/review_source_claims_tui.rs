@@ -582,11 +582,17 @@ impl App {
             },
         );
 
+        let title = current_family_position(self).map_or_else(
+            || format!("Source Claims Feed Summary [{}]", short_id(&feed_row.feed_guid)),
+            |(label, position, total)| {
+                format!(
+                    "Source Claims Feed Summary [{}] {label} {position}/{total}",
+                    short_id(&feed_row.feed_guid)
+                )
+            },
+        );
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!(
-                "Source Claims Feed Summary [{}]",
-                short_id(&feed_row.feed_guid)
-            ),
+            title,
             vec![
                 format!("Feed: {}", feed_row.title),
                 format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
@@ -704,10 +710,16 @@ impl App {
             lines.push("  no track-scoped claim rows".to_string());
         }
 
-        self.dialog = Some(stophammer::tui::text_dialog(
-            format!("Track Claim Mix [{}]", short_id(&track.track_guid)),
-            lines,
-        ));
+        let title = current_track_family_position(self).map_or_else(
+            || format!("Track Claim Mix [{}]", short_id(&track.track_guid)),
+            |(label, position, total)| {
+                format!(
+                    "Track Claim Mix [{}] {label} {position}/{total}",
+                    short_id(&track.track_guid)
+                )
+            },
+        );
+        self.dialog = Some(stophammer::tui::text_dialog(title, lines));
     }
 
     fn show_operator_overview_dialog(&mut self) {
