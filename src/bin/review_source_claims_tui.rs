@@ -48,6 +48,12 @@ struct FeedQueueRow {
     track_count: i64,
     source_claim_count: i64,
     resolved_count: i64,
+    contributor_count: i64,
+    entity_id_count: i64,
+    link_count: i64,
+    release_count: i64,
+    platform_count: i64,
+    enclosure_count: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +96,32 @@ fn dominant_claim_family(totals: ClaimFamilyTotals) -> Option<(&'static str, usi
     let total = rows.iter().map(|(_, count)| *count).sum::<usize>();
     let (label, count) = rows.into_iter().max_by_key(|(_, count)| *count)?;
     (count > 0).then_some((label, count, (count * 100) / total.max(1)))
+}
+
+fn queue_claim_family_summary(totals: ClaimFamilyTotals) -> Option<String> {
+    dominant_claim_family(totals)
+        .map(|(label, count, share)| format!("top claim family={label} ({count}, {share}%)"))
+}
+
+fn dominant_feed_claim_family(feed: &FeedQueueRow) -> Option<(&'static str, i64, i64)> {
+    let rows = [
+        ("contributors", feed.contributor_count),
+        ("entity_ids", feed.entity_id_count),
+        ("links", feed.link_count),
+        ("releases", feed.release_count),
+        ("platforms", feed.platform_count),
+        ("enclosures", feed.enclosure_count),
+    ];
+    let total = rows.iter().map(|(_, count)| *count).sum::<i64>();
+    let (label, count) = rows.into_iter().max_by_key(|(_, count)| *count)?;
+    (count > 0).then_some((label, count, (count * 100) / total.max(1)))
+}
+
+fn dominant_feed_claim_family_summary(feed: &FeedQueueRow) -> String {
+    dominant_feed_claim_family(feed).map_or_else(
+        || "top=no-claims".to_string(),
+        |(label, _count, share)| format!("top={label}({share}%)"),
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -484,13 +516,14 @@ impl App {
                     0
                 };
                 format!(
-                    "{} [{}] | claims={} ({}%) resolved={} tracks={}",
+                    "{} [{}] | claims={} ({}%) resolved={} tracks={} {}",
                     feed.title,
                     short_id(&feed.feed_guid),
                     feed.source_claim_count,
                     share,
                     feed.resolved_count,
-                    feed.track_count
+                    feed.track_count,
+                    dominant_feed_claim_family_summary(feed)
                 )
             }));
         }
@@ -546,12 +579,13 @@ impl App {
             0
         };
         lines.push(format!(
-            "1. Start with {} [{}] (claims={}, resolved={}, tracks={}).",
+            "1. Start with {} [{}] (claims={}, resolved={}, tracks={}, {}).",
             top_feed.title,
             short_id(&top_feed.feed_guid),
             top_feed.source_claim_count,
             top_feed.resolved_count,
-            top_feed.track_count
+            top_feed.track_count,
+            dominant_feed_claim_family_summary(top_feed)
         ));
         lines.push(format!("   {}", abbreviate(&top_feed.feed_url, 72)));
         if top_share >= 50 {
@@ -917,6 +951,36 @@ fn list_claim_review_feeds(
              )
              GROUP BY feed_guid
          ),
+         contributor_counts AS (
+             SELECT feed_guid, COUNT(*) AS contributor_count
+             FROM source_contributor_claims
+             GROUP BY feed_guid
+         ),
+         entity_id_counts AS (
+             SELECT feed_guid, COUNT(*) AS entity_id_count
+             FROM source_entity_ids
+             GROUP BY feed_guid
+         ),
+         link_counts AS (
+             SELECT feed_guid, COUNT(*) AS link_count
+             FROM source_entity_links
+             GROUP BY feed_guid
+         ),
+         release_counts2 AS (
+             SELECT feed_guid, COUNT(*) AS release_count
+             FROM source_release_claims
+             GROUP BY feed_guid
+         ),
+         enclosure_counts AS (
+             SELECT feed_guid, COUNT(*) AS enclosure_count
+             FROM source_item_enclosures
+             GROUP BY feed_guid
+         ),
+         platform_counts AS (
+             SELECT feed_guid, COUNT(*) AS platform_count
+             FROM source_platform_claims
+             GROUP BY feed_guid
+         ),
          resolved_counts AS (
              SELECT feed_guid, COUNT(*) AS resolved_count
              FROM (
@@ -932,10 +996,22 @@ fn list_claim_review_feeds(
              f.feed_url,
              COALESCE(tc.track_count, 0),
              COALESCE(sc.source_claim_count, 0),
-             COALESCE(rc.resolved_count, 0)
+             COALESCE(rc.resolved_count, 0),
+             COALESCE(cc.contributor_count, 0),
+             COALESCE(ic.entity_id_count, 0),
+             COALESCE(lc.link_count, 0),
+             COALESCE(rc2.release_count, 0),
+             COALESCE(pc.platform_count, 0),
+             COALESCE(ec.enclosure_count, 0)
          FROM feeds f
          LEFT JOIN track_counts tc ON tc.feed_guid = f.feed_guid
          LEFT JOIN source_counts sc ON sc.feed_guid = f.feed_guid
+         LEFT JOIN contributor_counts cc ON cc.feed_guid = f.feed_guid
+         LEFT JOIN entity_id_counts ic ON ic.feed_guid = f.feed_guid
+         LEFT JOIN link_counts lc ON lc.feed_guid = f.feed_guid
+         LEFT JOIN release_counts2 rc2 ON rc2.feed_guid = f.feed_guid
+         LEFT JOIN platform_counts pc ON pc.feed_guid = f.feed_guid
+         LEFT JOIN enclosure_counts ec ON ec.feed_guid = f.feed_guid
          LEFT JOIN resolved_counts rc ON rc.feed_guid = f.feed_guid
          WHERE COALESCE(sc.source_claim_count, 0) > 0 OR COALESCE(rc.resolved_count, 0) > 0
          ORDER BY COALESCE(sc.source_claim_count, 0) DESC,
@@ -956,6 +1032,12 @@ fn list_claim_review_feeds(
                 track_count: row.get(3)?,
                 source_claim_count: row.get(4)?,
                 resolved_count: row.get(5)?,
+                contributor_count: row.get(6)?,
+                entity_id_count: row.get(7)?,
+                link_count: row.get(8)?,
+                release_count: row.get(9)?,
+                platform_count: row.get(10)?,
+                enclosure_count: row.get(11)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
@@ -1140,6 +1222,10 @@ fn build_feed_items(app: &App) -> Vec<ListItem<'static>> {
                         Style::default().fg(Color::Cyan),
                     ),
                 ]),
+                Line::from(Span::styled(
+                    dominant_feed_claim_family_summary(feed),
+                    Style::default().fg(Color::DarkGray),
+                )),
                 Line::from(Span::styled(
                     abbreviate(&feed.feed_url, 40),
                     Style::default().fg(Color::DarkGray),
@@ -1594,7 +1680,10 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let header = Paragraph::new(vec![
         header_context_line(app),
         Line::from(Span::styled(
-            app.status.clone(),
+            queue_claim_family_summary(app.queue_claim_family_totals).map_or_else(
+                || app.status.clone(),
+                |summary| format!("{}  |  {}", app.status, summary),
+            ),
             Style::default().fg(Color::DarkGray),
         )),
     ]);
