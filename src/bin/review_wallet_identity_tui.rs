@@ -2256,8 +2256,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             app.current_source_review().map_or_else(
                 || "Selected: none".to_string(),
                 |review| {
+                    let group_position = app.selected_group.saturating_add(1);
+                    let wallet_position = app.selected_source.saturating_add(1);
+                    let wallet_total = app.current_group().map_or(0, |group| group.reviews.len());
                     format!(
-                        "Selected: review={} wallet={} source={} key={} created={}",
+                        "Selected group {}/{} wallet {}/{}: review={} wallet={} source={} key={} created={}",
+                        group_position,
+                        app.groups.len(),
+                        wallet_position,
+                        wallet_total,
                         review.id,
                         short_id(&review.wallet_id),
                         review.source,

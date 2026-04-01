@@ -1318,8 +1318,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             app.current_pending_review().map_or_else(
                 || "Selected: none".to_string(),
                 |review| {
+                    let position = app
+                        .review_state
+                        .selected()
+                        .map_or(0, |idx| idx.saturating_add(1));
                     format!(
-                        "Selected: review={} feed={} source={} key={} created={}",
+                        "Selected {}/{}: review={} feed={} source={} key={} created={}",
+                        position,
+                        app.reviews.len(),
                         review.review_id,
                         short_id(&review.feed_guid),
                         review.source,
