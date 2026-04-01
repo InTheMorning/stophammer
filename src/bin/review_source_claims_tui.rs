@@ -1089,6 +1089,18 @@ impl App {
         let mut lines = vec![
             format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
+            format!(
+                "Family: {}",
+                current_family_position(self).map_or_else(
+                    || "none".to_string(),
+                    |(label, position, total)| format!("{label} ({position}/{total})")
+                )
+            ),
+            format!(
+                "Feed cluster: {}",
+                feed_family_subset_summary(&self.feeds)
+                    .unwrap_or_else(|| "none".to_string())
+            ),
             String::new(),
         ];
         if count == 0 {
@@ -1100,7 +1112,17 @@ impl App {
         }
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!("Feed Conflicts [{}]", short_id(&feed_row.feed_guid)),
+            current_family_position(self).map_or_else(
+                || format!("Feed Conflicts [{}]", short_id(&feed_row.feed_guid)),
+                |(label, position, total)| {
+                    let cluster = feed_family_subset_short_summary(&self.feeds)
+                        .map_or_else(String::new, |summary| format!(" {summary}"));
+                    format!(
+                        "Feed Conflicts [{}] {label} {position}/{total}{cluster}",
+                        short_id(&feed_row.feed_guid)
+                    )
+                },
+            ),
             lines,
         ));
     }
