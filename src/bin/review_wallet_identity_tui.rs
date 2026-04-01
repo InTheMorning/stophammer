@@ -2225,7 +2225,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let root = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(2),
+            Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(1),
         ])
@@ -2250,6 +2250,21 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         )),
         Line::from(Span::styled(
             app.queue_summary.clone(),
+            Style::default().fg(Color::DarkGray),
+        )),
+        Line::from(Span::styled(
+            app.current_source_review().map_or_else(
+                || "Selected: none".to_string(),
+                |review| {
+                    format!(
+                        "Selected: review={} wallet={} source={} key={}",
+                        review.id,
+                        short_id(&review.wallet_id),
+                        review.source,
+                        abbreviate(&review.evidence_key, 24)
+                    )
+                },
+            ),
             Style::default().fg(Color::DarkGray),
         )),
     ]);

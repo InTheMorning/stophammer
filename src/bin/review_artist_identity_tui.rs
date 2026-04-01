@@ -1293,7 +1293,7 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
 fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = frame.area();
     let layout = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(4),
         Constraint::Min(10),
         Constraint::Length(2),
     ])
@@ -1313,6 +1313,21 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         Line::from(Span::styled(
             app.queue_summary.clone(),
             Style::default().fg(Color::Gray),
+        )),
+        Line::from(Span::styled(
+            app.current_pending_review().map_or_else(
+                || "Selected: none".to_string(),
+                |review| {
+                    format!(
+                        "Selected: review={} feed={} source={} key={}",
+                        review.review_id,
+                        short_id(&review.feed_guid),
+                        review.source,
+                        abbreviate(&review.evidence_key, 24)
+                    )
+                },
+            ),
+            Style::default().fg(Color::DarkGray),
         )),
     ]);
     frame.render_widget(header, layout[0]);
