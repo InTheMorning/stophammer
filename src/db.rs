@@ -4377,6 +4377,12 @@ pub struct ArtistIdentityPendingReview {
     pub artist_count: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ArtistIdentityPendingReviewSummary {
+    pub source: String,
+    pub count: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct ArtistIdentityEvidenceGroup {
     source: String,
@@ -6133,6 +6139,38 @@ pub fn list_pending_artist_identity_reviews(
             name_key: row.get(4)?,
             evidence_key: row.get(5)?,
             artist_count: artist_ids.len(),
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
+
+/// Returns pending artist-identity review counts grouped by `source`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the grouped rows cannot be loaded.
+pub fn summarize_pending_artist_identity_reviews(
+    conn: &Connection,
+) -> Result<Vec<ArtistIdentityPendingReviewSummary>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT source, COUNT(*)
+         FROM artist_identity_review
+         WHERE status = 'pending'
+         GROUP BY source
+         ORDER BY COUNT(*) DESC, source ASC",
+    )?;
+    stmt.query_map([], |row| {
+        let count_i64: i64 = row.get(1)?;
+        Ok(ArtistIdentityPendingReviewSummary {
+            source: row.get(0)?,
+            count: usize::try_from(count_i64).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Integer,
+                    Box::new(err),
+                )
+            })?,
         })
     })?
     .collect::<Result<Vec<_>, _>>()
@@ -12204,6 +12242,12 @@ pub struct WalletReviewSummary {
     pub created_at: i64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WalletPendingReviewSummary {
+    pub source: String,
+    pub count: usize,
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct WalletReviewItem {
     pub id: i64,
@@ -12423,6 +12467,38 @@ pub fn list_pending_wallet_reviews(
         });
     }
     Ok(summaries)
+}
+
+/// Returns pending wallet-identity review counts grouped by `source`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the grouped rows cannot be loaded.
+pub fn summarize_pending_wallet_reviews(
+    conn: &Connection,
+) -> Result<Vec<WalletPendingReviewSummary>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT source, COUNT(*)
+         FROM wallet_identity_review
+         WHERE status = 'pending'
+         GROUP BY source
+         ORDER BY COUNT(*) DESC, source ASC",
+    )?;
+    stmt.query_map([], |row| {
+        let count_i64: i64 = row.get(1)?;
+        Ok(WalletPendingReviewSummary {
+            source: row.get(0)?,
+            count: usize::try_from(count_i64).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    1,
+                    rusqlite::types::Type::Integer,
+                    Box::new(err),
+                )
+            })?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
 }
 
 /// List all wallet identity review rows for one wallet.

@@ -1752,6 +1752,43 @@ Returns the current pending wallet-identity review queue.
 
 ---
 
+### GET /admin/artist-identity/reviews/pending/summary
+
+Returns counts of pending artist-identity review items grouped by `source`.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "summary": [
+    { "source": "track_feed_name_variant", "count": 7 },
+    { "source": "collaboration_credit", "count": 3 }
+  ]
+}
+```
+
+### GET /admin/wallet-identity/reviews/pending/summary
+
+Returns counts of pending wallet-identity review items grouped by `source`.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "summary": [
+    { "source": "cross_wallet_alias", "count": 12 }
+  ]
+}
+```
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.

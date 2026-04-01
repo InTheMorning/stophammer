@@ -663,6 +663,146 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
 }
 
 #[tokio::test]
+async fn admin_pending_review_summary_endpoints_group_by_source() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let mut conn = db.lock().expect("lock db");
+
+        let canonical =
+            stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-admin-summary"))
+                .expect("canonical artist");
+        let canonical_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &canonical.name,
+            &[(
+                canonical.artist_id.clone(),
+                canonical.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-summary"),
+        )
+        .expect("canonical credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-admin-summary', 'https://example.com/admin-summary.xml', 'Admin Summary', 'admin summary', ?1, ?2, ?2)",
+            params![canonical_credit.id, now],
+        )
+        .expect("insert feed");
+
+        let variant =
+            stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-admin-summary"))
+                .expect("variant artist");
+        let variant_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &variant.name,
+            &[(
+                variant.artist_id.clone(),
+                variant.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-summary"),
+        )
+        .expect("variant credit");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-admin-summary-a', 'feed-admin-summary', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+            params![variant_credit.id, now],
+        )
+        .expect("insert variant track");
+
+        let collab = stophammer::db::resolve_artist(
+            &conn,
+            "HeyCitizen and Fletcher",
+            Some("feed-admin-summary"),
+        )
+        .expect("collab artist");
+        let collab_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &collab.name,
+            &[(collab.artist_id.clone(), collab.name.clone(), String::new())],
+            Some("feed-admin-summary"),
+        )
+        .expect("collab credit");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-admin-summary-b', 'feed-admin-summary', ?1, 'Hardware Store Lady (Screw and Bolt Mix)', 'hardware store lady (screw and bolt mix)', 0, ?2, ?2)",
+            params![collab_credit.id, now],
+        )
+        .expect("insert collab track");
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-admin-summary")
+            .expect("resolve artist identity");
+
+        let ep_a = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-summary-a",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a");
+        let ep_b = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-summary-b",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint b");
+        let _wallet_a =
+            stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
+        let _wallet_b =
+            stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
+        stophammer::db::generate_wallet_review_items(&conn).expect("generate wallet reviews");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-pending-review-summary.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending/summary")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("artist summary request"),
+        )
+        .await
+        .expect("artist summary response");
+    assert_eq!(artist_resp.status(), 200);
+    let artist_json = body_json(artist_resp).await;
+    let artist_sources = artist_json["summary"]
+        .as_array()
+        .expect("artist summary array")
+        .iter()
+        .filter_map(|row| row["source"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(artist_sources.contains("track_feed_name_variant"));
+    assert!(artist_sources.contains("collaboration_credit"));
+
+    let wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/summary")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("wallet summary request"),
+        )
+        .await
+        .expect("wallet summary response");
+    assert_eq!(wallet_resp.status(), 200);
+    let wallet_json = body_json(wallet_resp).await;
+    assert_eq!(wallet_json["summary"][0]["source"], "cross_wallet_alias");
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();

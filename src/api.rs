@@ -1346,8 +1346,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(handle_admin_pending_artist_identity_reviews),
         )
         .route(
+            "/admin/artist-identity/reviews/pending/summary",
+            get(handle_admin_pending_artist_identity_review_summary),
+        )
+        .route(
             "/admin/wallet-identity/reviews/pending",
             get(handle_admin_pending_wallet_identity_reviews),
+        )
+        .route(
+            "/admin/wallet-identity/reviews/pending/summary",
+            get(handle_admin_pending_wallet_identity_review_summary),
         )
         .route(
             "/admin/wallet-identity/reviews/{id}/resolve",
@@ -3172,6 +3180,16 @@ struct PendingWalletIdentityReviewsResponse {
     reviews: Vec<db::WalletReviewSummary>,
 }
 
+#[derive(Debug, Serialize)]
+struct PendingArtistIdentityReviewSummaryResponse {
+    summary: Vec<db::ArtistIdentityPendingReviewSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingWalletIdentityReviewSummaryResponse {
+    summary: Vec<db::WalletPendingReviewSummary>,
+}
+
 const fn default_pending_review_limit() -> usize {
     100
 }
@@ -3747,6 +3765,32 @@ async fn handle_admin_pending_wallet_identity_reviews(
     .await?;
 
     Ok(Json(PendingWalletIdentityReviewsResponse { reviews }))
+}
+
+async fn handle_admin_pending_artist_identity_review_summary(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<PendingArtistIdentityReviewSummaryResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let summary = spawn_db(
+        state.db.clone(),
+        db::summarize_pending_artist_identity_reviews,
+    )
+    .await?;
+
+    Ok(Json(PendingArtistIdentityReviewSummaryResponse { summary }))
+}
+
+async fn handle_admin_pending_wallet_identity_review_summary(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<PendingWalletIdentityReviewSummaryResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let summary = spawn_db(state.db.clone(), db::summarize_pending_wallet_reviews).await?;
+
+    Ok(Json(PendingWalletIdentityReviewSummaryResponse { summary }))
 }
 
 async fn handle_admin_resolve_wallet_identity_review(
