@@ -565,24 +565,20 @@ impl App {
         if artist_summary.is_empty() {
             lines.push("  none".to_string());
         } else {
-            lines.extend(
-                artist_summary
-                    .into_iter()
-                    .take(3)
-                    .map(|item| format!("  {}: {}", item.source, item.count)),
-            );
+            lines.extend(artist_summary.into_iter().take(3).map(|item| {
+                let share = (item.count.saturating_mul(100)) / artist_total.max(1);
+                format!("  {}: {} ({}%)", item.source, item.count, share)
+            }));
         }
         lines.push(String::new());
         lines.push("Top wallet review sources:".to_string());
         if wallet_summary.is_empty() {
             lines.push("  none".to_string());
         } else {
-            lines.extend(
-                wallet_summary
-                    .into_iter()
-                    .take(3)
-                    .map(|item| format!("  {}: {}", item.source, item.count)),
-            );
+            lines.extend(wallet_summary.into_iter().take(3).map(|item| {
+                let share = (item.count.saturating_mul(100)) / wallet_total.max(1);
+                format!("  {}: {} ({}%)", item.source, item.count, share)
+            }));
         }
         lines.push(String::new());
         lines.push("Hottest feeds:".to_string());
