@@ -1383,9 +1383,10 @@ impl App {
             }
 
             if let Some(top_source) = summary.first() {
+                let share = (top_source.count.saturating_mul(100)) / total.max(1);
                 lines.push(format!(
-                    "2. Main source family: {} ({} pending).",
-                    top_source.source, top_source.count
+                    "2. Main source family: {} ({} pending, {}% of backlog).",
+                    top_source.source, top_source.count, share
                 ));
             }
 
