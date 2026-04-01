@@ -1767,6 +1767,102 @@ fn track_feed_name_variants_raise_review_without_wallet_evidence() {
 }
 
 #[test]
+fn likely_same_artist_includes_shared_external_id_support() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-shared-extid-review"))
+            .expect("canonical artist");
+    let canonical_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &canonical.name,
+        &[(
+            canonical.artist_id.clone(),
+            canonical.name.clone(),
+            String::new(),
+        )],
+        Some("feed-shared-extid-review"),
+    )
+    .expect("canonical credit");
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+         VALUES ('feed-shared-extid-review', 'https://example.com/shared-extid.xml', 'Shared External Id Review', 'shared external id review', ?1, ?2, ?2)",
+        rusqlite::params![canonical_credit.id, now],
+    )
+    .expect("insert feed");
+
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-shared-extid-review"))
+            .expect("variant artist");
+    let variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &variant.name,
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
+        Some("feed-shared-extid-review"),
+    )
+    .expect("variant credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-shared-extid-review', 'feed-shared-extid-review', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+        rusqlite::params![variant_credit.id, now],
+    )
+    .expect("insert track");
+    conn.execute(
+        "INSERT INTO feed_payment_routes \
+         (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+         VALUES ('feed-shared-extid-review', 'HeyCitizen', 'lnaddress', 'heycitizen@example.com', NULL, NULL, 100, 0)",
+        [],
+    )
+    .expect("insert feed route");
+    for artist_id in [&canonical.artist_id, &variant.artist_id] {
+        conn.execute(
+            "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at) \
+             VALUES ('artist', ?1, 'musicbrainz_artist', 'mbid-shared-extid-review', ?2)",
+            rusqlite::params![artist_id, now],
+        )
+        .expect("insert shared artist external id");
+    }
+
+    let wallet_stats =
+        stophammer::db::resolve_wallet_identity_for_feed(&conn, "feed-shared-extid-review")
+            .expect("resolve wallet identity");
+    assert_eq!(wallet_stats.wallets_created, 1);
+    assert_eq!(wallet_stats.artist_links_created, 1);
+
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-shared-extid-review")
+            .expect("resolve artist identity");
+    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+
+    let likely_review = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "feed-shared-extid-review",
+    )
+    .expect("list reviews")
+    .into_iter()
+    .find(|review| review.source == "likely_same_artist")
+    .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    assert_eq!(likely_review.score, Some(100));
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(supporting.contains("track_feed_name_variant"));
+    assert!(supporting.contains("wallet_name_variant"));
+    assert!(
+        supporting.contains("shared_external_id"),
+        "shared artist external ids should strengthen likely_same_artist"
+    );
+}
+
+#[test]
 fn collaboration_credit_raises_review_without_auto_merge() {
     let mut conn = common::test_db();
     let now = common::now();

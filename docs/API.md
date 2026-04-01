@@ -1740,6 +1740,14 @@ Scored review sources such as `likely_same_artist` may also include:
 - `score`
 - `score_breakdown`
 
+For `likely_same_artist`, `supporting_sources` may include:
+
+- `track_feed_name_variant`
+- `wallet_name_variant`
+- `contributor_name_variant`
+- `publisher_name_variant`
+- `shared_external_id`
+
 Current artist review sources include deterministic families such as:
 
 - `track_feed_name_variant`

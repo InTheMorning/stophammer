@@ -5400,7 +5400,40 @@ fn artist_review_supporting_sources(
         }
     }
 
+    if artists_share_external_id(conn, &target_current_ids)? {
+        supporting_sources.push("shared_external_id".to_string());
+    }
+
     Ok(supporting_sources)
+}
+
+fn artists_share_external_id(
+    conn: &Connection,
+    artist_ids: &std::collections::BTreeSet<String>,
+) -> Result<bool, DbError> {
+    let mut external_id_artist_counts =
+        std::collections::BTreeMap::<(String, String), usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT scheme, value
+         FROM external_ids
+         WHERE entity_type = 'artist' AND entity_id = ?1
+         ORDER BY scheme, value",
+    )?;
+    for artist_id in artist_ids {
+        let external_ids = stmt
+            .query_map(params![artist_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for external_id in external_ids {
+            let count = external_id_artist_counts.entry(external_id).or_default();
+            *count += 1;
+            if *count >= 2 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
 }
 
 fn wallet_review_confidence(source: &str) -> &'static str {
@@ -5544,6 +5577,7 @@ fn artist_review_score_breakdown(
         .iter()
         .filter_map(|support| {
             let points = match support.as_str() {
+                "shared_external_id" => 40,
                 "wallet_name_variant" => 35,
                 "track_feed_name_variant" => 30,
                 "contributor_name_variant" => 25,
