@@ -1152,7 +1152,20 @@ impl App {
         if summary.is_empty() {
             lines.push("No pending wallet review sources".to_string());
         } else {
-            lines.push(String::new());
+            if let Some(top_source) = summary.first() {
+                let share = (top_source.count.saturating_mul(100)) / total.max(1);
+                if share >= 50 {
+                    lines.push(format!(
+                        "Dominant family: {} ({}%). Use n/N to stay within it.",
+                        top_source.source, share
+                    ));
+                    lines.push(String::new());
+                } else {
+                    lines.push(String::new());
+                }
+            } else {
+                lines.push(String::new());
+            }
             lines.extend(summary.into_iter().map(|item| {
                 let share = (item.count.saturating_mul(100)) / total.max(1);
                 format!("{}: {} ({}%)", item.source, item.count, share)
