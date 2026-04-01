@@ -1817,6 +1817,12 @@ Scored review sources such as `likely_wallet_owner_match` may also include:
 - `supporting_sources`
 - `score`
 
+For `likely_wallet_owner_match`, `supporting_sources` may include:
+
+- `cross_wallet_alias`
+- `shared_feed_overlap`
+- `shared_artist_link`
+
 Current wallet review sources include:
 
 - `cross_wallet_alias`
@@ -2226,6 +2232,12 @@ Scored review sources such as `likely_wallet_owner_match` may also include:
 
 - `supporting_sources`
 - `score`
+
+For `likely_wallet_owner_match`, `supporting_sources` may include:
+
+- `cross_wallet_alias`
+- `shared_feed_overlap`
+- `shared_artist_link`
 
 | Code | Meaning |
 |------|---------|

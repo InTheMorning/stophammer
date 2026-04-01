@@ -5409,13 +5409,46 @@ fn wallet_review_explanation(source: &str) -> &'static str {
     }
 }
 
-fn wallet_review_supporting_sources(source: &str) -> Vec<String> {
+fn wallets_share_artist_link(conn: &Connection, wallet_ids: &[String]) -> Result<bool, DbError> {
+    let mut artist_wallet_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut stmt = conn.prepare(
+        "SELECT artist_id
+         FROM wallet_artist_links
+         WHERE wallet_id = ?1
+         ORDER BY artist_id",
+    )?;
+    for wallet_id in wallet_ids {
+        let artist_ids = stmt
+            .query_map(params![wallet_id], |row| row.get::<_, String>(0))?
+            .collect::<Result<std::collections::BTreeSet<_>, _>>()?;
+        for artist_id in artist_ids {
+            let count = artist_wallet_counts.entry(artist_id).or_default();
+            *count += 1;
+            if *count >= 2 {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn wallet_review_supporting_sources(
+    conn: &Connection,
+    source: &str,
+    wallet_ids: &[String],
+) -> Result<Vec<String>, DbError> {
     match source {
-        "likely_wallet_owner_match" => vec![
-            "cross_wallet_alias".to_string(),
-            "shared_feed_overlap".to_string(),
-        ],
-        _ => vec![],
+        "likely_wallet_owner_match" => {
+            let mut supporting_sources = vec![
+                "cross_wallet_alias".to_string(),
+                "shared_feed_overlap".to_string(),
+            ];
+            if wallets_share_artist_link(conn, wallet_ids)? {
+                supporting_sources.push("shared_artist_link".to_string());
+            }
+            Ok(supporting_sources)
+        }
+        _ => Ok(vec![]),
     }
 }
 
@@ -5445,6 +5478,7 @@ fn wallet_review_score(source: &str, supporting_sources: &[String]) -> Option<u1
         score = score.saturating_add(match support.as_str() {
             "cross_wallet_alias" => 40,
             "shared_feed_overlap" => 25,
+            "shared_artist_link" => 20,
             _ => 0,
         });
     }
@@ -13278,7 +13312,8 @@ fn list_pending_wallet_reviews_with_max_created_at(
         let source: String = row.get(5)?;
         let wallet_ids_json: String = row.get(7)?;
         let endpoint_summary_json: String = row.get(8)?;
-        let supporting_sources = wallet_review_supporting_sources(&source);
+        let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
+        let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13291,7 +13326,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
             score: wallet_review_score(&source, &supporting_sources),
             supporting_sources,
             evidence_key: row.get(6)?,
-            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            wallet_ids,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
             created_at: row.get(9)?,
         });
@@ -13327,7 +13362,21 @@ pub fn get_wallet_review_summary(
             let source: String = row.get(5)?;
             let wallet_ids_json: String = row.get(7)?;
             let endpoint_summary_json: String = row.get(8)?;
-            let supporting_sources = wallet_review_supporting_sources(&source);
+            let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json).map_err(|err| {
+                rusqlite::Error::FromSqlConversionFailure(
+                    7,
+                    rusqlite::types::Type::Text,
+                    Box::new(err),
+                )
+            })?;
+            let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)
+                .map_err(|err| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        7,
+                        rusqlite::types::Type::Text,
+                        Box::new(std::io::Error::other(err.to_string())),
+                    )
+                })?;
             Ok(WalletReviewSummary {
                 id: row.get(0)?,
                 wallet_id: row.get(1)?,
@@ -13340,13 +13389,7 @@ pub fn get_wallet_review_summary(
                 score: wallet_review_score(&source, &supporting_sources),
                 supporting_sources,
                 evidence_key: row.get(6)?,
-                wallet_ids: serde_json::from_str(&wallet_ids_json).map_err(|err| {
-                    rusqlite::Error::FromSqlConversionFailure(
-                        7,
-                        rusqlite::types::Type::Text,
-                        Box::new(err),
-                    )
-                })?,
+                wallet_ids,
                 endpoint_summary: serde_json::from_str(&endpoint_summary_json).map_err(|err| {
                     rusqlite::Error::FromSqlConversionFailure(
                         8,
@@ -13405,7 +13448,8 @@ pub fn list_recent_pending_wallet_reviews(
         let source: String = row.get(5)?;
         let wallet_ids_json: String = row.get(7)?;
         let endpoint_summary_json: String = row.get(8)?;
-        let supporting_sources = wallet_review_supporting_sources(&source);
+        let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
+        let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13418,7 +13462,7 @@ pub fn list_recent_pending_wallet_reviews(
             score: wallet_review_score(&source, &supporting_sources),
             supporting_sources,
             evidence_key: row.get(6)?,
-            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            wallet_ids,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
             created_at: row.get(9)?,
         });
@@ -13554,7 +13598,8 @@ pub fn list_wallet_reviews_for_wallet(
         let source: String = row.get(2)?;
         let wallet_ids_json: String = row.get(4)?;
         let endpoint_summary_json: String = row.get(5)?;
-        let supporting_sources = wallet_review_supporting_sources(&source);
+        let wallet_ids: Vec<String> = serde_json::from_str(&wallet_ids_json)?;
+        let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13564,7 +13609,7 @@ pub fn list_wallet_reviews_for_wallet(
             score: wallet_review_score(&source, &supporting_sources),
             supporting_sources,
             evidence_key: row.get(3)?,
-            wallet_ids: serde_json::from_str(&wallet_ids_json)?,
+            wallet_ids,
             endpoint_summary: serde_json::from_str(&endpoint_summary_json)?,
             status: row.get(6)?,
             created_at: row.get(7)?,

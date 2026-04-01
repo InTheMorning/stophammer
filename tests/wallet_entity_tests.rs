@@ -1225,6 +1225,86 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
 }
 
 #[test]
+fn likely_wallet_owner_match_includes_shared_artist_link_support() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
+    let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
+
+    let ep_a = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-a",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    let ep_b = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-owner-b",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
+    db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
+
+    let wallet_a = db::create_provisional_wallet(&conn, ep_a, now).unwrap();
+    let wallet_b = db::create_provisional_wallet(&conn, ep_b, now).unwrap();
+
+    let artist = stophammer::model::Artist {
+        artist_id: "artist-alice-wallet-link".into(),
+        name: "Alice".into(),
+        name_lower: "alice".into(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    db::upsert_artist_if_absent(&conn, &artist).unwrap();
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, ?2, 'high_confidence', 'feed', 'feed-w', ?3)",
+        rusqlite::params![wallet_a, artist.artist_id, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO wallet_artist_links \
+         (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+         VALUES (?1, ?2, 'high_confidence', 'feed', 'feed-w', ?3)",
+        rusqlite::params![wallet_b, artist.artist_id, now],
+    )
+    .unwrap();
+
+    db::generate_wallet_review_items(&conn).unwrap();
+
+    let likely_review = db::list_pending_wallet_reviews(&conn, 10)
+        .unwrap()
+        .into_iter()
+        .find(|review| review.source == "likely_wallet_owner_match")
+        .expect("likely wallet review");
+    assert_eq!(likely_review.score, Some(85));
+    assert!(
+        likely_review
+            .supporting_sources
+            .contains(&"shared_artist_link".to_string()),
+        "shared linked-artist evidence should strengthen likely owner matches"
+    );
+}
+
+#[test]
 fn wallet_claim_feeds_include_routes_and_source_claims() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
