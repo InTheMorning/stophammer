@@ -2532,11 +2532,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             })
             .collect::<Vec<_>>()
     };
+    let feed_list_title = app.current_source_review().map_or_else(
+        || "Evidence Feeds For Source".to_string(),
+        |review| format!("Evidence Feeds For Source #{}", review.id),
+    );
     let feed_list = List::new(feed_items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(styled_title("Evidence Feeds For Source", Color::Cyan))
+                .title(styled_title(&feed_list_title, Color::Cyan))
                 .border_style(block_style(app.focus == Focus::Feeds))
                 .border_type(block_border_type(app.focus == Focus::Feeds)),
         )
@@ -2585,7 +2589,17 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .title(styled_title(
                     &app.current_feed().map_or_else(
                         || "Evidence".to_string(),
-                        |feed| format!("Evidence {}", feed.title),
+                        |feed| {
+                            app.current_source_review().map_or_else(
+                                || format!("Evidence {}", feed.title),
+                                |review| {
+                                    format!(
+                                        "Evidence {} (#{} {})",
+                                        feed.title, review.id, review.source
+                                    )
+                                },
+                            )
+                        },
                     ),
                     Color::Magenta,
                 ))
