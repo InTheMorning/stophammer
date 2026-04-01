@@ -148,6 +148,20 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         candidate_sources.contains(&"wallet_name_variant"),
         "wallet_name_variant should appear among candidate groups"
     );
+    let wallet_variant_group = json["artist_identity_plan"]["candidate_groups"]
+        .as_array()
+        .expect("candidate_groups array")
+        .iter()
+        .find(|group| group["source"].as_str() == Some("wallet_name_variant"))
+        .expect("wallet_name_variant candidate group");
+    assert_eq!(wallet_variant_group["confidence"], "high_confidence");
+    assert!(
+        wallet_variant_group["explanation"]
+            .as_str()
+            .expect("candidate group explanation")
+            .contains("wallet alias evidence"),
+        "candidate group explanation should mention wallet alias evidence"
+    );
     let review_sources = json["artist_identity_reviews"]
         .as_array()
         .expect("artist_identity_reviews array")

@@ -1991,6 +1991,8 @@ plan, stored review items, and wallet-linked evidence touching the feed.
         "artist_names": ["HeyCitizen", "Hey Citizen"],
         "review_id": 42,
         "review_status": "pending",
+        "confidence": "high_confidence",
+        "explanation": "Multiple artist rows collapse to one normalized name and also match wallet alias evidence on the same feed.",
         "override_type": null,
         "target_artist_id": null,
         "note": null
@@ -2037,6 +2039,12 @@ plan, stored review items, and wallet-linked evidence touching the feed.
 ```
 
 Each `artist_identity_reviews` row includes deterministic review metadata:
+
+- `confidence`
+- `explanation`
+
+When a candidate group already has a stored review row, the corresponding
+`artist_identity_plan.candidate_groups[]` item also includes:
 
 - `confidence`
 - `explanation`

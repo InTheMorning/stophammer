@@ -4328,6 +4328,8 @@ pub struct ArtistIdentityCandidateGroup {
     pub artist_names: Vec<String>,
     pub review_id: Option<i64>,
     pub review_status: Option<String>,
+    pub confidence: Option<String>,
+    pub explanation: Option<String>,
     pub override_type: Option<String>,
     pub target_artist_id: Option<String>,
     pub note: Option<String>,
@@ -6136,6 +6138,8 @@ pub fn explain_artist_identity_for_feed(
                 artist_names,
                 review_id: review.as_ref().map(|item| item.review_id),
                 review_status: review.as_ref().map(|item| item.status.clone()),
+                confidence: review.as_ref().map(|item| item.confidence.clone()),
+                explanation: review.as_ref().map(|item| item.explanation.clone()),
                 override_type: review.as_ref().and_then(|item| item.override_type.clone()),
                 target_artist_id: review
                     .as_ref()
