@@ -1185,6 +1185,18 @@ impl App {
             format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
             format!(
+                "Family: {}",
+                current_family_position(self).map_or_else(
+                    || "none".to_string(),
+                    |(label, position, total)| format!("{label} ({position}/{total})")
+                )
+            ),
+            format!(
+                "Feed cluster: {}",
+                feed_family_subset_summary(&self.feeds)
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
                 "Tracks: {}  Total source claim rows: {}",
                 snapshot.tracks.len(),
                 total_source_claims
@@ -1203,7 +1215,17 @@ impl App {
         }));
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!("Claim Mix [{}]", short_id(&feed_row.feed_guid)),
+            current_family_position(self).map_or_else(
+                || format!("Claim Mix [{}]", short_id(&feed_row.feed_guid)),
+                |(label, position, total)| {
+                    let cluster = feed_family_subset_short_summary(&self.feeds)
+                        .map_or_else(String::new, |summary| format!(" {summary}"));
+                    format!(
+                        "Claim Mix [{}] {label} {position}/{total}{cluster}",
+                        short_id(&feed_row.feed_guid)
+                    )
+                },
+            ),
             lines,
         ));
     }
