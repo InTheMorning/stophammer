@@ -2413,7 +2413,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     let source_title = app.current_source_review().map_or_else(
         || "Main Wallet".to_string(),
-        |review| format!("Main Wallet #{}", review.id),
+        |review| {
+            format!(
+                "Main Wallet #{} ({}, key={})",
+                review.id,
+                review.source,
+                abbreviate(&review.evidence_key, 18)
+            )
+        },
     );
     let source_card = Paragraph::new(Text::from(wallet_card_lines(
         app.source_wallet_detail.as_ref(),
@@ -2429,7 +2436,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
 
     let candidate_title = app.current_candidate_review().map_or_else(
         || "Wallet To Merge".to_string(),
-        |review| format!("Wallet To Merge #{}", review.id),
+        |review| {
+            format!(
+                "Wallet To Merge #{} ({}, key={})",
+                review.id,
+                review.source,
+                abbreviate(&review.evidence_key, 18)
+            )
+        },
     );
     let candidate_card = Paragraph::new(Text::from(wallet_card_lines(
         app.candidate_wallet_detail.as_ref(),
@@ -2464,7 +2478,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         || "Choose Main Wallet".to_string(),
         |group| {
             let review_id = group.reviews.first().map_or(0, |review| review.id);
-            format!("Choose Main Wallet #{} ({})", review_id, group.source)
+            let evidence_key = group
+                .reviews
+                .first()
+                .map_or_else(String::new, |review| abbreviate(&review.evidence_key, 18));
+            format!(
+                "Choose Main Wallet #{} ({}, key={})",
+                review_id, group.source, evidence_key
+            )
         },
     );
     let source_list = List::new(source_items)
@@ -2503,7 +2524,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     };
     let candidate_list_title = app.current_source_review().map_or_else(
         || "Choose Wallet To Merge [ / ]".to_string(),
-        |review| format!("Choose Wallet To Merge [ / ] #{}", review.id),
+        |review| {
+            format!(
+                "Choose Wallet To Merge [ / ] #{} ({}, key={})",
+                review.id,
+                review.source,
+                abbreviate(&review.evidence_key, 18)
+            )
+        },
     );
     let candidate_list = List::new(candidate_items)
         .block(
@@ -2547,7 +2575,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     };
     let feed_list_title = app.current_source_review().map_or_else(
         || "Evidence Feeds For Source".to_string(),
-        |review| format!("Evidence Feeds For Source #{}", review.id),
+        |review| {
+            format!(
+                "Evidence Feeds For Source #{} ({}, key={})",
+                review.id,
+                review.source,
+                abbreviate(&review.evidence_key, 18)
+            )
+        },
     );
     let feed_list = List::new(feed_items)
         .block(
