@@ -1228,6 +1228,12 @@ impl App {
             stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
         let score_summary =
             stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let conflict_summary = stophammer::tui::summarize_reason_counts(
+            self.groups
+                .iter()
+                .flat_map(|group| group.reviews.iter())
+                .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
+        );
         let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let mut lines = stophammer::tui::build_queue_summary_header_lines(
@@ -1252,6 +1258,14 @@ impl App {
             score_summary
                 .iter()
                 .map(|item| (item.score_band.as_str(), item.count)),
+        );
+        lines.push(String::new());
+        stophammer::tui::push_conflict_summary_section(
+            &mut lines,
+            "Conflict reasons:",
+            conflict_summary
+                .iter()
+                .map(|(reason, count)| (reason.as_str(), *count)),
         );
         lines.push(String::new());
         lines.extend(stophammer::tui::build_queue_summary_lines(
@@ -1294,6 +1308,17 @@ impl App {
             stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
         let wallet_score_summary =
             stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let artist_conflict_summary = stophammer::tui::summarize_reason_counts(
+            stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?
+                .iter()
+                .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
+        );
+        let wallet_conflict_summary = stophammer::tui::summarize_reason_counts(
+            self.groups
+                .iter()
+                .flat_map(|group| group.reviews.iter())
+                .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
+        );
         let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
@@ -1338,6 +1363,14 @@ impl App {
                 .map(|item| (item.score_band.as_str(), item.count)),
         );
         lines.push(String::new());
+        stophammer::tui::push_conflict_summary_section(
+            &mut lines,
+            "Artist conflict reasons:",
+            artist_conflict_summary
+                .iter()
+                .map(|(reason, count)| (reason.as_str(), *count)),
+        );
+        lines.push(String::new());
         stophammer::tui::push_confidence_summary_section(
             &mut lines,
             "Wallet confidence bands:",
@@ -1352,6 +1385,14 @@ impl App {
             wallet_score_summary
                 .iter()
                 .map(|item| (item.score_band.as_str(), item.count)),
+        );
+        lines.push(String::new());
+        stophammer::tui::push_conflict_summary_section(
+            &mut lines,
+            "Wallet conflict reasons:",
+            wallet_conflict_summary
+                .iter()
+                .map(|(reason, count)| (reason.as_str(), *count)),
         );
         self.dialog = Some(stophammer::tui::operator_overview_dialog(
             artist_total,

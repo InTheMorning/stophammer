@@ -277,6 +277,41 @@ pub fn push_score_summary_section<'a>(
     );
 }
 
+/// Counts repeated conflict reasons and returns them sorted by count desc.
+#[must_use]
+pub fn summarize_reason_counts<'a>(
+    reasons: impl IntoIterator<Item = &'a str>,
+) -> Vec<(String, usize)> {
+    let mut counts = BTreeMap::<String, usize>::new();
+    for reason in reasons {
+        *counts.entry(reason.to_string()).or_default() += 1;
+    }
+    let mut counts = counts.into_iter().collect::<Vec<_>>();
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    counts
+}
+
+/// Appends a conflict-reason section shared by operator dialogs.
+pub fn push_conflict_summary_section<'a>(
+    lines: &mut Vec<String>,
+    heading: &str,
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+) {
+    let items = items
+        .into_iter()
+        .map(|(reason, count)| (reason.to_string(), count))
+        .collect::<Vec<_>>();
+    lines.push(heading.to_string());
+    if items.is_empty() {
+        lines.push("  none".to_string());
+        return;
+    }
+    lines.extend(
+        items.into_iter()
+            .map(|(reason, count)| format!("  {reason}: {count}")),
+    );
+}
+
 /// Builds the body lines for a queue-summary dialog shared by review TUIs.
 #[must_use]
 pub fn build_queue_summary_lines<'a>(
