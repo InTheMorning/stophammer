@@ -1144,29 +1144,12 @@ impl App {
                 format_local_timestamp(oldest_created_at)
             ));
         }
-        if summary.is_empty() {
-            lines.push("No pending wallet review sources".to_string());
-        } else {
-            if let Some(top_source) = summary.first() {
-                let share = (top_source.count.saturating_mul(100)) / total.max(1);
-                if share >= 50 {
-                    lines.push(stophammer::tui::format_dominant_family_hint(
-                        &top_source.source,
-                        share,
-                        "Use n/N to stay within it.",
-                    ));
-                    lines.push(String::new());
-                } else {
-                    lines.push(String::new());
-                }
-            } else {
-                lines.push(String::new());
-            }
-            lines.extend(summary.into_iter().map(|item| {
-                let share = (item.count.saturating_mul(100)) / total.max(1);
-                format!("{}: {} ({}%)", item.source, item.count, share)
-            }));
-        }
+        lines.extend(stophammer::tui::build_queue_summary_lines(
+            summary.iter().map(|item| (item.source.as_str(), item.count)),
+            total,
+            "No pending wallet review sources",
+            "Use n/N to stay within it.",
+        ));
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title("Wallet Queue Summary", total),
             lines,

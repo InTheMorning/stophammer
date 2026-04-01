@@ -174,6 +174,37 @@ pub fn push_source_family_section<'a>(
     }));
 }
 
+/// Builds the body lines for a queue-summary dialog shared by review TUIs.
+#[must_use]
+pub fn build_queue_summary_lines<'a>(
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+    total: usize,
+    empty_message: &str,
+    dominant_suffix: &str,
+) -> Vec<String> {
+    let items = items
+        .into_iter()
+        .map(|(source, count)| (source.to_string(), count))
+        .collect::<Vec<_>>();
+    if items.is_empty() {
+        return vec![empty_message.to_string()];
+    }
+
+    let mut lines = Vec::new();
+    if let Some((source, count)) = items.first() {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        if share >= 50 {
+            lines.push(format_dominant_family_hint(source, share, dominant_suffix));
+            lines.push(String::new());
+        }
+    }
+    lines.extend(items.into_iter().map(|(source, count)| {
+        let share = (count.saturating_mul(100)) / total.max(1);
+        format!("{source}: {count} ({share}%)")
+    }));
+    lines
+}
+
 /// Simple text dialog payload shared by interactive review TUIs.
 #[derive(Debug, Clone)]
 pub struct TextDialog {
