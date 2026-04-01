@@ -28,7 +28,7 @@ use std::time::Duration;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{
-    Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
+    Block, BorderType, Borders, List, ListItem, ListState, Paragraph, Wrap,
 };
 use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
@@ -1106,13 +1106,6 @@ fn focus_block<'a>(title: &'a str, is_focused: bool, accent: Color) -> Block<'a>
     ))
 }
 
-fn styled_title(title: &str, color: Color) -> Span<'static> {
-    Span::styled(
-        format!(" {title} "),
-        Style::default().fg(color).add_modifier(Modifier::BOLD),
-    )
-}
-
 fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
     if app.reviews.is_empty() {
         return vec![ListItem::new("No pending reviews")];
@@ -1626,27 +1619,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(footer, layout[2]);
 
     if let Some(dialog) = &app.dialog {
-        let dialog_area = centered_rect(68, 45, area);
-        frame.render_widget(Clear, dialog_area);
-        let dialog_text = dialog
-            .lines
-            .iter()
-            .map(|line| Line::from(line.clone()))
-            .collect::<Vec<_>>();
-        let widget = Paragraph::new(dialog_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Thick)
-                    .border_style(
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .title(styled_title(&dialog.title, Color::White)),
-            )
-            .wrap(Wrap { trim: false });
-        frame.render_widget(widget, dialog_area);
+        stophammer::tui::render_text_dialog(frame, area, dialog);
     }
 }
 
@@ -1689,22 +1662,6 @@ fn artist_source_family_position(app: &App) -> Option<(usize, usize)> {
         .position(|&index| index == selected)
         .map(|index| index.saturating_add(1))?;
     Some((position, matching.len()))
-}
-
-fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
-    let vertical = Layout::vertical([
-        Constraint::Percentage((100 - percent_y) / 2),
-        Constraint::Percentage(percent_y),
-        Constraint::Percentage((100 - percent_y) / 2),
-    ])
-    .split(area);
-    let horizontal = Layout::horizontal([
-        Constraint::Percentage((100 - percent_x) / 2),
-        Constraint::Percentage(percent_x),
-        Constraint::Percentage((100 - percent_x) / 2),
-    ])
-    .split(vertical[1]);
-    horizontal[1]
 }
 
 fn run_app(

@@ -7,8 +7,13 @@ use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
+use ratatui::Frame;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::prelude::{Color, Modifier, Style};
+use ratatui::text::Line;
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Paragraph, Wrap};
 
 /// Restores raw-mode and alternate-screen terminal state on both normal exit
 /// and panic unwinding.
@@ -88,4 +93,53 @@ pub fn dominant_source_summary<'a>(sources: impl IntoIterator<Item = &'a str>) -
 pub struct TextDialog {
     pub title: String,
     pub lines: Vec<String>,
+}
+
+/// Centers a rectangle inside `area` by percentage.
+#[must_use]
+pub fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let vertical = Layout::vertical([
+        Constraint::Percentage((100 - percent_y) / 2),
+        Constraint::Percentage(percent_y),
+        Constraint::Percentage((100 - percent_y) / 2),
+    ])
+    .split(area);
+    let horizontal = Layout::horizontal([
+        Constraint::Percentage((100 - percent_x) / 2),
+        Constraint::Percentage(percent_x),
+        Constraint::Percentage((100 - percent_x) / 2),
+    ])
+    .split(vertical[1]);
+    horizontal[1]
+}
+
+/// Renders a centered modal text dialog with consistent styling.
+pub fn render_text_dialog(frame: &mut Frame<'_>, area: Rect, dialog: &TextDialog) {
+    let dialog_area = centered_rect(68, 45, area);
+    frame.render_widget(Clear, dialog_area);
+    let dialog_text = dialog
+        .lines
+        .iter()
+        .cloned()
+        .map(Line::from)
+        .collect::<Vec<_>>();
+    let widget = Paragraph::new(dialog_text)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Thick)
+                .border_style(
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )
+                .title(Line::styled(
+                    dialog.title.clone(),
+                    Style::default()
+                        .fg(Color::White)
+                        .add_modifier(Modifier::BOLD),
+                )),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(widget, dialog_area);
 }

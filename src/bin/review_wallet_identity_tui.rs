@@ -2812,41 +2812,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(footer, root[2]);
 
     if let Some(dialog) = &app.dialog {
-        let popup = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(30),
-                Constraint::Length((dialog.lines.len() as u16).saturating_add(4)),
-                Constraint::Percentage(30),
-            ])
-            .split(frame.area());
-        let row = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Percentage(25),
-                Constraint::Percentage(50),
-                Constraint::Percentage(25),
-            ])
-            .split(popup[1]);
-        let dialog_text = dialog
-            .lines
-            .iter()
-            .map(|line| Line::from(line.clone()))
-            .collect::<Vec<_>>();
-        let dialog_widget = Paragraph::new(dialog_text)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_type(BorderType::Thick)
-                    .border_style(
-                        Style::default()
-                            .fg(Color::White)
-                            .add_modifier(Modifier::BOLD),
-                    )
-                    .title(styled_title(&dialog.title, Color::White)),
-            )
-            .wrap(Wrap { trim: false });
-        frame.render_widget(dialog_widget, row[1]);
+        stophammer::tui::render_text_dialog(frame, frame.area(), dialog);
     }
 }
 
