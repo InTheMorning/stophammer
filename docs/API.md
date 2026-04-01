@@ -1865,6 +1865,11 @@ plus a rollup grouped by derived review `confidence`.
   "confidence_summary": [
     { "confidence": "review_required", "count": 7 },
     { "confidence": "blocked", "count": 3 }
+  ],
+  "score_summary": [
+    { "score_band": "80_100", "count": 1 },
+    { "score_band": "1_59", "count": 6 },
+    { "score_band": "unscored", "count": 3 }
   ]
 }
 ```
@@ -1886,6 +1891,9 @@ plus a rollup grouped by derived review `confidence`.
   ],
   "confidence_summary": [
     { "confidence": "review_required", "count": 12 }
+  ],
+  "score_summary": [
+    { "score_band": "unscored", "count": 12 }
   ]
 }
 ```
@@ -1943,6 +1951,13 @@ Returns the main operator dashboard payload for pending review work.
   ],
   "wallet_identity_confidence_summary": [
     { "confidence": "review_required", "count": 12 }
+  ],
+  "artist_identity_score_summary": [
+    { "score_band": "80_100", "count": 1 },
+    { "score_band": "1_59", "count": 6 }
+  ],
+  "wallet_identity_score_summary": [
+    { "score_band": "unscored", "count": 12 }
   ],
   "age_summary": {
     "artist_identity": {

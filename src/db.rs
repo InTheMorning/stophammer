@@ -4403,6 +4403,12 @@ pub struct PendingReviewConfidenceSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PendingReviewScoreSummary {
+    pub score_band: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PendingReviewAgeSummary {
     pub total: usize,
     pub created_last_24h: usize,
@@ -5496,6 +5502,25 @@ fn review_confidence_priority(confidence: &str) -> u8 {
 
 fn review_score_priority(score: Option<u16>) -> std::cmp::Reverse<u16> {
     std::cmp::Reverse(score.unwrap_or(0))
+}
+
+fn review_score_band(score: Option<u16>) -> &'static str {
+    match score {
+        Some(80..=100) => "80_100",
+        Some(60..=79) => "60_79",
+        Some(1..=59) => "1_59",
+        _ => "unscored",
+    }
+}
+
+fn review_score_band_priority(score_band: &str) -> u8 {
+    match score_band {
+        "80_100" => 0,
+        "60_79" => 1,
+        "1_59" => 2,
+        "unscored" => 3,
+        _ => 4,
+    }
 }
 
 fn sync_artist_identity_review_item(
@@ -6800,6 +6825,35 @@ pub fn summarize_pending_artist_identity_review_confidence(
             .cmp(&review_confidence_priority(&right.confidence))
             .then_with(|| right.count.cmp(&left.count))
             .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+    Ok(summary)
+}
+
+/// Returns pending artist-identity review counts grouped by derived score band.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn summarize_pending_artist_identity_review_scores(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewScoreSummary>, DbError> {
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("pending review limit exceeds usize: {err}")))?;
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for review in list_pending_artist_identity_reviews(conn, max_limit)? {
+        *counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(score_band, count)| PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
     });
     Ok(summary)
 }
@@ -13525,6 +13579,35 @@ pub fn summarize_pending_wallet_review_confidence(
             .cmp(&review_confidence_priority(&right.confidence))
             .then_with(|| right.count.cmp(&left.count))
             .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+    Ok(summary)
+}
+
+/// Returns pending wallet-identity review counts grouped by derived score band.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the pending review rows cannot be loaded.
+pub fn summarize_pending_wallet_review_scores(
+    conn: &Connection,
+) -> Result<Vec<PendingReviewScoreSummary>, DbError> {
+    let max_limit = usize::try_from(i64::MAX)
+        .map_err(|err| DbError::Other(format!("wallet review limit exceeds usize: {err}")))?;
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    for review in list_pending_wallet_reviews(conn, max_limit)? {
+        *counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+    }
+    let mut summary = counts
+        .into_iter()
+        .map(|(score_band, count)| PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
     });
     Ok(summary)
 }

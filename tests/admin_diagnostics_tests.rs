@@ -1106,6 +1106,13 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         artist_json["confidence_summary"][0]["confidence"],
         "review_required"
     );
+    let artist_score_bands = artist_json["score_summary"]
+        .as_array()
+        .expect("artist score summary array")
+        .iter()
+        .filter_map(|row| row["score_band"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(artist_score_bands.contains("unscored"));
     assert_eq!(artist_json["confidence_summary"][1]["confidence"], "blocked");
 
     let wallet_resp = app
@@ -1125,6 +1132,13 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         wallet_json["confidence_summary"][0]["confidence"],
         "high_confidence"
     );
+    let wallet_score_bands = wallet_json["score_summary"]
+        .as_array()
+        .expect("wallet score summary array")
+        .iter()
+        .filter_map(|row| row["score_band"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(wallet_score_bands.contains("60_79"));
 }
 
 #[tokio::test]
@@ -1311,6 +1325,13 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
         json["artist_identity_confidence_summary"][0]["confidence"],
         "review_required"
     );
+    let artist_score_bands = json["artist_identity_score_summary"]
+        .as_array()
+        .expect("artist score summary")
+        .iter()
+        .filter_map(|row| row["score_band"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(artist_score_bands.contains("unscored"));
     assert!(
         !json["wallet_identity_confidence_summary"]
             .as_array()
@@ -1318,6 +1339,13 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
             .is_empty(),
         "dashboard should expose wallet confidence summaries"
     );
+    let wallet_score_bands = json["wallet_identity_score_summary"]
+        .as_array()
+        .expect("wallet score summary")
+        .iter()
+        .filter_map(|row| row["score_band"].as_str())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(wallet_score_bands.contains("unscored"));
     assert_eq!(json["age_summary"]["artist_identity"]["total"], 1);
     assert_eq!(json["feed_hotspots"][0]["feed_guid"], "feed-dashboard");
 }
