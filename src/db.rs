@@ -5394,6 +5394,15 @@ fn wallet_review_supporting_sources(source: &str) -> Vec<String> {
     }
 }
 
+fn review_confidence_priority(confidence: &str) -> u8 {
+    match confidence {
+        "high_confidence" => 0,
+        "review_required" => 1,
+        "blocked" => 2,
+        _ => 3,
+    }
+}
+
 fn sync_artist_identity_review_item(
     conn: &Connection,
     feed_guid: &str,
@@ -6553,6 +6562,12 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
             created_at: row.get(7)?,
         });
     }
+    reviews.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.created_at.cmp(&left.created_at))
+            .then_with(|| right.review_id.cmp(&left.review_id))
+    });
     Ok(reviews)
 }
 
@@ -13188,6 +13203,12 @@ fn list_pending_wallet_reviews_with_max_created_at(
             created_at: row.get(9)?,
         });
     }
+    summaries.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.created_at.cmp(&left.created_at))
+            .then_with(|| right.id.cmp(&left.id))
+    });
     Ok(summaries)
 }
 

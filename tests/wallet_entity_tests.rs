@@ -1802,6 +1802,47 @@ fn list_pending_reviews_filters_resolved() {
 }
 
 #[test]
+fn pending_wallet_reviews_prioritize_high_confidence_sources() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep1 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-priority-1", "", "", Some("Alice"), now)
+            .unwrap();
+    let wid1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
+    let ep2 =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-priority-2", "", "", Some("Alice"), now)
+            .unwrap();
+    let wid2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
+
+    conn.execute(
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'cross_wallet_alias', 'alice', json_array(?1), '[]', 'pending', ?2, ?2)",
+        params![wid1, now],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO wallet_identity_review \
+         (wallet_id, source, evidence_key, wallet_ids_json, endpoint_summary_json, status, created_at, updated_at) \
+         VALUES (?1, 'likely_wallet_owner_match', 'alice', json_array(?1, ?2), '[]', 'pending', ?3, ?3)",
+        params![wid2, wid1, now - 60],
+    )
+    .unwrap();
+
+    let reviews = db::list_pending_wallet_reviews(&conn, 10).unwrap();
+    let sources = reviews
+        .iter()
+        .map(|review| review.source.as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        sources,
+        vec!["likely_wallet_owner_match", "cross_wallet_alias"],
+        "pending wallet reviews should prioritize high-confidence items ahead of review_required items"
+    );
+}
+
+#[test]
 fn set_override_resolves_review() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
