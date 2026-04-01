@@ -257,6 +257,25 @@ pub fn push_feed_hotspot_lines(
     }
 }
 
+/// Builds the body lines for a feed-hotspot dialog shared by review TUIs.
+#[must_use]
+pub fn build_feed_hotspot_dialog_lines(
+    hotspots: &[crate::db::PendingReviewFeedHotspot],
+    short_id: impl Fn(&str) -> String,
+    abbreviate: impl Fn(&str, usize) -> String,
+) -> Vec<String> {
+    let mut lines = vec![
+        "Top feeds by pending combined review load".to_string(),
+        String::new(),
+    ];
+    if hotspots.is_empty() {
+        lines.push("No feed hotspots with pending reviews".to_string());
+    } else {
+        push_feed_hotspot_lines(&mut lines, hotspots, "", "  ", short_id, abbreviate);
+    }
+    lines
+}
+
 /// Parameters for a shared review-playbook dialog body.
 #[derive(Debug, Clone, Copy)]
 pub struct ReviewPlaybookConfig<'a> {

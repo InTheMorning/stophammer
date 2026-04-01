@@ -1159,22 +1159,8 @@ impl App {
     fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
         let hotspot_count = hotspots.len();
-        let mut lines = vec![
-            "Top feeds by pending combined review load".to_string(),
-            String::new(),
-        ];
-        if hotspots.is_empty() {
-            lines.push("No feed hotspots with pending reviews".to_string());
-        } else {
-            stophammer::tui::push_feed_hotspot_lines(
-                &mut lines,
-                &hotspots,
-                "",
-                "  ",
-                short_id,
-                abbreviate,
-            );
-        }
+        let lines =
+            stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
         self.dialog = Some(stophammer::tui::TextDialog {
             title: stophammer::tui::format_counted_dialog_title("Feed Hotspots", hotspot_count),
             lines,
