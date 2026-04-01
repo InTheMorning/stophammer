@@ -1415,6 +1415,12 @@ impl App {
                     "2. Main source family: {} ({} pending, {}% of backlog).",
                     top_source.source, top_source.count, share
                 ));
+                if share >= 50 {
+                    lines.push(format!(
+                        "   Use n/N to walk the '{}' groups quickly before switching heuristics.",
+                        top_source.source
+                    ));
+                }
             }
 
             if let Some(feed) = hotspots.first() {
