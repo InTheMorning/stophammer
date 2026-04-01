@@ -198,6 +198,13 @@ fn dominant_track_claim_family_summary(snapshot: &FeedClaimSnapshot, track_guid:
     )
 }
 
+fn track_cluster_membership_summary(snapshot: &FeedClaimSnapshot, track_guid: &str) -> String {
+    track_family_cluster_membership(snapshot, track_guid).map_or_else(
+        || "cluster none".to_string(),
+        |(label, cluster_size, total_tracks)| format!("cluster {label} ({cluster_size}/{total_tracks})"),
+    )
+}
+
 fn feed_family_subset_summary(feeds: &[FeedQueueRow]) -> Option<String> {
     let mut counts = BTreeMap::<&'static str, usize>::new();
     for feed in feeds {
@@ -276,6 +283,18 @@ fn current_track_family_position(app: &App) -> Option<(&'static str, usize, usiz
         .position(|idx| *idx == current_idx)?
         .saturating_add(1);
     Some((label, position, family_indices.len()))
+}
+
+fn current_track_family_position_label(app: &App) -> String {
+    current_track_family_position(app).map_or_else(
+        || "family none".to_string(),
+        |(label, position, total)| format!("family {label} ({position}/{total})"),
+    )
+}
+
+fn current_track_family_header_label(app: &App) -> Option<String> {
+    current_track_family_position(app)
+        .map(|(label, position, total)| format!("track-family {label} {position}/{total}"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -615,10 +634,7 @@ impl App {
         let selected_track_summary = self.current_track().map_or_else(
             || "No track selected.".to_string(),
             |track| {
-                let family = current_track_family_position(self).map_or_else(
-                    || "family none".to_string(),
-                    |(label, position, total)| format!("family {label} ({position}/{total})"),
-                );
+                let family = current_track_family_position_label(self);
                 let cluster = track_family_cluster_membership(snapshot, &track.track_guid)
                     .map_or_else(
                         || "cluster none".to_string(),
@@ -755,16 +771,11 @@ impl App {
         if let Some(summary) = track_family_subset_summary(snapshot) {
             lines.push(summary);
         }
-        if let Some((label, position, family_total)) = current_track_family_position(self) {
-            lines.push(format!("Family: {label} ({position}/{family_total})"));
-        }
-        if let Some((label, cluster_size, total_tracks)) =
-            track_family_cluster_membership(snapshot, &track.track_guid)
-        {
-            lines.push(format!(
-                "Cluster membership: {label} ({cluster_size}/{total_tracks})"
-            ));
-        }
+        lines.push(format!("Family: {}", current_track_family_position_label(self)));
+        lines.push(format!(
+            "Cluster membership: {}",
+            track_cluster_membership_summary(snapshot, &track.track_guid)
+        ));
         if let Some((label, _count, share)) = dominant_track_claim_family(snapshot, &track.track_guid)
         {
             lines.push(format!("Dominant family: {label} ({share}%)"));
@@ -2100,10 +2111,10 @@ fn header_context_line(app: &App) -> Line<'static> {
                 ),
                 Style::default().fg(Color::Yellow),
             ));
-            if let Some((label, position, total)) = current_track_family_position(app) {
+            if let Some(summary) = current_track_family_header_label(app) {
                 spans.push(Span::raw("  "));
                 spans.push(Span::styled(
-                    format!("track-family {label} {position}/{total}"),
+                    summary,
                     Style::default().fg(Color::DarkGray),
                 ));
             }
