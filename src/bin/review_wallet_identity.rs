@@ -223,6 +223,22 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
         return;
     }
 
+    let mut high_confidence = 0usize;
+    let mut review_required = 0usize;
+    let mut blocked = 0usize;
+    for review in reviews {
+        match review.confidence.as_str() {
+            "high_confidence" => high_confidence += 1,
+            "review_required" => review_required += 1,
+            "blocked" => blocked += 1,
+            _ => {}
+        }
+    }
+    println!(
+        "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
+    );
+    println!();
+
     for r in reviews {
         println!(
             "review {}  wallet={}  name={:?}  class={}  class_confidence={}  review_confidence={}",
