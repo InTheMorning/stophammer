@@ -1270,8 +1270,9 @@ impl App {
                     0
                 };
                 format!(
-                    "  {} | total={} ({}%) artist={} wallet={}",
+                    "  {} [{}] | total={} ({}%) artist={} wallet={}",
                     feed.title,
+                    short_id(&feed.feed_guid),
                     feed.total_review_count,
                     share,
                     feed.artist_review_count,
