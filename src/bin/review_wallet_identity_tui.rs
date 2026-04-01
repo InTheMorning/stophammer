@@ -247,6 +247,7 @@ fn parse_args() -> Result<Args, String> {
                      o            Show operator overview\n\
                      a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
+                     t            Show stale wallet reviews\n\
                      u            Undo last applied merge batch\n\
                      x            Mark selected wallet as different from the main wallet\n\
                      c            Cycle main wallet class (also sets confidence to reviewed)\n\
@@ -1214,6 +1215,33 @@ impl App {
         }
         self.dialog = Some(SummaryDialog {
             title: "Operator Overview".to_string(),
+            lines,
+        });
+        Ok(())
+    }
+
+    fn show_stale_reviews(&mut self) -> Result<(), Box<dyn Error>> {
+        let stale =
+            stophammer::db::list_stale_pending_wallet_reviews(&self.conn, 7 * 24 * 60 * 60, 10)?;
+        let mut lines = vec![
+            "Pending wallet reviews older than 7 days".to_string(),
+            String::new(),
+        ];
+        if stale.is_empty() {
+            lines.push("No stale wallet reviews".to_string());
+        } else {
+            lines.extend(stale.into_iter().map(|review| {
+                format!(
+                    "{} | {} | {} wallets | created {}",
+                    review.display_name,
+                    review.source,
+                    review.wallet_ids.len(),
+                    format_local_timestamp(review.created_at)
+                )
+            }));
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Stale Wallet Reviews".to_string(),
             lines,
         });
         Ok(())
@@ -2455,6 +2483,9 @@ fn run_app(
             }
             KeyCode::Char('h') => {
                 app.show_feed_hotspots()?;
+            }
+            KeyCode::Char('t') => {
+                app.show_stale_reviews()?;
             }
             KeyCode::Char('u') => {
                 app.undo_last_apply_batch()?;
