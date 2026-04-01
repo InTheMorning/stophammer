@@ -1226,6 +1226,8 @@ impl App {
         let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
         let confidence_summary =
             stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
+        let score_summary =
+            stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
         let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let mut lines = stophammer::tui::build_queue_summary_header_lines(
@@ -1242,6 +1244,14 @@ impl App {
             confidence_summary
                 .iter()
                 .map(|item| (item.confidence.as_str(), item.count)),
+        );
+        lines.push(String::new());
+        stophammer::tui::push_score_summary_section(
+            &mut lines,
+            "Score bands:",
+            score_summary
+                .iter()
+                .map(|item| (item.score_band.as_str(), item.count)),
         );
         lines.push(String::new());
         lines.extend(stophammer::tui::build_queue_summary_lines(
@@ -1280,6 +1290,10 @@ impl App {
             stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
         let wallet_confidence_summary =
             stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
+        let artist_score_summary =
+            stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
+        let wallet_score_summary =
+            stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
         let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
         let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
         let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
@@ -1316,12 +1330,28 @@ impl App {
                 .map(|item| (item.confidence.as_str(), item.count)),
         );
         lines.push(String::new());
+        stophammer::tui::push_score_summary_section(
+            &mut lines,
+            "Artist score bands:",
+            artist_score_summary
+                .iter()
+                .map(|item| (item.score_band.as_str(), item.count)),
+        );
+        lines.push(String::new());
         stophammer::tui::push_confidence_summary_section(
             &mut lines,
             "Wallet confidence bands:",
             wallet_confidence_summary
                 .iter()
                 .map(|item| (item.confidence.as_str(), item.count)),
+        );
+        lines.push(String::new());
+        stophammer::tui::push_score_summary_section(
+            &mut lines,
+            "Wallet score bands:",
+            wallet_score_summary
+                .iter()
+                .map(|item| (item.score_band.as_str(), item.count)),
         );
         self.dialog = Some(stophammer::tui::operator_overview_dialog(
             artist_total,

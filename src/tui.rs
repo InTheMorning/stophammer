@@ -256,6 +256,27 @@ pub fn push_confidence_summary_section<'a>(
     }));
 }
 
+/// Appends a score-band section shared by operator dialogs.
+pub fn push_score_summary_section<'a>(
+    lines: &mut Vec<String>,
+    heading: &str,
+    items: impl IntoIterator<Item = (&'a str, usize)>,
+) {
+    let items = items
+        .into_iter()
+        .map(|(score_band, count)| (score_band.to_string(), count))
+        .collect::<Vec<_>>();
+    lines.push(heading.to_string());
+    if items.is_empty() {
+        lines.push("  none".to_string());
+        return;
+    }
+    lines.extend(
+        items.into_iter()
+            .map(|(score_band, count)| format!("  {score_band}: {count}")),
+    );
+}
+
 /// Builds the body lines for a queue-summary dialog shared by review TUIs.
 #[must_use]
 pub fn build_queue_summary_lines<'a>(
