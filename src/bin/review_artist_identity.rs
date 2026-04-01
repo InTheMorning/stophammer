@@ -590,8 +590,25 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
             _ => {}
         }
     }
+    let scored_count = report
+        .reviews
+        .iter()
+        .filter(|review| review.score.is_some())
+        .count();
+    let top_scored = report
+        .reviews
+        .iter()
+        .filter_map(|review| review.score.map(|score| (score, review.source.as_str())))
+        .max_by_key(|(score, _source)| *score);
     println!(
         "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
+    );
+    println!(
+        "score summary: SCORED={scored_count}/{}  TOP_SCORE={}  TOP_SOURCE={}",
+        report.reviews.len(),
+        top_scored
+            .map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
+        top_scored.map_or("-", |(_score, source)| source)
     );
     println!();
 
