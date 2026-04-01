@@ -64,7 +64,7 @@ struct FeedClaimSnapshot {
     resolved_entity_sources: Vec<ResolvedEntitySourceByFeed>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 struct ClaimFamilyTotals {
     contributors: usize,
     entity_ids: usize,
@@ -104,6 +104,7 @@ struct App {
     conn: Connection,
     limit: usize,
     feeds: Vec<FeedQueueRow>,
+    queue_claim_family_totals: ClaimFamilyTotals,
     feed_state: ListState,
     track_state: ListState,
     focus: Focus,
@@ -120,6 +121,7 @@ impl App {
             conn,
             limit,
             feeds: Vec::new(),
+            queue_claim_family_totals: ClaimFamilyTotals::default(),
             feed_state: ListState::default(),
             track_state: ListState::default(),
             focus: Focus::Feeds,
@@ -138,6 +140,14 @@ impl App {
         preferred_track_guid: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         self.feeds = list_claim_review_feeds(&self.conn, self.limit)?;
+        self.queue_claim_family_totals = load_queue_claim_family_totals(
+            &self.conn,
+            &self
+                .feeds
+                .iter()
+                .map(|feed| feed.feed_guid.clone())
+                .collect::<Vec<_>>(),
+        )?;
         if self.feeds.is_empty() {
             self.feed_state.select(None);
             self.track_state.select(None);
@@ -381,22 +391,7 @@ impl App {
         let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
         let total_claims: i64 = self.feeds.iter().map(|feed| feed.source_claim_count).sum();
         let total_resolved: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
-        let claim_family_totals = load_queue_claim_family_totals(
-            &self.conn,
-            &self
-                .feeds
-                .iter()
-                .map(|feed| feed.feed_guid.clone())
-                .collect::<Vec<_>>(),
-        )
-        .unwrap_or(ClaimFamilyTotals {
-            contributors: 0,
-            entity_ids: 0,
-            links: 0,
-            releases: 0,
-            platforms: 0,
-            enclosures: 0,
-        });
+        let claim_family_totals = self.queue_claim_family_totals;
         let top_claim_feed = self
             .feeds
             .iter()
