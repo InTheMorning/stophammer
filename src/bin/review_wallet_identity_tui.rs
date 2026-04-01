@@ -249,7 +249,7 @@ fn parse_args() -> Result<Args, String> {
                      p            Show review-next playbook\n\
                      a            Apply reviewed merges now\n\
                      m            Merge selected wallet into the main wallet\n\
-                     n/N          Next/previous review group with same source\n\
+                     n/N          Next/previous review group with same source family\n\
                      t            Show stale wallet reviews\n\
                      y            Show recent wallet reviews\n\
                      u            Undo last applied merge batch\n\
@@ -1377,7 +1377,7 @@ impl App {
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
                 "y: recent reviews (<24h)".to_string(),
-                "n / N: next / previous review group with same source".to_string(),
+                "n / N: next / previous review group with same source family".to_string(),
                 "r: reload reviews and details".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),

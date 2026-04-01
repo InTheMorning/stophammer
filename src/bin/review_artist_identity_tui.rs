@@ -714,7 +714,7 @@ impl App {
                 "h: hottest feeds".to_string(),
                 "t: stale reviews (>7d)".to_string(),
                 "y: recent reviews (<24h)".to_string(),
-                "n / N: next / previous review with same source".to_string(),
+                "n / N: next / previous review with same source family".to_string(),
                 "r: reload pending reviews".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
                 "q: quit".to_string(),
@@ -828,7 +828,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source jump, ? help, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source-family jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
