@@ -668,9 +668,11 @@ impl App {
         let title = current_family_position(self).map_or_else(
             || format!("Source Claims Feed Summary [{}]", short_id(&feed_row.feed_guid)),
             |(label, position, total)| {
+                let cluster = feed_family_subset_short_summary(&self.feeds)
+                    .map_or_else(String::new, |summary| format!(" {summary}"));
                 format!(
-                    "Source Claims Feed Summary [{}] {label} {position}/{total}",
-                    short_id(&feed_row.feed_guid)
+                    "Source Claims Feed Summary [{}] {label} {position}/{total}{cluster}",
+                    short_id(&feed_row.feed_guid),
                 )
             },
         );
