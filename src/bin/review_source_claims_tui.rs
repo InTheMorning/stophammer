@@ -1875,6 +1875,9 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
 
     push_section(&mut lines, "Track Claims", Color::Yellow);
     if let Some(track_guid) = selected_track_guid {
+        if let Some(summary) = track_family_subset_summary(snapshot) {
+            push_detail(&mut lines, "track cluster", summary);
+        }
         if let Some(track) = app.current_track() {
             push_detail(
                 &mut lines,
