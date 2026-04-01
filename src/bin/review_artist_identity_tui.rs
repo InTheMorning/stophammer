@@ -1323,13 +1323,14 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         .selected()
                         .map_or(0, |idx| idx.saturating_add(1));
                     format!(
-                        "Selected {}/{}: review={} feed={} source={} key={} created={}",
+                        "Selected {}/{}: review={} feed={} source={} key={} artists={} created={}",
                         position,
                         app.reviews.len(),
                         review.review_id,
                         short_id(&review.feed_guid),
                         review.source,
                         abbreviate(&review.evidence_key, 24),
+                        review.artist_count,
                         format_local_timestamp(review.created_at)
                     )
                 },
