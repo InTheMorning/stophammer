@@ -1253,6 +1253,15 @@ impl App {
         if artist_summary.is_empty() {
             lines.push("  none".to_string());
         } else {
+            if let Some(top_source) = artist_summary.first() {
+                let share = (top_source.count.saturating_mul(100)) / artist_total.max(1);
+                if share >= 50 {
+                    lines.push(format!(
+                        "  Dominant family: {} ({}%). Use n/N in the artist TUI to stay within it.",
+                        top_source.source, share
+                    ));
+                }
+            }
             lines.extend(artist_summary.into_iter().take(3).map(|item| {
                 let share = (item.count.saturating_mul(100)) / artist_total.max(1);
                 format!("  {}: {} ({}%)", item.source, item.count, share)
@@ -1263,6 +1272,15 @@ impl App {
         if wallet_summary.is_empty() {
             lines.push("  none".to_string());
         } else {
+            if let Some(top_source) = wallet_summary.first() {
+                let share = (top_source.count.saturating_mul(100)) / wallet_total.max(1);
+                if share >= 50 {
+                    lines.push(format!(
+                        "  Dominant family: {} ({}%). Use n/N to stay within it.",
+                        top_source.source, share
+                    ));
+                }
+            }
             lines.extend(wallet_summary.into_iter().take(3).map(|item| {
                 let share = (item.count.saturating_mul(100)) / wallet_total.max(1);
                 format!("  {}: {} ({}%)", item.source, item.count, share)
