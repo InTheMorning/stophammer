@@ -301,6 +301,13 @@ fn feed_scoped_dialog_title(app: &App, base: &str, feed_guid: &str) -> String {
     )
 }
 
+fn queue_scoped_feed_dialog_title(base: &str, count: usize, feeds: &[FeedQueueRow]) -> String {
+    feed_family_subset_short_summary(feeds).map_or_else(
+        || format!("{base} ({count})"),
+        |summary| format!("{base} ({count}, {summary})"),
+    )
+}
+
 fn current_track_family_position(app: &App) -> Option<(&'static str, usize, usize)> {
     let snapshot = app.current_snapshot()?;
     let current_idx = app.track_state.selected()?;
@@ -922,9 +929,10 @@ impl App {
         ));
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            feed_family_subset_short_summary(&self.feeds).map_or_else(
-                || format!("Source Claims Operator Overview ({feed_count})"),
-                |summary| format!("Source Claims Operator Overview ({feed_count}, {summary})"),
+            queue_scoped_feed_dialog_title(
+                "Source Claims Operator Overview",
+                feed_count,
+                &self.feeds,
             ),
             lines,
         ));
@@ -964,17 +972,10 @@ impl App {
             }));
         }
         self.dialog = Some(stophammer::tui::text_dialog(
-            feed_family_subset_short_summary(
+            queue_scoped_feed_dialog_title(
+                "Source Claims Hotspots",
+                self.feeds.len().min(10),
                 &self.feeds.iter().take(10).cloned().collect::<Vec<_>>(),
-            )
-            .map_or_else(
-                || format!("Source Claims Hotspots ({})", self.feeds.len().min(10)),
-                |summary| {
-                    format!(
-                        "Source Claims Hotspots ({}, {summary})",
-                        self.feeds.len().min(10)
-                    )
-                },
             ),
             lines,
         ));
@@ -999,7 +1000,7 @@ impl App {
         if self.feeds.is_empty() {
             lines.push("Backlog idle: no feeds with source claims or resolved overlays are queued.".to_string());
             self.dialog = Some(stophammer::tui::text_dialog(
-                "Source Claims Playbook (0)".to_string(),
+                queue_scoped_feed_dialog_title("Source Claims Playbook", 0, &self.feeds),
                 lines,
             ));
             return;
@@ -1069,10 +1070,7 @@ impl App {
         );
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            feed_family_subset_short_summary(&self.feeds).map_or_else(
-                || format!("Source Claims Playbook ({feed_count})"),
-                |summary| format!("Source Claims Playbook ({feed_count}, {summary})"),
-            ),
+            queue_scoped_feed_dialog_title("Source Claims Playbook", feed_count, &self.feeds),
             lines,
         ));
     }
