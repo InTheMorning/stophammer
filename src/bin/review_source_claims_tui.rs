@@ -82,6 +82,7 @@ struct App {
     snapshot: Option<FeedClaimSnapshot>,
     evidence_scroll: u16,
     status: String,
+    dialog: Option<stophammer::tui::TextDialog>,
 }
 
 impl App {
@@ -97,6 +98,7 @@ impl App {
             snapshot: None,
             evidence_scroll: 0,
             status: "Loading source-claims review queue...".to_string(),
+            dialog: None,
         };
         app.reload(None, None)?;
         Ok(app)
@@ -192,6 +194,20 @@ impl App {
             Focus::Tracks => Focus::Feeds,
             Focus::Evidence => Focus::Tracks,
         };
+    }
+
+    fn show_help_dialog(&mut self) {
+        self.dialog = Some(stophammer::tui::text_dialog(
+            "Source Claims Review TUI Help",
+            vec![
+                "Tab / Left / Right: cycle focus".to_string(),
+                "Up / Down / Home / End: navigate".to_string(),
+                "r: reload current feed and track selection".to_string(),
+                "? : show this help dialog".to_string(),
+                "Enter / Space / Esc: close dialog".to_string(),
+                "q: quit".to_string(),
+            ],
+        ));
     }
 
     fn move_down(&mut self) -> Result<(), Box<dyn Error>> {
@@ -322,7 +338,8 @@ fn parse_args() -> Result<Args, String> {
                     "Usage: review_source_claims_tui [--db PATH] [--limit N]\n\
                      Interactive feed-scoped source claims and canonical promotions inspector.\n\
                      Shows source claim families, track-level claim evidence, and the current\n\
-                     resolved promotions/provenance overlays for each feed."
+                     resolved promotions/provenance overlays for each feed.\n\
+                     Keys: Tab/Left/Right focus, Up/Down/Home/End navigate, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1024,10 +1041,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         "TAB/LEFT/RIGHT: focus",
         "UP/DOWN: move",
         "HOME/END: jump",
+        "?: help",
         "R: reload",
         "Q: quit",
     ]));
     frame.render_widget(footer, layout[2]);
+
+    if let Some(dialog) = &app.dialog {
+        stophammer::tui::render_text_dialog(frame, area, dialog);
+    }
 }
 
 fn run_app(
@@ -1045,6 +1067,14 @@ fn run_app(
         if key.kind != KeyEventKind::Press {
             continue;
         }
+        if app.dialog.is_some() {
+            match key.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char(' ') => app.dialog = None,
+                _ => {}
+            }
+            continue;
+        }
         match key.code {
             KeyCode::Char('q') => return Ok(()),
             KeyCode::Tab | KeyCode::Right => app.next_focus(),
@@ -1053,6 +1083,7 @@ fn run_app(
             KeyCode::Up => app.move_up()?,
             KeyCode::Home => app.jump_top()?,
             KeyCode::End => app.jump_bottom()?,
+            KeyCode::Char('?') => app.show_help_dialog(),
             KeyCode::Char('r') => {
                 let feed_guid = app.current_feed_row().map(|row| row.feed_guid.clone());
                 let track_guid = app.current_track().map(|track| track.track_guid.clone());
