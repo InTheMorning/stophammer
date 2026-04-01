@@ -585,6 +585,36 @@ impl App {
         });
         Ok(())
     }
+
+    fn show_recent_reviews(&mut self) -> Result<(), Box<dyn Error>> {
+        let recent = stophammer::db::list_recent_pending_artist_identity_reviews(
+            &self.conn,
+            24 * 60 * 60,
+            10,
+        )?;
+        let mut lines = vec![
+            "Pending artist reviews created in the last 24 hours".to_string(),
+            String::new(),
+        ];
+        if recent.is_empty() {
+            lines.push("No recent artist reviews".to_string());
+        } else {
+            lines.extend(recent.into_iter().map(|review| {
+                format!(
+                    "{} | {} | {} | created {}",
+                    review.title,
+                    review.source,
+                    review.artist_count,
+                    format_local_timestamp(review.created_at)
+                )
+            }));
+        }
+        self.dialog = Some(SummaryDialog {
+            title: "Recent Artist Reviews".to_string(),
+            lines,
+        });
+        Ok(())
+    }
 }
 
 #[allow(
@@ -618,7 +648,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, t stale reviews, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, s queue summary, h feed hotspots, t stale reviews, y recent reviews, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1380,6 +1410,7 @@ fn run_app(
             KeyCode::Char('s') => app.show_queue_summary()?,
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('t') => app.show_stale_reviews()?,
+            KeyCode::Char('y') => app.show_recent_reviews()?,
             KeyCode::Char('r') => {
                 let review_id = app.current_pending_review().map(|review| review.review_id);
                 let artist_id = app
