@@ -547,6 +547,122 @@ async fn admin_wallet_review_resolution_endpoint_applies_merge_override() {
 }
 
 #[tokio::test]
+async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
+    let db = common::test_db_arc();
+    let now = common::now();
+    {
+        let mut conn = db.lock().expect("lock db");
+
+        let canonical =
+            stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-admin-pending"))
+                .expect("canonical artist");
+        let canonical_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &canonical.name,
+            &[(
+                canonical.artist_id.clone(),
+                canonical.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-pending"),
+        )
+        .expect("canonical credit");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
+             VALUES ('feed-admin-pending', 'https://example.com/admin-pending.xml', 'Admin Pending', 'admin pending', ?1, ?2, ?2)",
+            params![canonical_credit.id, now],
+        )
+        .expect("insert feed");
+
+        let variant =
+            stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-admin-pending"))
+                .expect("variant artist");
+        let variant_credit = stophammer::db::get_or_create_artist_credit(
+            &conn,
+            &variant.name,
+            &[(
+                variant.artist_id.clone(),
+                variant.name.clone(),
+                String::new(),
+            )],
+            Some("feed-admin-pending"),
+        )
+        .expect("variant credit");
+        conn.execute(
+            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+             VALUES ('track-admin-pending', 'feed-admin-pending', ?1, 'Autistic Girl', 'autistic girl', 0, ?2, ?2)",
+            params![variant_credit.id, now],
+        )
+        .expect("insert track");
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-admin-pending")
+            .expect("resolve artist identity");
+
+        let ep_a = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-pending-a",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint a");
+        let ep_b = stophammer::db::get_or_create_endpoint(
+            &conn,
+            "keysend",
+            "wallet-pending-b",
+            "",
+            "",
+            Some("Shared Wallet Alias"),
+            now,
+        )
+        .expect("endpoint b");
+        let _wallet_a =
+            stophammer::db::create_provisional_wallet(&conn, ep_a, now).expect("wallet a");
+        let _wallet_b =
+            stophammer::db::create_provisional_wallet(&conn, ep_b, now).expect("wallet b");
+        stophammer::db::generate_wallet_review_items(&conn).expect("generate wallet reviews");
+    }
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("admin-pending-review-queues.key");
+    let state = test_app_state(Arc::clone(&db), &signer_path);
+    let app = stophammer::api::build_router(state.clone());
+
+    let artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending?limit=10")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("artist request"),
+        )
+        .await
+        .expect("artist response");
+    assert_eq!(artist_resp.status(), 200);
+    let artist_json = body_json(artist_resp).await;
+    assert_eq!(
+        artist_json["reviews"][0]["source"],
+        "track_feed_name_variant"
+    );
+
+    let wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending?limit=10")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("wallet request"),
+        )
+        .await
+        .expect("wallet response");
+    assert_eq!(wallet_resp.status(), 200);
+    let wallet_json = body_json(wallet_resp).await;
+    assert_eq!(wallet_json["reviews"][0]["source"], "cross_wallet_alias");
+}
+
+#[tokio::test]
 async fn admin_wallet_diagnostics_exposes_claims_peers_and_reviews() {
     let db = common::test_db_arc();
     let now = common::now();

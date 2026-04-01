@@ -1342,6 +1342,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handle_admin_resolve_artist_identity_review),
         )
         .route(
+            "/admin/artist-identity/reviews/pending",
+            get(handle_admin_pending_artist_identity_reviews),
+        )
+        .route(
+            "/admin/wallet-identity/reviews/pending",
+            get(handle_admin_pending_wallet_identity_reviews),
+        )
+        .route(
             "/admin/wallet-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_wallet_identity_review),
         )
@@ -3148,6 +3156,26 @@ struct ResolveWalletIdentityReviewResponse {
     review: db::WalletReviewItem,
 }
 
+#[derive(Debug, Deserialize)]
+struct PendingReviewQuery {
+    #[serde(default = "default_pending_review_limit")]
+    limit: usize,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingArtistIdentityReviewsResponse {
+    reviews: Vec<db::ArtistIdentityPendingReview>,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingWalletIdentityReviewsResponse {
+    reviews: Vec<db::WalletReviewSummary>,
+}
+
+const fn default_pending_review_limit() -> usize {
+    100
+}
+
 fn validate_wallet_identity_review_action_request(
     req: &ResolveWalletIdentityReviewRequest,
 ) -> Result<(String, Option<String>, Option<String>), ApiError> {
@@ -3689,6 +3717,36 @@ async fn handle_admin_resolve_artist_identity_review(
         review: outcome.review,
         resolve_stats: outcome.resolve_stats,
     }))
+}
+
+async fn handle_admin_pending_artist_identity_reviews(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingReviewQuery>,
+) -> Result<Json<PendingArtistIdentityReviewsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let reviews = spawn_db(state.db.clone(), move |conn| {
+        db::list_pending_artist_identity_reviews(conn, query.limit)
+    })
+    .await?;
+
+    Ok(Json(PendingArtistIdentityReviewsResponse { reviews }))
+}
+
+async fn handle_admin_pending_wallet_identity_reviews(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<PendingReviewQuery>,
+) -> Result<Json<PendingWalletIdentityReviewsResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let reviews = spawn_db(state.db.clone(), move |conn| {
+        db::list_pending_wallet_reviews(conn, query.limit)
+    })
+    .await?;
+
+    Ok(Json(PendingWalletIdentityReviewsResponse { reviews }))
 }
 
 async fn handle_admin_resolve_wallet_identity_review(

@@ -1695,6 +1695,63 @@ Supported actions:
 
 ---
 
+### GET /admin/artist-identity/reviews/pending
+
+Returns the current pending artist-identity review queue.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `limit` (default `100`)
+
+**Response (`200 OK`):**
+
+```json
+{
+  "reviews": [
+    {
+      "review_id": 123,
+      "feed_guid": "feed-guid",
+      "title": "Everything Is Lit",
+      "source": "track_feed_name_variant",
+      "name_key": "heycitizen",
+      "evidence_key": "feed-guid",
+      "artist_count": 2
+    }
+  ]
+}
+```
+
+### GET /admin/wallet-identity/reviews/pending
+
+Returns the current pending wallet-identity review queue.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
+- **Available on:** Primary only
+- **Query params:** `limit` (default `100`)
+
+**Response (`200 OK`):**
+
+```json
+{
+  "reviews": [
+    {
+      "id": 77,
+      "wallet_id": "wallet-id",
+      "display_name": "Shared Wallet Alias",
+      "wallet_class": "unknown",
+      "class_confidence": "provisional",
+      "source": "cross_wallet_alias",
+      "evidence_key": "shared wallet alias",
+      "wallet_ids": ["wallet-a", "wallet-b"],
+      "endpoint_summary": [],
+      "created_at": 1710288000
+    }
+  ]
+}
+```
+
+---
+
 ### GET /v1/diagnostics/feeds/{guid}
 
 Returns a primary-only diagnostics bundle for one feed.
