@@ -2327,13 +2327,28 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         abbreviate(&review.evidence_key, 24),
                         review.wallet_ids.len(),
                         format_local_timestamp(review.created_at),
-                        if review.supporting_sources.is_empty() {
-                            String::new()
-                        } else {
-                            format!(
-                                " support={}",
-                                preview_join(&review.supporting_sources, 2, 22)
-                            )
+                        {
+                            let mut suffix = String::new();
+                            if !review.supporting_sources.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " support={}",
+                                    preview_join(&review.supporting_sources, 2, 22)
+                                );
+                            }
+                            if !review.score_breakdown.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " break={}",
+                                    stophammer::tui::preview_score_breakdown(
+                                        &review.score_breakdown,
+                                        2,
+                                        18,
+                                        abbreviate,
+                                    )
+                                );
+                            }
+                            suffix
                         }
                     )
                 },
@@ -2369,7 +2384,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .filter(|candidate| candidate.source == group.source)
                 .count();
             let detail = format!(
-                "{}  {}  score={}  family={}  {}  {} wallets  newest {}  oldest {}{}",
+                "{}  {}  score={}  family={}  {}  {} wallets  newest {}  oldest {}{}{}",
                 group.source,
                 group
                     .reviews
@@ -2400,6 +2415,22 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         format!(
                             "  support={}",
                             preview_join(&review.supporting_sources, 2, 20)
+                        )
+                    })
+                    .unwrap_or_default(),
+                group
+                    .reviews
+                    .first()
+                    .filter(|review| !review.score_breakdown.is_empty())
+                    .map(|review| {
+                        format!(
+                            "  break={}",
+                            stophammer::tui::preview_score_breakdown(
+                                &review.score_breakdown,
+                                2,
+                                18,
+                                abbreviate,
+                            )
                         )
                     })
                     .unwrap_or_default()

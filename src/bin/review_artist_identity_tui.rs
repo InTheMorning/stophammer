@@ -21,6 +21,7 @@
 
 use std::collections::BTreeSet;
 use std::error::Error;
+use std::fmt::Write as _;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -1415,13 +1416,28 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                         abbreviate(&review.evidence_key, 24),
                         review.artist_count,
                         format_local_timestamp(review.created_at),
-                        if review.supporting_sources.is_empty() {
-                            String::new()
-                        } else {
-                            format!(
-                                " support={}",
-                                preview_join(&review.supporting_sources, 2, 22)
-                            )
+                        {
+                            let mut suffix = String::new();
+                            if !review.supporting_sources.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " support={}",
+                                    preview_join(&review.supporting_sources, 2, 22)
+                                );
+                            }
+                            if !review.score_breakdown.is_empty() {
+                                let _ = write!(
+                                    suffix,
+                                    " break={}",
+                                    stophammer::tui::preview_score_breakdown(
+                                        &review.score_breakdown,
+                                        2,
+                                        18,
+                                        abbreviate,
+                                    )
+                                );
+                            }
+                            suffix
                         }
                     )
                 },
@@ -1522,6 +1538,20 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 Span::styled("Supporting: ", Style::default().fg(Color::DarkGray)),
                 Span::styled(
                     preview_join(&snapshot.review.supporting_sources, 4, 52),
+                    Style::default().fg(Color::White),
+                ),
+            ]));
+        }
+        if !snapshot.review.score_breakdown.is_empty() {
+            lines.push(Line::from(vec![
+                Span::styled("Score breakdown: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    stophammer::tui::preview_score_breakdown(
+                        &snapshot.review.score_breakdown,
+                        4,
+                        52,
+                        abbreviate,
+                    ),
                     Style::default().fg(Color::White),
                 ),
             ]));

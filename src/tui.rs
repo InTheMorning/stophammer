@@ -545,6 +545,25 @@ pub fn preview_join(
         .join(", ")
 }
 
+/// Joins a short preview of score components like `source:points`.
+#[must_use]
+pub fn preview_score_breakdown(
+    components: &[crate::db::ReviewScoreComponent],
+    max_items: usize,
+    max_chars: usize,
+    abbreviate: impl Fn(&str, usize) -> String,
+) -> String {
+    if components.is_empty() {
+        return "-".to_string();
+    }
+    components
+        .iter()
+        .take(max_items)
+        .map(|component| abbreviate(&format!("{}:{}", component.source, component.points), max_chars))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Builds the age/total preamble for queue-summary dialogs.
 #[must_use]
 pub fn build_queue_summary_header_lines(
