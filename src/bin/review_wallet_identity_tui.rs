@@ -2366,9 +2366,15 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
                 .map(|review| recency_badge(review.created_at))
                 .unwrap_or(("MID", Color::Yellow));
             let oldest_ts = group.reviews.iter().map(|review| review.created_at).min();
+            let same_source_count = app
+                .groups
+                .iter()
+                .filter(|candidate| candidate.source == group.source)
+                .count();
             let detail = format!(
-                "{}  {}  {} wallets  newest {}  oldest {}",
+                "{}  family={}  {}  {} wallets  newest {}  oldest {}",
                 group.source,
+                same_source_count,
                 newest_badge,
                 group.reviews.len(),
                 group

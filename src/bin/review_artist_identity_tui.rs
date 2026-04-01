@@ -1041,6 +1041,11 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
         .iter()
         .map(|review| {
             let (badge, badge_color) = recency_badge(review.created_at);
+            let same_source_count = app
+                .reviews
+                .iter()
+                .filter(|candidate| candidate.source == review.source)
+                .count();
             ListItem::new(vec![
                 Line::from(vec![Span::styled(
                     format!("{} [{}]", review.title, review.review_id),
@@ -1052,6 +1057,11 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     Span::styled(review.name_key.clone(), Style::default().fg(Color::Cyan)),
                     Span::raw("  "),
                     Span::styled(review.source.clone(), Style::default().fg(Color::Yellow)),
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("family={same_source_count}"),
+                        Style::default().fg(Color::LightBlue),
+                    ),
                     Span::raw("  "),
                     Span::styled(badge, Style::default().fg(badge_color)),
                     Span::raw("  "),
