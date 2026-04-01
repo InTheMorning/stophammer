@@ -205,6 +205,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0022_wallet_route_delete_triggers.sql"),
     // Migration 23: normalize wallet review rows onto source/evidence/payload fields.
     include_str!("../migrations/0023_wallet_identity_review_normalization.sql"),
+    // Migration 24: align wallet review statuses with artist review semantics.
+    include_str!("../migrations/0024_wallet_review_status_parity.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -12803,6 +12805,16 @@ pub fn set_wallet_identity_override_for_review(
     value: Option<&str>,
 ) -> Result<(), DbError> {
     let now = unix_now();
+    let review_status = match override_type {
+        "merge" => "merged",
+        "do_not_merge" | "block_artist_link" => "blocked",
+        "force_class" | "force_artist_link" => "resolved",
+        other => {
+            return Err(DbError::Other(format!(
+                "unsupported wallet identity override type: {other}"
+            )));
+        }
+    };
 
     // Look up the review to get the wallet_id
     let wallet_id: String = conn
@@ -12823,8 +12835,8 @@ pub fn set_wallet_identity_override_for_review(
 
     // Resolve the review
     conn.execute(
-        "UPDATE wallet_identity_review SET status = 'resolved', updated_at = ?1 WHERE id = ?2",
-        params![now, review_id],
+        "UPDATE wallet_identity_review SET status = ?1, updated_at = ?2 WHERE id = ?3",
+        params![review_status, now, review_id],
     )?;
 
     Ok(())

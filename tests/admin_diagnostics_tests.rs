@@ -530,7 +530,7 @@ async fn admin_wallet_review_resolution_endpoint_applies_merge_override() {
     let json = body_json(resp).await;
     assert_eq!(json["review"]["id"], review_id);
     assert_eq!(json["review"]["wallet_id"], merge_wallet_id);
-    assert_eq!(json["review"]["status"], "resolved");
+    assert_eq!(json["review"]["status"], "merged");
     assert_eq!(json["review"]["source"], "cross_wallet_alias");
     assert_eq!(json["review"]["evidence_key"], "shared wallet alias");
 

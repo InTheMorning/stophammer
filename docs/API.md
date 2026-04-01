@@ -1679,7 +1679,7 @@ Supported actions:
     "evidence_key": "shared wallet alias",
     "wallet_ids": ["wallet-id-to-keep", "wallet-id-to-merge"],
     "endpoint_summary": [],
-    "status": "resolved",
+    "status": "merged",
     "created_at": 1710288000,
     "updated_at": 1710288015
   }

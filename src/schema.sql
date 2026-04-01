@@ -839,7 +839,7 @@ CREATE TABLE IF NOT EXISTS wallet_identity_review (
     wallet_ids_json       TEXT NOT NULL DEFAULT '[]',
     endpoint_summary_json TEXT NOT NULL DEFAULT '[]',
     status                TEXT NOT NULL DEFAULT 'pending'
-                          CHECK(status IN ('pending','resolved','blocked')),
+                          CHECK(status IN ('pending','merged','blocked','resolved')),
     created_at            INTEGER NOT NULL,
     updated_at            INTEGER NOT NULL
 ) STRICT;

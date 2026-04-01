@@ -1773,7 +1773,7 @@ fn set_override_resolves_review() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(status, "resolved");
+    assert_eq!(status, "blocked");
 
     let override_count: i64 = conn.query_row(
         "SELECT COUNT(*) FROM wallet_identity_override WHERE wallet_id = ?1 AND override_type = 'do_not_merge'",
