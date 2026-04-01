@@ -574,7 +574,11 @@ impl App {
 
     fn show_help_dialog(&mut self) {
         self.dialog = Some(stophammer::tui::text_dialog(
-            "Source Claims Review TUI Help",
+            queue_scoped_feed_dialog_title(
+                "Source Claims Review TUI Help",
+                self.feeds.len(),
+                &self.feeds,
+            ),
             vec![
                 "Tab / Left / Right: cycle focus".to_string(),
                 "Up / Down / Home / End: navigate".to_string(),
