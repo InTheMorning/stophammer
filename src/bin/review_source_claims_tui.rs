@@ -656,6 +656,10 @@ impl App {
                     track_release_claims,
                     track_enclosures
                 ),
+                track_family_subset_summary(snapshot)
+                    .map_or_else(|| "Track family cluster: none".to_string(), |summary| {
+                        format!("Track family cluster: {summary}")
+                    }),
                 "Resolved overlays:".to_string(),
                 format!(
                     "  external_ids={} entity_sources={}",
