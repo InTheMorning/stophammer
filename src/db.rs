@@ -5206,6 +5206,14 @@ fn collect_artist_groups_by_likely_same_artist_for_feed(
             collect_artist_groups_by_wallet_name_variant_for_feed(conn, feed_guid, seed_ids)?
                 .into_iter(),
         )
+        .chain(
+            filter_artist_groups_for_seed_ids(
+                conn,
+                collect_artist_groups_by_publisher_name_variant(conn)?,
+                seed_ids,
+            )?
+            .into_iter(),
+        )
     {
         let current_ids = current_ids_for_review(conn, &group.artist_ids)?;
         if current_ids.len() <= 1 {
@@ -5352,13 +5360,21 @@ fn artist_review_supporting_sources(
             "wallet_name_variant",
             collect_artist_groups_by_wallet_name_variant_for_feed(conn, feed_guid, &seed_ids)?,
         ),
+        (
+            "publisher_name_variant",
+            filter_artist_groups_for_seed_ids(
+                conn,
+                collect_artist_groups_by_publisher_name_variant(conn)?,
+                &seed_ids,
+            )?,
+        ),
     ] {
         let matched = groups.into_iter().any(|group| {
             if group.name_key != name_key {
                 return false;
             }
             current_ids_for_review(conn, &group.artist_ids)
-                .map(|ids| ids == target_current_ids)
+                .map(|ids| ids.is_subset(&target_current_ids))
                 .unwrap_or(false)
         });
         if matched {

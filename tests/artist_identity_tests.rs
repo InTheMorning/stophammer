@@ -2642,3 +2642,137 @@ fn publisher_name_variants_raise_review_without_auto_merge() {
         "review should include both child artists from the same publisher family"
     );
 }
+
+#[test]
+fn likely_same_artist_can_combine_publisher_family_with_track_variant() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    let (_, _) = seed_feed_for_publisher(
+        &conn,
+        "pub-feed-likely-publisher",
+        "https://publisher.example.com/artist/pub-feed-likely",
+        "Publisher Curator",
+        "publisher",
+    );
+    let (canonical_artist_id, canonical_credit_id) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-likely-publisher-a",
+        "https://music.example.com/heycitizen-likely-a.xml",
+        "HeyCitizen",
+        "music",
+    );
+    let (publisher_variant_artist_id, _) = seed_feed_for_publisher(
+        &conn,
+        "child-feed-likely-publisher-b",
+        "https://music.example.com/heycitizen-likely-b.xml",
+        "Hey Citizen",
+        "music",
+    );
+
+    for (pos, child) in (0i64..).zip([
+        "child-feed-likely-publisher-a",
+        "child-feed-likely-publisher-b",
+    ]) {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES ('pub-feed-likely-publisher', ?1, 'music', ?2, '', 'podcast_remote_item')",
+            rusqlite::params![pos, child],
+        )
+        .expect("publisher→child");
+    }
+
+    for child in [
+        "child-feed-likely-publisher-a",
+        "child-feed-likely-publisher-b",
+    ] {
+        conn.execute(
+            "INSERT INTO feed_remote_items_raw \
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, 0, 'publisher', 'pub-feed-likely-publisher', '', 'podcast_remote_item')",
+            rusqlite::params![child],
+        )
+        .expect("child→publisher");
+    }
+
+    let track_variant_artist = stophammer::db::resolve_artist(
+        &conn,
+        "Hey Citizen",
+        Some("child-feed-likely-publisher-a"),
+    )
+    .expect("track variant artist");
+    let track_variant_credit = stophammer::db::get_or_create_artist_credit(
+        &conn,
+        &track_variant_artist.name,
+        &[(
+            track_variant_artist.artist_id.clone(),
+            track_variant_artist.name.clone(),
+            String::new(),
+        )],
+        Some("child-feed-likely-publisher-a"),
+    )
+    .expect("track variant credit");
+    conn.execute(
+        "UPDATE feeds SET artist_credit_id = ?1 WHERE feed_guid = 'child-feed-likely-publisher-a'",
+        rusqlite::params![canonical_credit_id],
+    )
+    .expect("reassert canonical feed credit");
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-likely-publisher', 'child-feed-likely-publisher-a', ?1, 'Variant Track', 'variant track', 0, ?2, ?2)",
+        rusqlite::params![track_variant_credit.id, now],
+    )
+    .expect("insert variant track");
+
+    let stats = stophammer::db::resolve_artist_identity_for_feed(
+        &mut conn,
+        "child-feed-likely-publisher-a",
+    )
+    .expect("resolve artist identity");
+    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert!(
+        stats.pending_reviews >= 2,
+        "publisher-family plus track variant evidence should surface multiple review items"
+    );
+
+    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
+        &conn,
+        "child-feed-likely-publisher-a",
+    )
+    .expect("list reviews");
+    let likely_review = reviews
+        .iter()
+        .find(|review| review.source == "likely_same_artist")
+        .expect("likely_same_artist review");
+    assert_eq!(likely_review.confidence, "high_confidence");
+    let supporting = likely_review
+        .supporting_sources
+        .iter()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert!(
+        supporting.contains("track_feed_name_variant"),
+        "track/feed disagreement should contribute to likely_same_artist"
+    );
+    assert!(
+        supporting.contains("publisher_name_variant"),
+        "publisher-family name variant should contribute to likely_same_artist"
+    );
+    let review_artist_ids = likely_review
+        .artist_ids
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let expected_artist_ids = [
+        canonical_artist_id,
+        publisher_variant_artist_id,
+        track_variant_artist.artist_id,
+    ]
+    .into_iter()
+    .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        review_artist_ids, expected_artist_ids,
+        "likely_same_artist should union the relevant same-name artist rows across track and publisher-family evidence"
+    );
+}
