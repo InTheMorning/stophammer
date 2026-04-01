@@ -17,8 +17,10 @@ show deterministic review
 .BR confidence ,
 .BR explanation ,
 and scored
-.B supporting_sources
-when present.
+.BR supporting_sources ,
+and
+.B score_breakdown
+when present. Queue summary and overview dialogs also show score bands.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -34,7 +36,9 @@ reload the queue, inspect source-family summaries, jump between
 .B high_confidence
 items with
 .BR g / G ,
-and store decisions.
+and store decisions. Selected review panes include a compact
+.B score_breakdown
+preview when available.
 .SH EXAMPLES
 .TP
 Open the TUI against the default database:

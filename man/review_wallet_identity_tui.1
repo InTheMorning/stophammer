@@ -17,8 +17,11 @@ headers show review
 .BR confidence ,
 .BR explanation ,
 and scored
-.B supporting_sources
-when present, separately from wallet class confidence.
+.BR supporting_sources ,
+and
+.B score_breakdown
+when present, separately from wallet class confidence. Queue summary and
+overview dialogs also show score bands.
 .SH OPTIONS
 .TP
 .BI --db " PATH"
@@ -34,7 +37,9 @@ evidence, inspect same-family queue summaries, jump between
 .B high_confidence
 groups with
 .BR g / G ,
-and store durable decisions.
+and store durable decisions. Selected review/group panes include a compact
+.B score_breakdown
+preview when available.
 .SH EXAMPLES
 .TP
 Open the TUI against the default database:

@@ -494,8 +494,8 @@ cargo run --bin backfill_artist_identity -- --db ./stophammer.db
 
 # Review remaining duplicate artist-name groups with supporting source evidence
 # Pending review rows now also expose deterministic review confidence,
-# explanation, and scored supporting_sources when a higher-order review
-# source such as likely_same_artist is involved.
+# explanation, scored supporting_sources, and score_breakdown when a
+# higher-order review source such as likely_same_artist is involved.
 cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
 
 # Narrow review to one lowercase artist-name key
@@ -524,6 +524,8 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 # Review pending artist identity items in the TUI
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
 # Use `g/G` inside the TUI to jump between HIGH-confidence review items.
+# Queue summary / overview dialogs also show score bands, and selected review
+# panes show a compact score_breakdown preview when present.
 
 # Rebuild wallet endpoints, classifications, and artist links from source data
 # This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
@@ -532,8 +534,9 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db
 cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 
 # Review pending wallet identity items
-# Pending rows now show review confidence, explanation, and scored
-# supporting_sources separately from wallet class confidence.
+# Pending rows now show review confidence, explanation, scored
+# supporting_sources, and score_breakdown separately from wallet class
+# confidence.
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
@@ -541,6 +544,8 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wal
 # Review pending wallet identity items in the TUI
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
 # Use `g/G` inside the TUI to jump between HIGH-confidence review groups.
+# Queue summary / overview dialogs also show score bands, and selected
+# review/group panes show a compact score_breakdown preview when present.
 
 # Store wallet identity overrides
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \

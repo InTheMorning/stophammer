@@ -119,6 +119,8 @@ Stored artist review rows now include:
 - `confidence`
 - `explanation`
 - `supporting_sources` for scored sources such as `likely_same_artist`
+- `score`
+- `score_breakdown`
 
 Or use the interactive review console:
 
@@ -130,6 +132,8 @@ Inside the artist review TUI:
 
 - `n/N` jumps within the same source family
 - `g/G` jumps between `high_confidence` review items
+- queue summary / overview dialogs show score bands
+- selected review panes show `score_breakdown`
 
 ### Rebuild wallet identity and inspect pending wallet reviews
 
@@ -153,12 +157,16 @@ Inside the wallet review TUI:
 
 - `n/N` jumps within the same source family
 - `g/G` jumps between `high_confidence` review groups
+- queue summary / overview dialogs show score bands
+- selected review/group panes show `score_breakdown`
 
 Wallet review rows now include:
 
 - review `confidence`
 - `explanation`
 - `supporting_sources` for scored sources such as `likely_wallet_owner_match`
+- `score`
+- `score_breakdown`
 
 These are separate from the wallet's own `class_confidence`.
 
