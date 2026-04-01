@@ -619,12 +619,20 @@ impl App {
                     || "family none".to_string(),
                     |(label, position, total)| format!("family {label} ({position}/{total})"),
                 );
+                let cluster = track_family_cluster_membership(snapshot, &track.track_guid)
+                    .map_or_else(
+                        || "cluster none".to_string(),
+                        |(label, cluster_size, total_tracks)| {
+                            format!("cluster {label} ({cluster_size}/{total_tracks})")
+                        },
+                    );
                 format!(
-                    "Selected track: {} [{}] with {} claim rows, {}.",
+                    "Selected track: {} [{}] with {} claim rows, {}, {}.",
                     track.title,
                     short_id(&track.track_guid),
                     count_track_claims(snapshot, &track.track_guid),
-                    family
+                    family,
+                    cluster
                 )
             },
         );
