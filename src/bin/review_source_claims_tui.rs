@@ -910,7 +910,10 @@ impl App {
         ));
 
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!("Source Claims Operator Overview ({feed_count})"),
+            feed_family_subset_short_summary(&self.feeds).map_or_else(
+                || format!("Source Claims Operator Overview ({feed_count})"),
+                |summary| format!("Source Claims Operator Overview ({feed_count}, {summary})"),
+            ),
             lines,
         ));
     }
@@ -949,9 +952,17 @@ impl App {
             }));
         }
         self.dialog = Some(stophammer::tui::text_dialog(
-            format!(
-                "Source Claims Hotspots ({})",
-                self.feeds.len().min(10)
+            feed_family_subset_short_summary(
+                &self.feeds.iter().take(10).cloned().collect::<Vec<_>>(),
+            )
+            .map_or_else(
+                || format!("Source Claims Hotspots ({})", self.feeds.len().min(10)),
+                |summary| {
+                    format!(
+                        "Source Claims Hotspots ({}, {summary})",
+                        self.feeds.len().min(10)
+                    )
+                },
             ),
             lines,
         ));
