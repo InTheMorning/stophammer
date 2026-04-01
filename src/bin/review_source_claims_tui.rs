@@ -219,6 +219,18 @@ fn feed_family_subset_summary(feeds: &[FeedQueueRow]) -> Option<String> {
     ))
 }
 
+fn feed_family_subset_short_summary(feeds: &[FeedQueueRow]) -> Option<String> {
+    let mut counts = BTreeMap::<&'static str, usize>::new();
+    for feed in feeds {
+        if let Some((label, _, _)) = dominant_feed_claim_family(feed) {
+            *counts.entry(label).or_default() += 1;
+        }
+    }
+    let total = counts.values().sum::<usize>();
+    let (label, count) = counts.into_iter().max_by_key(|(_, count)| *count)?;
+    Some(format!("cluster {label} ({count}/{total})"))
+}
+
 fn track_family_subset_summary(snapshot: &FeedClaimSnapshot) -> Option<String> {
     let mut counts = BTreeMap::<&'static str, usize>::new();
     for track in &snapshot.tracks {
@@ -2168,9 +2180,11 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
         current_family_position(app).map_or_else(
             || format!("Feeds ({position}/{})", app.feeds.len()),
             |(label, family_position, family_total)| {
+                let cluster = feed_family_subset_short_summary(&app.feeds)
+                    .map_or_else(String::new, |summary| format!(", {summary}"));
                 format!(
-                    "Feeds ({position}/{}, {label} {family_position}/{family_total})",
-                    app.feeds.len()
+                    "Feeds ({position}/{}, {label} {family_position}/{family_total}{cluster})",
+                    app.feeds.len(),
                 )
             },
         )
