@@ -1803,3 +1803,60 @@ fn resolver_batch_canonical_promotions_use_post_merge_artist() {
          if this fails, canonical promotions ran before artist identity"
     );
 }
+
+#[test]
+fn reset_resolved_state_succeeds_with_wallet_data() {
+    let (pool, _dir) = common::test_db_pool();
+
+    // Seed a feed with two wallet routes that produce review items and artist links.
+    {
+        let conn = pool.writer().lock().expect("writer");
+        seed_feed(&conn, "feed-reset-wallet");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-reset-wallet', 'Alice', 'keysend', 'alice-a', NULL, NULL, 100, 0)",
+            [],
+        )
+        .expect("insert route a");
+        conn.execute(
+            "INSERT INTO feed_payment_routes \
+             (feed_guid, recipient_name, route_type, address, custom_key, custom_value, split, fee) \
+             VALUES ('feed-reset-wallet', 'Alice', 'keysend', 'alice-b', NULL, NULL, 5, 1)",
+            [],
+        )
+        .expect("insert route b");
+        db::mark_feed_dirty(
+            &conn,
+            "feed-reset-wallet",
+            stophammer::resolver::queue::DIRTY_WALLET_IDENTITY,
+        )
+        .expect("mark dirty");
+    }
+
+    // Run a batch to populate wallet_artist_links and wallet_identity_review.
+    stophammer::resolver::worker::run_batch(&pool, "worker-a", 10).expect("run batch");
+
+    // Simulate migration rename artifacts: create a legacy table with a real FK
+    // constraint on wallets (as ALTER TABLE ... RENAME preserves) and copy rows
+    // into it. Without the ordering fix, deleting from wallets would fail here.
+    {
+        let conn = pool.writer().lock().expect("writer");
+        conn.execute_batch(
+            "CREATE TABLE wallet_identity_review_legacy_test ( \
+                 id INTEGER PRIMARY KEY, \
+                 wallet_id TEXT NOT NULL REFERENCES wallets(wallet_id), \
+                 source TEXT NOT NULL, \
+                 evidence_key TEXT NOT NULL \
+             ) STRICT; \
+             INSERT INTO wallet_identity_review_legacy_test (id, wallet_id, source, evidence_key) \
+                 SELECT id, wallet_id, source, evidence_key FROM wallet_identity_review;",
+        )
+        .expect("create legacy table with FK");
+    }
+
+    // reset_resolved_state must not fail with an FK constraint error.
+    let mut conn = pool.writer().lock().expect("writer");
+    let queued = db::reset_resolved_state(&mut conn).expect("reset_resolved_state");
+    assert!(queued > 0, "must re-queue at least one feed");
+}
