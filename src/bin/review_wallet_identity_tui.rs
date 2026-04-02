@@ -246,6 +246,7 @@ fn parse_args() -> Result<Args, String> {
                      g/G          Next/previous HIGH-confidence review group\n\
                      t            Show stale wallet reviews\n\
                      y            Show recent wallet reviews\n\
+                     H            Show high-confidence wallet reviews\n\
                      u            Undo last applied merge batch\n\
                      x            Mark selected wallet as different from the main wallet\n\
                      c            Cycle main wallet class (also sets confidence to reviewed)\n\
@@ -467,7 +468,9 @@ impl App {
                 .iter()
                 .map(|item| (item.confidence.as_str(), item.count)),
         )
-        .map_or(source_summary.clone(), |hint| format!("{source_summary} | {hint}"));
+        .map_or(source_summary.clone(), |hint| {
+            format!("{source_summary} | {hint}")
+        });
         self.groups = self.prune_review_groups(group_reviews(reviews))?;
         self.selected_group = selection
             .group_key
@@ -1226,8 +1229,7 @@ impl App {
         let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
         let confidence_summary =
             stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
-        let score_summary =
-            stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let score_summary = stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
         let conflict_summary = stophammer::tui::summarize_reason_counts(
             self.groups
                 .iter()
@@ -1463,6 +1465,51 @@ impl App {
         Ok(())
     }
 
+    fn show_high_confidence_reviews(&mut self) {
+        let high_confidence = self
+            .groups
+            .iter()
+            .flat_map(|group| group.reviews.iter())
+            .filter(|review| review.confidence == "high_confidence")
+            .collect::<Vec<_>>();
+        let count = high_confidence.len();
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending wallet reviews marked high confidence",
+            "No high-confidence wallet reviews",
+            &high_confidence,
+            |review| review.source.as_str(),
+            |review| {
+                let score = review
+                    .score
+                    .map_or_else(|| "unscored".to_string(), |score| format!("score={score}"));
+                let conflicts = if review.conflict_reasons.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " | conflicts={}",
+                        preview_join(&review.conflict_reasons, 2, 18)
+                    )
+                };
+                format!(
+                    "{} [{}] | review={} | {} | key={} | {} wallets | {}{}",
+                    review.display_name,
+                    short_id(&review.wallet_id),
+                    review.id,
+                    review.source,
+                    abbreviate(&review.evidence_key, 24),
+                    review.wallet_ids.len(),
+                    score,
+                    conflicts,
+                )
+            },
+        );
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "High-Confidence Wallet Reviews",
+            count,
+            lines,
+        ));
+    }
+
     fn show_help_dialog(&mut self) {
         let mut lines = vec![
             "Tab / Left / Right: cycle focus".to_string(),
@@ -1479,6 +1526,7 @@ impl App {
             "n / N: next / previous review group with same source family",
         ));
         lines.extend([
+            "H: list high-confidence reviews".to_string(),
             "r: reload reviews and details".to_string(),
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
@@ -1512,7 +1560,7 @@ impl App {
                 older_than_7d: age.older_than_7d,
                 backlog_idle_message: "Nothing pending. Reload after the next resolver or wallet pass.",
                 dominant_family_walk_template: "   Use n/N to walk the '{}' groups quickly before switching heuristics.",
-                final_step: "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
+                final_step: "4. Use o/s/h/t/y/H to inspect overview, sources, hotspots, stale, recent, and high-confidence items.",
             },
             short_id,
             abbreviate,
@@ -2858,7 +2906,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_stateful_widget(evidence_list, body[2], &mut app.evidence_state);
 
     let footer = Paragraph::new(stophammer::tui::build_review_footer(
-        "tab/left/right focus  [ ] target  arrows move  enter toggle  a apply  u undo  m merge  x block  c/v/z edit",
+        "tab/left/right focus  [ ] target  arrows move  enter toggle  a apply  u undo  m merge  x block  c/v/z edit  H high-confidence list",
     ))
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, root[2]);
@@ -2929,6 +2977,9 @@ fn run_app(
             }
             KeyCode::Char('y') => {
                 app.show_recent_reviews()?;
+            }
+            KeyCode::Char('H') => {
+                app.show_high_confidence_reviews();
             }
             KeyCode::Char('n') => {
                 app.jump_next_same_source_group()?;

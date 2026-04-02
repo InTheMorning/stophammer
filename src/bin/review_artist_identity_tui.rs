@@ -136,7 +136,9 @@ impl App {
                 .iter()
                 .map(|item| (item.confidence.as_str(), item.count)),
         )
-        .map_or(source_summary.clone(), |hint| format!("{source_summary} | {hint}"));
+        .map_or(source_summary.clone(), |hint| {
+            format!("{source_summary} | {hint}")
+        });
         let review_idx = match preferred_review_id {
             Some(review_id) => self
                 .reviews
@@ -557,9 +559,8 @@ impl App {
         let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
         let confidence_summary =
             stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
-        let score_summary = stophammer::db::summarize_pending_artist_identity_review_scores(
-            &self.conn,
-        )?;
+        let score_summary =
+            stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
         let conflict_summary = stophammer::tui::summarize_reason_counts(
             self.reviews
                 .iter()
@@ -799,6 +800,50 @@ impl App {
         Ok(())
     }
 
+    fn show_high_confidence_reviews(&mut self) {
+        let high_confidence = self
+            .reviews
+            .iter()
+            .filter(|review| review.confidence == "high_confidence")
+            .collect::<Vec<_>>();
+        let count = high_confidence.len();
+        let lines = stophammer::tui::build_review_subset_lines(
+            "Pending artist reviews marked high confidence",
+            "No high-confidence artist reviews",
+            &high_confidence,
+            |review| review.source.as_str(),
+            |review| {
+                let score = review
+                    .score
+                    .map_or_else(|| "unscored".to_string(), |score| format!("score={score}"));
+                let conflicts = if review.conflict_reasons.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        " | conflicts={}",
+                        preview_join(&review.conflict_reasons, 2, 18)
+                    )
+                };
+                format!(
+                    "{} [{}] | review={} | {} | key={} | {} | {}{}",
+                    review.title,
+                    short_id(&review.feed_guid),
+                    review.review_id,
+                    review.source,
+                    abbreviate(&review.evidence_key, 24),
+                    review.artist_count,
+                    score,
+                    conflicts,
+                )
+            },
+        );
+        self.dialog = Some(stophammer::tui::counted_dialog(
+            "High-Confidence Artist Reviews",
+            count,
+            lines,
+        ));
+    }
+
     fn show_help_dialog(&mut self) {
         let mut lines = vec![
             "Tab / Shift-Tab: cycle focus".to_string(),
@@ -810,6 +855,7 @@ impl App {
             "n / N: next / previous review with same source family",
         ));
         lines.extend([
+            "H: list high-confidence reviews".to_string(),
             "r: reload pending reviews".to_string(),
             "Enter / Space / Esc: close dialog".to_string(),
             "q: quit".to_string(),
@@ -843,7 +889,7 @@ impl App {
                 older_than_7d: age.older_than_7d,
                 backlog_idle_message: "Nothing pending. Reload after the next resolver pass.",
                 dominant_family_walk_template: "   Use n/N to walk the '{}' family quickly before switching heuristics.",
-                final_step: "4. Use o/s/h/t/y to inspect overview, sources, hotspots, stale, and recent items.",
+                final_step: "4. Use o/s/h/t/y/H to inspect overview, sources, hotspots, stale, recent, and high-confidence items.",
             },
             short_id,
             abbreviate,
@@ -889,7 +935,7 @@ fn parse_args() -> Result<Args, String> {
                      Interactive artist identity review tool.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
-                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, n/N same-source-family jump, g/G HIGH-confidence jump, ? help, r reload, q quit."
+                     Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, H HIGH-confidence list, n/N same-source-family jump, g/G HIGH-confidence jump, ? help, r reload, q quit."
                 );
                 std::process::exit(0);
             }
@@ -1134,9 +1180,10 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
                     ),
                     Span::raw("  "),
                     Span::styled(
-                        review
-                            .score
-                            .map_or_else(|| "score=-".to_string(), |score| format!("score={score}")),
+                        review.score.map_or_else(
+                            || "score=-".to_string(),
+                            |score| format!("score={score}"),
+                        ),
                         Style::default().fg(Color::Green),
                     ),
                     Span::raw("  "),
@@ -1163,13 +1210,19 @@ fn build_review_items(app: &App) -> Vec<ListItem<'static>> {
             ];
             if !review.supporting_sources.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("support={}", preview_join(&review.supporting_sources, 3, 42)),
+                    format!(
+                        "support={}",
+                        preview_join(&review.supporting_sources, 3, 42)
+                    ),
                     Style::default().fg(Color::DarkGray),
                 )));
             }
             if !review.conflict_reasons.is_empty() {
                 lines.push(Line::from(Span::styled(
-                    format!("conflicts={}", preview_join(&review.conflict_reasons, 2, 36)),
+                    format!(
+                        "conflicts={}",
+                        preview_join(&review.conflict_reasons, 2, 36)
+                    ),
                     Style::default().fg(Color::Red),
                 )));
             }
@@ -1696,7 +1749,7 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
     frame.render_widget(evidence, body[2]);
 
     let footer = Paragraph::new(stophammer::tui::build_review_footer(
-        "tab focus  arrows move  home/end jump  m merge  x block",
+        "tab focus  arrows move  home/end jump  m merge  x block  H high-confidence list",
     ))
     .wrap(Wrap { trim: false });
     frame.render_widget(footer, layout[2]);
@@ -1762,6 +1815,7 @@ fn run_app(
             KeyCode::Char('h') => app.show_feed_hotspots()?,
             KeyCode::Char('t') => app.show_stale_reviews()?,
             KeyCode::Char('y') => app.show_recent_reviews()?,
+            KeyCode::Char('H') => app.show_high_confidence_reviews(),
             KeyCode::Char('n') => app.jump_next_same_source()?,
             KeyCode::Char('N') => app.jump_previous_same_source()?,
             KeyCode::Char('g') => app.jump_next_high_confidence()?,
