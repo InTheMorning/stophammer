@@ -9263,6 +9263,8 @@ pub fn reset_resolved_state(conn: &mut Connection) -> Result<usize, DbError> {
         "wallet_feed_route_map",
         "wallet_track_route_map",
         "wallet_aliases",
+        "wallet_artist_links",
+        "wallet_identity_review",
         "wallet_endpoints",
         "wallets",
         "resolved_entity_sources_by_feed",
