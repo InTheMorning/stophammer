@@ -12106,6 +12106,12 @@ pub fn link_wallet_to_artist_if_confident(
         .query_map(params![wallet_id, feed_guid], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
 
+    let artist_ids = if artist_ids.is_empty() {
+        dominant_feed_artist_ids_for_wallet(conn, wallet_id, feed_guid)?
+    } else {
+        artist_ids
+    };
+
     let mut created = false;
     for artist_id in artist_ids {
         let inserted = conn.execute(
@@ -12120,6 +12126,187 @@ pub fn link_wallet_to_artist_if_confident(
     }
 
     Ok(created)
+}
+
+fn dominant_feed_artist_ids_for_wallet(
+    conn: &Connection,
+    wallet_id: &str,
+    feed_guid: &str,
+) -> Result<Vec<String>, DbError> {
+    let is_wavlake: bool = conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1 FROM source_platform_claims
+             WHERE feed_guid = ?1 AND platform_key = 'wavlake'
+         )",
+        params![feed_guid],
+        |row| row.get(0),
+    )?;
+    if is_wavlake
+        || !wallet_has_dominant_feed_route(conn, wallet_id, feed_guid)?
+        || !wallet_dominates_routed_tracks(conn, wallet_id, feed_guid)?
+    {
+        return Ok(vec![]);
+    }
+
+    let wallet_name_keys = wallet_name_keys_for_feed(conn, wallet_id, feed_guid)?;
+    if wallet_name_keys.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT acn.artist_id, acn.name
+         FROM feeds f
+         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
+         WHERE f.feed_guid = ?1
+         ORDER BY acn.position, acn.artist_id",
+    )?;
+    let mut artist_ids = std::collections::BTreeSet::new();
+    for (artist_id, artist_name) in stmt
+        .query_map(params![feed_guid], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?
+    {
+        let Some(artist_key) = normalize_artist_similarity_key(&artist_name) else {
+            continue;
+        };
+        if wallet_name_keys
+            .iter()
+            .any(|wallet_key| wallet_name_matches_artist_key(wallet_key, &artist_key))
+        {
+            artist_ids.insert(artist_id);
+        }
+    }
+
+    Ok(artist_ids.into_iter().collect())
+}
+
+fn wallet_has_dominant_feed_route(
+    conn: &Connection,
+    wallet_id: &str,
+    feed_guid: &str,
+) -> Result<bool, DbError> {
+    conn.query_row(
+        "SELECT EXISTS(
+             SELECT 1
+             FROM wallet_endpoints we
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+             WHERE we.wallet_id = ?1
+               AND fpr.feed_guid = ?2
+               AND fpr.fee = 0
+               AND fpr.split >= ?3
+         )",
+        params![wallet_id, feed_guid, SPLIT_DOMINANT_THRESHOLD],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+fn wallet_dominates_routed_tracks(
+    conn: &Connection,
+    wallet_id: &str,
+    feed_guid: &str,
+) -> Result<bool, DbError> {
+    let total_routed_tracks: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT track_guid)
+         FROM payment_routes
+         WHERE feed_guid = ?1 AND fee = 0",
+        params![feed_guid],
+        |row| row.get(0),
+    )?;
+    if total_routed_tracks == 0 {
+        return Ok(true);
+    }
+
+    let dominated_tracks: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT pr.track_guid)
+         FROM wallet_endpoints we
+         JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+         JOIN payment_routes pr ON pr.id = wtrm.route_id
+         WHERE we.wallet_id = ?1
+           AND pr.feed_guid = ?2
+           AND pr.fee = 0
+           AND pr.split >= ?3
+           AND pr.split = (
+               SELECT MAX(other.split)
+               FROM payment_routes other
+               WHERE other.track_guid = pr.track_guid
+                 AND other.fee = 0
+           )",
+        params![wallet_id, feed_guid, SPLIT_DOMINANT_THRESHOLD],
+        |row| row.get(0),
+    )?;
+
+    Ok(dominated_tracks == total_routed_tracks)
+}
+
+fn wallet_name_keys_for_feed(
+    conn: &Connection,
+    wallet_id: &str,
+    feed_guid: &str,
+) -> Result<std::collections::BTreeSet<String>, DbError> {
+    let mut keys = std::collections::BTreeSet::new();
+
+    let mut alias_stmt = conn.prepare(
+        "SELECT wa.alias
+         FROM wallet_aliases wa
+         JOIN wallet_endpoints we ON we.id = wa.endpoint_id
+         WHERE we.wallet_id = ?1
+         ORDER BY wa.first_seen_at ASC, wa.alias_lower ASC",
+    )?;
+    for alias in alias_stmt
+        .query_map(params![wallet_id], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?
+    {
+        if let Some(key) = normalize_artist_similarity_key(&alias) {
+            keys.insert(key);
+        }
+    }
+
+    let mut route_stmt = conn.prepare(
+        "SELECT DISTINCT name FROM (
+             SELECT pr.recipient_name AS name
+             FROM wallet_endpoints we
+             JOIN wallet_track_route_map wtrm ON wtrm.endpoint_id = we.id
+             JOIN payment_routes pr ON pr.id = wtrm.route_id
+             WHERE we.wallet_id = ?1
+               AND pr.feed_guid = ?2
+               AND pr.fee = 0
+               AND pr.split >= ?3
+             UNION
+             SELECT fpr.recipient_name AS name
+             FROM wallet_endpoints we
+             JOIN wallet_feed_route_map wfrm ON wfrm.endpoint_id = we.id
+             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id
+             WHERE we.wallet_id = ?1
+               AND fpr.feed_guid = ?2
+               AND fpr.fee = 0
+               AND fpr.split >= ?3
+         )
+         WHERE TRIM(name) <> ''",
+    )?;
+    for name in route_stmt
+        .query_map(
+            params![wallet_id, feed_guid, SPLIT_DOMINANT_THRESHOLD],
+            |row| row.get::<_, String>(0),
+        )?
+        .collect::<Result<Vec<_>, _>>()?
+    {
+        if let Some(key) = normalize_artist_similarity_key(&name) {
+            keys.insert(key);
+        }
+    }
+
+    Ok(keys)
+}
+
+fn wallet_name_matches_artist_key(wallet_key: &str, artist_key: &str) -> bool {
+    wallet_key == artist_key
+        || wallet_key.starts_with(artist_key)
+        || wallet_key.ends_with(artist_key)
+        || artist_key.starts_with(wallet_key)
+        || artist_key.ends_with(wallet_key)
 }
 
 /// Inner wallet merge logic. Caller must hold a transaction.

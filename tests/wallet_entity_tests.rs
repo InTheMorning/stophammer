@@ -580,6 +580,120 @@ fn same_feed_artist_credit_match_creates_link() {
 }
 
 #[test]
+fn dominant_feed_and_track_routes_can_link_artist_wallet_with_suffix_alias() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "artist-root-node",
+        "",
+        "",
+        Some("WalletArtistNode"),
+        now,
+    )
+    .unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    let feed_route_id = conn
+        .query_row(
+            "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
+             VALUES ('feed-w', 'Wallet Artist', 'keysend', 'artist-root-node', 95, 0) RETURNING id",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    db::map_feed_route_to_endpoint(&conn, feed_route_id, ep, now).unwrap();
+
+    let track_route_id = conn
+        .query_row(
+            "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+             VALUES ('track-w', 'feed-w', 'Wallet Artist', 'keysend', 'artist-root-node', 95, 0) RETURNING id",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    db::map_track_route_to_endpoint(&conn, track_route_id, ep, now).unwrap();
+
+    let linked = db::link_wallet_to_artist_if_confident(&conn, &wid, "feed-w").unwrap();
+    assert!(
+        linked,
+        "dominant feed and track routes should link a root-node-style artist wallet"
+    );
+
+    let artist_ids = conn
+        .prepare(
+            "SELECT artist_id FROM wallet_artist_links WHERE wallet_id = ?1 ORDER BY artist_id",
+        )
+        .unwrap()
+        .query_map(params![wid], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(artist_ids, vec!["artist-w".to_string()]);
+}
+
+#[test]
+fn partial_track_dominance_does_not_link_suffix_alias_wallet() {
+    let conn = common::test_db();
+    let now = seed_feed_and_track(&conn);
+
+    conn.execute(
+        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
+         SELECT 'track-w-2', feed_guid, artist_credit_id, 'Wallet Track 2', 'wallet track 2', 0, ?1, ?1 \
+         FROM feeds WHERE feed_guid = 'feed-w'",
+        params![now],
+    )
+    .unwrap();
+
+    let ep = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "artist-root-node",
+        "",
+        "",
+        Some("WalletArtistNode"),
+        now,
+    )
+    .unwrap();
+    let wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+
+    let feed_route_id = conn
+        .query_row(
+            "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split, fee) \
+             VALUES ('feed-w', 'Wallet Artist', 'keysend', 'artist-root-node', 95, 0) RETURNING id",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    db::map_feed_route_to_endpoint(&conn, feed_route_id, ep, now).unwrap();
+
+    let dominant_track_route_id = conn
+        .query_row(
+            "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+             VALUES ('track-w', 'feed-w', 'Wallet Artist', 'keysend', 'artist-root-node', 95, 0) RETURNING id",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap();
+    db::map_track_route_to_endpoint(&conn, dominant_track_route_id, ep, now).unwrap();
+
+    conn.execute(
+        "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, split, fee) \
+         VALUES ('track-w-2', 'feed-w', 'Someone Else', 'keysend', 'other-node', 95, 0)",
+        [],
+    )
+    .unwrap();
+
+    let linked = db::link_wallet_to_artist_if_confident(&conn, &wid, "feed-w").unwrap();
+    assert!(
+        !linked,
+        "suffix alias alone should not link unless the wallet dominates all routed tracks"
+    );
+}
+
+#[test]
 fn bot_service_high_confidence_skipped_for_artist_linking() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
