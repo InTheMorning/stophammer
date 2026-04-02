@@ -1701,7 +1701,13 @@ Returns the current pending artist-identity review queue.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`)
+- **Query params:** `limit` (default `100`), optional `confidence`
+
+`confidence` may be used to narrow the queue to one derived band such as:
+
+- `high_confidence`
+- `review_required`
+- `blocked`
 
 **Response (`200 OK`):**
 
@@ -1787,7 +1793,13 @@ Returns the current pending wallet-identity review queue.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`)
+- **Query params:** `limit` (default `100`), optional `confidence`
+
+`confidence` may be used to narrow the queue to one derived band such as:
+
+- `high_confidence`
+- `review_required`
+- `blocked`
 
 **Response (`200 OK`):**
 
