@@ -3202,6 +3202,8 @@ struct ResolveWalletIdentityReviewResponse {
 struct PendingReviewQuery {
     #[serde(default = "default_pending_review_limit")]
     limit: usize,
+    #[serde(default)]
+    confidence: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3854,7 +3856,11 @@ async fn handle_admin_pending_artist_identity_reviews(
     check_admin_token(&headers, &state.admin_token)?;
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_pending_artist_identity_reviews(conn, query.limit)
+        let mut reviews = db::list_pending_artist_identity_reviews(conn, query.limit)?;
+        if let Some(confidence) = query.confidence.as_deref() {
+            reviews.retain(|review| review.confidence == confidence);
+        }
+        Ok(reviews)
     })
     .await?;
 
@@ -3901,7 +3907,11 @@ async fn handle_admin_pending_wallet_identity_reviews(
     check_admin_token(&headers, &state.admin_token)?;
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_pending_wallet_reviews(conn, query.limit)
+        let mut reviews = db::list_pending_wallet_reviews(conn, query.limit)?;
+        if let Some(confidence) = query.confidence.as_deref() {
+            reviews.retain(|review| review.confidence == confidence);
+        }
+        Ok(reviews)
     })
     .await?;
 

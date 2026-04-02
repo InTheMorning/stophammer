@@ -722,6 +722,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
     assert_eq!(artist_json["reviews"][0]["confidence"], "review_required");
 
     let wallet_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/wallet-identity/reviews/pending?limit=10")
@@ -738,6 +739,48 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         "likely_wallet_owner_match"
     );
     assert_eq!(wallet_json["reviews"][0]["confidence"], "high_confidence");
+
+    let filtered_artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending?limit=10&confidence=high_confidence")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered artist request"),
+        )
+        .await
+        .expect("filtered artist response");
+    assert_eq!(filtered_artist_resp.status(), 200);
+    let filtered_artist_json = body_json(filtered_artist_resp).await;
+    assert!(
+        filtered_artist_json["reviews"]
+            .as_array()
+            .expect("filtered artist reviews array")
+            .is_empty(),
+        "fixture should not have any high-confidence artist reviews"
+    );
+
+    let filtered_wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending?limit=10&confidence=high_confidence")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered wallet request"),
+        )
+        .await
+        .expect("filtered wallet response");
+    assert_eq!(filtered_wallet_resp.status(), 200);
+    let filtered_wallet_json = body_json(filtered_wallet_resp).await;
+    let filtered_wallet_reviews = filtered_wallet_json["reviews"]
+        .as_array()
+        .expect("filtered wallet reviews array");
+    assert_eq!(filtered_wallet_reviews.len(), 1);
+    assert_eq!(
+        filtered_wallet_reviews[0]["confidence"],
+        "high_confidence"
+    );
 }
 
 #[tokio::test]
