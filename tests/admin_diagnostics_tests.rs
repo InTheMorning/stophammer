@@ -1562,6 +1562,7 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
     let app = stophammer::api::build_router(state);
 
     let resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/reviews/dashboard?hotspot_limit=5")
@@ -1617,6 +1618,43 @@ async fn admin_pending_review_dashboard_combines_summary_age_and_hotspots() {
     );
     assert_eq!(json["age_summary"]["artist_identity"]["total"], 1);
     assert_eq!(json["feed_hotspots"][0]["feed_guid"], "feed-dashboard");
+
+    let filtered_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/reviews/dashboard?hotspot_limit=5&min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered dashboard request"),
+        )
+        .await
+        .expect("filtered dashboard response");
+    assert_eq!(filtered_resp.status(), 200);
+
+    let filtered_json = body_json(filtered_resp).await;
+    assert!(
+        filtered_json["artist_identity_summary"]
+            .as_array()
+            .expect("filtered artist summary")
+            .is_empty(),
+        "min_score should remove unscored artist reviews from the dashboard subset"
+    );
+    assert!(
+        filtered_json["wallet_identity_summary"]
+            .as_array()
+            .expect("filtered wallet summary")
+            .is_empty(),
+        "fixture should not have any scored wallet reviews in the dashboard subset"
+    );
+    assert_eq!(filtered_json["age_summary"]["artist_identity"]["total"], 0);
+    assert_eq!(filtered_json["age_summary"]["wallet_identity"]["total"], 0);
+    assert!(
+        filtered_json["feed_hotspots"]
+            .as_array()
+            .expect("filtered dashboard hotspots")
+            .is_empty(),
+        "dashboard hotspots should empty out when no reviews survive the score filter"
+    );
 }
 
 #[tokio::test]

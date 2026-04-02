@@ -3273,6 +3273,10 @@ struct PendingReviewFeedHotspotsResponse {
 struct PendingReviewDashboardQuery {
     #[serde(default = "default_dashboard_hotspot_limit")]
     hotspot_limit: usize,
+    #[serde(default)]
+    confidence: Option<String>,
+    #[serde(default)]
+    min_score: Option<u16>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3361,6 +3365,121 @@ fn review_score_band_priority(score_band: &str) -> u8 {
 
 fn max_pending_review_scan_limit() -> usize {
     usize::try_from(i64::MAX).unwrap_or(usize::MAX)
+}
+
+fn summarize_pending_review_age_subset(
+    created_ats: impl Iterator<Item = i64>,
+) -> db::PendingReviewAgeSummary {
+    let now = db::unix_now();
+    let last_24h_cutoff = now - 24 * 60 * 60;
+    let older_than_7d_cutoff = now - 7 * 24 * 60 * 60;
+    let mut total = 0usize;
+    let mut created_last_24h = 0usize;
+    let mut older_than_7d = 0usize;
+    let mut oldest_created_at: Option<i64> = None;
+
+    for created_at in created_ats {
+        total += 1;
+        if created_at >= last_24h_cutoff {
+            created_last_24h += 1;
+        }
+        if created_at <= older_than_7d_cutoff {
+            older_than_7d += 1;
+        }
+        oldest_created_at = Some(match oldest_created_at {
+            Some(current) => current.min(created_at),
+            None => created_at,
+        });
+    }
+
+    db::PendingReviewAgeSummary {
+        total,
+        created_last_24h,
+        older_than_7d,
+        oldest_created_at,
+    }
+}
+
+fn feed_meta_for_guid(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Option<(String, String)>, rusqlite::Error> {
+    conn.query_row(
+        "SELECT title, feed_url FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+}
+
+fn summarize_pending_review_hotspots_subset(
+    conn: &rusqlite::Connection,
+    artist_reviews: &[db::ArtistIdentityPendingReview],
+    wallet_reviews: &[db::WalletReviewSummary],
+    limit: usize,
+) -> Result<Vec<db::PendingReviewFeedHotspot>, db::DbError> {
+    let mut hotspots = std::collections::BTreeMap::<String, db::PendingReviewFeedHotspot>::new();
+    let mut feed_meta_cache = std::collections::BTreeMap::<String, (String, String)>::new();
+    let mut wallet_claim_feed_cache =
+        std::collections::BTreeMap::<String, Vec<db::WalletClaimFeed>>::new();
+
+    for review in artist_reviews {
+        let (title, feed_url) = if let Some(meta) = feed_meta_cache.get(&review.feed_guid) {
+            meta.clone()
+        } else {
+            let meta = feed_meta_for_guid(conn, &review.feed_guid)?
+                .unwrap_or_else(|| (review.title.clone(), String::new()));
+            feed_meta_cache.insert(review.feed_guid.clone(), meta.clone());
+            meta
+        };
+        let entry = hotspots
+            .entry(review.feed_guid.clone())
+            .or_insert(db::PendingReviewFeedHotspot {
+                feed_guid: review.feed_guid.clone(),
+                title,
+                feed_url,
+                artist_review_count: 0,
+                wallet_review_count: 0,
+                total_review_count: 0,
+            });
+        entry.artist_review_count += 1;
+        entry.total_review_count += 1;
+    }
+
+    for review in wallet_reviews {
+        let claim_feeds = if let Some(claim_feeds) = wallet_claim_feed_cache.get(&review.wallet_id) {
+            claim_feeds.clone()
+        } else {
+            let claim_feeds = db::get_wallet_claim_feeds(conn, &review.wallet_id)?;
+            wallet_claim_feed_cache.insert(review.wallet_id.clone(), claim_feeds.clone());
+            claim_feeds
+        };
+        for claim_feed in claim_feeds {
+            let entry = hotspots
+                .entry(claim_feed.feed_guid.clone())
+                .or_insert(db::PendingReviewFeedHotspot {
+                    feed_guid: claim_feed.feed_guid.clone(),
+                    title: claim_feed.title.clone(),
+                    feed_url: claim_feed.feed_url.clone(),
+                    artist_review_count: 0,
+                    wallet_review_count: 0,
+                    total_review_count: 0,
+                });
+            entry.wallet_review_count += 1;
+            entry.total_review_count += 1;
+        }
+    }
+
+    let mut hotspots = hotspots.into_values().collect::<Vec<_>>();
+    hotspots.sort_by(|left, right| {
+        right
+            .total_review_count
+            .cmp(&left.total_review_count)
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.feed_guid.cmp(&right.feed_guid))
+    });
+    hotspots.truncate(limit);
+    Ok(hotspots)
 }
 
 fn summarize_artist_pending_review_subset(
@@ -4262,18 +4381,52 @@ async fn handle_admin_pending_review_dashboard(
         wallet_identity,
         feed_hotspots,
     ) = spawn_db(state.db.clone(), move |conn| {
+        let mut artist_reviews =
+            db::list_pending_artist_identity_reviews(conn, max_pending_review_scan_limit())?;
+        filter_pending_artist_reviews(
+            &mut artist_reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
+        let mut wallet_reviews = db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
+        filter_pending_wallet_reviews(
+            &mut wallet_reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
+        let (
+            artist_identity_summary,
+            artist_identity_confidence_summary,
+            artist_identity_score_summary,
+            artist_identity_conflict_summary,
+        ) = summarize_artist_pending_review_subset(&artist_reviews);
+        let (
+            wallet_identity_summary,
+            wallet_identity_confidence_summary,
+            wallet_identity_score_summary,
+            wallet_identity_conflict_summary,
+        ) = summarize_wallet_pending_review_subset(&wallet_reviews);
         Ok((
-            db::summarize_pending_artist_identity_reviews(conn)?,
-            db::summarize_pending_wallet_reviews(conn)?,
-            db::summarize_pending_artist_identity_review_confidence(conn)?,
-            db::summarize_pending_wallet_review_confidence(conn)?,
-            db::summarize_pending_artist_identity_review_scores(conn)?,
-            db::summarize_pending_wallet_review_scores(conn)?,
-            db::summarize_pending_artist_identity_review_conflicts(conn)?,
-            db::summarize_pending_wallet_review_conflicts(conn)?,
-            db::summarize_pending_artist_identity_review_age(conn)?,
-            db::summarize_pending_wallet_review_age(conn)?,
-            db::list_pending_review_feed_hotspots(conn, query.hotspot_limit)?,
+            artist_identity_summary,
+            wallet_identity_summary,
+            artist_identity_confidence_summary,
+            wallet_identity_confidence_summary,
+            artist_identity_score_summary,
+            wallet_identity_score_summary,
+            artist_identity_conflict_summary,
+            wallet_identity_conflict_summary,
+            summarize_pending_review_age_subset(
+                artist_reviews.iter().map(|review| review.created_at),
+            ),
+            summarize_pending_review_age_subset(
+                wallet_reviews.iter().map(|review| review.created_at),
+            ),
+            summarize_pending_review_hotspots_subset(
+                conn,
+                &artist_reviews,
+                &wallet_reviews,
+                query.hotspot_limit,
+            )?,
         ))
     })
     .await?;

@@ -2000,7 +2000,7 @@ Returns the main operator dashboard payload for pending review work.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `hotspot_limit` (default `20`)
+- **Query params:** `hotspot_limit` (default `20`), optional `confidence`, optional `min_score`
 
 **Response (`200 OK`):**
 
