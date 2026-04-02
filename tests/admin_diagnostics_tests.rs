@@ -194,7 +194,7 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         .collect::<std::collections::BTreeSet<_>>();
     assert!(supporting_sources.contains("track_feed_name_variant"));
     assert!(supporting_sources.contains("wallet_name_variant"));
-    assert_eq!(likely_artist_group["score"], 65);
+    assert_eq!(likely_artist_group["score"], 50);
     let score_breakdown = likely_artist_group["score_breakdown"]
         .as_array()
         .expect("score_breakdown array")
@@ -207,7 +207,7 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         })
         .collect::<std::collections::BTreeSet<_>>();
     assert!(score_breakdown.contains(&("track_feed_name_variant", 30)));
-    assert!(score_breakdown.contains(&("wallet_name_variant", 35)));
+    assert!(score_breakdown.contains(&("wallet_name_variant", 20)));
     let wallet_variant_review = json["artist_identity_reviews"]
         .as_array()
         .expect("artist_identity_reviews array")
@@ -738,7 +738,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         wallet_json["reviews"][0]["source"],
         "likely_wallet_owner_match"
     );
-    assert_eq!(wallet_json["reviews"][0]["confidence"], "high_confidence");
+    assert_eq!(wallet_json["reviews"][0]["confidence"], "review_required");
 
     let filtered_artist_resp = app
         .clone()
@@ -776,10 +776,9 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
     let filtered_wallet_reviews = filtered_wallet_json["reviews"]
         .as_array()
         .expect("filtered wallet reviews array");
-    assert_eq!(filtered_wallet_reviews.len(), 1);
-    assert_eq!(
-        filtered_wallet_reviews[0]["confidence"],
-        "high_confidence"
+    assert!(
+        filtered_wallet_reviews.is_empty(),
+        "fixture should not have any high-confidence wallet reviews"
     );
 }
 
@@ -1196,7 +1195,7 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
     assert_eq!(wallet_json["summary"][0]["source"], "cross_wallet_alias");
     assert_eq!(
         wallet_json["confidence_summary"][0]["confidence"],
-        "high_confidence"
+        "review_required"
     );
     let wallet_score_bands = wallet_json["score_summary"]
         .as_array()

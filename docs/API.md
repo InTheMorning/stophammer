@@ -1723,10 +1723,10 @@ Returns the current pending artist-identity review queue.
       "explanation": "Multiple same-feed evidence families agree that these artist rows likely describe the same artist, but review is still required.",
       "supporting_sources": ["track_feed_name_variant", "wallet_name_variant"],
       "conflict_reasons": [],
-      "score": 65,
+      "score": 50,
       "score_breakdown": [
         { "source": "track_feed_name_variant", "points": 30 },
-        { "source": "wallet_name_variant", "points": 35 }
+        { "source": "wallet_name_variant", "points": 20 }
       ],
       "name_key": "heycitizen",
       "evidence_key": "feed-guid",
@@ -1813,13 +1813,13 @@ Returns the current pending wallet-identity review queue.
       "wallet_class": "unknown",
       "class_confidence": "provisional",
       "source": "likely_wallet_owner_match",
-      "confidence": "high_confidence",
+      "confidence": "review_required",
       "explanation": "Multiple wallets share the same normalized alias and also share stronger feed or artist-link evidence, so they likely belong to one owner but still require review.",
       "supporting_sources": ["cross_wallet_alias", "shared_feed_overlap"],
       "conflict_reasons": [],
-      "score": 65,
+      "score": 50,
       "score_breakdown": [
-        { "source": "cross_wallet_alias", "points": 40 },
+        { "source": "cross_wallet_alias", "points": 25 },
         { "source": "shared_feed_overlap", "points": 25 }
       ],
       "evidence_key": "shared wallet alias:feed-guid",

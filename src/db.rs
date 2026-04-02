@@ -5331,6 +5331,9 @@ fn artist_identity_source_allows_auto_merge(source: &str) -> bool {
     )
 }
 
+const ARTIST_HIGH_CONFIDENCE_MIN_SCORE: u16 = 50;
+const WALLET_HIGH_CONFIDENCE_MIN_SCORE: u16 = 55;
+
 fn artist_identity_review_explanation(source: &str) -> &'static str {
     match source {
         "wallet_name_variant" => {
@@ -5349,7 +5352,7 @@ fn artist_identity_review_explanation(source: &str) -> &'static str {
             "The track credit looks like a collaboration or compound artist string, so automatic merge is intentionally blocked."
         }
         "publisher_name_variant" => {
-            "Validated publisher-linked child feeds collapse to the same normalized artist name but still differ in raw spelling."
+            "Artists inside the same validated publisher-linked neighborhood collapse to the same normalized name, but publisher context is only supporting evidence and not identity truth by itself."
         }
         _ => "This review source requires operator confirmation before identity state changes.",
     }
@@ -5550,19 +5553,40 @@ fn artists_have_conflicting_external_ids(
         .any(|values| values.len() > 1))
 }
 
-fn artist_review_confidence(source: &str, conflict_reasons: &[String]) -> &'static str {
+fn artist_review_confidence(
+    source: &str,
+    score: Option<u16>,
+    conflict_reasons: &[String],
+) -> &'static str {
     match source {
         "likely_same_artist" if !conflict_reasons.is_empty() => "blocked",
-        "wallet_name_variant" | "likely_same_artist" => "high_confidence",
+        "likely_same_artist" => {
+            if score.unwrap_or_default() >= ARTIST_HIGH_CONFIDENCE_MIN_SCORE {
+                "high_confidence"
+            } else {
+                "review_required"
+            }
+        }
+        "wallet_name_variant" => "high_confidence",
         "collaboration_credit" => "blocked",
         _ => "review_required",
     }
 }
 
-fn wallet_review_confidence(source: &str, conflict_reasons: &[String]) -> &'static str {
+fn wallet_review_confidence(
+    source: &str,
+    score: Option<u16>,
+    conflict_reasons: &[String],
+) -> &'static str {
     match source {
         "likely_wallet_owner_match" if !conflict_reasons.is_empty() => "blocked",
-        "likely_wallet_owner_match" => "high_confidence",
+        "likely_wallet_owner_match" => {
+            if score.unwrap_or_default() >= WALLET_HIGH_CONFIDENCE_MIN_SCORE {
+                "high_confidence"
+            } else {
+                "review_required"
+            }
+        }
         _ => "review_required",
     }
 }
@@ -5776,11 +5800,11 @@ fn artist_review_score_breakdown(
         .iter()
         .filter_map(|support| {
             let points = match support.as_str() {
-                "shared_external_id" => 40,
-                "shared_npub" | "wallet_name_variant" => 35,
+                "shared_external_id" => 45,
+                "shared_npub" => 40,
                 "normalized_website" | "track_feed_name_variant" => 30,
-                "contributor_name_variant" => 25,
-                "publisher_name_variant" => 20,
+                "contributor_name_variant" | "wallet_name_variant" => 20,
+                "publisher_name_variant" => 10,
                 _ => 0,
             };
             (points > 0).then_some(ReviewScoreComponent {
@@ -5802,9 +5826,8 @@ fn wallet_review_score_breakdown(
         .iter()
         .filter_map(|support| {
             let points = match support.as_str() {
-                "cross_wallet_alias" => 40,
-                "shared_feed_overlap" => 25,
-                "shared_artist_link" => 20,
+                "cross_wallet_alias" | "shared_feed_overlap" => 25,
+                "shared_artist_link" => 30,
                 _ => 0,
             };
             (points > 0).then_some(ReviewScoreComponent {
@@ -6721,7 +6744,7 @@ pub fn explain_artist_identity_for_feed(
             .ok()
             .flatten();
             let derived_confidence =
-                artist_review_confidence(&group.source, &conflict_reasons).to_string();
+                artist_review_confidence(&group.source, score, &conflict_reasons).to_string();
             let derived_explanation =
                 artist_identity_review_explanation_with_conflicts(&group.source, &conflict_reasons)
                     .to_string();
@@ -6852,16 +6875,17 @@ pub fn list_artist_identity_reviews_for_feed(
         let artist_id_set = review.artist_ids.iter().cloned().collect();
         review.conflict_reasons =
             artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+        review.score_breakdown =
+            artist_review_score_breakdown(&review.source, &review.supporting_sources);
+        review.score = review_score_from_breakdown(&review.score_breakdown);
         review.confidence =
-            artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+            artist_review_confidence(&review.source, review.score, &review.conflict_reasons)
+                .to_string();
         review.explanation = artist_identity_review_explanation_with_conflicts(
             &review.source,
             &review.conflict_reasons,
         )
         .to_string();
-        review.score_breakdown =
-            artist_review_score_breakdown(&review.source, &review.supporting_sources);
-        review.score = review_score_from_breakdown(&review.score_breakdown);
         reviews.push(review);
     }
     Ok(reviews)
@@ -6916,16 +6940,17 @@ pub fn get_artist_identity_review(
             let artist_id_set = review.artist_ids.iter().cloned().collect();
             review.conflict_reasons =
                 artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+            review.score_breakdown =
+                artist_review_score_breakdown(&review.source, &review.supporting_sources);
+            review.score = review_score_from_breakdown(&review.score_breakdown);
             review.confidence =
-                artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+                artist_review_confidence(&review.source, review.score, &review.conflict_reasons)
+                    .to_string();
             review.explanation = artist_identity_review_explanation_with_conflicts(
                 &review.source,
                 &review.conflict_reasons,
             )
             .to_string();
-            review.score_breakdown =
-                artist_review_score_breakdown(&review.source, &review.supporting_sources);
-            review.score = review_score_from_breakdown(&review.score_breakdown);
             Ok(review)
         })
         .transpose()
@@ -6986,16 +7011,17 @@ pub fn get_artist_identity_review_for_subject(
             let artist_id_set = review.artist_ids.iter().cloned().collect();
             review.conflict_reasons =
                 artist_review_conflict_reasons(conn, &review.source, &artist_id_set)?;
+            review.score_breakdown =
+                artist_review_score_breakdown(&review.source, &review.supporting_sources);
+            review.score = review_score_from_breakdown(&review.score_breakdown);
             review.confidence =
-                artist_review_confidence(&review.source, &review.conflict_reasons).to_string();
+                artist_review_confidence(&review.source, review.score, &review.conflict_reasons)
+                    .to_string();
             review.explanation = artist_identity_review_explanation_with_conflicts(
                 &review.source,
                 &review.conflict_reasons,
             )
             .to_string();
-            review.score_breakdown =
-                artist_review_score_breakdown(&review.source, &review.supporting_sources);
-            review.score = review_score_from_breakdown(&review.score_breakdown);
             Ok(review)
         })
         .transpose()
@@ -7052,18 +7078,19 @@ fn list_pending_artist_identity_reviews_with_min_created_at(
         let artist_id_set = artist_ids.iter().cloned().collect();
         let conflict_reasons = artist_review_conflict_reasons(conn, &source, &artist_id_set)?;
         let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
+        let score = review_score_from_breakdown(&score_breakdown);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
-            confidence: artist_review_confidence(&source, &conflict_reasons).to_string(),
+            confidence: artist_review_confidence(&source, score, &conflict_reasons).to_string(),
             explanation: artist_identity_review_explanation_with_conflicts(
                 &source,
                 &conflict_reasons,
             )
             .to_string(),
-            score: review_score_from_breakdown(&score_breakdown),
+            score,
             score_breakdown,
             supporting_sources,
             conflict_reasons,
@@ -7146,18 +7173,19 @@ pub fn list_recent_pending_artist_identity_reviews(
         let artist_id_set = artist_ids.iter().cloned().collect();
         let conflict_reasons = artist_review_conflict_reasons(conn, &source, &artist_id_set)?;
         let score_breakdown = artist_review_score_breakdown(&source, &supporting_sources);
+        let score = review_score_from_breakdown(&score_breakdown);
         reviews.push(ArtistIdentityPendingReview {
             review_id: row.get(0)?,
             feed_guid: feed_guid.clone(),
             title: row.get(2)?,
             source: source.clone(),
-            confidence: artist_review_confidence(&source, &conflict_reasons).to_string(),
+            confidence: artist_review_confidence(&source, score, &conflict_reasons).to_string(),
             explanation: artist_identity_review_explanation_with_conflicts(
                 &source,
                 &conflict_reasons,
             )
             .to_string(),
-            score: review_score_from_breakdown(&score_breakdown),
+            score,
             supporting_sources,
             conflict_reasons,
             score_breakdown,
@@ -13820,6 +13848,7 @@ fn list_pending_wallet_reviews_with_max_created_at(
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
+        let score = review_score_from_breakdown(&score_breakdown);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13827,10 +13856,10 @@ fn list_pending_wallet_reviews_with_max_created_at(
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            confidence: wallet_review_confidence(&source, score, &conflict_reasons).to_string(),
             explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
             conflict_reasons,
-            score: review_score_from_breakdown(&score_breakdown),
+            score,
             score_breakdown,
             supporting_sources,
             evidence_key: row.get(6)?,
@@ -13897,6 +13926,7 @@ pub fn get_wallet_review_summary(
                     )
                 })?;
             let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
+            let score = review_score_from_breakdown(&score_breakdown);
             Ok(WalletReviewSummary {
                 id: row.get(0)?,
                 wallet_id: row.get(1)?,
@@ -13904,10 +13934,10 @@ pub fn get_wallet_review_summary(
                 wallet_class: row.get(3)?,
                 class_confidence: row.get(4)?,
                 source: source.clone(),
-                confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+                confidence: wallet_review_confidence(&source, score, &conflict_reasons).to_string(),
                 explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
                 conflict_reasons,
-                score: review_score_from_breakdown(&score_breakdown),
+                score,
                 score_breakdown,
                 supporting_sources,
                 evidence_key: row.get(6)?,
@@ -13974,6 +14004,7 @@ pub fn list_recent_pending_wallet_reviews(
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
+        let score = review_score_from_breakdown(&score_breakdown);
         summaries.push(WalletReviewSummary {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
@@ -13981,10 +14012,10 @@ pub fn list_recent_pending_wallet_reviews(
             wallet_class: row.get(3)?,
             class_confidence: row.get(4)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            confidence: wallet_review_confidence(&source, score, &conflict_reasons).to_string(),
             explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
             conflict_reasons,
-            score: review_score_from_breakdown(&score_breakdown),
+            score,
             score_breakdown,
             supporting_sources,
             evidence_key: row.get(6)?,
@@ -14187,14 +14218,15 @@ pub fn list_wallet_reviews_for_wallet(
         let supporting_sources = wallet_review_supporting_sources(conn, &source, &wallet_ids)?;
         let conflict_reasons = wallet_review_conflict_reasons(conn, &source, &wallet_ids)?;
         let score_breakdown = wallet_review_score_breakdown(&source, &supporting_sources);
+        let score = review_score_from_breakdown(&score_breakdown);
         reviews.push(WalletReviewItem {
             id: row.get(0)?,
             wallet_id: row.get(1)?,
             source: source.clone(),
-            confidence: wallet_review_confidence(&source, &conflict_reasons).to_string(),
+            confidence: wallet_review_confidence(&source, score, &conflict_reasons).to_string(),
             explanation: wallet_review_explanation(&source, &conflict_reasons).to_string(),
             conflict_reasons,
-            score: review_score_from_breakdown(&score_breakdown),
+            score,
             score_breakdown,
             supporting_sources,
             evidence_key: row.get(3)?,

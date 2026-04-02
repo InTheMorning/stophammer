@@ -480,9 +480,7 @@ fn build_pending_reviews_report(
     if high_confidence_only {
         reviews.retain(|review| review.confidence == "high_confidence");
     }
-    Ok(PendingReviewsReport {
-        reviews,
-    })
+    Ok(PendingReviewsReport { reviews })
 }
 
 fn build_review_item_report(
@@ -811,8 +809,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_feed_plan_text(&report);
         }
     } else if args.pending_reviews {
-        let report =
-            build_pending_reviews_report(&conn, args.limit, args.high_confidence_only)?;
+        let report = build_pending_reviews_report(&conn, args.limit, args.high_confidence_only)?;
         if args.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {

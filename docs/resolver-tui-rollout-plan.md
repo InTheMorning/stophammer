@@ -517,3 +517,5 @@ That gives us a real vertical slice:
 - operator resolves it via API
 - override is durable
 - TUI consolidation (Phase 4) then builds on all of the above
+
+Current scoring and conflict policy are documented in [identity-evidence-policy.md](./identity-evidence-policy.md).

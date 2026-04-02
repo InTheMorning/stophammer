@@ -1197,17 +1197,17 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
     assert!(
         sources.iter().any(|(source, confidence, explanation)| {
             source == "likely_wallet_owner_match"
-                && confidence == "high_confidence"
+                && confidence == "review_required"
                 && explanation.contains("likely belong to one owner")
         }),
-        "same-feed alias overlap should create a high-confidence likely_wallet_owner_match review"
+        "same-feed alias overlap should create a review-only likely_wallet_owner_match review"
     );
     let likely_review = db::list_pending_wallet_reviews(&conn, 10)
         .unwrap()
         .into_iter()
         .find(|review| review.source == "likely_wallet_owner_match")
         .expect("likely wallet review");
-    assert_eq!(likely_review.score, Some(65));
+    assert_eq!(likely_review.score, Some(50));
 }
 
 #[test]
@@ -1341,7 +1341,7 @@ fn likely_wallet_owner_match_includes_shared_artist_link_support() {
         .into_iter()
         .find(|review| review.source == "likely_wallet_owner_match")
         .expect("likely wallet review");
-    assert_eq!(likely_review.score, Some(85));
+    assert_eq!(likely_review.score, Some(80));
     assert!(
         likely_review
             .supporting_sources
@@ -1438,7 +1438,7 @@ fn likely_wallet_owner_match_created_for_same_alias_with_shared_artist_link() {
             review.source == "likely_wallet_owner_match" && review.evidence_key.contains(":artist:")
         })
         .expect("artist-linked likely wallet review");
-    assert_eq!(likely_review.score, Some(60));
+    assert_eq!(likely_review.score, Some(55));
     let supporting = likely_review
         .supporting_sources
         .iter()

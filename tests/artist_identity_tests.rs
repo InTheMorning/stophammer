@@ -1676,7 +1676,7 @@ fn wallet_name_variants_raise_review_without_auto_merge() {
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(65));
+    assert_eq!(likely_review.score, Some(50));
     assert!(
         likely_review
             .explanation
@@ -1849,7 +1849,7 @@ fn likely_same_artist_includes_shared_external_id_support() {
             .find(|review| review.source == "likely_same_artist")
             .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(100));
+    assert_eq!(likely_review.score, Some(95));
     let supporting = likely_review
         .supporting_sources
         .iter()
@@ -1946,7 +1946,7 @@ fn likely_same_artist_can_pair_track_variant_with_shared_external_id() {
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(70));
+    assert_eq!(likely_review.score, Some(75));
     let supporting = likely_review
         .supporting_sources
         .iter()
@@ -1965,12 +1965,9 @@ fn likely_same_artist_can_pair_track_variant_with_shared_website() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let canonical = stophammer::db::resolve_artist(
-        &conn,
-        "HeyCitizen",
-        Some("feed-track-plus-website-review"),
-    )
-    .expect("canonical artist");
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-track-plus-website-review"))
+            .expect("canonical artist");
     let canonical_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &canonical.name,
@@ -2023,7 +2020,11 @@ fn likely_same_artist_can_pair_track_variant_with_shared_website() {
     let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
-        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
         Some("feed-track-plus-website-variant"),
     )
     .expect("variant feed credit");
@@ -2046,7 +2047,10 @@ fn likely_same_artist_can_pair_track_variant_with_shared_website() {
         "feed-track-plus-website-review",
     )
     .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
 
     let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
         &conn,
@@ -2077,12 +2081,9 @@ fn likely_same_artist_can_pair_track_variant_with_shared_npub() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let canonical = stophammer::db::resolve_artist(
-        &conn,
-        "HeyCitizen",
-        Some("feed-track-plus-npub-review"),
-    )
-    .expect("canonical artist");
+    let canonical =
+        stophammer::db::resolve_artist(&conn, "HeyCitizen", Some("feed-track-plus-npub-review"))
+            .expect("canonical artist");
     let canonical_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &canonical.name,
@@ -2118,12 +2119,9 @@ fn likely_same_artist_can_pair_track_variant_with_shared_npub() {
     )
     .expect("insert canonical npub");
 
-    let variant = stophammer::db::resolve_artist(
-        &conn,
-        "Hey Citizen",
-        Some("feed-track-plus-npub-review"),
-    )
-    .expect("variant artist");
+    let variant =
+        stophammer::db::resolve_artist(&conn, "Hey Citizen", Some("feed-track-plus-npub-review"))
+            .expect("variant artist");
     let variant_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
@@ -2145,7 +2143,11 @@ fn likely_same_artist_can_pair_track_variant_with_shared_npub() {
     let variant_feed_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &variant.name,
-        &[(variant.artist_id.clone(), variant.name.clone(), String::new())],
+        &[(
+            variant.artist_id.clone(),
+            variant.name.clone(),
+            String::new(),
+        )],
         Some("feed-track-plus-npub-variant"),
     )
     .expect("variant feed credit");
@@ -2173,24 +2175,23 @@ fn likely_same_artist_can_pair_track_variant_with_shared_npub() {
     )
     .expect("insert variant npub");
 
-    let stats = stophammer::db::resolve_artist_identity_for_feed(
-        &mut conn,
-        "feed-track-plus-npub-review",
-    )
-    .expect("resolve artist identity");
-    assert_eq!(stats.merges_applied, 0, "scored review should remain review-only");
+    let stats =
+        stophammer::db::resolve_artist_identity_for_feed(&mut conn, "feed-track-plus-npub-review")
+            .expect("resolve artist identity");
+    assert_eq!(
+        stats.merges_applied, 0,
+        "scored review should remain review-only"
+    );
 
-    let reviews = stophammer::db::list_artist_identity_reviews_for_feed(
-        &conn,
-        "feed-track-plus-npub-review",
-    )
-    .expect("list reviews");
+    let reviews =
+        stophammer::db::list_artist_identity_reviews_for_feed(&conn, "feed-track-plus-npub-review")
+            .expect("list reviews");
     let likely_review = reviews
         .iter()
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(65));
+    assert_eq!(likely_review.score, Some(70));
     let supporting = likely_review
         .supporting_sources
         .iter()
@@ -2423,7 +2424,7 @@ fn likely_same_artist_includes_normalized_website_support() {
             .find(|review| review.source == "likely_same_artist")
             .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(95));
+    assert_eq!(likely_review.score, Some(80));
     let supporting = likely_review
         .supporting_sources
         .iter()
@@ -2564,7 +2565,7 @@ fn likely_same_artist_includes_shared_npub_support() {
             .find(|review| review.source == "likely_same_artist")
             .expect("likely_same_artist review");
     assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(100));
+    assert_eq!(likely_review.score, Some(90));
     let supporting = likely_review
         .supporting_sources
         .iter()
@@ -2740,7 +2741,7 @@ fn pending_artist_reviews_prioritize_scored_high_confidence_items() {
         likely_index < wallet_index,
         "scored high-confidence review should sort ahead of an unscored high-confidence review"
     );
-    assert_eq!(reviews[likely_index].score, Some(65));
+    assert_eq!(reviews[likely_index].score, Some(50));
     assert_eq!(reviews[wallet_index].score, None);
 }
 
@@ -3578,8 +3579,8 @@ fn likely_same_artist_can_combine_publisher_family_with_track_variant() {
         .iter()
         .find(|review| review.source == "likely_same_artist")
         .expect("likely_same_artist review");
-    assert_eq!(likely_review.confidence, "high_confidence");
-    assert_eq!(likely_review.score, Some(50));
+    assert_eq!(likely_review.confidence, "review_required");
+    assert_eq!(likely_review.score, Some(40));
     let supporting = likely_review
         .supporting_sources
         .iter()
