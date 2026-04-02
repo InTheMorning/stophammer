@@ -766,6 +766,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
     );
 
     let filtered_wallet_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/wallet-identity/reviews/pending?limit=10&confidence=high_confidence")
@@ -783,6 +784,54 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
     assert!(
         filtered_wallet_reviews.is_empty(),
         "fixture should not have any high-confidence wallet reviews"
+    );
+
+    let scored_artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending?limit=10&min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("scored artist request"),
+        )
+        .await
+        .expect("scored artist response");
+    assert_eq!(scored_artist_resp.status(), 200);
+    let scored_artist_json = body_json(scored_artist_resp).await;
+    assert!(
+        scored_artist_json["reviews"]
+            .as_array()
+            .expect("scored artist reviews array")
+            .is_empty(),
+        "fixture should not have any scored artist reviews"
+    );
+
+    let scored_wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending?limit=10&min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("scored wallet request"),
+        )
+        .await
+        .expect("scored wallet response");
+    assert_eq!(scored_wallet_resp.status(), 200);
+    let scored_wallet_json = body_json(scored_wallet_resp).await;
+    let scored_wallet_reviews = scored_wallet_json["reviews"]
+        .as_array()
+        .expect("scored wallet reviews array");
+    assert_eq!(
+        scored_wallet_reviews[0]["source"],
+        "likely_wallet_owner_match",
+        "min_score should retain scored wallet reviews"
+    );
+    assert!(
+        scored_wallet_reviews
+            .iter()
+            .all(|review| review["score"].as_u64().is_some_and(|score| score >= 1)),
+        "min_score should filter out unscored and zero-score wallet reviews"
     );
 }
 

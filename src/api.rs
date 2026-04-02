@@ -3204,6 +3204,8 @@ struct PendingReviewQuery {
     limit: usize,
     #[serde(default)]
     confidence: Option<String>,
+    #[serde(default)]
+    min_score: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3860,6 +3862,9 @@ async fn handle_admin_pending_artist_identity_reviews(
         if let Some(confidence) = query.confidence.as_deref() {
             reviews.retain(|review| review.confidence == confidence);
         }
+        if let Some(min_score) = query.min_score {
+            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+        }
         Ok(reviews)
     })
     .await?;
@@ -3910,6 +3915,9 @@ async fn handle_admin_pending_wallet_identity_reviews(
         let mut reviews = db::list_pending_wallet_reviews(conn, query.limit)?;
         if let Some(confidence) = query.confidence.as_deref() {
             reviews.retain(|review| review.confidence == confidence);
+        }
+        if let Some(min_score) = query.min_score {
+            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
         }
         Ok(reviews)
     })

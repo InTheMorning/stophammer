@@ -1707,13 +1707,16 @@ Returns the current pending artist-identity review queue.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), optional `confidence`
+- **Query params:** `limit` (default `100`), optional `confidence`, optional `min_score`
 
 `confidence` may be used to narrow the queue to one derived band such as:
 
 - `high_confidence`
 - `review_required`
 - `blocked`
+
+`min_score` may be used to keep only scored reviews whose derived numeric score
+meets or exceeds the given threshold.
 
 **Response (`200 OK`):**
 
@@ -1799,13 +1802,16 @@ Returns the current pending wallet-identity review queue.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), optional `confidence`
+- **Query params:** `limit` (default `100`), optional `confidence`, optional `min_score`
 
 `confidence` may be used to narrow the queue to one derived band such as:
 
 - `high_confidence`
 - `review_required`
 - `blocked`
+
+`min_score` may be used to keep only scored reviews whose derived numeric score
+meets or exceeds the given threshold.
 
 **Response (`200 OK`):**
 
