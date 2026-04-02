@@ -272,7 +272,8 @@ pub fn push_score_summary_section<'a>(
         return;
     }
     lines.extend(
-        items.into_iter()
+        items
+            .into_iter()
             .map(|(score_band, count)| format!("  {score_band}: {count}")),
     );
 }
@@ -307,7 +308,8 @@ pub fn push_conflict_summary_section<'a>(
         return;
     }
     lines.extend(
-        items.into_iter()
+        items
+            .into_iter()
             .map(|(reason, count)| format!("  {reason}: {count}")),
     );
 }
@@ -461,7 +463,10 @@ pub fn build_review_playbook_lines<'a>(
                 "0. High-confidence queue first: {count} {} ({share}% of backlog).",
                 config.review_label_plural
             ));
-            lines.push("   Use g/G to stay on HIGH-confidence items before broad review_required sweeps.".to_string());
+            lines.push(
+                "   Use g/G to stay on HIGH-confidence items before broad review_required sweeps."
+                    .to_string(),
+            );
         }
     }
 
@@ -615,7 +620,12 @@ pub fn preview_score_breakdown(
     components
         .iter()
         .take(max_items)
-        .map(|component| abbreviate(&format!("{}:{}", component.source, component.points), max_chars))
+        .map(|component| {
+            abbreviate(
+                &format!("{}:{}", component.source, component.points),
+                max_chars,
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }

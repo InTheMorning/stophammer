@@ -3946,17 +3946,14 @@ async fn handle_admin_pending_artist_identity_review_summary(
 ) -> Result<Json<PendingArtistIdentityReviewSummaryResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
-    let summary = spawn_db(
-        state.db.clone(),
-        move |conn| {
-            Ok((
-                db::summarize_pending_artist_identity_reviews(conn)?,
-                db::summarize_pending_artist_identity_review_confidence(conn)?,
-                db::summarize_pending_artist_identity_review_scores(conn)?,
-                db::summarize_pending_artist_identity_review_conflicts(conn)?,
-            ))
-        },
-    )
+    let summary = spawn_db(state.db.clone(), move |conn| {
+        Ok((
+            db::summarize_pending_artist_identity_reviews(conn)?,
+            db::summarize_pending_artist_identity_review_confidence(conn)?,
+            db::summarize_pending_artist_identity_review_scores(conn)?,
+            db::summarize_pending_artist_identity_review_conflicts(conn)?,
+        ))
+    })
     .await?;
 
     Ok(Json(PendingArtistIdentityReviewSummaryResponse {

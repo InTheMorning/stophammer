@@ -1171,26 +1171,12 @@ fn likely_wallet_owner_match_reviews_created_for_same_alias_on_same_feed() {
     let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
     let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
 
-    let ep_a = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-a",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
-    let ep_b = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-b",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
+    let ep_a =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-a", "", "", Some("Alice"), now)
+            .unwrap();
+    let ep_b =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-b", "", "", Some("Alice"), now)
+            .unwrap();
     db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
     db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
 
@@ -1232,26 +1218,12 @@ fn likely_wallet_owner_match_skips_conflicting_artist_links() {
     let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
     let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
 
-    let ep_a = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-a",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
-    let ep_b = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-b",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
+    let ep_a =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-a", "", "", Some("Alice"), now)
+            .unwrap();
+    let ep_b =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-b", "", "", Some("Alice"), now)
+            .unwrap();
     db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
     db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
 
@@ -1288,7 +1260,11 @@ fn likely_wallet_owner_match_skips_conflicting_artist_links() {
     );
 
     let reviews = db::list_pending_wallet_reviews(&conn, 10).unwrap();
-    assert!(reviews.iter().any(|review| review.source == "cross_wallet_alias"));
+    assert!(
+        reviews
+            .iter()
+            .any(|review| review.source == "cross_wallet_alias")
+    );
     let likely_review = reviews
         .iter()
         .find(|review| review.source == "likely_wallet_owner_match")
@@ -1316,26 +1292,12 @@ fn likely_wallet_owner_match_includes_shared_artist_link_support() {
     let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
     let route_b = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-b");
 
-    let ep_a = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-a",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
-    let ep_b = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-b",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
+    let ep_a =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-a", "", "", Some("Alice"), now)
+            .unwrap();
+    let ep_b =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-b", "", "", Some("Alice"), now)
+            .unwrap();
     db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
     db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
 
@@ -1421,26 +1383,12 @@ fn likely_wallet_owner_match_created_for_same_alias_with_shared_artist_link() {
     let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
     let route_b = insert_feed_route(&conn, "feed-alt", "Alice", "addr-owner-b");
 
-    let ep_a = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-a",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
-    let ep_b = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-b",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
+    let ep_a =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-a", "", "", Some("Alice"), now)
+            .unwrap();
+    let ep_b =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-b", "", "", Some("Alice"), now)
+            .unwrap();
     db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
     db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
 
@@ -1487,8 +1435,7 @@ fn likely_wallet_owner_match_created_for_same_alias_with_shared_artist_link() {
         .unwrap()
         .into_iter()
         .find(|review| {
-            review.source == "likely_wallet_owner_match"
-                && review.evidence_key.contains(":artist:")
+            review.source == "likely_wallet_owner_match" && review.evidence_key.contains(":artist:")
         })
         .expect("artist-linked likely wallet review");
     assert_eq!(likely_review.score, Some(60));
@@ -1538,26 +1485,12 @@ fn cross_feed_alias_peers_do_not_create_same_feed_owner_match() {
     let route_a = insert_feed_route(&conn, "feed-w", "Alice", "addr-owner-a");
     let route_b = insert_feed_route(&conn, "feed-alt", "Alice", "addr-owner-b");
 
-    let ep_a = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-a",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
-    let ep_b = db::get_or_create_endpoint(
-        &conn,
-        "keysend",
-        "addr-owner-b",
-        "",
-        "",
-        Some("Alice"),
-        now,
-    )
-    .unwrap();
+    let ep_a =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-a", "", "", Some("Alice"), now)
+            .unwrap();
+    let ep_b =
+        db::get_or_create_endpoint(&conn, "keysend", "addr-owner-b", "", "", Some("Alice"), now)
+            .unwrap();
     db::map_feed_route_to_endpoint(&conn, route_a, ep_a, now).unwrap();
     db::map_feed_route_to_endpoint(&conn, route_b, ep_b, now).unwrap();
 
@@ -1570,7 +1503,9 @@ fn cross_feed_alias_peers_do_not_create_same_feed_owner_match() {
 
     let reviews = db::list_pending_wallet_reviews(&conn, 20).unwrap();
     assert!(
-        reviews.iter().any(|review| review.source == "cross_wallet_alias"),
+        reviews
+            .iter()
+            .any(|review| review.source == "cross_wallet_alias"),
         "cross-feed alias peers should still raise the baseline alias review"
     );
     assert!(
@@ -2169,13 +2104,27 @@ fn pending_wallet_reviews_prioritize_high_confidence_sources() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
 
-    let ep1 =
-        db::get_or_create_endpoint(&conn, "keysend", "addr-priority-1", "", "", Some("Alice"), now)
-            .unwrap();
+    let ep1 = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-priority-1",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
     let wid1 = db::create_provisional_wallet(&conn, ep1, now).unwrap();
-    let ep2 =
-        db::get_or_create_endpoint(&conn, "keysend", "addr-priority-2", "", "", Some("Alice"), now)
-            .unwrap();
+    let ep2 = db::get_or_create_endpoint(
+        &conn,
+        "keysend",
+        "addr-priority-2",
+        "",
+        "",
+        Some("Alice"),
+        now,
+    )
+    .unwrap();
     let wid2 = db::create_provisional_wallet(&conn, ep2, now).unwrap();
 
     conn.execute(

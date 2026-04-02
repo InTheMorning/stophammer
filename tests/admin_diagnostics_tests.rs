@@ -733,7 +733,10 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         .expect("wallet response");
     assert_eq!(wallet_resp.status(), 200);
     let wallet_json = body_json(wallet_resp).await;
-    assert_eq!(wallet_json["reviews"][0]["source"], "likely_wallet_owner_match");
+    assert_eq!(
+        wallet_json["reviews"][0]["source"],
+        "likely_wallet_owner_match"
+    );
     assert_eq!(wallet_json["reviews"][0]["confidence"], "high_confidence");
 }
 
@@ -1126,7 +1129,10 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
         .filter_map(|row| row["score_band"].as_str())
         .collect::<std::collections::BTreeSet<_>>();
     assert!(artist_score_bands.contains("unscored"));
-    assert_eq!(artist_json["confidence_summary"][1]["confidence"], "blocked");
+    assert_eq!(
+        artist_json["confidence_summary"][1]["confidence"],
+        "blocked"
+    );
     assert!(
         artist_json["conflict_summary"].is_array(),
         "summary should expose artist conflict rollups"
@@ -1556,7 +1562,9 @@ async fn admin_pending_review_feed_hotspots_orders_by_total_load() {
         "same-feed alias overlap should contribute at least the base wallet review load"
     );
     assert_eq!(
-        json["feeds"][0]["total_review_count"].as_u64().expect("total review count"),
+        json["feeds"][0]["total_review_count"]
+            .as_u64()
+            .expect("total review count"),
         json["feeds"][0]["artist_review_count"]
             .as_u64()
             .expect("artist review count")

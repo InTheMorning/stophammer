@@ -561,7 +561,10 @@ fn print_feed_plan_text(report: &FeedPlanReport) {
             );
         }
         if !group.conflict_reasons.is_empty() {
-            println!("      conflict_reasons: {}", group.conflict_reasons.join(", "));
+            println!(
+                "      conflict_reasons: {}",
+                group.conflict_reasons.join(", ")
+            );
         }
         if let Some(review_id) = group.review_id {
             println!(
@@ -627,26 +630,27 @@ fn print_pending_reviews_text(report: &PendingReviewsReport) {
     let mut score_band_counts = std::collections::BTreeMap::<&str, usize>::new();
     let mut conflict_reason_counts = std::collections::BTreeMap::<&str, usize>::new();
     for review in &report.reviews {
-        *score_band_counts.entry(score_band(review.score)).or_default() += 1;
+        *score_band_counts
+            .entry(score_band(review.score))
+            .or_default() += 1;
         for reason in &review.conflict_reasons {
             *conflict_reason_counts.entry(reason).or_default() += 1;
         }
     }
-    println!(
-        "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
-    );
+    println!("pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}");
     println!(
         "score summary: SCORED={scored_count}/{}  TOP_SCORE={}  TOP_SOURCE={}",
         report.reviews.len(),
-        top_scored
-            .map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
+        top_scored.map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
         top_scored.map_or("-", |(_score, source)| source)
     );
     println!(
         "score bands: {}",
         ["80_100", "60_79", "1_59", "unscored"]
             .into_iter()
-            .filter_map(|band| score_band_counts.get(band).map(|count| format!("{band}={count}")))
+            .filter_map(|band| score_band_counts
+                .get(band)
+                .map(|count| format!("{band}={count}")))
             .collect::<Vec<_>>()
             .join(" ")
     );

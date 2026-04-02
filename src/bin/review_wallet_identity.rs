@@ -266,26 +266,27 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
     let mut score_band_counts = std::collections::BTreeMap::<&str, usize>::new();
     let mut conflict_reason_counts = std::collections::BTreeMap::<&str, usize>::new();
     for review in reviews {
-        *score_band_counts.entry(score_band(review.score)).or_default() += 1;
+        *score_band_counts
+            .entry(score_band(review.score))
+            .or_default() += 1;
         for reason in &review.conflict_reasons {
             *conflict_reason_counts.entry(reason).or_default() += 1;
         }
     }
-    println!(
-        "pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}"
-    );
+    println!("pending summary: HIGH={high_confidence} REVIEW={review_required} BLOCKED={blocked}");
     println!(
         "score summary: SCORED={scored_count}/{}  TOP_SCORE={}  TOP_SOURCE={}",
         reviews.len(),
-        top_scored
-            .map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
+        top_scored.map_or_else(|| "-".to_string(), |(score, _source)| score.to_string()),
         top_scored.map_or("-", |(_score, source)| source)
     );
     println!(
         "score bands: {}",
         ["80_100", "60_79", "1_59", "unscored"]
             .into_iter()
-            .filter_map(|band| score_band_counts.get(band).map(|count| format!("{band}={count}")))
+            .filter_map(|band| score_band_counts
+                .get(band)
+                .map(|count| format!("{band}={count}")))
             .collect::<Vec<_>>()
             .join(" ")
     );
@@ -321,10 +322,7 @@ fn print_pending_reviews(reviews: &[stophammer::db::WalletReviewSummary]) {
         );
         println!("  explanation={}", r.explanation);
         if !r.supporting_sources.is_empty() {
-            println!(
-                "  supporting_sources={}",
-                r.supporting_sources.join(", ")
-            );
+            println!("  supporting_sources={}", r.supporting_sources.join(", "));
         }
         if !r.conflict_reasons.is_empty() {
             println!("  conflict_reasons={}", r.conflict_reasons.join(", "));

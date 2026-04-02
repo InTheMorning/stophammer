@@ -201,7 +201,9 @@ fn dominant_track_claim_family_summary(snapshot: &FeedClaimSnapshot, track_guid:
 fn track_cluster_membership_summary(snapshot: &FeedClaimSnapshot, track_guid: &str) -> String {
     track_family_cluster_membership(snapshot, track_guid).map_or_else(
         || "cluster none".to_string(),
-        |(label, cluster_size, total_tracks)| format!("cluster {label} ({cluster_size}/{total_tracks})"),
+        |(label, cluster_size, total_tracks)| {
+            format!("cluster {label} ({cluster_size}/{total_tracks})")
+        },
     )
 }
 
@@ -296,7 +298,8 @@ fn current_feed_family_position_label(app: &App) -> String {
 }
 
 fn current_feed_family_header_label(app: &App) -> Option<String> {
-    current_family_position(app).map(|(label, position, total)| format!("family {label} {position}/{total}"))
+    current_family_position(app)
+        .map(|(label, position, total)| format!("family {label} {position}/{total}"))
 }
 
 fn current_feed_family_cluster_label(app: &App) -> String {
@@ -589,8 +592,10 @@ impl App {
                 "h: top source-claims hotspots".to_string(),
                 "c: current-feed conflict summary".to_string(),
                 "m: selected-feed claim mix by claim family".to_string(),
-                "n / N: jump to next / previous feed with the same dominant claim family".to_string(),
-                "] / [: jump to next / previous track with the same dominant claim family".to_string(),
+                "n / N: jump to next / previous feed with the same dominant claim family"
+                    .to_string(),
+                "] / [: jump to next / previous track with the same dominant claim family"
+                    .to_string(),
                 "r: reload current feed and track selection".to_string(),
                 "? : show this help dialog".to_string(),
                 "Enter / Space / Esc: close dialog".to_string(),
@@ -712,7 +717,10 @@ impl App {
         };
         let Some(snapshot) = self.current_snapshot() else {
             self.dialog = Some(stophammer::tui::text_dialog(
-                format!("Source Claims Feed Summary [{}]", short_id(&feed_row.feed_guid)),
+                format!(
+                    "Source Claims Feed Summary [{}]",
+                    short_id(&feed_row.feed_guid)
+                ),
                 vec!["No source-claims snapshot loaded.".to_string()],
             ));
             return;
@@ -790,7 +798,8 @@ impl App {
             },
         );
 
-        let title = feed_scoped_dialog_title(self, "Source Claims Feed Summary", &feed_row.feed_guid);
+        let title =
+            feed_scoped_dialog_title(self, "Source Claims Feed Summary", &feed_row.feed_guid);
         self.dialog = Some(stophammer::tui::text_dialog(
             title,
             vec![
@@ -822,10 +831,10 @@ impl App {
                     track_release_claims,
                     track_enclosures
                 ),
-                track_family_subset_summary(snapshot)
-                    .map_or_else(|| "Track family cluster: none".to_string(), |summary| {
-                        format!("Track family cluster: {summary}")
-                    }),
+                track_family_subset_summary(snapshot).map_or_else(
+                    || "Track family cluster: none".to_string(),
+                    |summary| format!("Track family cluster: {summary}"),
+                ),
                 "Resolved overlays:".to_string(),
                 format!(
                     "  external_ids={} entity_sources={}",
@@ -891,27 +900,39 @@ impl App {
 
         let mut lines = vec![
             format!("Track: {} [{}]", track.title, short_id(&track.track_guid)),
-            format!("Feed: {} [{}]", snapshot.feed.title, short_id(&snapshot.feed.feed_guid)),
+            format!(
+                "Feed: {} [{}]",
+                snapshot.feed.title,
+                short_id(&snapshot.feed.feed_guid)
+            ),
             format!("Total track claim rows: {total}"),
         ];
         if let Some(summary) = track_family_subset_summary(snapshot) {
             lines.push(summary);
         }
-        lines.push(format!("Family: {}", current_track_family_position_label(self)));
+        lines.push(format!(
+            "Family: {}",
+            current_track_family_position_label(self)
+        ));
         lines.push(format!(
             "Cluster membership: {}",
             track_cluster_membership_summary(snapshot, &track.track_guid)
         ));
-        if let Some((label, _count, share)) = dominant_track_claim_family(snapshot, &track.track_guid)
+        if let Some((label, _count, share)) =
+            dominant_track_claim_family(snapshot, &track.track_guid)
         {
             lines.push(format!("Dominant family: {label} ({share}%)"));
         }
         lines.push(String::new());
         lines.push("Track claim families:".to_string());
-        lines.extend(rows.into_iter().filter(|(_, count)| *count > 0).map(|(label, count)| {
-            let share = (count * 100) / total.max(1);
-            format!("  {label}: {count} ({share}%)")
-        }));
+        lines.extend(
+            rows.into_iter()
+                .filter(|(_, count)| *count > 0)
+                .map(|(label, count)| {
+                    let share = (count * 100) / total.max(1);
+                    format!("  {label}: {count} ({share}%)")
+                }),
+        );
         if total == 0 {
             lines.push("  no track-scoped claim rows".to_string());
         }
@@ -1020,16 +1041,13 @@ impl App {
     }
 
     fn show_hotspots_dialog(&mut self) {
-        let mut lines = vec![
-            "Top feeds by source-claims load".to_string(),
-            String::new(),
-        ];
+        let mut lines = vec!["Top feeds by source-claims load".to_string(), String::new()];
         if self.feeds.is_empty() {
             lines.push("No source-claims hotspots queued.".to_string());
         } else {
-            if let Some(summary) = feed_family_subset_summary(
-                &self.feeds.iter().take(10).cloned().collect::<Vec<_>>(),
-            ) {
+            if let Some(summary) =
+                feed_family_subset_summary(&self.feeds.iter().take(10).cloned().collect::<Vec<_>>())
+            {
                 lines.push(summary);
                 lines.push(String::new());
             }
@@ -1068,18 +1086,19 @@ impl App {
         let total_resolved_load: i64 = self.feeds.iter().map(|feed| feed.resolved_count).sum();
         let total_tracks: i64 = self.feeds.iter().map(|feed| feed.track_count).sum();
         let claim_family_totals = self.queue_claim_family_totals;
-        let mut lines = vec![
-            format!(
-                "Queued feeds: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
-                feed_count, total_tracks, total_claim_load, total_resolved_load
-            ),
-        ];
+        let mut lines = vec![format!(
+            "Queued feeds: {}  Tracks: {}  Source claims: {}  Resolved overlays: {}",
+            feed_count, total_tracks, total_claim_load, total_resolved_load
+        )];
         if let Some(summary) = feed_family_subset_summary(&self.feeds) {
             lines.push(summary);
         }
         lines.push(String::new());
         if self.feeds.is_empty() {
-            lines.push("Backlog idle: no feeds with source claims or resolved overlays are queued.".to_string());
+            lines.push(
+                "Backlog idle: no feeds with source claims or resolved overlays are queued."
+                    .to_string(),
+            );
             self.dialog = Some(stophammer::tui::text_dialog(
                 queue_scoped_feed_dialog_title("Source Claims Playbook", 0, &self.feeds),
                 lines,
@@ -1137,7 +1156,9 @@ impl App {
                 "enclosures" => {
                     "Media variants dominate; inspect enclosure rows before treating differences as identity issues."
                 }
-                _ => "Inspect the dominant claim family first before drilling into secondary evidence.",
+                _ => {
+                    "Inspect the dominant claim family first before drilling into secondary evidence."
+                }
             };
             lines.push(format!("   {hint}"));
         }
@@ -1178,7 +1199,11 @@ impl App {
             .filter(|line| *line != "no obvious feed-level claim conflicts detected")
             .count();
         let mut lines = vec![
-            format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
+            format!(
+                "Feed: {} [{}]",
+                feed_row.title,
+                short_id(&feed_row.feed_guid)
+            ),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
             format!("Family: {}", current_feed_family_position_label(self)),
             format!("Feed cluster: {}", current_feed_family_cluster_label(self)),
@@ -1275,7 +1300,11 @@ impl App {
             .sum::<usize>();
 
         let mut lines = vec![
-            format!("Feed: {} [{}]", feed_row.title, short_id(&feed_row.feed_guid)),
+            format!(
+                "Feed: {} [{}]",
+                feed_row.title,
+                short_id(&feed_row.feed_guid)
+            ),
             format!("URL: {}", abbreviate(&feed_row.feed_url, 80)),
             format!("Family: {}", current_feed_family_position_label(self)),
             format!("Feed cluster: {}", current_feed_family_cluster_label(self)),
@@ -1287,15 +1316,19 @@ impl App {
             String::new(),
             "Claim families:".to_string(),
         ];
-        lines.extend(family_rows.into_iter().filter_map(|(label, feed_count, track_count)| {
-            let total = feed_count + track_count;
-            (total > 0).then(|| {
+        lines.extend(
+            family_rows
+                .into_iter()
+                .filter_map(|(label, feed_count, track_count)| {
+                    let total = feed_count + track_count;
+                    (total > 0).then(|| {
                 let share = (total * 100) / total_source_claims.max(1);
                 format!(
                     "  {label}: total={total} ({share}%) feed={feed_count} track={track_count}"
                 )
             })
-        }));
+                }),
+        );
 
         self.dialog = Some(stophammer::tui::text_dialog(
             feed_scoped_dialog_title(self, "Claim Mix", &feed_row.feed_guid),
@@ -1428,7 +1461,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                     "Usage: review_source_claims_tui [--db PATH] [--limit N]\n\
+                    "Usage: review_source_claims_tui [--db PATH] [--limit N]\n\
                      Interactive feed-scoped source claims and canonical promotions inspector.\n\
                      Shows source claim families, track-level claim evidence, and the current\n\
                      resolved promotions/provenance overlays for each feed.\n\
@@ -1899,11 +1932,7 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
     if let Some(feed_row) = app.current_feed_row()
         && let Some((label, _count, share)) = dominant_feed_claim_family(feed_row)
     {
-        push_detail(
-            &mut lines,
-            "dominant family",
-            format!("{label} ({share}%)"),
-        );
+        push_detail(&mut lines, "dominant family", format!("{label} ({share}%)"));
     }
 
     push_section(&mut lines, "Conflicts", Color::LightRed);
@@ -2065,11 +2094,7 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
             if let Some((label, _count, share)) =
                 dominant_track_claim_family(snapshot, &track.track_guid)
             {
-                push_detail(
-                    &mut lines,
-                    "dominant family",
-                    format!("{label} ({share}%)"),
-                );
+                push_detail(&mut lines, "dominant family", format!("{label} ({share}%)"));
             }
         }
 
@@ -2203,10 +2228,7 @@ fn header_context_line(app: &App) -> Line<'static> {
         ));
         if let Some(summary) = current_feed_family_header_label(app) {
             spans.push(Span::raw("  "));
-            spans.push(Span::styled(
-                summary,
-                Style::default().fg(Color::DarkGray),
-            ));
+            spans.push(Span::styled(summary, Style::default().fg(Color::DarkGray)));
         }
         if let Some(summary) = feed_family_subset_short_summary(&app.feeds) {
             spans.push(Span::raw("  "));
@@ -2234,10 +2256,7 @@ fn header_context_line(app: &App) -> Line<'static> {
             ));
             if let Some(summary) = current_track_family_header_label(app) {
                 spans.push(Span::raw("  "));
-                spans.push(Span::styled(
-                    summary,
-                    Style::default().fg(Color::DarkGray),
-                ));
+                spans.push(Span::styled(summary, Style::default().fg(Color::DarkGray)));
             }
             if let Some((label, cluster_size, total_tracks)) =
                 track_family_cluster_membership(snapshot, &track.track_guid)
