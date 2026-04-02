@@ -313,6 +313,7 @@ Inside `review_artist_identity_tui`, use:
 
 - `n/N` to move within one source family
 - `g/G` to jump through `high_confidence` review items first
+- `H` to open a high-confidence-only review list
 - queue summary / overview dialogs to inspect score bands
 - selected review panes to inspect `score_breakdown`
 

@@ -132,6 +132,7 @@ Inside the artist review TUI:
 
 - `n/N` jumps within the same source family
 - `g/G` jumps between `high_confidence` review items
+- `H` opens a high-confidence-only review list
 - queue summary / overview dialogs show score bands
 - selected review panes show `score_breakdown`
 
@@ -157,6 +158,7 @@ Inside the wallet review TUI:
 
 - `n/N` jumps within the same source family
 - `g/G` jumps between `high_confidence` review groups
+- `H` opens a high-confidence-only review list
 - queue summary / overview dialogs show score bands
 - selected review/group panes show `score_breakdown`
 
