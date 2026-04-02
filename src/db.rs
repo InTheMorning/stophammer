@@ -12102,14 +12102,17 @@ pub fn link_wallet_to_artist_if_confident(
          WHERE we.wallet_id = ?1 AND f.feed_guid = ?2",
     )?;
 
-    let artist_ids: Vec<String> = stmt
+    let alias_matched_artist_ids: Vec<String> = stmt
         .query_map(params![wallet_id, feed_guid], |r| r.get(0))?
         .collect::<Result<_, _>>()?;
 
-    let artist_ids = if artist_ids.is_empty() {
-        dominant_feed_artist_ids_for_wallet(conn, wallet_id, feed_guid)?
+    let (artist_ids, evidence_entity_type) = if alias_matched_artist_ids.is_empty() {
+        (
+            dominant_feed_artist_ids_for_wallet(conn, wallet_id, feed_guid)?,
+            "feed_dominant_route",
+        )
     } else {
-        artist_ids
+        (alias_matched_artist_ids, "feed_alias")
     };
 
     let mut created = false;
@@ -12117,8 +12120,8 @@ pub fn link_wallet_to_artist_if_confident(
         let inserted = conn.execute(
             "INSERT OR IGNORE INTO wallet_artist_links \
              (wallet_id, artist_id, evidence_entity_type, evidence_entity_id, confidence, created_at) \
-             VALUES (?1, ?2, 'feed', ?3, 'high_confidence', ?4)",
-            params![wallet_id, artist_id, feed_guid, now],
+             VALUES (?1, ?2, ?3, ?4, 'high_confidence', ?5)",
+            params![wallet_id, artist_id, evidence_entity_type, feed_guid, now],
         )?;
         if inserted > 0 {
             created = true;

@@ -577,6 +577,14 @@ fn same_feed_artist_credit_match_creates_link() {
         )
         .unwrap();
     assert_eq!(link_count, 1);
+    let evidence_entity_type: String = conn
+        .query_row(
+            "SELECT evidence_entity_type FROM wallet_artist_links WHERE wallet_id = ?1",
+            params![wid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(evidence_entity_type, "feed_alias");
 }
 
 #[test]
@@ -632,6 +640,14 @@ fn dominant_feed_and_track_routes_can_link_artist_wallet_with_suffix_alias() {
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(artist_ids, vec!["artist-w".to_string()]);
+    let evidence_entity_type: String = conn
+        .query_row(
+            "SELECT evidence_entity_type FROM wallet_artist_links WHERE wallet_id = ?1",
+            params![wid],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(evidence_entity_type, "feed_dominant_route");
 }
 
 #[test]
