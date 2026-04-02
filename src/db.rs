@@ -9258,7 +9258,10 @@ pub fn reset_resolved_state(conn: &mut Connection) -> Result<usize, DbError> {
 
     let tx = conn.transaction()?;
 
-    // Wipe derived tables (order: dependents first to respect FK constraints)
+    // Wipe derived tables (order: dependents first to respect FK constraints).
+    // Migration rename artifacts (wallet_identity_review_legacy_*) are included
+    // so that leftover rows don't block the wallets delete. The DELETE is
+    // conditional on the table existing so this stays safe across schema versions.
     for table in &[
         "wallet_feed_route_map",
         "wallet_track_route_map",
@@ -9282,6 +9285,21 @@ pub fn reset_resolved_state(conn: &mut Connection) -> Result<usize, DbError> {
         "resolver_queue",
     ] {
         tx.execute(&format!("DELETE FROM {table}"), [])?;
+    }
+
+    // Clear any migration rename artifacts that still hold FK-constrained rows.
+    // Uses sqlite_master so unknown future artifacts are handled safely.
+    {
+        let mut stmt = tx.prepare(
+            "SELECT name FROM sqlite_master \
+             WHERE type = 'table' AND name LIKE 'wallet_identity_review_legacy_%'",
+        )?;
+        let legacy_tables: Vec<String> = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        for t in legacy_tables {
+            tx.execute(&format!("DELETE FROM \"{t}\""), [])?;
+        }
     }
 
     // Clear the contentless FTS5 index by dropping and recreating it.
