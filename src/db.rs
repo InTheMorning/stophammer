@@ -13276,23 +13276,33 @@ fn generate_wallet_review_items_for_feed(
     let now = unix_now();
     let mut created = 0;
 
+    // Find aliases used by this feed's endpoints, then look globally for any
+    // other wallets sharing those aliases. This catches cross-feed collisions
+    // where only one side of the pair touched the dirty feed.
     let mut stmt = conn.prepare(
-        "SELECT wa.alias_lower, GROUP_CONCAT(DISTINCT we.wallet_id) AS wallet_ids \
-         FROM wallet_aliases wa \
-         JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
-         JOIN ( \
-             SELECT wtrm.endpoint_id, pr.feed_guid \
-             FROM wallet_track_route_map wtrm \
-             JOIN payment_routes pr ON pr.id = wtrm.route_id \
-             UNION ALL \
-             SELECT wfrm.endpoint_id, fpr.feed_guid \
-             FROM wallet_feed_route_map wfrm \
-             JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
-         ) prf ON prf.endpoint_id = we.id \
-         WHERE we.wallet_id IS NOT NULL \
-           AND prf.feed_guid = ?1 \
-         GROUP BY wa.alias_lower \
-         HAVING COUNT(DISTINCT we.wallet_id) > 1",
+        "SELECT g.alias_lower, GROUP_CONCAT(DISTINCT we2.wallet_id) AS wallet_ids \
+         FROM ( \
+             SELECT DISTINCT wa.alias_lower \
+             FROM wallet_aliases wa \
+             JOIN wallet_endpoints we ON we.id = wa.endpoint_id \
+             JOIN ( \
+                 SELECT wtrm.endpoint_id \
+                 FROM wallet_track_route_map wtrm \
+                 JOIN payment_routes pr ON pr.id = wtrm.route_id \
+                 WHERE pr.feed_guid = ?1 \
+                 UNION ALL \
+                 SELECT wfrm.endpoint_id \
+                 FROM wallet_feed_route_map wfrm \
+                 JOIN feed_payment_routes fpr ON fpr.id = wfrm.route_id \
+                 WHERE fpr.feed_guid = ?1 \
+             ) prf ON prf.endpoint_id = we.id \
+             WHERE we.wallet_id IS NOT NULL \
+         ) g \
+         JOIN wallet_aliases wa2 ON wa2.alias_lower = g.alias_lower \
+         JOIN wallet_endpoints we2 ON we2.id = wa2.endpoint_id \
+         WHERE we2.wallet_id IS NOT NULL \
+         GROUP BY g.alias_lower \
+         HAVING COUNT(DISTINCT we2.wallet_id) > 1",
     )?;
 
     let rows: Vec<(String, String)> = stmt
@@ -13308,15 +13318,6 @@ fn generate_wallet_review_items_for_feed(
             .collect::<Vec<_>>();
         for wid in &wallet_ids {
             if insert_cross_wallet_alias_review(conn, wid, &alias, &wallet_ids, now)? {
-                created += 1;
-            }
-            if insert_likely_wallet_owner_match_review(
-                conn,
-                wid,
-                &format!("{alias}:{feed_guid}"),
-                &wallet_ids,
-                now,
-            )? {
                 created += 1;
             }
         }
