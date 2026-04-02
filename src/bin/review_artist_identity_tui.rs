@@ -68,7 +68,8 @@ struct ArtistSummary {
 struct ReviewSnapshot {
     pending: stophammer::db::ArtistIdentityPendingReview,
     review: stophammer::db::ArtistIdentityReviewItem,
-    plan: stophammer::db::ArtistIdentityFeedPlan,
+    /// Loaded lazily on first render of the evidence pane.
+    plan: Option<stophammer::db::ArtistIdentityFeedPlan>,
     feed_url: String,
     artists: Vec<ArtistSummary>,
 }
@@ -196,8 +197,6 @@ impl App {
 
         let review = stophammer::db::get_artist_identity_review(&self.conn, pending.review_id)?
             .ok_or_else(|| io::Error::other(format!("review missing: {}", pending.review_id)))?;
-        let plan =
-            stophammer::db::explain_artist_identity_for_feed(&self.conn, &pending.feed_guid)?;
         let feed_url = feed_url_for_guid(&self.conn, &pending.feed_guid)?;
         let artists = load_artist_summaries(&self.conn, &review.artist_ids)?;
 
@@ -212,7 +211,7 @@ impl App {
         self.snapshot = Some(ReviewSnapshot {
             pending: pending.clone(),
             review,
-            plan,
+            plan: None, // loaded lazily on first render of the evidence pane
             feed_url,
             artists,
         });
@@ -228,6 +227,20 @@ impl App {
             "Loaded review {} for {:?} in feed {:?}.",
             pending.review_id, pending.name_key, pending.title
         );
+        Ok(())
+    }
+
+    fn ensure_plan_loaded(&mut self) -> Result<(), Box<dyn Error>> {
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return Ok(());
+        };
+        if snapshot.plan.is_some() {
+            return Ok(());
+        }
+        snapshot.plan = Some(stophammer::db::explain_artist_identity_for_feed(
+            &self.conn,
+            &snapshot.pending.feed_guid,
+        )?);
         Ok(())
     }
 
@@ -1307,7 +1320,7 @@ fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {
 fn matching_candidate_group<'a>(
     snapshot: &'a ReviewSnapshot,
 ) -> Option<&'a stophammer::db::ArtistIdentityCandidateGroup> {
-    snapshot.plan.candidate_groups.iter().find(|group| {
+    snapshot.plan.as_ref()?.candidate_groups.iter().find(|group| {
         group.source == snapshot.review.source
             && group.name_key == snapshot.review.name_key
             && group.evidence_key == snapshot.review.evidence_key
@@ -1369,11 +1382,15 @@ fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
         Span::styled(
             snapshot
                 .plan
-                .seed_artists
-                .iter()
-                .map(|artist| format!("{} [{}]", artist.name, short_id(&artist.artist_id)))
-                .collect::<Vec<_>>()
-                .join(", "),
+                .as_ref()
+                .map(|plan| {
+                    plan.seed_artists
+                        .iter()
+                        .map(|artist| format!("{} [{}]", artist.name, short_id(&artist.artist_id)))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                })
+                .unwrap_or_default(),
             Style::default().fg(Color::LightBlue),
         ),
     ]));
@@ -1767,6 +1784,8 @@ fn draw(frame: &mut Frame<'_>, app: &mut App) {
             )
         },
     );
+    // Load the plan lazily — only when the evidence pane is about to render.
+    let _ = app.ensure_plan_loaded();
     let evidence = Paragraph::new(build_evidence_lines(app))
         .block(stophammer::tui::titled_block(
             &evidence_title,
