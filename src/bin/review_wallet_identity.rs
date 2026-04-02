@@ -390,6 +390,7 @@ fn print_wallet_detail(w: &stophammer::db::WalletDetail) {
                 "    artist={}  confidence={}  evidence={}:{}",
                 link.artist_id, link.confidence, link.evidence_entity_type, link.evidence_entity_id
             );
+            println!("      why={}", link.evidence_explanation);
         }
     }
 

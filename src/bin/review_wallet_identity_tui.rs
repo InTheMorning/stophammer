@@ -1699,6 +1699,21 @@ fn artist_link_preview(wallet: &stophammer::db::WalletDetail) -> String {
         .join(", ")
 }
 
+fn artist_link_reason_preview(wallet: &stophammer::db::WalletDetail) -> String {
+    if wallet.artist_links.is_empty() {
+        return "-".to_string();
+    }
+
+    let reasons = wallet
+        .artist_links
+        .iter()
+        .map(|link| link.evidence_explanation.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    preview_join(&reasons, 2, 52)
+}
+
 fn route_types_from_detail(wallet: &stophammer::db::WalletDetail) -> Vec<String> {
     wallet
         .endpoints
@@ -2221,6 +2236,10 @@ fn wallet_card_lines(
                 wallet.artist_links.len(),
                 artist_link_preview(wallet)
             ),
+        ));
+        lines.push(meta_line(
+            "Link reasons",
+            artist_link_reason_preview(wallet),
         ));
         lines.push(meta_line(
             "Created",
