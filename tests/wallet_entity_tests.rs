@@ -1101,6 +1101,7 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
 async fn get_wallet_endpoint_returns_wallet_details() {
     let db = common::test_db_arc();
     let wid;
+    let artist_id = "artist-wallet-endpoint-test".to_string();
     {
         let conn = db.lock().unwrap();
         let now = common::now();
@@ -1115,6 +1116,28 @@ async fn get_wallet_endpoint_returns_wallet_details() {
         )
         .unwrap();
         wid = db::create_provisional_wallet(&conn, ep, now).unwrap();
+        let artist = stophammer::model::Artist {
+            artist_id: artist_id.clone(),
+            name: "Alice".into(),
+            name_lower: "alice".into(),
+            sort_name: None,
+            type_id: None,
+            area: None,
+            img_url: None,
+            url: None,
+            begin_year: None,
+            end_year: None,
+            created_at: now,
+            updated_at: now,
+        };
+        db::upsert_artist_if_absent(&conn, &artist).unwrap();
+        conn.execute(
+            "INSERT INTO wallet_artist_links \
+             (wallet_id, artist_id, confidence, evidence_entity_type, evidence_entity_id, created_at) \
+             VALUES (?1, ?2, 'high_confidence', 'feed_alias', 'feed-wallet-test', ?3)",
+            rusqlite::params![wid, artist_id, now],
+        )
+        .unwrap();
     }
     let state = test_app_state(db);
     let app = stophammer::api::build_router(state);
@@ -1136,6 +1159,16 @@ async fn get_wallet_endpoint_returns_wallet_details() {
     assert_eq!(data["endpoints"][0]["custom_value"], "pod1");
     assert_eq!(data["aliases"].as_array().unwrap().len(), 1);
     assert_eq!(data["aliases"][0]["alias"], "Alice");
+    assert_eq!(data["artist_links"].as_array().unwrap().len(), 1);
+    assert_eq!(data["artist_links"][0]["artist_id"], artist_id);
+    assert_eq!(data["artist_links"][0]["artist_name"], "Alice");
+    assert_eq!(data["artist_links"][0]["confidence"], "high_confidence");
+    assert_eq!(data["artist_links"][0]["evidence_entity_type"], "feed_alias");
+    assert_eq!(data["artist_links"][0]["evidence_entity_id"], "feed-wallet-test");
+    assert_eq!(
+        data["artist_links"][0]["evidence_explanation"],
+        "wallet alias exactly matched the feed artist credit on the same feed"
+    );
 }
 
 #[tokio::test]
