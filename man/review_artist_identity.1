@@ -10,6 +10,8 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 ] [
 .B --high-confidence-only
 ] [
+.BI --min-score " N"
+] [
 .BI --name " NAME"
 ] [
 .BI --feed-guid " GUID"
@@ -58,6 +60,14 @@ review items, filter output to rows whose derived review
 .B confidence
 is
 .BR high_confidence .
+.TP
+.BI --min-score " N"
+When listing
+.B pending
+review items, filter output to scored rows whose derived review
+.B score
+is at least
+.IR N .
 .TP
 .BI --name " NAME"
 Restrict output to one lowercased artist-name key.
@@ -127,6 +137,12 @@ List only high-confidence pending stored review items:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db \\
   --pending-reviews --high-confidence-only --limit 20
+.fi
+.TP
+List only scored pending review items at or above 50:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db \\
+  --pending-reviews --min-score 50 --limit 20
 .fi
 .TP
 Inspect scored provenance on one stored review item:

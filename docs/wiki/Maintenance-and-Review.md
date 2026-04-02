@@ -106,6 +106,10 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --pending-reviews --high-confidence-only --limit 20
 
+# Narrow pending review items to scored rows at or above 50
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --pending-reviews --min-score 50 --limit 20
+
 # Inspect one review item
 cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
 
@@ -155,6 +159,8 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \
   --high-confidence-only --limit 50
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --min-score 50 --limit 50
 
 # Interactive wallet review
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200

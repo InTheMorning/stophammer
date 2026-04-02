@@ -10,6 +10,8 @@ review_wallet_identity \- inspect pending wallet identity reviews and store over
 ] [
 .B --high-confidence-only
 ] [
+.BI --min-score " N"
+] [
 .BI --show-review " ID"
 ] [
 .BI --show-wallet " ID"
@@ -57,6 +59,13 @@ When listing pending review items, filter output to rows whose derived review
 .B confidence
 is
 .BR high_confidence .
+.TP
+.BI --min-score " N"
+When listing pending review items, filter output to scored rows whose derived
+review
+.B score
+is at least
+.IR N .
 .TP
 .BI --show-review " ID"
 Show review detail plus the associated wallet detail.
@@ -110,6 +119,12 @@ List only high-confidence pending wallet reviews:
 .nf
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \\
   --high-confidence-only --limit 50
+.fi
+.TP
+List only scored pending wallet reviews at or above 50:
+.nf
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \\
+  --min-score 50 --limit 50
 .fi
 .TP
 Inspect one review and its wallet:

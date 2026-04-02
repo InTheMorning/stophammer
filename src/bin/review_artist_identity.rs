@@ -16,6 +16,7 @@ struct Args {
     db_path: PathBuf,
     limit: usize,
     high_confidence_only: bool,
+    min_score: Option<u16>,
     name_filter: Option<String>,
     feed_guid: Option<String>,
     pending_feeds: bool,
@@ -113,6 +114,7 @@ fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 20usize;
     let mut high_confidence_only = false;
+    let mut min_score = None;
     let mut name_filter = None;
     let mut feed_guid = None;
     let mut pending_feeds = false;
@@ -143,6 +145,16 @@ fn parse_args() -> Result<Args, String> {
             }
             "--high-confidence-only" => {
                 high_confidence_only = true;
+            }
+            "--min-score" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--min-score requires a number".to_string())?;
+                min_score = Some(
+                    value
+                        .parse::<u16>()
+                        .map_err(|_err| format!("invalid --min-score value: {value}"))?,
+                );
             }
             "--name" => {
                 let value = args
@@ -209,7 +221,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity [--db PATH] [--limit N] [--high-confidence-only] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
+                    "Usage: review_artist_identity [--db PATH] [--limit N] [--high-confidence-only] [--min-score N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
                      behind each candidate so merge decisions can be reviewed safely.\n\
                      Pending and review views include confidence, explanation, and any scored supporting_sources.\n\
@@ -217,6 +229,7 @@ fn parse_args() -> Result<Args, String> {
                      With --pending-feeds, lists feeds whose targeted plan still has candidate groups.\n\
                      With --pending-reviews or --show-review, inspects stored resolver review items.\n\
                      --high-confidence-only filters pending review output to confidence=high_confidence.\n\
+                     --min-score filters pending review output to scored rows at or above the given score.\n\
                      With --merge-review or --reject-review, stores a durable override."
                 );
                 std::process::exit(0);
@@ -229,6 +242,7 @@ fn parse_args() -> Result<Args, String> {
         db_path,
         limit,
         high_confidence_only,
+        min_score,
         name_filter,
         feed_guid,
         pending_feeds,
@@ -475,10 +489,14 @@ fn build_pending_reviews_report(
     conn: &Connection,
     limit: usize,
     high_confidence_only: bool,
+    min_score: Option<u16>,
 ) -> Result<PendingReviewsReport, Box<dyn Error>> {
     let mut reviews = stophammer::db::list_pending_artist_identity_reviews(conn, limit)?;
     if high_confidence_only {
         reviews.retain(|review| review.confidence == "high_confidence");
+    }
+    if let Some(min_score) = min_score {
+        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
     }
     Ok(PendingReviewsReport { reviews })
 }
@@ -809,7 +827,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_feed_plan_text(&report);
         }
     } else if args.pending_reviews {
-        let report = build_pending_reviews_report(&conn, args.limit, args.high_confidence_only)?;
+        let report = build_pending_reviews_report(
+            &conn,
+            args.limit,
+            args.high_confidence_only,
+            args.min_score,
+        )?;
         if args.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {

@@ -19,6 +19,7 @@ struct Args {
     db_path: PathBuf,
     limit: usize,
     high_confidence_only: bool,
+    min_score: Option<u16>,
     show_review: Option<i64>,
     show_wallet: Option<String>,
     resolve_merge: Option<i64>,
@@ -77,6 +78,7 @@ fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 50usize;
     let mut high_confidence_only = false;
+    let mut min_score = None;
     let mut show_review = None;
     let mut show_wallet = None;
     let mut resolve_merge = None;
@@ -108,6 +110,16 @@ fn parse_args() -> Result<Args, String> {
             }
             "--high-confidence-only" => {
                 high_confidence_only = true;
+            }
+            "--min-score" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--min-score requires a number".to_string())?;
+                min_score = Some(
+                    value
+                        .parse::<u16>()
+                        .map_err(|_err| format!("invalid --min-score value: {value}"))?,
+                );
             }
             "--show-review" => {
                 let value = args
@@ -209,6 +221,7 @@ fn parse_args() -> Result<Args, String> {
                      --db PATH              Database path (default: ./stophammer.db)\n\
                      --limit N              Limit results (default: 50)\n\
                      --high-confidence-only Filter pending list to confidence=high_confidence\n\
+                     --min-score N          Filter pending list to scored rows at or above N\n\
                      --json                 Output JSON\n\n\
                      Display:\n\
                      (default)              List pending wallet reviews with confidence, explanation, and scored supporting_sources\n\
@@ -231,6 +244,7 @@ fn parse_args() -> Result<Args, String> {
         db_path,
         limit,
         high_confidence_only,
+        min_score,
         show_review,
         show_wallet,
         resolve_merge,
@@ -603,6 +617,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut reviews = stophammer::db::list_pending_wallet_reviews(&conn, args.limit)?;
         if args.high_confidence_only {
             reviews.retain(|review| review.confidence == "high_confidence");
+        }
+        if let Some(min_score) = args.min_score {
+            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
         }
         if args.json {
             let report = PendingReviewsReport { reviews };

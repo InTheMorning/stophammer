@@ -292,6 +292,8 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds -
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --pending-reviews --high-confidence-only --limit 20
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --pending-reviews --min-score 50 --limit 20
 cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
 cargo run --bin review_artist_identity -- --db ./stophammer.db \
   --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
