@@ -18,6 +18,7 @@ use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
 struct Args {
     db_path: PathBuf,
     limit: usize,
+    high_confidence_only: bool,
     show_review: Option<i64>,
     show_wallet: Option<String>,
     resolve_merge: Option<i64>,
@@ -75,6 +76,7 @@ fn score_band(score: Option<u16>) -> &'static str {
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 50usize;
+    let mut high_confidence_only = false;
     let mut show_review = None;
     let mut show_wallet = None;
     let mut resolve_merge = None;
@@ -103,6 +105,9 @@ fn parse_args() -> Result<Args, String> {
                 limit = value
                     .parse::<usize>()
                     .map_err(|_err| format!("invalid --limit value: {value}"))?;
+            }
+            "--high-confidence-only" => {
+                high_confidence_only = true;
             }
             "--show-review" => {
                 let value = args
@@ -203,6 +208,7 @@ fn parse_args() -> Result<Args, String> {
                      Options:\n\
                      --db PATH              Database path (default: ./stophammer.db)\n\
                      --limit N              Limit results (default: 50)\n\
+                     --high-confidence-only Filter pending list to confidence=high_confidence\n\
                      --json                 Output JSON\n\n\
                      Display:\n\
                      (default)              List pending wallet reviews with confidence, explanation, and scored supporting_sources\n\
@@ -224,6 +230,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         db_path,
         limit,
+        high_confidence_only,
         show_review,
         show_wallet,
         resolve_merge,
@@ -592,7 +599,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(wallet_id) = args.show_wallet.as_deref() {
         show_wallet(&conn, wallet_id, args.json)?;
     } else {
-        let reviews = stophammer::db::list_pending_wallet_reviews(&conn, args.limit)?;
+        let mut reviews = stophammer::db::list_pending_wallet_reviews(&conn, args.limit)?;
+        if args.high_confidence_only {
+            reviews.retain(|review| review.confidence == "high_confidence");
+        }
         if args.json {
             let report = PendingReviewsReport { reviews };
             println!("{}", serde_json::to_string_pretty(&report)?);

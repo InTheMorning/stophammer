@@ -1,3 +1,8 @@
+#![allow(
+    clippy::struct_excessive_bools,
+    reason = "the CLI flag parser intentionally mirrors a flat set of independent switches"
+)]
+
 use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::PathBuf;
@@ -10,6 +15,7 @@ use stophammer::db::DEFAULT_DB_PATH;
 struct Args {
     db_path: PathBuf,
     limit: usize,
+    high_confidence_only: bool,
     name_filter: Option<String>,
     feed_guid: Option<String>,
     pending_feeds: bool,
@@ -106,6 +112,7 @@ fn score_band(score: Option<u16>) -> &'static str {
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 20usize;
+    let mut high_confidence_only = false;
     let mut name_filter = None;
     let mut feed_guid = None;
     let mut pending_feeds = false;
@@ -133,6 +140,9 @@ fn parse_args() -> Result<Args, String> {
                 limit = value
                     .parse::<usize>()
                     .map_err(|_err| format!("invalid --limit value: {value}"))?;
+            }
+            "--high-confidence-only" => {
+                high_confidence_only = true;
             }
             "--name" => {
                 let value = args
@@ -199,13 +209,14 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity [--db PATH] [--limit N] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
+                    "Usage: review_artist_identity [--db PATH] [--limit N] [--high-confidence-only] [--name NAME] [--feed-guid GUID] [--pending-feeds] [--pending-reviews] [--show-review ID] [--merge-review ID --target-artist ARTIST_ID] [--reject-review ID] [--note TEXT] [--json]\n\
                      Reports duplicate artist-name groups and the current source evidence\n\
                      behind each candidate so merge decisions can be reviewed safely.\n\
                      Pending and review views include confidence, explanation, and any scored supporting_sources.\n\
                      With --feed-guid, prints the targeted resolver plan for one feed.\n\
                      With --pending-feeds, lists feeds whose targeted plan still has candidate groups.\n\
                      With --pending-reviews or --show-review, inspects stored resolver review items.\n\
+                     --high-confidence-only filters pending review output to confidence=high_confidence.\n\
                      With --merge-review or --reject-review, stores a durable override."
                 );
                 std::process::exit(0);
@@ -217,6 +228,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         db_path,
         limit,
+        high_confidence_only,
         name_filter,
         feed_guid,
         pending_feeds,
@@ -462,9 +474,14 @@ fn build_pending_feeds_report(
 fn build_pending_reviews_report(
     conn: &Connection,
     limit: usize,
+    high_confidence_only: bool,
 ) -> Result<PendingReviewsReport, Box<dyn Error>> {
+    let mut reviews = stophammer::db::list_pending_artist_identity_reviews(conn, limit)?;
+    if high_confidence_only {
+        reviews.retain(|review| review.confidence == "high_confidence");
+    }
     Ok(PendingReviewsReport {
-        reviews: stophammer::db::list_pending_artist_identity_reviews(conn, limit)?,
+        reviews,
     })
 }
 
@@ -794,7 +811,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             print_feed_plan_text(&report);
         }
     } else if args.pending_reviews {
-        let report = build_pending_reviews_report(&conn, args.limit)?;
+        let report =
+            build_pending_reviews_report(&conn, args.limit, args.high_confidence_only)?;
         if args.json {
             println!("{}", serde_json::to_string_pretty(&report)?);
         } else {
