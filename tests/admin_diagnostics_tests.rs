@@ -1330,6 +1330,7 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
     );
 
     let wallet_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/wallet-identity/reviews/pending/summary")
@@ -1359,6 +1360,45 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
             .expect("wallet conflict summary array")
             .is_empty(),
         "summary should expose an empty wallet conflict rollup when no conflicts exist"
+    );
+
+    let filtered_artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/admin/artist-identity/reviews/pending/summary?min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered artist summary request"),
+        )
+        .await
+        .expect("filtered artist summary response");
+    assert_eq!(filtered_artist_resp.status(), 200);
+    let filtered_artist_json = body_json(filtered_artist_resp).await;
+    assert!(
+        filtered_artist_json["summary"]
+            .as_array()
+            .expect("filtered artist summary array")
+            .is_empty(),
+        "fixture should not have any scored artist reviews in the summary subset"
+    );
+
+    let filtered_wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/summary?min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered wallet summary request"),
+        )
+        .await
+        .expect("filtered wallet summary response");
+    assert_eq!(filtered_wallet_resp.status(), 200);
+    let filtered_wallet_json = body_json(filtered_wallet_resp).await;
+    assert_eq!(
+        filtered_wallet_json["summary"][0]["source"],
+        "likely_wallet_owner_match",
+        "min_score should narrow wallet summary counts to scored review families"
     );
 }
 

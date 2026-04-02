@@ -3331,6 +3331,190 @@ fn filter_pending_wallet_reviews(
     }
 }
 
+fn review_confidence_priority(confidence: &str) -> u8 {
+    match confidence {
+        "high_confidence" => 0,
+        "review_required" => 1,
+        "blocked" => 2,
+        _ => 3,
+    }
+}
+
+fn review_score_band(score: Option<u16>) -> &'static str {
+    match score {
+        Some(80..=100) => "80_100",
+        Some(60..=79) => "60_79",
+        Some(1..=59) => "1_59",
+        _ => "unscored",
+    }
+}
+
+fn review_score_band_priority(score_band: &str) -> u8 {
+    match score_band {
+        "80_100" => 0,
+        "60_79" => 1,
+        "1_59" => 2,
+        "unscored" => 3,
+        _ => 4,
+    }
+}
+
+fn max_pending_review_scan_limit() -> usize {
+    usize::try_from(i64::MAX).unwrap_or(usize::MAX)
+}
+
+fn summarize_artist_pending_review_subset(
+    reviews: &[db::ArtistIdentityPendingReview],
+) -> (
+    Vec<db::ArtistIdentityPendingReviewSummary>,
+    Vec<db::PendingReviewConfidenceSummary>,
+    Vec<db::PendingReviewScoreSummary>,
+    Vec<db::PendingReviewConflictSummary>,
+) {
+    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
+
+    for review in reviews {
+        *source_counts.entry(review.source.clone()).or_default() += 1;
+        *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+        *score_counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+        for reason in &review.conflict_reasons {
+            *conflict_counts.entry(reason.clone()).or_default() += 1;
+        }
+    }
+
+    let mut summary = source_counts
+        .into_iter()
+        .map(|(source, count)| db::ArtistIdentityPendingReviewSummary { source, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+
+    let mut confidence_summary = confidence_counts
+        .into_iter()
+        .map(|(confidence, count)| db::PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    confidence_summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+
+    let mut score_summary = score_counts
+        .into_iter()
+        .map(|(score_band, count)| db::PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    score_summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+
+    let mut conflict_summary = conflict_counts
+        .into_iter()
+        .map(|(reason, count)| db::PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    conflict_summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+
+    (
+        summary,
+        confidence_summary,
+        score_summary,
+        conflict_summary,
+    )
+}
+
+fn summarize_wallet_pending_review_subset(
+    reviews: &[db::WalletReviewSummary],
+) -> (
+    Vec<db::WalletPendingReviewSummary>,
+    Vec<db::PendingReviewConfidenceSummary>,
+    Vec<db::PendingReviewScoreSummary>,
+    Vec<db::PendingReviewConflictSummary>,
+) {
+    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
+
+    for review in reviews {
+        *source_counts.entry(review.source.clone()).or_default() += 1;
+        *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+        *score_counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+        for reason in &review.conflict_reasons {
+            *conflict_counts.entry(reason.clone()).or_default() += 1;
+        }
+    }
+
+    let mut summary = source_counts
+        .into_iter()
+        .map(|(source, count)| db::WalletPendingReviewSummary { source, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+
+    let mut confidence_summary = confidence_counts
+        .into_iter()
+        .map(|(confidence, count)| db::PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    confidence_summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+
+    let mut score_summary = score_counts
+        .into_iter()
+        .map(|(score_band, count)| db::PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    score_summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+
+    let mut conflict_summary = conflict_counts
+        .into_iter()
+        .map(|(reason, count)| db::PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    conflict_summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+
+    (
+        summary,
+        confidence_summary,
+        score_summary,
+        conflict_summary,
+    )
+}
+
 fn pending_review_days_to_secs(days: u64, field: &'static str) -> Result<i64, ApiError> {
     i64::try_from(days)
         .map_err(|_err| ApiError {
@@ -3996,16 +4180,15 @@ async fn handle_admin_recent_wallet_identity_reviews(
 async fn handle_admin_pending_artist_identity_review_summary(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<PendingReviewQuery>,
 ) -> Result<Json<PendingArtistIdentityReviewSummaryResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
     let summary = spawn_db(state.db.clone(), move |conn| {
-        Ok((
-            db::summarize_pending_artist_identity_reviews(conn)?,
-            db::summarize_pending_artist_identity_review_confidence(conn)?,
-            db::summarize_pending_artist_identity_review_scores(conn)?,
-            db::summarize_pending_artist_identity_review_conflicts(conn)?,
-        ))
+        let mut reviews =
+            db::list_pending_artist_identity_reviews(conn, max_pending_review_scan_limit())?;
+        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(summarize_artist_pending_review_subset(&reviews))
     })
     .await?;
 
@@ -4020,16 +4203,14 @@ async fn handle_admin_pending_artist_identity_review_summary(
 async fn handle_admin_pending_wallet_identity_review_summary(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<PendingReviewQuery>,
 ) -> Result<Json<PendingWalletIdentityReviewSummaryResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
 
     let summary = spawn_db(state.db.clone(), move |conn| {
-        Ok((
-            db::summarize_pending_wallet_reviews(conn)?,
-            db::summarize_pending_wallet_review_confidence(conn)?,
-            db::summarize_pending_wallet_review_scores(conn)?,
-            db::summarize_pending_wallet_review_conflicts(conn)?,
-        ))
+        let mut reviews = db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
+        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(summarize_wallet_pending_review_subset(&reviews))
     })
     .await?;
 
