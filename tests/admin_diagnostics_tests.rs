@@ -924,6 +924,7 @@ async fn admin_stale_review_endpoints_filter_old_artist_and_wallet_items() {
     );
 
     let wallet_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/wallet-identity/reviews/pending/stale?min_age_days=7")
@@ -943,6 +944,53 @@ async fn admin_stale_review_endpoints_filter_old_artist_and_wallet_items() {
         1
     );
     assert_eq!(wallet_json["reviews"][0]["source"], "cross_wallet_alias");
+
+    let filtered_artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(
+                    "/admin/artist-identity/reviews/pending/stale?min_age_days=7&confidence=review_required",
+                )
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered artist stale request"),
+        )
+        .await
+        .expect("filtered artist stale response");
+    assert_eq!(filtered_artist_resp.status(), 200);
+    let filtered_artist_json = body_json(filtered_artist_resp).await;
+    assert_eq!(
+        filtered_artist_json["reviews"]
+            .as_array()
+            .expect("filtered artist stale array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        filtered_artist_json["reviews"][0]["confidence"],
+        "review_required"
+    );
+
+    let filtered_wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/stale?min_age_days=7&min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered wallet stale request"),
+        )
+        .await
+        .expect("filtered wallet stale response");
+    assert_eq!(filtered_wallet_resp.status(), 200);
+    let filtered_wallet_json = body_json(filtered_wallet_resp).await;
+    assert!(
+        filtered_wallet_json["reviews"]
+            .as_array()
+            .expect("filtered wallet stale array")
+            .is_empty(),
+        "fixture should not have any scored stale wallet reviews"
+    );
 }
 
 #[tokio::test]
@@ -1055,6 +1103,7 @@ async fn admin_recent_review_endpoints_filter_new_artist_and_wallet_items() {
     );
 
     let wallet_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/admin/wallet-identity/reviews/pending/recent?max_age_days=1")
@@ -1074,6 +1123,53 @@ async fn admin_recent_review_endpoints_filter_new_artist_and_wallet_items() {
         1
     );
     assert_eq!(wallet_json["reviews"][0]["evidence_key"], "recent wallet");
+
+    let filtered_artist_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(
+                    "/admin/artist-identity/reviews/pending/recent?max_age_days=1&confidence=review_required",
+                )
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered artist recent request"),
+        )
+        .await
+        .expect("filtered artist recent response");
+    assert_eq!(filtered_artist_resp.status(), 200);
+    let filtered_artist_json = body_json(filtered_artist_resp).await;
+    assert_eq!(
+        filtered_artist_json["reviews"]
+            .as_array()
+            .expect("filtered artist recent array")
+            .len(),
+        1
+    );
+    assert_eq!(
+        filtered_artist_json["reviews"][0]["confidence"],
+        "review_required"
+    );
+
+    let filtered_wallet_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/admin/wallet-identity/reviews/pending/recent?max_age_days=1&min_score=1")
+                .header("X-Admin-Token", "test-admin-token")
+                .body(Body::empty())
+                .expect("filtered wallet recent request"),
+        )
+        .await
+        .expect("filtered wallet recent response");
+    assert_eq!(filtered_wallet_resp.status(), 200);
+    let filtered_wallet_json = body_json(filtered_wallet_resp).await;
+    assert!(
+        filtered_wallet_json["reviews"]
+            .as_array()
+            .expect("filtered wallet recent array")
+            .is_empty(),
+        "fixture should not have any scored recent wallet reviews"
+    );
 }
 
 #[tokio::test]

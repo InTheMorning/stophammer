@@ -3214,6 +3214,10 @@ struct PendingStaleReviewQuery {
     limit: usize,
     #[serde(default = "default_stale_review_min_age_days")]
     min_age_days: u64,
+    #[serde(default)]
+    confidence: Option<String>,
+    #[serde(default)]
+    min_score: Option<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3222,6 +3226,10 @@ struct PendingRecentReviewQuery {
     limit: usize,
     #[serde(default = "default_recent_review_max_age_days")]
     max_age_days: u64,
+    #[serde(default)]
+    confidence: Option<String>,
+    #[serde(default)]
+    min_score: Option<u16>,
 }
 
 #[derive(Debug, Serialize)]
@@ -3295,6 +3303,32 @@ const fn default_stale_review_min_age_days() -> u64 {
 
 const fn default_recent_review_max_age_days() -> u64 {
     1
+}
+
+fn filter_pending_artist_reviews(
+    reviews: &mut Vec<db::ArtistIdentityPendingReview>,
+    confidence: Option<&str>,
+    min_score: Option<u16>,
+) {
+    if let Some(confidence) = confidence {
+        reviews.retain(|review| review.confidence == confidence);
+    }
+    if let Some(min_score) = min_score {
+        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+    }
+}
+
+fn filter_pending_wallet_reviews(
+    reviews: &mut Vec<db::WalletReviewSummary>,
+    confidence: Option<&str>,
+    min_score: Option<u16>,
+) {
+    if let Some(confidence) = confidence {
+        reviews.retain(|review| review.confidence == confidence);
+    }
+    if let Some(min_score) = min_score {
+        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+    }
 }
 
 fn pending_review_days_to_secs(days: u64, field: &'static str) -> Result<i64, ApiError> {
@@ -3859,12 +3893,7 @@ async fn handle_admin_pending_artist_identity_reviews(
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_pending_artist_identity_reviews(conn, query.limit)?;
-        if let Some(confidence) = query.confidence.as_deref() {
-            reviews.retain(|review| review.confidence == confidence);
-        }
-        if let Some(min_score) = query.min_score {
-            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
-        }
+        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
         Ok(reviews)
     })
     .await?;
@@ -3881,7 +3910,10 @@ async fn handle_admin_stale_artist_identity_reviews(
 
     let min_age_secs = pending_review_days_to_secs(query.min_age_days, "min_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_stale_pending_artist_identity_reviews(conn, min_age_secs, query.limit)
+        let mut reviews =
+            db::list_stale_pending_artist_identity_reviews(conn, min_age_secs, query.limit)?;
+        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(reviews)
     })
     .await?;
 
@@ -3897,7 +3929,10 @@ async fn handle_admin_recent_artist_identity_reviews(
 
     let max_age_secs = pending_review_days_to_secs(query.max_age_days, "max_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_recent_pending_artist_identity_reviews(conn, max_age_secs, query.limit)
+        let mut reviews =
+            db::list_recent_pending_artist_identity_reviews(conn, max_age_secs, query.limit)?;
+        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(reviews)
     })
     .await?;
 
@@ -3913,12 +3948,7 @@ async fn handle_admin_pending_wallet_identity_reviews(
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_pending_wallet_reviews(conn, query.limit)?;
-        if let Some(confidence) = query.confidence.as_deref() {
-            reviews.retain(|review| review.confidence == confidence);
-        }
-        if let Some(min_score) = query.min_score {
-            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
-        }
+        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
         Ok(reviews)
     })
     .await?;
@@ -3935,7 +3965,9 @@ async fn handle_admin_stale_wallet_identity_reviews(
 
     let min_age_secs = pending_review_days_to_secs(query.min_age_days, "min_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_stale_pending_wallet_reviews(conn, min_age_secs, query.limit)
+        let mut reviews = db::list_stale_pending_wallet_reviews(conn, min_age_secs, query.limit)?;
+        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(reviews)
     })
     .await?;
 
@@ -3951,7 +3983,10 @@ async fn handle_admin_recent_wallet_identity_reviews(
 
     let max_age_secs = pending_review_days_to_secs(query.max_age_days, "max_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        db::list_recent_pending_wallet_reviews(conn, max_age_secs, query.limit)
+        let mut reviews =
+            db::list_recent_pending_wallet_reviews(conn, max_age_secs, query.limit)?;
+        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        Ok(reviews)
     })
     .await?;
 

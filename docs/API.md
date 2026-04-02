@@ -1786,7 +1786,7 @@ Returns pending artist-identity review items older than `min_age_days`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), `min_age_days` (default `7`)
+- **Query params:** `limit` (default `100`), `min_age_days` (default `7`), optional `confidence`, optional `min_score`
 
 ### GET /admin/artist-identity/reviews/pending/recent
 
@@ -1794,7 +1794,7 @@ Returns pending artist-identity review items newer than `max_age_days`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), `max_age_days` (default `1`)
+- **Query params:** `limit` (default `100`), `max_age_days` (default `1`), optional `confidence`, optional `min_score`
 
 ### GET /admin/wallet-identity/reviews/pending
 
@@ -1890,7 +1890,7 @@ Returns pending wallet-identity review items older than `min_age_days`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), `min_age_days` (default `7`)
+- **Query params:** `limit` (default `100`), `min_age_days` (default `7`), optional `confidence`, optional `min_score`
 
 ### GET /admin/wallet-identity/reviews/pending/recent
 
@@ -1898,7 +1898,7 @@ Returns pending wallet-identity review items newer than `max_age_days`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** `limit` (default `100`), `max_age_days` (default `1`)
+- **Query params:** `limit` (default `100`), `max_age_days` (default `1`), optional `confidence`, optional `min_score`
 
 ---
 
