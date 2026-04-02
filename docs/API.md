@@ -1316,7 +1316,8 @@ endpoint follows the redirect and returns the surviving wallet.
         "artist_name": "Alice",
         "confidence": "reviewed",
         "evidence_entity_type": "feed_alias",
-        "evidence_entity_id": "feed-guid"
+        "evidence_entity_id": "feed-guid",
+        "evidence_explanation": "wallet alias exactly matched the feed artist credit on the same feed"
       }
     ],
     "created_at": 1710288000,
@@ -1340,6 +1341,8 @@ Notes:
 - `artist_links[*].evidence_entity_type` currently distinguishes direct
   same-feed alias matches (`feed_alias`) from dominant non-Wavlake route
   matches (`feed_dominant_route`).
+- `artist_links[*].evidence_explanation` provides a short human-readable reason
+  for that link provenance.
 
 ### GET /v1/peers
 
@@ -2157,7 +2160,8 @@ plan, stored review items, and wallet-linked evidence touching the feed.
             "artist_id": "artist-id",
             "confidence": "high_confidence",
             "evidence_entity_type": "feed_alias",
-            "evidence_entity_id": "feed-guid"
+            "evidence_entity_id": "feed-guid",
+            "evidence_explanation": "wallet alias exactly matched the feed artist credit on the same feed"
           }
         ],
         "feed_guids": ["feed-guid"],

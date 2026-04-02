@@ -1682,7 +1682,19 @@ fn artist_link_preview(wallet: &stophammer::db::WalletDetail) -> String {
         .artist_links
         .iter()
         .take(3)
-        .map(|link| format!("{}:{}", short_id(&link.artist_id), link.confidence))
+        .map(|link| {
+            let reason = match link.evidence_entity_type.as_str() {
+                "feed_alias" => "alias",
+                "feed_dominant_route" => "dominant",
+                _ => link.evidence_entity_type.as_str(),
+            };
+            format!(
+                "{}:{}:{}",
+                short_id(&link.artist_id),
+                link.confidence,
+                reason
+            )
+        })
         .collect::<Vec<_>>()
         .join(", ")
 }

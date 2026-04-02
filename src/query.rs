@@ -3357,6 +3357,7 @@ struct WalletArtistLinkResponse {
     confidence: String,
     evidence_entity_type: String,
     evidence_entity_id: String,
+    evidence_explanation: String,
 }
 
 async fn handle_get_wallet(
@@ -3458,12 +3459,15 @@ async fn handle_get_wallet(
             )?;
             wallet.artist_links = stmt
                 .query_map(params![resolved_id], |row| {
+                    let evidence_entity_type: String = row.get(3)?;
                     Ok(WalletArtistLinkResponse {
                         artist_id: row.get(0)?,
                         artist_name: row.get(1)?,
                         confidence: row.get(2)?,
-                        evidence_entity_type: row.get(3)?,
+                        evidence_entity_type: evidence_entity_type.clone(),
                         evidence_entity_id: row.get(4)?,
+                        evidence_explanation:
+                            db::wallet_artist_link_explanation(&evidence_entity_type).to_string(),
                     })
                 })?
                 .collect::<Result<_, _>>()?;

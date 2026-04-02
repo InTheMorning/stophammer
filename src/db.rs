@@ -13875,6 +13875,7 @@ pub struct WalletArtistLinkDetail {
     pub confidence: String,
     pub evidence_entity_type: String,
     pub evidence_entity_id: String,
+    pub evidence_explanation: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -13936,6 +13937,17 @@ pub struct WalletAliasPeer {
     pub alias_preview: Vec<String>,
     pub endpoint_preview: Vec<WalletEndpointPreview>,
     pub feed_title_preview: Vec<String>,
+}
+
+#[must_use]
+pub fn wallet_artist_link_explanation(evidence_entity_type: &str) -> &'static str {
+    match evidence_entity_type {
+        "feed_alias" => "wallet alias exactly matched the feed artist credit on the same feed",
+        "feed_dominant_route" => {
+            "wallet dominated the non-Wavlake feed route and every routed track while its naming still matched the feed artist"
+        }
+        _ => "wallet linked to artist through feed-scoped evidence",
+    }
 }
 
 /// Returns wallet ids that currently touch the given feed through either
@@ -14497,11 +14509,14 @@ pub fn get_wallet_detail(
     )?;
     let artist_links: Vec<WalletArtistLinkDetail> = link_stmt
         .query_map(params![wid], |r| {
+            let evidence_entity_type: String = r.get(2)?;
             Ok(WalletArtistLinkDetail {
                 artist_id: r.get(0)?,
                 confidence: r.get(1)?,
-                evidence_entity_type: r.get(2)?,
+                evidence_entity_type: evidence_entity_type.clone(),
                 evidence_entity_id: r.get(3)?,
+                evidence_explanation: wallet_artist_link_explanation(&evidence_entity_type)
+                    .to_string(),
             })
         })?
         .collect::<Result<_, _>>()?;

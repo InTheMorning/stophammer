@@ -227,6 +227,10 @@ async fn admin_feed_diagnostics_exposes_artist_reviews_and_wallet_links() {
         "high_confidence"
     );
     assert_eq!(
+        json["wallets"][0]["wallet"]["artist_links"][0]["evidence_explanation"],
+        "wallet alias exactly matched the feed artist credit on the same feed"
+    );
+    assert_eq!(
         json["wallets"][0]["claim_feed"]["routes"][0]["route_scope"],
         "feed"
     );
