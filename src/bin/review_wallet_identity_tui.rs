@@ -471,6 +471,12 @@ impl App {
         .map_or(source_summary.clone(), |hint| {
             format!("{source_summary} | {hint}")
         });
+        if confidence_summary
+            .iter()
+            .any(|item| item.confidence == "high_confidence" && item.count > 0)
+        {
+            self.queue_summary.push_str(" | H=list");
+        }
         self.groups = self.prune_review_groups(group_reviews(reviews))?;
         self.selected_group = selection
             .group_key

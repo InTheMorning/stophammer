@@ -139,6 +139,12 @@ impl App {
         .map_or(source_summary.clone(), |hint| {
             format!("{source_summary} | {hint}")
         });
+        if confidence_summary
+            .iter()
+            .any(|item| item.confidence == "high_confidence" && item.count > 0)
+        {
+            self.queue_summary.push_str(" | H=list");
+        }
         let review_idx = match preferred_review_id {
             Some(review_id) => self
                 .reviews
