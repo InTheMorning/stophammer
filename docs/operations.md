@@ -548,6 +548,8 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 # Pending rows now show review confidence, explanation, scored
 # supporting_sources, and score_breakdown separately from wallet class
 # confidence.
+# Wallet detail also shows why each artist link exists, including direct
+# alias matches versus dominant-route inferred links.
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
@@ -561,6 +563,7 @@ cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
 # Use `H` inside the TUI to open a high-confidence-only review list.
 # Queue summary / overview dialogs also show score bands, and selected
 # review/group panes show a compact score_breakdown preview when present.
+# Wallet detail panes also summarize artist-link provenance reasons.
 
 # Store wallet identity overrides
 cargo run --bin review_wallet_identity -- --db ./stophammer.db \

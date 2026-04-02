@@ -167,6 +167,7 @@ Inside the wallet review TUI:
 - `H` opens a high-confidence-only review list
 - queue summary / overview dialogs show score bands
 - selected review/group panes show `score_breakdown`
+- wallet detail panes summarize artist-link provenance reasons
 
 Wallet review rows now include:
 
