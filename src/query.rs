@@ -1429,14 +1429,11 @@ fn build_track_response(
     }
 
     if params.includes("source_contributors") {
-        let claims = db::get_source_contributor_claims_for_entity(conn, "track", &track_guid)?;
-        // Feed→track inheritance: fall back to parent feed contributors when
-        // the track has none of its own.
-        let claims = if claims.is_empty() {
-            db::get_source_contributor_claims_for_entity(conn, "feed", &resp.feed_guid)?
-        } else {
-            claims
-        };
+        let claims = db::get_effective_source_contributor_claims_for_track(
+            conn,
+            &resp.feed_guid,
+            &track_guid,
+        )?;
         resp.source_contributors =
             Some(claims.into_iter().map(contributor_claim_response).collect());
     }
@@ -2140,9 +2137,9 @@ async fn handle_get_recording_resolution(
                 .into_iter()
                 .map(entity_link_response)
                 .collect(),
-                source_contributors: db::get_source_contributor_claims_for_entity(
+                source_contributors: db::get_effective_source_contributor_claims_for_track(
                     &conn,
-                    "track",
+                    &track.feed_guid,
                     &track.track_guid,
                 )?
                 .into_iter()
@@ -2520,7 +2517,7 @@ async fn handle_get_artist_resolution(
                 .optional()?;
             tracks.push(ArtistResolutionTrackEvidenceResponse {
                 track_guid: track_guid.clone(),
-                feed_guid,
+                feed_guid: feed_guid.clone(),
                 feed_title,
                 title,
                 artist_credit: load_credit(&conn, credit_id)?,
@@ -2533,9 +2530,9 @@ async fn handle_get_artist_resolution(
                     .into_iter()
                     .map(entity_link_response)
                     .collect(),
-                source_contributors: db::get_source_contributor_claims_for_entity(
+                source_contributors: db::get_effective_source_contributor_claims_for_track(
                     &conn,
-                    "track",
+                    &feed_guid,
                     &track_guid,
                 )?
                 .into_iter()

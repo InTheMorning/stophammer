@@ -572,6 +572,198 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
 }
 
 #[tokio::test]
+async fn track_contributor_views_inherit_feed_people_only_when_track_people_are_absent() {
+    let crawl_token = "canonical-query-feed-people-crawl-token";
+    let db = common::test_db_arc();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("canonical-query-feed-people.key");
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token, &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let feed_guid = "feed-canonical-query-feed-people";
+    let track_guid = "track-canonical-query-feed-people";
+    let ingest_payload = serde_json::json!({
+        "canonical_url": "https://example.com/canonical-query-feed-people.xml",
+        "source_url": "https://example.com/canonical-query-feed-people.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "canonical-query-feed-people-hash-001",
+        "feed_data": {
+            "feed_guid": feed_guid,
+            "title": "Canonical Query Feed People Release",
+            "description": "A release used to test contributor inheritance",
+            "image_url": "https://img.example.com/canonical-query-feed-people.jpg",
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "music",
+            "author_name": "Canonical Query Feed People Artist",
+            "owner_name": "Independent",
+            "pub_date": 1700000000,
+            "persons": [{
+                "position": 0,
+                "name": "Feed Host",
+                "role": "Host",
+                "group_name": null,
+                "href": null,
+                "img": null
+            }],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": [{
+                "track_guid": track_guid,
+                "title": "Canonical Query Feed People Song",
+                "pub_date": 1700000000,
+                "duration_secs": 180,
+                "enclosure_url": "https://cdn.example.com/canonical-query-feed-people.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 4000000,
+                "alternate_enclosures": [],
+                "track_number": 1,
+                "season": null,
+                "explicit": false,
+                "description": "Canonical Query Feed People Song Description",
+                "author_name": null,
+                "persons": [],
+                "entity_ids": [],
+                "links": [],
+                "payment_routes": [],
+                "value_time_splits": []
+            }]
+        }
+    });
+
+    let ingest_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &ingest_payload))
+        .await
+        .expect("ingest");
+    assert_eq!(ingest_resp.status(), 200);
+
+    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
+    let resolver_summary =
+        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
+            .expect("run resolver batch");
+    assert_eq!(resolver_summary.claimed, 1);
+    assert_eq!(resolver_summary.resolved, 1);
+
+    let (recording_id, artist_id) = {
+        let conn = db.lock().expect("lock db");
+        let recording_id: String = conn
+            .query_row(
+                "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
+                [track_guid],
+                |row| row.get(0),
+            )
+            .expect("recording id");
+        let artist_id: String = conn
+            .query_row(
+                "SELECT acn.artist_id \
+                 FROM feeds f \
+                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
+                 WHERE f.feed_guid = ?1 \
+                 ORDER BY acn.position LIMIT 1",
+                [feed_guid],
+                |row| row.get(0),
+            )
+            .expect("artist id");
+        (recording_id, artist_id)
+    };
+
+    let track_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/tracks/{track_guid}?include=source_contributors"
+                ))
+                .body(Body::empty())
+                .expect("track request"),
+        )
+        .await
+        .expect("track response");
+    assert_eq!(track_resp.status(), 200);
+    let track_json = body_json(track_resp).await;
+    assert_eq!(
+        track_json["data"]["source_contributors"][0]["name"],
+        "Feed Host"
+    );
+    assert_eq!(
+        track_json["data"]["source_contributors"][0]["entity_type"],
+        "feed"
+    );
+
+    let recording_sources_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/recordings/{recording_id}/sources?include=source_contributors"
+                ))
+                .body(Body::empty())
+                .expect("recording sources request"),
+        )
+        .await
+        .expect("recording sources response");
+    assert_eq!(recording_sources_resp.status(), 200);
+    let recording_sources_json = body_json(recording_sources_resp).await;
+    assert_eq!(
+        recording_sources_json["data"][0]["source_contributors"][0]["name"],
+        "Feed Host"
+    );
+    assert_eq!(
+        recording_sources_json["data"][0]["source_contributors"][0]["entity_type"],
+        "feed"
+    );
+
+    let recording_resolution_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/recordings/{recording_id}/resolution"))
+                .body(Body::empty())
+                .expect("recording resolution request"),
+        )
+        .await
+        .expect("recording resolution response");
+    assert_eq!(recording_resolution_resp.status(), 200);
+    let recording_resolution_json = body_json(recording_resolution_resp).await;
+    assert_eq!(
+        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["name"],
+        "Feed Host"
+    );
+    assert_eq!(
+        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["entity_type"],
+        "feed"
+    );
+
+    let artist_resolution_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/artists/{artist_id}/resolution"))
+                .body(Body::empty())
+                .expect("artist resolution request"),
+        )
+        .await
+        .expect("artist resolution response");
+    assert_eq!(artist_resolution_resp.status(), 200);
+    let artist_resolution_json = body_json(artist_resolution_resp).await;
+    assert_eq!(
+        artist_resolution_json["data"]["tracks"][0]["source_contributors"][0]["name"],
+        "Feed Host"
+    );
+    assert_eq!(
+        artist_resolution_json["data"]["tracks"][0]["source_contributors"][0]["entity_type"],
+        "feed"
+    );
+}
+
+#[tokio::test]
 async fn feed_query_exposes_publisher_rss_truth() {
     let crawl_token = "publisher-truth-crawl-token";
     let db = common::test_db_arc();

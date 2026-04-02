@@ -11426,6 +11426,19 @@ pub fn get_source_contributor_claims_for_entity(
     Ok(result)
 }
 
+pub fn get_effective_source_contributor_claims_for_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Vec<SourceContributorClaim>, DbError> {
+    let track_claims = get_source_contributor_claims_for_entity(conn, "track", track_guid)?;
+    if track_claims.is_empty() {
+        get_source_contributor_claims_for_entity(conn, "feed", feed_guid)
+    } else {
+        Ok(track_claims)
+    }
+}
+
 /// Returns staged entity-ID claims for one entity.
 pub fn get_source_entity_ids_for_entity(
     conn: &Connection,
