@@ -8,6 +8,8 @@ review_artist_identity \- inspect duplicate artist-name groups and merge evidenc
 ] [
 .BI --limit " N"
 ] [
+.B --high-confidence-only
+] [
 .BI --name " NAME"
 ] [
 .BI --feed-guid " GUID"
@@ -48,6 +50,14 @@ Path to the SQLite database. Defaults to
 .TP
 .BI --limit " N"
 Maximum number of duplicate-name groups to report. Defaults to 20.
+.TP
+.B --high-confidence-only
+When listing
+.B pending
+review items, filter output to rows whose derived review
+.B confidence
+is
+.BR high_confidence .
 .TP
 .BI --name " NAME"
 Restrict output to one lowercased artist-name key.
@@ -111,6 +121,12 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds -
 List pending stored review items:
 .nf
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
+.fi
+.TP
+List only high-confidence pending stored review items:
+.nf
+cargo run --bin review_artist_identity -- --db ./stophammer.db \\
+  --pending-reviews --high-confidence-only --limit 20
 .fi
 .TP
 Inspect scored provenance on one stored review item:

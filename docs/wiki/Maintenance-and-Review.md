@@ -102,6 +102,10 @@ Or work from the stored review queue:
 # List pending review items
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
 
+# Narrow pending review items to high-confidence rows
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --pending-reviews --high-confidence-only --limit 20
+
 # Inspect one review item
 cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
 
@@ -149,6 +153,8 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --high-confidence-only --limit 50
 
 # Interactive wallet review
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200

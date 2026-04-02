@@ -510,6 +510,10 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds -
 # List stored pending review items that still need an operator decision
 cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
 
+# Narrow pending artist reviews to high-confidence items only
+cargo run --bin review_artist_identity -- --db ./stophammer.db \
+  --pending-reviews --high-confidence-only --limit 20
+
 # Inspect one stored review item
 cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
 
@@ -541,6 +545,9 @@ cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
 cargo run --bin review_wallet_identity -- --db ./stophammer.db
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
 cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
+# Narrow pending wallet reviews to high-confidence items only
+cargo run --bin review_wallet_identity -- --db ./stophammer.db \
+  --high-confidence-only --limit 50
 
 # Review pending wallet identity items in the TUI
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
