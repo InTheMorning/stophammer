@@ -214,6 +214,13 @@ The compose file uses sample env files under [packaging/env](packaging/env):
 - `resolverd.compose.env.example`
 - `podping.compose.env.example`
 - `crawler-gossip.compose.env.example`
+- `crawler-import.compose.env.example`
+
+Additional Docker-specific templates are also shipped for custom compose
+services that are not part of the default root stack:
+
+- `community.compose.env.example`
+- `crawler-crawl.compose.env.example`
 
 Copy them once into local ignored `*.compose.env` files, then edit those:
 

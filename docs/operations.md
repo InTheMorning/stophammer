@@ -178,6 +178,12 @@ The compose file intentionally uses runnable sample env files:
 - [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
 - [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
 
+Additional Docker-specific templates are also shipped for custom compose
+services that are not part of the default root stack:
+
+- [community.compose.env.example](../packaging/env/community.compose.env.example)
+- [crawler-crawl.compose.env.example](../packaging/env/crawler-crawl.compose.env.example)
+
 Copy them into local ignored `*.compose.env` files before using the compose stack.
 The default stack now includes an in-network `podping` service based on
 `podping.alpha`'s `gossip-listener`, with a shared `podping-data` volume for

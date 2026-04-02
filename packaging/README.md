@@ -36,5 +36,8 @@ Current intent:
   reference Docker stack
 - the resulting `env/*.compose.env` files are intentionally Docker-specific,
   ignored by Git, and should not reuse host `/var/lib/...` path defaults
+- extra tracked compose templates also exist for custom `community` and
+  one-shot `crawl` services, even though the root `docker-compose.yml` does not
+  instantiate those roles by default
 
 These files are versioned deployment inputs, not generated artifacts.
