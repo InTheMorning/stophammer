@@ -19,7 +19,6 @@ use std::collections::BTreeMap;
 use std::error::Error;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
@@ -2388,11 +2387,8 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> Result<(), Box<dyn Error>> {
+    terminal.draw(|frame| draw(frame, app))?;
     loop {
-        terminal.draw(|frame| draw(frame, app))?;
-        if !event::poll(Duration::from_millis(250))? {
-            continue;
-        }
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -2405,35 +2401,36 @@ fn run_app(
                 KeyCode::Enter | KeyCode::Esc | KeyCode::Char(' ') => app.dialog = None,
                 _ => {}
             }
-            continue;
-        }
-        match key.code {
-            KeyCode::Char('q') => return Ok(()),
-            KeyCode::Tab | KeyCode::Right => app.next_focus(),
-            KeyCode::BackTab | KeyCode::Left => app.previous_focus(),
-            KeyCode::Down => app.move_down()?,
-            KeyCode::Up => app.move_up()?,
-            KeyCode::Home => app.jump_top()?,
-            KeyCode::End => app.jump_bottom()?,
-            KeyCode::Char('o') => app.show_operator_overview_dialog(),
-            KeyCode::Char('p') => app.show_review_playbook(),
-            KeyCode::Char('s') => app.show_summary_dialog(),
-            KeyCode::Char('t') => app.show_track_claim_mix_dialog(),
-            KeyCode::Char('h') => app.show_hotspots_dialog(),
-            KeyCode::Char('c') => app.show_conflicts_dialog(),
-            KeyCode::Char('m') => app.show_claim_mix_dialog(),
-            KeyCode::Char('n') => app.jump_same_family(true)?,
-            KeyCode::Char('N') => app.jump_same_family(false)?,
-            KeyCode::Char(']') => app.jump_track_same_family(true),
-            KeyCode::Char('[') => app.jump_track_same_family(false),
-            KeyCode::Char('?') => app.show_help_dialog(),
-            KeyCode::Char('r') => {
-                let feed_guid = app.current_feed_row().map(|row| row.feed_guid.clone());
-                let track_guid = app.current_track().map(|track| track.track_guid.clone());
-                app.reload(feed_guid.as_deref(), track_guid.as_deref())?;
+        } else {
+            match key.code {
+                KeyCode::Char('q') => return Ok(()),
+                KeyCode::Tab | KeyCode::Right => app.next_focus(),
+                KeyCode::BackTab | KeyCode::Left => app.previous_focus(),
+                KeyCode::Down => app.move_down()?,
+                KeyCode::Up => app.move_up()?,
+                KeyCode::Home => app.jump_top()?,
+                KeyCode::End => app.jump_bottom()?,
+                KeyCode::Char('o') => app.show_operator_overview_dialog(),
+                KeyCode::Char('p') => app.show_review_playbook(),
+                KeyCode::Char('s') => app.show_summary_dialog(),
+                KeyCode::Char('t') => app.show_track_claim_mix_dialog(),
+                KeyCode::Char('h') => app.show_hotspots_dialog(),
+                KeyCode::Char('c') => app.show_conflicts_dialog(),
+                KeyCode::Char('m') => app.show_claim_mix_dialog(),
+                KeyCode::Char('n') => app.jump_same_family(true)?,
+                KeyCode::Char('N') => app.jump_same_family(false)?,
+                KeyCode::Char(']') => app.jump_track_same_family(true),
+                KeyCode::Char('[') => app.jump_track_same_family(false),
+                KeyCode::Char('?') => app.show_help_dialog(),
+                KeyCode::Char('r') => {
+                    let feed_guid = app.current_feed_row().map(|row| row.feed_guid.clone());
+                    let track_guid = app.current_track().map(|track| track.track_guid.clone());
+                    app.reload(feed_guid.as_deref(), track_guid.as_deref())?;
+                }
+                _ => {}
             }
-            _ => {}
         }
+        terminal.draw(|frame| draw(frame, app))?;
     }
 }
 

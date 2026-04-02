@@ -48,7 +48,6 @@ use std::error::Error;
 use std::fmt::Write as _;
 use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::backend::CrosstermBackend;
@@ -2985,11 +2984,8 @@ fn run_app(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
 ) -> Result<(), Box<dyn Error>> {
+    terminal.draw(|frame| draw(frame, app))?;
     loop {
-        terminal.draw(|frame| draw(frame, app))?;
-        if !event::poll(Duration::from_millis(250))? {
-            continue;
-        }
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -3004,6 +3000,7 @@ fn run_app(
                 }
                 _ => {}
             }
+            terminal.draw(|frame| draw(frame, app))?;
             continue;
         }
         match key.code {
@@ -3081,6 +3078,7 @@ fn run_app(
             }
             _ => {}
         }
+        terminal.draw(|frame| draw(frame, app))?;
     }
 }
 
