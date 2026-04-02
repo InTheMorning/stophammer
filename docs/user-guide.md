@@ -313,6 +313,13 @@ Pending artist review rows also expose deterministic review metadata:
 - `score`
 - `score_breakdown`
 
+You can also preload the artist review TUI to scored items only:
+
+```bash
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db \
+  --min-score 50 --limit 200
+```
+
 Inside `review_artist_identity_tui`, use:
 
 - `n/N` to move within one source family

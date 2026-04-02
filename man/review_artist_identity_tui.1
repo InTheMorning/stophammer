@@ -7,6 +7,8 @@ review_artist_identity_tui \- interactive review console for pending artist iden
 .BI --db " PATH"
 ] [
 .BI --limit " N"
+] [
+.BI --min-score " N"
 ]
 .SH DESCRIPTION
 .B review_artist_identity_tui
@@ -29,6 +31,10 @@ Path to the SQLite database. Defaults to
 .TP
 .BI --limit " N"
 Maximum number of pending review items to load. Defaults to 200.
+.TP
+.BI --min-score " N"
+Only load scored review items whose derived score is at least
+.IR N .
 .SH CONTROLS
 The interface shows the pending review list, the competing artist candidates,
 and feed evidence. Use the on-screen key hints to move focus, inspect evidence,
@@ -53,6 +59,11 @@ cargo run --bin review_artist_identity_tui -- --db ./stophammer.db
 Limit the initial queue size:
 .nf
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 100
+.fi
+.TP
+Open only scored review items at or above 50:
+.nf
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --min-score 50 --limit 100
 .fi
 .SH SEE ALSO
 .BR review_artist_identity (1),

@@ -134,6 +134,8 @@ Or use the interactive review console:
 
 ```bash
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db \
+  --min-score 50 --limit 200
 ```
 
 Inside the artist review TUI:
@@ -164,6 +166,8 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db \
 
 # Interactive wallet review
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db \
+  --min-score 50 --limit 200
 ```
 
 Inside the wallet review TUI:

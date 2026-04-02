@@ -65,6 +65,7 @@ use stophammer::tui::format_local_timestamp;
 struct Args {
     db_path: PathBuf,
     limit: usize,
+    min_score: Option<u16>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,6 +167,7 @@ struct ReviewGroup {
 struct App {
     conn: Connection,
     limit: usize,
+    min_score: Option<u16>,
     groups: Vec<ReviewGroup>,
     queue_summary: String,
     group_wallets: Vec<stophammer::db::WalletAliasPeer>,
@@ -209,6 +211,7 @@ const CLASS_CONFIDENCES: &[&str] = &["provisional", "reviewed", "high_confidence
 fn parse_args() -> Result<Args, String> {
     let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
     let mut limit = 200usize;
+    let mut min_score = None;
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -227,9 +230,19 @@ fn parse_args() -> Result<Args, String> {
                     .parse::<usize>()
                     .map_err(|_| format!("invalid --limit value: {value}"))?;
             }
+            "--min-score" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--min-score requires a number".to_string())?;
+                min_score = Some(
+                    value
+                        .parse::<u16>()
+                        .map_err(|_| format!("invalid --min-score value: {value}"))?,
+                );
+            }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_wallet_identity_tui [--db PATH] [--limit N]\n\n\
+                    "Usage: review_wallet_identity_tui [--db PATH] [--limit N] [--min-score N]\n\n\
                      Keys:\n\
                      ?            Show help dialog\n\
                      q            Quit\n\
@@ -263,7 +276,11 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
-    Ok(Args { db_path, limit })
+    Ok(Args {
+        db_path,
+        limit,
+        min_score,
+    })
 }
 
 fn group_reviews(reviews: Vec<stophammer::db::WalletReviewSummary>) -> Vec<ReviewGroup> {
@@ -287,11 +304,16 @@ fn group_reviews(reviews: Vec<stophammer::db::WalletReviewSummary>) -> Vec<Revie
 }
 
 impl App {
-    fn new(db_path: &PathBuf, limit: usize) -> Result<Self, Box<dyn Error>> {
+    fn new(
+        db_path: &PathBuf,
+        limit: usize,
+        min_score: Option<u16>,
+    ) -> Result<Self, Box<dyn Error>> {
         let conn = stophammer::db::open_db(db_path);
         let mut app = Self {
             conn,
             limit,
+            min_score,
             groups: Vec::new(),
             queue_summary: String::new(),
             group_wallets: Vec::new(),
@@ -453,27 +475,33 @@ impl App {
 
     fn reload(&mut self) -> Result<(), Box<dyn Error>> {
         let selection = self.capture_reload_selection();
-        let reviews = stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?;
-        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
-        let confidence_summary =
-            stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
+        let mut reviews = stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?;
+        if let Some(min_score) = self.min_score {
+            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+        }
+        let mut source_counts = BTreeMap::<String, usize>::new();
+        let mut confidence_counts = BTreeMap::<String, usize>::new();
+        for review in &reviews {
+            *source_counts.entry(review.source.clone()).or_default() += 1;
+            *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+        }
         let source_summary = stophammer::tui::format_source_count_summary(
             "wallet reviews",
-            summary
+            source_counts
                 .iter()
-                .map(|item| (item.source.as_str(), item.count)),
+                .map(|(source, count)| (source.as_str(), *count)),
         );
         self.queue_summary = stophammer::tui::format_confidence_band_hint(
-            confidence_summary
+            confidence_counts
                 .iter()
-                .map(|item| (item.confidence.as_str(), item.count)),
+                .map(|(confidence, count)| (confidence.as_str(), *count)),
         )
         .map_or(source_summary.clone(), |hint| {
             format!("{source_summary} | {hint}")
         });
-        if confidence_summary
+        if confidence_counts
             .iter()
-            .any(|item| item.confidence == "high_confidence" && item.count > 0)
+            .any(|(confidence, count)| confidence == "high_confidence" && *count > 0)
         {
             self.queue_summary.push_str(" | H=list");
         }
@@ -3061,7 +3089,7 @@ fn run_tui(args: &Args) -> Result<(), Box<dyn Error>> {
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new(&args.db_path, args.limit)?;
+    let mut app = App::new(&args.db_path, args.limit, args.min_score)?;
     let result = run_app(&mut terminal, &mut app);
     cleanup.complete(&mut terminal)?;
     result

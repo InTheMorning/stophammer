@@ -537,6 +537,9 @@ cargo run --bin review_artist_identity -- --db ./stophammer.db \
 
 # Review pending artist identity items in the TUI
 cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
+# Or preload only scored review items at or above 50
+cargo run --bin review_artist_identity_tui -- --db ./stophammer.db \
+  --min-score 50 --limit 200
 # Use `g/G` inside the TUI to jump between HIGH-confidence review items.
 # Use `H` inside the TUI to open a high-confidence-only review list.
 # Queue summary / overview dialogs also show score bands, and selected review
@@ -567,6 +570,9 @@ cargo run --bin review_wallet_identity -- --db ./stophammer.db \
 
 # Review pending wallet identity items in the TUI
 cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
+# Or preload only scored review groups at or above 50
+cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db \
+  --min-score 50 --limit 200
 # Use `g/G` inside the TUI to jump between HIGH-confidence review groups.
 # Use `H` inside the TUI to open a high-confidence-only review list.
 # Queue summary / overview dialogs also show score bands, and selected
