@@ -80,8 +80,12 @@ pub trait ReviewBackend {
     ) -> anyhow::Result<ArtistIdentityReviewActionOutcome>;
 
     // --- Wallet identity reviews (read) ---
-    fn list_pending_wallet_reviews(&self, limit: usize)
-    -> anyhow::Result<Vec<WalletReviewSummary>>;
+    fn list_pending_wallet_reviews(
+        &self,
+        limit: usize,
+        confidence: Option<&str>,
+        min_score: Option<u16>,
+    ) -> anyhow::Result<Vec<WalletReviewSummary>>;
     fn list_stale_wallet_reviews(
         &self,
         min_age_secs: i64,
@@ -215,8 +219,12 @@ impl ReviewBackend for DbBackend {
     fn list_pending_wallet_reviews(
         &self,
         limit: usize,
+        confidence: Option<&str>,
+        min_score: Option<u16>,
     ) -> anyhow::Result<Vec<WalletReviewSummary>> {
-        Ok(db::list_pending_wallet_reviews(&self.conn, limit)?)
+        let mut reviews = db::list_pending_wallet_reviews(&self.conn, limit)?;
+        db::filter_pending_wallet_reviews(&mut reviews, confidence, min_score);
+        Ok(reviews)
     }
 
     fn list_stale_wallet_reviews(
@@ -580,9 +588,19 @@ impl ReviewBackend for ApiBackend {
     fn list_pending_wallet_reviews(
         &self,
         limit: usize,
+        confidence: Option<&str>,
+        min_score: Option<u16>,
     ) -> anyhow::Result<Vec<WalletReviewSummary>> {
+        use std::fmt::Write;
+        let mut query = format!("?limit={limit}");
+        if let Some(c) = confidence {
+            let _ = write!(query, "&confidence={c}");
+        }
+        if let Some(s) = min_score {
+            let _ = write!(query, "&min_score={s}");
+        }
         let res: crate::api::PendingWalletIdentityReviewsResponse = self.get(&format!(
-            "/admin/wallet-identity/reviews/pending?limit={limit}"
+            "/admin/wallet-identity/reviews/pending{query}"
         ))?;
         Ok(res.reviews)
     }

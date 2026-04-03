@@ -23,20 +23,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::error::Error;
 use std::fmt::Write as _;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::{List, ListItem, ListState, Paragraph, Wrap};
-use rusqlite::{Connection, OptionalExtension};
 use stophammer::db::DEFAULT_DB_PATH;
+use stophammer::review_backend::{ApiBackend, DbBackend, ReviewBackend};
 use stophammer::tui::format_local_timestamp;
 
 #[derive(Debug)]
 struct Args {
-    db_path: PathBuf,
+    backend: BackendArgs,
     limit: usize,
     min_score: Option<u16>,
+}
+
+#[derive(Debug)]
+enum BackendArgs {
+    Db { path: PathBuf },
+    Api { base_url: String, admin_token: String },
 }
 
 #[derive(Debug, Clone)]
@@ -81,9 +87,8 @@ enum Focus {
     Evidence,
 }
 
-#[derive(Debug)]
 struct App {
-    conn: Connection,
+    backend: Box<dyn ReviewBackend>,
     limit: usize,
     min_score: Option<u16>,
     reviews: Vec<stophammer::db::ArtistIdentityPendingReview>,
@@ -98,10 +103,13 @@ struct App {
 }
 
 impl App {
-    fn new(db_path: &Path, limit: usize, min_score: Option<u16>) -> Result<Self, Box<dyn Error>> {
-        let conn = stophammer::db::open_db(db_path);
+    fn new(
+        backend: Box<dyn ReviewBackend>,
+        limit: usize,
+        min_score: Option<u16>,
+    ) -> Result<Self, Box<dyn Error>> {
         let mut app = Self {
-            conn,
+            backend,
             limit,
             min_score,
             reviews: Vec::new(),
@@ -124,11 +132,8 @@ impl App {
         preferred_artist_id: Option<&str>,
     ) -> Result<(), Box<dyn Error>> {
         self.reviews =
-            stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?;
-        if let Some(min_score) = self.min_score {
-            self.reviews
-                .retain(|review| review.score.is_some_and(|score| score >= min_score));
-        }
+            self.backend
+                .list_pending_artist_reviews(self.limit, None, self.min_score)?;
         let mut source_counts = BTreeMap::<String, usize>::new();
         let mut confidence_counts = BTreeMap::<String, usize>::new();
         for review in &self.reviews {
@@ -197,10 +202,12 @@ impl App {
             return Ok(());
         };
 
-        let review = stophammer::db::get_artist_identity_review(&self.conn, pending.review_id)?
+        let review = self
+            .backend
+            .get_artist_review(pending.review_id)?
             .ok_or_else(|| io::Error::other(format!("review missing: {}", pending.review_id)))?;
-        let feed_url = feed_url_for_guid(&self.conn, &pending.feed_guid)?;
-        let artists = load_artist_summaries(&self.conn, &review.artist_ids)?;
+        let feed_url = self.backend.feed_url(&pending.feed_guid)?;
+        let artists = load_artist_summaries(self.backend.as_ref(), &review.artist_ids)?;
 
         let artist_idx = match preferred_artist_id {
             Some(artist_id) => artists
@@ -239,10 +246,10 @@ impl App {
         if snapshot.plan.is_some() {
             return Ok(());
         }
-        snapshot.plan = Some(stophammer::db::explain_artist_identity_for_feed(
-            &self.conn,
-            &snapshot.pending.feed_guid,
-        )?);
+        snapshot.plan = Some(
+            self.backend
+                .explain_artist_identity_for_feed(&snapshot.pending.feed_guid)?,
+        );
         Ok(())
     }
 
@@ -512,13 +519,9 @@ impl App {
         let target_artist_id = main_artist.artist_id.clone();
         let target_name = main_artist.name.clone();
 
-        let outcome = stophammer::db::apply_artist_identity_review_action(
-            &mut self.conn,
-            review_id,
-            "merge",
-            Some(&target_artist_id),
-            None,
-        )?;
+        let outcome =
+            self.backend
+                .resolve_artist_review(review_id, "merge", Some(&target_artist_id), None)?;
 
         self.dialog = Some(stophammer::tui::text_dialog(
             "Artist Merge Applied",
@@ -557,13 +560,9 @@ impl App {
             )
         };
 
-        let outcome = stophammer::db::apply_artist_identity_review_action(
-            &mut self.conn,
-            review_id,
-            "do_not_merge",
-            None,
-            None,
-        )?;
+        let outcome = self
+            .backend
+            .resolve_artist_review(review_id, "do_not_merge", None, None)?;
         self.dialog = Some(stophammer::tui::text_dialog(
             "Artist Review Blocked",
             vec![
@@ -586,17 +585,13 @@ impl App {
     }
 
     fn show_queue_summary(&mut self) -> Result<(), Box<dyn Error>> {
-        let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
-        let confidence_summary =
-            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
-        let score_summary =
-            stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
+        let (summary, confidence_summary, score_summary) = self.backend.artist_review_summary()?;
         let conflict_summary = stophammer::tui::summarize_reason_counts(
             self.reviews
                 .iter()
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
-        let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
+        let (age, _wallet_age) = self.backend.review_age_summary()?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let mut lines = stophammer::tui::build_queue_summary_header_lines(
             "artist reviews",
@@ -647,7 +642,7 @@ impl App {
     }
 
     fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
+        let hotspots = self.backend.feed_hotspots(10)?;
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
@@ -660,29 +655,23 @@ impl App {
     }
 
     fn show_operator_overview(&mut self) -> Result<(), Box<dyn Error>> {
-        let artist_summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
-        let wallet_summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
-        let artist_confidence_summary =
-            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
-        let wallet_confidence_summary =
-            stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
-        let artist_score_summary =
-            stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
-        let wallet_score_summary =
-            stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let (artist_summary, artist_confidence_summary, artist_score_summary) =
+            self.backend.artist_review_summary()?;
+        let (wallet_summary, wallet_confidence_summary, wallet_score_summary) =
+            self.backend.wallet_review_summary()?;
         let artist_conflict_summary = stophammer::tui::summarize_reason_counts(
             self.reviews
                 .iter()
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
         let wallet_conflict_summary = stophammer::tui::summarize_reason_counts(
-            stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?
+            self.backend
+                .list_pending_wallet_reviews(self.limit, None, self.min_score)?
                 .iter()
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
-        let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
-        let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
+        let (artist_age, wallet_age) = self.backend.review_age_summary()?;
+        let hotspots = self.backend.feed_hotspots(5)?;
         let hotspot_count = hotspots.len();
 
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
@@ -765,11 +754,9 @@ impl App {
     }
 
     fn show_stale_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let stale = stophammer::db::list_stale_pending_artist_identity_reviews(
-            &self.conn,
-            7 * 24 * 60 * 60,
-            10,
-        )?;
+        let stale = self
+            .backend
+            .list_stale_artist_reviews(7 * 24 * 60 * 60, 10)?;
         let stale_count = stale.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending artist reviews older than 7 days",
@@ -798,11 +785,9 @@ impl App {
     }
 
     fn show_recent_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let recent = stophammer::db::list_recent_pending_artist_identity_reviews(
-            &self.conn,
-            24 * 60 * 60,
-            10,
-        )?;
+        let recent = self
+            .backend
+            .list_recent_artist_reviews(24 * 60 * 60, 10)?;
         let recent_count = recent.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending artist reviews created in the last 24 hours",
@@ -898,11 +883,9 @@ impl App {
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
-        let summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
-        let confidence_summary =
-            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
-        let age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
+        let (summary, confidence_summary, _score_summary) = self.backend.artist_review_summary()?;
+        let (age, _wallet_age) = self.backend.review_age_summary()?;
+        let hotspots = self.backend.feed_hotspots(3)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_review_playbook_lines(
             total,
@@ -939,7 +922,9 @@ impl App {
     reason = "manual CLI parsing keeps the review tool dependency-free"
 )]
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
+    let mut db_path = None;
+    let mut node = std::env::var("NODE").ok();
+    let mut admin_token = std::env::var("ADMIN_TOKEN").ok();
     let mut limit = 50usize;
     let mut min_score = None;
 
@@ -950,7 +935,19 @@ fn parse_args() -> Result<Args, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--db requires a path".to_string())?;
-                db_path = PathBuf::from(value);
+                db_path = Some(PathBuf::from(value));
+            }
+            "--node" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--node requires a base URL".to_string())?;
+                node = Some(value);
+            }
+            "--admin-token" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--admin-token requires a token".to_string())?;
+                admin_token = Some(value);
             }
             "--limit" => {
                 let value = args
@@ -972,8 +969,9 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_artist_identity_tui [--db PATH] [--limit N] [--min-score N]\n\
+                    "Usage: review_artist_identity_tui [--db PATH | --node URL --admin-token TOKEN] [--limit N] [--min-score N]\n\
                      Interactive artist identity review tool.\n\
+                     API mode also reads NODE and ADMIN_TOKEN from the environment.\n\
                      Lets operators choose a main artist for each pending feed-scoped review,\n\
                      inspect supporting feed evidence, then apply merge or do-not-merge decisions.\n\
                      Keys: Tab/Shift-Tab focus, m merge, x do-not-merge, o overview, p playbook, s queue summary, h feed hotspots, t stale reviews, y recent reviews, H HIGH-confidence list, n/N same-source-family jump, g/G HIGH-confidence jump, ? help, r reload, q quit."
@@ -984,149 +982,78 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
+    let backend = match (db_path, node) {
+        (Some(_), Some(_)) => {
+            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string())
+        }
+        (Some(path), None) => BackendArgs::Db { path },
+        (None, Some(base_url)) => BackendArgs::Api {
+            base_url,
+            admin_token: admin_token.ok_or_else(|| {
+                "--admin-token or ADMIN_TOKEN is required when using --node/NODE".to_string()
+            })?,
+        },
+        (None, None) => BackendArgs::Db {
+            path: PathBuf::from(DEFAULT_DB_PATH),
+        },
+    };
+
     Ok(Args {
-        db_path,
+        backend,
         limit,
         min_score,
     })
 }
 
-fn duplicate_name_artist_rows(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<Option<(String, String, i64)>, rusqlite::Error> {
-    conn.query_row(
-        "SELECT artist_id, name, created_at FROM artists WHERE artist_id = ?1",
-        [artist_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    )
-    .optional()
-}
-
-fn feed_rows_for_artist(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<Vec<(String, String, String)>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT f.feed_guid, f.title, f.feed_url
-         FROM artist_credit_name acn
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-         JOIN feeds f ON f.artist_credit_id = ac.id
-         WHERE acn.artist_id = ?1
-         ORDER BY f.title_lower, f.feed_guid",
-    )?;
-    stmt.query_map([artist_id], |row| {
-        Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-    })?
-    .collect::<Result<Vec<_>, _>>()
-}
-
-fn feed_url_for_guid(conn: &Connection, feed_guid: &str) -> Result<String, rusqlite::Error> {
-    conn.query_row(
-        "SELECT feed_url FROM feeds WHERE feed_guid = ?1",
-        [feed_guid],
-        |row| row.get(0),
-    )
-}
-
-fn external_ids_for_artist(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<Vec<String>, Box<dyn Error>> {
-    Ok(stophammer::db::get_external_ids(conn, "artist", artist_id)?
-        .into_iter()
-        .map(|row| format!("{}={}", row.scheme, row.value))
-        .collect())
-}
-
-fn release_count_for_artist(conn: &Connection, artist_id: &str) -> Result<i64, rusqlite::Error> {
-    conn.query_row(
-        "SELECT COUNT(DISTINCT sfr.release_id)
-         FROM artist_credit_name acn
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-         JOIN feeds f ON f.artist_credit_id = ac.id
-         JOIN source_feed_release_map sfr ON sfr.feed_guid = f.feed_guid
-         WHERE acn.artist_id = ?1",
-        [artist_id],
-        |row| row.get(0),
-    )
-}
-
-fn feed_count_for_artist(conn: &Connection, artist_id: &str) -> Result<i64, rusqlite::Error> {
-    conn.query_row(
-        "SELECT COUNT(DISTINCT f.feed_guid)
-         FROM artist_credit_name acn
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-         JOIN feeds f ON f.artist_credit_id = ac.id
-         WHERE acn.artist_id = ?1",
-        [artist_id],
-        |row| row.get(0),
-    )
-}
-
 fn feed_evidence_row(
-    conn: &Connection,
+    backend: &dyn ReviewBackend,
     feed_guid: &str,
     title: String,
     feed_url: String,
 ) -> Result<FeedEvidenceRow, Box<dyn Error>> {
-    let canonical = conn
-        .query_row(
-            "SELECT release_id, match_type, confidence
-             FROM source_feed_release_map WHERE feed_guid = ?1",
-            [feed_guid],
-            |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, i64>(2)?,
-                ))
-            },
-        )
-        .optional()?;
-
-    let platforms = stophammer::db::get_source_platform_claims_for_feed(conn, feed_guid)?
+    let evidence = backend.feed_evidence(feed_guid)?;
+    let canonical = evidence.release_maps.first();
+    let platforms = evidence
+        .platform_claims
         .into_iter()
         .map(|claim| claim.platform_key)
         .filter(|value| !value.trim().is_empty())
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-
-    let website_links =
-        stophammer::db::get_source_entity_links_for_entity(conn, "feed", feed_guid)?
-            .into_iter()
-            .filter(|claim| claim.link_type == "website")
-            .map(|claim| claim.url)
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
-
-    let npubs = stophammer::db::get_source_entity_ids_for_entity(conn, "feed", feed_guid)?
+    let website_links = evidence
+        .entity_links
+        .into_iter()
+        .filter(|claim| claim.link_type == "website")
+        .map(|claim| claim.url)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let npubs = evidence
+        .entity_ids
         .into_iter()
         .filter(|claim| claim.scheme == "nostr_npub")
         .map(|claim| claim.value)
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
-
-    let publisher_remote_feed_guids =
-        stophammer::db::get_feed_remote_items_for_feed(conn, feed_guid)?
-            .into_iter()
-            .filter(|item| item.medium.as_deref() == Some("publisher"))
-            .map(|item| item.remote_feed_guid)
-            .filter(|value| !value.trim().is_empty())
-            .collect::<BTreeSet<_>>()
-            .into_iter()
-            .collect::<Vec<_>>();
+    let publisher_remote_feed_guids = evidence
+        .remote_items
+        .into_iter()
+        .filter(|item| item.medium.as_deref() == Some("publisher"))
+        .map(|item| item.remote_feed_guid)
+        .filter(|value| !value.trim().is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
 
     Ok(FeedEvidenceRow {
         feed_guid: feed_guid.to_string(),
         title,
         feed_url,
-        canonical_release_id: canonical.as_ref().map(|row| row.0.clone()),
-        canonical_match_type: canonical.as_ref().map(|row| row.1.clone()),
-        canonical_confidence: canonical.as_ref().map(|row| row.2),
+        canonical_release_id: canonical.map(|row| row.release_id.clone()),
+        canonical_match_type: canonical.map(|row| row.match_type.clone()),
+        canonical_confidence: canonical.map(|row| row.confidence),
         platforms,
         website_links,
         npubs,
@@ -1135,26 +1062,36 @@ fn feed_evidence_row(
 }
 
 fn load_artist_summaries(
-    conn: &Connection,
+    backend: &dyn ReviewBackend,
     artist_ids: &[String],
 ) -> Result<Vec<ArtistSummary>, Box<dyn Error>> {
     let mut artists = Vec::new();
     for artist_id in artist_ids {
-        let Some((artist_id, name, created_at)) = duplicate_name_artist_rows(conn, artist_id)?
-        else {
+        let Some(diagnostics) = backend.artist_diagnostics(artist_id)? else {
             continue;
         };
+        let feed_count = diagnostics.feeds.len();
+        let release_count = diagnostics.release_count;
         let mut feeds = Vec::new();
-        for (feed_guid, title, feed_url) in feed_rows_for_artist(conn, &artist_id)? {
-            feeds.push(feed_evidence_row(conn, &feed_guid, title, feed_url)?);
+        for feed in diagnostics.feeds {
+            feeds.push(feed_evidence_row(
+                backend,
+                &feed.feed_guid,
+                feed.title,
+                feed.feed_url,
+            )?);
         }
         artists.push(ArtistSummary {
-            artist_id: artist_id.clone(),
-            name,
-            created_at,
-            feed_count: feed_count_for_artist(conn, &artist_id)?,
-            release_count: release_count_for_artist(conn, &artist_id)?,
-            external_ids: external_ids_for_artist(conn, &artist_id)?,
+            artist_id: diagnostics.artist_id,
+            name: diagnostics.name,
+            created_at: diagnostics.created_at,
+            feed_count: i64::try_from(feed_count).unwrap_or(i64::MAX),
+            release_count: i64::try_from(release_count).unwrap_or(i64::MAX),
+            external_ids: diagnostics
+                .external_ids
+                .into_iter()
+                .map(|row| format!("{}={}", row.scheme, row.value))
+                .collect(),
             feeds,
         });
     }
@@ -1892,7 +1829,14 @@ fn run_tui(args: &Args) -> Result<(), Box<dyn Error>> {
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new(&args.db_path, args.limit, args.min_score)?;
+    let backend: Box<dyn ReviewBackend> = match &args.backend {
+        BackendArgs::Db { path } => Box::new(DbBackend::new(stophammer::db::open_db(path))),
+        BackendArgs::Api {
+            base_url,
+            admin_token,
+        } => Box::new(ApiBackend::new(base_url.clone(), admin_token.clone())),
+    };
+    let mut app = App::new(backend, args.limit, args.min_score)?;
     let result = run_app(&mut terminal, &mut app);
     cleanup.complete(&mut terminal)?;
     result

@@ -56,15 +56,21 @@ use ratatui::prelude::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use rusqlite::{Connection, OptionalExtension, params};
 use stophammer::db::{DEFAULT_DB_PATH, WALLET_CLASS_VALUES};
+use stophammer::review_backend::{ApiBackend, DbBackend, ReviewBackend};
 use stophammer::tui::format_local_timestamp;
 
 #[derive(Debug)]
 struct Args {
-    db_path: PathBuf,
+    backend: BackendArgs,
     limit: usize,
     min_score: Option<u16>,
+}
+
+#[derive(Debug)]
+enum BackendArgs {
+    Db { path: PathBuf },
+    Api { base_url: String, admin_token: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,9 +168,8 @@ struct ReviewGroup {
     reviews: Vec<stophammer::db::WalletReviewSummary>,
 }
 
-#[derive(Debug)]
 struct App {
-    conn: Connection,
+    backend: Box<dyn ReviewBackend>,
     limit: usize,
     min_score: Option<u16>,
     groups: Vec<ReviewGroup>,
@@ -208,7 +213,9 @@ struct ReloadSelection {
 const CLASS_CONFIDENCES: &[&str] = &["provisional", "reviewed", "high_confidence"];
 
 fn parse_args() -> Result<Args, String> {
-    let mut db_path = PathBuf::from(DEFAULT_DB_PATH);
+    let mut db_path = None;
+    let mut node = std::env::var("NODE").ok();
+    let mut admin_token = std::env::var("ADMIN_TOKEN").ok();
     let mut limit = 200usize;
     let mut min_score = None;
 
@@ -219,7 +226,19 @@ fn parse_args() -> Result<Args, String> {
                 let value = args
                     .next()
                     .ok_or_else(|| "--db requires a path".to_string())?;
-                db_path = PathBuf::from(value);
+                db_path = Some(PathBuf::from(value));
+            }
+            "--node" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--node requires a base URL".to_string())?;
+                node = Some(value);
+            }
+            "--admin-token" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--admin-token requires a token".to_string())?;
+                admin_token = Some(value);
             }
             "--limit" => {
                 let value = args
@@ -241,7 +260,8 @@ fn parse_args() -> Result<Args, String> {
             }
             "--help" | "-h" => {
                 println!(
-                    "Usage: review_wallet_identity_tui [--db PATH] [--limit N] [--min-score N]\n\n\
+                    "Usage: review_wallet_identity_tui [--db PATH | --node URL --admin-token TOKEN] [--limit N] [--min-score N]\n\
+                     API mode also reads NODE and ADMIN_TOKEN from the environment.\n\n\
                      Keys:\n\
                      ?            Show help dialog\n\
                      q            Quit\n\
@@ -275,8 +295,24 @@ fn parse_args() -> Result<Args, String> {
         }
     }
 
+    let backend = match (db_path, node) {
+        (Some(_), Some(_)) => {
+            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string())
+        }
+        (Some(path), None) => BackendArgs::Db { path },
+        (None, Some(base_url)) => BackendArgs::Api {
+            base_url,
+            admin_token: admin_token.ok_or_else(|| {
+                "--admin-token or ADMIN_TOKEN is required when using --node/NODE".to_string()
+            })?,
+        },
+        (None, None) => BackendArgs::Db {
+            path: PathBuf::from(DEFAULT_DB_PATH),
+        },
+    };
+
     Ok(Args {
-        db_path,
+        backend,
         limit,
         min_score,
     })
@@ -304,13 +340,12 @@ fn group_reviews(reviews: Vec<stophammer::db::WalletReviewSummary>) -> Vec<Revie
 
 impl App {
     fn new(
-        db_path: &PathBuf,
+        backend: Box<dyn ReviewBackend>,
         limit: usize,
         min_score: Option<u16>,
     ) -> Result<Self, Box<dyn Error>> {
-        let conn = stophammer::db::open_db(db_path);
         let mut app = Self {
-            conn,
+            backend,
             limit,
             min_score,
             groups: Vec::new(),
@@ -395,20 +430,23 @@ impl App {
         source_wallet_id: &str,
         candidate_wallet_id: &str,
     ) -> Result<bool, Box<dyn Error>> {
-        let reviewed = self
-            .conn
-            .query_row(
-                "SELECT 1 \
-                 FROM wallet_identity_override \
-                 WHERE override_type = 'merge' \
-                   AND ((wallet_id = ?1 AND target_id = ?2) \
-                     OR (wallet_id = ?2 AND target_id = ?1)) \
-                 LIMIT 1",
-                params![source_wallet_id, candidate_wallet_id],
-                |_row| Ok(()),
-            )
-            .optional()?
-            .is_some();
+        let source_overrides = self
+            .backend
+            .get_wallet_detail(source_wallet_id)?
+            .map(|wallet| wallet.overrides)
+            .unwrap_or_default();
+        let candidate_overrides = self
+            .backend
+            .get_wallet_detail(candidate_wallet_id)?
+            .map(|wallet| wallet.overrides)
+            .unwrap_or_default();
+        let reviewed = source_overrides.iter().any(|override_row| {
+            override_row.override_type == "merge"
+                && override_row.target_id.as_deref() == Some(candidate_wallet_id)
+        }) || candidate_overrides.iter().any(|override_row| {
+            override_row.override_type == "merge"
+                && override_row.target_id.as_deref() == Some(source_wallet_id)
+        });
         Ok(reviewed)
     }
 
@@ -423,7 +461,7 @@ impl App {
         };
 
         let mut candidates = Vec::new();
-        for peer in stophammer::db::get_wallet_alias_peers(&self.conn, alias)? {
+        for peer in self.backend.get_wallet_alias_peers(alias)? {
             if peer.wallet_id == source_review.wallet_id {
                 continue;
             }
@@ -474,10 +512,9 @@ impl App {
 
     fn reload(&mut self) -> Result<(), Box<dyn Error>> {
         let selection = self.capture_reload_selection();
-        let mut reviews = stophammer::db::list_pending_wallet_reviews(&self.conn, self.limit)?;
-        if let Some(min_score) = self.min_score {
-            reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
-        }
+        let reviews = self
+            .backend
+            .list_pending_wallet_reviews(self.limit, None, self.min_score)?;
         let mut source_counts = BTreeMap::<String, usize>::new();
         let mut confidence_counts = BTreeMap::<String, usize>::new();
         for review in &reviews {
@@ -593,7 +630,7 @@ impl App {
             .current_group()
             .map(|group| group.evidence_key.as_str())
         {
-            let peers = stophammer::db::get_wallet_alias_peers(&self.conn, alias)?;
+            let peers = self.backend.get_wallet_alias_peers(alias)?;
             let by_wallet_id = peers
                 .into_iter()
                 .map(|peer| (peer.wallet_id.clone(), peer))
@@ -638,10 +675,8 @@ impl App {
             return Ok(());
         };
 
-        self.source_wallet_detail =
-            stophammer::db::get_wallet_detail(&self.conn, &source_review.wallet_id)?;
-        self.claim_feeds =
-            stophammer::db::get_wallet_claim_feeds(&self.conn, &source_review.wallet_id)?;
+        self.source_wallet_detail = self.backend.get_wallet_detail(&source_review.wallet_id)?;
+        self.claim_feeds = self.backend.get_wallet_claim_feeds(&source_review.wallet_id)?;
 
         let pending_peer_ids = self
             .current_group()
@@ -691,10 +726,9 @@ impl App {
             .current_candidate()
             .map(|candidate| candidate.wallet_id.clone())
         {
-            self.candidate_wallet_detail =
-                stophammer::db::get_wallet_detail(&self.conn, &candidate_wallet_id)?;
+            self.candidate_wallet_detail = self.backend.get_wallet_detail(&candidate_wallet_id)?;
             self.candidate_claim_feeds =
-                stophammer::db::get_wallet_claim_feeds(&self.conn, &candidate_wallet_id)?;
+                self.backend.get_wallet_claim_feeds(&candidate_wallet_id)?;
         } else {
             self.candidate_wallet_detail = None;
             self.candidate_claim_feeds.clear();
@@ -1096,8 +1130,7 @@ impl App {
             return Ok(());
         };
 
-        stophammer::db::apply_wallet_identity_review_action(
-            &self.conn,
+        self.backend.resolve_wallet_review(
             merge_review.id,
             "merge",
             Some(&main_review.wallet_id),
@@ -1119,13 +1152,8 @@ impl App {
             return Ok(());
         };
 
-        stophammer::db::apply_wallet_identity_review_action(
-            &self.conn,
-            merge_review.id,
-            "do_not_merge",
-            None,
-            None,
-        )?;
+        self.backend
+            .resolve_wallet_review(merge_review.id, "do_not_merge", None, None)?;
         let status = format!(
             "Recorded: do not merge {} into any main wallet in this group",
             short_id(&merge_review.wallet_id)
@@ -1151,7 +1179,8 @@ impl App {
             .unwrap_or(0);
         let wallet_class = WALLET_CLASS_VALUES[(current_index + 1) % WALLET_CLASS_VALUES.len()];
 
-        stophammer::db::set_wallet_force_class(&self.conn, &main_review.wallet_id, wallet_class)?;
+        self.backend
+            .set_wallet_force_class(&main_review.wallet_id, wallet_class)?;
         let status = format!(
             "Recorded: set main wallet {} class to {} (confidence reviewed)",
             short_id(&main_review.wallet_id),
@@ -1178,11 +1207,8 @@ impl App {
             .unwrap_or(0);
         let class_confidence = CLASS_CONFIDENCES[(current_index + 1) % CLASS_CONFIDENCES.len()];
 
-        stophammer::db::set_wallet_force_confidence(
-            &self.conn,
-            &main_review.wallet_id,
-            class_confidence,
-        )?;
+        self.backend
+            .set_wallet_force_confidence(&main_review.wallet_id, class_confidence)?;
         let status = format!(
             "Recorded: set main wallet {} confidence to {}",
             short_id(&main_review.wallet_id),
@@ -1199,7 +1225,8 @@ impl App {
             return Ok(());
         };
 
-        stophammer::db::revert_wallet_operator_classification(&self.conn, &main_review.wallet_id)?;
+        self.backend
+            .revert_wallet_classification(&main_review.wallet_id)?;
         let status = format!(
             "Reverted operator classification edits for main wallet {}",
             short_id(&main_review.wallet_id)
@@ -1210,7 +1237,7 @@ impl App {
     }
 
     fn apply_reviewed_merges(&mut self) -> Result<(), Box<dyn Error>> {
-        let stats = stophammer::db::backfill_wallet_pass5(&self.conn)?;
+        let stats = self.backend.apply_wallet_merges()?;
         let mut lines = vec![
             format!("operator merges applied: {}", stats.merges_from_overrides),
             format!("heuristic merges applied: {}", stats.merges_from_grouping),
@@ -1233,7 +1260,7 @@ impl App {
     }
 
     fn undo_last_apply_batch(&mut self) -> Result<(), Box<dyn Error>> {
-        let result = stophammer::db::undo_last_wallet_merge_batch(&self.conn)?;
+        let result = self.backend.undo_last_wallet_batch()?;
         let Some(stats) = result else {
             self.status = "No applied merge batch to undo".to_string();
             self.dialog = Some(stophammer::tui::text_dialog(
@@ -1261,17 +1288,14 @@ impl App {
     }
 
     fn show_queue_summary(&mut self) -> Result<(), Box<dyn Error>> {
-        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
-        let confidence_summary =
-            stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
-        let score_summary = stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let (summary, confidence_summary, score_summary) = self.backend.wallet_review_summary()?;
         let conflict_summary = stophammer::tui::summarize_reason_counts(
             self.groups
                 .iter()
                 .flat_map(|group| group.reviews.iter())
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
-        let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
+        let (_artist_age, age) = self.backend.review_age_summary()?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let mut lines = stophammer::tui::build_queue_summary_header_lines(
             "wallet reviews",
@@ -1322,7 +1346,7 @@ impl App {
     }
 
     fn show_feed_hotspots(&mut self) -> Result<(), Box<dyn Error>> {
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 10)?;
+        let hotspots = self.backend.feed_hotspots(10)?;
         let hotspot_count = hotspots.len();
         let lines =
             stophammer::tui::build_feed_hotspot_dialog_lines(&hotspots, short_id, abbreviate);
@@ -1335,18 +1359,13 @@ impl App {
     }
 
     fn show_operator_overview(&mut self) -> Result<(), Box<dyn Error>> {
-        let artist_summary = stophammer::db::summarize_pending_artist_identity_reviews(&self.conn)?;
-        let wallet_summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
-        let artist_confidence_summary =
-            stophammer::db::summarize_pending_artist_identity_review_confidence(&self.conn)?;
-        let wallet_confidence_summary =
-            stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
-        let artist_score_summary =
-            stophammer::db::summarize_pending_artist_identity_review_scores(&self.conn)?;
-        let wallet_score_summary =
-            stophammer::db::summarize_pending_wallet_review_scores(&self.conn)?;
+        let (artist_summary, artist_confidence_summary, artist_score_summary) =
+            self.backend.artist_review_summary()?;
+        let (wallet_summary, wallet_confidence_summary, wallet_score_summary) =
+            self.backend.wallet_review_summary()?;
         let artist_conflict_summary = stophammer::tui::summarize_reason_counts(
-            stophammer::db::list_pending_artist_identity_reviews(&self.conn, self.limit)?
+            self.backend
+                .list_pending_artist_reviews(self.limit, None, self.min_score)?
                 .iter()
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
@@ -1356,9 +1375,8 @@ impl App {
                 .flat_map(|group| group.reviews.iter())
                 .flat_map(|review| review.conflict_reasons.iter().map(String::as_str)),
         );
-        let artist_age = stophammer::db::summarize_pending_artist_identity_review_age(&self.conn)?;
-        let wallet_age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 5)?;
+        let (artist_age, wallet_age) = self.backend.review_age_summary()?;
+        let hotspots = self.backend.feed_hotspots(5)?;
         let hotspot_count = hotspots.len();
 
         let artist_total: usize = artist_summary.iter().map(|item| item.count).sum();
@@ -1441,8 +1459,9 @@ impl App {
     }
 
     fn show_stale_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let stale =
-            stophammer::db::list_stale_pending_wallet_reviews(&self.conn, 7 * 24 * 60 * 60, 10)?;
+        let stale = self
+            .backend
+            .list_stale_wallet_reviews(7 * 24 * 60 * 60, 10)?;
         let stale_count = stale.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending wallet reviews older than 7 days",
@@ -1471,8 +1490,9 @@ impl App {
     }
 
     fn show_recent_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let recent =
-            stophammer::db::list_recent_pending_wallet_reviews(&self.conn, 24 * 60 * 60, 10)?;
+        let recent = self
+            .backend
+            .list_recent_wallet_reviews(24 * 60 * 60, 10)?;
         let recent_count = recent.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending wallet reviews created in the last 24 hours",
@@ -1574,11 +1594,9 @@ impl App {
     }
 
     fn show_review_playbook(&mut self) -> Result<(), Box<dyn Error>> {
-        let summary = stophammer::db::summarize_pending_wallet_reviews(&self.conn)?;
-        let confidence_summary =
-            stophammer::db::summarize_pending_wallet_review_confidence(&self.conn)?;
-        let age = stophammer::db::summarize_pending_wallet_review_age(&self.conn)?;
-        let hotspots = stophammer::db::list_pending_review_feed_hotspots(&self.conn, 3)?;
+        let (summary, confidence_summary, _score_summary) = self.backend.wallet_review_summary()?;
+        let (_artist_age, age) = self.backend.review_age_summary()?;
+        let hotspots = self.backend.feed_hotspots(3)?;
         let total: usize = summary.iter().map(|item| item.count).sum();
         let lines = stophammer::tui::build_review_playbook_lines(
             total,
@@ -3089,7 +3107,14 @@ fn run_tui(args: &Args) -> Result<(), Box<dyn Error>> {
     let stdout = io::stdout();
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let mut app = App::new(&args.db_path, args.limit, args.min_score)?;
+    let backend: Box<dyn ReviewBackend> = match &args.backend {
+        BackendArgs::Db { path } => Box::new(DbBackend::new(stophammer::db::open_db(path))),
+        BackendArgs::Api {
+            base_url,
+            admin_token,
+        } => Box::new(ApiBackend::new(base_url.clone(), admin_token.clone())),
+    };
+    let mut app = App::new(backend, args.limit, args.min_score)?;
     let result = run_app(&mut terminal, &mut app);
     cleanup.complete(&mut terminal)?;
     result
