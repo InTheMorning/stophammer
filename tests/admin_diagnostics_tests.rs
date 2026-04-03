@@ -823,8 +823,7 @@ async fn admin_pending_review_endpoints_expose_artist_and_wallet_queues() {
         .as_array()
         .expect("scored wallet reviews array");
     assert_eq!(
-        scored_wallet_reviews[0]["source"],
-        "likely_wallet_owner_match",
+        scored_wallet_reviews[0]["source"], "likely_wallet_owner_match",
         "min_score should retain scored wallet reviews"
     );
     assert!(
@@ -1396,8 +1395,7 @@ async fn admin_pending_review_summary_endpoints_group_by_source() {
     assert_eq!(filtered_wallet_resp.status(), 200);
     let filtered_wallet_json = body_json(filtered_wallet_resp).await;
     assert_eq!(
-        filtered_wallet_json["summary"][0]["source"],
-        "likely_wallet_owner_match",
+        filtered_wallet_json["summary"][0]["source"], "likely_wallet_owner_match",
         "min_score should narrow wallet summary counts to scored review families"
     );
 }

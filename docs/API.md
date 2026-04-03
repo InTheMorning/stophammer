@@ -1529,7 +1529,6 @@ Merges two artist records. All feeds, tracks, credits, and aliases from the sour
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** optional `confidence`, optional `min_score`
 
 **Request body:**
 
@@ -1562,7 +1561,6 @@ Adds an alias to an artist (used for fuzzy matching during artist resolution).
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
-- **Query params:** optional `confidence`, optional `min_score`
 
 **Request body:**
 

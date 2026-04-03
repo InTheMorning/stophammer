@@ -482,7 +482,9 @@ impl App {
         let mut confidence_counts = BTreeMap::<String, usize>::new();
         for review in &reviews {
             *source_counts.entry(review.source.clone()).or_default() += 1;
-            *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+            *confidence_counts
+                .entry(review.confidence.clone())
+                .or_default() += 1;
         }
         let source_summary = stophammer::tui::format_source_count_summary(
             "wallet reviews",

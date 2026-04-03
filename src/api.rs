@@ -3432,22 +3432,24 @@ fn summarize_pending_review_hotspots_subset(
             feed_meta_cache.insert(review.feed_guid.clone(), meta.clone());
             meta
         };
-        let entry = hotspots
-            .entry(review.feed_guid.clone())
-            .or_insert(db::PendingReviewFeedHotspot {
-                feed_guid: review.feed_guid.clone(),
-                title,
-                feed_url,
-                artist_review_count: 0,
-                wallet_review_count: 0,
-                total_review_count: 0,
-            });
+        let entry =
+            hotspots
+                .entry(review.feed_guid.clone())
+                .or_insert(db::PendingReviewFeedHotspot {
+                    feed_guid: review.feed_guid.clone(),
+                    title,
+                    feed_url,
+                    artist_review_count: 0,
+                    wallet_review_count: 0,
+                    total_review_count: 0,
+                });
         entry.artist_review_count += 1;
         entry.total_review_count += 1;
     }
 
     for review in wallet_reviews {
-        let claim_feeds = if let Some(claim_feeds) = wallet_claim_feed_cache.get(&review.wallet_id) {
+        let claim_feeds = if let Some(claim_feeds) = wallet_claim_feed_cache.get(&review.wallet_id)
+        {
             claim_feeds.clone()
         } else {
             let claim_feeds = db::get_wallet_claim_feeds(conn, &review.wallet_id)?;
@@ -3455,16 +3457,16 @@ fn summarize_pending_review_hotspots_subset(
             claim_feeds
         };
         for claim_feed in claim_feeds {
-            let entry = hotspots
-                .entry(claim_feed.feed_guid.clone())
-                .or_insert(db::PendingReviewFeedHotspot {
+            let entry = hotspots.entry(claim_feed.feed_guid.clone()).or_insert(
+                db::PendingReviewFeedHotspot {
                     feed_guid: claim_feed.feed_guid.clone(),
                     title: claim_feed.title.clone(),
                     feed_url: claim_feed.feed_url.clone(),
                     artist_review_count: 0,
                     wallet_review_count: 0,
                     total_review_count: 0,
-                });
+                },
+            );
             entry.wallet_review_count += 1;
             entry.total_review_count += 1;
         }
@@ -3497,7 +3499,9 @@ fn summarize_artist_pending_review_subset(
 
     for review in reviews {
         *source_counts.entry(review.source.clone()).or_default() += 1;
-        *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+        *confidence_counts
+            .entry(review.confidence.clone())
+            .or_default() += 1;
         *score_counts
             .entry(review_score_band(review.score).to_string())
             .or_default() += 1;
@@ -3550,12 +3554,7 @@ fn summarize_artist_pending_review_subset(
             .then_with(|| left.reason.cmp(&right.reason))
     });
 
-    (
-        summary,
-        confidence_summary,
-        score_summary,
-        conflict_summary,
-    )
+    (summary, confidence_summary, score_summary, conflict_summary)
 }
 
 fn summarize_wallet_pending_review_subset(
@@ -3573,7 +3572,9 @@ fn summarize_wallet_pending_review_subset(
 
     for review in reviews {
         *source_counts.entry(review.source.clone()).or_default() += 1;
-        *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+        *confidence_counts
+            .entry(review.confidence.clone())
+            .or_default() += 1;
         *score_counts
             .entry(review_score_band(review.score).to_string())
             .or_default() += 1;
@@ -3626,12 +3627,7 @@ fn summarize_wallet_pending_review_subset(
             .then_with(|| left.reason.cmp(&right.reason))
     });
 
-    (
-        summary,
-        confidence_summary,
-        score_summary,
-        conflict_summary,
-    )
+    (summary, confidence_summary, score_summary, conflict_summary)
 }
 
 fn pending_review_days_to_secs(days: u64, field: &'static str) -> Result<i64, ApiError> {
@@ -4286,8 +4282,7 @@ async fn handle_admin_recent_wallet_identity_reviews(
 
     let max_age_secs = pending_review_days_to_secs(query.max_age_days, "max_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
-        let mut reviews =
-            db::list_recent_pending_wallet_reviews(conn, max_age_secs, query.limit)?;
+        let mut reviews = db::list_recent_pending_wallet_reviews(conn, max_age_secs, query.limit)?;
         filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
         Ok(reviews)
     })
@@ -4388,7 +4383,8 @@ async fn handle_admin_pending_review_dashboard(
             query.confidence.as_deref(),
             query.min_score,
         );
-        let mut wallet_reviews = db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
+        let mut wallet_reviews =
+            db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
         filter_pending_wallet_reviews(
             &mut wallet_reviews,
             query.confidence.as_deref(),

@@ -1163,8 +1163,14 @@ async fn get_wallet_endpoint_returns_wallet_details() {
     assert_eq!(data["artist_links"][0]["artist_id"], artist_id);
     assert_eq!(data["artist_links"][0]["artist_name"], "Alice");
     assert_eq!(data["artist_links"][0]["confidence"], "high_confidence");
-    assert_eq!(data["artist_links"][0]["evidence_entity_type"], "feed_alias");
-    assert_eq!(data["artist_links"][0]["evidence_entity_id"], "feed-wallet-test");
+    assert_eq!(
+        data["artist_links"][0]["evidence_entity_type"],
+        "feed_alias"
+    );
+    assert_eq!(
+        data["artist_links"][0]["evidence_entity_id"],
+        "feed-wallet-test"
+    );
     assert_eq!(
         data["artist_links"][0]["evidence_explanation"],
         "wallet alias exactly matched the feed artist credit on the same feed"

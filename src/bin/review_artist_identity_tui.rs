@@ -133,7 +133,9 @@ impl App {
         let mut confidence_counts = BTreeMap::<String, usize>::new();
         for review in &self.reviews {
             *source_counts.entry(review.source.clone()).or_default() += 1;
-            *confidence_counts.entry(review.confidence.clone()).or_default() += 1;
+            *confidence_counts
+                .entry(review.confidence.clone())
+                .or_default() += 1;
         }
         let source_summary = stophammer::tui::format_source_count_summary(
             "artist reviews",
@@ -1320,11 +1322,16 @@ fn build_artist_items(app: &App) -> Vec<ListItem<'static>> {
 fn matching_candidate_group<'a>(
     snapshot: &'a ReviewSnapshot,
 ) -> Option<&'a stophammer::db::ArtistIdentityCandidateGroup> {
-    snapshot.plan.as_ref()?.candidate_groups.iter().find(|group| {
-        group.source == snapshot.review.source
-            && group.name_key == snapshot.review.name_key
-            && group.evidence_key == snapshot.review.evidence_key
-    })
+    snapshot
+        .plan
+        .as_ref()?
+        .candidate_groups
+        .iter()
+        .find(|group| {
+            group.source == snapshot.review.source
+                && group.name_key == snapshot.review.name_key
+                && group.evidence_key == snapshot.review.evidence_key
+        })
 }
 
 fn build_evidence_lines(app: &App) -> Vec<Line<'static>> {
