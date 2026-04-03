@@ -4302,7 +4302,7 @@ pub struct ArtistIdentityBackfillStats {
     pub merge_events_emitted: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityResolveStats {
     pub seed_artists: usize,
     pub candidate_groups: usize,
@@ -4313,13 +4313,13 @@ pub struct ArtistIdentityResolveStats {
     pub blocked_reviews: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentitySeedArtist {
     pub artist_id: String,
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityCandidateGroup {
     pub source: String,
     pub name_key: String,
@@ -4339,14 +4339,14 @@ pub struct ArtistIdentityCandidateGroup {
     pub note: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityFeedPlan {
     pub feed_guid: String,
     pub seed_artists: Vec<ArtistIdentitySeedArtist>,
     pub candidate_groups: Vec<ArtistIdentityCandidateGroup>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityPendingFeed {
     pub feed_guid: String,
     pub title: String,
@@ -4355,7 +4355,7 @@ pub struct ArtistIdentityPendingFeed {
     pub candidate_groups: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityReviewItem {
     pub review_id: i64,
     pub feed_guid: String,
@@ -4378,7 +4378,7 @@ pub struct ArtistIdentityReviewItem {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityPendingReview {
     pub review_id: i64,
     pub feed_guid: String,
@@ -4396,37 +4396,37 @@ pub struct ArtistIdentityPendingReview {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityPendingReviewSummary {
     pub source: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewConfidenceSummary {
     pub confidence: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ReviewScoreComponent {
     pub source: String,
     pub points: u16,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewScoreSummary {
     pub score_band: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewConflictSummary {
     pub reason: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewAgeSummary {
     pub total: usize,
     pub created_last_24h: usize,
@@ -4434,7 +4434,7 @@ pub struct PendingReviewAgeSummary {
     pub oldest_created_at: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewFeedHotspot {
     pub feed_guid: String,
     pub title: String,
@@ -7498,7 +7498,7 @@ pub fn set_artist_identity_do_not_merge_override_for_review(
     )
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ArtistIdentityReviewActionOutcome {
     pub review: ArtistIdentityReviewItem,
     pub resolve_stats: ArtistIdentityResolveStats,
@@ -12893,7 +12893,7 @@ fn apply_wallet_merge_overrides_with_recorder(
     Ok(merges)
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct WalletUndoStats {
     pub batch_id: i64,
     pub merges_reverted: usize,
@@ -13700,7 +13700,7 @@ pub fn backfill_wallet_pass3(conn: &Connection) -> Result<WalletBackfillStats, D
 }
 
 /// Stats returned by Pass 5 (--refresh).
-#[derive(Debug, Default)]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct WalletRefreshStats {
     pub apply_batch_id: Option<i64>,
     pub feeds_processed: usize,
@@ -13818,7 +13818,7 @@ pub fn backfill_wallet_pass5(conn: &Connection) -> Result<WalletRefreshStats, Db
 // ---------------------------------------------------------------------------
 
 /// Summary of a pending wallet identity review item.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletReviewSummary {
     pub id: i64,
     pub wallet_id: String,
@@ -13838,13 +13838,13 @@ pub struct WalletReviewSummary {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct WalletPendingReviewSummary {
     pub source: String,
     pub count: usize,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletReviewItem {
     pub id: i64,
     pub wallet_id: String,
@@ -13863,13 +13863,13 @@ pub struct WalletReviewItem {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletIdentityReviewActionOutcome {
     pub review: WalletReviewItem,
 }
 
 /// Full detail of a wallet for review display.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletDetail {
     pub wallet_id: String,
     pub display_name: String,
@@ -13884,7 +13884,7 @@ pub struct WalletDetail {
     pub overrides: Vec<WalletOverrideDetail>,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletEndpointDetail {
     pub id: i64,
     pub route_type: String,
@@ -13893,14 +13893,14 @@ pub struct WalletEndpointDetail {
     pub custom_value: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletAliasDetail {
     pub alias: String,
     pub first_seen_at: i64,
     pub last_seen_at: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletArtistLinkDetail {
     pub artist_id: String,
     pub confidence: String,
@@ -13909,7 +13909,7 @@ pub struct WalletArtistLinkDetail {
     pub evidence_explanation: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletOverrideDetail {
     pub id: i64,
     pub override_type: String,
@@ -13918,7 +13918,7 @@ pub struct WalletOverrideDetail {
     pub created_at: i64,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletRouteEvidence {
     pub route_scope: String,
     pub route_id: i64,
@@ -13936,7 +13936,7 @@ pub struct WalletRouteEvidence {
     pub fee: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletClaimFeed {
     pub feed_guid: String,
     pub title: String,
@@ -13957,7 +13957,7 @@ pub struct WalletEndpointPreview {
     pub custom_value: String,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WalletAliasPeer {
     pub wallet_id: String,
     pub display_name: String,
@@ -14008,15 +14008,43 @@ pub fn get_wallet_ids_for_artist(
 ) -> Result<Vec<String>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT DISTINCT wallet_id
-         FROM wallet_artist_links
-         WHERE artist_id = ?1
-         ORDER BY wallet_id",
+          FROM wallet_artist_links
+          WHERE artist_id = ?1
+          ORDER BY wallet_id",
     )?;
     stmt.query_map(params![artist_id], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()
         .map_err(Into::into)
 }
 
+pub fn get_releases_for_artist(
+    conn: &Connection,
+    artist_id: &str,
+) -> Result<Vec<Release>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.release_id, r.title, r.title_lower, r.artist_credit_id, r.description, r.image_url, r.release_date, r.created_at, r.updated_at \
+         FROM releases r \
+         JOIN artist_credit ac ON r.artist_credit_id = ac.id \
+         JOIN artist_credit_name acn ON ac.id = acn.artist_credit_id \
+         WHERE acn.artist_id = ?1 \
+         ORDER BY r.release_date DESC, r.title",
+    )?;
+    stmt.query_map(params![artist_id], |row| {
+        Ok(Release {
+            release_id: row.get(0)?,
+            title: row.get(1)?,
+            title_lower: row.get(2)?,
+            artist_credit_id: row.get(3)?,
+            description: row.get(4)?,
+            image_url: row.get(5)?,
+            release_date: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
+        })
+    })?
+    .collect::<Result<Vec<_>, _>>()
+    .map_err(Into::into)
+}
 fn get_wallet_endpoint_preview(
     conn: &Connection,
     wallet_id: &str,
@@ -14937,4 +14965,303 @@ pub fn apply_wallet_identity_review_action(
         .ok_or_else(|| DbError::Other(format!("wallet identity review not found: {review_id}")))?;
 
     Ok(WalletIdentityReviewActionOutcome { review })
+}
+
+// ── Pending Review Helpers ───────────────────────────────────────────────────
+
+pub fn filter_pending_artist_reviews(
+    reviews: &mut Vec<ArtistIdentityPendingReview>,
+    confidence: Option<&str>,
+    min_score: Option<u16>,
+) {
+    if let Some(confidence) = confidence {
+        reviews.retain(|review| review.confidence == confidence);
+    }
+    if let Some(min_score) = min_score {
+        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+    }
+}
+
+pub fn filter_pending_wallet_reviews(
+    reviews: &mut Vec<WalletReviewSummary>,
+    confidence: Option<&str>,
+    min_score: Option<u16>,
+) {
+    if let Some(confidence) = confidence {
+        reviews.retain(|review| review.confidence == confidence);
+    }
+    if let Some(min_score) = min_score {
+        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
+    }
+}
+
+#[must_use]
+pub fn max_pending_review_scan_limit() -> usize {
+    usize::try_from(i64::MAX).unwrap_or(usize::MAX)
+}
+
+pub fn summarize_pending_review_age_subset(
+    created_ats: impl Iterator<Item = i64>,
+) -> PendingReviewAgeSummary {
+    let now = unix_now();
+    let last_24h_cutoff = now - 24 * 60 * 60;
+    let older_than_7d_cutoff = now - 7 * 24 * 60 * 60;
+    let mut total = 0usize;
+    let mut created_last_24h = 0usize;
+    let mut older_than_7d = 0usize;
+    let mut oldest_created_at: Option<i64> = None;
+
+    for created_at in created_ats {
+        total += 1;
+        if created_at >= last_24h_cutoff {
+            created_last_24h += 1;
+        }
+        if created_at <= older_than_7d_cutoff {
+            older_than_7d += 1;
+        }
+        oldest_created_at = Some(match oldest_created_at {
+            Some(current) => current.min(created_at),
+            None => created_at,
+        });
+    }
+
+    PendingReviewAgeSummary {
+        total,
+        created_last_24h,
+        older_than_7d,
+        oldest_created_at,
+    }
+}
+
+pub fn feed_meta_for_guid(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<(String, String)>, DbError> {
+    Ok(conn
+        .query_row(
+            "SELECT title, feed_url FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()?)
+}
+
+pub fn summarize_pending_review_hotspots_subset(
+    conn: &Connection,
+    artist_reviews: &[ArtistIdentityPendingReview],
+    wallet_reviews: &[WalletReviewSummary],
+    limit: usize,
+) -> Result<Vec<PendingReviewFeedHotspot>, DbError> {
+    let mut hotspots = std::collections::BTreeMap::<String, PendingReviewFeedHotspot>::new();
+    let mut feed_meta_cache = std::collections::BTreeMap::<String, (String, String)>::new();
+    let mut wallet_claim_feed_cache =
+        std::collections::BTreeMap::<String, Vec<WalletClaimFeed>>::new();
+
+    for review in artist_reviews {
+        let (title, feed_url) = if let Some(meta) = feed_meta_cache.get(&review.feed_guid) {
+            meta.clone()
+        } else {
+            let meta = feed_meta_for_guid(conn, &review.feed_guid)?
+                .unwrap_or_else(|| (review.title.clone(), String::new()));
+            feed_meta_cache.insert(review.feed_guid.clone(), meta.clone());
+            meta
+        };
+        let entry = hotspots
+            .entry(review.feed_guid.clone())
+            .or_insert(PendingReviewFeedHotspot {
+                feed_guid: review.feed_guid.clone(),
+                title,
+                feed_url,
+                artist_review_count: 0,
+                wallet_review_count: 0,
+                total_review_count: 0,
+            });
+        entry.artist_review_count += 1;
+        entry.total_review_count += 1;
+    }
+
+    for review in wallet_reviews {
+        let claim_feeds = if let Some(claim_feeds) = wallet_claim_feed_cache.get(&review.wallet_id)
+        {
+            claim_feeds.clone()
+        } else {
+            let claim_feeds = get_wallet_claim_feeds(conn, &review.wallet_id)?;
+            wallet_claim_feed_cache.insert(review.wallet_id.clone(), claim_feeds.clone());
+            claim_feeds
+        };
+        for claim_feed in claim_feeds {
+            let entry =
+                hotspots
+                    .entry(claim_feed.feed_guid.clone())
+                    .or_insert(PendingReviewFeedHotspot {
+                        feed_guid: claim_feed.feed_guid.clone(),
+                        title: claim_feed.title.clone(),
+                        feed_url: claim_feed.feed_url.clone(),
+                        artist_review_count: 0,
+                        wallet_review_count: 0,
+                        total_review_count: 0,
+                    });
+            entry.wallet_review_count += 1;
+            entry.total_review_count += 1;
+        }
+    }
+
+    let mut hotspots = hotspots.into_values().collect::<Vec<_>>();
+    hotspots.sort_by(|left, right| {
+        right
+            .total_review_count
+            .cmp(&left.total_review_count)
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.feed_guid.cmp(&right.feed_guid))
+    });
+    hotspots.truncate(limit);
+    Ok(hotspots)
+}
+
+#[must_use]
+pub fn summarize_artist_pending_review_subset(
+    reviews: &[ArtistIdentityPendingReview],
+) -> (
+    Vec<ArtistIdentityPendingReviewSummary>,
+    Vec<PendingReviewConfidenceSummary>,
+    Vec<PendingReviewScoreSummary>,
+    Vec<PendingReviewConflictSummary>,
+) {
+    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
+
+    for review in reviews {
+        *source_counts.entry(review.source.clone()).or_default() += 1;
+        *confidence_counts
+            .entry(review.confidence.clone())
+            .or_default() += 1;
+        *score_counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+        for reason in &review.conflict_reasons {
+            *conflict_counts.entry(reason.clone()).or_default() += 1;
+        }
+    }
+
+    let mut summary = source_counts
+        .into_iter()
+        .map(|(source, count)| ArtistIdentityPendingReviewSummary { source, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+
+    let mut confidence_summary = confidence_counts
+        .into_iter()
+        .map(|(confidence, count)| PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    confidence_summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+
+    let mut score_summary = score_counts
+        .into_iter()
+        .map(|(score_band, count)| PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    score_summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+
+    let mut conflict_summary = conflict_counts
+        .into_iter()
+        .map(|(reason, count)| PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    conflict_summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+
+    (summary, confidence_summary, score_summary, conflict_summary)
+}
+
+#[must_use]
+pub fn summarize_wallet_pending_review_subset(
+    reviews: &[WalletReviewSummary],
+) -> (
+    Vec<WalletPendingReviewSummary>,
+    Vec<PendingReviewConfidenceSummary>,
+    Vec<PendingReviewScoreSummary>,
+    Vec<PendingReviewConflictSummary>,
+) {
+    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
+
+    for review in reviews {
+        *source_counts.entry(review.source.clone()).or_default() += 1;
+        *confidence_counts
+            .entry(review.confidence.clone())
+            .or_default() += 1;
+        *score_counts
+            .entry(review_score_band(review.score).to_string())
+            .or_default() += 1;
+        for reason in &review.conflict_reasons {
+            *conflict_counts.entry(reason.clone()).or_default() += 1;
+        }
+    }
+
+    let mut summary = source_counts
+        .into_iter()
+        .map(|(source, count)| WalletPendingReviewSummary { source, count })
+        .collect::<Vec<_>>();
+    summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.source.cmp(&right.source))
+    });
+
+    let mut confidence_summary = confidence_counts
+        .into_iter()
+        .map(|(confidence, count)| PendingReviewConfidenceSummary { confidence, count })
+        .collect::<Vec<_>>();
+    confidence_summary.sort_by(|left, right| {
+        review_confidence_priority(&left.confidence)
+            .cmp(&review_confidence_priority(&right.confidence))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.confidence.cmp(&right.confidence))
+    });
+
+    let mut score_summary = score_counts
+        .into_iter()
+        .map(|(score_band, count)| PendingReviewScoreSummary { score_band, count })
+        .collect::<Vec<_>>();
+    score_summary.sort_by(|left, right| {
+        review_score_band_priority(&left.score_band)
+            .cmp(&review_score_band_priority(&right.score_band))
+            .then_with(|| right.count.cmp(&left.count))
+            .then_with(|| left.score_band.cmp(&right.score_band))
+    });
+
+    let mut conflict_summary = conflict_counts
+        .into_iter()
+        .map(|(reason, count)| PendingReviewConflictSummary { reason, count })
+        .collect::<Vec<_>>();
+    conflict_summary.sort_by(|left, right| {
+        right
+            .count
+            .cmp(&left.count)
+            .then_with(|| left.reason.cmp(&right.reason))
+    });
+
+    (summary, confidence_summary, score_summary, conflict_summary)
 }

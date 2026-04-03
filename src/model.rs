@@ -326,6 +326,12 @@ pub struct SourceItemRecordingMap {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExternalId {
+    pub scheme: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ResolvedExternalIdByFeed {
     pub feed_guid: String,
     pub entity_type: String,

@@ -1386,6 +1386,34 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 fn with_admin_review_routes(router: Router<Arc<AppState>>) -> Router<Arc<AppState>> {
     router
         .route(
+            "/admin/sources/feeds/{guid}/evidence",
+            get(handle_admin_feed_evidence),
+        )
+        .route(
+            "/admin/artist-identity/reviews/{id}",
+            get(handle_admin_get_artist_identity_review),
+        )
+        .route(
+            "/admin/wallets/{id}/force-class",
+            post(handle_admin_wallet_force_class),
+        )
+        .route(
+            "/admin/wallets/{id}/force-confidence",
+            post(handle_admin_wallet_force_confidence),
+        )
+        .route(
+            "/admin/wallets/{id}/revert-classification",
+            post(handle_admin_wallet_revert_classification),
+        )
+        .route(
+            "/admin/wallets/apply-merges",
+            post(handle_admin_wallet_apply_merges),
+        )
+        .route(
+            "/admin/wallets/undo-last-batch",
+            post(handle_admin_wallet_undo_last_batch),
+        )
+        .route(
             "/admin/artist-identity/reviews/{id}/resolve",
             post(handle_admin_resolve_artist_identity_review),
         )
@@ -3167,35 +3195,35 @@ struct AddAliasResponse {
     ok: bool,
 }
 
-#[derive(Debug, Deserialize)]
-struct ResolveArtistIdentityReviewRequest {
-    action: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveArtistIdentityReviewRequest {
+    pub action: String,
     #[serde(default)]
-    target_artist_id: Option<String>,
+    pub target_artist_id: Option<String>,
     #[serde(default)]
-    note: Option<String>,
+    pub note: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct ResolveArtistIdentityReviewResponse {
-    review: db::ArtistIdentityReviewItem,
-    resolve_stats: db::ArtistIdentityResolveStats,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveArtistIdentityReviewResponse {
+    pub review: db::ArtistIdentityReviewItem,
+    pub resolve_stats: db::ArtistIdentityResolveStats,
 }
 
-#[derive(Debug, Deserialize)]
-struct ResolveWalletIdentityReviewRequest {
-    action: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveWalletIdentityReviewRequest {
+    pub action: String,
     #[serde(default)]
-    target_wallet_id: Option<String>,
+    pub target_wallet_id: Option<String>,
     #[serde(default)]
-    target_artist_id: Option<String>,
+    pub target_artist_id: Option<String>,
     #[serde(default)]
-    value: Option<String>,
+    pub value: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct ResolveWalletIdentityReviewResponse {
-    review: db::WalletReviewItem,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ResolveWalletIdentityReviewResponse {
+    pub review: db::WalletReviewItem,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3232,41 +3260,41 @@ struct PendingRecentReviewQuery {
     min_score: Option<u16>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingArtistIdentityReviewsResponse {
-    reviews: Vec<db::ArtistIdentityPendingReview>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingArtistIdentityReviewsResponse {
+    pub reviews: Vec<db::ArtistIdentityPendingReview>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingWalletIdentityReviewsResponse {
-    reviews: Vec<db::WalletReviewSummary>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingWalletIdentityReviewsResponse {
+    pub reviews: Vec<db::WalletReviewSummary>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingArtistIdentityReviewSummaryResponse {
-    summary: Vec<db::ArtistIdentityPendingReviewSummary>,
-    confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
-    score_summary: Vec<db::PendingReviewScoreSummary>,
-    conflict_summary: Vec<db::PendingReviewConflictSummary>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingArtistIdentityReviewSummaryResponse {
+    pub summary: Vec<db::ArtistIdentityPendingReviewSummary>,
+    pub confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
+    pub score_summary: Vec<db::PendingReviewScoreSummary>,
+    pub conflict_summary: Vec<db::PendingReviewConflictSummary>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingWalletIdentityReviewSummaryResponse {
-    summary: Vec<db::WalletPendingReviewSummary>,
-    confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
-    score_summary: Vec<db::PendingReviewScoreSummary>,
-    conflict_summary: Vec<db::PendingReviewConflictSummary>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingWalletIdentityReviewSummaryResponse {
+    pub summary: Vec<db::WalletPendingReviewSummary>,
+    pub confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
+    pub score_summary: Vec<db::PendingReviewScoreSummary>,
+    pub conflict_summary: Vec<db::PendingReviewConflictSummary>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingReviewAgeSummaryResponse {
-    artist_identity: db::PendingReviewAgeSummary,
-    wallet_identity: db::PendingReviewAgeSummary,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingReviewAgeSummaryResponse {
+    pub artist_identity: db::PendingReviewAgeSummary,
+    pub wallet_identity: db::PendingReviewAgeSummary,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingReviewFeedHotspotsResponse {
-    feeds: Vec<db::PendingReviewFeedHotspot>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingReviewFeedHotspotsResponse {
+    pub feeds: Vec<db::PendingReviewFeedHotspot>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3279,18 +3307,18 @@ struct PendingReviewDashboardQuery {
     min_score: Option<u16>,
 }
 
-#[derive(Debug, Serialize)]
-struct PendingReviewDashboardResponse {
-    artist_identity_summary: Vec<db::ArtistIdentityPendingReviewSummary>,
-    wallet_identity_summary: Vec<db::WalletPendingReviewSummary>,
-    artist_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
-    wallet_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
-    artist_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
-    wallet_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
-    artist_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
-    wallet_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
-    age_summary: PendingReviewAgeSummaryResponse,
-    feed_hotspots: Vec<db::PendingReviewFeedHotspot>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PendingReviewDashboardResponse {
+    pub artist_identity_summary: Vec<db::ArtistIdentityPendingReviewSummary>,
+    pub wallet_identity_summary: Vec<db::WalletPendingReviewSummary>,
+    pub artist_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
+    pub wallet_identity_confidence_summary: Vec<db::PendingReviewConfidenceSummary>,
+    pub artist_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
+    pub wallet_identity_score_summary: Vec<db::PendingReviewScoreSummary>,
+    pub artist_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
+    pub wallet_identity_conflict_summary: Vec<db::PendingReviewConflictSummary>,
+    pub age_summary: PendingReviewAgeSummaryResponse,
+    pub feed_hotspots: Vec<db::PendingReviewFeedHotspot>,
 }
 
 const fn default_pending_review_limit() -> usize {
@@ -3307,327 +3335,6 @@ const fn default_stale_review_min_age_days() -> u64 {
 
 const fn default_recent_review_max_age_days() -> u64 {
     1
-}
-
-fn filter_pending_artist_reviews(
-    reviews: &mut Vec<db::ArtistIdentityPendingReview>,
-    confidence: Option<&str>,
-    min_score: Option<u16>,
-) {
-    if let Some(confidence) = confidence {
-        reviews.retain(|review| review.confidence == confidence);
-    }
-    if let Some(min_score) = min_score {
-        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
-    }
-}
-
-fn filter_pending_wallet_reviews(
-    reviews: &mut Vec<db::WalletReviewSummary>,
-    confidence: Option<&str>,
-    min_score: Option<u16>,
-) {
-    if let Some(confidence) = confidence {
-        reviews.retain(|review| review.confidence == confidence);
-    }
-    if let Some(min_score) = min_score {
-        reviews.retain(|review| review.score.is_some_and(|score| score >= min_score));
-    }
-}
-
-fn review_confidence_priority(confidence: &str) -> u8 {
-    match confidence {
-        "high_confidence" => 0,
-        "review_required" => 1,
-        "blocked" => 2,
-        _ => 3,
-    }
-}
-
-fn review_score_band(score: Option<u16>) -> &'static str {
-    match score {
-        Some(80..=100) => "80_100",
-        Some(60..=79) => "60_79",
-        Some(1..=59) => "1_59",
-        _ => "unscored",
-    }
-}
-
-fn review_score_band_priority(score_band: &str) -> u8 {
-    match score_band {
-        "80_100" => 0,
-        "60_79" => 1,
-        "1_59" => 2,
-        "unscored" => 3,
-        _ => 4,
-    }
-}
-
-fn max_pending_review_scan_limit() -> usize {
-    usize::try_from(i64::MAX).unwrap_or(usize::MAX)
-}
-
-fn summarize_pending_review_age_subset(
-    created_ats: impl Iterator<Item = i64>,
-) -> db::PendingReviewAgeSummary {
-    let now = db::unix_now();
-    let last_24h_cutoff = now - 24 * 60 * 60;
-    let older_than_7d_cutoff = now - 7 * 24 * 60 * 60;
-    let mut total = 0usize;
-    let mut created_last_24h = 0usize;
-    let mut older_than_7d = 0usize;
-    let mut oldest_created_at: Option<i64> = None;
-
-    for created_at in created_ats {
-        total += 1;
-        if created_at >= last_24h_cutoff {
-            created_last_24h += 1;
-        }
-        if created_at <= older_than_7d_cutoff {
-            older_than_7d += 1;
-        }
-        oldest_created_at = Some(match oldest_created_at {
-            Some(current) => current.min(created_at),
-            None => created_at,
-        });
-    }
-
-    db::PendingReviewAgeSummary {
-        total,
-        created_last_24h,
-        older_than_7d,
-        oldest_created_at,
-    }
-}
-
-fn feed_meta_for_guid(
-    conn: &rusqlite::Connection,
-    feed_guid: &str,
-) -> Result<Option<(String, String)>, rusqlite::Error> {
-    conn.query_row(
-        "SELECT title, feed_url FROM feeds WHERE feed_guid = ?1",
-        params![feed_guid],
-        |row| Ok((row.get(0)?, row.get(1)?)),
-    )
-    .optional()
-}
-
-fn summarize_pending_review_hotspots_subset(
-    conn: &rusqlite::Connection,
-    artist_reviews: &[db::ArtistIdentityPendingReview],
-    wallet_reviews: &[db::WalletReviewSummary],
-    limit: usize,
-) -> Result<Vec<db::PendingReviewFeedHotspot>, db::DbError> {
-    let mut hotspots = std::collections::BTreeMap::<String, db::PendingReviewFeedHotspot>::new();
-    let mut feed_meta_cache = std::collections::BTreeMap::<String, (String, String)>::new();
-    let mut wallet_claim_feed_cache =
-        std::collections::BTreeMap::<String, Vec<db::WalletClaimFeed>>::new();
-
-    for review in artist_reviews {
-        let (title, feed_url) = if let Some(meta) = feed_meta_cache.get(&review.feed_guid) {
-            meta.clone()
-        } else {
-            let meta = feed_meta_for_guid(conn, &review.feed_guid)?
-                .unwrap_or_else(|| (review.title.clone(), String::new()));
-            feed_meta_cache.insert(review.feed_guid.clone(), meta.clone());
-            meta
-        };
-        let entry =
-            hotspots
-                .entry(review.feed_guid.clone())
-                .or_insert(db::PendingReviewFeedHotspot {
-                    feed_guid: review.feed_guid.clone(),
-                    title,
-                    feed_url,
-                    artist_review_count: 0,
-                    wallet_review_count: 0,
-                    total_review_count: 0,
-                });
-        entry.artist_review_count += 1;
-        entry.total_review_count += 1;
-    }
-
-    for review in wallet_reviews {
-        let claim_feeds = if let Some(claim_feeds) = wallet_claim_feed_cache.get(&review.wallet_id)
-        {
-            claim_feeds.clone()
-        } else {
-            let claim_feeds = db::get_wallet_claim_feeds(conn, &review.wallet_id)?;
-            wallet_claim_feed_cache.insert(review.wallet_id.clone(), claim_feeds.clone());
-            claim_feeds
-        };
-        for claim_feed in claim_feeds {
-            let entry = hotspots.entry(claim_feed.feed_guid.clone()).or_insert(
-                db::PendingReviewFeedHotspot {
-                    feed_guid: claim_feed.feed_guid.clone(),
-                    title: claim_feed.title.clone(),
-                    feed_url: claim_feed.feed_url.clone(),
-                    artist_review_count: 0,
-                    wallet_review_count: 0,
-                    total_review_count: 0,
-                },
-            );
-            entry.wallet_review_count += 1;
-            entry.total_review_count += 1;
-        }
-    }
-
-    let mut hotspots = hotspots.into_values().collect::<Vec<_>>();
-    hotspots.sort_by(|left, right| {
-        right
-            .total_review_count
-            .cmp(&left.total_review_count)
-            .then_with(|| left.title.cmp(&right.title))
-            .then_with(|| left.feed_guid.cmp(&right.feed_guid))
-    });
-    hotspots.truncate(limit);
-    Ok(hotspots)
-}
-
-fn summarize_artist_pending_review_subset(
-    reviews: &[db::ArtistIdentityPendingReview],
-) -> (
-    Vec<db::ArtistIdentityPendingReviewSummary>,
-    Vec<db::PendingReviewConfidenceSummary>,
-    Vec<db::PendingReviewScoreSummary>,
-    Vec<db::PendingReviewConflictSummary>,
-) {
-    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
-
-    for review in reviews {
-        *source_counts.entry(review.source.clone()).or_default() += 1;
-        *confidence_counts
-            .entry(review.confidence.clone())
-            .or_default() += 1;
-        *score_counts
-            .entry(review_score_band(review.score).to_string())
-            .or_default() += 1;
-        for reason in &review.conflict_reasons {
-            *conflict_counts.entry(reason.clone()).or_default() += 1;
-        }
-    }
-
-    let mut summary = source_counts
-        .into_iter()
-        .map(|(source, count)| db::ArtistIdentityPendingReviewSummary { source, count })
-        .collect::<Vec<_>>();
-    summary.sort_by(|left, right| {
-        right
-            .count
-            .cmp(&left.count)
-            .then_with(|| left.source.cmp(&right.source))
-    });
-
-    let mut confidence_summary = confidence_counts
-        .into_iter()
-        .map(|(confidence, count)| db::PendingReviewConfidenceSummary { confidence, count })
-        .collect::<Vec<_>>();
-    confidence_summary.sort_by(|left, right| {
-        review_confidence_priority(&left.confidence)
-            .cmp(&review_confidence_priority(&right.confidence))
-            .then_with(|| right.count.cmp(&left.count))
-            .then_with(|| left.confidence.cmp(&right.confidence))
-    });
-
-    let mut score_summary = score_counts
-        .into_iter()
-        .map(|(score_band, count)| db::PendingReviewScoreSummary { score_band, count })
-        .collect::<Vec<_>>();
-    score_summary.sort_by(|left, right| {
-        review_score_band_priority(&left.score_band)
-            .cmp(&review_score_band_priority(&right.score_band))
-            .then_with(|| right.count.cmp(&left.count))
-            .then_with(|| left.score_band.cmp(&right.score_band))
-    });
-
-    let mut conflict_summary = conflict_counts
-        .into_iter()
-        .map(|(reason, count)| db::PendingReviewConflictSummary { reason, count })
-        .collect::<Vec<_>>();
-    conflict_summary.sort_by(|left, right| {
-        right
-            .count
-            .cmp(&left.count)
-            .then_with(|| left.reason.cmp(&right.reason))
-    });
-
-    (summary, confidence_summary, score_summary, conflict_summary)
-}
-
-fn summarize_wallet_pending_review_subset(
-    reviews: &[db::WalletReviewSummary],
-) -> (
-    Vec<db::WalletPendingReviewSummary>,
-    Vec<db::PendingReviewConfidenceSummary>,
-    Vec<db::PendingReviewScoreSummary>,
-    Vec<db::PendingReviewConflictSummary>,
-) {
-    let mut source_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut confidence_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut score_counts = std::collections::BTreeMap::<String, usize>::new();
-    let mut conflict_counts = std::collections::BTreeMap::<String, usize>::new();
-
-    for review in reviews {
-        *source_counts.entry(review.source.clone()).or_default() += 1;
-        *confidence_counts
-            .entry(review.confidence.clone())
-            .or_default() += 1;
-        *score_counts
-            .entry(review_score_band(review.score).to_string())
-            .or_default() += 1;
-        for reason in &review.conflict_reasons {
-            *conflict_counts.entry(reason.clone()).or_default() += 1;
-        }
-    }
-
-    let mut summary = source_counts
-        .into_iter()
-        .map(|(source, count)| db::WalletPendingReviewSummary { source, count })
-        .collect::<Vec<_>>();
-    summary.sort_by(|left, right| {
-        right
-            .count
-            .cmp(&left.count)
-            .then_with(|| left.source.cmp(&right.source))
-    });
-
-    let mut confidence_summary = confidence_counts
-        .into_iter()
-        .map(|(confidence, count)| db::PendingReviewConfidenceSummary { confidence, count })
-        .collect::<Vec<_>>();
-    confidence_summary.sort_by(|left, right| {
-        review_confidence_priority(&left.confidence)
-            .cmp(&review_confidence_priority(&right.confidence))
-            .then_with(|| right.count.cmp(&left.count))
-            .then_with(|| left.confidence.cmp(&right.confidence))
-    });
-
-    let mut score_summary = score_counts
-        .into_iter()
-        .map(|(score_band, count)| db::PendingReviewScoreSummary { score_band, count })
-        .collect::<Vec<_>>();
-    score_summary.sort_by(|left, right| {
-        review_score_band_priority(&left.score_band)
-            .cmp(&review_score_band_priority(&right.score_band))
-            .then_with(|| right.count.cmp(&left.count))
-            .then_with(|| left.score_band.cmp(&right.score_band))
-    });
-
-    let mut conflict_summary = conflict_counts
-        .into_iter()
-        .map(|(reason, count)| db::PendingReviewConflictSummary { reason, count })
-        .collect::<Vec<_>>();
-    conflict_summary.sort_by(|left, right| {
-        right
-            .count
-            .cmp(&left.count)
-            .then_with(|| left.reason.cmp(&right.reason))
-    });
-
-    (summary, confidence_summary, score_summary, conflict_summary)
 }
 
 fn pending_review_days_to_secs(days: u64, field: &'static str) -> Result<i64, ApiError> {
@@ -3717,91 +3424,93 @@ fn validate_wallet_identity_review_action_request(
     }
 }
 
-#[derive(Debug, Serialize)]
-struct AdminCreditNameResponse {
-    artist_id: String,
-    position: i64,
-    name: String,
-    join_phrase: String,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminCreditNameResponse {
+    pub position: i64,
+    pub artist_id: String,
+    pub name: String,
+    pub join_phrase: String,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminCreditResponse {
-    id: i64,
-    display_name: String,
-    names: Vec<AdminCreditNameResponse>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminCreditResponse {
+    pub id: i64,
+    pub display_name: String,
+    pub names: Vec<AdminCreditNameResponse>,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminFeedTrackDiagnosticsResponse {
-    track_guid: String,
-    title: String,
-    artist_credit: AdminCreditResponse,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminFeedTrackDiagnosticsResponse {
+    pub track_guid: String,
+    pub title: String,
+    pub artist_credit: AdminCreditResponse,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminFeedWalletDiagnosticsResponse {
-    wallet: db::WalletDetail,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminFeedWalletDiagnosticsResponse {
+    pub wallet: db::WalletDetail,
     #[serde(skip_serializing_if = "Option::is_none")]
-    claim_feed: Option<db::WalletClaimFeed>,
+    pub claim_feed: Option<db::WalletClaimFeed>,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminFeedDiagnosticsResponse {
-    feed_guid: String,
-    title: String,
-    feed_url: String,
-    artist_credit: AdminCreditResponse,
-    tracks: Vec<AdminFeedTrackDiagnosticsResponse>,
-    artist_identity_plan: db::ArtistIdentityFeedPlan,
-    artist_identity_reviews: Vec<db::ArtistIdentityReviewItem>,
-    wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminFeedDiagnosticsResponse {
+    pub feed_guid: String,
+    pub title: String,
+    pub feed_url: String,
+    pub artist_credit: AdminCreditResponse,
+    pub tracks: Vec<AdminFeedTrackDiagnosticsResponse>,
+    pub artist_identity_plan: db::ArtistIdentityFeedPlan,
+    pub artist_identity_reviews: Vec<db::ArtistIdentityReviewItem>,
+    pub wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminArtistFeedDiagnosticsResponse {
-    feed_guid: String,
-    title: String,
-    feed_url: String,
-    artist_credit: AdminCreditResponse,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminArtistFeedDiagnosticsResponse {
+    pub feed_guid: String,
+    pub title: String,
+    pub feed_url: String,
+    pub artist_credit: AdminCreditResponse,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminArtistTrackDiagnosticsResponse {
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminArtistTrackDiagnosticsResponse {
     track_guid: String,
     feed_guid: String,
     title: String,
     artist_credit: AdminCreditResponse,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminArtistReviewDiagnosticsResponse {
-    feed_guid: String,
-    feed_title: String,
-    review: db::ArtistIdentityReviewItem,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminArtistReviewDiagnosticsResponse {
+    pub feed_guid: String,
+    pub feed_title: String,
+    pub review: db::ArtistIdentityReviewItem,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminArtistDiagnosticsResponse {
-    requested_artist_id: String,
-    artist: crate::model::Artist,
-    redirected_from: Vec<String>,
-    credits: Vec<AdminCreditResponse>,
-    feeds: Vec<AdminArtistFeedDiagnosticsResponse>,
-    tracks: Vec<AdminArtistTrackDiagnosticsResponse>,
-    wallets: Vec<db::WalletDetail>,
-    unlinked_feed_wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
-    reviews: Vec<AdminArtistReviewDiagnosticsResponse>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminArtistDiagnosticsResponse {
+    pub requested_artist_id: String,
+    pub artist: crate::model::Artist,
+    pub redirected_from: Vec<String>,
+    pub credits: Vec<AdminCreditResponse>,
+    pub feeds: Vec<AdminArtistFeedDiagnosticsResponse>,
+    pub tracks: Vec<AdminArtistTrackDiagnosticsResponse>,
+    pub wallets: Vec<db::WalletDetail>,
+    pub unlinked_feed_wallets: Vec<AdminFeedWalletDiagnosticsResponse>,
+    pub reviews: Vec<AdminArtistReviewDiagnosticsResponse>,
+    pub releases: Vec<crate::model::Release>,
+    pub external_ids: Vec<crate::model::ExternalId>,
 }
 
-#[derive(Debug, Serialize)]
-struct AdminWalletDiagnosticsResponse {
-    requested_wallet_id: String,
-    wallet: db::WalletDetail,
-    redirected_from: Vec<String>,
-    reviews: Vec<db::WalletReviewItem>,
-    claim_feeds: Vec<db::WalletClaimFeed>,
-    alias_peers: Vec<db::WalletAliasPeer>,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AdminWalletDiagnosticsResponse {
+    pub requested_wallet_id: String,
+    pub wallet: db::WalletDetail,
+    pub redirected_from: Vec<String>,
+    pub reviews: Vec<db::WalletReviewItem>,
+    pub claim_feeds: Vec<db::WalletClaimFeed>,
+    pub alias_peers: Vec<db::WalletAliasPeer>,
 }
 
 fn admin_credit_response(
@@ -4089,6 +3798,14 @@ fn admin_artist_diagnostics_response(
     }
 
     let reviews = admin_artist_reviews(conn, &resolved_id)?;
+    let releases = db::get_releases_for_artist(conn, &resolved_id)?;
+    let external_ids = db::get_external_ids(conn, "artist", &resolved_id)?
+        .into_iter()
+        .map(|row| crate::model::ExternalId {
+            scheme: row.scheme,
+            value: row.value,
+        })
+        .collect();
 
     Ok(Some(AdminArtistDiagnosticsResponse {
         requested_artist_id,
@@ -4100,6 +3817,8 @@ fn admin_artist_diagnostics_response(
         wallets,
         unlinked_feed_wallets: unlinked_feed_wallets.into_values().collect(),
         reviews,
+        releases,
+        external_ids,
     }))
 }
 
@@ -4192,7 +3911,11 @@ async fn handle_admin_pending_artist_identity_reviews(
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_pending_artist_identity_reviews(conn, query.limit)?;
-        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_artist_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4211,7 +3934,11 @@ async fn handle_admin_stale_artist_identity_reviews(
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews =
             db::list_stale_pending_artist_identity_reviews(conn, min_age_secs, query.limit)?;
-        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_artist_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4230,7 +3957,11 @@ async fn handle_admin_recent_artist_identity_reviews(
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews =
             db::list_recent_pending_artist_identity_reviews(conn, max_age_secs, query.limit)?;
-        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_artist_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4247,7 +3978,11 @@ async fn handle_admin_pending_wallet_identity_reviews(
 
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_pending_wallet_reviews(conn, query.limit)?;
-        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_wallet_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4265,7 +4000,11 @@ async fn handle_admin_stale_wallet_identity_reviews(
     let min_age_secs = pending_review_days_to_secs(query.min_age_days, "min_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_stale_pending_wallet_reviews(conn, min_age_secs, query.limit)?;
-        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_wallet_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4283,7 +4022,11 @@ async fn handle_admin_recent_wallet_identity_reviews(
     let max_age_secs = pending_review_days_to_secs(query.max_age_days, "max_age_days")?;
     let reviews = spawn_db(state.db.clone(), move |conn| {
         let mut reviews = db::list_recent_pending_wallet_reviews(conn, max_age_secs, query.limit)?;
-        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
+        db::filter_pending_wallet_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
         Ok(reviews)
     })
     .await?;
@@ -4300,9 +4043,13 @@ async fn handle_admin_pending_artist_identity_review_summary(
 
     let summary = spawn_db(state.db.clone(), move |conn| {
         let mut reviews =
-            db::list_pending_artist_identity_reviews(conn, max_pending_review_scan_limit())?;
-        filter_pending_artist_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
-        Ok(summarize_artist_pending_review_subset(&reviews))
+            db::list_pending_artist_identity_reviews(conn, db::max_pending_review_scan_limit())?;
+        db::filter_pending_artist_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
+        Ok(db::summarize_artist_pending_review_subset(&reviews))
     })
     .await?;
 
@@ -4322,9 +4069,14 @@ async fn handle_admin_pending_wallet_identity_review_summary(
     check_admin_token(&headers, &state.admin_token)?;
 
     let summary = spawn_db(state.db.clone(), move |conn| {
-        let mut reviews = db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
-        filter_pending_wallet_reviews(&mut reviews, query.confidence.as_deref(), query.min_score);
-        Ok(summarize_wallet_pending_review_subset(&reviews))
+        let mut reviews =
+            db::list_pending_wallet_reviews(conn, db::max_pending_review_scan_limit())?;
+        db::filter_pending_wallet_reviews(
+            &mut reviews,
+            query.confidence.as_deref(),
+            query.min_score,
+        );
+        Ok(db::summarize_wallet_pending_review_subset(&reviews))
     })
     .await?;
 
@@ -4377,15 +4129,15 @@ async fn handle_admin_pending_review_dashboard(
         feed_hotspots,
     ) = spawn_db(state.db.clone(), move |conn| {
         let mut artist_reviews =
-            db::list_pending_artist_identity_reviews(conn, max_pending_review_scan_limit())?;
-        filter_pending_artist_reviews(
+            db::list_pending_artist_identity_reviews(conn, db::max_pending_review_scan_limit())?;
+        db::filter_pending_artist_reviews(
             &mut artist_reviews,
             query.confidence.as_deref(),
             query.min_score,
         );
         let mut wallet_reviews =
-            db::list_pending_wallet_reviews(conn, max_pending_review_scan_limit())?;
-        filter_pending_wallet_reviews(
+            db::list_pending_wallet_reviews(conn, db::max_pending_review_scan_limit())?;
+        db::filter_pending_wallet_reviews(
             &mut wallet_reviews,
             query.confidence.as_deref(),
             query.min_score,
@@ -4395,13 +4147,13 @@ async fn handle_admin_pending_review_dashboard(
             artist_identity_confidence_summary,
             artist_identity_score_summary,
             artist_identity_conflict_summary,
-        ) = summarize_artist_pending_review_subset(&artist_reviews);
+        ) = db::summarize_artist_pending_review_subset(&artist_reviews);
         let (
             wallet_identity_summary,
             wallet_identity_confidence_summary,
             wallet_identity_score_summary,
             wallet_identity_conflict_summary,
-        ) = summarize_wallet_pending_review_subset(&wallet_reviews);
+        ) = db::summarize_wallet_pending_review_subset(&wallet_reviews);
         Ok((
             artist_identity_summary,
             wallet_identity_summary,
@@ -4411,13 +4163,13 @@ async fn handle_admin_pending_review_dashboard(
             wallet_identity_score_summary,
             artist_identity_conflict_summary,
             wallet_identity_conflict_summary,
-            summarize_pending_review_age_subset(
+            db::summarize_pending_review_age_subset(
                 artist_reviews.iter().map(|review| review.created_at),
             ),
-            summarize_pending_review_age_subset(
+            db::summarize_pending_review_age_subset(
                 wallet_reviews.iter().map(|review| review.created_at),
             ),
-            summarize_pending_review_hotspots_subset(
+            db::summarize_pending_review_hotspots_subset(
                 conn,
                 &artist_reviews,
                 &wallet_reviews,
@@ -4467,7 +4219,7 @@ async fn handle_admin_resolve_wallet_identity_review(
 ) -> Result<Json<ResolveWalletIdentityReviewResponse>, ApiError> {
     check_admin_token(&headers, &state.admin_token)?;
     let (action, target_id, value) = validate_wallet_identity_review_action_request(&req)?;
-    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+    let outcome = spawn_db_write(state.db.clone(), move |conn| {
         let review_exists: bool = conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM wallet_identity_review WHERE id = ?1)",
             params![id],
@@ -5763,4 +5515,135 @@ async fn handle_patch_track(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── API-backed TUI endpoints ────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FeedEvidenceResponse {
+    pub release_maps: Vec<model::SourceFeedReleaseMap>,
+    pub platform_claims: Vec<model::SourcePlatformClaim>,
+    pub entity_links: Vec<model::SourceEntityLink>,
+    pub entity_ids: Vec<model::SourceEntityIdClaim>,
+    pub remote_items: Vec<model::FeedRemoteItemRaw>,
+}
+
+async fn handle_admin_feed_evidence(
+    State(state): State<Arc<AppState>>,
+    Path(guid): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<FeedEvidenceResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    let result = spawn_db(state.db.clone(), move |conn| {
+        let release_maps = db::get_source_feed_release_maps_for_feed(conn, &guid)?;
+        let platform_claims = db::get_source_platform_claims_for_feed(conn, &guid)?;
+        let entity_links = db::get_source_entity_links_for_entity(conn, "feed", &guid)?;
+        let entity_ids = db::get_source_entity_ids_for_entity(conn, "feed", &guid)?;
+        let remote_items = db::get_feed_remote_items_for_feed(conn, &guid)?;
+
+        Ok(FeedEvidenceResponse {
+            release_maps,
+            platform_claims,
+            entity_links,
+            entity_ids,
+            remote_items,
+        })
+    })
+    .await?;
+
+    Ok(Json(result))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ArtistIdentityReviewResponse {
+    pub review: Option<db::ArtistIdentityReviewItem>,
+}
+
+async fn handle_admin_get_artist_identity_review(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<i64>,
+    headers: HeaderMap,
+) -> Result<Json<ArtistIdentityReviewResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    let review = spawn_db(state.db.clone(), move |conn| {
+        db::get_artist_identity_review(conn, id)
+    })
+    .await?;
+
+    Ok(Json(ArtistIdentityReviewResponse { review }))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WalletForceClassRequest {
+    pub class: String,
+}
+
+async fn handle_admin_wallet_force_class(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<WalletForceClassRequest>,
+) -> Result<Json<()>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    spawn_db_write(state.db.clone(), move |conn| {
+        db::set_wallet_force_class(conn, &id, &req.class)
+    })
+    .await?;
+    Ok(Json(()))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WalletForceConfidenceRequest {
+    pub confidence: String,
+}
+
+async fn handle_admin_wallet_force_confidence(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(req): Json<WalletForceConfidenceRequest>,
+) -> Result<Json<()>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    spawn_db_write(state.db.clone(), move |conn| {
+        db::set_wallet_force_confidence(conn, &id, &req.confidence)
+    })
+    .await?;
+    Ok(Json(()))
+}
+
+async fn handle_admin_wallet_revert_classification(
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<()>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    spawn_db_write(state.db.clone(), move |conn| {
+        db::revert_wallet_operator_classification(conn, &id)
+    })
+    .await?;
+    Ok(Json(()))
+}
+
+async fn handle_admin_wallet_apply_merges(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<db::WalletRefreshStats>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    let refresh = spawn_db_write(state.db.clone(), move |conn| {
+        db::backfill_wallet_pass5(conn)
+    })
+    .await?;
+    Ok(Json(refresh))
+}
+
+async fn handle_admin_wallet_undo_last_batch(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<Option<db::WalletUndoStats>>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+    let result = spawn_db_write(state.db.clone(), move |conn| {
+        db::undo_last_wallet_merge_batch(conn)
+    })
+    .await?;
+    Ok(Json(result))
 }
