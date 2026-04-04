@@ -41,8 +41,13 @@ struct Args {
 
 #[derive(Debug)]
 enum BackendArgs {
-    Db { path: PathBuf },
-    Api { base_url: String, admin_token: String },
+    Db {
+        path: PathBuf,
+    },
+    Api {
+        base_url: String,
+        admin_token: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -519,9 +524,12 @@ impl App {
         let target_artist_id = main_artist.artist_id.clone();
         let target_name = main_artist.name.clone();
 
-        let outcome =
-            self.backend
-                .resolve_artist_review(review_id, "merge", Some(&target_artist_id), None)?;
+        let outcome = self.backend.resolve_artist_review(
+            review_id,
+            "merge",
+            Some(&target_artist_id),
+            None,
+        )?;
 
         self.dialog = Some(stophammer::tui::text_dialog(
             "Artist Merge Applied",
@@ -785,9 +793,7 @@ impl App {
     }
 
     fn show_recent_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let recent = self
-            .backend
-            .list_recent_artist_reviews(24 * 60 * 60, 10)?;
+        let recent = self.backend.list_recent_artist_reviews(24 * 60 * 60, 10)?;
         let recent_count = recent.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending artist reviews created in the last 24 hours",
@@ -984,7 +990,7 @@ fn parse_args() -> Result<Args, String> {
 
     let backend = match (db_path, node) {
         (Some(_), Some(_)) => {
-            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string())
+            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string());
         }
         (Some(path), None) => BackendArgs::Db { path },
         (None, Some(base_url)) => BackendArgs::Api {

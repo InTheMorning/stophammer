@@ -69,8 +69,13 @@ struct Args {
 
 #[derive(Debug)]
 enum BackendArgs {
-    Db { path: PathBuf },
-    Api { base_url: String, admin_token: String },
+    Db {
+        path: PathBuf,
+    },
+    Api {
+        base_url: String,
+        admin_token: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -297,7 +302,7 @@ fn parse_args() -> Result<Args, String> {
 
     let backend = match (db_path, node) {
         (Some(_), Some(_)) => {
-            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string())
+            return Err("choose either --db or --node/ADMIN_TOKEN, not both".to_string());
         }
         (Some(path), None) => BackendArgs::Db { path },
         (None, Some(base_url)) => BackendArgs::Api {
@@ -425,34 +430,10 @@ impl App {
         }
     }
 
-    fn pair_already_reviewed(
-        &self,
-        source_wallet_id: &str,
-        candidate_wallet_id: &str,
-    ) -> Result<bool, Box<dyn Error>> {
-        let source_overrides = self
-            .backend
-            .get_wallet_detail(source_wallet_id)?
-            .map(|wallet| wallet.overrides)
-            .unwrap_or_default();
-        let candidate_overrides = self
-            .backend
-            .get_wallet_detail(candidate_wallet_id)?
-            .map(|wallet| wallet.overrides)
-            .unwrap_or_default();
-        let reviewed = source_overrides.iter().any(|override_row| {
-            override_row.override_type == "merge"
-                && override_row.target_id.as_deref() == Some(candidate_wallet_id)
-        }) || candidate_overrides.iter().any(|override_row| {
-            override_row.override_type == "merge"
-                && override_row.target_id.as_deref() == Some(source_wallet_id)
-        });
-        Ok(reviewed)
-    }
-
     fn load_candidate_wallets_for_review(
         &self,
         source_review: &stophammer::db::WalletReviewSummary,
+        source_detail: Option<&stophammer::db::WalletDetail>,
         alias: Option<&str>,
         allowed_wallet_ids: Option<&BTreeSet<String>>,
     ) -> Result<Vec<stophammer::db::WalletAliasPeer>, Box<dyn Error>> {
@@ -460,20 +441,41 @@ impl App {
             return Ok(Vec::new());
         };
 
+        // Filter by identity and allowed set before touching the backend again.
+        let filtered_peers: Vec<_> = self
+            .backend
+            .get_wallet_alias_peers(alias)?
+            .into_iter()
+            .filter(|peer| {
+                peer.wallet_id != source_review.wallet_id
+                    && allowed_wallet_ids.is_none_or(|ids| ids.contains(&peer.wallet_id))
+            })
+            .collect();
+
+        if filtered_peers.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Fetch candidate detail once per peer (source_detail comes from the
+        // caller, so the source wallet is never re-fetched here).
         let mut candidates = Vec::new();
-        for peer in self.backend.get_wallet_alias_peers(alias)? {
-            if peer.wallet_id == source_review.wallet_id {
-                continue;
+        for peer in filtered_peers {
+            let candidate_detail = self.backend.get_wallet_detail(&peer.wallet_id)?;
+            let source_merged = source_detail.is_some_and(|d| {
+                d.overrides.iter().any(|o| {
+                    o.override_type == "merge"
+                        && o.target_id.as_deref() == Some(peer.wallet_id.as_str())
+                })
+            });
+            let candidate_merged = candidate_detail.as_ref().is_some_and(|d| {
+                d.overrides.iter().any(|o| {
+                    o.override_type == "merge"
+                        && o.target_id.as_deref() == Some(source_review.wallet_id.as_str())
+                })
+            });
+            if !source_merged && !candidate_merged {
+                candidates.push(peer);
             }
-            if let Some(allowed_wallet_ids) = allowed_wallet_ids
-                && !allowed_wallet_ids.contains(&peer.wallet_id)
-            {
-                continue;
-            }
-            if self.pair_already_reviewed(&source_review.wallet_id, &peer.wallet_id)? {
-                continue;
-            }
-            candidates.push(peer);
         }
         Ok(candidates)
     }
@@ -485,18 +487,57 @@ impl App {
         let mut pruned = Vec::new();
         for mut group in groups {
             if group.source == "cross_wallet_alias" {
-                let alias = Some(group.evidence_key.as_str());
+                let alias = group.evidence_key.as_str();
                 let pending_peer_ids = group
                     .reviews
                     .iter()
                     .map(|review| review.wallet_id.clone())
                     .collect::<BTreeSet<_>>();
+
+                // Fetch alias peers once for the whole group — every review in a
+                // cross_wallet_alias group shares the same evidence_key/alias.
+                let alias_peers = self.backend.get_wallet_alias_peers(alias)?;
+
+                // Preload wallet details for every wallet in the group so that
+                // pair_already_reviewed checks become in-memory lookups instead
+                // of one get_wallet_detail call per source + per candidate per review.
+                let mut detail_cache =
+                    BTreeMap::<String, Option<stophammer::db::WalletDetail>>::new();
+                for wallet_id in &pending_peer_ids {
+                    let detail = self.backend.get_wallet_detail(wallet_id)?;
+                    detail_cache.insert(wallet_id.clone(), detail);
+                }
+
                 let mut reviews = Vec::new();
                 for review in group.reviews {
-                    if !self
-                        .load_candidate_wallets_for_review(&review, alias, Some(&pending_peer_ids))?
-                        .is_empty()
-                    {
+                    let has_candidates = alias_peers.iter().any(|peer| {
+                        if peer.wallet_id == review.wallet_id {
+                            return false;
+                        }
+                        if !pending_peer_ids.contains(&peer.wallet_id) {
+                            return false;
+                        }
+                        let source_merged = detail_cache
+                            .get(&review.wallet_id)
+                            .and_then(Option::as_ref)
+                            .is_some_and(|d| {
+                                d.overrides.iter().any(|o| {
+                                    o.override_type == "merge"
+                                        && o.target_id.as_deref() == Some(peer.wallet_id.as_str())
+                                })
+                            });
+                        let candidate_merged = detail_cache
+                            .get(&peer.wallet_id)
+                            .and_then(Option::as_ref)
+                            .is_some_and(|d| {
+                                d.overrides.iter().any(|o| {
+                                    o.override_type == "merge"
+                                        && o.target_id.as_deref() == Some(review.wallet_id.as_str())
+                                })
+                            });
+                        !source_merged && !candidate_merged
+                    });
+                    if has_candidates {
                         reviews.push(review);
                     }
                 }
@@ -676,7 +717,9 @@ impl App {
         };
 
         self.source_wallet_detail = self.backend.get_wallet_detail(&source_review.wallet_id)?;
-        self.claim_feeds = self.backend.get_wallet_claim_feeds(&source_review.wallet_id)?;
+        self.claim_feeds = self
+            .backend
+            .get_wallet_claim_feeds(&source_review.wallet_id)?;
 
         let pending_peer_ids = self
             .current_group()
@@ -691,6 +734,7 @@ impl App {
 
         self.candidate_wallets = self.load_candidate_wallets_for_review(
             &source_review,
+            self.source_wallet_detail.as_ref(),
             self.current_group()
                 .map(|group| group.evidence_key.as_str()),
             Some(&pending_peer_ids),
@@ -1490,9 +1534,7 @@ impl App {
     }
 
     fn show_recent_reviews(&mut self) -> Result<(), Box<dyn Error>> {
-        let recent = self
-            .backend
-            .list_recent_wallet_reviews(24 * 60 * 60, 10)?;
+        let recent = self.backend.list_recent_wallet_reviews(24 * 60 * 60, 10)?;
         let recent_count = recent.len();
         let lines = stophammer::tui::build_review_subset_lines(
             "Pending wallet reviews created in the last 24 hours",

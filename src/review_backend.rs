@@ -599,9 +599,8 @@ impl ReviewBackend for ApiBackend {
         if let Some(s) = min_score {
             let _ = write!(query, "&min_score={s}");
         }
-        let res: crate::api::PendingWalletIdentityReviewsResponse = self.get(&format!(
-            "/admin/wallet-identity/reviews/pending{query}"
-        ))?;
+        let res: crate::api::PendingWalletIdentityReviewsResponse =
+            self.get(&format!("/admin/wallet-identity/reviews/pending{query}"))?;
         Ok(res.reviews)
     }
 
