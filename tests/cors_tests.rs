@@ -123,9 +123,9 @@ async fn cors_allows_x_admin_token_header() {
         .oneshot(
             Request::builder()
                 .method("OPTIONS")
-                .uri("/admin/artists/merge")
+                .uri("/v1/feeds/test-feed-guid")
                 .header("Origin", "https://example.com")
-                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Method", "DELETE")
                 .header("Access-Control-Request-Headers", "x-admin-token")
                 .body(axum::body::Body::empty())
                 .unwrap(),

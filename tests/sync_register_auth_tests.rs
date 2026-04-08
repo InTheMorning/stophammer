@@ -154,25 +154,18 @@ async fn admin_endpoint_with_sync_token_returns_403() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
-    let body = serde_json::json!({
-        "artist_id": "artist-1",
-        "alias":     "Some Alias"
-    });
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/alias")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Sync-Token", "sync-secret")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&body).expect("serialize"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
         resp.status(),
-        403,
-        "Admin endpoint must reject X-Sync-Token (sync token must NOT grant admin access)"
+        401,
+        "Admin endpoint must not treat X-Sync-Token as valid admin or bearer auth"
     );
 }
 
@@ -184,22 +177,13 @@ async fn admin_endpoint_with_admin_token_still_works() {
     let state = test_app_state(Arc::clone(&db), "admin-secret", Some("sync-secret"));
     let app = stophammer::api::build_router(state);
 
-    // Use /admin/artists/merge which calls spawn_blocking. With nonexistent
-    // artists the merge returns 500 (spawn_blocking behaviour in single-thread
-    // test runtime), but the auth check runs first — a 403 would mean the
-    // admin token was rejected. Anything else proves auth passed.
-    let body = serde_json::json!({
-        "source_artist_id": "nonexistent-a1",
-        "target_artist_id": "nonexistent-a2"
-    });
+    // Use the feed delete endpoint. With a nonexistent feed, a non-403 result
+    // proves the admin auth check passed before the lookup.
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/merge")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Admin-Token", "admin-secret")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&body).expect("serialize"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");

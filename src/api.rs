@@ -1339,8 +1339,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/sync/register", post(handle_sync_register))
         .route("/sync/peers", get(handle_sync_peers))
         .route("/node/info", get(handle_node_info))
-        .route("/admin/artists/merge", post(handle_admin_merge_artists))
-        .route("/admin/artists/alias", post(handle_admin_add_alias))
         // Route versioning compliant — 2026-03-12
         .route(
             "/v1/feeds/{guid}",
@@ -2997,127 +2995,6 @@ fn check_sync_token(headers: &HeaderMap, sync_token: Option<&str>) -> Result<(),
     })
 }
 
-// ── POST /admin/artists/merge ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct MergeArtistsRequest {
-    source_artist_id: String,
-    target_artist_id: String,
-}
-
-#[derive(Serialize)]
-struct MergeArtistsResponse {
-    merged: bool,
-    events_emitted: Vec<String>,
-}
-
-async fn handle_admin_merge_artists(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(req): Json<MergeArtistsRequest>,
-) -> Result<Json<MergeArtistsResponse>, ApiError> {
-    check_admin_token(&headers, &state.admin_token)?;
-
-    let state2 = Arc::clone(&state);
-    // Mutex safety compliant — 2026-03-12
-    // Finding-2 atomic mutation+event — 2026-03-13
-    // Issue-SSE-PUBLISH — 2026-03-14: return (response, sse_frame_info) for SSE publish.
-    let result = tokio::task::spawn_blocking(
-        move || -> Result<(MergeArtistsResponse, Option<(String, SseFrame)>), ApiError> {
-            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "database mutex poisoned".into(),
-                www_authenticate: None,
-            })?;
-
-            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-            let tx = conn
-                .transaction()
-                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            let transferred =
-                db::merge_artists_sql(&tx, &req.source_artist_id, &req.target_artist_id)
-                    .map_err(ApiError::from)?;
-
-            let now = db::unix_now();
-
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::ArtistMergedPayload {
-                source_artist_id: req.source_artist_id.clone(),
-                target_artist_id: req.target_artist_id.clone(),
-                aliases_transferred: transferred,
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize ArtistMerged payload: {e}"),
-                www_authenticate: None,
-            })?;
-            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-            let (seq, _signed_by, _signature) = db::insert_event(
-                &tx,
-                &event_id,
-                &event::EventType::ArtistMerged,
-                &payload_json,
-                &req.target_artist_id,
-                &state2.signer,
-                now,
-                &[],
-            )
-            .map_err(ApiError::from)?;
-
-            tx.commit()
-                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            // Issue-SSE-PUBLISH — 2026-03-14
-            let sse_info = {
-                let frame = SseFrame {
-                    event_type: "artist_merged".to_string(),
-                    subject_guid: req.target_artist_id.clone(),
-                    payload: serde_json::to_value(&payload).unwrap_or(serde_json::Value::Null),
-                    seq,
-                };
-                Some((req.target_artist_id.clone(), frame))
-            };
-
-            Ok((
-                MergeArtistsResponse {
-                    merged: true,
-                    events_emitted: vec![event_id],
-                },
-                sse_info,
-            ))
-        },
-    )
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
-
-    let (response, sse_info) = result?;
-
-    // Issue-SSE-PUBLISH — 2026-03-14
-    if let Some((artist_id, frame)) = sse_info {
-        state.sse_registry.publish(&artist_id, frame);
-    }
-
-    Ok(Json(response))
-}
-
-// ── POST /admin/artists/alias ─────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct AddAliasRequest {
-    artist_id: String,
-    alias: String,
-}
-
-#[derive(Serialize)]
-struct AddAliasResponse {
-    ok: bool,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResolveArtistIdentityReviewRequest {
     pub action: String,
@@ -3147,23 +3024,6 @@ pub struct ResolveWalletIdentityReviewRequest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResolveWalletIdentityReviewResponse {
     pub review: db::WalletReviewItem,
-}
-
-async fn handle_admin_add_alias(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(req): Json<AddAliasRequest>,
-) -> Result<Json<AddAliasResponse>, ApiError> {
-    check_admin_token(&headers, &state.admin_token)?;
-
-    // Issue-WAL-POOL — 2026-03-14: uses writer (add_artist_alias writes)
-    let result = spawn_db_write(state.db.clone(), move |conn| {
-        db::add_artist_alias(conn, &req.artist_id, &req.alias)?;
-        Ok(AddAliasResponse { ok: true })
-    })
-    .await?;
-
-    Ok(Json(result))
 }
 
 // ── DELETE /feeds/{guid} ───────────────────────────────────────────────────

@@ -1081,67 +1081,6 @@ Write-side admin endpoints require the `X-Admin-Token` header. The token is comp
 
 If `ADMIN_TOKEN` is not configured on the node, write-side admin endpoints return `403`.
 
-### POST /admin/artists/merge
-
-Merges two artist records. All feeds, tracks, credits, and aliases from the source artist are transferred to the target artist. The source artist is deleted.
-
-- **Authentication:** Admin token (`X-Admin-Token`)
-- **Available on:** Primary only
-
-**Request body:**
-
-```json
-{
-  "source_artist_id": "uuid-to-absorb",
-  "target_artist_id": "uuid-to-keep"
-}
-```
-
-**Response (`200 OK`):**
-
-```json
-{
-  "merged": true,
-  "events_emitted": ["uuid-of-artist-merged-event"]
-}
-```
-
-| Code | Meaning |
-|------|---------|
-| 200  | Merged |
-| 403  | Invalid or missing `X-Admin-Token` |
-
----
-
-### POST /admin/artists/alias
-
-Adds an alias to an artist (used for fuzzy matching during artist resolution).
-
-- **Authentication:** Admin token (`X-Admin-Token`)
-- **Available on:** Primary only
-
-**Request body:**
-
-```json
-{
-  "artist_id": "uuid",
-  "alias": "alternate spelling or name"
-}
-```
-
-**Response (`200 OK`):**
-
-```json
-{
-  "ok": true
-}
-```
-
-| Code | Meaning |
-|------|---------|
-| 200  | Alias added |
-| 403  | Invalid or missing `X-Admin-Token` |
-
 ---
 
 ### Retired Resolver/Review Endpoints
@@ -1149,6 +1088,10 @@ Adds an alias to an artist (used for fuzzy matching during artist resolution).
 The resolver status endpoint plus the review and diagnostics endpoints were
 removed during Phase 1 resolver retirement. They no longer exist in the
 runtime API.
+
+The old admin artist merge and alias endpoints are also retired for the
+source-first Phase 3 API. Artist-level canonical admin workflows are deferred
+until there is an explicit artist claim/link model.
 
 ### DELETE /v1/feeds/{guid}
 

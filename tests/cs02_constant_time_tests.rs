@@ -39,25 +39,17 @@ async fn correct_admin_token_accepted() {
     let state = test_app_state_with_token(Arc::clone(&db), "secret-admin-token-42");
     let app = stophammer::api::build_router(state);
 
-    // Use the admin merge endpoint which requires X-Admin-Token.
-    // The merge will fail with 500 (artists don't exist), but auth should pass.
-    // A 403 would mean auth failed; anything else means auth passed.
+    // Use the feed delete endpoint which accepts X-Admin-Token.
+    // The feed will not exist, so a 404 means auth passed. A 403 means auth failed.
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/merge")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Admin-Token", "secret-admin-token-42")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "source_artist_id": "nonexistent-a1",
-                "target_artist_id": "nonexistent-a2",
-            }))
-            .expect("json"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("request");
-    // If the admin auth passes, we get 500 (no such artists). If it fails, 403.
+    // If the admin auth passes, we get 404 (no such feed). If it fails, 403.
     assert_ne!(
         resp.status(),
         403,
@@ -76,17 +68,10 @@ async fn wrong_admin_token_rejected() {
     let app = stophammer::api::build_router(state);
 
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/merge")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Admin-Token", "wrong-token-abc")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "source_artist_id": "a1",
-                "target_artist_id": "a2",
-            }))
-            .expect("json"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("request");
@@ -105,17 +90,10 @@ async fn prefix_admin_token_rejected() {
 
     // Send only a prefix of the correct token.
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/merge")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Admin-Token", "correct-token")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "source_artist_id": "a1",
-                "target_artist_id": "a2",
-            }))
-            .expect("json"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("request");
@@ -137,17 +115,10 @@ async fn empty_admin_token_rejected() {
     let app = stophammer::api::build_router(state);
 
     let req = Request::builder()
-        .method("POST")
-        .uri("/admin/artists/merge")
-        .header("Content-Type", "application/json")
+        .method("DELETE")
+        .uri("/v1/feeds/nonexistent-feed")
         .header("X-Admin-Token", "")
-        .body(axum::body::Body::from(
-            serde_json::to_vec(&serde_json::json!({
-                "source_artist_id": "a1",
-                "target_artist_id": "a2",
-            }))
-            .expect("json"),
-        ))
+        .body(axum::body::Body::empty())
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("request");
