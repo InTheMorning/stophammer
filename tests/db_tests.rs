@@ -7,6 +7,30 @@ mod common;
 
 use rusqlite::params;
 
+fn seed_artist(
+    conn: &rusqlite::Connection,
+    artist_id: &str,
+    name: &str,
+) -> stophammer::model::Artist {
+    let now = common::now();
+    let artist = stophammer::model::Artist {
+        artist_id: artist_id.to_string(),
+        name: name.to_string(),
+        name_lower: name.to_lowercase(),
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    stophammer::db::upsert_artist_if_absent(conn, &artist).expect("upsert artist");
+    artist
+}
+
 fn seed_feed_with_track(
     conn: &rusqlite::Connection,
     feed_guid: &str,
@@ -14,9 +38,11 @@ fn seed_feed_with_track(
     title: &str,
 ) {
     let now = common::now();
-    let artist =
-        stophammer::db::resolve_artist(conn, &format!("Artist {feed_guid}"), Some(feed_guid))
-            .expect("resolve artist");
+    let artist = seed_artist(
+        conn,
+        &format!("artist-{feed_guid}"),
+        &format!("Artist {feed_guid}"),
+    );
     let credit = stophammer::db::get_or_create_artist_credit(
         conn,
         &artist.name,
@@ -174,8 +200,7 @@ fn resolved_overlay_tables_round_trip() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
 
-    let artist = stophammer::db::resolve_artist(&conn, "Overlay Artist", Some("feed-overlay"))
-        .expect("artist");
+    let artist = seed_artist(&conn, "artist-feed-overlay", "Overlay Artist");
     let credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist.name,
@@ -1206,8 +1231,7 @@ fn canonical_snapshot_apply_dedupes_duplicate_release_recordings() {
     let conn = common::test_db();
     let now = common::now();
 
-    let artist = stophammer::db::resolve_artist(&conn, "Snapshot Artist", Some("feed-snapshot"))
-        .expect("artist");
+    let artist = seed_artist(&conn, "artist-feed-snapshot", "Snapshot Artist");
     let credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist.name,
@@ -4167,8 +4191,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let artist = stophammer::db::resolve_artist(&conn, "Claim Artist", Some("feed-claim-ingest"))
-        .expect("resolve artist");
+    let artist = seed_artist(&conn, "artist-feed-claim-ingest", "Claim Artist");
     let artist_credit = stophammer::db::get_or_create_artist_credit(
         &conn,
         &artist.name,
