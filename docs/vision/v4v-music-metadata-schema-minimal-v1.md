@@ -76,6 +76,7 @@ Keep a slimmed `feeds` table:
 | `title` | source title; in v1 this is the release title |
 | `description` | source description |
 | `image_url` | source artwork URL |
+| `publisher` | source publisher text used for publisher search and display |
 | `language` | source language |
 | `explicit` | source content flag |
 | `raw_medium` | source `podcast:medium` exactly as published |
@@ -104,6 +105,8 @@ Keep a slimmed `tracks` table:
 | `enclosure_type` | media type |
 | `enclosure_bytes` | byte size when published |
 | `track_number` | music sequencing when present |
+| `image_url` | source track artwork URL when published |
+| `language` | source track language when published, otherwise inherited from feed |
 | `explicit` | source content flag |
 | `description` | source item description |
 | `created_at` | local ingest bookkeeping |
@@ -277,6 +280,7 @@ Artist-entity policy for v1:
 | --- | --- |
 | `release_artist` | explicit release-artist text for the feed/release-shaped row; feed-level `itunes:author` maps here |
 | `release_artist_sort` | optional published sort form for the release artist; null when not explicitly available |
+| `publisher` | explicit publisher text kept searchable as publisher, not overloaded as artist identity outside the narrow Wavlake compatibility rule |
 | `release_date` | feed `pubDate` used as the release date in v1 |
 | `release_kind` | optional strict release classification; should remain `unknown` unless a future namespace field or other explicitly approved source publishes it |
 
@@ -286,6 +290,8 @@ Artist-entity policy for v1:
 | --- | --- |
 | `track_artist` | explicit track-artist text kept separate from `release_artist`, even when it defaults to it in v1 |
 | `track_artist_sort` | optional published sort form for the track artist; null when not explicitly available |
+| `image_url` | explicit track artwork URL when the item publishes art distinct from the feed |
+| `language` | explicit track language field so item language can differ from and otherwise inherit from the feed |
 
 Everything else needed for a minimal music-first read is already present:
 
@@ -346,10 +352,13 @@ If we apply the proposal strictly, the minimum v1 schema is roughly:
 
 - `feeds.release_artist`
 - `feeds.release_artist_sort`
+- `feeds.publisher`
 - `feeds.release_date`
 - `feeds.release_kind`
 - `tracks.track_artist`
 - `tracks.track_artist_sort`
+- `tracks.image_url`
+- `tracks.language`
 
 ## 5. Identifier Policy
 
@@ -414,6 +423,15 @@ The minimum v1 should be:
 
 That means fewer tables, fewer hidden opinions, and a hard separation between
 "what the feed said" and "what we might infer later."
+
+Rollout assumption for Phase 3:
+
+- the v1 schema should be finalized with a rebuild-first rollout in mind
+- the plan should not promise an in-place transformation of every
+  resolver-era or canonical table
+- preserved source facts should define what gets rebuilt into the new schema
+- resolver-era derived tables should be treated as disposable unless the Phase
+  3 decision artifact explicitly keeps them
 
 ## Namespace Note
 

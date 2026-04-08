@@ -645,6 +645,10 @@ fn derive_feed_artist_name(feed_data: &ingest::IngestFeedData) -> String {
     "Unknown Artist".to_string()
 }
 
+fn derive_publisher_name(feed_data: &ingest::IngestFeedData) -> Option<String> {
+    non_empty_trimmed(feed_data.owner_name.as_deref()).map(str::to_string)
+}
+
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     if value.is_empty() { None } else { Some(value) }
@@ -1554,9 +1558,14 @@ async fn handle_ingest_feed(
             artist_credit_id: feed_artist_credit.id,
             description: feed_data.description.clone(),
             image_url: feed_data.image_url.clone(),
+            publisher: derive_publisher_name(feed_data),
             language: feed_data.language.clone(),
             explicit: feed_data.explicit,
             itunes_type: feed_data.itunes_type.clone(),
+            release_artist: Some(artist_name.clone()),
+            release_artist_sort: None,
+            release_date: feed_data.pub_date,
+            release_kind: Some("unknown".to_string()),
             #[expect(
                 clippy::cast_possible_wrap,
                 reason = "episode counts never approach i64::MAX"
@@ -1774,6 +1783,11 @@ async fn handle_ingest_feed(
                 title_lower: track_data.title.to_lowercase(),
                 pub_date: track_data.pub_date,
                 duration_secs: track_data.duration_secs,
+                image_url: track_data.image_url.clone(),
+                language: track_data
+                    .language
+                    .clone()
+                    .or_else(|| feed_data.language.clone()),
                 enclosure_url: track_data.enclosure_url.clone(),
                 enclosure_type: track_data.enclosure_type.clone(),
                 enclosure_bytes: track_data.enclosure_bytes,
@@ -1781,6 +1795,13 @@ async fn handle_ingest_feed(
                 season: track_data.season,
                 explicit: track_data.explicit,
                 description: track_data.description.clone(),
+                track_artist: Some(
+                    track_data
+                        .author_name
+                        .clone()
+                        .unwrap_or_else(|| artist_name.clone()),
+                ),
+                track_artist_sort: None,
                 created_at: now,
                 updated_at: now,
             };
@@ -1905,6 +1926,11 @@ async fn handle_ingest_feed(
                 title_lower: live_item.title.to_lowercase(),
                 pub_date: live_item.pub_date,
                 duration_secs: live_item.duration_secs,
+                image_url: live_item.image_url.clone(),
+                language: live_item
+                    .language
+                    .clone()
+                    .or_else(|| feed_data.language.clone()),
                 enclosure_url: live_item.enclosure_url.clone(),
                 enclosure_type: live_item.enclosure_type.clone(),
                 enclosure_bytes: live_item.enclosure_bytes,
@@ -1912,6 +1938,13 @@ async fn handle_ingest_feed(
                 season: live_item.season,
                 explicit: live_item.explicit,
                 description: live_item.description.clone(),
+                track_artist: Some(
+                    live_item
+                        .author_name
+                        .clone()
+                        .unwrap_or_else(|| artist_name.clone()),
+                ),
+                track_artist_sort: None,
                 created_at: now,
                 updated_at: now,
             };

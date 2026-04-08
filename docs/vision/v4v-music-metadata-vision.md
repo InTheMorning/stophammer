@@ -179,6 +179,18 @@ decide what the actual v1 schema should be.
 
 This phase is a review and planning phase, not a migration-writing phase.
 
+### Rollout Assumption
+
+Phase 3 should assume a rebuild-first rollout for the music metadata database.
+
+That means:
+
+- preserve and re-express the source-truth model
+- do not require an in-place upgrade path for every resolver-era derived table
+- treat resolver/canonical leftovers as disposable unless the Phase 3 decision
+  artifact explicitly says otherwise
+- keep non-database persistent assets such as signing keys out of schema scope
+
 ### Questions To Answer
 
 #### 1. What remains as core source truth?
@@ -293,9 +305,12 @@ Classify each current API surface as one of:
 Phase 3 must end with a concrete v1 schema decision artifact that tells the
 user:
 
+- whether the rollout is rebuild-first, drop-and-recreate, or requires any
+  targeted preservation steps
 - which tables/columns are kept unchanged
-- which tables are removed
+- which tables are removed during the rebuild
 - which tables are deferred to post-v1
+- which tables/fields are new in v1
 - which migrations will be required
 - which API/docs changes follow from that schema choice
 - which open questions still need an ADR before implementation
@@ -325,4 +340,11 @@ before the schema review completes:
 
 ## Current Status
 
-The next executable phase is Phase 1: resolver removal.
+Phase 1 and Phase 2 are complete.
+
+Phase 3 now has a draft decision artifact in
+`docs/vision/v4v-music-metadata-schema-v1-decision.md` and a draft ADR in
+`docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md`.
+
+The next executable work after approving those drafts is schema implementation
+against that rebuild-first v1 decision.
