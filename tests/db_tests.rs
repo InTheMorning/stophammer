@@ -1546,15 +1546,23 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         )
         .expect("recording id");
 
-    let release = stophammer::db::get_release(&conn, &release_id)
-        .expect("get release")
-        .expect("release exists");
-    assert_eq!(release.title, "Promote Release");
+    let release_title: String = conn
+        .query_row(
+            "SELECT title FROM releases WHERE release_id = ?1",
+            params![release_id],
+            |row| row.get(0),
+        )
+        .expect("release title");
+    assert_eq!(release_title, "Promote Release");
 
-    let recording = stophammer::db::get_recording(&conn, &recording_id)
-        .expect("get recording")
-        .expect("recording exists");
-    assert_eq!(recording.title, "Promote Track");
+    let recording_title: String = conn
+        .query_row(
+            "SELECT title FROM recordings WHERE recording_id = ?1",
+            params![recording_id],
+            |row| row.get(0),
+        )
+        .expect("recording title");
+    assert_eq!(recording_title, "Promote Track");
 
     let feed_ids = stophammer::db::get_source_entity_ids_for_entity(&conn, "feed", &feed.feed_guid)
         .expect("feed source ids");
@@ -2276,39 +2284,54 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
         )
         .expect("recording id");
 
-    let release = stophammer::db::get_release(&conn, &release_id)
-        .expect("get release")
-        .expect("release exists");
-    assert_eq!(release.title, "Canon Read Release");
+    let (release_title, release_desc): (String, Option<String>) = conn
+        .query_row(
+            "SELECT title, description FROM releases WHERE release_id = ?1",
+            params![release_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("release row");
+    assert_eq!(release_title, "Canon Read Release");
+    assert_eq!(
+        release_desc.as_deref(),
+        Some("A canonical read test release")
+    );
 
-    let recording = stophammer::db::get_recording(&conn, &recording_id)
-        .expect("get recording")
-        .expect("recording exists");
-    assert_eq!(recording.title, "Canon Read Song");
+    let recording_title: String = conn
+        .query_row(
+            "SELECT title FROM recordings WHERE recording_id = ?1",
+            params![recording_id],
+            |row| row.get(0),
+        )
+        .expect("recording row");
+    assert_eq!(recording_title, "Canon Read Song");
 
-    let release_tracks =
-        stophammer::db::get_release_recordings(&conn, &release_id).expect("release tracks");
-    assert_eq!(release_tracks.len(), 1);
-    assert_eq!(release_tracks[0].recording_id, recording_id);
+    let release_track_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM release_recordings WHERE release_id = ?1 AND recording_id = ?2",
+            params![release_id, recording_id],
+            |row| row.get(0),
+        )
+        .expect("release track count");
+    assert_eq!(release_track_count, 1);
 
-    let release_maps = stophammer::db::get_source_feed_release_maps_for_release(&conn, &release_id)
-        .expect("release maps");
-    assert_eq!(release_maps.len(), 2);
+    let release_map_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM source_feed_release_map WHERE release_id = ?1",
+            params![release_id],
+            |row| row.get(0),
+        )
+        .expect("release map count");
+    assert_eq!(release_map_count, 2);
 
-    let recording_maps =
-        stophammer::db::get_source_item_recording_maps_for_recording(&conn, &recording_id)
-            .expect("recording maps");
-    assert_eq!(recording_maps.len(), 2);
-
-    let mapped_feed = stophammer::db::get_feed(&conn, &release_maps[0].feed_guid)
-        .expect("get feed")
-        .expect("feed exists");
-    assert_eq!(mapped_feed.title, "Canon Read Release");
-
-    let mapped_track = stophammer::db::get_track(&conn, &recording_maps[0].track_guid)
-        .expect("get track")
-        .expect("track exists");
-    assert_eq!(mapped_track.title, "Canon Read Song");
+    let recording_map_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM source_item_recording_map WHERE recording_id = ?1",
+            params![recording_id],
+            |row| row.get(0),
+        )
+        .expect("recording map count");
+    assert_eq!(recording_map_count, 2);
 
     let feed_links =
         stophammer::db::get_source_entity_links_for_entity(&conn, "feed", "feed-canon-read-a")
@@ -2527,19 +2550,28 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
             |row| row.get(0),
         )
         .expect("release id");
-    let release = stophammer::db::get_release(&conn, &release_id)
-        .expect("get release")
-        .expect("release exists");
-    assert_eq!(release.artist_credit_id, 9402);
+    let (release_artist_credit_id, release_description, release_image_url, release_date): (
+        i64,
+        Option<String>,
+        Option<String>,
+        Option<i64>,
+    ) = conn
+        .query_row(
+            "SELECT artist_credit_id, description, image_url, release_date FROM releases WHERE release_id = ?1",
+            params![release_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .expect("release row");
+    assert_eq!(release_artist_credit_id, 9402);
     assert_eq!(
-        release.description.as_deref(),
+        release_description.as_deref(),
         Some("Preferred release description")
     );
     assert_eq!(
-        release.image_url.as_deref(),
+        release_image_url.as_deref(),
         Some("https://cdn.example.com/preferred-cover.jpg")
     );
-    assert_eq!(release.release_date, Some(now - 60));
+    assert_eq!(release_date, Some(now - 60));
 
     let recording_id: String = conn
         .query_row(
@@ -2548,10 +2580,14 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
             |row| row.get(0),
         )
         .expect("recording id");
-    let recording = stophammer::db::get_recording(&conn, &recording_id)
-        .expect("get recording")
-        .expect("recording exists");
-    assert_eq!(recording.artist_credit_id, 9402);
+    let recording_artist_credit_id: i64 = conn
+        .query_row(
+            "SELECT artist_credit_id FROM recordings WHERE recording_id = ?1",
+            params![recording_id],
+            |row| row.get(0),
+        )
+        .expect("recording artist credit");
+    assert_eq!(recording_artist_credit_id, 9402);
 }
 
 // ---------------------------------------------------------------------------

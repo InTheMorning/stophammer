@@ -20,9 +20,9 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, Recording, Release, ReleaseRecording, RouteType, SourceContributorClaim,
-    SourceEntityIdClaim, SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure,
-    SourceItemRecordingMap, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
+    PaymentRoute, Release, RouteType, SourceContributorClaim, SourceEntityIdClaim,
+    SourceEntityLink, SourceFeedReleaseMap, SourceItemEnclosure, SourceItemRecordingMap,
+    SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -1557,7 +1557,22 @@ fn representative_feed_guid_for_release(
     conn: &Connection,
     release_id: &str,
 ) -> Result<Option<String>, DbError> {
-    let maps = get_source_feed_release_maps_for_release(conn, release_id)?;
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, release_id, match_type, confidence, created_at \
+         FROM source_feed_release_map WHERE release_id = ?1 \
+         ORDER BY confidence DESC, feed_guid",
+    )?;
+    let maps: Vec<SourceFeedReleaseMap> = stmt
+        .query_map(params![release_id], |row| {
+            Ok(SourceFeedReleaseMap {
+                feed_guid: row.get(0)?,
+                release_id: row.get(1)?,
+                match_type: row.get(2)?,
+                confidence: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
     let mut best: Option<(String, FeedRepresentativeRank)> = None;
 
     for map in maps {
@@ -1579,7 +1594,22 @@ fn representative_track_guid_for_recording(
     conn: &Connection,
     recording_id: &str,
 ) -> Result<Option<String>, DbError> {
-    let maps = get_source_item_recording_maps_for_recording(conn, recording_id)?;
+    let mut stmt = conn.prepare(
+        "SELECT track_guid, recording_id, match_type, confidence, created_at \
+         FROM source_item_recording_map WHERE recording_id = ?1 \
+         ORDER BY confidence DESC, track_guid",
+    )?;
+    let maps: Vec<SourceItemRecordingMap> = stmt
+        .query_map(params![recording_id], |row| {
+            Ok(SourceItemRecordingMap {
+                track_guid: row.get(0)?,
+                recording_id: row.get(1)?,
+                match_type: row.get(2)?,
+                confidence: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
     let mut best: Option<(String, TrackRepresentativeRank)> = None;
 
     for map in maps {
@@ -5640,186 +5670,6 @@ pub fn get_entity_sources(
             source_type: row.get(1)?,
             source_url: row.get(2)?,
             trust_level: row.get(3)?,
-            created_at: row.get(4)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-// ── Canonical read helpers ──────────────────────────────────────────────────
-
-/// Returns one canonical release by ID, or `None` if it does not exist.
-pub fn get_release(conn: &Connection, release_id: &str) -> Result<Option<Release>, DbError> {
-    conn.query_row(
-        "SELECT release_id, title, title_lower, artist_credit_id, description, image_url, \
-         release_date, created_at, updated_at \
-         FROM releases WHERE release_id = ?1",
-        params![release_id],
-        |row| {
-            Ok(Release {
-                release_id: row.get(0)?,
-                title: row.get(1)?,
-                title_lower: row.get(2)?,
-                artist_credit_id: row.get(3)?,
-                description: row.get(4)?,
-                image_url: row.get(5)?,
-                release_date: row.get(6)?,
-                created_at: row.get(7)?,
-                updated_at: row.get(8)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(Into::into)
-}
-
-/// Returns one canonical recording by ID, or `None` if it does not exist.
-pub fn get_recording(conn: &Connection, recording_id: &str) -> Result<Option<Recording>, DbError> {
-    conn.query_row(
-        "SELECT recording_id, title, title_lower, artist_credit_id, duration_secs, \
-         created_at, updated_at \
-         FROM recordings WHERE recording_id = ?1",
-        params![recording_id],
-        |row| {
-            Ok(Recording {
-                recording_id: row.get(0)?,
-                title: row.get(1)?,
-                title_lower: row.get(2)?,
-                artist_credit_id: row.get(3)?,
-                duration_secs: row.get(4)?,
-                created_at: row.get(5)?,
-                updated_at: row.get(6)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(Into::into)
-}
-
-/// Returns canonical track ordering for a release.
-pub fn get_release_recordings(
-    conn: &Connection,
-    release_id: &str,
-) -> Result<Vec<ReleaseRecording>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT release_id, recording_id, position, source_track_guid \
-         FROM release_recordings WHERE release_id = ?1 ORDER BY position, recording_id",
-    )?;
-    let rows = stmt.query_map(params![release_id], |row| {
-        Ok(ReleaseRecording {
-            release_id: row.get(0)?,
-            recording_id: row.get(1)?,
-            position: row.get(2)?,
-            source_track_guid: row.get(3)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-/// Returns source-feed mappings for a canonical release.
-pub fn get_source_feed_release_maps_for_release(
-    conn: &Connection,
-    release_id: &str,
-) -> Result<Vec<SourceFeedReleaseMap>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT feed_guid, release_id, match_type, confidence, created_at \
-         FROM source_feed_release_map WHERE release_id = ?1 \
-         ORDER BY confidence DESC, feed_guid",
-    )?;
-    let rows = stmt.query_map(params![release_id], |row| {
-        Ok(SourceFeedReleaseMap {
-            feed_guid: row.get(0)?,
-            release_id: row.get(1)?,
-            match_type: row.get(2)?,
-            confidence: row.get(3)?,
-            created_at: row.get(4)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-/// Returns source-feed mappings for one source feed.
-pub fn get_source_feed_release_maps_for_feed(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<Vec<SourceFeedReleaseMap>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT feed_guid, release_id, match_type, confidence, created_at \
-         FROM source_feed_release_map WHERE feed_guid = ?1 \
-         ORDER BY release_id",
-    )?;
-    let rows = stmt.query_map(params![feed_guid], |row| {
-        Ok(SourceFeedReleaseMap {
-            feed_guid: row.get(0)?,
-            release_id: row.get(1)?,
-            match_type: row.get(2)?,
-            confidence: row.get(3)?,
-            created_at: row.get(4)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-/// Returns source-item mappings for a canonical recording.
-pub fn get_source_item_recording_maps_for_recording(
-    conn: &Connection,
-    recording_id: &str,
-) -> Result<Vec<SourceItemRecordingMap>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT track_guid, recording_id, match_type, confidence, created_at \
-         FROM source_item_recording_map WHERE recording_id = ?1 \
-         ORDER BY confidence DESC, track_guid",
-    )?;
-    let rows = stmt.query_map(params![recording_id], |row| {
-        Ok(SourceItemRecordingMap {
-            track_guid: row.get(0)?,
-            recording_id: row.get(1)?,
-            match_type: row.get(2)?,
-            confidence: row.get(3)?,
-            created_at: row.get(4)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-/// Returns source-item mappings for the tracks currently in one feed.
-pub fn get_source_item_recording_maps_for_feed(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<Vec<SourceItemRecordingMap>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT sirm.track_guid, sirm.recording_id, sirm.match_type, sirm.confidence, sirm.created_at \
-         FROM source_item_recording_map sirm \
-         JOIN tracks t ON t.track_guid = sirm.track_guid \
-         WHERE t.feed_guid = ?1 \
-         ORDER BY sirm.track_guid",
-    )?;
-    let rows = stmt.query_map(params![feed_guid], |row| {
-        Ok(SourceItemRecordingMap {
-            track_guid: row.get(0)?,
-            recording_id: row.get(1)?,
-            match_type: row.get(2)?,
-            confidence: row.get(3)?,
             created_at: row.get(4)?,
         })
     })?;
