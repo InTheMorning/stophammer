@@ -1497,28 +1497,30 @@ async fn handle_ingest_feed(
             now,
         );
 
-        // 5. Resolve artist from high-confidence source claims before the
-        // legacy feed-scoped alias fallback.
+        // 5. Phase 3 source-first transition: keep a deterministic feed-scoped
+        // compatibility artist/credit for the published release artist text
+        // without invoking cross-feed resolution in ingest.
         let artist_name = derive_feed_artist_name(feed_data);
-        let feed_artist = db::resolve_feed_artist_from_source_claims(
-            &conn,
-            &artist_name,
-            feed_guid_str,
-            &source_entity_ids,
-            &source_entity_links,
-        )?;
-
-        // 6. Get or create artist credit for the feed artist (idempotent, feed-scoped)
-        let feed_artist_credit = db::get_or_create_artist_credit(
-            &conn,
-            &feed_artist.name,
-            &[(
-                feed_artist.artist_id.clone(),
-                feed_artist.name.clone(),
-                String::new(),
-            )],
-            Some(feed_guid_str),
-        )?;
+        let feed_artist_credit =
+            db::get_or_create_feed_scoped_source_text_credit(&conn, &artist_name, feed_guid_str)?;
+        let feed_artist_id = feed_artist_credit
+            .names
+            .first()
+            .map(|name| name.artist_id.clone())
+            .ok_or_else(|| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!(
+                    "feed artist credit {} missing primary artist name",
+                    feed_artist_credit.id
+                ),
+                www_authenticate: None,
+            })?;
+        let feed_artist =
+            db::get_artist_by_id(&conn, &feed_artist_id)?.ok_or_else(|| ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("feed artist {feed_artist_id} missing after credit creation"),
+                www_authenticate: None,
+            })?;
         let existing_live_events =
             db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
 
