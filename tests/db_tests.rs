@@ -97,7 +97,6 @@ fn schema_creates_all_tables() {
         "artist_tag",
         "artist_type",
         "artists",
-        "entity_field_status",
         "entity_quality",
         "entity_source",
         "events",

@@ -157,15 +157,6 @@ fn insert_entity_quality(
     .unwrap();
 }
 
-fn insert_entity_field_status(conn: &rusqlite::Connection, entity_type: &str, entity_id: &str) {
-    conn.execute(
-        "INSERT INTO entity_field_status (entity_type, entity_id, field_name, status) \
-         VALUES (?1, ?2, ?3, ?4)",
-        params![entity_type, entity_id, "title", "present"],
-    )
-    .unwrap();
-}
-
 fn insert_track_tag(conn: &rusqlite::Connection, track_guid: &str, now: i64) -> i64 {
     conn.execute(
         "INSERT OR IGNORE INTO tags (name, created_at) VALUES ('rock', ?1)",
@@ -208,7 +199,7 @@ fn count(conn: &rusqlite::Connection, table: &str, where_clause: &str) -> i64 {
 }
 
 /// Populate a feed with two tracks and all associated child rows
-/// (payment routes, VTS, tags, quality, `field_status`).
+/// (payment routes, VTS, tags, quality).
 fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
     let now = common::now();
     insert_artist(conn, "artist-1", "Test Artist", now);
@@ -234,14 +225,11 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
     insert_track_tag(conn, "track-2", now);
     insert_entity_quality(conn, "track", "track-1", now);
     insert_entity_quality(conn, "track", "track-2", now);
-    insert_entity_field_status(conn, "track", "track-1");
-    insert_entity_field_status(conn, "track", "track-2");
 
     // Feed-level child rows
     insert_feed_payment_route(conn, "feed-1");
     insert_feed_tag(conn, "feed-1", now);
     insert_entity_quality(conn, "feed", "feed-1", now);
-    insert_entity_field_status(conn, "feed", "feed-1");
 
     // Search index rows for feed and tracks
     stophammer::search::populate_search_index(
@@ -320,15 +308,6 @@ fn delete_feed_removes_all_children() {
         ),
         3
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_id IN ('feed-1', 'track-1', 'track-2')"
-        ),
-        3
-    );
-
     // Perform delete.
     stophammer::db::delete_feed(&mut conn, "feed-1").unwrap();
 
@@ -361,15 +340,6 @@ fn delete_feed_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_id IN ('feed-1', 'track-1', 'track-2')"
-        ),
-        0
-    );
-
     // Artist and artist_credit should still exist (not cascade-deleted).
     assert_eq!(count(&conn, "artists", "artist_id = 'artist-1'"), 1);
 }
@@ -415,15 +385,6 @@ fn delete_track_removes_all_children() {
         ),
         1
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_type = 'track' AND entity_id = 'track-1'"
-        ),
-        1
-    );
-
     // Delete track-1 only.
     stophammer::db::delete_track(&mut conn, "track-1").unwrap();
 
@@ -443,15 +404,6 @@ fn delete_track_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_type = 'track' AND entity_id = 'track-1'"
-        ),
-        0
-    );
-
     // Verify track-2 is still there.
     assert_eq!(count(&conn, "tracks", "track_guid = 'track-2'"), 1);
     assert_eq!(count(&conn, "payment_routes", "track_guid = 'track-2'"), 1);
@@ -481,7 +433,7 @@ fn delete_track_idempotent() {
 // ---------------------------------------------------------------------------
 
 /// Populate a feed with N tracks, each having payment routes, VTS, tags,
-/// `entity_quality`, and `entity_field_status` rows. Returns (`credit_id`, `track_guids`).
+/// and `entity_quality` rows. Returns (`credit_id`, `track_guids`).
 fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, Vec<String>) {
     let now = common::now();
     insert_artist(conn, "artist-n", "N-Track Artist", now);
@@ -523,7 +475,6 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
         .expect("insert track_tag");
 
         insert_entity_quality(conn, "track", &tg, now);
-        insert_entity_field_status(conn, "track", &tg);
         guids.push(tg);
     }
 
@@ -531,7 +482,6 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
     insert_feed_payment_route(conn, "feed-n");
     insert_feed_tag(conn, "feed-n", now);
     insert_entity_quality(conn, "feed", "feed-n", now);
-    insert_entity_field_status(conn, "feed", "feed-n");
 
     (credit_id, guids)
 }
@@ -758,15 +708,6 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         6
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_id LIKE 'track-n-%' OR entity_id = 'feed-n'"
-        ),
-        6
-    );
-
     // Perform delete.
     stophammer::db::delete_feed(&mut conn, "feed-n").expect("delete_feed failed");
 
@@ -796,15 +737,6 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_id LIKE 'track-n-%' OR entity_id = 'feed-n'"
-        ),
-        0
-    );
-
     // Artist should still exist.
     assert_eq!(count(&conn, "artists", "artist_id = 'artist-n'"), 1);
 }
@@ -864,15 +796,6 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(
-            &conn,
-            "entity_field_status",
-            "entity_id LIKE 'track-n-%' OR entity_id = 'feed-n'"
-        ),
-        0
-    );
-
     // Event should be recorded
     assert_eq!(
         count(&conn, "events", &format!("event_id = '{event_id}'")),

@@ -536,14 +536,6 @@ CREATE TABLE IF NOT EXISTS entity_quality (
     PRIMARY KEY (entity_type, entity_id)
 ) STRICT;
 
-CREATE TABLE IF NOT EXISTS entity_field_status (
-    entity_type TEXT NOT NULL,
-    entity_id   TEXT NOT NULL,
-    field_name  TEXT NOT NULL,
-    status      TEXT NOT NULL DEFAULT 'present',
-    PRIMARY KEY (entity_type, entity_id, field_name)
-) STRICT;
-
 -- ---------------------------------------------------------------------------
 -- FTS5 SEARCH (virtual table, no STRICT mode)
 -- ---------------------------------------------------------------------------

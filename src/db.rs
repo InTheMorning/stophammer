@@ -3237,7 +3237,7 @@ pub fn replace_source_platform_claims_for_feed(
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
 ///
 /// Deletes in order: `track_tag`, `value_time_splits`, `payment_routes`,
-/// `entity_quality`, `entity_field_status`, then the `tracks` row itself.
+/// `entity_quality`, then the `tracks` row itself.
 ///
 /// Idempotent: calling with a non-existent `track_guid` is a no-op.
 ///
@@ -3299,10 +3299,6 @@ pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<()
     )?;
     conn.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-        params![track_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id = ?1",
         params![track_guid],
     )?;
     conn.execute(
@@ -3409,17 +3405,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
     conn.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
-        params![feed_guid],
-    )?;
-
-    // 7. entity_field_status for all tracks (subquery) and the feed
-    conn.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'feed' AND entity_id = ?1",
         params![feed_guid],
     )?;
 
@@ -3578,15 +3563,6 @@ pub fn delete_feed_with_event(
         "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
         params![feed_guid],
     )?;
-    tx.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'feed' AND entity_id = ?1",
-        params![feed_guid],
-    )?;
     // proof_tokens & proof_challenges (SG-07)
     tx.execute(
         "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
@@ -3714,10 +3690,6 @@ pub fn delete_track_with_event(
     )?;
     tx.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-        params![track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM entity_field_status WHERE entity_type = 'track' AND entity_id = ?1",
         params![track_guid],
     )?;
     tx.execute(
