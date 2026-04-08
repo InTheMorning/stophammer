@@ -847,34 +847,3 @@ fn sse_connection_limit_enforced() {
         "connection after release should be granted"
     );
 }
-
-// ==========================================================================
-// AVAIL-10b: SSE endpoint returns 503 when connection limit reached
-// ==========================================================================
-
-#[tokio::test]
-async fn sse_endpoint_rejects_when_connections_full() {
-    let db = common::test_db_arc();
-    let state = test_app_state(Arc::clone(&db));
-
-    // Saturate the SSE connection counter.
-    for _ in 0..1_000 {
-        assert!(state.sse_registry.try_acquire_connection());
-    }
-
-    let app = stophammer::api::build_router(state);
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/v1/events?artists=test-artist")
-        .body(axum::body::Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-
-    assert_eq!(
-        resp.status(),
-        503,
-        "SSE endpoint should return 503 when connection limit reached"
-    );
-}

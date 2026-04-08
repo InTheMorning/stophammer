@@ -1129,51 +1129,7 @@ Removes a single track from a feed. Emits a `TrackRemoved` event.
 
 ---
 
-## 12. SSE Events
-
-### GET /v1/events
-
-Server-Sent Events stream for real-time notifications. Subscribe to events for specific artist IDs.
-
-- **Authentication:** None
-- **Available on:** Primary and community
-
-**Query parameters:**
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `artists` | string | Comma-separated list of artist IDs to follow (max 50) |
-
-**Headers:**
-
-| Header | Description |
-|--------|-------------|
-| `Last-Event-ID` | Resume from the last received event (replays from ring buffer) |
-
-**SSE frame format:**
-
-```
-event: track_upserted
-id: track-guid
-data: {"event_type":"track_upserted","subject_guid":"track-guid","payload":{...}}
-```
-
-**Limits:**
-
-- Max 1,000 concurrent SSE connections server-wide
-- Max 50 artist IDs per connection
-- Max 10,000 unique artist entries in the SSE registry
-- Ring buffer: 100 most recent events per artist (for `Last-Event-ID` replay)
-- Keep-alive: every 30 seconds
-
-| Code | Meaning |
-|------|---------|
-| 200  | SSE stream opened |
-| 503  | Too many concurrent SSE connections |
-
----
-
-## Event Types
+## 12. Event Types
 
 Events are the atomic unit of replication. Each event is ed25519-signed by the primary node.
 

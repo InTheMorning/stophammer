@@ -1351,7 +1351,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/tracks/{guid}", patch(handle_patch_track))
         .route("/v1/proofs/challenge", post(handle_proofs_challenge))
         .route("/v1/proofs/assert", post(handle_proofs_assert))
-        .route("/v1/events", get(handle_sse_events))
         .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -1366,7 +1365,6 @@ pub fn build_readonly_router(state: Arc<AppState>) -> Router {
         .route("/sync/events", get(handle_sync_events))
         .route("/sync/peers", get(handle_sync_peers))
         .route("/node/info", get(handle_node_info))
-        .route("/v1/events", get(handle_sse_events))
         .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -2759,170 +2757,6 @@ async fn verify_sync_register_target(
     }
 
     Ok(())
-}
-
-// ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────────
-
-/// `GET /v1/events?artists=id1,id2,...` — Server-Sent Events for artist followers.
-///
-/// Subscribes the client to real-time notifications for the specified artist IDs.
-/// Supports `Last-Event-ID` header for replaying missed events from the ring buffer.
-///
-/// Enforces two availability limits:
-/// - `MAX_SSE_CONNECTIONS`: total concurrent SSE connections server-wide.
-/// - `MAX_SSE_REGISTRY_ARTISTS`: total unique artist entries in the registry.
-async fn handle_sse_events(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<
-    axum::response::sse::Sse<
-        impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
-    >,
-    ApiError,
-> {
-    use tokio_stream::StreamExt as _;
-
-    // Cap the number of artist IDs per SSE connection to prevent unbounded
-    // channel creation in the registry (availability hardening).
-    const MAX_SSE_ARTISTS: usize = 50;
-
-    // Enforce concurrent SSE connection limit.
-    if !state.sse_registry.try_acquire_connection() {
-        return Err(ApiError {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            message: format!("too many SSE connections (limit: {MAX_SSE_CONNECTIONS})"),
-            www_authenticate: None,
-        });
-    }
-
-    let requested_ids: Vec<String> = params
-        .get("artists")
-        .map(|s| {
-            s.split(',')
-                .map(|id| id.trim().to_string())
-                .filter(|id| !id.is_empty())
-                .take(MAX_SSE_ARTISTS)
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Issue-SSE-EXHAUSTION — 2026-03-15: only subscribe to artists that actually
-    // exist in the database. Unknown/fake artist IDs are silently dropped so
-    // attackers cannot fill the registry with phantom channels.
-    let artist_ids: Vec<String> = {
-        let pool = state.db.clone();
-        spawn_db(pool, move |conn| {
-            Ok(requested_ids
-                .into_iter()
-                .filter(|id| db::artist_exists(conn, id).unwrap_or(false))
-                .collect())
-        })
-        .await?
-    };
-
-    // Issue-SSE-PUBLISH — 2026-03-14: parse Last-Event-ID as an integer seq
-    // for unambiguous replay. Falls back to 0 (replay everything in ring
-    // buffer) if the header is absent or not a valid integer.
-    let last_seq: i64 = headers
-        .get("Last-Event-ID")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<i64>().ok())
-        .unwrap_or(0);
-
-    // Issue-SSE-PUBLISH — 2026-03-14: replay from ring buffer using seq-based
-    // cursor instead of subject_guid matching.
-    let mut replay_events: Vec<SseFrame> = Vec::new();
-    if last_seq > 0 {
-        for artist_id in &artist_ids {
-            let recent = state.sse_registry.recent_events(artist_id);
-            for frame in recent {
-                if frame.seq > last_seq {
-                    replay_events.push(frame);
-                }
-            }
-        }
-        // Sort by seq so replayed events arrive in order across artists.
-        replay_events.sort_by_key(|f| f.seq);
-    }
-
-    // Subscribe to live broadcast channels.
-    // If the registry is full for a given artist (new, not yet tracked),
-    // we silently skip that artist rather than failing the whole connection.
-    let mut receivers: Vec<tokio::sync::broadcast::Receiver<SseFrame>> = Vec::new();
-    for artist_id in &artist_ids {
-        if let Some(rx) = state.sse_registry.subscribe(artist_id) {
-            receivers.push(rx);
-        }
-    }
-
-    // Clone the registry Arc so the live stream can release the connection on drop.
-    let registry = Arc::clone(&state.sse_registry);
-
-    // Merge replay events as an initial stream, then live events.
-    // Issue-SSE-PUBLISH — 2026-03-14: use seq as SSE id for unambiguous replay.
-    let replay_stream = tokio_stream::iter(replay_events.into_iter().map(|frame| {
-        let json = serde_json::to_string(&frame).unwrap_or_default();
-        Ok(axum::response::sse::Event::default()
-            .event(&frame.event_type)
-            .id(frame.seq.to_string())
-            .data(json))
-    }));
-
-    // Issue-14 SSE async stream — 2026-03-13
-    // Convert each broadcast receiver into an async BroadcastStream and merge
-    // them with select_all. This eliminates the 100ms busy-sleep polling loop
-    // that caused 10,000 wakeups/sec at max connections.
-    let live_stream = async_stream::stream! {
-        // Guard: release the SSE connection slot when this stream is dropped.
-        let _guard = SseConnectionGuard { registry };
-
-        use tokio_stream::wrappers::BroadcastStream;
-        use futures_util::stream::select_all;
-
-        let streams: Vec<_> = receivers
-            .into_iter()
-            .map(BroadcastStream::new)
-            .collect();
-
-        let mut merged = select_all(streams);
-
-        while let Some(item) = futures_util::StreamExt::next(&mut merged).await {
-            match item {
-                Ok(frame) => {
-                    let json = serde_json::to_string(&frame).unwrap_or_default();
-                    // Issue-SSE-PUBLISH — 2026-03-14: use seq as SSE id.
-                    yield Ok(axum::response::sse::Event::default()
-                        .event(&frame.event_type)
-                        .id(frame.seq.to_string())
-                        .data(json));
-                }
-                Err(tokio_stream::wrappers::errors::BroadcastStreamRecvError::Lagged(n)) => {
-                    tracing::debug!(lagged = n, "SSE client lagged behind broadcast");
-                }
-            }
-        }
-    };
-
-    let merged = replay_stream.chain(live_stream);
-
-    Ok(axum::response::sse::Sse::new(merged).keep_alive(
-        axum::response::sse::KeepAlive::new()
-            .interval(std::time::Duration::from_secs(30))
-            .text("keepalive"),
-    ))
-}
-
-/// RAII guard that releases an SSE connection slot when the stream is dropped
-/// (i.e., when the client disconnects).
-struct SseConnectionGuard {
-    registry: Arc<SseRegistry>,
-}
-
-impl Drop for SseConnectionGuard {
-    fn drop(&mut self) {
-        self.registry.release_connection();
-    }
 }
 
 // ── Admin auth helper ─────────────────────────────────────────────────────────
