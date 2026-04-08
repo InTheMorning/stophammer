@@ -23,8 +23,7 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --bins --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release \
-    --bin stophammer \
+RUN cargo build --release --bin stophammer
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 
@@ -55,5 +54,3 @@ FROM stophammer-runtime AS stophammer-node
 ENV NODE_MODE=community
 
 CMD ["stophammer"]
-
-FROM stophammer-indexer
