@@ -467,62 +467,6 @@ All query endpoints are read-only and available on both primary and community no
 
 ---
 
-### GET /v1/artists/{id}
-
-Returns a single artist by ID. Follows `artist_id_redirect` automatically (merged artists redirect transparently).
-
-- **Authentication:** None
-- **Include options:** `aliases`, `credits`, `tags`, `relationships`
-
-**Response (`200 OK`):**
-
-```json
-{
-  "data": {
-    "artist_id": "uuid",
-    "name": "Artist Name",
-    "sort_name": "Name, Artist",
-    "area": "US",
-    "img_url": "https://...",
-    "url": "https://...",
-    "begin_year": 2020,
-    "end_year": null,
-    "created_at": 1710288000,
-    "updated_at": 1710288000,
-    "aliases": ["alternate name"],
-    "credits": [{ "id": 1, "display_name": "Artist Name", "names": [...] }],
-    "tags": ["rock", "indie"],
-    "relationships": [{ "artist_id_a": "...", "artist_id_b": "...", "role": "member_of", "begin_year": null, "end_year": null }]
-  },
-  "pagination": { "cursor": null, "has_more": false },
-  "meta": { "api_version": "v1", "node_pubkey": "..." }
-}
-```
-
-| Code | Meaning |
-|------|---------|
-| 200  | Success |
-| 404  | Artist not found |
-
----
-
-### GET /v1/artists/{id}/feeds
-
-Lists feeds attributed to an artist, paginated by title (ascending).
-
-- **Authentication:** None
-- **Query parameters:**
-  - `medium` — optional feed medium filter; defaults to `music`
-
-**Response (`200 OK`):** Paginated array of feed objects (same structure as `GET /v1/feeds/{guid}` without includes).
-
-| Code | Meaning |
-|------|---------|
-| 200  | Success |
-| 404  | Artist not found |
-
----
-
 ## 5. Queries -- Feeds
 
 ### GET /v1/feeds/{guid}
@@ -841,17 +785,11 @@ Full-text search using SQLite FTS5.
 
 Default search includes:
 
-- `artist`
-- `release`
-- `recording`
 - `feed`
+- `track`
 
-Source `track` rows remain directly readable by ID and can still be requested
-explicitly with `type=track`, but they are no longer part of the default public
-search surface.
-
-Search remains canonical/transitional in the current runtime. For immediate
-source-truth reads, use direct feed and track lookups.
+Search is source-first in the current runtime. Feed and track search results
+align with the same public IDs exposed by the direct read endpoints.
 
 - **Authentication:** None
 
@@ -860,7 +798,7 @@ source-truth reads, use direct feed and track lookups.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `q` | string | **required** | Search query (FTS5 syntax) |
-| `type` | string | artist/release/recording/feed | Filter by entity type: `artist`, `release`, `recording`, `feed`, `track` |
+| `type` | string | feed/track | Filter by entity type: `feed`, `track` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
 
@@ -870,8 +808,8 @@ source-truth reads, use direct feed and track lookups.
 {
   "data": [
     {
-      "entity_type": "recording",
-      "entity_id": "recording-guid",
+      "entity_type": "track",
+      "entity_id": "track-guid",
       "rank": -1.5,
       "quality_score": 0
     }
@@ -901,13 +839,10 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
   "capabilities": ["query", "search", "sync", "push"],
-  "entity_types": ["artist", "feed", "track", "release", "recording"],
+  "entity_types": ["feed", "track", "wallet"],
   "include_params": {
-    "artist": ["aliases", "credits", "tags", "relationships"],
     "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"],
-    "release": ["tracks", "sources"],
-    "recording": ["sources", "releases"]
+    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"]
   }
 }
 ```

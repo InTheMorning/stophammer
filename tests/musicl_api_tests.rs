@@ -324,7 +324,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
 }
 
 #[tokio::test]
-async fn artist_feeds_support_default_music_and_explicit_musicl_filters() {
+async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
     let crawl_token = "musicl-artist-crawl-token";
     let db = common::test_db_arc();
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -431,67 +431,36 @@ async fn artist_feeds_support_default_music_and_explicit_musicl_filters() {
         assert_eq!(body["accepted"], true);
     }
 
-    let (music_artist_id, musicl_artist_id): (String, String) = {
-        let conn = db.lock().expect("lock db");
-        let music_artist_id = conn
-            .query_row(
-                "SELECT acn.artist_id
-                 FROM feeds f
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
-                 WHERE f.feed_guid = ?1
-                 ORDER BY acn.position ASC
-                 LIMIT 1",
-                ["feed-artist-music"],
-                |row| row.get(0),
-            )
-            .expect("music artist id");
-        let musicl_artist_id = conn
-            .query_row(
-                "SELECT acn.artist_id
-                 FROM feeds f
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
-                 WHERE f.feed_guid = ?1
-                 ORDER BY acn.position ASC
-                 LIMIT 1",
-                ["feed-artist-musicl"],
-                |row| row.get(0),
-            )
-            .expect("musicL artist id");
-        (music_artist_id, musicl_artist_id)
-    };
-
-    let default_artist_feeds = app
+    let default_recent_feeds = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/artists/{music_artist_id}/feeds"))
+                .uri("/v1/feeds/recent")
                 .body(Body::empty())
-                .expect("artist feeds request"),
+                .expect("recent feeds request"),
         )
         .await
-        .expect("artist feeds response");
-    assert_eq!(default_artist_feeds.status(), 200);
-    let default_json = body_json(default_artist_feeds).await;
+        .expect("recent feeds response");
+    assert_eq!(default_recent_feeds.status(), 200);
+    let default_json = body_json(default_recent_feeds).await;
     assert_eq!(default_json["data"].as_array().map_or(0, Vec::len), 1);
     assert_eq!(default_json["data"][0]["feed_guid"], "feed-artist-music");
     assert_eq!(default_json["data"][0]["raw_medium"], "music");
 
-    let musicl_artist_feeds = app
+    let musicl_recent_feeds = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!(
-                    "/v1/artists/{musicl_artist_id}/feeds?medium=musicL"
-                ))
+                .uri("/v1/feeds/recent?medium=musicL")
                 .body(Body::empty())
-                .expect("artist feeds request"),
+                .expect("recent feeds request"),
         )
         .await
-        .expect("artist feeds response");
-    assert_eq!(musicl_artist_feeds.status(), 200);
-    let musicl_json = body_json(musicl_artist_feeds).await;
+        .expect("recent feeds response");
+    assert_eq!(musicl_recent_feeds.status(), 200);
+    let musicl_json = body_json(musicl_recent_feeds).await;
     assert_eq!(musicl_json["data"].as_array().map_or(0, Vec::len), 1);
     assert_eq!(musicl_json["data"][0]["feed_guid"], "feed-artist-musicl");
     assert_eq!(musicl_json["data"][0]["raw_medium"], "musicL");

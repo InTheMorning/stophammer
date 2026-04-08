@@ -157,49 +157,6 @@ fn load_credits_batch_handles_multi_name_credits() {
 }
 
 // ---------------------------------------------------------------------------
-// Issue #6: GET /v1/artists/{id}/feeds uses batch loading (integration test)
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn artist_feeds_returns_correct_credits_for_multiple_feeds() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().expect("lock db");
-        seed_artist(&conn, "a1", "Test Artist");
-        let c1 = insert_credit(&conn, "a1", "Credit Alpha");
-        let c2 = insert_credit(&conn, "a1", "Credit Beta");
-        // Both feeds credited to a1 but with different credit rows
-        insert_feed(&conn, "feed-1", "Album Alpha", c1, Some(1000));
-        insert_feed(&conn, "feed-2", "Album Beta", c2, Some(2000));
-        drop(conn);
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let req = Request::builder()
-        .method("GET")
-        .uri("/v1/artists/a1/feeds")
-        .body(axum::body::Body::empty())
-        .expect("build request");
-
-    let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 200);
-
-    let bytes = resp.into_body().collect().await.expect("body").to_bytes();
-    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse JSON");
-    let data = body["data"].as_array().expect("data is array");
-    assert_eq!(data.len(), 2, "should return 2 feeds");
-
-    // Each feed should have its own distinct credit
-    let credit_names: Vec<&str> = data
-        .iter()
-        .map(|f| f["artist_credit"]["display_name"].as_str().unwrap())
-        .collect();
-    assert!(credit_names.contains(&"Credit Alpha"));
-    assert!(credit_names.contains(&"Credit Beta"));
-}
-
-// ---------------------------------------------------------------------------
 // Issue #6: GET /v1/feeds/recent uses batch loading (integration test)
 // ---------------------------------------------------------------------------
 

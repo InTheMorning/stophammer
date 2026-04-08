@@ -230,14 +230,13 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "track title should match"
     );
 
-    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
-    let resolver_summary =
-        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
-            .expect("run resolver batch");
-    assert_eq!(resolver_summary.claimed, 1);
-    assert_eq!(resolver_summary.resolved, 1);
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::sync_source_read_models_for_feed(&conn, feed_guid)
+            .expect("sync source read models");
+    }
 
-    // ── Step 4: GET /v1/search?q=Golden → verify canonical-first search results
+    // ── Step 4: GET /v1/search?q=Golden → verify source-first search results
     // Issue-FTS5-CONTENT — 2026-03-14
     // The search endpoint now JOINs through the `search_entities` companion
     // table to resolve (entity_type, entity_id) from contentless FTS5 rowids.
@@ -263,20 +262,25 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "search for 'Golden' should return at least one result"
     );
 
-    // Default search now includes feeds alongside canonical artist/release/
-    // recording rows.
-    assert!(search_data.iter().all(|r| {
-        matches!(
-            r["entity_type"].as_str(),
-            Some("artist" | "release" | "recording" | "feed")
-        )
-    }));
+    // Default search now includes only source-first feed and track rows.
+    assert!(
+        search_data
+            .iter()
+            .all(|r| { matches!(r["entity_type"].as_str(), Some("feed" | "track")) })
+    );
     let default_feed_hit = search_data.iter().find(|r| {
         r["entity_type"].as_str() == Some("feed") && r["entity_id"].as_str() == Some(feed_guid)
     });
     assert!(
         default_feed_hit.is_some(),
         "default search results should include the feed with entity_type='feed' and entity_id='{feed_guid}'"
+    );
+    let default_track_hit = search_data.iter().find(|r| {
+        r["entity_type"].as_str() == Some("track") && r["entity_id"].as_str() == Some(track_guid)
+    });
+    assert!(
+        default_track_hit.is_some(),
+        "default search results should include the track with entity_type='track' and entity_id='{track_guid}'"
     );
 
     // Explicit feed search should still surface the source feed hit.
@@ -308,6 +312,35 @@ async fn test_e2e_ingest_to_query_golden_path() {
     assert!(
         feed_hit.is_some(),
         "feed search results should include the feed with entity_type='feed' and entity_id='{feed_guid}'"
+    );
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/search?q=Golden&type=track")
+                .body(Body::empty())
+                .expect("build track search request"),
+        )
+        .await
+        .expect("track search should not panic");
+
+    assert_eq!(
+        resp.status(),
+        200,
+        "GET /v1/search?type=track should return 200"
+    );
+    let track_search_body = body_json(resp).await;
+    let track_search_data = track_search_body["data"]
+        .as_array()
+        .expect("track search data should be an array");
+    let track_hit = track_search_data.iter().find(|r| {
+        r["entity_type"].as_str() == Some("track") && r["entity_id"].as_str() == Some(track_guid)
+    });
+    assert!(
+        track_hit.is_some(),
+        "track search results should include the track with entity_type='track' and entity_id='{track_guid}'"
     );
 
     // ── Step 5: GET /v1/feeds/{guid}?include=payment_routes → verify routes ─

@@ -114,37 +114,6 @@ pub struct SearchQuery {
 
 // ── Serializable types ──────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
-struct ArtistResponse {
-    artist_id: String,
-    name: String,
-    sort_name: Option<String>,
-    area: Option<String>,
-    img_url: Option<String>,
-    url: Option<String>,
-    begin_year: Option<i64>,
-    end_year: Option<i64>,
-    created_at: i64,
-    updated_at: i64,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    aliases: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    credits: Option<Vec<CreditResponse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    relationships: Option<Vec<RelResponse>>,
-}
-
-#[derive(Debug, Serialize)]
-struct RelResponse {
-    artist_id_a: String,
-    artist_id_b: String,
-    role: String,
-    begin_year: Option<i64>,
-    end_year: Option<i64>,
-}
-
 #[derive(Debug, Clone, Serialize)]
 struct CreditResponse {
     id: i64,
@@ -425,354 +394,6 @@ struct FeedRow {
     oldest_item_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
-}
-
-// ── GET /v1/artists/{id} ────────────────────────────────────────────────────
-
-async fn handle_get_artist(
-    State(state): State<Arc<api::AppState>>,
-    Path(artist_id): Path<String>,
-    Query(params): Query<ListQuery>,
-) -> Result<impl IntoResponse, api::ApiError> {
-    let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || {
-        // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.reader().map_err(|e| api::ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("database reader pool error: {e}"),
-            www_authenticate: None,
-        })?;
-
-        // Check for redirect first.
-        let resolved_id: String = conn
-            .query_row(
-                "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
-                params![artist_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(artist_id);
-
-        let artist = conn
-            .query_row(
-                "SELECT artist_id, name, sort_name, area, img_url, url, begin_year, end_year, \
-             created_at, updated_at FROM artists WHERE artist_id = ?1",
-                params![resolved_id],
-                |row| {
-                    Ok(ArtistResponse {
-                        artist_id: row.get(0)?,
-                        name: row.get(1)?,
-                        sort_name: row.get(2)?,
-                        area: row.get(3)?,
-                        img_url: row.get(4)?,
-                        url: row.get(5)?,
-                        begin_year: row.get(6)?,
-                        end_year: row.get(7)?,
-                        created_at: row.get(8)?,
-                        updated_at: row.get(9)?,
-                        aliases: None,
-                        credits: None,
-                        tags: None,
-                        relationships: None,
-                    })
-                },
-            )
-            .map_err(|_err| api::ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "artist not found".into(),
-                www_authenticate: None,
-            })?;
-
-        let mut artist = artist;
-
-        if params.includes("aliases") {
-            let mut stmt = conn.prepare(
-                "SELECT alias_lower FROM artist_aliases WHERE artist_id = ?1 ORDER BY alias_lower",
-            )?;
-            let aliases: Vec<String> = stmt
-                .query_map(params![resolved_id], |row| row.get(0))?
-                .collect::<Result<_, _>>()?;
-            artist.aliases = Some(aliases);
-        }
-
-        if params.includes("credits") {
-            let credits = db::get_artist_credits_for_artist(&conn, &resolved_id)?;
-            artist.credits = Some(
-                credits
-                    .into_iter()
-                    .map(|c| CreditResponse {
-                        id: c.id,
-                        display_name: c.display_name,
-                        names: c
-                            .names
-                            .into_iter()
-                            .map(|n| CreditNameResponse {
-                                artist_id: n.artist_id,
-                                position: n.position,
-                                name: n.name,
-                                join_phrase: n.join_phrase,
-                            })
-                            .collect(),
-                    })
-                    .collect(),
-            );
-        }
-
-        if params.includes("tags") {
-            artist.tags = Some(load_tags(&conn, "artist", &resolved_id)?);
-        }
-
-        if params.includes("relationships") {
-            let rels = db::get_artist_rels(&conn, &resolved_id)?;
-            artist.relationships = Some(
-                rels.into_iter()
-                    .map(|r| RelResponse {
-                        artist_id_a: r.artist_id_a,
-                        artist_id_b: r.artist_id_b,
-                        role: r.rel_type_name,
-                        begin_year: r.begin_year,
-                        end_year: r.end_year,
-                    })
-                    .collect(),
-            );
-        }
-
-        Ok::<_, api::ApiError>(QueryResponse {
-            data: artist,
-            pagination: Pagination {
-                cursor: None,
-                has_more: false,
-            },
-            meta: meta(&state2),
-        })
-    })
-    .await
-    .map_err(|e| api::ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })??;
-
-    Ok(Json(result))
-}
-
-// ── GET /v1/artists/{id}/feeds ──────────────────────────────────────────────
-
-#[allow(
-    clippy::too_many_lines,
-    reason = "single paginated feed-list flow with batch credit loading"
-)]
-async fn handle_get_artist_feeds(
-    State(state): State<Arc<api::AppState>>,
-    Path(artist_id): Path<String>,
-    Query(params): Query<ListQuery>,
-) -> Result<impl IntoResponse, api::ApiError> {
-    let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || {
-        // Mutex safety compliant — 2026-03-12
-        let conn = state2.db.reader().map_err(|e| api::ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("database reader pool error: {e}"),
-            www_authenticate: None,
-        })?;
-        let limit = params.capped_limit();
-        let medium_filter = params.feed_medium().to_string();
-
-        // Resolve redirect.
-        let resolved_id: String = conn
-            .query_row(
-                "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
-                params![artist_id],
-                |row| row.get(0),
-            )
-            .unwrap_or(artist_id);
-
-        // Verify artist exists.
-        conn.query_row(
-            "SELECT 1 FROM artists WHERE artist_id = ?1",
-            params![resolved_id],
-            |_| Ok(()),
-        )
-        .map_err(|_err| api::ApiError {
-            status: StatusCode::NOT_FOUND,
-            message: "artist not found".into(),
-            www_authenticate: None,
-        })?;
-
-        // Issue-CURSOR-STABILITY — 2026-03-14
-        // Cursor encodes (title_lower, feed_guid) for a unique tiebreaker.
-        let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
-            let decoded = decode_cursor(cursor_str)?;
-            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
-            if parts.len() != 2 {
-                return Err(api::ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "invalid cursor format".into(),
-                    www_authenticate: None,
-                });
-            }
-            let cursor_title = parts[0];
-            let cursor_guid = parts[1];
-
-            let mut stmt = conn.prepare(
-                "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
-                 f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
-                 f.description, f.image_url, f.publisher, f.language, f.explicit, \
-                 f.episode_count, f.newest_item_at, f.oldest_item_at, \
-                 f.created_at, f.updated_at \
-                 FROM feeds f \
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-                 WHERE acn.artist_id = ?1 \
-                   AND lower(f.raw_medium) = lower(?2) \
-                   AND (f.title_lower > ?3 OR (f.title_lower = ?3 AND f.feed_guid > ?4)) \
-                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
-                 LIMIT ?5",
-            )?;
-            stmt.query_map(
-                params![
-                    resolved_id,
-                    medium_filter,
-                    cursor_title,
-                    cursor_guid,
-                    limit + 1
-                ],
-                |row| {
-                    Ok(FeedRow {
-                        feed_guid: row.get(0)?,
-                        feed_url: row.get(1)?,
-                        title: row.get(2)?,
-                        raw_medium: row.get(3)?,
-                        credit_id: row.get(4)?,
-                        release_artist: row.get(5)?,
-                        release_artist_sort: row.get(6)?,
-                        release_date: row.get(7)?,
-                        release_kind: row.get(8)?,
-                        description: row.get(9)?,
-                        image_url: row.get(10)?,
-                        publisher_text: row.get(11)?,
-                        language: row.get(12)?,
-                        explicit_int: row.get(13)?,
-                        episode_count: row.get(14)?,
-                        newest_item_at: row.get(15)?,
-                        oldest_item_at: row.get(16)?,
-                        created_at: row.get(17)?,
-                        updated_at: row.get(18)?,
-                    })
-                },
-            )?
-            .collect::<Result<_, _>>()?
-        } else {
-            let mut stmt = conn.prepare(
-                "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
-                 f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
-                 f.description, f.image_url, f.publisher, f.language, f.explicit, \
-                 f.episode_count, f.newest_item_at, f.oldest_item_at, \
-                 f.created_at, f.updated_at \
-                 FROM feeds f \
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-                 WHERE acn.artist_id = ?1 AND lower(f.raw_medium) = lower(?2) \
-                 ORDER BY f.title_lower ASC, f.feed_guid ASC \
-                 LIMIT ?3",
-            )?;
-            stmt.query_map(params![resolved_id, medium_filter, limit + 1], |row| {
-                Ok(FeedRow {
-                    feed_guid: row.get(0)?,
-                    feed_url: row.get(1)?,
-                    title: row.get(2)?,
-                    raw_medium: row.get(3)?,
-                    credit_id: row.get(4)?,
-                    release_artist: row.get(5)?,
-                    release_artist_sort: row.get(6)?,
-                    release_date: row.get(7)?,
-                    release_kind: row.get(8)?,
-                    description: row.get(9)?,
-                    image_url: row.get(10)?,
-                    publisher_text: row.get(11)?,
-                    language: row.get(12)?,
-                    explicit_int: row.get(13)?,
-                    episode_count: row.get(14)?,
-                    newest_item_at: row.get(15)?,
-                    oldest_item_at: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?
-        };
-
-        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
-        let items: Vec<_> = rows
-            .into_iter()
-            .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .collect();
-
-        let next_cursor = if has_more {
-            items
-                .last()
-                .map(|r| encode_cursor(&format!("{}\0{}", r.title.to_lowercase(), r.feed_guid)))
-        } else {
-            None
-        };
-
-        // Issue-6 batch credits — 2026-03-13
-        // Batch-load all credits in two queries instead of 2*N.
-        let credit_map = load_credits_for_feeds(&conn, &items)?;
-
-        let mut feeds = Vec::with_capacity(items.len());
-        for r in items {
-            let credit = credit_map
-                .get(&r.credit_id)
-                .cloned()
-                .map_or_else(|| load_credit(&conn, r.credit_id), Ok)?;
-            feeds.push(FeedResponse {
-                feed_guid: r.feed_guid,
-                feed_url: r.feed_url,
-                title: r.title,
-                raw_medium: r.raw_medium,
-                artist_credit: credit,
-                release_artist: r.release_artist,
-                release_artist_sort: r.release_artist_sort,
-                release_date: r.release_date,
-                release_kind: r.release_kind,
-                description: r.description,
-                image_url: r.image_url,
-                publisher_text: r.publisher_text,
-                language: r.language,
-                explicit: r.explicit_int != 0,
-                episode_count: r.episode_count,
-                newest_item_at: r.newest_item_at,
-                oldest_item_at: r.oldest_item_at,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-                tracks: None,
-                payment_routes: None,
-                tags: None,
-                source_links: None,
-                source_ids: None,
-                source_contributors: None,
-                source_platforms: None,
-                source_release_claims: None,
-                remote_items: None,
-                publisher: None,
-            });
-        }
-
-        Ok::<_, api::ApiError>(QueryResponse {
-            data: feeds,
-            pagination: Pagination {
-                cursor: next_cursor,
-                has_more,
-            },
-            meta: meta(&state2),
-        })
-    })
-    .await
-    .map_err(|e| api::ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })??;
-
-    Ok(Json(result))
 }
 
 // ── GET /v1/feeds/{guid} ────────────────────────────────────────────────────
@@ -1804,7 +1425,7 @@ async fn handle_search(
     let results = tokio::task::spawn_blocking(move || {
         let conn = pool.reader()?;
         match kind.as_deref() {
-            Some("artist" | "release" | "recording" | "feed" | "track") => crate::search::search(
+            Some("feed" | "track") => crate::search::search(
                 &conn,
                 &q,
                 kind.as_deref(),
@@ -1817,7 +1438,7 @@ async fn handle_search(
             ))),
             None => {
                 let mut merged = Vec::new();
-                for entity_type in ["artist", "release", "recording", "feed"] {
+                for entity_type in ["feed", "track"] {
                     merged.extend(crate::search::search(
                         &conn,
                         &q,
@@ -1915,10 +1536,6 @@ struct CapabilitiesResponse {
 async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl IntoResponse {
     let mut include_params = HashMap::new();
     include_params.insert(
-        "artist",
-        vec!["aliases", "credits", "tags", "relationships"],
-    );
-    include_params.insert(
         "feed",
         vec![
             "tracks",
@@ -1950,7 +1567,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
         capabilities: vec!["query", "search", "sync", "push"],
-        entity_types: vec!["artist", "feed", "track", "release", "recording"],
+        entity_types: vec!["feed", "track", "wallet"],
         include_params,
     })
 }
@@ -2170,8 +1787,6 @@ use axum::routing::get;
 
 pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
     axum::Router::new()
-        .route("/v1/artists/{id}", get(handle_get_artist))
-        .route("/v1/artists/{id}/feeds", get(handle_get_artist_feeds))
         .route("/v1/feeds/{guid}", get(handle_get_feed))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/tracks/{guid}", get(handle_get_track))

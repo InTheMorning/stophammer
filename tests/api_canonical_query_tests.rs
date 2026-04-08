@@ -66,7 +66,7 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 }
 
 #[tokio::test]
-async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
+async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
     let crawl_token = "canonical-query-crawl-token";
     let db = common::test_db_arc();
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -163,27 +163,8 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
             .expect("sync canonical state");
         stophammer::db::sync_canonical_promotions_for_feed(&conn, feed_guid)
             .expect("sync canonical promotions");
-        stophammer::db::sync_canonical_search_index_for_feed(&conn, feed_guid)
-            .expect("sync canonical search");
-    };
-
-    let (release_id, recording_id) = {
-        let conn = db.lock().expect("lock db");
-        let release_id: String = conn
-            .query_row(
-                "SELECT release_id FROM source_feed_release_map WHERE feed_guid = ?1",
-                [feed_guid],
-                |row| row.get(0),
-            )
-            .expect("release id");
-        let recording_id: String = conn
-            .query_row(
-                "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
-                [track_guid],
-                |row| row.get(0),
-            )
-            .expect("recording id");
-        (release_id, recording_id)
+        stophammer::db::sync_source_read_models_for_feed(&conn, feed_guid)
+            .expect("sync source read models");
     };
 
     let feed_resp = app
@@ -273,34 +254,34 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert!(
         search_types
             .iter()
-            .all(|kind| matches!(*kind, "artist" | "release" | "recording" | "feed"))
+            .all(|kind| matches!(*kind, "feed" | "track"))
     );
     assert!(
         search_results
             .iter()
-            .any(|row| row["entity_type"] == "release" && row["entity_id"] == release_id)
+            .any(|row| row["entity_type"] == "feed" && row["entity_id"] == feed_guid)
     );
     assert!(
         search_results
             .iter()
-            .any(|row| row["entity_type"] == "recording" && row["entity_id"] == recording_id)
+            .any(|row| row["entity_type"] == "track" && row["entity_id"] == track_guid)
     );
 
-    let release_search_resp = app
+    let track_search_resp = app
         .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/search?q=Canonical&type=release")
+                .uri("/v1/search?q=Canonical&type=track")
                 .body(Body::empty())
-                .expect("release search request"),
+                .expect("track search request"),
         )
         .await
-        .expect("release search response");
-    assert_eq!(release_search_resp.status(), 200);
-    let release_search_json = body_json(release_search_resp).await;
-    assert_eq!(release_search_json["data"][0]["entity_type"], "release");
-    assert_eq!(release_search_json["data"][0]["entity_id"], release_id);
+        .expect("track search response");
+    assert_eq!(track_search_resp.status(), 200);
+    let track_search_json = body_json(track_search_resp).await;
+    assert_eq!(track_search_json["data"][0]["entity_type"], "track");
+    assert_eq!(track_search_json["data"][0]["entity_id"], track_guid);
 
     let recent_feeds_resp = app
         .clone()
