@@ -2430,30 +2430,6 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
         crate::quality::store_quality(conn, "track", &track.track_guid, track_score)?;
     }
 
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT a.artist_id, a.name \
-         FROM artists a \
-         JOIN artist_credit_name acn ON acn.artist_id = a.artist_id \
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
-         JOIN feeds f ON f.artist_credit_id = ac.id \
-         WHERE f.feed_guid = ?1 \
-         UNION \
-         SELECT DISTINCT a.artist_id, a.name \
-         FROM artists a \
-         JOIN artist_credit_name acn ON acn.artist_id = a.artist_id \
-         JOIN artist_credit ac ON ac.id = acn.artist_credit_id \
-         JOIN tracks t ON t.artist_credit_id = ac.id \
-         WHERE t.feed_guid = ?1",
-    )?;
-    let artists: Vec<(String, String)> = stmt
-        .query_map(params![feed_guid], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-    for (artist_id, artist_name) in artists {
-        crate::search::populate_search_index(conn, "artist", &artist_id, &artist_name, "", "", "")?;
-        let artist_score = crate::quality::compute_artist_quality(conn, &artist_id)?;
-        crate::quality::store_quality(conn, "artist", &artist_id, artist_score)?;
-    }
-
     Ok(())
 }
 

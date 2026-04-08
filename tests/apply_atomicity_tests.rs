@@ -57,13 +57,13 @@ fn make_artist_event(artist_id: &str, name: &str, now: i64) -> stophammer::event
 // ---------------------------------------------------------------------------
 // Issue #17 — Test 1: apply_single_event is atomic (all-or-nothing)
 //
-// Strategy: Verify that after a successful apply_single_event, both the entity
-// row AND the event row AND the search index entry AND the quality score all
-// exist. This confirms they were written together atomically.
+// Strategy: Verify that after a successful apply_single_event, the entity row
+// and the event row both exist, while no deprecated artist search/quality side
+// effects are emitted.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn apply_single_event_writes_entity_event_search_quality_atomically() {
+fn apply_single_event_writes_entity_and_event_without_artist_search_side_effects() {
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
@@ -73,7 +73,7 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
     let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(result.is_ok(), "apply should succeed");
 
-    // All four artifacts must exist: entity, event, search index, quality score
+    // Only the entity and event should exist; artist search/quality are retired
     let conn = db.lock().expect("lock");
 
     // 1. Artist row
@@ -96,7 +96,7 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
         .expect("event query");
     assert!(event_exists, "event row must exist after atomic apply");
 
-    // 3. Search index entry
+    // 3. Search index entry remains absent
     let rowid = stophammer::search::rowid_for("artist", "atom-artist-1");
     let search_exists: bool = conn
         .query_row(
@@ -106,11 +106,11 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
         )
         .expect("search query");
     assert!(
-        search_exists,
-        "search index entry must exist after atomic apply"
+        !search_exists,
+        "artist search index entry must remain absent after atomic apply"
     );
 
-    // 4. Quality score
+    // 4. Quality score remains absent
     let quality_exists: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'artist' AND entity_id = 'atom-artist-1'",
@@ -119,19 +119,17 @@ fn apply_single_event_writes_entity_event_search_quality_atomically() {
         )
         .expect("quality query");
     assert!(
-        quality_exists,
-        "quality score must exist after atomic apply"
+        !quality_exists,
+        "artist quality score must remain absent after atomic apply"
     );
 }
 
 // ---------------------------------------------------------------------------
 // Issue #17 — Test 2: apply_single_event rolls back on failure
 //
-// Strategy: We verify that if the event insert step would fail (e.g., due to
-// a constraint), none of the preceding writes (entity, search, quality)
-// persist. We do this by calling apply_single_event twice with the same
-// event_id but different payloads — but apply uses INSERT OR IGNORE for
-// events, so duplicates don't fail.
+// Strategy: We verify that if the event insert step would fail, none of the
+// preceding writes persist. Artist search/quality are already absent by
+// design, but the rollback should still leave them absent too.
 //
 // Instead, we verify atomicity by corrupting a table that is written AFTER
 // the entity upsert. We drop the events table temporarily, call apply, and
@@ -207,51 +205,6 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
     assert!(
         !quality_exists,
         "quality score should NOT exist when transaction rolled back"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// Issue #17 — Test 3: apply_single_event search index failure rolls back entity
-//
-// Strategy: Drop the search_index table, attempt apply, verify entity is not
-// persisted either.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn apply_single_event_rolls_back_entity_on_search_failure() {
-    let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
-    let now = common::now();
-
-    // Drop the search_index FTS5 table so search writes fail
-    {
-        let conn = db.lock().expect("lock");
-        conn.execute_batch("DROP TABLE IF EXISTS search_index")
-            .expect("drop search_index");
-    }
-
-    let ev = make_artist_event("search-fail-artist", "Search Fail Artist", now);
-    let result = stophammer::apply::apply_single_event(&pool, &ev);
-
-    // The apply should fail because the search_index table is missing
-    assert!(
-        result.is_err(),
-        "apply should fail when search_index is missing"
-    );
-
-    // Rebuild the search_index table for cleanup (not needed for assertion)
-    // The key assertion: the artist must NOT have been persisted
-    let conn = db.lock().expect("lock");
-    let artist_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM artists WHERE artist_id = 'search-fail-artist'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("artist query");
-    assert!(
-        !artist_exists,
-        "artist should NOT exist when search index write failed — transaction must roll back"
     );
 }
 
@@ -563,9 +516,14 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         artist_credit_id: 0,
         description: Some("Test atomicity".into()),
         image_url: Some("https://img.example.com/at.jpg".into()),
+        publisher: Some("Atomic Publisher".into()),
         language: Some("en".into()),
         explicit: false,
         itunes_type: None,
+        release_artist: Some("Atomic S1B Artist".into()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 1,
         newest_item_at: Some(now),
         oldest_item_at: None,
@@ -587,8 +545,12 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         enclosure_bytes: Some(5_000_000),
         track_number: Some(1),
         season: None,
+        image_url: Some("https://img.example.com/at-01.jpg".into()),
+        language: Some("en".into()),
         explicit: false,
         description: Some("First atomic track".into()),
+        track_artist: Some("Atomic S1B Artist".into()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -761,10 +723,10 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
             params![artist_rowid],
             |r| r.get(0),
         )
-        .expect("artist search query after resolver sync");
+        .expect("artist search query after source sync");
     assert!(
-        artist_search,
-        "artist search index must exist after resolver sync"
+        !artist_search,
+        "artist search index must remain absent after source sync"
     );
 
     let artist_quality: bool = conn
@@ -773,10 +735,10 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
             [],
             |r| r.get(0),
         )
-        .expect("artist quality query after resolver sync");
+        .expect("artist quality query after source sync");
     assert!(
-        artist_quality,
-        "artist quality score must exist after resolver sync"
+        !artist_quality,
+        "artist quality score must remain absent after source sync"
     );
 
     let track_search: bool = conn
@@ -859,9 +821,14 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         artist_credit_id: 0,
         description: Some("Test rollback".into()),
         image_url: Some("https://img.example.com/rb.jpg".into()),
+        publisher: Some("Rollback Publisher".into()),
         language: Some("en".into()),
         explicit: false,
         itunes_type: None,
+        release_artist: Some("Rollback S1B Artist".into()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 0,
         newest_item_at: None,
         oldest_item_at: None,

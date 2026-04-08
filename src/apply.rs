@@ -95,18 +95,6 @@ fn apply_single_event_inner(
     match &verified_payload {
         event::EventPayload::ArtistUpserted(p) => {
             db::upsert_artist_if_absent(conn, &p.artist)?;
-            // Recompute artist quality + search index
-            let score = crate::quality::compute_artist_quality(conn, &p.artist.artist_id)?;
-            crate::quality::store_quality(conn, "artist", &p.artist.artist_id, score)?;
-            crate::search::populate_search_index(
-                conn,
-                "artist",
-                &p.artist.artist_id,
-                &p.artist.name,
-                "",
-                "",
-                "",
-            )?;
         }
         event::EventPayload::FeedUpserted(p) => {
             db::upsert_feed(conn, &p.feed)?;
