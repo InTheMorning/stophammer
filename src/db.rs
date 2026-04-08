@@ -1709,58 +1709,6 @@ fn rebuild_canonical_release(conn: &Connection, release_id: &str) -> Result<(), 
     Ok(())
 }
 
-pub(crate) fn cleanup_orphaned_canonical_rows(conn: &Connection) -> Result<(), DbError> {
-    conn.execute(
-        "DELETE FROM source_item_recording_map \
-         WHERE track_guid NOT IN (SELECT track_guid FROM tracks)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM source_feed_release_map \
-         WHERE feed_guid NOT IN (SELECT feed_guid FROM feeds)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM release_recordings \
-         WHERE source_track_guid IS NOT NULL \
-           AND source_track_guid NOT IN (SELECT track_guid FROM tracks)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM release_recordings \
-         WHERE recording_id NOT IN (SELECT recording_id FROM source_item_recording_map)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM release_recordings \
-         WHERE release_id NOT IN (SELECT release_id FROM source_feed_release_map)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM recordings \
-         WHERE recording_id NOT IN (SELECT recording_id FROM source_item_recording_map)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM releases \
-         WHERE release_id NOT IN (SELECT release_id FROM source_feed_release_map)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM entity_source \
-         WHERE entity_type = 'recording' \
-           AND entity_id NOT IN (SELECT recording_id FROM recordings)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM entity_source \
-         WHERE entity_type = 'release' \
-           AND entity_id NOT IN (SELECT release_id FROM releases)",
-        [],
-    )?;
-    Ok(())
-}
-
 /// Rebuilds deterministic canonical release/recording rows for a source feed.
 ///
 /// Current policy clusters only exact source matches:
@@ -1849,152 +1797,6 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
         rebuild_canonical_recording(conn, recording_id)?;
     }
 
-    Ok(())
-}
-
-fn delete_promoted_entity_sources(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-) -> Result<(), DbError> {
-    conn.execute(
-        "DELETE FROM entity_source \
-         WHERE entity_type = ?1 AND entity_id = ?2 \
-           AND source_type IN ('source_feed', 'source_release_page', 'source_recording_page', 'source_primary_enclosure')",
-        params![entity_type, entity_id],
-    )?;
-    Ok(())
-}
-
-fn record_promoted_entity_source(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-    source_type: &str,
-    source_url: &str,
-) -> Result<(), DbError> {
-    record_entity_source(
-        conn,
-        entity_type,
-        entity_id,
-        source_type,
-        Some(source_url),
-        1,
-    )?;
-    Ok(())
-}
-
-fn rebuild_release_sources(conn: &Connection, release_id: &str) -> Result<(), DbError> {
-    delete_promoted_entity_sources(conn, "release", release_id)?;
-    let mut stmt = conn.prepare(
-        "SELECT f.feed_url, f.feed_guid \
-         FROM source_feed_release_map sfr
-         JOIN feeds f ON f.feed_guid = sfr.feed_guid \
-         WHERE sfr.release_id = ?1
-         ORDER BY f.feed_guid",
-    )?;
-    let mapped_feeds: Vec<(String, String)> = stmt
-        .query_map(params![release_id], |row| Ok((row.get(0)?, row.get(1)?)))?
-        .collect::<Result<_, _>>()?;
-
-    let mut seen = std::collections::HashSet::new();
-    for (feed_url, feed_guid) in mapped_feeds {
-        if seen.insert(feed_url.clone()) {
-            record_promoted_entity_source(conn, "release", release_id, "source_feed", &feed_url)?;
-        }
-        let mut link_stmt = conn.prepare(
-            "SELECT DISTINCT url FROM source_entity_links \
-             WHERE feed_guid = ?1 AND entity_type = 'feed' AND entity_id = ?1 AND link_type = 'website' \
-             ORDER BY position, url",
-        )?;
-        let urls: Vec<String> = link_stmt
-            .query_map(params![feed_guid], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        for url in urls {
-            if seen.insert(url.clone()) {
-                record_promoted_entity_source(
-                    conn,
-                    "release",
-                    release_id,
-                    "source_release_page",
-                    &url,
-                )?;
-            }
-        }
-    }
-    Ok(())
-}
-
-fn rebuild_recording_sources(conn: &Connection, recording_id: &str) -> Result<(), DbError> {
-    delete_promoted_entity_sources(conn, "recording", recording_id)?;
-    let mut seen = std::collections::HashSet::new();
-    let mut track_stmt = conn.prepare(
-        "SELECT t.track_guid, t.feed_guid, t.enclosure_url FROM source_item_recording_map sirm
-         JOIN tracks t ON t.track_guid = sirm.track_guid
-         WHERE sirm.recording_id = ?1
-         ORDER BY t.track_guid",
-    )?;
-    let mapped_tracks: Vec<(String, String, Option<String>)> = track_stmt
-        .query_map(params![recording_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
-        })?
-        .collect::<Result<_, _>>()?;
-
-    for (track_guid, feed_guid, enclosure_url) in mapped_tracks {
-        let mut enclosure_stmt = conn.prepare(
-            "SELECT DISTINCT url FROM source_item_enclosures \
-             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND is_primary = 1 \
-             ORDER BY position, url",
-        )?;
-        let enclosure_urls: Vec<String> = enclosure_stmt
-            .query_map(params![feed_guid, track_guid], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-
-        if enclosure_urls.is_empty() {
-            if let Some(url) = enclosure_url {
-                seen.insert(url.clone());
-                record_promoted_entity_source(
-                    conn,
-                    "recording",
-                    recording_id,
-                    "source_primary_enclosure",
-                    &url,
-                )?;
-            }
-        } else {
-            for url in enclosure_urls {
-                if seen.insert(url.clone()) {
-                    record_promoted_entity_source(
-                        conn,
-                        "recording",
-                        recording_id,
-                        "source_primary_enclosure",
-                        &url,
-                    )?;
-                }
-            }
-        }
-
-        let mut link_stmt = conn.prepare(
-            "SELECT DISTINCT url FROM source_entity_links \
-             WHERE feed_guid = ?1 AND entity_type = 'track' AND entity_id = ?2 AND link_type = 'web_page' \
-             ORDER BY position, url",
-        )?;
-        let link_urls: Vec<String> = link_stmt
-            .query_map(params![feed_guid, track_guid], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        for url in link_urls {
-            if seen.insert(url.clone()) {
-                record_promoted_entity_source(
-                    conn,
-                    "recording",
-                    recording_id,
-                    "source_recording_page",
-                    &url,
-                )?;
-            }
-        }
-    }
     Ok(())
 }
 
@@ -2817,30 +2619,14 @@ pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbErr
 /// the provided connection without managing its own transaction.  Callers
 /// must ensure they are already inside a transaction or savepoint.
 pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<(), DbError> {
-    let recording_id: Option<String> = conn
-        .query_row(
-            "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
-            params![track_guid],
-            |row| row.get(0),
-        )
-        .optional()?;
     conn.execute(
         "DELETE FROM source_item_recording_map WHERE track_guid = ?1",
         params![track_guid],
     )?;
-    if let Some(recording_id) = &recording_id {
-        conn.execute(
-            "DELETE FROM release_recordings WHERE source_track_guid = ?1 OR recording_id = ?2",
-            params![track_guid, recording_id],
-        )?;
-        rebuild_canonical_recording(conn, recording_id)?;
-        rebuild_recording_sources(conn, recording_id)?;
-    } else {
-        conn.execute(
-            "DELETE FROM release_recordings WHERE source_track_guid = ?1",
-            params![track_guid],
-        )?;
-    }
+    conn.execute(
+        "DELETE FROM release_recordings WHERE source_track_guid = ?1",
+        params![track_guid],
+    )?;
     conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
         params![track_guid],
@@ -2893,23 +2679,6 @@ pub fn delete_feed(conn: &mut Connection, feed_guid: &str) -> Result<(), DbError
 /// must ensure they are already inside a transaction or savepoint.
 // DB performance compliant (subqueries) — 2026-03-12
 pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
-    let release_id: Option<String> = conn
-        .query_row(
-            "SELECT release_id FROM source_feed_release_map WHERE feed_guid = ?1",
-            params![feed_guid],
-            |row| row.get(0),
-        )
-        .optional()?;
-    let recording_ids: Vec<String> = {
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT recording_id FROM source_item_recording_map \
-             WHERE track_guid IN (SELECT track_guid FROM tracks WHERE feed_guid = ?1) \
-             ORDER BY recording_id",
-        )?;
-        stmt.query_map(params![feed_guid], |row| row.get(0))?
-            .collect::<Result<_, _>>()?
-    };
-
     // 1. value_time_splits for all tracks (subquery)
     conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid IN \
@@ -3020,16 +2789,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
 
     // 12. feeds
     conn.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
-
-    for recording_id in &recording_ids {
-        rebuild_canonical_recording(conn, recording_id)?;
-        rebuild_recording_sources(conn, recording_id)?;
-    }
-    if let Some(release_id) = &release_id {
-        rebuild_canonical_release(conn, release_id)?;
-        rebuild_release_sources(conn, release_id)?;
-    }
-    cleanup_orphaned_canonical_rows(conn)?;
 
     Ok(())
 }
