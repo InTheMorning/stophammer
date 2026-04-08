@@ -570,30 +570,6 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
     )
     .expect("insert resolver queue row");
     conn.execute(
-        "INSERT INTO artist_identity_review (
-             feed_guid,
-             source,
-             name_key,
-             evidence_key,
-             status,
-             artist_ids_json,
-             artist_names_json,
-             created_at,
-             updated_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
-        params![
-            "feed-n",
-            "feed_author",
-            "n-track artist",
-            "feed_author:n-track artist",
-            "pending",
-            "[\"artist-n\"]",
-            "[\"N-Track Artist\"]",
-            now
-        ],
-    )
-    .expect("insert artist identity review row");
-    conn.execute(
         "INSERT INTO resolved_external_ids_by_feed (
              feed_guid,
              entity_type,
@@ -972,10 +948,6 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 0);
     assert_eq!(count(&conn, "resolver_queue", "feed_guid = 'feed-n'"), 0);
-    assert_eq!(
-        count(&conn, "artist_identity_review", "feed_guid = 'feed-n'"),
-        0
-    );
     assert_eq!(
         count(
             &conn,

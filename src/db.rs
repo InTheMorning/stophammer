@@ -3500,10 +3500,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
     conn.execute(
-        "DELETE FROM artist_identity_review WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    conn.execute(
         "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
@@ -3681,10 +3677,6 @@ pub fn delete_feed_with_event(
 
     tx.execute(
         "DELETE FROM resolver_queue WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM artist_identity_review WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
     tx.execute(
