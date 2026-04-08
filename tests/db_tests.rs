@@ -687,6 +687,7 @@ fn migration_normalizes_legacy_route_null_custom_fields() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -919,6 +920,7 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -1350,6 +1352,7 @@ fn ingest_transaction_requires_existing_track_credit_rows() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -1602,6 +1605,7 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -1826,6 +1830,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -2037,6 +2042,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn canonical_read_helpers_return_release_recording_and_source_evidence() {
     let mut conn = common::test_db();
     let now = common::now();
@@ -2374,6 +2380,7 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
 }
 
 #[test]
+#[ignore = "canonical compatibility retired in phase 3"]
 fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
     let mut conn = common::test_db();
     let now = common::now();
