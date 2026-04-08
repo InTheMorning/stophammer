@@ -80,12 +80,12 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Test 2: GET /v1/recent returns 200
-# The API has no /v1/feeds list endpoint; /v1/recent is the closest read-only
-# listing endpoint available on both primary and community nodes.
+# Test 2: GET /v1/feeds/recent returns 200
+# The source-first v1 read surface uses /v1/feeds/recent for feed/release
+# listing.
 # --------------------------------------------------------------------------
-test_name="GET /v1/recent returns 200"
-status=$(curl -s -o /dev/null -w '%{http_code}' "${PRIMARY_URL}/v1/recent")
+test_name="GET /v1/feeds/recent returns 200"
+status=$(curl -s -o /dev/null -w '%{http_code}' "${PRIMARY_URL}/v1/feeds/recent")
 if [ "$status" = "200" ]; then
     pass "$test_name"
 else

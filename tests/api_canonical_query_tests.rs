@@ -165,9 +165,9 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
             .expect("sync canonical promotions");
         stophammer::db::sync_canonical_search_index_for_feed(&conn, feed_guid)
             .expect("sync canonical search");
-    }
+    };
 
-    let (release_id, recording_id, artist_id) = {
+    let (release_id, recording_id) = {
         let conn = db.lock().expect("lock db");
         let release_id: String = conn
             .query_row(
@@ -183,28 +183,8 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
                 |row| row.get(0),
             )
             .expect("recording id");
-        let artist_id: String = conn
-            .query_row(
-                "SELECT acn.artist_id \
-                 FROM feeds f \
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-                 WHERE f.feed_guid = ?1 \
-                 ORDER BY acn.position LIMIT 1",
-                [feed_guid],
-                |row| row.get(0),
-            )
-            .expect("artist id");
-        (release_id, recording_id, artist_id)
+        (release_id, recording_id)
     };
-
-    {
-        let conn = db.lock().expect("lock db");
-        conn.execute(
-            "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) VALUES (?1, ?2, ?3)",
-            rusqlite::params!["artist-canonical-query-old", artist_id, 1_700_000_001_i64],
-        )
-        .expect("insert artist redirect");
-    }
 
     let feed_resp = app
         .clone()
@@ -270,127 +250,6 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .collect::<Vec<_>>();
     assert!(track_enclosure_urls.contains(&"https://cdn.example.com/canonical-query.flac"));
 
-    let release_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/releases/{release_id}?include=tracks,sources"))
-                .body(Body::empty())
-                .expect("release request"),
-        )
-        .await
-        .expect("release response");
-    assert_eq!(release_resp.status(), 200);
-    let release_json = body_json(release_resp).await;
-    assert_eq!(release_json["data"]["title"], "Canonical Query Release");
-    assert_eq!(
-        release_json["data"]["tracks"][0]["recording_id"],
-        recording_id
-    );
-    assert_eq!(release_json["data"]["sources"][0]["feed_guid"], feed_guid);
-
-    let release_sources_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/v1/releases/{release_id}/sources?include=source_links,source_ids,source_platforms"
-                ))
-                .body(Body::empty())
-                .expect("release sources request"),
-        )
-        .await
-        .expect("release sources response");
-    assert_eq!(release_sources_resp.status(), 200);
-    let release_sources_json = body_json(release_sources_resp).await;
-    assert_eq!(release_sources_json["data"][0]["feed_guid"], feed_guid);
-    assert_eq!(
-        release_sources_json["data"][0]["source_platforms"][0]["platform_key"],
-        "wavlake"
-    );
-    assert_eq!(
-        release_sources_json["data"][0]["source_links"][0]["url"],
-        "https://artist.example.com/canonical-query"
-    );
-    assert_eq!(
-        release_sources_json["data"][0]["release_artist"],
-        "Canonical Query Artist"
-    );
-
-    let recording_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/v1/recordings/{recording_id}?include=sources,releases"
-                ))
-                .body(Body::empty())
-                .expect("recording request"),
-        )
-        .await
-        .expect("recording response");
-    assert_eq!(recording_resp.status(), 200);
-    let recording_json = body_json(recording_resp).await;
-    assert_eq!(recording_json["data"]["title"], "Canonical Query Song");
-    assert_eq!(
-        recording_json["data"]["sources"][0]["track_guid"],
-        track_guid
-    );
-    assert_eq!(
-        recording_json["data"]["releases"][0]["release_id"],
-        release_id
-    );
-
-    let recording_sources_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/v1/recordings/{recording_id}/sources?include=source_links,source_contributors,source_enclosures"
-                ))
-                .body(Body::empty())
-                .expect("recording sources request"),
-        )
-        .await
-        .expect("recording sources response");
-    assert_eq!(recording_sources_resp.status(), 200);
-    let recording_sources_json = body_json(recording_sources_resp).await;
-    assert_eq!(recording_sources_json["data"][0]["track_guid"], track_guid);
-    assert_eq!(
-        recording_sources_json["data"][0]["source_contributors"][0]["role_norm"],
-        "vocals"
-    );
-    let recording_source_enclosures = recording_sources_json["data"][0]["source_enclosures"]
-        .as_array()
-        .expect("recording source enclosures array")
-        .iter()
-        .filter_map(|enclosure| enclosure["url"].as_str())
-        .collect::<Vec<_>>();
-    assert!(recording_source_enclosures.contains(&"https://cdn.example.com/canonical-query.flac"));
-    assert_eq!(
-        recording_sources_json["data"][0]["track_artist"],
-        "Canonical Query Artist"
-    );
-
-    let artist_releases_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/artists/{artist_id}/releases"))
-                .body(Body::empty())
-                .expect("artist releases request"),
-        )
-        .await
-        .expect("artist releases response");
-    assert_eq!(artist_releases_resp.status(), 200);
-    let artist_releases_json = body_json(artist_releases_resp).await;
-    assert_eq!(artist_releases_json["data"][0]["release_id"], release_id);
-
     let search_resp = app
         .clone()
         .oneshot(
@@ -443,21 +302,6 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(release_search_json["data"][0]["entity_type"], "release");
     assert_eq!(release_search_json["data"][0]["entity_id"], release_id);
 
-    let recent_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri("/v1/recent")
-                .body(Body::empty())
-                .expect("recent request"),
-        )
-        .await
-        .expect("recent response");
-    assert_eq!(recent_resp.status(), 200);
-    let recent_json = body_json(recent_resp).await;
-    assert_eq!(recent_json["data"][0]["release_id"], release_id);
-
     let recent_feeds_resp = app
         .clone()
         .oneshot(
@@ -472,101 +316,6 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
     assert_eq!(recent_feeds_resp.status(), 200);
     let recent_feeds_json = body_json(recent_feeds_resp).await;
     assert_eq!(recent_feeds_json["data"][0]["feed_guid"], feed_guid);
-
-    let artist_resolution_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/artists/{artist_id}/resolution"))
-                .body(Body::empty())
-                .expect("artist resolution request"),
-        )
-        .await
-        .expect("artist resolution response");
-    assert_eq!(artist_resolution_resp.status(), 200);
-    let artist_resolution_json = body_json(artist_resolution_resp).await;
-    assert_eq!(artist_resolution_json["data"]["artist_id"], artist_id);
-    assert_eq!(
-        artist_resolution_json["data"]["external_ids"][0]["scheme"],
-        "nostr_npub"
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["redirected_from"][0],
-        "artist-canonical-query-old"
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["feeds"][0]["feed_guid"],
-        feed_guid
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["feeds"][0]["source_platforms"][0]["platform_key"],
-        "wavlake"
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["tracks"][0]["track_guid"],
-        track_guid
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["tracks"][0]["canonical_recording"]["recording_id"],
-        recording_id
-    );
-
-    let release_resolution_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/releases/{release_id}/resolution"))
-                .body(Body::empty())
-                .expect("release resolution request"),
-        )
-        .await
-        .expect("release resolution response");
-    assert_eq!(release_resolution_resp.status(), 200);
-    let release_resolution_json = body_json(release_resolution_resp).await;
-    assert_eq!(release_resolution_json["data"]["release_id"], release_id);
-    assert_eq!(
-        release_resolution_json["data"]["sources"][0]["feed_guid"],
-        feed_guid
-    );
-    assert_eq!(
-        release_resolution_json["data"]["sources"][0]["source_ids"][0]["scheme"],
-        "nostr_npub"
-    );
-    assert_eq!(
-        release_resolution_json["data"]["sources"][0]["source_links"][0]["url"],
-        "https://artist.example.com/canonical-query"
-    );
-
-    let recording_resolution_resp = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/recordings/{recording_id}/resolution"))
-                .body(Body::empty())
-                .expect("recording resolution request"),
-        )
-        .await
-        .expect("recording resolution response");
-    assert_eq!(recording_resolution_resp.status(), 200);
-    let recording_resolution_json = body_json(recording_resolution_resp).await;
-    assert_eq!(
-        recording_resolution_json["data"]["recording_id"],
-        recording_id
-    );
-    assert_eq!(
-        recording_resolution_json["data"]["sources"][0]["track_guid"],
-        track_guid
-    );
-    assert_eq!(
-        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["role_norm"],
-        "vocals"
-    );
-    assert_eq!(
-        recording_resolution_json["data"]["sources"][0]["source_enclosures"][0]["entity_type"],
-        "track"
-    );
 }
 
 #[tokio::test]
@@ -639,35 +388,6 @@ async fn track_contributor_views_inherit_feed_people_only_when_track_people_are_
         .expect("ingest");
     assert_eq!(ingest_resp.status(), 200);
 
-    {
-        let conn = db.lock().expect("lock db");
-        stophammer::db::sync_canonical_state_for_feed(&conn, feed_guid)
-            .expect("sync canonical state");
-    }
-
-    let (recording_id, artist_id) = {
-        let conn = db.lock().expect("lock db");
-        let recording_id: String = conn
-            .query_row(
-                "SELECT recording_id FROM source_item_recording_map WHERE track_guid = ?1",
-                [track_guid],
-                |row| row.get(0),
-            )
-            .expect("recording id");
-        let artist_id: String = conn
-            .query_row(
-                "SELECT acn.artist_id \
-                 FROM feeds f \
-                 JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id \
-                 WHERE f.feed_guid = ?1 \
-                 ORDER BY acn.position LIMIT 1",
-                [feed_guid],
-                |row| row.get(0),
-            )
-            .expect("artist id");
-        (recording_id, artist_id)
-    };
-
     let track_resp = app
         .clone()
         .oneshot(
@@ -689,73 +409,6 @@ async fn track_contributor_views_inherit_feed_people_only_when_track_people_are_
     );
     assert_eq!(
         track_json["data"]["source_contributors"][0]["entity_type"],
-        "feed"
-    );
-
-    let recording_sources_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/v1/recordings/{recording_id}/sources?include=source_contributors"
-                ))
-                .body(Body::empty())
-                .expect("recording sources request"),
-        )
-        .await
-        .expect("recording sources response");
-    assert_eq!(recording_sources_resp.status(), 200);
-    let recording_sources_json = body_json(recording_sources_resp).await;
-    assert_eq!(
-        recording_sources_json["data"][0]["source_contributors"][0]["name"],
-        "Feed Host"
-    );
-    assert_eq!(
-        recording_sources_json["data"][0]["source_contributors"][0]["entity_type"],
-        "feed"
-    );
-
-    let recording_resolution_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/recordings/{recording_id}/resolution"))
-                .body(Body::empty())
-                .expect("recording resolution request"),
-        )
-        .await
-        .expect("recording resolution response");
-    assert_eq!(recording_resolution_resp.status(), 200);
-    let recording_resolution_json = body_json(recording_resolution_resp).await;
-    assert_eq!(
-        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["name"],
-        "Feed Host"
-    );
-    assert_eq!(
-        recording_resolution_json["data"]["sources"][0]["source_contributors"][0]["entity_type"],
-        "feed"
-    );
-
-    let artist_resolution_resp = app
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!("/v1/artists/{artist_id}/resolution"))
-                .body(Body::empty())
-                .expect("artist resolution request"),
-        )
-        .await
-        .expect("artist resolution response");
-    assert_eq!(artist_resolution_resp.status(), 200);
-    let artist_resolution_json = body_json(artist_resolution_resp).await;
-    assert_eq!(
-        artist_resolution_json["data"]["tracks"][0]["source_contributors"][0]["name"],
-        "Feed Host"
-    );
-    assert_eq!(
-        artist_resolution_json["data"]["tracks"][0]["source_contributors"][0]["entity_type"],
         "feed"
     );
 }

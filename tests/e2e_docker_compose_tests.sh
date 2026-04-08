@@ -320,10 +320,10 @@ else
     fail "$test_name (got $status)"
 fi
 
-# ── Test 9: GET /v1/recent returns data ──────────────────────────────────────
+# ── Test 9: GET /v1/feeds/recent returns data ────────────────────────────────
 
-test_name="GET /v1/recent returns 200 with data"
-status=$(curl -s -o /tmp/e2e_recent.json -w '%{http_code}' "${PRIMARY_URL}/v1/recent")
+test_name="GET /v1/feeds/recent returns 200 with data"
+status=$(curl -s -o /tmp/e2e_recent.json -w '%{http_code}' "${PRIMARY_URL}/v1/feeds/recent")
 if [ "$status" = "200" ]; then
     pass "$test_name"
 else
