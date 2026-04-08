@@ -503,35 +503,6 @@ async fn feed_query_exposes_publisher_rss_truth() {
         .expect("child ingest");
     assert_eq!(child_resp.status(), 200);
 
-    let pre_resolver_publisher_feed_resp = app
-        .clone()
-        .oneshot(
-            Request::builder()
-                .method("GET")
-                .uri(format!(
-                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher"
-                ))
-                .body(Body::empty())
-                .expect("publisher feed request"),
-        )
-        .await
-        .expect("publisher feed response");
-    assert_eq!(pre_resolver_publisher_feed_resp.status(), 200);
-    let pre_resolver_publisher_feed_json = body_json(pre_resolver_publisher_feed_resp).await;
-    assert_eq!(
-        pre_resolver_publisher_feed_json["data"]["publisher"][0]["artist_signal"],
-        serde_json::Value::Null
-    );
-
-    {
-        let mut conn = db.lock().expect("lock db");
-        stophammer::db::backfill_artist_identity(&mut conn).expect("backfill artist identity");
-        stophammer::db::sync_canonical_state_for_feed(&conn, publisher_feed_guid)
-            .expect("sync canonical state publisher");
-        stophammer::db::sync_canonical_state_for_feed(&conn, child_feed_guid)
-            .expect("sync canonical state child");
-    }
-
     let publisher_feed_resp = app
         .clone()
         .oneshot(
@@ -568,9 +539,10 @@ async fn feed_query_exposes_publisher_rss_truth() {
         publisher_feed_json["data"]["publisher"][0]["two_way_validated"],
         true
     );
-    assert_eq!(
-        publisher_feed_json["data"]["publisher"][0]["artist_signal"],
-        "confirmed_artist"
+    assert!(
+        publisher_feed_json["data"]["publisher"][0]
+            .get("artist_signal")
+            .is_none()
     );
 
     let child_feed_resp = app
@@ -600,8 +572,9 @@ async fn feed_query_exposes_publisher_rss_truth() {
         child_feed_json["data"]["publisher"][0]["two_way_validated"],
         true
     );
-    assert_eq!(
-        child_feed_json["data"]["publisher"][0]["artist_signal"],
-        "confirmed_artist"
+    assert!(
+        child_feed_json["data"]["publisher"][0]
+            .get("artist_signal")
+            .is_none()
     );
 }

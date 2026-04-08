@@ -329,8 +329,6 @@ struct PublisherResponse {
     reciprocal_declared: bool,
     reciprocal_medium: Option<String>,
     two_way_validated: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    artist_signal: Option<String>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -922,14 +920,6 @@ fn load_publisher(
                 _ => continue,
             };
 
-        let artist_signal = (two_way_validated
-            && publisher_music_pair_has_confirmed_artist(
-                conn,
-                &publisher_feed_guid,
-                &music_feed_guid,
-            )?)
-        .then(|| "confirmed_artist".to_string());
-
         rows.push(PublisherResponse {
             direction: direction.to_string(),
             remote_feed_guid: item.remote_feed_guid,
@@ -944,7 +934,6 @@ fn load_publisher(
             reciprocal_declared,
             reciprocal_medium,
             two_way_validated,
-            artist_signal,
         });
     }
 
@@ -964,40 +953,6 @@ fn expected_reciprocal_medium(direction: &str) -> &'static str {
         "music_to_publisher" => "music",
         "publisher_to_music" => "publisher",
         _ => unreachable!("unexpected publisher direction"),
-    }
-}
-
-fn publisher_music_pair_has_confirmed_artist(
-    conn: &rusqlite::Connection,
-    publisher_feed_guid: &str,
-    music_feed_guid: &str,
-) -> Result<bool, api::ApiError> {
-    let publisher_artist_id = single_feed_artist_id(conn, publisher_feed_guid)?;
-    let music_artist_id = single_feed_artist_id(conn, music_feed_guid)?;
-    Ok(matches!(
-        (publisher_artist_id.as_deref(), music_artist_id.as_deref()),
-        (Some(left), Some(right)) if left == right
-    ))
-}
-
-fn single_feed_artist_id(
-    conn: &rusqlite::Connection,
-    feed_guid: &str,
-) -> Result<Option<String>, api::ApiError> {
-    let mut stmt = conn.prepare(
-        "SELECT acn.artist_id
-         FROM feeds f
-         JOIN artist_credit_name acn ON acn.artist_credit_id = f.artist_credit_id
-         WHERE f.feed_guid = ?1
-         ORDER BY acn.position, acn.artist_id",
-    )?;
-    let artist_ids = stmt
-        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
-        .collect::<Result<Vec<_>, _>>()?;
-    if artist_ids.len() == 1 {
-        Ok(artist_ids.into_iter().next())
-    } else {
-        Ok(None)
     }
 }
 

@@ -582,8 +582,7 @@ Returns a single feed by its `podcast:guid`.
         "music_feed_url": "https://...",
         "reciprocal_declared": true,
         "reciprocal_medium": "music",
-        "two_way_validated": true,
-        "artist_signal": "confirmed_artist"
+        "two_way_validated": true
       }
     ]
   },
@@ -605,11 +604,9 @@ For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
 remain visible, but local tracks are intentionally not materialized into the
 `tracks` table or resolver layer.
 
-`publisher` is a derived read-only view over those declarations. It
-reports direction and reciprocal validation exactly from RSS, but only emits
-`artist_signal` when the publisher feed and music feed already resolve to the
-same single canonical artist. There is no speculative value for unreviewed or
-unconfirmed cases.
+`publisher` is a derived read-only view over those declarations. It reports
+direction and reciprocal validation exactly from RSS and does not add any
+canonical artist-confirmation layer in v1.
 
 ---
 
