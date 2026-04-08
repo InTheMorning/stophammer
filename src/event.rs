@@ -58,8 +58,6 @@ pub enum EventType {
     CanonicalFeedStateReplaced,
     /// The primary resolver replaced promoted IDs and provenance for a feed.
     CanonicalFeedPromotionsReplaced,
-    /// The primary resolver completed artist-identity work for a feed.
-    ArtistIdentityFeedResolved,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -104,8 +102,6 @@ pub enum EventPayload {
     CanonicalFeedStateReplaced(CanonicalFeedStateReplacedPayload),
     /// Payload for replacing canonical promoted IDs and provenance for a feed.
     CanonicalFeedPromotionsReplaced(CanonicalFeedPromotionsReplacedPayload),
-    /// Payload for authoritative completion of feed-scoped artist identity work.
-    ArtistIdentityFeedResolved(ArtistIdentityFeedResolvedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -304,17 +300,4 @@ pub struct CanonicalFeedPromotionsReplacedPayload {
     pub feed_guid: String,
     pub external_ids: Vec<crate::model::ResolvedExternalIdByFeed>,
     pub entity_sources: Vec<crate::model::ResolvedEntitySourceByFeed>,
-}
-
-/// Emitted by the primary resolver when artist-identity work for one feed has
-/// converged for the current source state.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ArtistIdentityFeedResolvedPayload {
-    pub feed_guid: String,
-    pub seed_artists: usize,
-    pub candidate_groups: usize,
-    pub groups_processed: usize,
-    pub merges_applied: usize,
-    pub pending_reviews: usize,
-    pub blocked_reviews: usize,
 }

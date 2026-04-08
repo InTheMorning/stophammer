@@ -47,8 +47,6 @@ The primary `stophammer-resolverd` emits signed feed-scoped resolved-state event
   - `canonical_feed_state_replaced`
 - canonical promotions and provenance
   - `canonical_feed_promotions_replaced`
-- feed-scoped artist-identity completion
-  - `artist_identity_feed_resolved`
 - override-backed artist merges
   - `artist_merged`
 
@@ -57,8 +55,6 @@ Replica apply logic treats those events as authoritative:
 - canonical state events replace canonical release/recording mappings and
   rebuild canonical search
 - promotions events replace promoted external IDs and provenance
-- artist-identity completion events clear feed-scoped identity backlog without
-  local heuristics
 - artist-merge events replay primary-approved merges directly
 
 The source layer remains preserved and authoritative. Resolver events enrich

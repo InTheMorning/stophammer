@@ -4427,49 +4427,6 @@ fn count_feed_artist_identity_review_statuses(
     Ok((pending_reviews, blocked_reviews))
 }
 
-pub fn emit_artist_identity_feed_resolved_event(
-    conn: &Connection,
-    feed_guid: &str,
-    stats: &ArtistIdentityResolveStats,
-    signer: &NodeSigner,
-) -> Result<Event, DbError> {
-    let payload = crate::event::ArtistIdentityFeedResolvedPayload {
-        feed_guid: feed_guid.to_string(),
-        seed_artists: stats.seed_artists,
-        candidate_groups: stats.candidate_groups,
-        groups_processed: stats.groups_processed,
-        merges_applied: stats.merges_applied,
-        pending_reviews: stats.pending_reviews,
-        blocked_reviews: stats.blocked_reviews,
-    };
-    let payload_json = serde_json::to_string(&payload)?;
-    let event_id = uuid::Uuid::new_v4().to_string();
-    let created_at = unix_now();
-    let (seq, signed_by, signature) = insert_event(
-        conn,
-        &event_id,
-        &EventType::ArtistIdentityFeedResolved,
-        &payload_json,
-        feed_guid,
-        signer,
-        created_at,
-        &[],
-    )?;
-
-    Ok(Event {
-        event_id,
-        event_type: EventType::ArtistIdentityFeedResolved,
-        payload: EventPayload::ArtistIdentityFeedResolved(payload),
-        subject_guid: feed_guid.to_string(),
-        signed_by,
-        signature,
-        seq,
-        created_at,
-        warnings: Vec::new(),
-        payload_json,
-    })
-}
-
 fn artist_ids_for_feed_scope(
     conn: &Connection,
     feed_guid: &str,

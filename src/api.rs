@@ -2805,37 +2805,6 @@ fn check_sync_token(headers: &HeaderMap, sync_token: Option<&str>) -> Result<(),
     })
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResolveArtistIdentityReviewRequest {
-    pub action: String,
-    #[serde(default)]
-    pub target_artist_id: Option<String>,
-    #[serde(default)]
-    pub note: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResolveArtistIdentityReviewResponse {
-    pub review: db::ArtistIdentityReviewItem,
-    pub resolve_stats: db::ArtistIdentityResolveStats,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResolveWalletIdentityReviewRequest {
-    pub action: String,
-    #[serde(default)]
-    pub target_wallet_id: Option<String>,
-    #[serde(default)]
-    pub target_artist_id: Option<String>,
-    #[serde(default)]
-    pub value: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ResolveWalletIdentityReviewResponse {
-    pub review: db::WalletReviewItem,
-}
-
 // ── DELETE /feeds/{guid} ───────────────────────────────────────────────────
 
 #[expect(
