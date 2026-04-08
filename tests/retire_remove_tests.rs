@@ -559,31 +559,6 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
     );
 
     conn.execute(
-        "INSERT INTO resolved_external_ids_by_feed (
-             feed_guid,
-             entity_type,
-             entity_id,
-             scheme,
-             value,
-             created_at
-         ) VALUES (?1, 'artist', 'artist-n', 'nostr_npub', 'npub-test', ?2)",
-        params!["feed-n", now],
-    )
-    .expect("insert resolved external id");
-    conn.execute(
-        "INSERT INTO resolved_entity_sources_by_feed (
-             feed_guid,
-             entity_type,
-             entity_id,
-             source_type,
-             source_url,
-             trust_level,
-             created_at
-         ) VALUES (?1, 'feed', ?1, 'source_feed', 'https://example.com/feed-n.xml', 80, ?2)",
-        params!["feed-n", now],
-    )
-    .expect("insert resolved entity source");
-    conn.execute(
         "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) \
          VALUES (?1, ?2, 22, ?3)",
         params!["feed-n", "feed-peer", now],
@@ -936,22 +911,6 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
 
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 0);
-    assert_eq!(
-        count(
-            &conn,
-            "resolved_external_ids_by_feed",
-            "feed_guid = 'feed-n'"
-        ),
-        0
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "resolved_entity_sources_by_feed",
-            "feed_guid = 'feed-n'"
-        ),
-        0
-    );
     assert_eq!(
         count(
             &conn,

@@ -56,8 +56,6 @@ pub enum EventType {
     SourcePlatformClaimsReplaced,
     /// The primary resolver replaced canonical release/recording state for a feed.
     CanonicalFeedStateReplaced,
-    /// The primary resolver replaced promoted IDs and provenance for a feed.
-    CanonicalFeedPromotionsReplaced,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -100,8 +98,6 @@ pub enum EventPayload {
     SourcePlatformClaimsReplaced(SourcePlatformClaimsReplacedPayload),
     /// Payload for replacing canonical release/recording state for a feed.
     CanonicalFeedStateReplaced(CanonicalFeedStateReplacedPayload),
-    /// Payload for replacing canonical promoted IDs and provenance for a feed.
-    CanonicalFeedPromotionsReplaced(CanonicalFeedPromotionsReplacedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -291,13 +287,4 @@ pub struct CanonicalFeedStateReplacedPayload {
     pub release_recordings: Vec<ReleaseRecording>,
     pub release_maps: Vec<SourceFeedReleaseMap>,
     pub recording_maps: Vec<SourceItemRecordingMap>,
-}
-
-/// Emitted by the primary resolver when it replaces promoted external IDs and
-/// provenance derived from one source feed.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CanonicalFeedPromotionsReplacedPayload {
-    pub feed_guid: String,
-    pub external_ids: Vec<crate::model::ResolvedExternalIdByFeed>,
-    pub entity_sources: Vec<crate::model::ResolvedEntitySourceByFeed>,
 }

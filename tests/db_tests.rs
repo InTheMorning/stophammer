@@ -116,8 +116,6 @@ fn schema_creates_all_tables() {
         "proof_tokens",
         "recordings",
         "rel_type",
-        "resolved_entity_sources_by_feed",
-        "resolved_external_ids_by_feed",
         "release_recordings",
         "releases",
         "schema_migrations",
@@ -193,56 +191,6 @@ fn schema_idempotent() {
 
     drop(conn2);
     let _ = std::fs::remove_file(&tmp);
-}
-
-#[test]
-fn resolved_overlay_tables_round_trip() {
-    let conn = common::test_db();
-    let now = stophammer::db::unix_now();
-
-    let artist = seed_artist(&conn, "artist-feed-overlay", "Overlay Artist");
-    let credit = stophammer::db::get_or_create_artist_credit(
-        &conn,
-        &artist.name,
-        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
-        Some("feed-overlay"),
-    )
-    .expect("credit");
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
-         VALUES ('feed-overlay', 'https://example.com/feed-overlay.xml', 'Overlay Feed', 'overlay feed', ?1, ?2, ?2)",
-        params![credit.id, now],
-    )
-    .expect("feed");
-
-    let extids = vec![stophammer::model::ResolvedExternalIdByFeed {
-        feed_guid: "feed-overlay".into(),
-        entity_type: "artist".into(),
-        entity_id: artist.artist_id.clone(),
-        scheme: "nostr_npub".into(),
-        value: "npub1overlay".into(),
-        created_at: now,
-    }];
-    stophammer::db::replace_resolved_external_ids_for_feed(&conn, "feed-overlay", &extids)
-        .expect("replace extids");
-    let got_extids = stophammer::db::get_resolved_external_ids_for_feed(&conn, "feed-overlay")
-        .expect("get extids");
-    assert_eq!(got_extids, extids);
-
-    let sources = vec![stophammer::model::ResolvedEntitySourceByFeed {
-        feed_guid: "feed-overlay".into(),
-        entity_type: "release".into(),
-        entity_id: "release-overlay".into(),
-        source_type: "source_feed".into(),
-        source_url: Some("https://example.com/feed-overlay.xml".into()),
-        trust_level: 1,
-        created_at: now,
-    }];
-    stophammer::db::replace_resolved_entity_sources_for_feed(&conn, "feed-overlay", &sources)
-        .expect("replace sources");
-    let got_sources = stophammer::db::get_resolved_entity_sources_for_feed(&conn, "feed-overlay")
-        .expect("get sources");
-    assert_eq!(got_sources, sources);
 }
 
 #[test]
@@ -1757,18 +1705,6 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
 
     stophammer::db::sync_canonical_state_for_feed(&conn, &feed.feed_guid)
         .expect("sync canonical state");
-    stophammer::db::sync_canonical_promotions_for_feed(&conn, &feed.feed_guid)
-        .expect("sync canonical promotions");
-
-    let artist_npub: String = conn
-        .query_row(
-            "SELECT value FROM external_ids \
-             WHERE entity_type = 'artist' AND entity_id = 'artist-promote-1' AND scheme = 'nostr_npub'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("promoted artist npub");
-    assert_eq!(artist_npub, "npub1promoteartist");
 
     let release_id: String = conn
         .query_row(
@@ -1785,58 +1721,50 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         )
         .expect("recording id");
 
-    let release_sources: Vec<(String, Option<String>)> = {
-        let mut stmt = conn
-            .prepare(
-                "SELECT source_type, source_url FROM entity_source \
-                 WHERE entity_type = 'release' AND entity_id = ?1 \
-                 ORDER BY source_type, source_url",
-            )
-            .expect("prepare release sources");
-        stmt.query_map(params![release_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("query release sources")
-            .collect::<Result<_, _>>()
-            .expect("collect release sources")
-    };
+    let release = stophammer::db::get_release(&conn, &release_id)
+        .expect("get release")
+        .expect("release exists");
+    assert_eq!(release.title, "Promote Release");
+
+    let recording = stophammer::db::get_recording(&conn, &recording_id)
+        .expect("get recording")
+        .expect("recording exists");
+    assert_eq!(recording.title, "Promote Track");
+
+    let feed_ids = stophammer::db::get_source_entity_ids_for_entity(&conn, "feed", &feed.feed_guid)
+        .expect("feed source ids");
+    assert_eq!(feed_ids.len(), 1);
+    assert_eq!(feed_ids[0].scheme, "nostr_npub");
+    assert_eq!(feed_ids[0].value, "npub1promoteartist");
+
+    let feed_links =
+        stophammer::db::get_source_entity_links_for_entity(&conn, "feed", &feed.feed_guid)
+            .expect("feed source links");
+    assert_eq!(feed_links.len(), 1);
+    assert_eq!(feed_links[0].link_type, "website");
     assert_eq!(
-        release_sources,
-        vec![
-            (
-                "source_feed".to_string(),
-                Some("https://example.com/feed-promote-1.xml".to_string())
-            ),
-            (
-                "source_release_page".to_string(),
-                Some("https://wavlake.com/promote-artist".to_string())
-            )
-        ]
+        feed_links[0].url,
+        "https://wavlake.com/promote-artist".to_string()
     );
 
-    let recording_sources: Vec<(String, Option<String>)> = {
-        let mut stmt = conn
-            .prepare(
-                "SELECT source_type, source_url FROM entity_source \
-                 WHERE entity_type = 'recording' AND entity_id = ?1 \
-                 ORDER BY source_type, source_url",
-            )
-            .expect("prepare recording sources");
-        stmt.query_map(params![recording_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("query recording sources")
-            .collect::<Result<_, _>>()
-            .expect("collect recording sources")
-    };
+    let track_links =
+        stophammer::db::get_source_entity_links_for_entity(&conn, "track", &track.track_guid)
+            .expect("track source links");
+    assert_eq!(track_links.len(), 1);
+    assert_eq!(track_links[0].link_type, "web_page");
     assert_eq!(
-        recording_sources,
-        vec![
-            (
-                "source_primary_enclosure".to_string(),
-                Some("https://cdn.example.com/promote-track.mp3".to_string())
-            ),
-            (
-                "source_recording_page".to_string(),
-                Some("https://wavlake.com/track/promote-track".to_string())
-            )
-        ]
+        track_links[0].url,
+        "https://wavlake.com/track/promote-track".to_string()
+    );
+
+    let track_enclosures =
+        stophammer::db::get_source_item_enclosures_for_entity(&conn, "track", &track.track_guid)
+            .expect("track source enclosures");
+    assert_eq!(track_enclosures.len(), 1);
+    assert!(track_enclosures[0].is_primary);
+    assert_eq!(
+        track_enclosures[0].url,
+        "https://cdn.example.com/promote-track.mp3".to_string()
     );
 }
 
@@ -2507,10 +2435,6 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
         .expect("sync canonical state a");
     stophammer::db::sync_canonical_state_for_feed(&conn, "feed-canon-read-b")
         .expect("sync canonical state b");
-    stophammer::db::sync_canonical_promotions_for_feed(&conn, "feed-canon-read-a")
-        .expect("sync canonical promotions a");
-    stophammer::db::sync_canonical_promotions_for_feed(&conn, "feed-canon-read-b")
-        .expect("sync canonical promotions b");
 
     let release_id: String = conn
         .query_row(
@@ -2599,10 +2523,6 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
             .expect("feed platforms");
     assert_eq!(feed_platforms.len(), 1);
     assert_eq!(feed_platforms[0].platform_key, "rss_blue");
-
-    let release_sources =
-        stophammer::db::get_entity_sources(&conn, "release", &release_id).expect("release sources");
-    assert!(!release_sources.is_empty());
 }
 
 #[test]

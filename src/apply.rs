@@ -153,9 +153,6 @@ fn apply_single_event_inner(
             db::replace_canonical_feed_state_from_snapshot(conn, p)?;
             db::sync_canonical_search_index_for_feed(conn, &p.feed_guid)?;
         }
-        event::EventPayload::CanonicalFeedPromotionsReplaced(p) => {
-            db::replace_canonical_feed_promotions_from_snapshot(conn, p)?;
-        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;
