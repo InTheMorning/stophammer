@@ -167,8 +167,13 @@ struct FeedResponse {
     title: String,
     raw_medium: Option<String>,
     artist_credit: CreditResponse,
+    release_artist: Option<String>,
+    release_artist_sort: Option<String>,
+    release_date: Option<i64>,
+    release_kind: Option<String>,
     description: Option<String>,
     image_url: Option<String>,
+    publisher_text: Option<String>,
     language: Option<String>,
     explicit: bool,
     episode_count: i64,
@@ -225,8 +230,12 @@ struct TrackResponse {
     feed_guid: String,
     title: String,
     artist_credit: CreditResponse,
+    track_artist: Option<String>,
+    track_artist_sort: Option<String>,
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
+    image_url: Option<String>,
+    language: Option<String>,
     enclosure_url: Option<String>,
     enclosure_type: Option<String>,
     enclosure_bytes: Option<i64>,
@@ -565,8 +574,12 @@ struct TrackRow {
     feed_guid: String,
     credit_id: i64,
     title: String,
+    track_artist: Option<String>,
+    track_artist_sort: Option<String>,
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
+    image_url: Option<String>,
+    language: Option<String>,
     enclosure_url: Option<String>,
     enclosure_type: Option<String>,
     enclosure_bytes: Option<i64>,
@@ -585,8 +598,13 @@ struct FeedRow {
     title: String,
     raw_medium: Option<String>,
     credit_id: i64,
+    release_artist: Option<String>,
+    release_artist_sort: Option<String>,
+    release_date: Option<i64>,
+    release_kind: Option<String>,
     description: Option<String>,
     image_url: Option<String>,
+    publisher_text: Option<String>,
     language: Option<String>,
     explicit_int: i64,
     episode_count: i64,
@@ -808,7 +826,8 @@ async fn handle_get_artist_feeds(
 
             let mut stmt = conn.prepare(
                 "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
-                 f.description, f.image_url, f.language, f.explicit, \
+                 f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
+                 f.description, f.image_url, f.publisher, f.language, f.explicit, \
                  f.episode_count, f.newest_item_at, f.oldest_item_at, \
                  f.created_at, f.updated_at \
                  FROM feeds f \
@@ -834,15 +853,20 @@ async fn handle_get_artist_feeds(
                         title: row.get(2)?,
                         raw_medium: row.get(3)?,
                         credit_id: row.get(4)?,
-                        description: row.get(5)?,
-                        image_url: row.get(6)?,
-                        language: row.get(7)?,
-                        explicit_int: row.get(8)?,
-                        episode_count: row.get(9)?,
-                        newest_item_at: row.get(10)?,
-                        oldest_item_at: row.get(11)?,
-                        created_at: row.get(12)?,
-                        updated_at: row.get(13)?,
+                        release_artist: row.get(5)?,
+                        release_artist_sort: row.get(6)?,
+                        release_date: row.get(7)?,
+                        release_kind: row.get(8)?,
+                        description: row.get(9)?,
+                        image_url: row.get(10)?,
+                        publisher_text: row.get(11)?,
+                        language: row.get(12)?,
+                        explicit_int: row.get(13)?,
+                        episode_count: row.get(14)?,
+                        newest_item_at: row.get(15)?,
+                        oldest_item_at: row.get(16)?,
+                        created_at: row.get(17)?,
+                        updated_at: row.get(18)?,
                     })
                 },
             )?
@@ -850,7 +874,8 @@ async fn handle_get_artist_feeds(
         } else {
             let mut stmt = conn.prepare(
                 "SELECT f.feed_guid, f.feed_url, f.title, f.raw_medium, f.artist_credit_id, \
-                 f.description, f.image_url, f.language, f.explicit, \
+                 f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
+                 f.description, f.image_url, f.publisher, f.language, f.explicit, \
                  f.episode_count, f.newest_item_at, f.oldest_item_at, \
                  f.created_at, f.updated_at \
                  FROM feeds f \
@@ -866,15 +891,20 @@ async fn handle_get_artist_feeds(
                     title: row.get(2)?,
                     raw_medium: row.get(3)?,
                     credit_id: row.get(4)?,
-                    description: row.get(5)?,
-                    image_url: row.get(6)?,
-                    language: row.get(7)?,
-                    explicit_int: row.get(8)?,
-                    episode_count: row.get(9)?,
-                    newest_item_at: row.get(10)?,
-                    oldest_item_at: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
+                    release_artist: row.get(5)?,
+                    release_artist_sort: row.get(6)?,
+                    release_date: row.get(7)?,
+                    release_kind: row.get(8)?,
+                    description: row.get(9)?,
+                    image_url: row.get(10)?,
+                    publisher_text: row.get(11)?,
+                    language: row.get(12)?,
+                    explicit_int: row.get(13)?,
+                    episode_count: row.get(14)?,
+                    newest_item_at: row.get(15)?,
+                    oldest_item_at: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -910,8 +940,13 @@ async fn handle_get_artist_feeds(
                 title: r.title,
                 raw_medium: r.raw_medium,
                 artist_credit: credit,
+                release_artist: r.release_artist,
+                release_artist_sort: r.release_artist_sort,
+                release_date: r.release_date,
+                release_kind: r.release_kind,
                 description: r.description,
                 image_url: r.image_url,
+                publisher_text: r.publisher_text,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,
@@ -974,9 +1009,9 @@ async fn handle_get_feed(
 
         let row = conn
             .query_row(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, description, image_url, \
-             language, explicit, episode_count, newest_item_at, oldest_item_at, \
-             created_at, updated_at \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+             release_artist_sort, release_date, release_kind, description, image_url, publisher, \
+             language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at \
              FROM feeds WHERE feed_guid = ?1",
                 params![feed_guid],
                 |row| {
@@ -986,15 +1021,20 @@ async fn handle_get_feed(
                         title: row.get(2)?,
                         raw_medium: row.get(3)?,
                         credit_id: row.get(4)?,
-                        description: row.get(5)?,
-                        image_url: row.get(6)?,
-                        language: row.get(7)?,
-                        explicit_int: row.get(8)?,
-                        episode_count: row.get(9)?,
-                        newest_item_at: row.get(10)?,
-                        oldest_item_at: row.get(11)?,
-                        created_at: row.get(12)?,
-                        updated_at: row.get(13)?,
+                        release_artist: row.get(5)?,
+                        release_artist_sort: row.get(6)?,
+                        release_date: row.get(7)?,
+                        release_kind: row.get(8)?,
+                        description: row.get(9)?,
+                        image_url: row.get(10)?,
+                        publisher_text: row.get(11)?,
+                        language: row.get(12)?,
+                        explicit_int: row.get(13)?,
+                        episode_count: row.get(14)?,
+                        newest_item_at: row.get(15)?,
+                        oldest_item_at: row.get(16)?,
+                        created_at: row.get(17)?,
+                        updated_at: row.get(18)?,
                     })
                 },
             )
@@ -1165,8 +1205,13 @@ fn build_feed_response(
         title: row.title,
         raw_medium: row.raw_medium,
         artist_credit: credit,
+        release_artist: row.release_artist,
+        release_artist_sort: row.release_artist_sort,
+        release_date: row.release_date,
+        release_kind: row.release_kind,
         description: row.description,
         image_url: row.image_url,
+        publisher_text: row.publisher_text,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -1321,8 +1366,12 @@ fn build_track_response(
         feed_guid: row.feed_guid,
         title: row.title,
         artist_credit: credit,
+        track_artist: row.track_artist,
+        track_artist_sort: row.track_artist_sort,
         pub_date: row.pub_date,
         duration_secs: row.duration_secs,
+        image_url: row.image_url,
+        language: row.language,
         enclosure_url: row.enclosure_url,
         enclosure_type: row.enclosure_type,
         enclosure_bytes: row.enclosure_bytes,
@@ -1934,8 +1983,13 @@ async fn handle_get_release_sources(
                 title: feed.title,
                 raw_medium: feed.raw_medium,
                 credit_id: feed.artist_credit_id,
+                release_artist: feed.release_artist,
+                release_artist_sort: feed.release_artist_sort,
+                release_date: feed.release_date,
+                release_kind: feed.release_kind,
                 description: feed.description,
                 image_url: feed.image_url,
+                publisher_text: feed.publisher,
                 language: feed.language,
                 explicit_int: i64::from(feed.explicit),
                 episode_count: feed.episode_count,
@@ -2222,8 +2276,12 @@ async fn handle_get_recording_sources(
                 feed_guid: track.feed_guid,
                 credit_id: track.artist_credit_id,
                 title: track.title,
+                track_artist: track.track_artist,
+                track_artist_sort: track.track_artist_sort,
                 pub_date: track.pub_date,
                 duration_secs: track.duration_secs,
+                image_url: track.image_url,
+                language: track.language,
                 enclosure_url: track.enclosure_url,
                 enclosure_type: track.enclosure_type,
                 enclosure_bytes: track.enclosure_bytes,
@@ -2589,8 +2647,8 @@ async fn handle_get_track(
 
         let row = conn
             .query_row(
-                "SELECT track_guid, feed_guid, artist_credit_id, title, pub_date, \
-             duration_secs, enclosure_url, enclosure_type, enclosure_bytes, \
+                "SELECT track_guid, feed_guid, artist_credit_id, title, track_artist, track_artist_sort, \
+             pub_date, duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, \
              track_number, season, explicit, description, created_at, updated_at \
              FROM tracks WHERE track_guid = ?1",
                 params![track_guid],
@@ -2600,17 +2658,21 @@ async fn handle_get_track(
                         feed_guid: row.get(1)?,
                         credit_id: row.get(2)?,
                         title: row.get(3)?,
-                        pub_date: row.get(4)?,
-                        duration_secs: row.get(5)?,
-                        enclosure_url: row.get(6)?,
-                        enclosure_type: row.get(7)?,
-                        enclosure_bytes: row.get(8)?,
-                        track_number: row.get(9)?,
-                        season: row.get(10)?,
-                        explicit_int: row.get(11)?,
-                        description: row.get(12)?,
-                        created_at: row.get(13)?,
-                        updated_at: row.get(14)?,
+                        track_artist: row.get(4)?,
+                        track_artist_sort: row.get(5)?,
+                        pub_date: row.get(6)?,
+                        duration_secs: row.get(7)?,
+                        image_url: row.get(8)?,
+                        language: row.get(9)?,
+                        enclosure_url: row.get(10)?,
+                        enclosure_type: row.get(11)?,
+                        enclosure_bytes: row.get(12)?,
+                        track_number: row.get(13)?,
+                        season: row.get(14)?,
+                        explicit_int: row.get(15)?,
+                        description: row.get(16)?,
+                        created_at: row.get(17)?,
+                        updated_at: row.get(18)?,
                     })
                 },
             )
@@ -2680,8 +2742,8 @@ async fn handle_get_recent_feeds(
             let cursor_guid = parts[1];
 
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, \
-                 description, image_url, language, explicit, \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+                 release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
@@ -2699,23 +2761,28 @@ async fn handle_get_recent_feeds(
                         title: row.get(2)?,
                         raw_medium: row.get(3)?,
                         credit_id: row.get(4)?,
-                        description: row.get(5)?,
-                        image_url: row.get(6)?,
-                        language: row.get(7)?,
-                        explicit_int: row.get(8)?,
-                        episode_count: row.get(9)?,
-                        newest_item_at: row.get(10)?,
-                        oldest_item_at: row.get(11)?,
-                        created_at: row.get(12)?,
-                        updated_at: row.get(13)?,
+                        release_artist: row.get(5)?,
+                        release_artist_sort: row.get(6)?,
+                        release_date: row.get(7)?,
+                        release_kind: row.get(8)?,
+                        description: row.get(9)?,
+                        image_url: row.get(10)?,
+                        publisher_text: row.get(11)?,
+                        language: row.get(12)?,
+                        explicit_int: row.get(13)?,
+                        episode_count: row.get(14)?,
+                        newest_item_at: row.get(15)?,
+                        oldest_item_at: row.get(16)?,
+                        created_at: row.get(17)?,
+                        updated_at: row.get(18)?,
                     })
                 },
             )?
             .collect::<Result<_, _>>()?
         } else {
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, \
-                 description, image_url, language, explicit, \
+                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+                 release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
@@ -2730,15 +2797,20 @@ async fn handle_get_recent_feeds(
                     title: row.get(2)?,
                     raw_medium: row.get(3)?,
                     credit_id: row.get(4)?,
-                    description: row.get(5)?,
-                    image_url: row.get(6)?,
-                    language: row.get(7)?,
-                    explicit_int: row.get(8)?,
-                    episode_count: row.get(9)?,
-                    newest_item_at: row.get(10)?,
-                    oldest_item_at: row.get(11)?,
-                    created_at: row.get(12)?,
-                    updated_at: row.get(13)?,
+                    release_artist: row.get(5)?,
+                    release_artist_sort: row.get(6)?,
+                    release_date: row.get(7)?,
+                    release_kind: row.get(8)?,
+                    description: row.get(9)?,
+                    image_url: row.get(10)?,
+                    publisher_text: row.get(11)?,
+                    language: row.get(12)?,
+                    explicit_int: row.get(13)?,
+                    episode_count: row.get(14)?,
+                    newest_item_at: row.get(15)?,
+                    oldest_item_at: row.get(16)?,
+                    created_at: row.get(17)?,
+                    updated_at: row.get(18)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -2775,8 +2847,13 @@ async fn handle_get_recent_feeds(
                 title: r.title,
                 raw_medium: r.raw_medium,
                 artist_credit: credit,
+                release_artist: r.release_artist,
+                release_artist_sort: r.release_artist_sort,
+                release_date: r.release_date,
+                release_kind: r.release_kind,
                 description: r.description,
                 image_url: r.image_url,
+                publisher_text: r.publisher_text,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,
