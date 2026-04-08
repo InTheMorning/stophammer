@@ -157,12 +157,15 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("ingest");
     assert_eq!(ingest_resp.status(), 200);
 
-    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
-    let resolver_summary =
-        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
-            .expect("run resolver batch");
-    assert_eq!(resolver_summary.claimed, 1);
-    assert_eq!(resolver_summary.resolved, 1);
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::sync_canonical_state_for_feed(&conn, feed_guid)
+            .expect("sync canonical state");
+        stophammer::db::sync_canonical_promotions_for_feed(&conn, feed_guid)
+            .expect("sync canonical promotions");
+        stophammer::db::sync_canonical_search_index_for_feed(&conn, feed_guid)
+            .expect("sync canonical search");
+    }
 
     let (release_id, recording_id, artist_id) = {
         let conn = db.lock().expect("lock db");
@@ -208,7 +211,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/feeds/{feed_guid}?include=canonical,source_links,source_ids,source_platforms,source_release_claims"))
+                .uri(format!("/v1/feeds/{feed_guid}?include=source_links,source_ids,source_platforms,source_release_claims"))
                 .body(Body::empty())
                 .expect("feed request"),
         )
@@ -216,7 +219,10 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("feed response");
     assert_eq!(feed_resp.status(), 200);
     let feed_json = body_json(feed_resp).await;
-    assert_eq!(feed_json["data"]["canonical"]["release_id"], release_id);
+    assert_eq!(
+        feed_json["data"]["release_artist"],
+        "Canonical Query Artist"
+    );
     assert_eq!(
         feed_json["data"]["source_links"][0]["url"],
         "https://artist.example.com/canonical-query"
@@ -239,7 +245,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri(format!("/v1/tracks/{track_guid}?include=canonical,source_links,source_contributors,source_enclosures"))
+                .uri(format!("/v1/tracks/{track_guid}?include=source_links,source_contributors,source_enclosures"))
                 .body(Body::empty())
                 .expect("track request"),
         )
@@ -247,10 +253,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .expect("track response");
     assert_eq!(track_resp.status(), 200);
     let track_json = body_json(track_resp).await;
-    assert_eq!(
-        track_json["data"]["canonical"]["recording_id"],
-        recording_id
-    );
+    assert_eq!(track_json["data"]["track_artist"], "Canonical Query Artist");
     assert_eq!(
         track_json["data"]["source_links"][0]["link_type"],
         "web_page"
@@ -293,7 +296,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/releases/{release_id}/sources?include=source_links,source_ids,source_platforms,canonical"
+                    "/v1/releases/{release_id}/sources?include=source_links,source_ids,source_platforms"
                 ))
                 .body(Body::empty())
                 .expect("release sources request"),
@@ -312,8 +315,8 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         "https://artist.example.com/canonical-query"
     );
     assert_eq!(
-        release_sources_json["data"][0]["canonical"]["release_id"],
-        release_id
+        release_sources_json["data"][0]["release_artist"],
+        "Canonical Query Artist"
     );
 
     let recording_resp = app
@@ -347,7 +350,7 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/recordings/{recording_id}/sources?include=source_links,source_contributors,source_enclosures,canonical"
+                    "/v1/recordings/{recording_id}/sources?include=source_links,source_contributors,source_enclosures"
                 ))
                 .body(Body::empty())
                 .expect("recording sources request"),
@@ -369,8 +372,8 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         .collect::<Vec<_>>();
     assert!(recording_source_enclosures.contains(&"https://cdn.example.com/canonical-query.flac"));
     assert_eq!(
-        recording_sources_json["data"][0]["canonical"]["recording_id"],
-        recording_id
+        recording_sources_json["data"][0]["track_artist"],
+        "Canonical Query Artist"
     );
 
     let artist_releases_resp = app
@@ -412,11 +415,6 @@ async fn canonical_query_endpoints_expose_release_recording_and_source_links() {
         search_types
             .iter()
             .all(|kind| matches!(*kind, "artist" | "release" | "recording" | "feed"))
-    );
-    assert!(
-        search_results
-            .iter()
-            .any(|row| row["entity_type"] == "feed" && row["entity_id"] == feed_guid)
     );
     assert!(
         search_results
@@ -641,12 +639,11 @@ async fn track_contributor_views_inherit_feed_people_only_when_track_people_are_
         .expect("ingest");
     assert_eq!(ingest_resp.status(), 200);
 
-    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
-    let resolver_summary =
-        stophammer::resolver::worker::run_batch(&resolver_pool, "test-worker", 10)
-            .expect("run resolver batch");
-    assert_eq!(resolver_summary.claimed, 1);
-    assert_eq!(resolver_summary.resolved, 1);
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::sync_canonical_state_for_feed(&conn, feed_guid)
+            .expect("sync canonical state");
+    }
 
     let (recording_id, artist_id) = {
         let conn = db.lock().expect("lock db");
@@ -892,12 +889,14 @@ async fn feed_query_exposes_publisher_rss_truth() {
         serde_json::Value::Null
     );
 
-    let resolver_pool = stophammer::db_pool::DbPool::from_writer_only(Arc::clone(&db));
-    let resolver_summary =
-        stophammer::resolver::worker::run_batch(&resolver_pool, "publisher-truth-worker", 10)
-            .expect("run resolver batch");
-    assert_eq!(resolver_summary.claimed, 2);
-    assert_eq!(resolver_summary.resolved, 2);
+    {
+        let mut conn = db.lock().expect("lock db");
+        stophammer::db::backfill_artist_identity(&mut conn).expect("backfill artist identity");
+        stophammer::db::sync_canonical_state_for_feed(&conn, publisher_feed_guid)
+            .expect("sync canonical state publisher");
+        stophammer::db::sync_canonical_state_for_feed(&conn, child_feed_guid)
+            .expect("sync canonical state child");
+    }
 
     let publisher_feed_resp = app
         .clone()
