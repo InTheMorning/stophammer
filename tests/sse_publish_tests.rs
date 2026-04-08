@@ -160,20 +160,16 @@ async fn ingest_feed_publishes_to_sse() {
         "SSE registry should have events for artist {artist_id} after ingest, got 0"
     );
 
-    // We should see at least ArtistUpserted, ArtistCreditCreated, FeedUpserted,
-    // and TrackUpserted events.
+    // We should still see artist-scoped events even after feed/track events
+    // stop carrying embedded artist identity.
     let event_types: Vec<&str> = recent.iter().map(|f| f.event_type.as_str()).collect();
     assert!(
         event_types.contains(&"artist_upserted"),
         "should contain artist_upserted event, got: {event_types:?}"
     );
     assert!(
-        event_types.contains(&"feed_upserted"),
-        "should contain feed_upserted event, got: {event_types:?}"
-    );
-    assert!(
-        event_types.contains(&"track_upserted"),
-        "should contain track_upserted event, got: {event_types:?}"
+        event_types.contains(&"artist_credit_created"),
+        "should contain artist_credit_created event, got: {event_types:?}"
     );
 
     // All frames should have seq > 0.
@@ -190,7 +186,7 @@ async fn ingest_feed_publishes_to_sse() {
 // Test: SSE broadcast delivers live events to subscriber
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn ingest_feed_delivers_to_sse_subscriber() {
+async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscriber() {
     let crawl_token = "sse-live-token";
     let db = common::test_db_arc();
     let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token);
@@ -251,7 +247,8 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
         .expect("find artist_id")
     };
 
-    // Now subscribe and do a second ingest. The subscriber should receive events.
+    // Now subscribe and do a second ingest. Source-first feed/track upserts no
+    // longer route through the artist-scoped SSE channel on their own.
     let mut rx = state
         .sse_registry
         .subscribe(&artist_id)
@@ -296,16 +293,18 @@ async fn ingest_feed_delivers_to_sse_subscriber() {
     let app2 = stophammer::api::build_router(Arc::clone(&state));
     let req2 = json_request("POST", "/ingest/feed", &ingest_body2);
     let resp2 = app2.oneshot(req2).await.expect("ingest2");
-    assert_eq!(resp2.status(), 200);
+    let status = resp2.status();
+    if status != 200 {
+        let body = body_json(resp2).await;
+        panic!("second ingest should succeed, got {status} with body {body}");
+    }
 
-    // The subscriber should have received at least one event via the broadcast channel.
+    // Feed/track updates alone should not produce new artist-scoped frames.
     let received = rx.try_recv();
     assert!(
-        received.is_ok(),
-        "subscriber should receive events via broadcast, got: {received:?}"
+        received.is_err(),
+        "feed/track-only reingest should not notify artist subscriber, got: {received:?}"
     );
-    let frame = received.unwrap();
-    assert!(frame.seq > 0, "received frame should have seq > 0");
 }
 
 // ---------------------------------------------------------------------------
@@ -403,7 +402,11 @@ async fn live_item_transitions_publish_live_sse_frames() {
         ))
         .await
         .expect("live ingest");
-    assert_eq!(live_resp.status(), 200);
+    let status = live_resp.status();
+    if status != 200 {
+        let body = body_json(live_resp).await;
+        panic!("live ingest should succeed, got {status} with body {body}");
+    }
 
     let recent_after_live = state.sse_registry.recent_events(&artist_id);
     let started = recent_after_live
@@ -446,13 +449,6 @@ async fn live_item_transitions_publish_live_sse_frames() {
     assert_eq!(ended.subject_guid, "live-item-001");
     assert_eq!(ended.payload["feed_guid"], "feed-live-transition-001");
     assert_eq!(ended.payload["status"], "ended");
-    assert!(
-        recent_after_ended
-            .iter()
-            .any(|frame| frame.event_type == "track_upserted"
-                && frame.subject_guid == "live-item-001"),
-        "ended live item should also promote into track_upserted"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -510,7 +506,7 @@ async fn last_event_id_zero_replays_all() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: publish_events_to_sse extracts artist_ids correctly
+// Test: publish_events_to_sse still routes artist-scoped events
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn publish_events_to_sse_routes_to_artist() {
@@ -521,30 +517,12 @@ async fn publish_events_to_sse_routes_to_artist() {
         .subscribe("artist-pub-test")
         .expect("subscribe should succeed");
 
-    // Build a FeedUpserted event that references artist-pub-test.
+    // Build an ArtistUpserted event that references artist-pub-test.
     let ev = stophammer::event::Event {
         event_id: "ev-pub-test-1".to_string(),
-        event_type: stophammer::event::EventType::FeedUpserted,
-        payload: stophammer::event::EventPayload::FeedUpserted(
-            stophammer::event::FeedUpsertedPayload {
-                feed: stophammer::model::Feed {
-                    feed_guid: "feed-pub-test".to_string(),
-                    feed_url: "https://example.com/feed.xml".to_string(),
-                    title: "Test Feed".to_string(),
-                    title_lower: "test feed".to_string(),
-                    artist_credit_id: 1,
-                    description: None,
-                    image_url: None,
-                    language: None,
-                    explicit: false,
-                    itunes_type: None,
-                    episode_count: 1,
-                    newest_item_at: None,
-                    oldest_item_at: None,
-                    created_at: 0,
-                    updated_at: 0,
-                    raw_medium: None,
-                },
+        event_type: stophammer::event::EventType::ArtistUpserted,
+        payload: stophammer::event::EventPayload::ArtistUpserted(
+            stophammer::event::ArtistUpsertedPayload {
                 artist: stophammer::model::Artist {
                     artist_id: "artist-pub-test".to_string(),
                     name: "Pub Test Artist".to_string(),
@@ -559,23 +537,9 @@ async fn publish_events_to_sse_routes_to_artist() {
                     created_at: 0,
                     updated_at: 0,
                 },
-                artist_credit: stophammer::model::ArtistCredit {
-                    id: 1,
-                    display_name: "Pub Test Artist".to_string(),
-                    feed_guid: None,
-                    created_at: 0,
-                    names: vec![stophammer::model::ArtistCreditName {
-                        id: 1,
-                        artist_credit_id: 1,
-                        artist_id: "artist-pub-test".to_string(),
-                        position: 0,
-                        name: "Pub Test Artist".to_string(),
-                        join_phrase: String::new(),
-                    }],
-                },
             },
         ),
-        subject_guid: "feed-pub-test".to_string(),
+        subject_guid: "artist-pub-test".to_string(),
         signed_by: "deadbeef".to_string(),
         signature: "cafebabe".to_string(),
         seq: 42,
@@ -591,8 +555,8 @@ async fn publish_events_to_sse_routes_to_artist() {
     assert!(received.is_ok(), "subscriber should receive SSE frame");
     let frame = received.unwrap();
     assert_eq!(frame.seq, 42, "SSE frame should carry seq=42");
-    assert_eq!(frame.event_type, "feed_upserted");
-    assert_eq!(frame.subject_guid, "feed-pub-test");
+    assert_eq!(frame.event_type, "artist_upserted");
+    assert_eq!(frame.subject_guid, "artist-pub-test");
 }
 
 // ---------------------------------------------------------------------------

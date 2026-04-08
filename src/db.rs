@@ -8439,16 +8439,12 @@ fn build_artist_credit_event(
 
 fn build_feed_upserted_event(
     feed: &Feed,
-    artist: &Artist,
-    credit: &ArtistCredit,
+    _artist: &Artist,
+    _credit: &ArtistCredit,
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
-    let payload = crate::event::FeedUpsertedPayload {
-        feed: feed.clone(),
-        artist: artist.clone(),
-        artist_credit: credit.clone(),
-    };
+    let payload = crate::event::FeedUpsertedPayload { feed: feed.clone() };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
@@ -8653,7 +8649,7 @@ fn build_track_upserted_event(
     track: &Track,
     routes: &[PaymentRoute],
     vts: &[ValueTimeSplit],
-    credit: &ArtistCredit,
+    _credit: &ArtistCredit,
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
@@ -8661,7 +8657,6 @@ fn build_track_upserted_event(
         track: track.clone(),
         routes: routes.to_vec(),
         value_time_splits: vts.to_vec(),
-        artist_credit: credit.clone(),
     };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
@@ -10001,7 +9996,7 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
          FROM feeds WHERE feed_url = ?1",
         params![feed_url],
         |row| {
-            let explicit_i: i64 = row.get(8)?;
+            let explicit_i: i64 = row.get(9)?;
             Ok(Feed {
                 feed_guid:        row.get(0)?,
                 feed_url:         row.get(1)?,
@@ -10143,16 +10138,6 @@ pub fn ingest_transaction(
     // Issue-ARTIST-IDENTITY — 2026-03-14
     {
         upsert_artist_credit_sql(&tx, &artist_credit)?;
-        for event_row in &event_rows {
-            if event_row.event_type != EventType::TrackUpserted {
-                continue;
-            }
-            if let Ok(payload) =
-                serde_json::from_str::<crate::event::TrackUpsertedPayload>(&event_row.payload_json)
-            {
-                upsert_artist_credit_sql(&tx, &payload.artist_credit)?;
-            }
-        }
     }
 
     // 3. Upsert feed
@@ -11444,7 +11429,7 @@ pub fn get_track(conn: &Connection, track_guid: &str) -> Result<Option<Track>, D
                 enclosure_bytes: row.get(11)?,
                 track_number: row.get(12)?,
                 season: row.get(13)?,
-                explicit: row.get(14)?,
+                explicit: row.get::<_, i64>(14)? != 0,
                 description: row.get(15)?,
                 track_artist: row.get(16)?,
                 track_artist_sort: row.get(17)?,

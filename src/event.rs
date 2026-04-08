@@ -171,8 +171,6 @@ pub struct EventSigningPayload<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUpsertedPayload {
     pub feed: Feed,
-    pub artist: Artist,
-    pub artist_credit: ArtistCredit,
 }
 
 /// Emitted when a feed is permanently removed from the index.
@@ -188,7 +186,6 @@ pub struct TrackUpsertedPayload {
     pub track: Track,
     pub routes: Vec<PaymentRoute>,
     pub value_time_splits: Vec<ValueTimeSplit>,
-    pub artist_credit: ArtistCredit,
 }
 
 /// Emitted when a track is deleted from its parent feed.

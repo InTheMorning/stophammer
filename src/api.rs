@@ -277,15 +277,6 @@ fn extract_artist_ids(ev: &event::Event) -> Vec<String> {
         event::EventPayload::ArtistUpserted(p) => {
             vec![p.artist.artist_id.clone()]
         }
-        event::EventPayload::FeedUpserted(p) => {
-            vec![p.artist.artist_id.clone()]
-        }
-        event::EventPayload::TrackUpserted(p) => p
-            .artist_credit
-            .names
-            .iter()
-            .map(|n| n.artist_id.clone())
-            .collect(),
         event::EventPayload::ArtistCreditCreated(p) => p
             .artist_credit
             .names
@@ -3743,38 +3734,10 @@ async fn handle_patch_feed(
                     www_authenticate: None,
                 })?;
 
-            // Look up the artist credit and artist for the event payload.
-            let artist_credit = db::get_artist_credit(&tx, feed.artist_credit_id)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!(
-                        "artist credit {} not found for feed {guid2}",
-                        feed.artist_credit_id
-                    ),
-                    www_authenticate: None,
-                })?;
-
-            let artist_id = artist_credit
-                .names
-                .first()
-                .map_or("", |n| n.artist_id.as_str());
-            let artist = db::get_artist_by_id(&tx, artist_id)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("artist {artist_id} not found for feed {guid2}"),
-                    www_authenticate: None,
-                })?;
-
             // Build and sign a FeedUpserted event.
             let now = db::unix_now();
             let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedUpsertedPayload {
-                feed,
-                artist,
-                artist_credit,
-            };
+            let payload = event::FeedUpsertedPayload { feed };
             let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: format!("failed to serialize FeedUpserted payload: {e}"),
@@ -3928,18 +3891,6 @@ async fn handle_patch_track(
                     www_authenticate: None,
                 })?;
 
-            // Look up the artist credit for the event payload.
-            let artist_credit = db::get_artist_credit(&tx, updated_track.artist_credit_id)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!(
-                        "artist credit {} not found for track {guid2}",
-                        updated_track.artist_credit_id
-                    ),
-                    www_authenticate: None,
-                })?;
-
             // Look up payment routes and value-time splits.
             let routes = db::get_payment_routes_for_track(&tx, &guid2).map_err(ApiError::from)?;
             let value_time_splits =
@@ -3952,7 +3903,6 @@ async fn handle_patch_track(
                 track: updated_track,
                 routes,
                 value_time_splits,
-                artist_credit,
             };
             let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,

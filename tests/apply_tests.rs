@@ -1312,23 +1312,6 @@ fn apply_source_entity_ids_replaced() {
 
     assert_eq!(stored.0, "nostr_npub");
     assert_eq!(stored.1, "npub1example");
-
-    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
-        .expect("run resolver batch");
-    assert_eq!(summary.claimed, 1);
-    assert_eq!(summary.resolved, 1);
-
-    let promoted_value: String = {
-        let conn = db.lock().expect("lock after apply");
-        conn.query_row(
-            "SELECT value FROM external_ids \
-             WHERE entity_type = 'artist' AND entity_id = 'artist-1' AND scheme = 'nostr_npub'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("promoted external id should exist")
-    };
-    assert_eq!(promoted_value, "npub1example");
 }
 
 // ---------------------------------------------------------------------------
@@ -1655,41 +1638,12 @@ fn make_feed_upserted_event(
     event_id: &str,
     feed_guid: &str,
     feed_title: &str,
-    artist_prefix: &str,
+    _artist_prefix: &str,
     seq: i64,
     now: i64,
 ) -> stophammer::event::Event {
     use stophammer::event::{Event, EventPayload, EventType, FeedUpsertedPayload};
-    use stophammer::model::{Artist, ArtistCredit, ArtistCreditName, Feed};
-
-    let artist = Artist {
-        artist_id: format!("{artist_prefix}-artist"),
-        name: format!("{artist_prefix} Artist"),
-        name_lower: format!("{artist_prefix} artist"),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-    let credit = ArtistCredit {
-        id: 1,
-        display_name: format!("{artist_prefix} Artist"),
-        feed_guid: None,
-        created_at: now,
-        names: vec![ArtistCreditName {
-            id: 0,
-            artist_credit_id: 1,
-            artist_id: format!("{artist_prefix}-artist"),
-            position: 0,
-            name: format!("{artist_prefix} Artist"),
-            join_phrase: String::new(),
-        }],
-    };
+    use stophammer::model::Feed;
     let feed = Feed {
         feed_guid: feed_guid.into(),
         feed_url: format!("https://example.com/{feed_guid}.xml"),
@@ -1698,9 +1652,14 @@ fn make_feed_upserted_event(
         artist_credit_id: 1,
         description: None,
         image_url: None,
+        publisher: None,
         language: None,
         explicit: false,
         itunes_type: None,
+        release_artist: None,
+        release_artist_sort: None,
+        release_date: None,
+        release_kind: None,
         episode_count: 0,
         newest_item_at: None,
         oldest_item_at: None,
@@ -1709,11 +1668,7 @@ fn make_feed_upserted_event(
         raw_medium: None,
     };
 
-    let inner = FeedUpsertedPayload {
-        feed,
-        artist,
-        artist_credit: credit,
-    };
+    let inner = FeedUpsertedPayload { feed };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
     Event {
@@ -1740,22 +1695,7 @@ fn make_track_upserted_event(
     now: i64,
 ) -> stophammer::event::Event {
     use stophammer::event::{Event, EventPayload, EventType, TrackUpsertedPayload};
-    use stophammer::model::{ArtistCredit, ArtistCreditName, Track};
-
-    let credit = ArtistCredit {
-        id: 1,
-        display_name: "apply Artist".into(),
-        feed_guid: Some(feed_guid.into()),
-        created_at: now,
-        names: vec![ArtistCreditName {
-            id: 0,
-            artist_credit_id: 1,
-            artist_id: "apply-artist".into(),
-            position: 0,
-            name: "apply Artist".into(),
-            join_phrase: String::new(),
-        }],
-    };
+    use stophammer::model::Track;
     let track = Track {
         track_guid: track_guid.into(),
         feed_guid: feed_guid.into(),
@@ -1769,8 +1709,12 @@ fn make_track_upserted_event(
         enclosure_bytes: Some(123),
         track_number,
         season: None,
+        image_url: None,
+        language: None,
         explicit: false,
         description: None,
+        track_artist: None,
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1779,7 +1723,6 @@ fn make_track_upserted_event(
         track,
         routes: vec![],
         value_time_splits: vec![],
-        artist_credit: credit,
     };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
@@ -1798,8 +1741,9 @@ fn make_track_upserted_event(
 }
 
 #[test]
-fn apply_track_upserted_creates_missing_credit_artist_rows() {
-    use stophammer::apply::{ApplyOutcome, apply_single_event};
+fn apply_track_upserted_requires_existing_credit_rows() {
+    use stophammer::apply::apply_single_event;
+    use stophammer::event::EventPayload;
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
@@ -1819,7 +1763,7 @@ fn apply_track_upserted_creates_missing_credit_artist_rows() {
         );
     }
 
-    let event = make_track_upserted_event(
+    let mut event = make_track_upserted_event(
         "track-credit-event",
         "feed-apply-credit",
         "track-apply-credit",
@@ -1828,19 +1772,16 @@ fn apply_track_upserted_creates_missing_credit_artist_rows() {
         1,
         now,
     );
+    if let EventPayload::TrackUpserted(payload) = &mut event.payload {
+        payload.track.artist_credit_id = 999;
+        event.payload_json = serde_json::to_string(payload).expect("reserialize payload");
+    }
 
-    let outcome = apply_single_event(&pool, &event).expect("apply track upserted");
-    assert!(matches!(outcome, ApplyOutcome::Applied(_)));
-
-    let conn = db.lock().unwrap();
-    let artist_name: String = conn
-        .query_row(
-            "SELECT name FROM artists WHERE artist_id = 'apply-artist'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("track credit artist inserted");
-    assert_eq!(artist_name, "apply Artist");
+    let outcome = apply_single_event(&pool, &event);
+    assert!(
+        outcome.is_err(),
+        "track upsert should fail without prerequisite credit rows"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1857,6 +1798,11 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-dedup", "Dedup Artist", now);
+        let _credit_id = insert_artist_credit(&conn, "artist-dedup", "Dedup Artist", now);
+    }
     let ev = make_feed_upserted_event(
         "dedup-evt-feed-001",
         "dedup-feed-1",
@@ -1919,13 +1865,18 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
 }
 
 #[test]
-fn canonical_release_rows_track_apply_and_remove() {
+fn source_track_rows_apply_and_remove_without_canonicalization() {
     use stophammer::apply::{ApplyOutcome, apply_single_event};
     use stophammer::event::{Event, EventPayload, EventType, TrackRemovedPayload};
 
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-canon-apply", "Apply Artist", now);
+        let _credit_id = insert_artist_credit(&conn, "artist-canon-apply", "Apply Artist", now);
+    }
 
     let feed_ev = make_feed_upserted_event(
         "canon-feed-evt",
@@ -1966,41 +1917,24 @@ fn canonical_release_rows_track_apply_and_remove() {
         apply_single_event(&pool, &track_b).expect("apply track b"),
         ApplyOutcome::Applied(_)
     ));
-    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
-        .expect("run resolver batch after upserts");
-    assert_eq!(summary.claimed, 1);
-    assert_eq!(summary.resolved, 1);
-
     {
         let conn = db.lock().expect("lock");
-        let release_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM releases", [], |r| r.get(0))
-            .expect("count releases");
-        let recording_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM recordings", [], |r| r.get(0))
-            .expect("count recordings");
-        assert_eq!(release_count, 1);
-        assert_eq!(recording_count, 2);
-
-        let release_id: String = conn
-            .query_row(
-                "SELECT release_id FROM source_feed_release_map WHERE feed_guid = 'canon-feed-apply'",
-                [],
-                |r| r.get(0),
-            )
-            .expect("lookup release_id");
+        let track_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+            .expect("count tracks");
+        assert_eq!(track_count, 2);
 
         let ordered: Vec<(i64, String)> = {
             let mut stmt = conn
                 .prepare(
-                    "SELECT position, source_track_guid FROM release_recordings \
-                     WHERE release_id = ?1 ORDER BY position",
+                    "SELECT track_number, track_guid FROM tracks \
+                     WHERE feed_guid = 'canon-feed-apply' ORDER BY track_number, track_guid",
                 )
-                .expect("prepare release_recordings");
-            stmt.query_map([release_id], |row| Ok((row.get(0)?, row.get(1)?)))
-                .expect("query release_recordings")
+                .expect("prepare track ordering");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("query track ordering")
                 .collect::<Result<_, _>>()
-                .expect("collect release_recordings")
+                .expect("collect track ordering")
         };
         assert_eq!(
             ordered,
@@ -2033,38 +1967,25 @@ fn canonical_release_rows_track_apply_and_remove() {
         apply_single_event(&pool, &remove_ev).expect("remove track b"),
         ApplyOutcome::Applied(_)
     ));
-    let summary = stophammer::resolver::worker::run_batch(&pool, "test-worker", 10)
-        .expect("run resolver batch after remove");
-    assert_eq!(summary.claimed, 1);
-    assert_eq!(summary.resolved, 1);
-
     let conn = db.lock().expect("lock");
-    let recording_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM recordings", [], |r| r.get(0))
-        .expect("count recordings after remove");
-    assert_eq!(recording_count, 1);
-
-    let release_id: String = conn
-        .query_row(
-            "SELECT release_id FROM source_feed_release_map WHERE feed_guid = 'canon-feed-apply'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("lookup release_id after remove");
+    let track_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks after remove");
+    assert_eq!(track_count, 1);
 
     let ordered: Vec<(i64, String)> = {
         let mut stmt = conn
             .prepare(
-                "SELECT position, source_track_guid FROM release_recordings \
-                 WHERE release_id = ?1 ORDER BY position",
+                "SELECT track_number, track_guid FROM tracks \
+                 WHERE feed_guid = 'canon-feed-apply' ORDER BY track_number, track_guid",
             )
-            .expect("prepare release_recordings");
-        stmt.query_map([release_id], |row| Ok((row.get(0)?, row.get(1)?)))
-            .expect("query release_recordings")
+            .expect("prepare track ordering after remove");
+        stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .expect("query track ordering after remove")
             .collect::<Result<_, _>>()
-            .expect("collect release_recordings")
+            .expect("collect track ordering after remove")
     };
-    assert_eq!(ordered, vec![(1, "canon-track-a".to_string())]);
+    assert_eq!(ordered, vec![(2, "canon-track-a".to_string())]);
 }
 
 // ---------------------------------------------------------------------------
@@ -2082,6 +2003,11 @@ fn out_of_order_event_is_rejected() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
+    {
+        let conn = db.lock().expect("lock");
+        insert_artist(&conn, "artist-ooo", "Out Of Order Artist", now);
+        let _credit_id = insert_artist_credit(&conn, "artist-ooo", "Out Of Order Artist", now);
+    }
     let ev10 =
         make_feed_upserted_event("ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now);
 

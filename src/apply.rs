@@ -109,14 +109,9 @@ fn apply_single_event_inner(
             )?;
         }
         event::EventPayload::FeedUpserted(p) => {
-            db::upsert_artist_if_absent(conn, &p.artist)?;
-            // Ensure artist credit exists before upserting feed
-            upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
             db::upsert_feed(conn, &p.feed)?;
         }
         event::EventPayload::TrackUpserted(p) => {
-            // Ensure artist credit exists before upserting track
-            upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
             db::upsert_track(conn, &p.track)?;
             db::replace_payment_routes(conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(conn, &p.track.track_guid, &p.value_time_splits)?;
