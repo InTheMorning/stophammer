@@ -43,8 +43,6 @@ Community nodes:
 
 The primary `stophammer-resolverd` emits signed feed-scoped resolved-state events for:
 
-- source read-model completion
-  - `source_feed_read_models_resolved`
 - canonical release/recording state
   - `canonical_feed_state_replaced`
 - canonical promotions and provenance
@@ -56,8 +54,6 @@ The primary `stophammer-resolverd` emits signed feed-scoped resolved-state event
 
 Replica apply logic treats those events as authoritative:
 
-- source read-model completion events materialize source-layer search and
-  quality rows
 - canonical state events replace canonical release/recording mappings and
   rebuild canonical search
 - promotions events replace promoted external IDs and provenance

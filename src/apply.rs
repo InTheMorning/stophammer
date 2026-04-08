@@ -149,9 +149,6 @@ fn apply_single_event_inner(
         event::EventPayload::SourcePlatformClaimsReplaced(p) => {
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
         }
-        event::EventPayload::SourceFeedReadModelsResolved(p) => {
-            db::sync_source_read_models_for_feed(conn, &p.feed_guid)?;
-        }
         event::EventPayload::CanonicalFeedStateReplaced(p) => {
             db::replace_canonical_feed_state_from_snapshot(conn, p)?;
             db::sync_canonical_search_index_for_feed(conn, &p.feed_guid)?;
