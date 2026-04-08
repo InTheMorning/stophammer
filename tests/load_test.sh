@@ -63,23 +63,6 @@ check_target() {
     fi
 }
 
-wait_for_resolver() {
-    local deadline=$(( $(date +%s) + RESOLVER_WAIT_TIMEOUT_SECS ))
-    while true; do
-        local status
-        status="$(curl -sf "${PRIMARY_URL}/v1/resolver/status" || true)"
-        if [ -n "$status" ] && [ "$(printf '%s' "$status" | tr -d '\n' | parse_json_bool)" = "true" ]; then
-            log "Resolver reports caught_up=true."
-            return 0
-        fi
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-            log "ERROR: resolver did not report caught_up=true within ${RESOLVER_WAIT_TIMEOUT_SECS}s."
-            return 1
-        fi
-        sleep 2
-    done
-}
-
 run_get_load() {
     local name="$1"
     local url="$2"
@@ -138,27 +121,10 @@ if [ -n "$TRACK_GUID" ]; then
 fi
 
 if [ -n "$SEARCH_QUERY" ]; then
-    if [ "$WAIT_FOR_RESOLVER" = "1" ]; then
-        wait_for_resolver
-    else
-        resolver_status="$(curl -sf "${PRIMARY_URL}/v1/resolver/status" || true)"
-        if [ -n "$resolver_status" ] && [ "$(printf '%s' "$resolver_status" | tr -d '\n' | parse_json_bool)" != "true" ]; then
-            log "Skipping canonical/search load because resolver is not caught up."
-            log "Set WAIT_FOR_RESOLVER=1 to wait for /v1/resolver/status caught_up=true."
-        else
-            run_get_load \
-                "Resolver-backed search" \
-                "${PRIMARY_URL}/v1/search?q=${SEARCH_QUERY}" \
-                "$CANONICAL_P99_THRESHOLD_MS"
-        fi
-    fi
-
-    if [ "$WAIT_FOR_RESOLVER" = "1" ]; then
-        run_get_load \
-            "Resolver-backed search" \
-            "${PRIMARY_URL}/v1/search?q=${SEARCH_QUERY}" \
-            "$CANONICAL_P99_THRESHOLD_MS"
-    fi
+    run_get_load \
+        "Search" \
+        "${PRIMARY_URL}/v1/search?q=${SEARCH_QUERY}" \
+        "$CANONICAL_P99_THRESHOLD_MS"
 fi
 
 echo ""

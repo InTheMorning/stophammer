@@ -1,93 +1,328 @@
 # V4V Music Metadata Vision & Master Refactoring Plan
 
-This document serves as the single source of truth for transitioning the `stophammer` codebase.
+This document is the single source of truth for the current Stophammer
+refactor sequence.
 
-## Phase 0: Governance & CI Compliance
-To ensure long-term maintainability and model-efficiency, all work must adhere to the following standards:
+The immediate objective is not to add new resolver logic. The immediate
+objective is to simplify the system, tighten the importer, and then review the
+schema from a clean baseline so a definitive v1 schema plan can be chosen.
 
-**1. ADR (Architectural Decision Record) Methodology**
-*   Before implementing Phase 3 (Ingest) or Phase 4 (CLI Tool), the AI must create a new ADR in `docs/adr/` (e.g., `0031-lineage-aware-ingest.md`).
-*   The ADR must detail the schema changes and the specific heuristic logic to be used.
+## Ordered Sequence
 
-**2. Mandatory CI Validation (The "Green Commit" Rule)**
-*   **Verification:** After every file edit, the AI MUST execute `cargo check` and `cargo fmt --check`.
-*   **Zero-Warning Policy:** No code changes shall be considered complete if they introduce new compiler warnings or lint errors (`clippy`).
-*   **Test-Driven Execution:** Phase 2 and 3 changes must include a corresponding integration test in `tests/` that demonstrates the new lineage/skip logic working on a mock RSS feed.
+Work proceeds in this order and no later phase should start early:
 
-**3. Token-Optimized Workflow**
-*   **Mechanical Tasks:** Use low-tier models for Phase 1 and 2.
-*   **Surgical Edits:** Only provide the AI with the specific functions it needs to change, not the entire file, to keep the context window small and context-costs low.
+1. Remove the resolver and its associated UI/API/operator surfaces.
+2. Apply the importer/crawler changes.
+3. Review the schema and produce a definitive v1 schema plan.
 
-## Phase 1: Clean Slate & De-bloating
-Before adding new features, we must remove the technical debt of remote API TUI access and obsolete planning files.
+## Foundational Rules
 
-**1. Remove Obsolete Planning Files (DONE)**
-*   **Result:** Fragmented plans (`docs/*-plan.md`) have been removed. This document is now the sole planning artifact.
+### 1. One phase per session
 
-**2. Audit & Remove Remote TUI API Hooks**
-*   **Target Files:** `src/api.rs`, `src/query.rs`, `src/review_backend.rs`.
-*   **Action:** Delete `src/review_backend.rs` entirely.
-*   **Action:** Remove the `with_admin_review_routes` function and its associated handlers (e.g., `handle_admin_feed_evidence`, `handle_admin_resolve_wallet_identity_review`, `handle_admin_wallet_apply_merges`) from `src/api.rs`.
-*   **Action:** Remove `ApiBackend` and `DbBackend` trait implementations. The TUIs will revert to direct, high-performance SQLite access.
+Do not mix phases in one coding session. Finish one phase, verify it, then
+start a fresh session for the next phase.
 
-## Phase 2: Importer Optimization
-The PodcastIndex importer (`stophammer-crawler/src/modes/import.rs`) must be optimized to save days of ingestion time and bandwidth.
+### 2. ADR first
 
-**1. Music-First Skip (Hardcoded)**
-*   **Target:** `stophammer-crawler/src/modes/import.rs` (in the `run` function).
-*   **Action:** Define `const MIN_MUSIC_FEED_ID: i64 = 4630863;`.
-*   **Action:** Ensure `cursor` is initialized to at least `MIN_MUSIC_FEED_ID`. If `cursor < MIN_MUSIC_FEED_ID`, log a jump message and set `cursor = MIN_MUSIC_FEED_ID`. This skips 4.6 million irrelevant, non-music rows.
+Before implementing any architectural, runtime, API, or schema decision from
+this plan, create or update the relevant ADR in `docs/adr/`.
 
-**2. Snapshot Staleness Detection (Conditional GET)**
-*   **Target:** `stophammer-crawler/src/modes/import.rs` (`ensure_snapshot_db` function).
-*   **Action:** Instead of unconditionally downloading `podcastindex_feeds.db.tgz` when `refresh_db` is false, inspect the local file's modification time (`fs::metadata(db_path)?.modified()`).
-*   **Action:** Use `reqwest` to issue a GET request with the `If-Modified-Since` header.
-*   **Action:** If the server returns HTTP 304 (Not Modified), skip the download. If HTTP 200, stream the download and extract the archive.
-*   **Action:** Store the latest `mtime` in the `import_progress` table using `ProgressStore::set_last_id` (or a new dedicated method) to survive container restarts.
+This vision document defines sequence and scope. ADRs record the concrete
+decision that will actually be implemented.
 
-## Phase 3: Thorough & Lineage-Aware Ingest
-The parser must capture *all* Podcasting 2.0 tags without prematurely prioritizing one over another.
+### 3. Green commit rule
 
-**1. Schema Expansion (`src/schema.sql`)**
-*   **Action:** Add `generator TEXT` and `generator_lineage TEXT` to the `feeds` table definition.
-*   **Action:** Update `src/model.rs` -> `struct Feed` to include `generator: Option<String>` and `generator_lineage: Option<String>`.
+After every code-editing session:
 
-**2. Lineage Filter implementation**
-*   **Target:** `stophammer-parser/src/` or `src/ingest.rs` (wherever the XML is transformed into `IngestFeedData`).
-*   **Action:** Extract the raw string from `<generator>`.
-*   **Action:** Implement `fn determine_lineage(generator: Option<&str>) -> String`:
-    *   Contains "Wavlake" -> `"wavlake"`
-    *   Contains "Music Side Project" and URL `new.musicsideproject.com` or v2 -> `"msp_2"`
-    *   Contains "Music Side Project" (v1) -> `"msp_1"`
-    *   Empty/matches `feed-with-comments.xml` -> `"demu"`
-    *   Else -> `"unknown"`
+- run `cargo check`
+- run `cargo fmt --check`
+- run focused tests for the touched area
 
-**3. "Equal Weight Evidence" Parsing Strategy**
-*   **Target:** `src/db.rs` -> `ingest_transaction`.
-*   **Action:** Do not discard `itunes:author` in favor of `podcast:person`. Extract *both* into `source_contributor_claims`.
-*   **Action:** Ensure `<podcast:person>` extraction captures `href`, `img`, `group`, and `role` identically in `SourceContributorClaim`.
-*   **Action:** For Wavlake feeds, prioritize `remoteItem` GUIDs as definitive linkage keys, acknowledging they indicate *publishership*, not necessarily *artist identity*.
-*   **Action:** For MSP 2.0 feeds, detect the `<podcast:publisher>` tag and link the album feed to the publisher identity immediately.
-*   **Action:** For "De-Mu" legacy feeds, explicitly capture `role="band"` alongside `itunes:author`. Repurpose `<podcast:episode>` as `track_number`.
+Per repo policy, successful verification is reported as `Green`.
 
-## Phase 4: The "Visible & Tweakable" Resolver Workflow
-We will replace silent "black box" merging with an evidence-based Review system.
+### 4. Provenance-first data handling
 
-**1. Conflict Surfacing**
-*   **Target:** `src/db.rs` -> `sync_canonical_state_for_feed` or related canonicalization logic.
-*   **Action:** When evaluating `source_contributor_claims` to determine the "Album Artist" or "Track Artist", check the `generator_lineage`.
-*   **Action:** If `itunes:author` and `podcast:person` present highly divergent strings (e.g., "John" vs "The John Doe Trio") and the lineage does not implicitly trust one over the other, **do not merge**.
-*   **Action:** Instead, insert a record into `artist_identity_review` (or a similar table) with status `pending`, surfacing the conflicting claims as `evidence`.
+Do not discard source facts because a heuristic prefers one metadata field over
+another. Preserve conflicts and defer interpretation until the schema plan
+explicitly defines how they should be represented.
 
-**2. The Resolver "What-If" CLI Tool (`stophammer-resolver-debug`)**
-To provide the "Visibility" required to trust the data, this tool will focus on **Evidence Visualization** rather than just result reporting.
+### 5. No premature schema invention
 
-*   **Action:** Implement a CLI binary in `src/bin/stophammer_resolver_debug.rs` that accepts target Feed GUIDs or Artist IDs.
-*   **Action:** It runs the heuristic matching logic (e.g., fuzzy title match, duration +/- 2s) *without* calling `tx.commit()`.
-*   **Action:** It outputs a comparative table showing:
-    *   **Artist Identity:** Side-by-side comparison of `itunes:author` vs. `podcast:person` (including role/group) across all source feeds.
-    *   **Track Metadata:** Verbatim titles and `itunes:duration` (to the second) to spot drift between encoders.
-    *   **Temporal Context:** `release_date` (derived from `pubDate`) and `last_updated` timestamps for every source.
-    *   **"Appears On" Lineage:** A complete list of every Feed GUID claiming the track, categorized by its `generator_lineage` (e.g., "This track appears on 1 Wavlake Album and 3 Hand-Hacked Radio Shows").
-*   **Action:** Provide sensitivity analysis flags: `--duration-tolerance=5`, `--title-fuzzy-threshold=0.8`, or `--ignore-itunes-author` to let operators visualize changes before applying them.
-*   **Action:** Conflict Flags: Any recording that has divergent durations (>3s) or divergent artist strings across feeds MUST be flagged with a "SKEPTICAL" status, requiring manual review.
+Until Phase 3 is complete, do not add new metadata columns, canonical tables,
+or lineage heuristics just because they seem useful. Candidate ideas may be
+listed, but they are not approved implementation scope.
+
+## Phase 1: Resolver Removal
+
+### Goal
+
+Remove the resolver as a runtime subsystem and remove the review surfaces that
+exist only to support it.
+
+The result should be a simpler source-first ingest/query system with no
+background resolver worker, no resolver control plane, and no resolver-specific
+operator UI.
+
+### In Scope
+
+#### Runtime and build surface
+
+- remove `stophammer-resolverd`
+- remove `stophammer-resolverctl`
+- remove `backfill_canonical` if it remains resolver-only
+- remove resolver module wiring from the library and main runtime
+
+#### Resolver-specific codepaths
+
+- remove `src/resolver/`
+- remove `src/resolver_coordination.rs`
+- remove `src/review_backend.rs`
+- remove review TUI/CLI binaries that exist only for resolver workflows
+- remove `src/tui.rs` if it becomes orphaned after the review tools are gone
+
+#### API surface
+
+- remove resolver status endpoints such as `/v1/resolver/status`
+- remove resolver-backed diagnostics/review endpoints under `/v1/diagnostics/*`
+- remove admin review mutation routes and handlers from `src/api.rs`
+- keep only source-truth API surface needed after resolver retirement
+
+#### Packaging, docs, and tests
+
+- remove resolver systemd/env packaging
+- remove resolver man pages
+- update docs that currently describe resolver-backed reads as part of normal
+  operation
+- delete or rewrite tests that only validate resolver behavior
+
+### Explicit Non-Goals
+
+- do not redesign the metadata schema in this phase
+- do not introduce replacement heuristics in this phase
+- do not assume that every current canonical table must be dropped immediately;
+  schema retention or removal is decided in Phase 3 unless Phase 1 cleanup
+  makes a specific removal unavoidable
+
+### Deliverable
+
+A codebase that compiles and runs without the resolver subsystem or its
+attached operator surfaces.
+
+### Exit Criteria
+
+- resolver binaries and review tools are gone
+- resolver-only API endpoints are gone
+- resolver packaging/docs/tests are removed or rewritten
+- `cargo check` and `cargo fmt --check` are Green
+
+## Phase 2: Importer / Crawler Changes
+
+### Goal
+
+Improve the PodcastIndex import path now that resolver work is out of the way.
+This phase is limited to importer/crawler behavior, not schema redesign.
+
+### Baseline
+
+ADR 0030 already establishes that the importer lives in
+`stophammer-crawler` and uses durable attempt memory in `import_state.db`.
+Phase 2 builds on that baseline rather than reopening the runtime split.
+
+### Planned Changes
+
+#### 1. Music-first cursor jump
+
+Target: `stophammer-crawler/src/modes/import.rs`
+
+- define a hard lower bound for the music-first scan window
+- if the stored cursor is below that bound, log the jump and start from the
+  music-first ID instead of replaying millions of obviously irrelevant rows
+
+#### 2. Snapshot staleness detection
+
+Target: `stophammer-crawler/src/modes/import.rs`
+
+- stop blindly re-downloading the PodcastIndex snapshot when a local copy
+  already exists
+- use local file modification time plus conditional HTTP request semantics
+- skip download/extract work when the remote snapshot is unchanged
+
+#### 3. Preserve importer observability
+
+- keep ADR 0030 durable attempt memory intact
+- any skip/jump behavior must remain auditable through importer state rather
+  than becoming invisible control flow
+
+### Explicit Non-Goals
+
+- no feed metadata schema expansion in this phase
+- no canonical matching logic in this phase
+- no new review UI in this phase
+
+### Deliverable
+
+A faster, more restart-friendly importer that avoids wasteful snapshot and
+pre-music scanning work.
+
+### Exit Criteria
+
+- importer behavior matches the approved Phase 2 ADR scope
+- touched importer tests are Green
+- `cargo check` and `cargo fmt --check` are Green
+
+## Phase 3: Schema Review For Definitive v1 Plan
+
+### Goal
+
+Review the existing schema from the simplified post-Phase-2 baseline and
+decide what the actual v1 schema should be.
+
+This phase is a review and planning phase, not a migration-writing phase.
+
+### Questions To Answer
+
+#### 1. What remains as core source truth?
+
+Review the tables that preserve feed, track, and source-evidence facts:
+
+- `feeds`
+- `tracks`
+- `feed_remote_items_raw`
+- `source_contributor_claims`
+- `source_entity_ids`
+- `source_entity_links`
+- `source_release_claims`
+- `source_item_enclosures`
+- `source_platform_claims`
+- `events` and sync tables
+
+The schema review must also decide and document the strict artist-field rules
+for v1:
+
+- `release_artist` and `track_artist` are separate fields
+- feed-level `itunes:author` maps to `release_artist`
+- `podcast:person` remains contributor metadata, not release-artist truth
+- `track_artist` remains separate even when v1 defaults it from
+  `release_artist`
+- artist sort-order metadata is optional and separate from display artist text
+- sort fields stay null unless reliable published sort metadata exists
+- any internal derived sort key is an indexing helper, not authoritative
+  source truth
+- `publisher` retains its normal meaning by default; do not globally treat
+  publisher data as artist truth
+- Wavlake is a narrow compatibility exception where current feed-level and
+  track-level publisher data may provide artist text, but that text still does
+  not become a stable unique artist identity
+- minimum v1 does not include an `artists` table or `artist_id`
+- a future `artists` table should only appear once there is a direct
+  artist-claim / feed-link workflow built on feed ownership proof
+- future `artist_id` values must come from explicit claim/link flows, not from
+  artist-name inference
+
+The schema review must also document the strict title mapping rules for v1:
+
+- feed title = release title
+- item title = track title
+- minimum v1 should not add duplicate release-title / track-title columns when
+  `feeds.title` and `tracks.title` already carry those meanings
+
+The schema review must also document the core v1 field rules:
+
+- `release_date` = feed `pubDate`
+- artwork is stored as URL fields at feed and track level
+- `publisher` means publisher by default, except for the narrow Wavlake
+  compatibility exception already noted
+- enclosures are stored as published RSS enclosure data
+- value blocks mirror RSS tags, route types, and arguments as-is
+- links and external IDs are stored so users can search by values such as
+  `npub`
+- ordering follows RSS ordering or `pubDate`
+- `language` and `explicit` are stored per track, inheriting from the feed
+  when missing
+- unknown values stay `unknown` unless explicitly present or safely derivable
+
+The schema review must also document the v1 identifier policy:
+
+- `feed_guid` and item/track GUIDs are source publication identities
+- child source-fact tables should prefer composite natural keys over new global
+  IDs
+- `event_id` is an operational mutation-log identifier, not music metadata
+- canonical IDs such as `release_id`, `recording_id`, `work_id`, or
+  `artist_id` should be deferred until those concepts actually exist as
+  first-class schema entities
+
+#### 2. What is resolver-derived and therefore suspect for v1?
+
+Review the tables and concepts that exist because of the resolver/canonical
+layer:
+
+- `releases`
+- `recordings`
+- `release_recordings`
+- `source_feed_release_map`
+- `source_item_recording_map`
+- `entity_source` where it is used only as canonical provenance
+- `resolver_queue`
+- `resolver_state`
+- `artist_identity_override`
+- `artist_identity_review`
+
+#### 3. Which artist/relationship tables survive independently of the resolver?
+
+Review whether these remain part of v1 as first-class schema or should be
+deferred/simplified:
+
+- `artists`
+- `artist_aliases`
+- `artist_credit`
+- `artist_credit_name`
+- `artist_artist_rel`
+- `artist_id_redirect`
+- tags, relationships, and external ID tables
+
+#### 4. What API shape follows from the v1 schema?
+
+Classify each current API surface as one of:
+
+- keep as source-truth v1 API
+- remove with resolver retirement
+- defer until after the v1 schema is approved
+
+### Required Output
+
+Phase 3 must end with a concrete v1 schema decision artifact that tells the
+user:
+
+- which tables/columns are kept unchanged
+- which tables are removed
+- which tables are deferred to post-v1
+- which migrations will be required
+- which API/docs changes follow from that schema choice
+- which open questions still need an ADR before implementation
+
+### Explicit Non-Goals
+
+- no schema migration implementation in this phase
+- no speculative parser changes in this phase
+- no new canonicalization rules in this phase
+
+## Deferred Candidate Topics
+
+These ideas may be revisited after Phase 3, but they are not approved work
+before the schema review completes:
+
+- a future RSS / Podcasting 2.0 `artist_credit` tag, because `podcast:person`
+  is contributor metadata and not a strict release-artist field
+- a future RSS / Podcasting 2.0 `kind` or `release_kind` tag, because the
+  current namespace distinguishes `medium=music` but does not formally encode
+  album/EP/single-style release kind
+- generator or lineage capture such as `generator` / `generator_lineage`
+- lineage-aware ingest heuristics
+- equal-weight treatment of conflicting contributor evidence
+- Wavlake/MSP/De-Mu specific normalization rules
+- any replacement for the removed resolver UI beyond narrowly scoped source
+  inspection tooling
+
+## Current Status
+
+The next executable phase is Phase 1: resolver removal.

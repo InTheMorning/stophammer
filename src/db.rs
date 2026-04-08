@@ -2741,22 +2741,6 @@ pub fn sync_canonical_promotions_for_feed(
     Ok(())
 }
 
-pub(crate) fn cleanup_canonical_search_entities(conn: &Connection) -> Result<(), DbError> {
-    conn.execute(
-        "DELETE FROM search_entities \
-         WHERE entity_type = 'release' \
-           AND entity_id NOT IN (SELECT release_id FROM releases)",
-        [],
-    )?;
-    conn.execute(
-        "DELETE FROM search_entities \
-         WHERE entity_type = 'recording' \
-           AND entity_id NOT IN (SELECT recording_id FROM recordings)",
-        [],
-    )?;
-    Ok(())
-}
-
 /// Updates canonical search index rows for the release/recording objects
 /// currently mapped from one feed.
 ///
@@ -10584,12 +10568,6 @@ pub fn ingest_transaction(
         update_event_signature(&tx, &er.event_id, &signed_by, &signature)?;
         seqs.push((seq, signed_by, signature));
     }
-
-    // Source feed/track search, quality, canonical state/search/promotions,
-    // and targeted artist identity are all deferred to the durable resolver
-    // queue. Ingest now focuses on preserving source facts and emitting the
-    // event trail that resolverd will converge from.
-    crate::resolver::queue::mark_feed_dirty_for_resolver(&tx, &feed.feed_guid)?;
 
     // 7. Commit
     tx.commit()?;

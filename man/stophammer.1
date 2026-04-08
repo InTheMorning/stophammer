@@ -112,24 +112,7 @@ BIND=127.0.0.1:8010 \\
 ./target/release/stophammer
 .fi
 .SH SEE ALSO
-.BR backfill_canonical (1),
-.BR backfill_artist_identity (1),
-.BR review_artist_identity (1)
-
 Full operator documentation lives in
 .I docs/operations.md
 and
 .IR docs/API.md .
-
-Resolver queue operation and artist-identity review are CLI-driven:
-
-.nf
-cargo run --bin stophammer-resolverd
-cargo run --bin stophammer-resolverctl -- status
-cargo run --bin review_artist_identity -- --pending-reviews --limit 20
-.fi
-
-Run
-.B stophammer-resolverd
-on the primary only. Community nodes now follow the primary's signed
-resolved-state events and should not run a local resolver worker.

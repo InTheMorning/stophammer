@@ -48,13 +48,3 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 ## Manpages
 
 - [stophammer.1](../../man/stophammer.1)
-- [stophammer-resolverd.1](../../man/stophammer-resolverd.1)
-- [stophammer-resolverctl.1](../../man/stophammer-resolverctl.1)
-- [backfill_canonical.1](../../man/backfill_canonical.1)
-- [backfill_artist_identity.1](../../man/backfill_artist_identity.1)
-- [review_artist_identity.1](../../man/review_artist_identity.1)
-- [review_artist_identity_tui.1](../../man/review_artist_identity_tui.1)
-- [backfill_wallets.1](../../man/backfill_wallets.1)
-- [review_wallet_identity.1](../../man/review_wallet_identity.1)
-- [review_wallet_identity_tui.1](../../man/review_wallet_identity_tui.1)
-- [review_source_claims_tui.1](../../man/review_source_claims_tui.1)

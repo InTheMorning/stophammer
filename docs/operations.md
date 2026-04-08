@@ -15,7 +15,7 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
 | `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
-| `ADMIN_TOKEN` | `""` (empty) | No | Token for write-side admin endpoints (`X-Admin-Token` header). Read-only diagnostics under `/v1/diagnostics/*` are currently public on primary nodes. It is not accepted on sync endpoints. |
+| `ADMIN_TOKEN` | `""` (empty) | No | Token for write-side admin endpoints (`X-Admin-Token` header). It is not accepted on sync endpoints. |
 | `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. If unset, those sync endpoints return 403. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
 
@@ -64,10 +64,6 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROOF_PRUNE_INTERVAL_SECS` | `300` | How often the background pruner deletes expired proof challenges and tokens (seconds). |
-| `RESOLVER_INTERVAL_SECS` | `30` | Seconds between `stophammer-resolverd` queue checks. |
-| `RESOLVER_BATCH_SIZE` | `25` | Maximum dirty feeds claimed per `stophammer-resolverd` batch. |
-| `RESOLVER_WORKER_ID` | `stophammer-resolverd-<pid>` | Optional worker ID stored in queue locks and logs. |
-| `RESOLVER_EMIT_RESOLVED_STATE_EVENTS` | `true` | Primary-only opt-out for resolved-state replication. Unless set falsey, `stophammer-resolverd` emits signed `source_feed_read_models_resolved`, `canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`, `artist_identity_feed_resolved`, and override-backed `artist_merged` events after resolver work succeeds. |
 | `VERIFIER_CHAIN` | `crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated exact GUID blocklist used by the `feed_blocklist` verifier. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated exact URL blocklist used by the `feed_blocklist` verifier. |
@@ -173,7 +169,6 @@ Tagged releases also attach the Arch split packages and an
 The compose file intentionally uses runnable sample env files:
 
 - [primary.compose.env.example](../packaging/env/primary.compose.env.example)
-- [resolverd.compose.env.example](../packaging/env/resolverd.compose.env.example)
 - [podping.compose.env.example](../packaging/env/podping.compose.env.example)
 - [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
 - [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
@@ -198,9 +193,6 @@ Container runtime contract:
   - binaries installed in `/usr/local/bin`
   - working directory `/data`
   - default command `stophammer`
-  - alternate role via `command: ["stophammer-resolverd"]`
-  - in the reference Compose stack, `primary` builds this image once and
-    `resolverd` reuses it rather than triggering a second root build
 - `stophammer-crawler` image:
   - binary installed in `/usr/local/bin`
   - working directory `/data`
@@ -219,7 +211,6 @@ Shipped long-running units:
 
 - `stophammer-primary.service`
 - `stophammer-community.service`
-- `stophammer-resolverd.service`
 - `stophammer-gossip.service`
 
 Shipped example one-shot units:
@@ -475,237 +466,19 @@ cp signing.key signing.key.bak
 
 ## Maintenance Utilities
 
-This repo ships local maintenance binaries for derived-state rebuilds and
-review:
-
-```bash
-# Drain the durable canonical resolver queue
-cargo run --bin stophammer-resolverd
-
-# Inspect or toggle resolver import pause state, plus backfill pause status
-cargo run --bin stophammer-resolverctl -- status
-cargo run --bin stophammer-resolverctl -- import-active
-cargo run --bin stophammer-resolverctl -- import-idle
-
-# Wipe all resolved state and re-queue every feed for re-resolution (destructive)
-cargo run --bin stophammer-resolverctl -- re-resolve
-
-# Rebuild canonical releases / recordings and source-to-canonical maps
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_canonical -- --db ./stophammer.db
-
-# Re-run deterministic artist-identity merges from staged source evidence
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_artist_identity -- --db ./stophammer.db
-
-# Review remaining duplicate artist-name groups with supporting source evidence
-# Pending review rows now also expose deterministic review confidence,
-# explanation, scored supporting_sources, and score_breakdown when a
-# higher-order review source such as likely_same_artist is involved.
-cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
-
-# Narrow review to one lowercase artist-name key
-cargo run --bin review_artist_identity -- --db ./stophammer.db --name mooky
-
-# Inspect the targeted artist-identity plan for one feed
-cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
-
-# List feeds whose targeted artist-identity plan still has candidate groups
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
-
-# List stored pending review items that still need an operator decision
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
-
-# Narrow pending artist reviews to high-confidence items only
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --pending-reviews --high-confidence-only --limit 20
-
-# Narrow pending artist reviews to scored items at or above 50
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --pending-reviews --min-score 50 --limit 20
-
-# Inspect one stored review item
-cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
-
-# Store a durable merge override
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
-
-# Store a durable do-not-merge override
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --reject-review 17 --note "different projects sharing one name"
-
-# Review pending artist identity items in the TUI
-cargo run --bin review_artist_identity_tui -- --db ./stophammer.db --limit 200
-# Or preload only scored review items at or above 50
-cargo run --bin review_artist_identity_tui -- --db ./stophammer.db \
-  --min-score 50 --limit 200
-# Use `g/G` inside the TUI to jump between HIGH-confidence review items.
-# Use `H` inside the TUI to open a high-confidence-only review list.
-# Queue summary / overview dialogs also show score bands, and selected review
-# panes show a compact score_breakdown preview when present.
-
-# Rebuild wallet endpoints, classifications, and artist links from source data
-# This automatically coordinates with stophammer-resolverd via resolver_state.backfill_active.
-cargo run --bin backfill_wallets -- --db ./stophammer.db
-# Re-derive display names and generate review items (pass 5 / refresh mode)
-cargo run --bin backfill_wallets -- --db ./stophammer.db --refresh
-
-# Review pending wallet identity items
-# Pending rows now show review confidence, explanation, scored
-# supporting_sources, and score_breakdown separately from wallet class
-# confidence.
-# Wallet detail also shows why each artist link exists, including direct
-# alias matches versus dominant-route inferred links.
-cargo run --bin review_wallet_identity -- --db ./stophammer.db
-cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-review 42
-cargo run --bin review_wallet_identity -- --db ./stophammer.db --show-wallet wallet-id-here
-# Narrow pending wallet reviews to high-confidence items only
-cargo run --bin review_wallet_identity -- --db ./stophammer.db \
-  --high-confidence-only --limit 50
-
-# Narrow pending wallet reviews to scored items at or above 50
-cargo run --bin review_wallet_identity -- --db ./stophammer.db \
-  --min-score 50 --limit 50
-
-# Review pending wallet identity items in the TUI
-cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db --limit 200
-# Or preload only scored review groups at or above 50
-cargo run --bin review_wallet_identity_tui -- --db ./stophammer.db \
-  --min-score 50 --limit 200
-# Use `g/G` inside the TUI to jump between HIGH-confidence review groups.
-# Use `H` inside the TUI to open a high-confidence-only review list.
-# Queue summary / overview dialogs also show score bands, and selected
-# review/group panes show a compact score_breakdown preview when present.
-# Wallet detail panes also summarize artist-link provenance reasons.
-
-# Store wallet identity overrides
-cargo run --bin review_wallet_identity -- --db ./stophammer.db \
-  --resolve-merge 42 --target-wallet wallet-id-here
-cargo run --bin review_wallet_identity -- --db ./stophammer.db --resolve-reject 42
-cargo run --bin review_wallet_identity -- --db ./stophammer.db \
-  --resolve-class 42 --class personal
-cargo run --bin review_wallet_identity -- --db ./stophammer.db \
-  --resolve-link 42 --artist artist-id-here
-
-# Inspect source-claim and resolved-promotion evidence in the TUI
-cargo run --bin review_source_claims_tui -- --db ./stophammer.db --limit 200
-```
-
-Inside `review_source_claims_tui`, the operator shortcuts are:
-
-- `o` queue overview
-- `p` backlog playbook
-- `s` selected-feed summary
-- `t` selected-track claim mix
-- `h` source-claim hotspots
-- `c` selected-feed conflicts
-- `m` selected-feed claim mix
-- `n` / `N` next / previous feed with the same dominant claim family
-- `[` / `]` previous / next track with the same dominant claim family
-
-That makes it useful both as a raw evidence browser and as a quick answer to:
-
-- which feeds are loudest
-- which claim family dominates the queue
-- what kind of claim mess is dominating one selected feed
-- what kind of claim mess is dominating one selected track
-
-These do not crawl or fetch from the network. They operate on an existing local
-SQLite database.
-
-For a resolver-aware load check, use:
+Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
+music metadata refactor.
 
 ```bash
 FEED_GUID=feed-guid-here ./tests/load_test.sh
-FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
+FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name ./tests/load_test.sh
 ```
 
-That script measures source-layer feed/track reads separately from
-resolver-backed search and only runs the search leg once the resolver backlog
-is drained or explicitly waited out.
+Use the current source-first API and the vision/ADR documents instead of the
+retired resolver review tooling. The staged plan for later phases lives in:
 
-### Resolver Worker
-
-A durable resolver queue now handles deferred derived-state work.
-
-- write paths now mark feeds dirty in `resolver_queue`
-- `stophammer-resolverd` drains that queue incrementally
-- queued work includes targeted artist identity cleanup for touched feeds
-- queued artist-identity work now persists review items and durable operator
-  overrides for ambiguous feed-scoped candidate groups
-- `backfill_artist_identity` still exists for whole-db repair passes
-
-Run the worker with:
-
-```bash
-DB_PATH=./stophammer.db \
-RESOLVER_INTERVAL_SECS=30 \
-RESOLVER_BATCH_SIZE=25 \
-cargo run --bin stophammer-resolverd
-```
-
-Do not run `stophammer-resolverd` on community nodes. The binary exits immediately when
-`NODE_MODE=community`; community nodes now wait for the primary to emit signed
-resolved-state events and then apply them.
-
-`stophammer-resolverd` checks both import and coordinated-backfill pause heartbeats
-before each batch. It skips work while `resolver_state.import_active=true` or
-`resolver_state.backfill_active=true` and the corresponding heartbeat is
-fresh. If either heartbeat goes stale, the worker logs a warning and resumes
-draining the queue so a crashed importer or backfill cannot leave resolution
-paused forever.
-
-Unless `RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`, the worker also appends
-signed `source_feed_read_models_resolved`,
-`canonical_feed_state_replaced`, `canonical_feed_promotions_replaced`,
-`artist_identity_feed_resolved`, and override-backed `artist_merged` events to
-the sync log after resolver work succeeds. Community nodes follow those
-primary-authored resolver events directly instead of running local resolver
-batches.
-
-Source feed/track search rows and quality scores now converge through
-primary-side `stophammer-resolverd` too. Canonical promotions, canonical
-release/recording rows, and canonical search rows all converge through the
-queue, so those read models can lag until the primary resolver has drained the
-backlog and emitted the corresponding signed events. Direct source feed/track
-rows still update inline and remain the preserved RSS layer. Resolver work is
-derived-state only; it does not rewrite the preserved source feed/track rows
-or staged source-claim tables.
-
-To inspect backlog and the read-model boundary over HTTP:
-
-```bash
-curl http://127.0.0.1:8008/v1/resolver/status
-```
-
-That response shows:
-
-- whether canonical views are caught up (`resolver.caught_up`)
-- whether bulk import or coordinated backfill pause heartbeats are active or stale
-- queue totals (`ready`, `locked`, `failed`)
-- which API endpoints are immediate source-layer reads versus resolver-backed
-  canonical views
-
-You can bracket large imports manually:
-
-```bash
-cargo run --bin stophammer-resolverctl -- import-active
-# run bulk import
-cargo run --bin stophammer-resolverctl -- import-idle
-```
-
-When the crawler import mode runs with `RESOLVER_DB_PATH=/path/to/stophammer.db`,
-it performs this bracketing automatically and refreshes the import heartbeat
-while the bulk import is still active.
-
-The backfill binaries do their own coordination automatically via
-`resolver_state.backfill_active`; do not wrap them with `stophammer-resolverctl
-import-active`.
-
-The staged plan for later phases lives in:
-
-- [resolver-refactor-plan.md](resolver-refactor-plan.md)
+- [v4v-music-metadata-vision.md](vision/v4v-music-metadata-vision.md)
+- [0032-retire-resolver-and-review-runtime.md](adr/0032-retire-resolver-and-review-runtime.md)
 
 ---
 

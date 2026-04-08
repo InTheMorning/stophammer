@@ -120,44 +120,13 @@ guesses for unresolved feeds.
 
 ### I want to inspect or repair canonical data
 
-The shipped utility binaries are:
-
-- `stophammer-resolverd`
-- `stophammer-resolverctl`
-- `backfill_canonical`
-- `backfill_artist_identity`
-- `review_artist_identity`
-- `review_artist_identity_tui`
-- `backfill_wallets`
-- `review_wallet_identity`
-- `review_wallet_identity_tui`
-- `review_source_claims_tui`
-
-`review_source_claims_tui` is no longer just a raw evidence browser. It now
-has an operator workflow layer for:
-
-- queue overview
-- backlog playbook
-- feed hotspots
-- selected-feed summary
-- selected-track claim-family mix
-- selected-feed conflicts
-- selected-feed claim-family mix
-- same-family feed and track jumps
-
-See:
+The Phase 1 resolver retirement removed the dedicated resolver, backfill, and
+review binaries. For now, inspect source-truth state through the main HTTP API
+and keep schema/canonical planning in the vision and ADR documents:
 
 - [operations.md](operations.md)
-- [stophammer-resolverd.1](../man/stophammer-resolverd.1)
-- [stophammer-resolverctl.1](../man/stophammer-resolverctl.1)
-- [review_artist_identity.1](../man/review_artist_identity.1)
-- [review_artist_identity_tui.1](../man/review_artist_identity_tui.1)
-- [backfill_canonical.1](../man/backfill_canonical.1)
-- [backfill_artist_identity.1](../man/backfill_artist_identity.1)
-- [backfill_wallets.1](../man/backfill_wallets.1)
-- [review_wallet_identity.1](../man/review_wallet_identity.1)
-- [review_wallet_identity_tui.1](../man/review_wallet_identity_tui.1)
-- [review_source_claims_tui.1](../man/review_source_claims_tui.1)
+- [v4v-music-metadata-vision.md](vision/v4v-music-metadata-vision.md)
+- [0032-retire-resolver-and-review-runtime.md](adr/0032-retire-resolver-and-review-runtime.md)
 
 ## The Data Model in One Page
 
@@ -211,122 +180,18 @@ BIND=127.0.0.1:8008 \
 curl http://127.0.0.1:8008/node/info
 ```
 
-### Run the canonical backfill
+### Resolver-era maintenance tools
 
-```bash
-cargo run --bin backfill_canonical -- --db ./stophammer.db
-```
+Resolver, backfill, and review binaries were retired. The current source-first
+runtime keeps feed, track, and source-claim rows directly in the main node
+database and exposes them through the main HTTP API.
 
-This automatically coordinates with `stophammer-resolverd` via
-`resolver_state.backfill_active` while it runs.
-
-### Run the resolver worker
-
-```bash
-cargo run --bin stophammer-resolverd
-```
-
-Run `stophammer-resolverd` on the primary only. Community nodes now follow the signed
-resolved-state events emitted by the primary and should not run their own
-resolver worker.
-
-If you need to disable resolved-state event emission temporarily, use
-`RESOLVER_EMIT_RESOLVED_STATE_EVENTS=false`.
-
-### Pause resolver draining during a bulk import
-
-```bash
-cargo run --bin stophammer-resolverctl -- import-active
-# run import
-cargo run --bin stophammer-resolverctl -- import-idle
-```
-
-If you are using the bundled crawler importer on the same host, set
-`RESOLVER_DB_PATH=/path/to/stophammer.db` and it will bracket the import and
-refresh the pause heartbeat automatically.
-
-The backfill binaries coordinate with `stophammer-resolverd` automatically and do not
-need manual `stophammer-resolverctl import-active` / `import-idle` bracketing.
-
-Promoted artist IDs, source feed/track search rows, source quality scores, and
-canonical source rows are now background-derived from the primary resolver. If
-you ingest fresh data and immediately inspect `/v1/search`, `/v1/recent`,
-canonical releases, canonical recordings, promoted `external_ids`, or
-`entity_source`, run `stophammer-resolverd` on the primary or wait for it to drain the
-queue first.
-
-You can check that backlog directly:
-
-```bash
-curl http://127.0.0.1:8008/v1/resolver/status
-```
-
-Look at:
-
-- `resolver.caught_up`
-- `resolver.queue.total`
-- `resolver.queue.failed`
-
-That endpoint also tells you which API surfaces are immediate source-layer
-reads and which are resolver-backed canonical views.
-
-The original feed/track data and staged source claims remain the preserved RSS
-layer. `stophammer-resolverd` enriches canonical views on top of that data; it does not
-replace the source rows.
-
-For a quick resolver-aware load check:
+For a quick source/search load check:
 
 ```bash
 FEED_GUID=feed-guid-here ./tests/load_test.sh
-FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name WAIT_FOR_RESOLVER=1 ./tests/load_test.sh
+FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name ./tests/load_test.sh
 ```
-
-That script treats source reads and resolver-backed search as separate layers.
-
-### Review ambiguous artist splits
-
-```bash
-cargo run --bin review_artist_identity -- --db ./stophammer.db --limit 20
-cargo run --bin review_artist_identity -- --db ./stophammer.db --feed-guid feed-guid-here
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-feeds --limit 20
-cargo run --bin review_artist_identity -- --db ./stophammer.db --pending-reviews --limit 20
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --pending-reviews --high-confidence-only --limit 20
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --pending-reviews --min-score 50 --limit 20
-cargo run --bin review_artist_identity -- --db ./stophammer.db --show-review 17
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --merge-review 17 --target-artist artist-123 --note "same artist, operator confirmed"
-cargo run --bin review_artist_identity -- --db ./stophammer.db \
-  --reject-review 17 --note "different projects sharing one name"
-```
-
-Stored review items let you keep the automatic resolver conservative. It can
-continue merging deterministic cases while ambiguous feed-scoped candidate
-groups get a durable review row and an optional operator override.
-
-Pending artist review rows also expose deterministic review metadata:
-
-- `confidence`
-- `explanation`
-- `supporting_sources` for scored sources such as `likely_same_artist`
-- `score`
-- `score_breakdown`
-
-You can also preload the artist review TUI to scored items only:
-
-```bash
-cargo run --bin review_artist_identity_tui -- --db ./stophammer.db \
-  --min-score 50 --limit 200
-```
-
-Inside `review_artist_identity_tui`, use:
-
-- `n/N` to move within one source family
-- `g/G` to jump through `high_confidence` review items first
-- `H` to open a high-confidence-only review list
-- queue summary / overview dialogs to inspect score bands
-- selected review panes to inspect `score_breakdown`
 
 ### Run the strict local quality gate
 

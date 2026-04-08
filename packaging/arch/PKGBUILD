@@ -95,23 +95,11 @@ package_stophammer-indexer() {
   optdepends=('stophammer-crawler: crawler/feed ingestion companion')
   backup=(
     'etc/stophammer/primary.env'
-    'etc/stophammer/stophammer-resolverd.env'
   )
   install='stophammer-indexer.install'
 
   _install_bundle_tree 'stophammer-indexer'
-  _install_manpages \
-    'stophammer.1' \
-    'stophammer-resolverd.1' \
-    'stophammer-resolverctl.1' \
-    'backfill_canonical.1' \
-    'backfill_artist_identity.1' \
-    'backfill_wallets.1' \
-    'review_artist_identity.1' \
-    'review_artist_identity_tui.1' \
-    'review_wallet_identity.1' \
-    'review_wallet_identity_tui.1' \
-    'review_source_claims_tui.1'
+  _install_manpages 'stophammer.1'
 }
 
 package_stophammer-node() {

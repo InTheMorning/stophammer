@@ -5,16 +5,6 @@ Primary/indexer release bundle.
 Contents:
 
 - node runtime: `stophammer`
-- resolver runtime: `stophammer-resolverd`, `stophammer-resolverctl`
-- maintenance tools:
-  - `backfill_canonical`
-  - `backfill_artist_identity`
-  - `backfill_wallets`
-  - `review_artist_identity`
-  - `review_artist_identity_tui`
-  - `review_wallet_identity`
-  - `review_wallet_identity_tui`
-  - `review_source_claims_tui`
 - packaged deployment assets for primary/index operation
 
 Install shape:
@@ -28,4 +18,3 @@ Install shape:
 The intended long-running units are:
 
 - `stophammer-primary.service`
-- `stophammer-resolverd.service`

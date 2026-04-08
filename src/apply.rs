@@ -113,10 +113,6 @@ fn apply_single_event_inner(
             // Ensure artist credit exists before upserting feed
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
             db::upsert_feed(conn, &p.feed)?;
-            // Feed/track source search+quality and all canonical/enriched
-            // views now converge through the durable resolver queue instead
-            // of adding more inline write amplification here.
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed.feed_guid)?;
         }
         event::EventPayload::TrackUpserted(p) => {
             // Ensure artist credit exists before upserting track
@@ -124,85 +120,52 @@ fn apply_single_event_inner(
             db::upsert_track(conn, &p.track)?;
             db::replace_payment_routes(conn, &p.track.track_guid, &p.routes)?;
             db::replace_value_time_splits(conn, &p.track.track_guid, &p.value_time_splits)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.track.feed_guid)?;
         }
         event::EventPayload::RoutesReplaced(p) => {
             db::replace_payment_routes(conn, &p.track_guid, &p.routes)?;
-            if let Some(track) = db::get_track_by_guid(conn, &p.track_guid)? {
-                crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &track.feed_guid)?;
-            }
         }
         event::EventPayload::ArtistCreditCreated(p) => {
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
         }
         event::EventPayload::FeedRoutesReplaced(p) => {
             db::replace_feed_payment_routes(conn, &p.feed_guid, &p.routes)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::FeedRemoteItemsReplaced(p) => {
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::LiveEventsReplaced(p) => {
             db::replace_live_events_for_feed(conn, &p.feed_guid, &p.live_events)?;
         }
         event::EventPayload::SourceContributorClaimsReplaced(p) => {
             db::replace_source_contributor_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceEntityIdsReplaced(p) => {
             db::replace_source_entity_ids_for_feed(conn, &p.feed_guid, &p.claims)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceEntityLinksReplaced(p) => {
             db::replace_source_entity_links_for_feed(conn, &p.feed_guid, &p.links)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceReleaseClaimsReplaced(p) => {
             db::replace_source_release_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceItemEnclosuresReplaced(p) => {
             db::replace_source_item_enclosures_for_feed(conn, &p.feed_guid, &p.enclosures)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourcePlatformClaimsReplaced(p) => {
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::SourceFeedReadModelsResolved(p) => {
             db::sync_source_read_models_for_feed(conn, &p.feed_guid)?;
-            db::clear_feed_dirty_bits(
-                conn,
-                &p.feed_guid,
-                crate::resolver::queue::DIRTY_SOURCE_READ_MODELS,
-            )?;
         }
         event::EventPayload::CanonicalFeedStateReplaced(p) => {
             db::replace_canonical_feed_state_from_snapshot(conn, p)?;
             db::sync_canonical_search_index_for_feed(conn, &p.feed_guid)?;
-            db::clear_feed_dirty_bits(
-                conn,
-                &p.feed_guid,
-                crate::resolver::queue::DIRTY_CANONICAL_STATE
-                    | crate::resolver::queue::DIRTY_CANONICAL_SEARCH,
-            )?;
         }
         event::EventPayload::CanonicalFeedPromotionsReplaced(p) => {
             db::replace_canonical_feed_promotions_from_snapshot(conn, p)?;
-            db::clear_feed_dirty_bits(
-                conn,
-                &p.feed_guid,
-                crate::resolver::queue::DIRTY_CANONICAL_PROMOTIONS,
-            )?;
         }
         event::EventPayload::ArtistIdentityFeedResolved(p) => {
             db::sync_source_read_models_for_feed(conn, &p.feed_guid)?;
-            db::clear_feed_dirty_bits(
-                conn,
-                &p.feed_guid,
-                crate::resolver::queue::DIRTY_ARTIST_IDENTITY,
-            )?;
         }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
@@ -235,11 +198,6 @@ fn apply_single_event_inner(
                 // _sql variant that works on &Connection within our tx).
                 db::delete_feed_sql(conn, &p.feed_guid)?;
             }
-            db::clear_feed_dirty_bits(
-                conn,
-                &p.feed_guid,
-                crate::resolver::queue::DEFAULT_DIRTY_MASK,
-            )?;
         }
         event::EventPayload::TrackRemoved(p) => {
             // Look up the track to get search-index fields. If already gone, no-op.
@@ -259,7 +217,6 @@ fn apply_single_event_inner(
                 // _sql variant that works on &Connection within our tx).
                 db::delete_track_sql(conn, &p.track_guid)?;
             }
-            crate::resolver::queue::mark_feed_dirty_for_resolver(conn, &p.feed_guid)?;
         }
         event::EventPayload::ArtistMerged(p) => {
             // Use inner _sql variant that works on &Connection within our tx.

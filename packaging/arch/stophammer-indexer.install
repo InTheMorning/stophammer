@@ -4,10 +4,8 @@ stophammer-indexer installed.
 
 Next steps:
   1. Edit /etc/stophammer/primary.env
-  2. Edit /etc/stophammer/stophammer-resolverd.env
-  3. Enable the services:
+  2. Enable the service:
        systemctl enable --now stophammer-primary.service
-       systemctl enable --now stophammer-resolverd.service
 
 This package conflicts with stophammer-node by design.
 Install stophammer-crawler separately if this host also runs feed ingestion.

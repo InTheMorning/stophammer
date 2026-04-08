@@ -25,7 +25,6 @@ Notes:
 - the env files are installed as real config files, not only as examples:
   - `primary.env`
   - `community.env`
-  - `stophammer-resolverd.env`
   - `crawler-gossip.env`
   - `crawler-import.env`
   - `crawler-crawl.env`
