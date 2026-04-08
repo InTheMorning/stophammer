@@ -2070,40 +2070,6 @@ pub fn sync_canonical_state_for_feed(conn: &Connection, feed_guid: &str) -> Resu
     Ok(())
 }
 
-/// Returns the primary-resolved canonical-state snapshot currently mapped from
-/// `feed_guid`.
-pub fn build_canonical_feed_state_snapshot(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<crate::event::CanonicalFeedStateReplacedPayload, DbError> {
-    let release_maps = get_source_feed_release_maps_for_feed(conn, feed_guid)?;
-    let mut releases = Vec::with_capacity(release_maps.len());
-    let mut release_recordings = Vec::new();
-    for map in &release_maps {
-        if let Some(release) = get_release(conn, &map.release_id)? {
-            releases.push(release);
-        }
-        release_recordings.extend(get_release_recordings(conn, &map.release_id)?);
-    }
-
-    let recording_maps = get_source_item_recording_maps_for_feed(conn, feed_guid)?;
-    let mut recordings = Vec::with_capacity(recording_maps.len());
-    for map in &recording_maps {
-        if let Some(recording) = get_recording(conn, &map.recording_id)? {
-            recordings.push(recording);
-        }
-    }
-
-    Ok(crate::event::CanonicalFeedStateReplacedPayload {
-        feed_guid: feed_guid.to_string(),
-        releases,
-        recordings,
-        release_recordings: dedupe_release_recordings(release_recordings),
-        release_maps,
-        recording_maps,
-    })
-}
-
 fn dedupe_release_recordings(rows: Vec<ReleaseRecording>) -> Vec<ReleaseRecording> {
     let mut seen = std::collections::BTreeSet::new();
     let mut deduped = Vec::with_capacity(rows.len());
@@ -2254,59 +2220,6 @@ pub fn replace_canonical_feed_state_from_snapshot(
     Ok(())
 }
 
-/// Emits a signed feed-scoped canonical-state snapshot event after primary-side
-/// resolver work has converged for `feed_guid`.
-pub fn emit_canonical_feed_state_event(
-    conn: &Connection,
-    feed_guid: &str,
-    signer: &NodeSigner,
-) -> Result<Option<Event>, DbError> {
-    let payload = build_canonical_feed_state_snapshot(conn, feed_guid)?;
-    if payload.release_maps.is_empty() && payload.recording_maps.is_empty() {
-        return Ok(None);
-    }
-
-    let payload_json = serde_json::to_string(&payload)?;
-    let event_id = uuid::Uuid::new_v4().to_string();
-    let created_at = unix_now();
-    let (seq, signed_by, signature) = insert_event(
-        conn,
-        &event_id,
-        &EventType::CanonicalFeedStateReplaced,
-        &payload_json,
-        feed_guid,
-        signer,
-        created_at,
-        &[],
-    )?;
-
-    Ok(Some(Event {
-        event_id,
-        event_type: EventType::CanonicalFeedStateReplaced,
-        payload: EventPayload::CanonicalFeedStateReplaced(payload),
-        subject_guid: feed_guid.to_string(),
-        signed_by,
-        signature,
-        seq,
-        created_at,
-        warnings: Vec::new(),
-        payload_json,
-    }))
-}
-
-/// Returns the primary-resolved promotions snapshot currently attributed to
-/// `feed_guid`.
-pub fn build_canonical_feed_promotions_snapshot(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<crate::event::CanonicalFeedPromotionsReplacedPayload, DbError> {
-    Ok(crate::event::CanonicalFeedPromotionsReplacedPayload {
-        feed_guid: feed_guid.to_string(),
-        external_ids: get_resolved_external_ids_for_feed(conn, feed_guid)?,
-        entity_sources: get_resolved_entity_sources_for_feed(conn, feed_guid)?,
-    })
-}
-
 /// Replaces feed-scoped promoted IDs and provenance from a primary-owned
 /// resolved snapshot.
 pub fn replace_canonical_feed_promotions_from_snapshot(
@@ -2319,46 +2232,6 @@ pub fn replace_canonical_feed_promotions_from_snapshot(
         &payload.external_ids,
         &payload.entity_sources,
     )
-}
-
-/// Emits a signed feed-scoped promotions snapshot event after primary-side
-/// resolver work has converged for `feed_guid`.
-pub fn emit_canonical_feed_promotions_event(
-    conn: &Connection,
-    feed_guid: &str,
-    signer: &NodeSigner,
-) -> Result<Option<Event>, DbError> {
-    let payload = build_canonical_feed_promotions_snapshot(conn, feed_guid)?;
-    if payload.external_ids.is_empty() && payload.entity_sources.is_empty() {
-        return Ok(None);
-    }
-
-    let payload_json = serde_json::to_string(&payload)?;
-    let event_id = uuid::Uuid::new_v4().to_string();
-    let created_at = unix_now();
-    let (seq, signed_by, signature) = insert_event(
-        conn,
-        &event_id,
-        &EventType::CanonicalFeedPromotionsReplaced,
-        &payload_json,
-        feed_guid,
-        signer,
-        created_at,
-        &[],
-    )?;
-
-    Ok(Some(Event {
-        event_id,
-        event_type: EventType::CanonicalFeedPromotionsReplaced,
-        payload: EventPayload::CanonicalFeedPromotionsReplaced(payload),
-        subject_guid: feed_guid.to_string(),
-        signed_by,
-        signature,
-        seq,
-        created_at,
-        warnings: Vec::new(),
-        payload_json,
-    }))
 }
 
 fn single_artist_id_for_credit(
