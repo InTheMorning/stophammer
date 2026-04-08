@@ -20,9 +20,8 @@
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, Release, RouteType, SourceContributorClaim, SourceEntityIdClaim,
-    SourceEntityLink, SourceItemEnclosure, SourcePlatformClaim, SourceReleaseClaim, Track,
-    ValueTimeSplit,
+    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
+    SourceItemEnclosure, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -2651,13 +2650,12 @@ pub struct OrphanCleanupStats {
     pub credits_deleted: usize,
 }
 
-/// Deletes artists that have no live references in feeds, tracks, releases, or
-/// recordings, and cleans up their associated rows.
+/// Deletes artists that have no live references in feeds or tracks, and cleans
+/// up their associated rows.
 ///
 /// An artist is considered orphaned if none of its `artist_credit_name` rows
-/// has an `artist_credit_id` that appears in `feeds.artist_credit_id`,
-/// `tracks.artist_credit_id`, `releases.artist_credit_id`, or
-/// `recordings.artist_credit_id`.
+/// has an `artist_credit_id` that appears in `feeds.artist_credit_id` or
+/// `tracks.artist_credit_id`.
 ///
 /// # Errors
 ///
@@ -2674,10 +2672,8 @@ pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupSt
              FROM artist_credit_name acn \
              WHERE acn.artist_id = a.artist_id \
                AND ( \
-                   EXISTS(SELECT 1 FROM feeds     f WHERE f.artist_credit_id    = acn.artist_credit_id) \
-                OR EXISTS(SELECT 1 FROM tracks    t WHERE t.artist_credit_id    = acn.artist_credit_id) \
-                OR EXISTS(SELECT 1 FROM releases  r WHERE r.artist_credit_id    = acn.artist_credit_id) \
-                OR EXISTS(SELECT 1 FROM recordings rc WHERE rc.artist_credit_id = acn.artist_credit_id) \
+                   EXISTS(SELECT 1 FROM feeds     f WHERE f.artist_credit_id = acn.artist_credit_id) \
+                OR EXISTS(SELECT 1 FROM tracks    t WHERE t.artist_credit_id = acn.artist_credit_id) \
                ) \
          ) \
          ORDER BY a.artist_id",
@@ -7681,34 +7677,6 @@ pub fn get_wallet_ids_for_artist(
         .map_err(Into::into)
 }
 
-pub fn get_releases_for_artist(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<Vec<Release>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT r.release_id, r.title, r.title_lower, r.artist_credit_id, r.description, r.image_url, r.release_date, r.created_at, r.updated_at \
-         FROM releases r \
-         JOIN artist_credit ac ON r.artist_credit_id = ac.id \
-         JOIN artist_credit_name acn ON ac.id = acn.artist_credit_id \
-         WHERE acn.artist_id = ?1 \
-         ORDER BY r.release_date DESC, r.title",
-    )?;
-    stmt.query_map(params![artist_id], |row| {
-        Ok(Release {
-            release_id: row.get(0)?,
-            title: row.get(1)?,
-            title_lower: row.get(2)?,
-            artist_credit_id: row.get(3)?,
-            description: row.get(4)?,
-            image_url: row.get(5)?,
-            release_date: row.get(6)?,
-            created_at: row.get(7)?,
-            updated_at: row.get(8)?,
-        })
-    })?
-    .collect::<Result<Vec<_>, _>>()
-    .map_err(Into::into)
-}
 fn get_wallet_endpoint_preview(
     conn: &Connection,
     wallet_id: &str,
