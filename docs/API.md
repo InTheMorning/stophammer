@@ -494,9 +494,6 @@ Returns a single feed by its `podcast:guid`.
     "publisher_text": "Wavlake",
     "language": "en",
     "explicit": false,
-    "episode_count": 12,
-    "newest_item_at": 1710288000,
-    "oldest_item_at": 1700000000,
     "created_at": 1710288000,
     "updated_at": 1710288000,
     "tracks": [
@@ -620,7 +617,7 @@ The older canonical `/v1/recent` route has been retired.
 
 ### GET /v1/feeds/recent
 
-Lists source feeds ordered by `newest_item_at` descending (most recently updated first). This preserves the older source-oriented recent view for provenance/debugging workflows.
+Lists source feeds in recent-source order for provenance/debugging workflows.
 
 - **Authentication:** None
 - **Query parameters:**
@@ -661,7 +658,6 @@ Returns a single track by its `track_guid`.
     "enclosure_type": "audio/mpeg",
     "enclosure_bytes": 3840000,
     "track_number": 1,
-    "season": 1,
     "explicit": false,
     "description": "...",
     "created_at": 1710288000,
