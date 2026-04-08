@@ -5,7 +5,14 @@ mod common;
 use std::fs;
 use std::path::PathBuf;
 
-const ALLOWED_DROP_TABLE_LINES: &[&str] = &["DROP TABLE wallet_identity_override;"];
+const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
+    "DROP TABLE wallet_identity_override;",
+    "DROP TABLE IF EXISTS source_item_recording_map;",
+    "DROP TABLE IF EXISTS source_feed_release_map;",
+    "DROP TABLE IF EXISTS release_recordings;",
+    "DROP TABLE IF EXISTS recordings;",
+    "DROP TABLE IF EXISTS releases;",
+];
 
 // ---------------------------------------------------------------------------
 // migrations_are_idempotent: open_db twice on the same file, assert success
@@ -120,7 +127,16 @@ fn no_drop_table_in_migrations() {
 fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
     let conn = common::test_db();
 
-    for name in ["feed_type", "artist_location", "manifest_source"] {
+    for name in [
+        "feed_type",
+        "artist_location",
+        "manifest_source",
+        "source_item_recording_map",
+        "source_feed_release_map",
+        "release_recordings",
+        "recordings",
+        "releases",
+    ] {
         let exists: bool = conn
             .query_row(
                 "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",

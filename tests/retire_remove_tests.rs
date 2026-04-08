@@ -558,52 +558,7 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
         params!["feed-n", now],
     )
     .expect("insert source platform claim");
-    conn.execute(
-        "INSERT INTO releases (
-             release_id,
-             title,
-             title_lower,
-             artist_credit_id,
-             created_at,
-             updated_at
-         ) VALUES (?1, 'Test Release', 'test release', ?2, ?3, ?3)",
-        params!["release-delete-n", credit_id, now],
-    )
-    .expect("insert release");
-    conn.execute(
-        "INSERT INTO recordings (
-             recording_id,
-             title,
-             title_lower,
-             artist_credit_id,
-             created_at,
-             updated_at
-         ) VALUES (?1, 'Test Recording', 'test recording', ?2, ?3, ?3)",
-        params!["recording-delete-n", credit_id, now],
-    )
-    .expect("insert recording");
-    conn.execute(
-        "INSERT INTO source_feed_release_map (
-             feed_guid,
-             release_id,
-             match_type,
-             confidence,
-             created_at
-         ) VALUES (?1, 'release-delete-n', 'test', 100, ?2)",
-        params!["feed-n", now],
-    )
-    .expect("insert source feed release map");
-    conn.execute(
-        "INSERT INTO source_item_recording_map (
-             track_guid,
-             recording_id,
-             match_type,
-             confidence,
-             created_at
-         ) VALUES ('track-delete-extra', 'recording-delete-n', 'test', 100, ?1)",
-        params![now],
-    )
-    .expect("insert source item recording map");
+    let _ = credit_id;
 }
 
 #[test]
@@ -776,18 +731,6 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
     );
     assert_eq!(
         count(&conn, "source_platform_claims", "feed_guid = 'feed-n'"),
-        0
-    );
-    assert_eq!(
-        count(&conn, "source_feed_release_map", "feed_guid = 'feed-n'"),
-        0
-    );
-    assert_eq!(
-        count(
-            &conn,
-            "source_item_recording_map",
-            "track_guid = 'track-delete-extra'"
-        ),
         0
     );
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-peer'"), 1);

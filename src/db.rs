@@ -207,6 +207,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0024_wallet_review_status_parity.sql"),
     // Migration 25: add source-first feed/track artist, publisher, artwork, and date fields.
     include_str!("../migrations/0025_source_first_feed_track_fields.sql"),
+    // Migration 26: drop retired canonical release/recording tables and rebuild delete triggers.
+    include_str!("../migrations/0026_drop_canonical_release_recording_tables.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1990,14 +1992,6 @@ pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbErr
 /// must ensure they are already inside a transaction or savepoint.
 pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<(), DbError> {
     conn.execute(
-        "DELETE FROM source_item_recording_map WHERE track_guid = ?1",
-        params![track_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM release_recordings WHERE source_track_guid = ?1",
-        params![track_guid],
-    )?;
-    conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
         params![track_guid],
     )?;
@@ -2141,16 +2135,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 10b. Derived canonical release/recording mappings for this feed
-    conn.execute(
-        "DELETE FROM source_item_recording_map WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
     // 11. tracks
     conn.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
@@ -2274,16 +2258,6 @@ pub fn delete_feed_with_event(
         "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    tx.execute(
-        "DELETE FROM source_item_recording_map WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_feed_release_map WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-
     tx.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
         params![feed_guid],
