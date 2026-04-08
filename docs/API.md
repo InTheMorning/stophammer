@@ -485,13 +485,6 @@ Returns a single feed by its `podcast:guid`.
     "feed_url": "https://...",
     "title": "Feed Title",
     "raw_medium": "music",
-    "artist_credit": {
-      "id": 1,
-      "display_name": "Artist Name",
-      "names": [
-        { "artist_id": "uuid", "position": 0, "name": "Artist Name", "join_phrase": "" }
-      ]
-    },
     "release_artist": "Artist Name",
     "release_artist_sort": null,
     "release_date": 1710288000,
@@ -662,7 +655,6 @@ Returns a single track by its `track_guid`.
     "track_guid": "uuid",
     "feed_guid": "uuid",
     "title": "Track Title",
-    "artist_credit": { "id": 1, "display_name": "...", "names": [...] },
     "track_artist": "Artist Name",
     "track_artist_sort": null,
     "pub_date": 1710288000,
@@ -757,9 +749,6 @@ Returns a single track by its `track_guid`.
 
 Notes:
 
-- `artist_credit` is the normalized top-level track credit used by the source
-  and canonical models. It is not the same thing as the staged contributor
-  claim list.
 - `source_contributors` is preserved RSS-truth evidence from Podcast Namespace
   `person` extraction and related source parsing.
 - If a track has no track-level contributor claims of its own, the API falls

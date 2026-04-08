@@ -114,28 +114,12 @@ pub struct SearchQuery {
 
 // ── Serializable types ──────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize)]
-struct CreditResponse {
-    id: i64,
-    display_name: String,
-    names: Vec<CreditNameResponse>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct CreditNameResponse {
-    artist_id: String,
-    position: i64,
-    name: String,
-    join_phrase: String,
-}
-
 #[derive(Debug, Serialize)]
 struct FeedResponse {
     feed_guid: String,
     feed_url: String,
     title: String,
     raw_medium: Option<String>,
-    artist_credit: CreditResponse,
     release_artist: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
@@ -196,7 +180,6 @@ struct TrackResponse {
     track_guid: String,
     feed_guid: String,
     title: String,
-    artist_credit: CreditResponse,
     track_artist: Option<String>,
     track_artist_sort: Option<String>,
     pub_date: Option<i64>,
@@ -354,7 +337,6 @@ struct PublisherResponse {
 struct TrackRow {
     track_guid: String,
     feed_guid: String,
-    credit_id: i64,
     title: String,
     track_artist: Option<String>,
     track_artist_sort: Option<String>,
@@ -379,7 +361,6 @@ struct FeedRow {
     feed_url: String,
     title: String,
     raw_medium: Option<String>,
-    credit_id: i64,
     release_artist: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
@@ -418,7 +399,7 @@ async fn handle_get_feed(
 
         let row = conn
             .query_row(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
              release_artist_sort, release_date, release_kind, description, image_url, publisher, \
              language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at \
              FROM feeds WHERE feed_guid = ?1",
@@ -429,21 +410,20 @@ async fn handle_get_feed(
                         feed_url: row.get(1)?,
                         title: row.get(2)?,
                         raw_medium: row.get(3)?,
-                        credit_id: row.get(4)?,
-                        release_artist: row.get(5)?,
-                        release_artist_sort: row.get(6)?,
-                        release_date: row.get(7)?,
-                        release_kind: row.get(8)?,
-                        description: row.get(9)?,
-                        image_url: row.get(10)?,
-                        publisher_text: row.get(11)?,
-                        language: row.get(12)?,
-                        explicit_int: row.get(13)?,
-                        episode_count: row.get(14)?,
-                        newest_item_at: row.get(15)?,
-                        oldest_item_at: row.get(16)?,
-                        created_at: row.get(17)?,
-                        updated_at: row.get(18)?,
+                        release_artist: row.get(4)?,
+                        release_artist_sort: row.get(5)?,
+                        release_date: row.get(6)?,
+                        release_kind: row.get(7)?,
+                        description: row.get(8)?,
+                        image_url: row.get(9)?,
+                        publisher_text: row.get(10)?,
+                        language: row.get(11)?,
+                        explicit_int: row.get(12)?,
+                        episode_count: row.get(13)?,
+                        newest_item_at: row.get(14)?,
+                        oldest_item_at: row.get(15)?,
+                        created_at: row.get(16)?,
+                        updated_at: row.get(17)?,
                     })
                 },
             )
@@ -472,85 +452,6 @@ async fn handle_get_feed(
     })??;
 
     Ok(Json(result))
-}
-
-// ── Shared helpers ──────────────────────────────────────────────────────────
-
-fn load_credit(
-    conn: &rusqlite::Connection,
-    credit_id: i64,
-) -> Result<CreditResponse, api::ApiError> {
-    let (id, display_name): (i64, String) = conn
-        .query_row(
-            "SELECT id, display_name FROM artist_credit WHERE id = ?1",
-            params![credit_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .map_err(|_err| api::ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "missing artist credit".into(),
-            www_authenticate: None,
-        })?;
-
-    let mut stmt = conn
-        .prepare(
-            "SELECT artist_id, position, name, join_phrase \
-         FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
-        )
-        .map_err(db::DbError::from)?;
-    let names: Vec<CreditNameResponse> = stmt
-        .query_map(params![id], |row| {
-            Ok(CreditNameResponse {
-                artist_id: row.get(0)?,
-                position: row.get(1)?,
-                name: row.get(2)?,
-                join_phrase: row.get(3)?,
-            })
-        })
-        .map_err(db::DbError::from)?
-        .collect::<Result<_, _>>()
-        .map_err(db::DbError::from)?;
-
-    Ok(CreditResponse {
-        id,
-        display_name,
-        names,
-    })
-}
-
-// Issue-6 batch credits — 2026-03-13
-/// Converts a model `ArtistCredit` to the query-local `CreditResponse`.
-fn credit_from_model(ac: &crate::model::ArtistCredit) -> CreditResponse {
-    CreditResponse {
-        id: ac.id,
-        display_name: ac.display_name.clone(),
-        names: ac
-            .names
-            .iter()
-            .map(|n| CreditNameResponse {
-                artist_id: n.artist_id.clone(),
-                position: n.position,
-                name: n.name.clone(),
-                join_phrase: n.join_phrase.clone(),
-            })
-            .collect(),
-    }
-}
-
-// Issue-6 batch credits — 2026-03-13
-/// Batch-loads credits for a set of `FeedRow` items, returning a `HashMap`
-/// of `credit_id -> CreditResponse` for O(1) lookup. Falls back to the
-/// single-load path for any credit IDs missing from the batch result.
-fn load_credits_for_feeds(
-    conn: &rusqlite::Connection,
-    items: &[FeedRow],
-) -> Result<HashMap<i64, CreditResponse>, api::ApiError> {
-    let credit_ids: Vec<i64> = items.iter().map(|r| r.credit_id).collect();
-    let batch = db::load_credits_batch(conn, &credit_ids)?;
-    Ok(batch
-        .into_iter()
-        .map(|(id, ac)| (id, credit_from_model(&ac)))
-        .collect())
 }
 
 fn load_tags(
@@ -583,14 +484,12 @@ fn build_feed_response(
     params: &ListQuery,
 ) -> Result<FeedResponse, api::ApiError> {
     let feed_guid = row.feed_guid.clone();
-    let credit = load_credit(conn, row.credit_id)?;
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
         feed_url: row.feed_url,
         title: row.title,
         raw_medium: row.raw_medium,
-        artist_credit: credit,
         release_artist: row.release_artist,
         release_artist_sort: row.release_artist_sort,
         release_date: row.release_date,
@@ -727,13 +626,11 @@ fn build_track_response(
     params: &ListQuery,
 ) -> Result<TrackResponse, api::ApiError> {
     let track_guid = row.track_guid.clone();
-    let credit = load_credit(conn, row.credit_id)?;
 
     let mut resp = TrackResponse {
         track_guid: row.track_guid,
         feed_guid: row.feed_guid,
         title: row.title,
-        artist_credit: credit,
         track_artist: row.track_artist,
         track_artist_sort: row.track_artist_sort,
         pub_date: row.pub_date,
@@ -1126,7 +1023,7 @@ async fn handle_get_track(
 
         let row = conn
             .query_row(
-                "SELECT track_guid, feed_guid, artist_credit_id, title, track_artist, track_artist_sort, \
+                "SELECT track_guid, feed_guid, title, track_artist, track_artist_sort, \
              pub_date, duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, \
              track_number, season, explicit, description, created_at, updated_at \
              FROM tracks WHERE track_guid = ?1",
@@ -1135,23 +1032,22 @@ async fn handle_get_track(
                     Ok(TrackRow {
                         track_guid: row.get(0)?,
                         feed_guid: row.get(1)?,
-                        credit_id: row.get(2)?,
-                        title: row.get(3)?,
-                        track_artist: row.get(4)?,
-                        track_artist_sort: row.get(5)?,
-                        pub_date: row.get(6)?,
-                        duration_secs: row.get(7)?,
-                        image_url: row.get(8)?,
-                        language: row.get(9)?,
-                        enclosure_url: row.get(10)?,
-                        enclosure_type: row.get(11)?,
-                        enclosure_bytes: row.get(12)?,
-                        track_number: row.get(13)?,
-                        season: row.get(14)?,
-                        explicit_int: row.get(15)?,
-                        description: row.get(16)?,
-                        created_at: row.get(17)?,
-                        updated_at: row.get(18)?,
+                        title: row.get(2)?,
+                        track_artist: row.get(3)?,
+                        track_artist_sort: row.get(4)?,
+                        pub_date: row.get(5)?,
+                        duration_secs: row.get(6)?,
+                        image_url: row.get(7)?,
+                        language: row.get(8)?,
+                        enclosure_url: row.get(9)?,
+                        enclosure_type: row.get(10)?,
+                        enclosure_bytes: row.get(11)?,
+                        track_number: row.get(12)?,
+                        season: row.get(13)?,
+                        explicit_int: row.get(14)?,
+                        description: row.get(15)?,
+                        created_at: row.get(16)?,
+                        updated_at: row.get(17)?,
                     })
                 },
             )
@@ -1221,7 +1117,7 @@ async fn handle_get_recent_feeds(
             let cursor_guid = parts[1];
 
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
@@ -1239,28 +1135,27 @@ async fn handle_get_recent_feeds(
                         feed_url: row.get(1)?,
                         title: row.get(2)?,
                         raw_medium: row.get(3)?,
-                        credit_id: row.get(4)?,
-                        release_artist: row.get(5)?,
-                        release_artist_sort: row.get(6)?,
-                        release_date: row.get(7)?,
-                        release_kind: row.get(8)?,
-                        description: row.get(9)?,
-                        image_url: row.get(10)?,
-                        publisher_text: row.get(11)?,
-                        language: row.get(12)?,
-                        explicit_int: row.get(13)?,
-                        episode_count: row.get(14)?,
-                        newest_item_at: row.get(15)?,
-                        oldest_item_at: row.get(16)?,
-                        created_at: row.get(17)?,
-                        updated_at: row.get(18)?,
+                        release_artist: row.get(4)?,
+                        release_artist_sort: row.get(5)?,
+                        release_date: row.get(6)?,
+                        release_kind: row.get(7)?,
+                        description: row.get(8)?,
+                        image_url: row.get(9)?,
+                        publisher_text: row.get(10)?,
+                        language: row.get(11)?,
+                        explicit_int: row.get(12)?,
+                        episode_count: row.get(13)?,
+                        newest_item_at: row.get(14)?,
+                        oldest_item_at: row.get(15)?,
+                        created_at: row.get(16)?,
+                        updated_at: row.get(17)?,
                     })
                 },
             )?
             .collect::<Result<_, _>>()?
         } else {
             let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, artist_credit_id, release_artist, \
+                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
@@ -1275,21 +1170,20 @@ async fn handle_get_recent_feeds(
                     feed_url: row.get(1)?,
                     title: row.get(2)?,
                     raw_medium: row.get(3)?,
-                    credit_id: row.get(4)?,
-                    release_artist: row.get(5)?,
-                    release_artist_sort: row.get(6)?,
-                    release_date: row.get(7)?,
-                    release_kind: row.get(8)?,
-                    description: row.get(9)?,
-                    image_url: row.get(10)?,
-                    publisher_text: row.get(11)?,
-                    language: row.get(12)?,
-                    explicit_int: row.get(13)?,
-                    episode_count: row.get(14)?,
-                    newest_item_at: row.get(15)?,
-                    oldest_item_at: row.get(16)?,
-                    created_at: row.get(17)?,
-                    updated_at: row.get(18)?,
+                    release_artist: row.get(4)?,
+                    release_artist_sort: row.get(5)?,
+                    release_date: row.get(6)?,
+                    release_kind: row.get(7)?,
+                    description: row.get(8)?,
+                    image_url: row.get(9)?,
+                    publisher_text: row.get(10)?,
+                    language: row.get(11)?,
+                    explicit_int: row.get(12)?,
+                    episode_count: row.get(13)?,
+                    newest_item_at: row.get(14)?,
+                    oldest_item_at: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -1310,22 +1204,13 @@ async fn handle_get_recent_feeds(
             None
         };
 
-        // Issue-6 batch credits — 2026-03-13
-        // Batch-load all credits in two queries instead of 2*N.
-        let credit_map = load_credits_for_feeds(&conn, &items)?;
-
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
-            let credit = credit_map
-                .get(&r.credit_id)
-                .cloned()
-                .map_or_else(|| load_credit(&conn, r.credit_id), Ok)?;
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
                 title: r.title,
                 raw_medium: r.raw_medium,
-                artist_credit: credit,
                 release_artist: r.release_artist,
                 release_artist_sort: r.release_artist_sort,
                 release_date: r.release_date,

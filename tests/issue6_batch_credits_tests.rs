@@ -60,19 +60,21 @@ fn insert_feed(
     guid: &str,
     title: &str,
     credit_id: i64,
+    release_artist: &str,
     newest_item_at: Option<i64>,
 ) {
     let now = common::now();
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, release_artist, \
          explicit, episode_count, newest_item_at, created_at, updated_at, raw_medium) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7, ?8, 'music')",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, 0, ?7, ?8, ?9, 'music')",
         rusqlite::params![
             guid,
             format!("https://example.com/{guid}"),
             title,
             title.to_lowercase(),
             credit_id,
+            release_artist,
             newest_item_at,
             now,
             now,
@@ -169,8 +171,8 @@ async fn recent_feeds_returns_correct_credits() {
         seed_artist(&conn, "a2", "Artist Two");
         let c1 = insert_credit(&conn, "a1", "Artist One");
         let c2 = insert_credit(&conn, "a2", "Artist Two");
-        insert_feed(&conn, "feed-r1", "Recent One", c1, Some(3000));
-        insert_feed(&conn, "feed-r2", "Recent Two", c2, Some(4000));
+        insert_feed(&conn, "feed-r1", "Recent One", c1, "Artist One", Some(3000));
+        insert_feed(&conn, "feed-r2", "Recent Two", c2, "Artist Two", Some(4000));
         drop(conn);
     }
     let state = test_app_state(Arc::clone(&db));
@@ -190,10 +192,10 @@ async fn recent_feeds_returns_correct_credits() {
     let data = body["data"].as_array().expect("data is array");
     assert_eq!(data.len(), 2, "should return 2 feeds");
 
-    let credit_names: Vec<&str> = data
+    let release_artists: Vec<&str> = data
         .iter()
-        .map(|f| f["artist_credit"]["display_name"].as_str().unwrap())
+        .map(|f| f["release_artist"].as_str().unwrap())
         .collect();
-    assert!(credit_names.contains(&"Artist One"));
-    assert!(credit_names.contains(&"Artist Two"));
+    assert!(release_artists.contains(&"Artist One"));
+    assert!(release_artists.contains(&"Artist Two"));
 }
