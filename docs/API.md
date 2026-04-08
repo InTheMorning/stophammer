@@ -570,7 +570,7 @@ This is an operator-facing inspection endpoint. It exposes:
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`, `canonical`
+- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -588,8 +588,13 @@ Returns a single feed by its `podcast:guid`.
         { "artist_id": "uuid", "position": 0, "name": "Artist Name", "join_phrase": "" }
       ]
     },
+    "release_artist": "Artist Name",
+    "release_artist_sort": null,
+    "release_date": 1710288000,
+    "release_kind": "unknown",
     "description": "...",
     "image_url": "https://...",
+    "publisher_text": "Wavlake",
     "language": "en",
     "explicit": false,
     "episode_count": 12,
@@ -683,12 +688,7 @@ Returns a single feed by its `podcast:guid`.
         "two_way_validated": true,
         "artist_signal": "confirmed_artist"
       }
-    ],
-    "canonical": {
-      "release_id": "release-uuid",
-      "match_type": "exact_release_signature_v1",
-      "confidence": 95
-    }
+    ]
   },
   "pagination": { "cursor": null, "has_more": false },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
@@ -762,7 +762,7 @@ Lists source feeds ordered by `newest_item_at` descending (most recently updated
 Returns a single track by its `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `canonical`
+- **Include options:** `payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`
 
 **Response (`200 OK`):**
 
@@ -773,8 +773,12 @@ Returns a single track by its `track_guid`.
     "feed_guid": "uuid",
     "title": "Track Title",
     "artist_credit": { "id": 1, "display_name": "...", "names": [...] },
+    "track_artist": "Artist Name",
+    "track_artist_sort": null,
     "pub_date": 1710288000,
     "duration_secs": 240,
+    "image_url": "https://example.com/track.jpg",
+    "language": "en",
     "enclosure_url": "https://example.com/track.mp3",
     "enclosure_type": "audio/mpeg",
     "enclosure_bytes": 3840000,
@@ -854,12 +858,7 @@ Returns a single track by its `track_guid`.
         "extraction_path": "track.podcast:alternateEnclosure[0]",
         "observed_at": 1710288000
       }
-    ],
-    "canonical": {
-      "recording_id": "recording-uuid",
-      "match_type": "exact_recording_signature_v1",
-      "confidence": 95
-    }
+    ]
   },
   "pagination": { "cursor": null, "has_more": false },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
@@ -991,7 +990,7 @@ track rows, not the canonical release entity itself.
 Returns the mapped source feeds for one canonical release.
 
 - **Authentication:** None
-- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`, `canonical`)
+- **Include options:** same as `GET /v1/feeds/{guid}` (`tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`)
 
 Use this when a client wants the full source/platform rows behind one canonical
 release instead of the lighter `sources` summary embedded in `GET /v1/releases/{id}`.
@@ -1099,7 +1098,7 @@ track together with:
 Returns the mapped source tracks for one canonical recording.
 
 - **Authentication:** None
-- **Include options:** same as `GET /v1/tracks/{guid}` (`payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `canonical`)
+- **Include options:** same as `GET /v1/tracks/{guid}` (`payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`)
 
 Use this when a client wants full source-track detail, including all known
 enclosure variants, for one canonical recording.
@@ -1184,8 +1183,8 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "entity_types": ["artist", "feed", "track", "release", "recording"],
   "include_params": {
     "artist": ["aliases", "credits", "tags", "relationships"],
-    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher", "canonical"],
-    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "canonical"],
+    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
+    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"],
     "release": ["tracks", "sources"],
     "recording": ["sources", "releases"]
   }

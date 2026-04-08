@@ -201,8 +201,6 @@ struct FeedResponse {
     remote_items: Option<Vec<FeedRemoteItemResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publisher: Option<Vec<PublisherResponse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    canonical: Option<CanonicalReleaseRef>,
 }
 
 #[derive(Debug, Serialize)]
@@ -261,8 +259,6 @@ struct TrackResponse {
     source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_enclosures: Option<Vec<SourceItemEnclosureResponse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    canonical: Option<CanonicalRecordingRef>,
 }
 
 #[derive(Debug, Serialize)]
@@ -964,7 +960,6 @@ async fn handle_get_artist_feeds(
                 source_release_claims: None,
                 remote_items: None,
                 publisher: None,
-                canonical: None,
             });
         }
 
@@ -1229,7 +1224,6 @@ fn build_feed_response(
         source_release_claims: None,
         remote_items: None,
         publisher: None,
-        canonical: None,
     };
 
     if params.includes("tracks") {
@@ -1333,23 +1327,6 @@ fn build_feed_response(
         resp.publisher = Some(load_publisher(conn, &feed_guid)?);
     }
 
-    if params.includes("canonical") {
-        resp.canonical = conn
-            .query_row(
-                "SELECT release_id, match_type, confidence \
-                 FROM source_feed_release_map WHERE feed_guid = ?1",
-                params![feed_guid],
-                |row| {
-                    Ok(CanonicalReleaseRef {
-                        release_id: row.get(0)?,
-                        match_type: row.get(1)?,
-                        confidence: row.get(2)?,
-                    })
-                },
-            )
-            .optional()?;
-    }
-
     Ok(resp)
 }
 
@@ -1389,7 +1366,6 @@ fn build_track_response(
         source_contributors: None,
         source_release_claims: None,
         source_enclosures: None,
-        canonical: None,
     };
 
     if params.includes("payment_routes") {
@@ -1503,23 +1479,6 @@ fn build_track_response(
                 .map(enclosure_response)
                 .collect(),
         );
-    }
-
-    if params.includes("canonical") {
-        resp.canonical = conn
-            .query_row(
-                "SELECT recording_id, match_type, confidence \
-                 FROM source_item_recording_map WHERE track_guid = ?1",
-                params![track_guid],
-                |row| {
-                    Ok(CanonicalRecordingRef {
-                        recording_id: row.get(0)?,
-                        match_type: row.get(1)?,
-                        confidence: row.get(2)?,
-                    })
-                },
-            )
-            .optional()?;
     }
 
     Ok(resp)
@@ -2871,7 +2830,6 @@ async fn handle_get_recent_feeds(
                 source_release_claims: None,
                 remote_items: None,
                 publisher: None,
-                canonical: None,
             });
         }
 
@@ -3220,7 +3178,6 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "source_release_claims",
             "remote_items",
             "publisher",
-            "canonical",
         ],
     );
     include_params.insert(
@@ -3234,7 +3191,6 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "source_contributors",
             "source_release_claims",
             "source_enclosures",
-            "canonical",
         ],
     );
     include_params.insert("release", vec!["tracks", "sources"]);
