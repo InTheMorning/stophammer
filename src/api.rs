@@ -1744,19 +1744,11 @@ async fn handle_ingest_feed(
             );
 
             // Per-track artist resolution (feed-scoped)
-            // Issue-ARTIST-IDENTITY — 2026-03-14
+            // Phase 3 source-first transition: keep feed-scoped compatibility
+            // credits without invoking cross-feed artist resolution here.
             let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
-                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
-                let credit = db::get_or_create_artist_credit(
-                    &conn,
-                    &track_artist.name,
-                    &[(
-                        track_artist.artist_id.clone(),
-                        track_artist.name.clone(),
-                        String::new(),
-                    )],
-                    Some(feed_guid_str),
-                )?;
+                let credit =
+                    db::get_or_create_feed_scoped_source_text_credit(&conn, author, feed_guid_str)?;
                 (credit.id, credit)
             } else {
                 (feed_artist_credit.id, feed_artist_credit.clone())
@@ -1889,17 +1881,8 @@ async fn handle_ingest_feed(
             }
 
             let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
-                let track_artist = db::resolve_artist(&conn, author, Some(feed_guid_str))?;
-                let credit = db::get_or_create_artist_credit(
-                    &conn,
-                    &track_artist.name,
-                    &[(
-                        track_artist.artist_id.clone(),
-                        track_artist.name.clone(),
-                        String::new(),
-                    )],
-                    Some(feed_guid_str),
-                )?;
+                let credit =
+                    db::get_or_create_feed_scoped_source_text_credit(&conn, author, feed_guid_str)?;
                 (credit.id, credit)
             } else {
                 (feed_artist_credit.id, feed_artist_credit.clone())

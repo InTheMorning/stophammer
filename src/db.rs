@@ -594,6 +594,53 @@ pub fn resolve_feed_artist_from_source_claims(
     resolve_artist(conn, name, Some(feed_guid))
 }
 
+/// Returns a deterministic feed-scoped compatibility credit for published
+/// artist text without invoking cross-feed resolution.
+///
+/// This is a transitional helper for source-first ingest paths that still need
+/// `artist_credit_id` foreign keys while Phase 3 removes canonical identity
+/// assumptions from feed/track writes.
+pub fn get_or_create_feed_scoped_source_text_credit(
+    conn: &Connection,
+    display_name: &str,
+    feed_guid: &str,
+) -> Result<ArtistCredit, DbError> {
+    let display_name = display_name.trim();
+    if display_name.is_empty() {
+        return Err(DbError::Other(
+            "source text credit display_name must not be empty".to_string(),
+        ));
+    }
+
+    if let Some(existing) = get_artist_credit_by_display_name(conn, display_name, Some(feed_guid))?
+    {
+        return Ok(existing);
+    }
+
+    let now = unix_now();
+    let normalized = display_name.to_lowercase();
+    let artist_id = canonical_cluster_id(
+        "source_text_artist",
+        &format!("source_text_artist_v1|{feed_guid}|{normalized}"),
+    );
+    let artist = Artist {
+        artist_id,
+        name: display_name.to_string(),
+        name_lower: normalized,
+        sort_name: None,
+        type_id: None,
+        area: None,
+        img_url: None,
+        url: None,
+        begin_year: None,
+        end_year: None,
+        created_at: now,
+        updated_at: now,
+    };
+    upsert_artist_if_absent(conn, &artist)?;
+    create_single_artist_credit(conn, &artist, Some(feed_guid))
+}
+
 // ── get_artist_by_id ─────────────────────────────────────────────────────────
 // Issue-12 PATCH emits events — 2026-03-13
 
