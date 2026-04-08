@@ -94,7 +94,6 @@ fn schema_creates_all_tables() {
         "artist_credit",
         "artist_credit_name",
         "artist_id_redirect",
-        "artist_tag",
         "artist_type",
         "artists",
         "entity_quality",
@@ -104,7 +103,6 @@ fn schema_creates_all_tables() {
         "feed_crawl_cache",
         "feed_payment_routes",
         "feed_remote_items_raw",
-        "feed_tag",
         "feeds",
         "live_events",
         "node_sync_state",
@@ -127,8 +125,6 @@ fn schema_creates_all_tables() {
         "source_item_recording_map",
         "source_platform_claims",
         "source_release_claims",
-        "tags",
-        "track_tag",
         "tracks",
         "value_time_splits",
     ];
@@ -198,22 +194,6 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
     seed_feed_with_track(&conn, "feed-delete-a", "track-delete-a", "Delete A");
     seed_feed_with_track(&conn, "feed-delete-b", "track-delete-b", "Delete B");
     conn.execute(
-        "INSERT INTO tags (id, name, created_at) VALUES (1, 'cleanup-tag', ?1)",
-        params![now],
-    )
-    .expect("insert tag");
-
-    conn.execute(
-        "INSERT INTO feed_tag (feed_guid, tag_id, created_at) VALUES ('feed-delete-a', 1, ?1)",
-        params![now],
-    )
-    .expect("insert feed tag");
-    conn.execute(
-        "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES ('track-delete-a', 1, ?1)",
-        params![now],
-    )
-    .expect("insert track tag");
-    conn.execute(
         "INSERT INTO feed_payment_routes (feed_guid, address, route_type, split) VALUES ('feed-delete-a', 'node://feed', 'node', 100)",
         [],
     )
@@ -274,8 +254,6 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
     for (table, predicate) in [
         ("feeds", "feed_guid = 'feed-delete-a'"),
         ("tracks", "feed_guid = 'feed-delete-a'"),
-        ("feed_tag", "feed_guid = 'feed-delete-a'"),
-        ("track_tag", "track_guid = 'track-delete-a'"),
         ("feed_payment_routes", "feed_guid = 'feed-delete-a'"),
         ("payment_routes", "track_guid = 'track-delete-a'"),
         ("value_time_splits", "source_track_guid = 'track-delete-a'"),
@@ -336,17 +314,6 @@ fn direct_track_delete_cleans_legacy_child_rows() {
         "Track Delete B",
     );
     conn.execute(
-        "INSERT INTO tags (id, name, created_at) VALUES (1, 'track-cleanup-tag', ?1)",
-        params![now],
-    )
-    .expect("insert tag");
-
-    conn.execute(
-        "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES ('track-track-delete', 1, ?1)",
-        params![now],
-    )
-    .expect("insert track tag");
-    conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, address, route_type, split) VALUES ('track-track-delete', 'feed-track-delete', 'node://track', 'node', 100)",
         [],
     )
@@ -377,7 +344,7 @@ fn direct_track_delete_cleans_legacy_child_rows() {
     )
     .expect("direct track delete should succeed");
 
-    for table in ["track_tag", "payment_routes", "value_time_splits"] {
+    for table in ["payment_routes", "value_time_splits"] {
         let count: i64 = conn
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                 row.get(0)

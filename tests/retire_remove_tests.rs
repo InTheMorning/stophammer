@@ -157,49 +157,13 @@ fn insert_entity_quality(
     .unwrap();
 }
 
-fn insert_track_tag(conn: &rusqlite::Connection, track_guid: &str, now: i64) -> i64 {
-    conn.execute(
-        "INSERT OR IGNORE INTO tags (name, created_at) VALUES ('rock', ?1)",
-        params![now],
-    )
-    .unwrap();
-    let tag_id: i64 = conn
-        .query_row("SELECT id FROM tags WHERE name = 'rock'", [], |r| r.get(0))
-        .unwrap();
-    conn.execute(
-        "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES (?1, ?2, ?3)",
-        params![track_guid, tag_id, now],
-    )
-    .unwrap();
-    tag_id
-}
-
-fn insert_feed_tag(conn: &rusqlite::Connection, feed_guid: &str, now: i64) -> i64 {
-    conn.execute(
-        "INSERT OR IGNORE INTO tags (name, created_at) VALUES ('electronic', ?1)",
-        params![now],
-    )
-    .unwrap();
-    let tag_id: i64 = conn
-        .query_row("SELECT id FROM tags WHERE name = 'electronic'", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    conn.execute(
-        "INSERT INTO feed_tag (feed_guid, tag_id, created_at) VALUES (?1, ?2, ?3)",
-        params![feed_guid, tag_id, now],
-    )
-    .unwrap();
-    tag_id
-}
-
 fn count(conn: &rusqlite::Connection, table: &str, where_clause: &str) -> i64 {
     let sql = format!("SELECT COUNT(*) FROM {table} WHERE {where_clause}");
     conn.query_row(&sql, [], |r| r.get(0)).unwrap()
 }
 
 /// Populate a feed with two tracks and all associated child rows
-/// (payment routes, VTS, tags, quality).
+/// (payment routes, VTS, quality).
 fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
     let now = common::now();
     insert_artist(conn, "artist-1", "Test Artist", now);
@@ -221,14 +185,11 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
     insert_payment_route(conn, "track-2", "feed-1");
     insert_value_time_split(conn, "track-1", now);
     insert_value_time_split(conn, "track-2", now);
-    insert_track_tag(conn, "track-1", now);
-    insert_track_tag(conn, "track-2", now);
     insert_entity_quality(conn, "track", "track-1", now);
     insert_entity_quality(conn, "track", "track-2", now);
 
     // Feed-level child rows
     insert_feed_payment_route(conn, "feed-1");
-    insert_feed_tag(conn, "feed-1", now);
     insert_entity_quality(conn, "feed", "feed-1", now);
 
     // Search index rows for feed and tracks
@@ -292,11 +253,6 @@ fn delete_feed_removes_all_children() {
         2
     );
     assert_eq!(
-        count(&conn, "track_tag", "track_guid IN ('track-1', 'track-2')"),
-        2
-    );
-    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-1'"), 1);
-    assert_eq!(
         count(&conn, "feed_payment_routes", "feed_guid = 'feed-1'"),
         1
     );
@@ -323,11 +279,6 @@ fn delete_feed_removes_all_children() {
         ),
         0
     );
-    assert_eq!(
-        count(&conn, "track_tag", "track_guid IN ('track-1', 'track-2')"),
-        0
-    );
-    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-1'"), 0);
     assert_eq!(
         count(&conn, "feed_payment_routes", "feed_guid = 'feed-1'"),
         0
@@ -376,7 +327,6 @@ fn delete_track_removes_all_children() {
         count(&conn, "value_time_splits", "source_track_guid = 'track-1'"),
         1
     );
-    assert_eq!(count(&conn, "track_tag", "track_guid = 'track-1'"), 1);
     assert_eq!(
         count(
             &conn,
@@ -395,7 +345,6 @@ fn delete_track_removes_all_children() {
         count(&conn, "value_time_splits", "source_track_guid = 'track-1'"),
         0
     );
-    assert_eq!(count(&conn, "track_tag", "track_guid = 'track-1'"), 0);
     assert_eq!(
         count(
             &conn,
@@ -432,7 +381,7 @@ fn delete_track_idempotent() {
 // 5a. delete_feed with many tracks removes all children via subqueries
 // ---------------------------------------------------------------------------
 
-/// Populate a feed with N tracks, each having payment routes, VTS, tags,
+/// Populate a feed with N tracks, each having payment routes, VTS,
 /// and `entity_quality` rows. Returns (`credit_id`, `track_guids`).
 fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, Vec<String>) {
     let now = common::now();
@@ -455,32 +404,12 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
         insert_payment_route(conn, &tg, "feed-n");
         insert_value_time_split(conn, &tg, now);
 
-        // Use a unique tag per track to avoid PK conflicts
-        conn.execute(
-            "INSERT OR IGNORE INTO tags (name, created_at) VALUES (?1, ?2)",
-            params![format!("tag-{i}"), now],
-        )
-        .expect("insert tag");
-        let tag_id: i64 = conn
-            .query_row(
-                "SELECT id FROM tags WHERE name = ?1",
-                params![format!("tag-{i}")],
-                |r| r.get(0),
-            )
-            .expect("get tag id");
-        conn.execute(
-            "INSERT INTO track_tag (track_guid, tag_id, created_at) VALUES (?1, ?2, ?3)",
-            params![&tg, tag_id, now],
-        )
-        .expect("insert track_tag");
-
         insert_entity_quality(conn, "track", &tg, now);
         guids.push(tg);
     }
 
     // Feed-level child rows
     insert_feed_payment_route(conn, "feed-n");
-    insert_feed_tag(conn, "feed-n", now);
     insert_entity_quality(conn, "feed", "feed-n", now);
 
     (credit_id, guids)
@@ -694,8 +623,6 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         5
     );
-    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 5);
-    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-n'"), 1);
     assert_eq!(
         count(&conn, "feed_payment_routes", "feed_guid = 'feed-n'"),
         1
@@ -723,8 +650,6 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         0
     );
-    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 0);
-    assert_eq!(count(&conn, "feed_tag", "feed_guid = 'feed-n'"), 0);
     assert_eq!(
         count(&conn, "feed_payment_routes", "feed_guid = 'feed-n'"),
         0
@@ -787,7 +712,6 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         ),
         0
     );
-    assert_eq!(count(&conn, "track_tag", "track_guid LIKE 'track-n-%'"), 0);
     assert_eq!(
         count(
             &conn,

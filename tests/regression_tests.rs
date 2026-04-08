@@ -390,45 +390,7 @@ fn value_time_splits_ordering() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. Tag case normalization
-// ---------------------------------------------------------------------------
-
-#[test]
-fn tag_case_normalization() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    // The tags table has a UNIQUE constraint on name. So storing tags in a
-    // case-normalized fashion (lowercased) means "Rock", "ROCK", "rock" all
-    // map to the single row "rock".
-    let variants = ["Rock", "ROCK", "rock"];
-    for v in &variants {
-        conn.execute(
-            "INSERT OR IGNORE INTO tags (name, created_at) VALUES (?1, ?2)",
-            params![v.to_lowercase(), now],
-        )
-        .unwrap();
-    }
-
-    // Should be exactly one tag row.
-    let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM tags WHERE name = 'rock'", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(count, 1, "all case variants should collapse to one tag");
-
-    // Retrieve the tag.
-    let tag_name: String = conn
-        .query_row("SELECT name FROM tags WHERE name = 'rock'", [], |r| {
-            r.get(0)
-        })
-        .unwrap();
-    assert_eq!(tag_name, "rock");
-}
-
-// ---------------------------------------------------------------------------
-// 8. External ID cross-entity (same scheme+value, different entity types)
+// 7. External ID cross-entity (same scheme+value, different entity types)
 // ---------------------------------------------------------------------------
 
 #[test]

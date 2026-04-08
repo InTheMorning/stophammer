@@ -600,21 +600,6 @@ pub(crate) fn merge_artists_sql(
     )?;
 
     conn.execute(
-        "UPDATE artist_tag SET artist_id = ?1 \
-         WHERE artist_id = ?2 \
-           AND NOT EXISTS ( \
-               SELECT 1 FROM artist_tag existing \
-               WHERE existing.artist_id = ?1 \
-                 AND existing.tag_id = artist_tag.tag_id \
-           )",
-        params![target_artist_id, source_artist_id],
-    )?;
-    conn.execute(
-        "DELETE FROM artist_tag WHERE artist_id = ?1",
-        params![source_artist_id],
-    )?;
-
-    conn.execute(
         "UPDATE external_ids SET entity_id = ?1 \
          WHERE entity_type = 'artist' AND entity_id = ?2 \
            AND NOT EXISTS ( \
@@ -3236,7 +3221,7 @@ pub fn replace_source_platform_claims_for_feed(
 
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
 ///
-/// Deletes in order: `track_tag`, `value_time_splits`, `payment_routes`,
+/// Deletes in order: `value_time_splits`, `payment_routes`,
 /// `entity_quality`, then the `tracks` row itself.
 ///
 /// Idempotent: calling with a non-existent `track_guid` is a no-op.
@@ -3279,10 +3264,6 @@ pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<()
             params![track_guid],
         )?;
     }
-    conn.execute(
-        "DELETE FROM track_tag WHERE track_guid = ?1",
-        params![track_guid],
-    )?;
     conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
         params![track_guid],
@@ -3352,27 +3333,14 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
             .collect::<Result<_, _>>()?
     };
 
-    // 1. track_tag for all tracks in the feed (subquery)
-    conn.execute(
-        "DELETE FROM track_tag WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-
-    // 2. feed_tag
-    conn.execute(
-        "DELETE FROM feed_tag WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-
-    // 3. value_time_splits for all tracks (subquery)
+    // 1. value_time_splits for all tracks (subquery)
     conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
         params![feed_guid],
     )?;
 
-    // 4. payment_routes for all tracks (subquery)
+    // 2. payment_routes for all tracks (subquery)
     conn.execute(
         "DELETE FROM wallet_track_route_map WHERE route_id IN ( \
          SELECT id FROM payment_routes WHERE track_guid IN \
@@ -3519,15 +3487,6 @@ pub fn delete_feed_with_event(
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
-    tx.execute(
-        "DELETE FROM track_tag WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM feed_tag WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
     tx.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid IN \
          (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
@@ -3676,10 +3635,6 @@ pub fn delete_track_with_event(
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
-    tx.execute(
-        "DELETE FROM track_tag WHERE track_guid = ?1",
-        params![track_guid],
-    )?;
     tx.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
         params![track_guid],
@@ -4121,10 +4076,6 @@ pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupSt
 
         tx.execute(
             "DELETE FROM artist_aliases WHERE artist_id = ?1",
-            params![artist_id],
-        )?;
-        tx.execute(
-            "DELETE FROM artist_tag WHERE artist_id = ?1",
             params![artist_id],
         )?;
         tx.execute(

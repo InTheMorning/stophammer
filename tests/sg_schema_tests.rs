@@ -76,18 +76,13 @@ fn insert_track(
 }
 
 // ===========================================================================
-// SG-01/02/03: FK indexes on tag and relationship tables
+// SG-01/02/03: FK indexes on relationship tables
 // ===========================================================================
 
 #[test]
 fn test_tag_fk_indexes_exist() {
     let conn = common::test_db();
-    let expected = [
-        "idx_artist_tag_tag",
-        "idx_feed_tag_tag",
-        "idx_track_tag_tag",
-        "idx_aar_rel",
-    ];
+    let expected = ["idx_aar_rel"];
     for name in &expected {
         let exists: bool = conn
             .query_row(

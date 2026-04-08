@@ -179,20 +179,7 @@ fn ingest_to_query_pipeline() {
     )
     .unwrap();
 
-    // Step 6: Add tags to the feed.
-    conn.execute(
-        "INSERT INTO tags (name, created_at) VALUES ('electronic', ?1)",
-        params![now],
-    )
-    .unwrap();
-    let tag_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO feed_tag (feed_guid, tag_id, created_at) VALUES ('feed-e2e', ?1, ?2)",
-        params![tag_id, now],
-    )
-    .unwrap();
-
-    // Step 7: Query each entity to verify.
+    // Step 6: Query each entity to verify.
 
     // Verify artist.
     let (artist_name, artist_area): (String, String) = conn
@@ -274,18 +261,6 @@ fn ingest_to_query_pipeline() {
         )
         .unwrap();
     assert_eq!(vts_count, 3);
-
-    // Verify tag linked to feed.
-    let tag_name: String = conn
-        .query_row(
-            "SELECT t.name FROM tags t
-             JOIN feed_tag ft ON ft.tag_id = t.id
-             WHERE ft.feed_guid = 'feed-e2e'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(tag_name, "electronic");
 }
 
 // ---------------------------------------------------------------------------
