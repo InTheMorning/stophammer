@@ -283,9 +283,6 @@ fn extract_artist_ids(ev: &event::Event) -> Vec<String> {
             .iter()
             .map(|n| n.artist_id.clone())
             .collect(),
-        event::EventPayload::ArtistMerged(p) => {
-            vec![p.target_artist_id.clone()]
-        }
         // FeedRetired, TrackRemoved, RoutesReplaced, FeedRoutesReplaced:
         // These payloads do not embed artist info. We skip SSE publish for
         // these rather than doing a DB lookup that may fail (entity deleted).

@@ -192,10 +192,6 @@ fn apply_single_event_inner(
                 db::delete_track_sql(conn, &p.track_guid)?;
             }
         }
-        event::EventPayload::ArtistMerged(p) => {
-            // Use inner _sql variant that works on &Connection within our tx.
-            db::merge_artists_sql(conn, &p.source_artist_id, &p.target_artist_id)?;
-        }
     }
 
     Ok(ApplyOutcome::Applied(seq))

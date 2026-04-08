@@ -3653,51 +3653,6 @@ pub fn delete_track_with_event(
     Ok((seq, signed_by, signature))
 }
 
-// ── merge_artists_with_event ──────────────────────────────────────────────────
-
-/// Merges two artists AND records the signed event in a single atomic
-/// transaction.  Returns `(transferred_aliases, seq)`.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL statement or the transaction commit fails.
-// Finding-2 atomic mutation+event — 2026-03-13
-// Issue-SEQ-INTEGRITY — 2026-03-14
-#[expect(
-    clippy::too_many_arguments,
-    reason = "all event fields are required for a complete atomic merge+event"
-)]
-pub fn merge_artists_with_event(
-    conn: &mut Connection,
-    source_artist_id: &str,
-    target_artist_id: &str,
-    event_id: &str,
-    event_type: &EventType,
-    payload_json: &str,
-    subject_guid: &str,
-    signer: &NodeSigner,
-    created_at: i64,
-    warnings: &[String],
-) -> Result<(Vec<String>, i64, String, String), DbError> {
-    let tx = conn.transaction()?;
-
-    let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
-
-    let (seq, signed_by, signature) = insert_event(
-        &tx,
-        event_id,
-        event_type,
-        payload_json,
-        subject_guid,
-        signer,
-        created_at,
-        warnings,
-    )?;
-
-    tx.commit()?;
-    Ok((transferred, seq, signed_by, signature))
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PendingReviewConfidenceSummary {
     pub confidence: String,
