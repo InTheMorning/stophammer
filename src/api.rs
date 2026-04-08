@@ -2865,10 +2865,8 @@ async fn handle_retire_feed(
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
-    // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
-    // publish to the correct SSE channel after the entity is deleted.
-    let result = tokio::task::spawn_blocking(
-        move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
             let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "database mutex poisoned".into(),
@@ -2890,12 +2888,6 @@ async fn handle_retire_feed(
                 message: format!("feed {guid2} not found"),
                 www_authenticate: None,
             })?;
-
-            // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
-            let sse_artist_id = db::get_artist_credit(&conn, feed.artist_credit_id)
-                .ok()
-                .flatten()
-                .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
 
             // Fetch tracks to remove from search index.
             let tracks = db::get_tracks_for_feed(&conn, &guid2)?;
@@ -2971,38 +2963,21 @@ async fn handle_retire_feed(
                 payload_json,
             };
 
-            Ok((Some(vec![fanout_event]), sse_artist_id))
-        },
-    )
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
+            Ok(Some(vec![fanout_event]))
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
+            www_authenticate: None,
+        })?;
 
-    let (fanout_events, sse_artist_id) = result?;
+    let fanout_events = result?;
 
     // Fire-and-forget fan-out.
     if let Some(events) = fanout_events
         && !events.is_empty()
     {
-        // Issue-SSE-PUBLISH — 2026-03-14
-        if let Some(ref artist_id) = sse_artist_id {
-            for ev in &events {
-                let frame = SseFrame {
-                    event_type: serde_json::to_string(&ev.event_type)
-                        .unwrap_or_default()
-                        .trim_matches('"')
-                        .to_string(),
-                    subject_guid: ev.subject_guid.clone(),
-                    payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
-                    seq: ev.seq,
-                };
-                state.sse_registry.publish(artist_id, frame);
-            }
-        }
-
         let db_fanout = state.db.clone();
         let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
@@ -3032,10 +3007,8 @@ async fn handle_remove_track(
     let guid2 = guid.clone();
     let track_guid2 = track_guid.clone();
     // Mutex safety compliant — 2026-03-12
-    // Issue-SSE-PUBLISH — 2026-03-14: return (events, artist_id) so we can
-    // publish to the correct SSE channel after the entity is deleted.
-    let result = tokio::task::spawn_blocking(
-        move || -> Result<(Option<Vec<event::Event>>, Option<String>), ApiError> {
+    let result =
+        tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
             let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: "database mutex poisoned".into(),
@@ -3067,12 +3040,6 @@ async fn handle_remove_track(
                     www_authenticate: None,
                 });
             }
-
-            // Issue-SSE-PUBLISH — 2026-03-14: capture artist_id before deletion.
-            let sse_artist_id = db::get_artist_credit(&conn, track.artist_credit_id)
-                .ok()
-                .flatten()
-                .and_then(|c| c.names.first().map(|n| n.artist_id.clone()));
 
             // Remove search index entry (best-effort).
             let _ = crate::search::delete_from_search_index(
@@ -3134,38 +3101,21 @@ async fn handle_remove_track(
                 payload_json,
             };
 
-            Ok((Some(vec![fanout_event]), sse_artist_id))
-        },
-    )
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
+            Ok(Some(vec![fanout_event]))
+        })
+        .await
+        .map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
+            www_authenticate: None,
+        })?;
 
-    let (fanout_events, sse_artist_id) = result?;
+    let fanout_events = result?;
 
     // Fire-and-forget fan-out.
     if let Some(events) = fanout_events
         && !events.is_empty()
     {
-        // Issue-SSE-PUBLISH — 2026-03-14
-        if let Some(ref artist_id) = sse_artist_id {
-            for ev in &events {
-                let frame = SseFrame {
-                    event_type: serde_json::to_string(&ev.event_type)
-                        .unwrap_or_default()
-                        .trim_matches('"')
-                        .to_string(),
-                    subject_guid: ev.subject_guid.clone(),
-                    payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
-                    seq: ev.seq,
-                };
-                state.sse_registry.publish(artist_id, frame);
-            }
-        }
-
         let db_fanout = state.db.clone();
         let client_fanout = state.push_client.clone();
         let subscribers_fanout = Arc::clone(&state.push_subscribers);
