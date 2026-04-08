@@ -1884,16 +1884,6 @@ fn record_promoted_entity_source(
     Ok(())
 }
 
-fn release_id_for_feed_map(conn: &Connection, feed_guid: &str) -> Result<Option<String>, DbError> {
-    conn.query_row(
-        "SELECT release_id FROM source_feed_release_map WHERE feed_guid = ?1",
-        params![feed_guid],
-        |row| row.get(0),
-    )
-    .optional()
-    .map_err(Into::into)
-}
-
 fn rebuild_release_sources(conn: &Connection, release_id: &str) -> Result<(), DbError> {
     delete_promoted_entity_sources(conn, "release", release_id)?;
     let mut stmt = conn.prepare(
@@ -2005,56 +1995,6 @@ fn rebuild_recording_sources(conn: &Connection, recording_id: &str) -> Result<()
             }
         }
     }
-    Ok(())
-}
-
-/// Updates canonical search index rows for the release/recording objects
-/// currently mapped from one feed.
-///
-/// Search stays canonical-first at the API layer. Source `feed`/`track`
-/// search rows are maintained separately via [`sync_source_read_models_for_feed`].
-pub fn sync_canonical_search_index_for_feed(
-    conn: &Connection,
-    feed_guid: &str,
-) -> Result<(), DbError> {
-    if let Some(release_id) = release_id_for_feed_map(conn, feed_guid)?
-        && let Some(release) = get_release(conn, &release_id)?
-    {
-        crate::search::populate_search_index(
-            conn,
-            "release",
-            &release.release_id,
-            "",
-            &release.title,
-            release.description.as_deref().unwrap_or(""),
-            "",
-        )?;
-    }
-
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT sirm.recording_id \
-         FROM source_item_recording_map sirm \
-         JOIN tracks t ON t.track_guid = sirm.track_guid \
-         WHERE t.feed_guid = ?1 \
-         ORDER BY sirm.recording_id",
-    )?;
-    let recording_ids: Vec<String> = stmt
-        .query_map(params![feed_guid], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    for recording_id in recording_ids {
-        if let Some(recording) = get_recording(conn, &recording_id)? {
-            crate::search::populate_search_index(
-                conn,
-                "recording",
-                &recording.recording_id,
-                "",
-                &recording.title,
-                "",
-                "",
-            )?;
-        }
-    }
-
     Ok(())
 }
 
