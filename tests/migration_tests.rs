@@ -131,7 +131,7 @@ fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
         assert!(!exists, "legacy table {name} should not exist in schema");
     }
 
-    for name in ["artist_type", "track_rel", "feed_rel"] {
+    for name in ["artist_type"] {
         let exists: bool = conn
             .query_row(
                 "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",

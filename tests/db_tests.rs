@@ -105,7 +105,6 @@ fn schema_creates_all_tables() {
         "feed_crawl_cache",
         "feed_payment_routes",
         "feed_remote_items_raw",
-        "feed_rel",
         "feed_tag",
         "feeds",
         "live_events",
@@ -130,7 +129,6 @@ fn schema_creates_all_tables() {
         "source_platform_claims",
         "source_release_claims",
         "tags",
-        "track_rel",
         "track_tag",
         "tracks",
         "value_time_splits",
@@ -235,11 +233,6 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
     )
     .expect("insert value time split");
     conn.execute(
-        "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) VALUES ('feed-delete-a', 'feed-delete-b', 1, ?1)",
-        params![now],
-    )
-    .expect("insert feed rel");
-    conn.execute(
         "INSERT INTO feed_remote_items_raw (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
          VALUES ('feed-delete-a', 0, 'music', 'remote-feed', NULL, 'podcast_remote_item')",
         [],
@@ -287,10 +280,6 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
         ("feed_payment_routes", "feed_guid = 'feed-delete-a'"),
         ("payment_routes", "track_guid = 'track-delete-a'"),
         ("value_time_splits", "source_track_guid = 'track-delete-a'"),
-        (
-            "feed_rel",
-            "feed_guid_a = 'feed-delete-a' OR feed_guid_b = 'feed-delete-a'",
-        ),
         ("feed_remote_items_raw", "feed_guid = 'feed-delete-a'"),
         ("live_events_legacy", "feed_guid = 'feed-delete-a'"),
         ("source_entity_ids", "feed_guid = 'feed-delete-a'"),
@@ -371,12 +360,6 @@ fn direct_track_delete_cleans_legacy_child_rows() {
     )
     .expect("insert value time split");
     conn.execute(
-        "INSERT INTO track_rel (track_guid_a, track_guid_b, rel_type_id, created_at) \
-         VALUES ('track-track-delete', 'track-track-delete-b', 1, ?1)",
-        params![now],
-    )
-    .expect("insert track rel");
-    conn.execute(
         "INSERT INTO wallet_endpoints (route_type, normalized_address, custom_key, custom_value, wallet_id, created_at) \
          VALUES ('node', 'node://track-wallet-test', '', '', NULL, ?1)",
         params![now],
@@ -395,12 +378,7 @@ fn direct_track_delete_cleans_legacy_child_rows() {
     )
     .expect("direct track delete should succeed");
 
-    for table in [
-        "track_tag",
-        "payment_routes",
-        "value_time_splits",
-        "track_rel",
-    ] {
+    for table in ["track_tag", "payment_routes", "value_time_splits"] {
         let count: i64 = conn
             .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
                 row.get(0)

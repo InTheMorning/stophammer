@@ -559,12 +559,6 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
     );
 
     conn.execute(
-        "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) \
-         VALUES (?1, ?2, 22, ?3)",
-        params!["feed-n", "feed-peer", now],
-    )
-    .expect("insert feed relationship");
-    conn.execute(
         "INSERT INTO feed_remote_items_raw (
              feed_guid,
              position,
@@ -911,14 +905,6 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
 
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 0);
-    assert_eq!(
-        count(
-            &conn,
-            "feed_rel",
-            "feed_guid_a = 'feed-n' OR feed_guid_b = 'feed-n'"
-        ),
-        0
-    );
     assert_eq!(
         count(&conn, "feed_remote_items_raw", "feed_guid = 'feed-n'"),
         0

@@ -87,8 +87,6 @@ fn test_tag_fk_indexes_exist() {
         "idx_feed_tag_tag",
         "idx_track_tag_tag",
         "idx_aar_rel",
-        "idx_trel_rel",
-        "idx_frel_rel",
     ];
     for name in &expected {
         let exists: bool = conn

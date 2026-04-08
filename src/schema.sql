@@ -458,32 +458,6 @@ CREATE TABLE IF NOT EXISTS artist_id_redirect (
     merged_at     INTEGER NOT NULL
 ) STRICT;
 
--- Track relationships (featuring, remix_of, cover_of)
-CREATE TABLE IF NOT EXISTS track_rel (
-    id           INTEGER PRIMARY KEY,
-    track_guid_a TEXT NOT NULL REFERENCES tracks(track_guid),
-    track_guid_b TEXT NOT NULL REFERENCES tracks(track_guid),
-    rel_type_id  INTEGER NOT NULL REFERENCES rel_type(id),
-    created_at   INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_trel_a   ON track_rel(track_guid_a);
-CREATE INDEX IF NOT EXISTS idx_trel_b   ON track_rel(track_guid_b);
-CREATE INDEX IF NOT EXISTS idx_trel_rel ON track_rel(rel_type_id);
-
--- Feed relationships
-CREATE TABLE IF NOT EXISTS feed_rel (
-    id           INTEGER PRIMARY KEY,
-    feed_guid_a  TEXT NOT NULL REFERENCES feeds(feed_guid),
-    feed_guid_b  TEXT NOT NULL REFERENCES feeds(feed_guid),
-    rel_type_id  INTEGER NOT NULL REFERENCES rel_type(id),
-    created_at   INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_frel_a   ON feed_rel(feed_guid_a);
-CREATE INDEX IF NOT EXISTS idx_frel_b   ON feed_rel(feed_guid_b);
-CREATE INDEX IF NOT EXISTS idx_frel_rel ON feed_rel(rel_type_id);
-
 -- ---------------------------------------------------------------------------
 -- TAGS
 -- ---------------------------------------------------------------------------

@@ -3434,11 +3434,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
 
     // 9. Feed-scoped relationships
-    conn.execute(
-        "DELETE FROM feed_rel WHERE feed_guid_a = ?1 OR feed_guid_b = ?1",
-        params![feed_guid],
-    )?;
-
     // 10. Feed-scoped staged/source rows
     conn.execute(
         "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
@@ -3602,10 +3597,6 @@ pub fn delete_feed_with_event(
         params![feed_guid],
     )?;
 
-    tx.execute(
-        "DELETE FROM feed_rel WHERE feed_guid_a = ?1 OR feed_guid_b = ?1",
-        params![feed_guid],
-    )?;
     tx.execute(
         "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
         params![feed_guid],
@@ -5897,46 +5888,6 @@ pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistR
         .collect::<Result<_, _>>()?;
 
     Ok(rows)
-}
-
-/// Creates a track-to-track relationship. Returns the new row id.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL insert fails.
-pub fn create_track_rel(
-    conn: &Connection,
-    track_guid_a: &str,
-    track_guid_b: &str,
-    rel_type_id: i64,
-) -> Result<i64, DbError> {
-    let now = unix_now();
-    conn.execute(
-        "INSERT INTO track_rel (track_guid_a, track_guid_b, rel_type_id, created_at) \
-         VALUES (?1, ?2, ?3, ?4)",
-        params![track_guid_a, track_guid_b, rel_type_id, now],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// Creates a feed-to-feed relationship. Returns the new row id.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL insert fails.
-pub fn create_feed_rel(
-    conn: &Connection,
-    feed_guid_a: &str,
-    feed_guid_b: &str,
-    rel_type_id: i64,
-) -> Result<i64, DbError> {
-    let now = unix_now();
-    conn.execute(
-        "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) \
-         VALUES (?1, ?2, ?3, ?4)",
-        params![feed_guid_a, feed_guid_b, rel_type_id, now],
-    )?;
-    Ok(conn.last_insert_rowid())
 }
 
 // ── get_existing_feed ─────────────────────────────────────────────────────────
