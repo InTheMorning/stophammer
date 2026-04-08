@@ -1567,6 +1567,36 @@ fn get_artist_credit_display_name(
     ))
 }
 
+fn normalized_artist_text_key(prefix: &str, text: &str) -> Option<String> {
+    let normalized = text.trim().to_lowercase();
+    if normalized.is_empty() {
+        None
+    } else {
+        Some(format!("{prefix}:{normalized}"))
+    }
+}
+
+fn artist_credit_display_key(conn: &Connection, artist_credit_id: i64) -> Result<String, DbError> {
+    Ok(format!(
+        "artist_credit_display:{}",
+        get_artist_credit_display_name(conn, artist_credit_id)?
+    ))
+}
+
+fn source_first_release_artist_key(feed: &Feed) -> Option<String> {
+    feed.release_artist
+        .as_deref()
+        .and_then(|text| normalized_artist_text_key("release_artist", text))
+}
+
+fn source_first_track_artist_key(track: &Track, feed: &Feed) -> Option<String> {
+    track
+        .track_artist
+        .as_deref()
+        .and_then(|text| normalized_artist_text_key("track_artist", text))
+        .or_else(|| source_first_release_artist_key(feed))
+}
+
 fn get_feed_platform_keys(
     conn: &Connection,
     feed_guid: &str,
@@ -1594,10 +1624,19 @@ fn feed_artist_evidence_key(conn: &Connection, feed: &Feed) -> Result<String, Db
         return Ok(format!("nostr_npub:{}", npubs[0]));
     }
 
-    Ok(format!(
-        "artist_credit_display:{}",
-        get_artist_credit_display_name(conn, feed.artist_credit_id)?
-    ))
+    source_first_release_artist_key(feed).map_or_else(
+        || artist_credit_display_key(conn, feed.artist_credit_id),
+        Ok,
+    )
+}
+
+fn track_artist_evidence_key(
+    conn: &Connection,
+    feed: &Feed,
+    track: &Track,
+) -> Result<String, DbError> {
+    source_first_track_artist_key(track, feed)
+        .map_or_else(|| feed_artist_evidence_key(conn, feed), Ok)
 }
 
 fn cross_platform_single_track_anchor(
@@ -1613,7 +1652,7 @@ fn cross_platform_single_track_anchor(
         return Ok(None);
     }
 
-    let artist_display_key = get_artist_credit_display_name(conn, feed.artist_credit_id)?;
+    let artist_display_key = track_artist_evidence_key(conn, feed, track)?;
     let mut corroborating_platforms = current_platforms;
     let mut found_match = false;
     let mut has_lower_neighbor = false;
@@ -1621,7 +1660,7 @@ fn cross_platform_single_track_anchor(
     let max_duration = duration_secs.saturating_add(1);
 
     let mut stmt = conn.prepare(
-        "SELECT f.feed_guid, f.artist_credit_id, t.duration_secs \
+        "SELECT f.feed_guid, f.artist_credit_id, f.release_artist, t.track_artist, t.duration_secs \
          FROM feeds f \
          JOIN tracks t ON t.feed_guid = f.feed_guid \
          WHERE f.feed_guid <> ?1 \
@@ -1630,7 +1669,7 @@ fn cross_platform_single_track_anchor(
            AND t.duration_secs BETWEEN ?4 AND ?5 \
            AND (SELECT COUNT(*) FROM tracks t2 WHERE t2.feed_guid = f.feed_guid) = 1",
     )?;
-    let candidates: Vec<(String, i64, i64)> = stmt
+    let candidates: Vec<(String, i64, Option<String>, Option<String>, i64)> = stmt
         .query_map(
             params![
                 feed.feed_guid,
@@ -1639,12 +1678,39 @@ fn cross_platform_single_track_anchor(
                 min_duration,
                 max_duration,
             ],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )?
         .collect::<Result<_, _>>()?;
 
-    for (candidate_feed_guid, candidate_artist_credit_id, candidate_duration_secs) in candidates {
-        if get_artist_credit_display_name(conn, candidate_artist_credit_id)? != artist_display_key {
+    for (
+        candidate_feed_guid,
+        candidate_artist_credit_id,
+        candidate_release_artist,
+        candidate_track_artist,
+        candidate_duration_secs,
+    ) in candidates
+    {
+        let candidate_artist_key = candidate_track_artist
+            .as_deref()
+            .and_then(|text| normalized_artist_text_key("track_artist", text))
+            .or_else(|| {
+                candidate_release_artist
+                    .as_deref()
+                    .and_then(|text| normalized_artist_text_key("release_artist", text))
+            })
+            .map_or_else(
+                || artist_credit_display_key(conn, candidate_artist_credit_id),
+                Ok,
+            )?;
+        if candidate_artist_key != artist_display_key {
             continue;
         }
         let candidate_platforms = get_feed_platform_keys(conn, &candidate_feed_guid)?;
@@ -1798,7 +1864,7 @@ fn recording_cluster_target(
         ));
     };
 
-    let artist_key = feed_artist_evidence_key(conn, feed)?;
+    let artist_key = track_artist_evidence_key(conn, feed, track)?;
     let key = format!(
         "exact_recording_signature_v1|artist={artist_key}|title={}|duration={duration_secs}",
         track.title_lower
@@ -7834,7 +7900,6 @@ fn feed_fields_changed(existing: &Feed, new: &Feed) -> bool {
 /// Compares two tracks by their content fields (ignoring timestamps).
 fn track_fields_changed(existing: &Track, new: &Track) -> bool {
     existing.title != new.title
-        || existing.artist_credit_id != new.artist_credit_id
         || existing.pub_date != new.pub_date
         || existing.duration_secs != new.duration_secs
         || existing.image_url != new.image_url

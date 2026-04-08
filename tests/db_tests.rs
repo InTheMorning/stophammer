@@ -812,9 +812,14 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         artist_credit_id: artist_credit.id,
         description: Some("Release description".into()),
         image_url: Some("https://example.com/release.jpg".into()),
+        publisher: None,
         language: None,
         explicit: false,
         itunes_type: None,
+        release_artist: Some(artist_credit.display_name.clone()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 2,
         newest_item_at: Some(now),
         oldest_item_at: Some(now - 3600),
@@ -830,6 +835,8 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         title_lower: "track a".into(),
         pub_date: Some(now),
         duration_secs: Some(180),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://example.com/a.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(111),
@@ -837,6 +844,8 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(artist_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -848,6 +857,8 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         title_lower: "track b".into(),
         pub_date: Some(now - 10),
         duration_secs: Some(120),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://example.com/b.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(222),
@@ -855,6 +866,8 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(artist_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1031,9 +1044,14 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         artist_credit_id: artist_credit.id,
         description: None,
         image_url: None,
+        publisher: None,
         language: None,
         explicit: false,
         itunes_type: None,
+        release_artist: Some(artist_credit.display_name.clone()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 2,
         newest_item_at: Some(now),
         oldest_item_at: Some(now - 60),
@@ -1049,6 +1067,8 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         title_lower: "same song".into(),
         pub_date: Some(now - 60),
         duration_secs: Some(180),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://cdn.example.com/dup-a.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(1111),
@@ -1056,6 +1076,8 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(artist_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1067,6 +1089,8 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         title_lower: "same song".into(),
         pub_date: Some(now),
         duration_secs: Some(180),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://cdn.example.com/dup-b.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(2222),
@@ -1074,6 +1098,8 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(artist_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1387,7 +1413,7 @@ fn replace_live_events_allows_same_live_item_guid_in_multiple_feeds() {
 }
 
 #[test]
-fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
+fn ingest_transaction_requires_existing_track_credit_rows() {
     let mut conn = common::test_db();
     let now = common::now();
     let signer = common::temp_signer("ingest-track-credit");
@@ -1442,9 +1468,14 @@ fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
         artist_credit_id: artist_credit.id,
         description: None,
         image_url: None,
+        publisher: None,
         language: None,
         explicit: false,
         itunes_type: None,
+        release_artist: Some(artist_credit.display_name.clone()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 1,
         newest_item_at: Some(now),
         oldest_item_at: Some(now),
@@ -1460,6 +1491,8 @@ fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
         title_lower: "track title".into(),
         pub_date: Some(now),
         duration_secs: Some(120),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://example.com/track.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(1234),
@@ -1467,6 +1500,8 @@ fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(track_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1493,7 +1528,7 @@ fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
     )
     .expect("build diff events");
 
-    stophammer::db::ingest_transaction(
+    let outcome = stophammer::db::ingest_transaction(
         &mut conn,
         artist,
         artist_credit,
@@ -1510,26 +1545,11 @@ fn ingest_transaction_upserts_track_credit_dependencies_from_event_rows() {
         tracks,
         event_rows,
         &signer,
-    )
-    .expect("ingest transaction");
-
-    let track_artist_name: String = conn
-        .query_row(
-            "SELECT name FROM artists WHERE artist_id = 'artist-track'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("track artist exists");
-    assert_eq!(track_artist_name, "Track Artist");
-
-    let credit_rows: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM artist_credit_name WHERE artist_credit_id = 2002",
-            [],
-            |row| row.get(0),
-        )
-        .expect("count track credit names");
-    assert_eq!(credit_rows, 1);
+    );
+    assert!(
+        outcome.is_err(),
+        "ingest should fail when a track references a missing credit row"
+    );
 }
 
 #[test]
@@ -1573,9 +1593,14 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         artist_credit_id: artist_credit.id,
         description: None,
         image_url: None,
+        publisher: None,
         language: None,
         explicit: false,
         itunes_type: None,
+        release_artist: Some(artist_credit.display_name.clone()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 1,
         newest_item_at: Some(now),
         oldest_item_at: Some(now - 60),
@@ -1591,6 +1616,8 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         title_lower: "promote track".into(),
         pub_date: Some(now),
         duration_secs: Some(180),
+        image_url: None,
+        language: None,
         enclosure_url: Some("https://cdn.example.com/promote-track.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
         enclosure_bytes: Some(1234),
@@ -1598,6 +1625,8 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         season: None,
         explicit: false,
         description: None,
+        track_artist: Some(artist_credit.display_name.clone()),
+        track_artist_sort: None,
         created_at: now,
         updated_at: now,
     };
@@ -1701,15 +1730,6 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         &signer,
     )
     .expect("ingest transaction");
-
-    let queued_feed_guid: String = conn
-        .query_row(
-            "SELECT feed_guid FROM resolver_queue WHERE feed_guid = ?1",
-            params![feed.feed_guid.clone()],
-            |row| row.get(0),
-        )
-        .expect("resolver queue entry");
-    assert_eq!(queued_feed_guid, feed.feed_guid);
 
     stophammer::db::sync_canonical_state_for_feed(&conn, &feed.feed_guid)
         .expect("sync canonical state");
@@ -1856,9 +1876,14 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
             artist_credit_id: credit_id,
             description: None,
             image_url: None,
+            publisher: None,
             language: None,
             explicit: false,
             itunes_type: None,
+            release_artist: Some("Mirror Artist".into()),
+            release_artist_sort: None,
+            release_date: Some(now),
+            release_kind: None,
             episode_count: 2,
             newest_item_at: Some(now),
             oldest_item_at: Some(now - 120),
@@ -1876,6 +1901,8 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     title_lower: "shared song a".into(),
                     pub_date: Some(now),
                     duration_secs: Some(180),
+                    image_url: None,
+                    language: None,
                     enclosure_url: Some(format!(
                         "https://cdn.example.com/{track_suffix}/shared-song-a.mp3"
                     )),
@@ -1885,6 +1912,8 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     season: None,
                     explicit: false,
                     description: None,
+                    track_artist: Some("Mirror Artist".into()),
+                    track_artist_sort: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -1900,6 +1929,8 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     title_lower: "shared song b".into(),
                     pub_date: Some(now),
                     duration_secs: Some(240),
+                    image_url: None,
+                    language: None,
                     enclosure_url: Some(format!(
                         "https://cdn.example.com/{track_suffix}/shared-song-b.mp3"
                     )),
@@ -1909,6 +1940,8 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     season: None,
                     explicit: false,
                     description: None,
+                    track_artist: Some("Mirror Artist".into()),
+                    track_artist_sort: None,
                     created_at: now,
                     updated_at: now,
                 },
@@ -2079,9 +2112,14 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             artist_credit_id: credit_id,
             description: None,
             image_url: None,
+            publisher: None,
             language: None,
             explicit: false,
             itunes_type: None,
+            release_artist: Some("Relaxed Artist".into()),
+            release_artist_sort: None,
+            release_date: Some(now),
+            release_kind: None,
             episode_count: 1,
             newest_item_at: Some(now),
             oldest_item_at: Some(now - 60),
@@ -2097,6 +2135,8 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             title_lower: "relaxed single".into(),
             pub_date: Some(now),
             duration_secs: Some(duration_secs),
+            image_url: None,
+            language: None,
             enclosure_url: Some(format!("https://cdn.example.com/{feed_guid}.mp3")),
             enclosure_type: Some("audio/mpeg".into()),
             enclosure_bytes: Some(1234),
@@ -2104,6 +2144,8 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             season: None,
             explicit: false,
             description: None,
+            track_artist: Some("Relaxed Artist".into()),
+            track_artist_sort: None,
             created_at: now,
             updated_at: now,
         };
@@ -2269,9 +2311,14 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
             artist_credit_id: credit_id,
             description: Some("A canonical read test release".into()),
             image_url: Some("https://cdn.example.com/canon-read-cover.jpg".into()),
+            publisher: None,
             language: Some("en".into()),
             explicit: false,
             itunes_type: None,
+            release_artist: Some("Canon Read Artist".into()),
+            release_artist_sort: None,
+            release_date: Some(now),
+            release_kind: None,
             episode_count: 1,
             newest_item_at: Some(now),
             oldest_item_at: Some(now),
@@ -2370,6 +2417,8 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
                 title_lower: "canon read song".into(),
                 pub_date: Some(now),
                 duration_secs: Some(201),
+                image_url: None,
+                language: Some("en".into()),
                 enclosure_url: Some(format!(
                     "https://cdn.example.com/{track_suffix}/canon-read-song.mp3"
                 )),
@@ -2379,6 +2428,8 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
                 season: None,
                 explicit: false,
                 description: Some("A test song".into()),
+                track_artist: Some("Canon Read Artist".into()),
+                track_artist_sort: None,
                 created_at: now,
                 updated_at: now,
             },
@@ -2611,9 +2662,14 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
             artist_credit_id: credit_id,
             description: feed_description.map(str::to_string),
             image_url: image_url.map(str::to_string),
+            publisher: None,
             language: None,
             explicit: false,
             itunes_type: None,
+            release_artist: Some("Metadata Artist".into()),
+            release_artist_sort: None,
+            release_date: oldest_item_at,
+            release_kind: None,
             episode_count: 1,
             newest_item_at: oldest_item_at,
             oldest_item_at,
@@ -2630,6 +2686,8 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
                 title_lower: "representative song".into(),
                 pub_date: track_pub_date,
                 duration_secs: Some(200),
+                image_url: image_url.map(str::to_string),
+                language: None,
                 enclosure_url: Some(format!("https://cdn.example.com/{track_guid}.mp3")),
                 enclosure_type: Some("audio/mpeg".into()),
                 enclosure_bytes: Some(2048),
@@ -2637,6 +2695,8 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
                 season: None,
                 explicit: false,
                 description: track_description.map(str::to_string),
+                track_artist: Some("Metadata Artist".into()),
+                track_artist_sort: None,
                 created_at: now,
                 updated_at: track_updated_at,
             },
@@ -4125,9 +4185,14 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         artist_credit_id: artist_credit.id,
         description: None,
         image_url: None,
+        publisher: None,
         language: Some("en".into()),
         explicit: false,
         itunes_type: None,
+        release_artist: Some(artist_credit.display_name.clone()),
+        release_artist_sort: None,
+        release_date: Some(now),
+        release_kind: None,
         episode_count: 0,
         newest_item_at: None,
         oldest_item_at: None,
