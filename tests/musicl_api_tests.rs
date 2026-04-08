@@ -166,18 +166,6 @@ async fn ingest_musicl_discards_tracks_and_skips_resolver_queue() {
         remote_item_count, 1,
         "musicL remote items should be preserved"
     );
-
-    let resolver_queue_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM resolver_queue WHERE feed_guid = ?1",
-            ["feed-musicl-api"],
-            |row| row.get(0),
-        )
-        .expect("resolver queue count");
-    assert_eq!(
-        resolver_queue_count, 0,
-        "musicL feeds must stay out of resolver queue"
-    );
 }
 
 #[tokio::test]

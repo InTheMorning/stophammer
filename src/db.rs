@@ -3494,11 +3494,7 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 9. Feed-scoped resolver/read-model rows and relationships
-    conn.execute(
-        "DELETE FROM resolver_queue WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
+    // 9. Feed-scoped resolved read-model rows and relationships
     conn.execute(
         "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
         params![feed_guid],
@@ -3675,10 +3671,6 @@ pub fn delete_feed_with_event(
         params![feed_guid],
     )?;
 
-    tx.execute(
-        "DELETE FROM resolver_queue WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
     tx.execute(
         "DELETE FROM resolved_external_ids_by_feed WHERE feed_guid = ?1",
         params![feed_guid],
@@ -5751,21 +5743,6 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
         .optional()?;
     Ok(seq.unwrap_or(0))
 }
-
-// ── resolver queue ───────────────────────────────────────────────────────────
-
-/// Dirty bit for canonical release/recording rebuilds.
-pub const RESOLVER_DIRTY_CANONICAL_STATE: i64 = 1;
-/// Dirty bit for canonical promotion rows.
-pub const RESOLVER_DIRTY_CANONICAL_PROMOTIONS: i64 = 1 << 1;
-/// Dirty bit for canonical search rows.
-pub const RESOLVER_DIRTY_CANONICAL_SEARCH: i64 = 1 << 2;
-/// Reserved dirty bit for incremental artist identity work.
-pub const RESOLVER_DIRTY_ARTIST_IDENTITY: i64 = 1 << 3;
-/// Dirty bit for source-layer search and quality read models.
-pub const RESOLVER_DIRTY_SOURCE_READ_MODELS: i64 = 1 << 4;
-/// Dirty bit for incremental wallet identity and feed-scoped wallet reviews.
-pub const RESOLVER_DIRTY_WALLET_IDENTITY: i64 = 1 << 5;
 
 // ── Tags ─────────────────────────────────────────────────────────────────────
 

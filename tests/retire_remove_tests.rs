@@ -559,17 +559,6 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
     );
 
     conn.execute(
-        "INSERT INTO resolver_queue (feed_guid, dirty_mask, first_marked_at, last_marked_at) \
-         VALUES (?1, ?2, ?3, ?3)",
-        params![
-            "feed-n",
-            stophammer::db::RESOLVER_DIRTY_SOURCE_READ_MODELS
-                | stophammer::db::RESOLVER_DIRTY_CANONICAL_STATE,
-            now
-        ],
-    )
-    .expect("insert resolver queue row");
-    conn.execute(
         "INSERT INTO resolved_external_ids_by_feed (
              feed_guid,
              entity_type,
@@ -947,7 +936,6 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
 
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 0);
-    assert_eq!(count(&conn, "resolver_queue", "feed_guid = 'feed-n'"), 0);
     assert_eq!(
         count(
             &conn,
