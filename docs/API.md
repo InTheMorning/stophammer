@@ -474,7 +474,7 @@ All query endpoints are read-only and available on both primary and community no
 Returns a single feed by its `podcast:guid`.
 
 - **Authentication:** None
-- **Include options:** `tracks`, `payment_routes`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
+- **Include options:** `tracks`, `payment_routes`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -513,7 +513,6 @@ Returns a single feed by its `podcast:guid`.
         "fee": false
       }
     ],
-    "tags": ["rock"],
     "source_links": [
       {
         "entity_type": "feed",
@@ -642,7 +641,7 @@ Lists source feeds ordered by `newest_item_at` descending (most recently updated
 Returns a single track by its `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `tags`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`
+- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`
 
 **Response (`200 OK`):**
 
@@ -677,7 +676,6 @@ Returns a single track by its `track_guid`.
         "split": 50
       }
     ],
-    "tags": ["electronic"],
     "source_links": [
       {
         "entity_type": "track",
@@ -827,8 +825,8 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "capabilities": ["query", "search", "sync", "push"],
   "entity_types": ["feed", "track", "wallet"],
   "include_params": {
-    "feed": ["tracks", "payment_routes", "tags", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "tags", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"]
+    "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
+    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"]
   }
 }
 ```

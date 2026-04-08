@@ -139,8 +139,6 @@ struct FeedResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     source_links: Option<Vec<SourceEntityLinkResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_ids: Option<Vec<SourceEntityIdResponse>>,
@@ -199,8 +197,6 @@ struct TrackResponse {
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     value_time_splits: Option<Vec<VtsResponse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    tags: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_links: Option<Vec<SourceEntityLinkResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -452,30 +448,6 @@ async fn handle_get_feed(
     Ok(Json(result))
 }
 
-fn load_tags(
-    conn: &rusqlite::Connection,
-    entity_type: &str,
-    entity_id: &str,
-) -> Result<Vec<String>, api::ApiError> {
-    let sql = match entity_type {
-        "artist" => {
-            "SELECT t.name FROM tags t JOIN artist_tag at ON at.tag_id = t.id WHERE at.artist_id = ?1 ORDER BY t.name"
-        }
-        "feed" => {
-            "SELECT t.name FROM tags t JOIN feed_tag ft ON ft.tag_id = t.id WHERE ft.feed_guid = ?1 ORDER BY t.name"
-        }
-        "track" => {
-            "SELECT t.name FROM tags t JOIN track_tag tt ON tt.tag_id = t.id WHERE tt.track_guid = ?1 ORDER BY t.name"
-        }
-        _ => return Ok(Vec::new()),
-    };
-    let mut stmt = conn.prepare(sql)?;
-    let tags: Vec<String> = stmt
-        .query_map(params![entity_id], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    Ok(tags)
-}
-
 fn build_feed_response(
     conn: &rusqlite::Connection,
     row: FeedRow,
@@ -504,7 +476,6 @@ fn build_feed_response(
         updated_at: row.updated_at,
         tracks: None,
         payment_routes: None,
-        tags: None,
         source_links: None,
         source_ids: None,
         source_contributors: None,
@@ -551,10 +522,6 @@ fn build_feed_response(
             })?
             .collect::<Result<_, _>>()?;
         resp.payment_routes = Some(routes);
-    }
-
-    if params.includes("tags") {
-        resp.tags = Some(load_tags(conn, "feed", &feed_guid)?);
     }
 
     if params.includes("source_links") {
@@ -646,7 +613,6 @@ fn build_track_response(
         updated_at: row.updated_at,
         payment_routes: None,
         value_time_splits: None,
-        tags: None,
         source_links: None,
         source_ids: None,
         source_contributors: None,
@@ -715,10 +681,6 @@ fn build_track_response(
             })?
             .collect::<Result<_, _>>()?;
         resp.value_time_splits = Some(vts);
-    }
-
-    if params.includes("tags") {
-        resp.tags = Some(load_tags(conn, "track", &track_guid)?);
     }
 
     if params.includes("source_links") {
@@ -1182,7 +1144,6 @@ async fn handle_get_recent_feeds(
                 updated_at: r.updated_at,
                 tracks: None,
                 payment_routes: None,
-                tags: None,
                 source_links: None,
                 source_ids: None,
                 source_contributors: None,
@@ -1380,7 +1341,6 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         vec![
             "tracks",
             "payment_routes",
-            "tags",
             "source_links",
             "source_ids",
             "source_contributors",
@@ -1395,7 +1355,6 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         vec![
             "payment_routes",
             "value_time_splits",
-            "tags",
             "source_links",
             "source_ids",
             "source_contributors",
