@@ -1072,12 +1072,14 @@ fn per_feed_resolver_creates_endpoints_and_wallets() {
 }
 
 #[test]
+#[ignore]
 fn wallet_dirty_bit_is_in_default_mask() {
-    use stophammer::resolver::queue;
-    const _: () = assert!(
-        (queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY) != 0,
-        // "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
-    );
+    // Resolver module retired in ADR 0032
+    // use stophammer::resolver::queue;
+    // const _: () = assert!(
+    //     (queue::DEFAULT_DIRTY_MASK & queue::DIRTY_WALLET_IDENTITY) != 0,
+    //     // "DIRTY_WALLET_IDENTITY must be in DEFAULT_DIRTY_MASK"
+    // );
 }
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
@@ -2534,15 +2536,17 @@ fn get_wallet_detail_returns_full_info() {
 }
 
 #[test]
+#[ignore]
 fn wallet_dirty_bit_after_promotions_before_search() {
-    use stophammer::resolver::queue;
-    // Wallet identity bit should be distinct from all other bits
-    assert_eq!(queue::DIRTY_WALLET_IDENTITY, 1 << 5);
-    assert_ne!(
-        queue::DIRTY_WALLET_IDENTITY,
-        queue::DIRTY_CANONICAL_PROMOTIONS
-    );
-    assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_SEARCH);
+    // Resolver module retired in ADR 0032
+    // use stophammer::resolver::queue;
+    // // Wallet identity bit should be distinct from all other bits
+    // assert_eq!(queue::DIRTY_WALLET_IDENTITY, 1 << 5);
+    // assert_ne!(
+    //     queue::DIRTY_WALLET_IDENTITY,
+    //     queue::DIRTY_CANONICAL_PROMOTIONS
+    // );
+    // assert_ne!(queue::DIRTY_WALLET_IDENTITY, queue::DIRTY_CANONICAL_SEARCH);
 }
 
 // ---------------------------------------------------------------------------

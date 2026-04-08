@@ -61,6 +61,8 @@ fn sample_request() -> IngestFeedRequest {
                 season: None,
                 explicit: false,
                 description: None,
+                image_url: None,
+                language: None,
                 payment_routes: vec![],
                 persons: vec![],
                 entity_ids: vec![],

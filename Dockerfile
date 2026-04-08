@@ -25,16 +25,6 @@ RUN cargo chef cook --release --bins --recipe-path recipe.json
 COPY . .
 RUN cargo build --release \
     --bin stophammer \
-    --bin stophammer-resolverd \
-    --bin stophammer-resolverctl \
-    --bin backfill_canonical \
-    --bin backfill_artist_identity \
-    --bin backfill_wallets \
-    --bin review_artist_identity \
-    --bin review_artist_identity_tui \
-    --bin review_wallet_identity \
-    --bin review_wallet_identity_tui \
-    --bin review_source_claims_tui
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 
@@ -48,16 +38,6 @@ RUN apk add --no-cache ca-certificates \
 
 WORKDIR /data
 COPY --from=builder /build/target/release/stophammer /usr/local/bin/stophammer
-COPY --from=builder /build/target/release/stophammer-resolverd /usr/local/bin/stophammer-resolverd
-COPY --from=builder /build/target/release/stophammer-resolverctl /usr/local/bin/stophammer-resolverctl
-COPY --from=builder /build/target/release/backfill_canonical /usr/local/bin/backfill_canonical
-COPY --from=builder /build/target/release/backfill_artist_identity /usr/local/bin/backfill_artist_identity
-COPY --from=builder /build/target/release/backfill_wallets /usr/local/bin/backfill_wallets
-COPY --from=builder /build/target/release/review_artist_identity /usr/local/bin/review_artist_identity
-COPY --from=builder /build/target/release/review_artist_identity_tui /usr/local/bin/review_artist_identity_tui
-COPY --from=builder /build/target/release/review_wallet_identity /usr/local/bin/review_wallet_identity
-COPY --from=builder /build/target/release/review_wallet_identity_tui /usr/local/bin/review_wallet_identity_tui
-COPY --from=builder /build/target/release/review_source_claims_tui /usr/local/bin/review_source_claims_tui
 
 USER stophammer
 
