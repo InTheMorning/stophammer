@@ -10,7 +10,7 @@ Layout:
   - `*.compose.env.example`: tracked Docker Compose templates
   - `*.compose.env`: local ignored Docker Compose env files with container-internal `/data` paths
 - `systemd/`
-  - long-running service units for primary, community, resolver, and gossip
+  - long-running service units for primary, community, and gossip
   - example one-shot import/crawl units and timers
 - `arch/`
   - Arch Linux split-package metadata and install notes

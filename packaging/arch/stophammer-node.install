@@ -7,7 +7,7 @@ Next steps:
   2. Enable the service:
        systemctl enable --now stophammer-community.service
 
-This package intentionally does not include resolver or indexer maintenance tools.
+This package intentionally does not include primary/indexer maintenance tools.
 EOF
 }
 
