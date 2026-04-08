@@ -28,18 +28,6 @@ services:
       retries: 12
       start_period: 10s
 
-  resolverd:
-    image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
-    command: ["stophammer-resolverd"]
-    restart: unless-stopped
-    env_file:
-      - ./packaging/env/resolverd.compose.env
-    volumes:
-      - primary-data:/data
-    depends_on:
-      primary:
-        condition: service_healthy
-
   podping:
     image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
     restart: unless-stopped
