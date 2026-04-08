@@ -161,50 +161,6 @@ fn get_artist_not_found() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. get_artist_with_redirect — insert artist + redirect, query OLD id via
-//    LEFT JOIN on artist_id_redirect → resolve to NEW artist
-// ---------------------------------------------------------------------------
-
-#[test]
-fn get_artist_with_redirect() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    let old_id = uuid::Uuid::new_v4().to_string();
-    let new_id = uuid::Uuid::new_v4().to_string();
-
-    // Only the new artist exists in the artists table.
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![new_id, "Merged Artist", "merged artist", now, now],
-    )
-    .unwrap();
-
-    // Record the redirect from old → new.
-    conn.execute(
-        "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
-         VALUES (?1, ?2, ?3)",
-        params![old_id, new_id, now],
-    )
-    .unwrap();
-
-    // Query via old ID using LEFT JOIN to follow the redirect.
-    let resolved_name: String = conn
-        .query_row(
-            "SELECT a.name \
-             FROM artist_id_redirect r \
-             JOIN artists a ON a.artist_id = r.new_artist_id \
-             WHERE r.old_artist_id = ?1",
-            params![old_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-
-    assert_eq!(resolved_name, "Merged Artist");
-}
-
-// ---------------------------------------------------------------------------
 // 4. get_artist_aliases — insert artist with 3 aliases, verify all returned
 // ---------------------------------------------------------------------------
 

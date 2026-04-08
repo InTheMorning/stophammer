@@ -329,18 +329,11 @@ pub fn search(
          FROM (SELECT rowid, bm25(search_index) AS fts_rank \
                FROM search_index WHERE search_index MATCH ?1) m \
          JOIN search_entities e ON e.rowid = m.rowid \
-         LEFT JOIN artist_id_redirect ar \
-           ON e.entity_type = 'artist' AND ar.old_artist_id = e.entity_id \
          LEFT JOIN entity_quality q \
            ON q.entity_type = e.entity_type AND q.entity_id = e.entity_id \
-         {where_clause}{redirect_filter}\
+         {where_clause}\
          ORDER BY eff_rank ASC, m.rowid ASC \
-         LIMIT ?{limit_param_idx}",
-        redirect_filter = if where_clause.is_empty() {
-            "WHERE ar.old_artist_id IS NULL "
-        } else {
-            "AND ar.old_artist_id IS NULL "
-        }
+         LIMIT ?{limit_param_idx}"
     );
 
     let mut stmt = conn.prepare(&sql)?;

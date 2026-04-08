@@ -90,10 +90,8 @@ fn schema_creates_all_tables() {
     // Dead schema removed — 2026-03-13: feed_type, artist_location, manifest_source
     let expected = [
         "artist_aliases",
-        "artist_artist_rel",
         "artist_credit",
         "artist_credit_name",
-        "artist_id_redirect",
         "artist_type",
         "artists",
         "entity_quality",
@@ -2854,55 +2852,6 @@ fn artist_resolve_creates_new() {
 // ---------------------------------------------------------------------------
 // 8. Artist merge
 // ---------------------------------------------------------------------------
-
-#[test]
-fn artist_merge_repoints_credits() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    let old_id = "art-old";
-    let new_id = "art-new";
-    insert_artist(&conn, old_id, "Old Name");
-    insert_artist(&conn, new_id, "New Name");
-
-    // Create a credit pointing at old_id.
-    let credit_id = insert_single_credit(&conn, old_id, "Old Name");
-
-    // Merge: repoint credit names.
-    conn.execute(
-        "UPDATE artist_credit_name SET artist_id = ?1 WHERE artist_id = ?2",
-        params![new_id, old_id],
-    )
-    .unwrap();
-
-    // Record redirect.
-    conn.execute(
-        "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at)
-         VALUES (?1, ?2, ?3)",
-        params![old_id, new_id, now],
-    )
-    .unwrap();
-
-    // Verify credit now points at new_id.
-    let pointed: String = conn
-        .query_row(
-            "SELECT artist_id FROM artist_credit_name WHERE artist_credit_id = ?1",
-            params![credit_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(pointed, new_id);
-
-    // Verify redirect exists.
-    let redirect: String = conn
-        .query_row(
-            "SELECT new_artist_id FROM artist_id_redirect WHERE old_artist_id = ?1",
-            params![old_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(redirect, new_id);
-}
 
 // ---------------------------------------------------------------------------
 // 9. Artist credit creation — single and multi-artist

@@ -532,141 +532,6 @@ pub fn add_artist_alias(conn: &Connection, artist_id: &str, alias: &str) -> Resu
     Ok(())
 }
 
-// ── merge_artists ──────────────────────────────────────────────────────────────
-
-/// Merges `source_artist_id` into `target_artist_id`.
-///
-/// All `artist_credit_name` entries pointing to `source` are repointed to `target`.
-/// All aliases of `source` that do not already exist on `target` are transferred;
-/// any that would conflict are dropped. The `source` artist row is then
-/// deleted. Returns the list of alias strings that were transferred.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL statement or the transaction commit fails.
-pub fn merge_artists(
-    conn: &mut Connection,
-    source_artist_id: &str,
-    target_artist_id: &str,
-) -> Result<Vec<String>, DbError> {
-    let tx = conn.transaction()?;
-    let transferred = merge_artists_sql(&tx, source_artist_id, target_artist_id)?;
-    tx.commit()?;
-    Ok(transferred)
-}
-
-/// Inner implementation of artist merge: executes all SQL operations on
-/// the provided connection without managing its own transaction.  Callers
-/// must ensure they are already inside a transaction or savepoint.
-pub(crate) fn merge_artists_sql(
-    conn: &Connection,
-    source_artist_id: &str,
-    target_artist_id: &str,
-) -> Result<Vec<String>, DbError> {
-    // Finding-1 alias transfer SQL fixed — 2026-03-13
-    // Collect the aliases that will be transferred.
-    let mut stmt = conn.prepare(
-        "SELECT aa.alias_lower FROM artist_aliases aa \
-         WHERE aa.artist_id = ?1 \
-           AND NOT EXISTS ( \
-               SELECT 1 FROM artist_aliases existing \
-               WHERE existing.alias_lower = aa.alias_lower \
-                 AND existing.artist_id = ?2 \
-           )",
-    )?;
-    let transferred: Vec<String> = stmt
-        .query_map(params![source_artist_id, target_artist_id], |row| {
-            row.get(0)
-        })?
-        .collect::<Result<_, _>>()?;
-    drop(stmt);
-
-    // Repoint artist_credit_name entries.
-    conn.execute(
-        "UPDATE artist_credit_name SET artist_id = ?1 WHERE artist_id = ?2",
-        params![target_artist_id, source_artist_id],
-    )?;
-
-    // Transfer non-conflicting aliases (Finding-1 fix: use distinct table aliases).
-    conn.execute(
-        "UPDATE artist_aliases SET artist_id = ?1 \
-         WHERE artist_id = ?2 \
-           AND NOT EXISTS ( \
-               SELECT 1 FROM artist_aliases existing \
-               WHERE existing.alias_lower = artist_aliases.alias_lower \
-                 AND existing.artist_id = ?1 \
-           )",
-        params![target_artist_id, source_artist_id],
-    )?;
-
-    conn.execute(
-        "UPDATE external_ids SET entity_id = ?1 \
-         WHERE entity_type = 'artist' AND entity_id = ?2 \
-           AND NOT EXISTS ( \
-               SELECT 1 FROM external_ids existing \
-               WHERE existing.entity_type = 'artist' \
-                 AND existing.entity_id = ?1 \
-                 AND existing.scheme = external_ids.scheme \
-           )",
-        params![target_artist_id, source_artist_id],
-    )?;
-    conn.execute(
-        "DELETE FROM external_ids WHERE entity_type = 'artist' AND entity_id = ?1",
-        params![source_artist_id],
-    )?;
-
-    conn.execute(
-        "UPDATE entity_source SET entity_id = ?1 \
-         WHERE entity_type = 'artist' AND entity_id = ?2",
-        params![target_artist_id, source_artist_id],
-    )?;
-
-    conn.execute(
-        "UPDATE artist_artist_rel SET artist_id_a = ?1 WHERE artist_id_a = ?2",
-        params![target_artist_id, source_artist_id],
-    )?;
-    conn.execute(
-        "UPDATE artist_artist_rel SET artist_id_b = ?1 WHERE artist_id_b = ?2",
-        params![target_artist_id, source_artist_id],
-    )?;
-    conn.execute(
-        "DELETE FROM artist_artist_rel WHERE artist_id_a = artist_id_b",
-        [],
-    )?;
-
-    // Drop any remaining source aliases (those that conflicted).
-    conn.execute(
-        "DELETE FROM artist_aliases WHERE artist_id = ?1",
-        params![source_artist_id],
-    )?;
-
-    // Preserve redirect chains when merging an artist that had already absorbed
-    // earlier artist IDs.
-    conn.execute(
-        "INSERT OR REPLACE INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
-         SELECT old_artist_id, ?1, merged_at \
-         FROM artist_id_redirect \
-         WHERE new_artist_id = ?2",
-        params![target_artist_id, source_artist_id],
-    )?;
-
-    // Record redirect for old ID resolution.
-    let now = unix_now();
-    conn.execute(
-        "INSERT OR REPLACE INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
-         VALUES (?1, ?2, ?3)",
-        params![source_artist_id, target_artist_id, now],
-    )?;
-
-    // Delete the source artist row.
-    conn.execute(
-        "DELETE FROM artists WHERE artist_id = ?1",
-        params![source_artist_id],
-    )?;
-
-    Ok(transferred)
-}
-
 // ── upsert_artist_if_absent ───────────────────────────────────────────────────
 
 /// Inserts the artist if no row with the same `artist_id` exists yet.
@@ -3955,9 +3820,6 @@ pub struct OrphanCleanupStats {
 /// `tracks.artist_credit_id`, `releases.artist_credit_id`, or
 /// `recordings.artist_credit_id`.
 ///
-/// Does NOT delete `artist_id_redirect` targets — redirects are merge history,
-/// not orphan state.
-///
 /// # Errors
 ///
 /// Returns [`DbError`] if any query or deletion fails.
@@ -4007,11 +3869,6 @@ pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupSt
 
         tx.execute(
             "DELETE FROM artist_aliases WHERE artist_id = ?1",
-            params![artist_id],
-        )?;
-        tx.execute(
-            "DELETE FROM artist_artist_rel \
-             WHERE artist_id_a = ?1 OR artist_id_b = ?1",
             params![artist_id],
         )?;
         tx.execute(
@@ -5516,95 +5373,6 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
 
 /// Returns the id of an existing tag with the given (lowercased) name, or
 // ── Relationships ────────────────────────────────────────────────────────────
-
-/// Row returned by [`get_artist_rels`].
-#[derive(Debug)]
-pub struct ArtistRelRow {
-    pub id: i64,
-    pub artist_id_a: String,
-    pub artist_id_b: String,
-    pub rel_type_name: String,
-    pub begin_year: Option<i64>,
-    pub end_year: Option<i64>,
-}
-
-/// Checks whether a `rel_type_id` exists in the `rel_type` lookup table.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn validate_rel_type(conn: &Connection, rel_type_id: i64) -> Result<bool, DbError> {
-    let exists: Option<i64> = conn
-        .query_row(
-            "SELECT id FROM rel_type WHERE id = ?1",
-            params![rel_type_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(exists.is_some())
-}
-
-/// Creates an artist-to-artist relationship. Returns the new row id.
-///
-/// Validates `rel_type_id` before inserting.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the rel type is invalid or the SQL insert fails.
-pub fn create_artist_artist_rel(
-    conn: &Connection,
-    artist_id_a: &str,
-    artist_id_b: &str,
-    rel_type_id: i64,
-    begin_year: Option<i64>,
-    end_year: Option<i64>,
-) -> Result<i64, DbError> {
-    // Validate rel_type_id exists.
-    let valid = validate_rel_type(conn, rel_type_id)?;
-    if !valid {
-        return Err(DbError::Rusqlite(rusqlite::Error::QueryReturnedNoRows));
-    }
-
-    let now = unix_now();
-    conn.execute(
-        "INSERT INTO artist_artist_rel (artist_id_a, artist_id_b, rel_type_id, begin_year, end_year, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![artist_id_a, artist_id_b, rel_type_id, begin_year, end_year, now],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// Returns all artist-artist relationships where `artist_id` appears on
-/// either side (as `artist_id_a` or `artist_id_b`), joined with the
-/// `rel_type` name.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn get_artist_rels(conn: &Connection, artist_id: &str) -> Result<Vec<ArtistRelRow>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT aar.id, aar.artist_id_a, aar.artist_id_b, rt.name, aar.begin_year, aar.end_year \
-         FROM artist_artist_rel aar \
-         JOIN rel_type rt ON rt.id = aar.rel_type_id \
-         WHERE aar.artist_id_a = ?1 OR aar.artist_id_b = ?1 \
-         ORDER BY aar.id",
-    )?;
-
-    let rows: Vec<ArtistRelRow> = stmt
-        .query_map(params![artist_id], |row| {
-            Ok(ArtistRelRow {
-                id: row.get(0)?,
-                artist_id_a: row.get(1)?,
-                artist_id_b: row.get(2)?,
-                rel_type_name: row.get(3)?,
-                begin_year: row.get(4)?,
-                end_year: row.get(5)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-
-    Ok(rows)
-}
 
 // ── get_existing_feed ─────────────────────────────────────────────────────────
 
