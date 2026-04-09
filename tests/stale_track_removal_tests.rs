@@ -493,8 +493,6 @@ fn reingest_cleans_up_child_rows() {
 
     // First ingest: 2 tracks
     let _ = ingest_feed_with_tracks(&mut conn, "feed-stale-4", &["track-i", "track-j"], &signer);
-    stophammer::db::sync_source_read_models_for_feed(&conn, "feed-stale-4")
-        .expect("sync source read models after first ingest");
 
     // Verify quality + search rows exist for track-j
     let quality_exists: bool = conn

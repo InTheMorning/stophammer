@@ -230,12 +230,6 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "track title should match"
     );
 
-    {
-        let conn = db.lock().expect("lock db");
-        stophammer::db::sync_source_read_models_for_feed(&conn, feed_guid)
-            .expect("sync source read models");
-    }
-
     // ── Step 4: GET /v1/search?q=Golden → verify source-first search results
     // Issue-FTS5-CONTENT — 2026-03-14
     // The search endpoint now JOINs through the `search_entities` companion

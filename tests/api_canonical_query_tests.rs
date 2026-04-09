@@ -157,12 +157,6 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
         .expect("ingest");
     assert_eq!(ingest_resp.status(), 200);
 
-    {
-        let conn = db.lock().expect("lock db");
-        stophammer::db::sync_source_read_models_for_feed(&conn, feed_guid)
-            .expect("sync source read models");
-    };
-
     let feed_resp = app
         .clone()
         .oneshot(

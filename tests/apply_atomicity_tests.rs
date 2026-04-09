@@ -350,7 +350,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
         .expect("feed query");
     assert!(feed_exists, "feed must exist after ingest");
 
-    // 2. Feed search index is deferred to resolverd
+    // 2. Feed search index is populated inline by ingest
     let feed_rowid = stophammer::search::rowid_for("feed", feed_guid);
     let feed_search: bool = conn
         .query_row(
@@ -359,12 +359,9 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed search query");
-    assert!(
-        !feed_search,
-        "feed search index must remain absent until the resolver batch runs"
-    );
+    assert!(feed_search, "feed search index must be present after ingest");
 
-    // 3. Feed quality score is deferred to resolverd
+    // 3. Feed quality score is populated inline by ingest
     let feed_quality: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
@@ -372,12 +369,9 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed quality query");
-    assert!(
-        !feed_quality,
-        "feed quality score must remain absent until the resolver batch runs"
-    );
+    assert!(feed_quality, "feed quality score must be present after ingest");
 
-    // 4. Track search index is deferred to resolverd
+    // 4. Track search index is populated inline by ingest
     let track_rowid = stophammer::search::rowid_for("track", track_guid);
     let track_search: bool = conn
         .query_row(
@@ -386,12 +380,9 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("track search query");
-    assert!(
-        !track_search,
-        "track search index must remain absent until the resolver batch runs"
-    );
+    assert!(track_search, "track search index must be present after ingest");
 
-    // 5. Track quality score is deferred to resolverd
+    // 5. Track quality score is populated inline by ingest
     let track_quality: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
@@ -400,8 +391,8 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
         )
         .expect("track quality query");
     assert!(
-        !track_quality,
-        "track quality score must remain absent until the resolver batch runs"
+        track_quality,
+        "track quality score must be present after ingest"
     );
 
     // 6. Crawl cache
@@ -415,49 +406,6 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     assert!(
         crawl_cached,
         "crawl cache must be written atomically with ingest"
-    );
-    drop(conn);
-
-    let conn = db.lock().expect("lock after resolver");
-    stophammer::db::sync_source_read_models_for_feed(&conn, feed_guid)
-        .expect("sync source read models");
-    let feed_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![feed_rowid],
-            |r| r.get(0),
-        )
-        .expect("feed search query after resolver");
-    assert!(feed_search, "feed search index must exist after resolver");
-
-    let feed_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
-            params![feed_guid],
-            |r| r.get(0),
-        )
-        .expect("feed quality query after resolver");
-    assert!(feed_quality, "feed quality score must exist after resolver");
-
-    let track_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![track_rowid],
-            |r| r.get(0),
-        )
-        .expect("track search query after resolver");
-    assert!(track_search, "track search index must exist after resolver");
-
-    let track_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-            params![track_guid],
-            |r| r.get(0),
-        )
-        .expect("track quality query after resolver");
-    assert!(
-        track_quality,
-        "track quality score must exist after resolver"
     );
 }
 
@@ -608,9 +556,10 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     );
     assert!(result.is_ok(), "ingest_transaction should succeed");
 
-    // Source search/quality no longer write inline during ingest_transaction.
+    // Feed and track search/quality are now written inline by ingest_transaction.
+    // Artist search/quality remain absent (sync only covers feed-scoped entities).
 
-    // Feed search index must still be absent
+    // Feed search index must be present
     let feed_rowid = stophammer::search::rowid_for("feed", "feed-atomic-s1b");
     let feed_search: bool = conn
         .query_row(
@@ -620,11 +569,11 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         )
         .expect("feed search query");
     assert!(
-        !feed_search,
-        "feed search index must not be written inline by ingest_transaction"
+        feed_search,
+        "feed search index must be written inline by ingest_transaction"
     );
 
-    // Feed quality score must still be absent
+    // Feed quality score must be present
     let feed_quality: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'feed' AND entity_id = 'feed-atomic-s1b'",
@@ -633,8 +582,8 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         )
         .expect("feed quality query");
     assert!(
-        !feed_quality,
-        "feed quality score must not be written inline by ingest_transaction"
+        feed_quality,
+        "feed quality score must be written inline by ingest_transaction"
     );
 
     // Artist search index must still be absent
@@ -664,7 +613,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         "artist quality score must not be written inline by ingest_transaction"
     );
 
-    // Track search index must still be absent
+    // Track search index must be present
     let track_rowid = stophammer::search::rowid_for("track", "track-atomic-s1b-01");
     let track_search: bool = conn
         .query_row(
@@ -674,11 +623,11 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         )
         .expect("track search query");
     assert!(
-        !track_search,
-        "track search index must not be written inline by ingest_transaction"
+        track_search,
+        "track search index must be written inline by ingest_transaction"
     );
 
-    // Track quality score must still be absent
+    // Track quality score must be present
     let track_quality: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-atomic-s1b-01'",
@@ -687,47 +636,21 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         )
         .expect("track quality query");
     assert!(
-        !track_quality,
-        "track quality score must not be written inline by ingest_transaction"
+        track_quality,
+        "track quality score must be written inline by ingest_transaction"
     );
 
-    stophammer::db::sync_source_read_models_for_feed(&conn, "feed-atomic-s1b")
-        .expect("sync source read models");
-
-    let feed_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![feed_rowid],
-            |r| r.get(0),
-        )
-        .expect("feed search query after resolver sync");
-    assert!(
-        feed_search,
-        "feed search index must exist after resolver sync"
-    );
-
-    let feed_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'feed' AND entity_id = 'feed-atomic-s1b'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("feed quality query after resolver sync");
-    assert!(
-        feed_quality,
-        "feed quality score must exist after resolver sync"
-    );
-
+    // Artist search/quality must remain absent — sync only covers feed-scoped entities
     let artist_search: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
             params![artist_rowid],
             |r| r.get(0),
         )
-        .expect("artist search query after source sync");
+        .expect("artist search query");
     assert!(
         !artist_search,
-        "artist search index must remain absent after source sync"
+        "artist search index must not be written by ingest_transaction"
     );
 
     let artist_quality: bool = conn
@@ -736,34 +659,10 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
             [],
             |r| r.get(0),
         )
-        .expect("artist quality query after source sync");
+        .expect("artist quality query");
     assert!(
         !artist_quality,
-        "artist quality score must remain absent after source sync"
-    );
-
-    let track_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![track_rowid],
-            |r| r.get(0),
-        )
-        .expect("track search query after resolver sync");
-    assert!(
-        track_search,
-        "track search index must exist after resolver sync"
-    );
-
-    let track_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-atomic-s1b-01'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("track quality query after resolver sync");
-    assert!(
-        track_quality,
-        "track quality score must exist after resolver sync"
+        "artist quality score must not be written by ingest_transaction"
     );
 }
 

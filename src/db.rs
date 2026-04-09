@@ -2782,6 +2782,25 @@ pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Fee
     Ok(result)
 }
 
+// ── list_all_feed_guids ─────────────────────────────────────────────────────
+
+/// Returns the `feed_guid` of every feed row in the database, in insertion order.
+///
+/// Used by the one-shot search/quality rebuild tool to iterate all feeds.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn list_all_feed_guids(conn: &Connection) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare("SELECT feed_guid FROM feeds ORDER BY rowid")?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    let mut guids = Vec::new();
+    for row in rows {
+        guids.push(row?);
+    }
+    Ok(guids)
+}
+
 // ── get_track_by_guid ───────────────────────────────────────────────────────
 
 /// Looks up the track row by `track_guid`, returning `None` if absent.
@@ -4855,7 +4874,12 @@ pub fn ingest_transaction(
         seqs.push((seq, signed_by, signature));
     }
 
-    // 7. Commit
+    // 7. Rebuild search index + quality scores for the feed and all its tracks.
+    // The retired resolver no longer handles this; inline it here so every
+    // successful ingest leaves a fully-populated read model.
+    sync_source_read_models_for_feed(&tx, &feed.feed_guid)?;
+
+    // 8. Commit
     tx.commit()?;
 
     Ok(seqs)
