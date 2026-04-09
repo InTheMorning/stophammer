@@ -456,7 +456,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             "explicit": false,
             "itunes_type": null,
             "raw_medium": "music",
-            "author_name": "Publisher Truth Artist",
+            "author_name": null,
             "owner_name": "Wavlake",
             "pub_date": null,
             "remote_items": [{
@@ -542,6 +542,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
     );
 
     let child_feed_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -556,6 +557,11 @@ async fn feed_query_exposes_publisher_rss_truth() {
     assert_eq!(child_feed_resp.status(), 200);
     let child_feed_json = body_json(child_feed_resp).await;
     assert_eq!(child_feed_json["data"]["raw_medium"], "music");
+    assert_eq!(child_feed_json["data"]["publisher_text"], "Wavlake");
+    assert_eq!(
+        child_feed_json["data"]["release_artist"],
+        "Publisher Truth Artist"
+    );
     assert_eq!(
         child_feed_json["data"]["remote_items"][0]["medium"],
         "publisher"
@@ -573,4 +579,243 @@ async fn feed_query_exposes_publisher_rss_truth() {
             .get("artist_signal")
             .is_none()
     );
+
+    let child_track_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/tracks/track-publisher-truth-child")
+                .body(Body::empty())
+                .expect("child track request"),
+        )
+        .await
+        .expect("child track response");
+    assert_eq!(child_track_resp.status(), 200);
+    let child_track_json = body_json(child_track_resp).await;
+    assert_eq!(
+        child_track_json["data"]["track_artist"],
+        "Publisher Truth Artist"
+    );
+}
+
+#[tokio::test]
+async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
+    let crawl_token = "publisher-remoteitem-crawl-token";
+    let db = common::test_db_arc();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("publisher-remoteitem.key");
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token, &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let publisher_feed_guid = "feed-remoteitem-publisher";
+    let child_feed_guid = "feed-remoteitem-child";
+
+    let publisher_payload = serde_json::json!({
+        "canonical_url": "https://label.example.com/publisher.xml",
+        "source_url": "https://label.example.com/publisher.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "remoteitem-publisher-hash",
+        "feed_data": {
+            "feed_guid": publisher_feed_guid,
+            "title": "Indie Collective",
+            "description": "Publisher feed for reciprocal publisher mapping",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "publisher",
+            "author_name": null,
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "music",
+                "remote_feed_guid": child_feed_guid,
+                "remote_feed_url": "https://artist.example.com/release.xml"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let publisher_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &publisher_payload))
+        .await
+        .expect("publisher ingest");
+    assert_eq!(publisher_resp.status(), 200);
+
+    let child_payload = serde_json::json!({
+        "canonical_url": "https://artist.example.com/release.xml",
+        "source_url": "https://artist.example.com/release.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "remoteitem-child-hash",
+        "feed_data": {
+            "feed_guid": child_feed_guid,
+            "title": "Remote Item Release",
+            "description": "Music feed linked to a non-Wavlake publisher",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "music",
+            "author_name": "Remote Item Artist",
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "publisher",
+                "remote_feed_guid": publisher_feed_guid,
+                "remote_feed_url": "https://label.example.com/publisher.xml"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let child_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &child_payload))
+        .await
+        .expect("child ingest");
+    assert_eq!(child_resp.status(), 200);
+
+    let child_feed_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{child_feed_guid}?include=remote_items,publisher"
+                ))
+                .body(Body::empty())
+                .expect("child feed request"),
+        )
+        .await
+        .expect("child feed response");
+    assert_eq!(child_feed_resp.status(), 200);
+    let child_feed_json = body_json(child_feed_resp).await;
+    assert_eq!(
+        child_feed_json["data"]["publisher_text"],
+        "Indie Collective"
+    );
+    assert_eq!(
+        child_feed_json["data"]["release_artist"],
+        "Remote Item Artist"
+    );
+    assert_eq!(
+        child_feed_json["data"]["publisher"][0]["direction"],
+        "music_to_publisher"
+    );
+    assert_eq!(
+        child_feed_json["data"]["publisher"][0]["two_way_validated"],
+        true
+    );
+}
+
+#[tokio::test]
+async fn non_wavlake_one_way_publisher_remote_item_does_not_set_publisher_text() {
+    let crawl_token = "publisher-one-way-crawl-token";
+    let db = common::test_db_arc();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("publisher-one-way.key");
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token, &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let publisher_feed_guid = "feed-one-way-publisher";
+    let child_feed_guid = "feed-one-way-child";
+
+    let publisher_payload = serde_json::json!({
+        "canonical_url": "https://label.example.com/one-way-publisher.xml",
+        "source_url": "https://label.example.com/one-way-publisher.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "one-way-publisher-hash",
+        "feed_data": {
+            "feed_guid": publisher_feed_guid,
+            "title": "One Way Label",
+            "description": "Publisher feed with no reciprocal remote item",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "publisher",
+            "author_name": null,
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let publisher_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &publisher_payload))
+        .await
+        .expect("publisher ingest");
+    assert_eq!(publisher_resp.status(), 200);
+
+    let child_payload = serde_json::json!({
+        "canonical_url": "https://artist.example.com/one-way-release.xml",
+        "source_url": "https://artist.example.com/one-way-release.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "one-way-child-hash",
+        "feed_data": {
+            "feed_guid": child_feed_guid,
+            "title": "One Way Release",
+            "description": "Music feed with a one-way publisher link",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "music",
+            "author_name": "One Way Artist",
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "publisher",
+                "remote_feed_guid": publisher_feed_guid,
+                "remote_feed_url": "https://label.example.com/one-way-publisher.xml"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let child_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &child_payload))
+        .await
+        .expect("child ingest");
+    assert_eq!(child_resp.status(), 200);
+
+    let child_feed_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/feeds/{child_feed_guid}"))
+                .body(Body::empty())
+                .expect("child feed request"),
+        )
+        .await
+        .expect("child feed response");
+    assert_eq!(child_feed_resp.status(), 200);
+    let child_feed_json = body_json(child_feed_resp).await;
+    assert!(child_feed_json["data"]["publisher_text"].is_null());
 }

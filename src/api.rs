@@ -637,6 +637,60 @@ fn derive_publisher_name(feed_data: &ingest::IngestFeedData) -> Option<String> {
     non_empty_trimmed(feed_data.owner_name.as_deref()).map(str::to_string)
 }
 
+/// Returns true when the canonical feed URL is hosted on wavlake.com.
+fn is_wavlake_url(url: &str) -> bool {
+    reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|h| h == "wavlake.com" || h == "www.wavlake.com")
+}
+
+fn find_linked_publisher_feed(
+    conn: &rusqlite::Connection,
+    feed_data: &ingest::IngestFeedData,
+) -> Result<Option<model::Feed>, db::DbError> {
+    let publisher_guid = feed_data
+        .remote_items
+        .iter()
+        .find(|item| item.medium.as_deref() == Some("publisher"))
+        .map(|item| item.remote_feed_guid.as_str());
+
+    let Some(guid) = publisher_guid else {
+        return Ok(None);
+    };
+
+    db::get_feed(conn, guid)
+}
+
+fn has_reciprocal_music_remote_item(
+    conn: &rusqlite::Connection,
+    publisher_feed_guid: &str,
+    music_feed_guid: &str,
+) -> Result<bool, db::DbError> {
+    Ok(
+        db::get_feed_remote_items_for_feed(conn, publisher_feed_guid)?
+            .into_iter()
+            .any(|item| {
+                item.remote_feed_guid == music_feed_guid && item.medium.as_deref() == Some("music")
+            }),
+    )
+}
+
+fn derive_linked_publisher_name(
+    conn: &rusqlite::Connection,
+    feed_data: &ingest::IngestFeedData,
+) -> Result<Option<String>, db::DbError> {
+    let Some(publisher_feed) = find_linked_publisher_feed(conn, feed_data)? else {
+        return Ok(None);
+    };
+
+    if !has_reciprocal_music_remote_item(conn, &publisher_feed.feed_guid, &feed_data.feed_guid)? {
+        return Ok(None);
+    }
+
+    Ok(non_empty_trimmed(Some(publisher_feed.title.as_str())).map(str::to_string))
+}
+
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     if value.is_empty() { None } else { Some(value) }
@@ -690,7 +744,7 @@ fn capitalize_word(word: &str) -> String {
 mod tests {
     use super::{
         build_source_contributor_claims, build_source_entity_links, build_source_platform_claims,
-        derive_feed_artist_name, normalize_role, wavlake_artist_name_from_links,
+        derive_feed_artist_name, is_wavlake_url, normalize_role, wavlake_artist_name_from_links,
     };
     use crate::ingest::{IngestFeedData, IngestLink, IngestPerson};
 
@@ -770,6 +824,15 @@ mod tests {
             live_items: vec![],
             tracks: vec![],
         }
+    }
+
+    #[test]
+    fn is_wavlake_url_matches_known_hosts() {
+        assert!(is_wavlake_url("https://wavlake.com/feed/music/abc123"));
+        assert!(is_wavlake_url("https://www.wavlake.com/feed/music/abc123"));
+        assert!(!is_wavlake_url("https://example.com/feed.rss"));
+        assert!(!is_wavlake_url("https://fountain.fm/feed/abc"));
+        assert!(!is_wavlake_url("not a url"));
     }
 
     #[test]
@@ -1497,7 +1560,21 @@ async fn handle_ingest_feed(
         // 5. Phase 3 source-first transition: keep a deterministic feed-scoped
         // compatibility artist/credit for the published release artist text
         // without invoking cross-feed resolution in ingest.
-        let artist_name = derive_feed_artist_name(feed_data);
+        //
+        // For Wavlake feeds with a publisher remoteItem, use the publisher
+        // feed's release_artist (or title) as the artist name so that the
+        // label/aggregator name is preserved rather than falling back to the
+        // slug heuristic.
+        let linked_publisher_feed = find_linked_publisher_feed(&conn, feed_data)?;
+        let wavlake_pub_feed = if is_wavlake_url(&req.canonical_url) {
+            linked_publisher_feed.clone()
+        } else {
+            None
+        };
+        let artist_name = wavlake_pub_feed
+            .as_ref()
+            .and_then(|f| f.release_artist.clone().or(Some(f.title.clone())))
+            .unwrap_or_else(|| derive_feed_artist_name(feed_data));
         let feed_artist_credit =
             db::get_or_create_feed_scoped_source_text_credit(&conn, &artist_name, feed_guid_str)?;
         let feed_artist_id = feed_artist_credit
@@ -1544,7 +1621,12 @@ async fn handle_ingest_feed(
             artist_credit_id: feed_artist_credit.id,
             description: feed_data.description.clone(),
             image_url: feed_data.image_url.clone(),
-            publisher: derive_publisher_name(feed_data),
+            publisher: if wavlake_pub_feed.is_some() {
+                Some("Wavlake".to_string())
+            } else {
+                derive_linked_publisher_name(&conn, feed_data)?
+                    .or_else(|| derive_publisher_name(feed_data))
+            },
             language: feed_data.language.clone(),
             explicit: feed_data.explicit,
             itunes_type: feed_data.itunes_type.clone(),

@@ -23,8 +23,8 @@ It is primarily for feeds that declare `podcast:medium=music` and carry usable
 V4V payment routes.
 
 It also preserves `publisher` and `musicL` container feeds as source-layer API
-data. Those container feeds do not participate in resolver-driven canonical
-output.
+data. Those container feeds remain visible in the source-first v1 model, but
+they do not produce a separate canonical release/recording layer.
 
 ## Who Should Read What
 
@@ -43,14 +43,15 @@ There are three moving parts:
 2. The primary verifies and stores accepted feeds, then signs resulting events.
 3. Community nodes replicate those signed events and serve the same read API.
 
-There are also two data layers inside the database:
+There are also two practical layers inside the database:
 
-- source layer: what specific feeds and items claimed
-- canonical layer: what `stophammer` currently believes are the merged
-  artists, releases, and recordings
+- source-first feed and track rows used by the public API
+- preserved source evidence such as links, IDs, contributors, remote items,
+  platform claims, and enclosure variants
 
-That split matters because user-facing discovery should usually be canonical,
-while review and debugging often need the original source facts.
+The old canonical release/recording public layer has been retired. Review and
+debugging now happen directly against the source-first rows and preserved
+evidence.
 
 ## Common Roles and Workflows
 
@@ -100,23 +101,26 @@ the primary and serve a read-only version of the API.
 
 Start with [API.md](API.md).
 
-The public read surface is now canonical-first:
+The public read surface is source-first:
 
-- `/v1/search` returns canonical `artist`, `release`, and `recording` results by default
-- `/v1/recent` returns canonical releases
-- `/v1/releases/{id}` and `/v1/recordings/{id}` are the main detail endpoints
-- `/v1/releases/{id}/sources` and `/v1/recordings/{id}/sources` expose source/platform drill-down
+- `/v1/search`
+- `/v1/feeds/recent`
+- `/v1/feeds/{guid}`
+- `/v1/tracks/{guid}`
 
-Source endpoints still matter:
+Source endpoints are the main endpoints:
 
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
 
 Those are useful for provenance, source claims, platform links, and audit views.
 `GET /v1/feeds/{guid}?include=remote_items,publisher` is the RSS-truth
-debug view for publisher relationships. It only shows publisher-as-artist
-signals after identity is actually confirmed; it does not expose speculative
-guesses for unresolved feeds.
+debug view for publisher relationships. The `publisher` include reports
+direction and reciprocal validation directly from RSS. For stored
+`publisher_text`, non-Wavlake feeds only promote a publisher title after a
+reciprocal publisher/music remote-item pair is present. Wavlake is the narrow
+exception where the linked publisher feed may also provide artist text while
+the stored publisher remains `"Wavlake"`.
 
 ### I want to inspect or repair canonical data
 

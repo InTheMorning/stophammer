@@ -198,6 +198,15 @@ support `alternate_enclosures`. `live_items` carries parsed `podcast:liveItem`
 entries; `pending` and `live` rows are staged in `live_events`, while `ended`
 rows with enclosures are promoted into normal tracks.
 
+Publisher interpretation happens during ingest, not crawl:
+
+- non-Wavlake feeds keep `publisher` as publisher
+- non-Wavlake `publisher_text` is derived from a linked publisher feed only
+  when the publisher/music `remoteItem` pair is reciprocal
+- Wavlake is the narrow compatibility exception where a linked publisher feed
+  may also provide artist text for the music feed, while stored
+  `publisher_text` remains `"Wavlake"`
+
 **Response (`200 OK`):**
 
 ```json
@@ -598,11 +607,20 @@ Returns a single feed by its `podcast:guid`.
 
 For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
 remain visible, but local tracks are intentionally not materialized into the
-`tracks` table or resolver layer.
+`tracks` table.
 
 `publisher` is a derived read-only view over those declarations. It reports
 direction and reciprocal validation exactly from RSS and does not add any
 canonical artist-confirmation layer in v1.
+
+Stored `publisher_text` follows the same strict policy:
+
+- Wavlake music feeds with a linked publisher feed store `publisher_text` as
+  `"Wavlake"` and may use the linked publisher feed as artist text fallback
+- non-Wavlake feeds only store a linked publisher title after a reciprocal
+  `publisher` <-> `music` declaration is present
+- one-way publisher links remain visible in `remote_items` and `publisher`, but
+  do not populate `publisher_text`
 
 ---
 

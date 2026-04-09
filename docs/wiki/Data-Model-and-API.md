@@ -1,72 +1,71 @@
 # Data Model and API
 
-## Canonical First
+## Source-First V1
 
-The public read surface is canonical-first.
+The current public read surface is source-first.
 
-That means discovery should usually start with:
+That means discovery and detail reads should start with:
 
-- `artist`
-- `release`
-- `recording`
+- `feed`
+- `track`
 
-not with individual source feeds or source tracks.
-
-## Why
-
-The same music can appear on multiple source platforms:
-
-- Wavlake
-- RSS Blue
-- Fountain
-- direct RSS mirrors
-
-If search returned raw source rows by default, clients would see duplicates.
-Canonical-first search avoids that by returning one merged release or recording
-and then letting the client drill into source/platform variants underneath.
+not with canonical `artist`, `release`, or `recording` entities. Those public
+canonical routes were retired during Phase 3.
 
 ## Main Read Endpoints
 
 Use:
 
 - `/v1/search`
-- `/v1/recent`
-- `/v1/artists/{id}/releases`
-- `/v1/releases/{id}`
-- `/v1/recordings/{id}`
-- `/v1/releases/{id}/sources`
-- `/v1/recordings/{id}/sources`
-
-## Source Detail Endpoints
-
-Use these when you need provenance or source claims:
-
+- `/v1/feeds/recent`
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
-- `/v1/artists/{id}/resolution`
-- `/v1/releases/{id}/resolution`
-- `/v1/recordings/{id}/resolution`
+
+## Provenance and RSS-Truth Views
+
+Feed detail can include preserved source evidence:
+
+- `remote_items`
+- `publisher`
+- `source_links`
+- `source_ids`
+- `source_contributors`
+- `source_platforms`
+- `source_release_claims`
+
+`remote_items` preserves feed-level `podcast:remoteItem` declarations exactly as
+published.
+
+`publisher` is a derived view over those declarations:
+
+- it reports direction and reciprocal validation from RSS
+- it does not create canonical artist truth
+- non-Wavlake `publisher_text` is only promoted after a reciprocal
+  publisher/music pair exists
+- Wavlake is the narrow compatibility exception where a linked publisher feed
+  may supply artist text while stored `publisher_text` remains `"Wavlake"`
 
 ## Where the Evidence Lives
 
-The staged source layer stores:
+The source-first layer stores:
 
+- feed rows
+- track rows
+- feed and track payment routes
+- value time splits
+- feed remote items
 - contributor claims
 - source IDs
 - source links
-- release claims
-- platform claims
-- item enclosures
+- source release claims
+- source item enclosures
+- source platform claims
 
-The canonical layer stores:
+Some compatibility tables still exist internally, such as `artists` and
+`artist_credit`, but they are no longer the public API model.
 
-- artists
-- releases
-- recordings
-- mappings from source feed/item rows into canonical entities
-
-For the exact table meanings, read
+For exact table meanings, read
 [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md).
 
-For the exact route contracts, read
+For exact route contracts, read
 [API.md](/home/citizen/build/stophammer/docs/API.md).

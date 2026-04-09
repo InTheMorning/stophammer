@@ -4206,7 +4206,6 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
 
 // ── Tags ─────────────────────────────────────────────────────────────────────
 
-/// Returns the id of an existing tag with the given (lowercased) name, or
 // ── Relationships ────────────────────────────────────────────────────────────
 
 // ── get_existing_feed ─────────────────────────────────────────────────────────
