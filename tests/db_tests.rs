@@ -747,6 +747,7 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         pub_date: Some(now),
         duration_secs: Some(180),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://example.com/a.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -769,6 +770,7 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         pub_date: Some(now - 10),
         duration_secs: Some(120),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://example.com/b.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -980,6 +982,7 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         pub_date: Some(now - 60),
         duration_secs: Some(180),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://cdn.example.com/dup-a.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -1002,6 +1005,7 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         pub_date: Some(now),
         duration_secs: Some(180),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://cdn.example.com/dup-b.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -1286,6 +1290,7 @@ fn ingest_transaction_requires_existing_track_credit_rows() {
         pub_date: Some(now),
         duration_secs: Some(120),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://example.com/track.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -1412,6 +1417,7 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         pub_date: Some(now),
         duration_secs: Some(180),
         image_url: None,
+        publisher: None,
         language: None,
         enclosure_url: Some("https://cdn.example.com/promote-track.mp3".into()),
         enclosure_type: Some("audio/mpeg".into()),
@@ -1686,6 +1692,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     pub_date: Some(now),
                     duration_secs: Some(180),
                     image_url: None,
+                    publisher: None,
                     language: None,
                     enclosure_url: Some(format!(
                         "https://cdn.example.com/{track_suffix}/shared-song-a.mp3"
@@ -1714,6 +1721,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     pub_date: Some(now),
                     duration_secs: Some(240),
                     image_url: None,
+                    publisher: None,
                     language: None,
                     enclosure_url: Some(format!(
                         "https://cdn.example.com/{track_suffix}/shared-song-b.mp3"
@@ -1921,6 +1929,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             pub_date: Some(now),
             duration_secs: Some(duration_secs),
             image_url: None,
+            publisher: None,
             language: None,
             enclosure_url: Some(format!("https://cdn.example.com/{feed_guid}.mp3")),
             enclosure_type: Some("audio/mpeg".into()),
@@ -2204,6 +2213,7 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
                 pub_date: Some(now),
                 duration_secs: Some(201),
                 image_url: None,
+                publisher: None,
                 language: Some("en".into()),
                 enclosure_url: Some(format!(
                     "https://cdn.example.com/{track_suffix}/canon-read-song.mp3"
@@ -2481,6 +2491,7 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
                 pub_date: track_pub_date,
                 duration_secs: Some(200),
                 image_url: image_url.map(str::to_string),
+                publisher: None,
                 language: None,
                 enclosure_url: Some(format!("https://cdn.example.com/{track_guid}.mp3")),
                 enclosure_type: Some("audio/mpeg".into()),

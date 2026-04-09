@@ -1645,6 +1645,7 @@ async fn handle_ingest_feed(
             updated_at: now,
             raw_medium: feed_data.raw_medium.clone(),
         };
+        let track_publisher = feed.publisher.clone();
 
         // 8b. Build feed-level payment routes
         let feed_routes: Vec<model::FeedPaymentRoute> = if is_musicl {
@@ -1844,6 +1845,7 @@ async fn handle_ingest_feed(
                 pub_date: track_data.pub_date,
                 duration_secs: track_data.duration_secs,
                 image_url: track_data.image_url.clone(),
+                publisher: track_publisher.clone(),
                 language: track_data
                     .language
                     .clone()
@@ -1978,6 +1980,7 @@ async fn handle_ingest_feed(
                 pub_date: live_item.pub_date,
                 duration_secs: live_item.duration_secs,
                 image_url: live_item.image_url.clone(),
+                publisher: track_publisher.clone(),
                 language: live_item
                     .language
                     .clone()

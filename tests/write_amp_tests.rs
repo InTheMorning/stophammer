@@ -143,6 +143,7 @@ fn ingest_and_count_track_events(
                 track_number: Some(i64::try_from(i + 1).unwrap()),
                 season: None,
                 image_url: None,
+                publisher: None,
                 language: None,
                 explicit: false,
                 description: Some(format!("Description for {}", t.guid)),

@@ -546,6 +546,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         track_number: Some(1),
         season: None,
         image_url: Some("https://img.example.com/at-01.jpg".into()),
+        publisher: Some("Atomic Publisher".into()),
         language: Some("en".into()),
         explicit: false,
         description: Some("First atomic track".into()),

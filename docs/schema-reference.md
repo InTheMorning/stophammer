@@ -44,6 +44,7 @@ Key columns:
 - `track_guid`
 - `feed_guid`
 - `title`
+- `publisher`
 - `pub_date`
 - `track_artist`
 - `image_url`
@@ -56,6 +57,8 @@ Key columns:
 
 Notes:
 - `title` is the track title in v1.
+- `publisher` is source-first publisher text inherited from the resolved feed
+  publisher in v1.
 - `track_artist` is stored separately from `feeds.release_artist`.
 - when track language is missing, ingest may inherit from the feed.
 

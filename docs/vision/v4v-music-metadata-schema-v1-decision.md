@@ -128,6 +128,7 @@ tables still required by the runtime.
 | `enclosure_bytes` | keep | primary media size when published |
 | `track_number` | keep | published sequencing when present |
 | `image_url` | add | track artwork URL |
+| `publisher` | add | item-level publisher search/display using source-first truth |
 | `language` | add | track language, inheriting from feed when missing |
 | `explicit` | keep | track explicit flag, inheriting from feed when missing |
 | `description` | keep | source item description |
@@ -158,6 +159,8 @@ tables still required by the runtime.
 - `podcast:person` remains contributor evidence in
   `source_contributor_claims`
 - `publisher` means publisher everywhere by default
+- `tracks.publisher` exists for item-level publisher search/display and
+  inherits the resolved feed publisher in v1
 - Wavlake is the only approved narrow exception where current publisher data
   may also supply artist text
 - artist strings are display metadata, not identity

@@ -171,6 +171,7 @@ music schema.
 `tracks` remains the track-shaped row with these user-facing semantics:
 
 - `title` = track title
+- `publisher` = track publisher text
 - `track_artist` = track artist text
 - `track_artist_sort` = optional published sort form
 - `image_url` = track artwork URL
@@ -198,6 +199,8 @@ The v1 schema uses strict field rules:
 - sort-order metadata stays null unless explicitly published
 - artist text is display metadata, not a stable artist identity
 - `publisher` means publisher by default everywhere
+- `tracks.publisher` exists for item-level publisher search/display and
+  inherits the resolved feed publisher in v1
 - Wavlake is a narrow compatibility exception where current feed-level and
   track-level publisher data may also supply artist text, but that text still
   does not become a stable unique artist ID

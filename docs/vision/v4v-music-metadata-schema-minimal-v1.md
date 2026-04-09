@@ -254,6 +254,8 @@ Publisher policy for v1:
 
 - `publisher` means publisher by default everywhere in the schema
 - do not globally reinterpret publisher metadata as artist identity
+- `tracks.publisher` exists for item-level publisher search/display and
+  inherits the resolved feed publisher in v1
 - Wavlake is a narrow platform-specific exception: current Wavlake feed-level
   and track-level publisher data may carry artist text useful for
   `release_artist` / `track_artist`
@@ -290,6 +292,7 @@ Artist-entity policy for v1:
 | --- | --- |
 | `track_artist` | explicit track-artist text kept separate from `release_artist`, even when it defaults to it in v1 |
 | `track_artist_sort` | optional published sort form for the track artist; null when not explicitly available |
+| `publisher` | explicit track-level publisher text for item-level publisher search/display; inherits feed publisher in v1 until a strict item-level namespace field exists |
 | `image_url` | explicit track artwork URL when the item publishes art distinct from the feed |
 | `language` | explicit track language field so item language can differ from and otherwise inherit from the feed |
 

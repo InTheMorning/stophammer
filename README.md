@@ -36,6 +36,7 @@ Publisher handling is intentionally strict:
 - `publisher` means publisher by default
 - non-Wavlake publisher text is only promoted from `podcast:remoteItem` links when the publisher/music relation is reciprocal
 - Wavlake is a narrow compatibility exception where the linked publisher feed may supply artist text for the music feed while the stored publisher remains `"Wavlake"`
+- track rows inherit that same publisher truth in `tracks.publisher`
 
 ## Architecture
 

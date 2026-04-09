@@ -208,6 +208,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0025_source_first_feed_track_fields.sql"),
     // Migration 26: drop retired canonical release/recording tables and rebuild delete triggers.
     include_str!("../migrations/0026_drop_canonical_release_recording_tables.sql"),
+    // Migration 27: add source-first track publisher text.
+    include_str!("../migrations/0027_add_track_publisher_text.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1112,9 +1114,9 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
 pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-         duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
+         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
          explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
          ON CONFLICT(track_guid) DO UPDATE SET \
            feed_guid        = excluded.feed_guid, \
            artist_credit_id = excluded.artist_credit_id, \
@@ -1123,6 +1125,7 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
            pub_date         = excluded.pub_date, \
            duration_secs    = excluded.duration_secs, \
            image_url        = excluded.image_url, \
+           publisher        = excluded.publisher, \
            language         = excluded.language, \
            enclosure_url    = excluded.enclosure_url, \
            enclosure_type   = excluded.enclosure_type, \
@@ -1143,6 +1146,7 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
             track.pub_date,
             track.duration_secs,
             track.image_url,
+            track.publisher,
             track.language,
             track.enclosure_url,
             track.enclosure_type,
@@ -2789,12 +2793,12 @@ pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<T
     let result = conn
         .query_row(
             "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-         duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE track_guid = ?1",
             params![track_guid],
             |row| {
-                let explicit_i: i64 = row.get(14)?;
+                let explicit_i: i64 = row.get(15)?;
                 Ok(Track {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,
@@ -2804,18 +2808,19 @@ pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<T
                     pub_date: row.get(5)?,
                     duration_secs: row.get(6)?,
                     image_url: row.get(7)?,
-                    language: row.get(8)?,
-                    enclosure_url: row.get(9)?,
-                    enclosure_type: row.get(10)?,
-                    enclosure_bytes: row.get(11)?,
-                    track_number: row.get(12)?,
-                    season: row.get(13)?,
+                    publisher: row.get(8)?,
+                    language: row.get(9)?,
+                    enclosure_url: row.get(10)?,
+                    enclosure_type: row.get(11)?,
+                    enclosure_bytes: row.get(12)?,
+                    track_number: row.get(13)?,
+                    season: row.get(14)?,
                     explicit: explicit_i != 0,
-                    description: row.get(15)?,
-                    track_artist: row.get(16)?,
-                    track_artist_sort: row.get(17)?,
-                    created_at: row.get(18)?,
-                    updated_at: row.get(19)?,
+                    description: row.get(16)?,
+                    track_artist: row.get(17)?,
+                    track_artist_sort: row.get(18)?,
+                    created_at: row.get(19)?,
+                    updated_at: row.get(20)?,
                 })
             },
         )
@@ -2834,13 +2839,13 @@ pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<T
 pub fn get_tracks_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec<Track>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-         duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE feed_guid = ?1",
     )?;
 
     let rows = stmt.query_map(params![feed_guid], |row| {
-        let explicit_i: i64 = row.get(14)?;
+        let explicit_i: i64 = row.get(15)?;
         Ok(Track {
             track_guid: row.get(0)?,
             feed_guid: row.get(1)?,
@@ -2850,18 +2855,19 @@ pub fn get_tracks_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec<Tra
             pub_date: row.get(5)?,
             duration_secs: row.get(6)?,
             image_url: row.get(7)?,
-            language: row.get(8)?,
-            enclosure_url: row.get(9)?,
-            enclosure_type: row.get(10)?,
-            enclosure_bytes: row.get(11)?,
-            track_number: row.get(12)?,
-            season: row.get(13)?,
+            publisher: row.get(8)?,
+            language: row.get(9)?,
+            enclosure_url: row.get(10)?,
+            enclosure_type: row.get(11)?,
+            enclosure_bytes: row.get(12)?,
+            track_number: row.get(13)?,
+            season: row.get(14)?,
             explicit: explicit_i != 0,
-            description: row.get(15)?,
-            track_artist: row.get(16)?,
-            track_artist_sort: row.get(17)?,
-            created_at: row.get(18)?,
-            updated_at: row.get(19)?,
+            description: row.get(16)?,
+            track_artist: row.get(17)?,
+            track_artist_sort: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
         })
     })?;
 
@@ -2946,6 +2952,7 @@ fn track_fields_changed(existing: &Track, new: &Track) -> bool {
         || existing.season != new.season
         || existing.explicit != new.explicit
         || existing.description != new.description
+        || existing.publisher != new.publisher
         || existing.track_artist != new.track_artist
         || existing.track_artist_sort != new.track_artist_sort
 }
@@ -4661,9 +4668,9 @@ pub fn ingest_transaction(
     for (track, routes, splits) in &tracks {
         tx.execute(
             "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-             duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
+             duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
              explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
              ON CONFLICT(track_guid) DO UPDATE SET \
                feed_guid        = excluded.feed_guid, \
                artist_credit_id = excluded.artist_credit_id, \
@@ -4672,6 +4679,7 @@ pub fn ingest_transaction(
                pub_date         = excluded.pub_date, \
                duration_secs    = excluded.duration_secs, \
                image_url        = excluded.image_url, \
+               publisher        = excluded.publisher, \
                language         = excluded.language, \
                enclosure_url    = excluded.enclosure_url, \
                enclosure_type   = excluded.enclosure_type, \
@@ -4692,6 +4700,7 @@ pub fn ingest_transaction(
                 track.pub_date,
                 track.duration_secs,
                 track.image_url,
+                track.publisher,
                 track.language,
                 track.enclosure_url,
                 track.enclosure_type,
@@ -5031,7 +5040,7 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
 pub fn get_track(conn: &Connection, track_guid: &str) -> Result<Option<Track>, DbError> {
     conn.query_row(
         "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-         duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE track_guid = ?1",
         params![track_guid],
@@ -5045,18 +5054,19 @@ pub fn get_track(conn: &Connection, track_guid: &str) -> Result<Option<Track>, D
                 pub_date: row.get(5)?,
                 duration_secs: row.get(6)?,
                 image_url: row.get(7)?,
-                language: row.get(8)?,
-                enclosure_url: row.get(9)?,
-                enclosure_type: row.get(10)?,
-                enclosure_bytes: row.get(11)?,
-                track_number: row.get(12)?,
-                season: row.get(13)?,
-                explicit: row.get::<_, i64>(14)? != 0,
-                description: row.get(15)?,
-                track_artist: row.get(16)?,
-                track_artist_sort: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
+                publisher: row.get(8)?,
+                language: row.get(9)?,
+                enclosure_url: row.get(10)?,
+                enclosure_type: row.get(11)?,
+                enclosure_bytes: row.get(12)?,
+                track_number: row.get(13)?,
+                season: row.get(14)?,
+                explicit: row.get::<_, i64>(15)? != 0,
+                description: row.get(16)?,
+                track_artist: row.get(17)?,
+                track_artist_sort: row.get(18)?,
+                created_at: row.get(19)?,
+                updated_at: row.get(20)?,
             })
         },
     )

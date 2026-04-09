@@ -666,6 +666,7 @@ Returns a single track by its `track_guid`.
     "track_guid": "uuid",
     "feed_guid": "uuid",
     "title": "Track Title",
+    "publisher_text": "Wavlake",
     "track_artist": "Artist Name",
     "track_artist_sort": null,
     "pub_date": 1710288000,
@@ -844,6 +845,14 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   }
 }
 ```
+
+`publisher_text` on track reads is source-first publisher text. In v1 it
+inherits the resolved feed publisher:
+
+- Wavlake tracks store `"Wavlake"` even when linked publisher metadata also
+  supplies artist fallback text
+- non-Wavlake tracks only store linked publisher text after a reciprocal
+  `publisher` <-> `music` remote-item pair is present on the parent feed
 
 ---
 

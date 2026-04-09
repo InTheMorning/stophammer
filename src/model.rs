@@ -105,6 +105,7 @@ pub struct Track {
     pub track_number: Option<i64>,
     pub season: Option<i64>,
     pub image_url: Option<String>,
+    pub publisher: Option<String>,
     pub language: Option<String>,
     pub explicit: bool,
     pub description: Option<String>,

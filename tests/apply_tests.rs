@@ -1541,6 +1541,7 @@ fn make_track_upserted_event(
         track_number,
         season: None,
         image_url: None,
+        publisher: None,
         language: None,
         explicit: false,
         description: None,

@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     pub_date         INTEGER,
     duration_secs    INTEGER,
     image_url        TEXT,
+    publisher        TEXT,
     language         TEXT,
     enclosure_url    TEXT,
     enclosure_type   TEXT,

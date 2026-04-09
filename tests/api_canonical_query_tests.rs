@@ -210,6 +210,7 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
         .expect("track response");
     assert_eq!(track_resp.status(), 200);
     let track_json = body_json(track_resp).await;
+    assert_eq!(track_json["data"]["publisher_text"], "Wavlake");
     assert_eq!(track_json["data"]["track_artist"], "Canonical Query Artist");
     assert_eq!(
         track_json["data"]["source_links"][0]["link_type"],
@@ -638,7 +639,26 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
             "entity_ids": [],
             "links": [],
             "feed_payment_routes": [],
-            "tracks": []
+            "tracks": [{
+                "track_guid": "track-remoteitem-child",
+                "title": "Remote Item Song",
+                "pub_date": 1700000200,
+                "duration_secs": 181,
+                "enclosure_url": "https://cdn.example.com/remote-item-song.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 7654321,
+                "alternate_enclosures": [],
+                "track_number": 1,
+                "season": null,
+                "explicit": false,
+                "description": null,
+                "author_name": null,
+                "persons": [],
+                "entity_ids": [],
+                "links": [],
+                "payment_routes": [],
+                "value_time_splits": []
+            }]
         }
     });
 
@@ -677,7 +697,26 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
             "entity_ids": [],
             "links": [],
             "feed_payment_routes": [],
-            "tracks": []
+            "tracks": [{
+                "track_guid": "track-remoteitem-child",
+                "title": "Remote Item Song",
+                "pub_date": 1700000200,
+                "duration_secs": 181,
+                "enclosure_url": "https://cdn.example.com/remote-item-song.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 7654321,
+                "alternate_enclosures": [],
+                "track_number": 1,
+                "season": null,
+                "explicit": false,
+                "description": null,
+                "author_name": null,
+                "persons": [],
+                "entity_ids": [],
+                "links": [],
+                "payment_routes": [],
+                "value_time_splits": []
+            }]
         }
     });
 
@@ -689,6 +728,7 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
     assert_eq!(child_resp.status(), 200);
 
     let child_feed_resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .method("GET")
@@ -717,6 +757,27 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
     assert_eq!(
         child_feed_json["data"]["publisher"][0]["two_way_validated"],
         true
+    );
+
+    let child_track_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/tracks/track-remoteitem-child")
+                .body(Body::empty())
+                .expect("child track request"),
+        )
+        .await
+        .expect("child track response");
+    assert_eq!(child_track_resp.status(), 200);
+    let child_track_json = body_json(child_track_resp).await;
+    assert_eq!(
+        child_track_json["data"]["publisher_text"],
+        "Indie Collective"
+    );
+    assert_eq!(
+        child_track_json["data"]["track_artist"],
+        "Remote Item Artist"
     );
 }
 

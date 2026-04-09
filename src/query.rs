@@ -175,6 +175,7 @@ struct TrackResponse {
     track_guid: String,
     feed_guid: String,
     title: String,
+    publisher_text: Option<String>,
     track_artist: Option<String>,
     track_artist_sort: Option<String>,
     pub_date: Option<i64>,
@@ -328,6 +329,7 @@ struct TrackRow {
     track_guid: String,
     feed_guid: String,
     title: String,
+    publisher_text: Option<String>,
     track_artist: Option<String>,
     track_artist_sort: Option<String>,
     pub_date: Option<i64>,
@@ -584,6 +586,7 @@ fn build_track_response(
         track_guid: row.track_guid,
         feed_guid: row.feed_guid,
         title: row.title,
+        publisher_text: row.publisher_text,
         track_artist: row.track_artist,
         track_artist_sort: row.track_artist_sort,
         pub_date: row.pub_date,
@@ -927,7 +930,7 @@ async fn handle_get_track(
 
         let row = conn
             .query_row(
-                "SELECT track_guid, feed_guid, title, track_artist, track_artist_sort, \
+                "SELECT track_guid, feed_guid, title, publisher, track_artist, track_artist_sort, \
              pub_date, duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, \
              track_number, season, explicit, description, created_at, updated_at \
              FROM tracks WHERE track_guid = ?1",
@@ -937,20 +940,21 @@ async fn handle_get_track(
                         track_guid: row.get(0)?,
                         feed_guid: row.get(1)?,
                         title: row.get(2)?,
-                        track_artist: row.get(3)?,
-                        track_artist_sort: row.get(4)?,
-                        pub_date: row.get(5)?,
-                        duration_secs: row.get(6)?,
-                        image_url: row.get(7)?,
-                        language: row.get(8)?,
-                        enclosure_url: row.get(9)?,
-                        enclosure_type: row.get(10)?,
-                        enclosure_bytes: row.get(11)?,
-                        track_number: row.get(12)?,
-                        explicit_int: row.get(14)?,
-                        description: row.get(15)?,
-                        created_at: row.get(16)?,
-                        updated_at: row.get(17)?,
+                        publisher_text: row.get(3)?,
+                        track_artist: row.get(4)?,
+                        track_artist_sort: row.get(5)?,
+                        pub_date: row.get(6)?,
+                        duration_secs: row.get(7)?,
+                        image_url: row.get(8)?,
+                        language: row.get(9)?,
+                        enclosure_url: row.get(10)?,
+                        enclosure_type: row.get(11)?,
+                        enclosure_bytes: row.get(12)?,
+                        track_number: row.get(13)?,
+                        explicit_int: row.get(15)?,
+                        description: row.get(16)?,
+                        created_at: row.get(17)?,
+                        updated_at: row.get(18)?,
                     })
                 },
             )
