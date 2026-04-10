@@ -1165,6 +1165,7 @@ async fn handle_search(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let q = params.q.clone();
     let kind = params.kind.clone();
+    tracing::info!(q = ?q, kind = ?kind, "search query received");
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
 

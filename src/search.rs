@@ -267,7 +267,9 @@ pub fn search(
 ) -> Result<Vec<SearchResult>, DbError> {
     // Issue-21 FTS5 sanitize — 2026-03-13
     let safe_query = sanitize_fts5_query(query);
+    tracing::info!(original_query = ?query, safe_query = ?safe_query, entity_type_filter = ?entity_type_filter, "search called");
     if safe_query.trim().is_empty() {
+        tracing::warn!("search query is empty after sanitization");
         return Ok(Vec::new());
     }
 

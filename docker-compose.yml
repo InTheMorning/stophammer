@@ -78,6 +78,40 @@ services:
       podping:
         condition: service_started
 
+  import-wavlake:
+    profiles: ["tools"]
+    image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
+    command:
+      - /bin/sh
+      - -lc
+      - >
+        set -- stophammer-crawler import
+        --db "$${PODCASTINDEX_DB:-/data/podcastindex_feeds.db}"
+        --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
+        if [ -n "$${PODCASTINDEX_DB_URL:-}" ]; then set -- "$$@" --db-url "$$PODCASTINDEX_DB_URL"; fi;
+        if [ "$${IMPORT_REFRESH_DB:-0}" = "1" ]; then set -- "$$@" --refresh-db; fi;
+        if [ -n "$${CONCURRENCY:-}" ]; then set -- "$$@" --concurrency "$$CONCURRENCY"; fi;
+        if [ -n "$${IMPORT_BATCH:-}" ]; then set -- "$$@" --batch "$$IMPORT_BATCH"; fi;
+        if [ -n "$${IMPORT_CURSOR:-}" ]; then set -- "$$@" --cursor "$$IMPORT_CURSOR"; fi;
+        if [ -n "$${IMPORT_AUDIT_OUTPUT:-}" ]; then set -- "$$@" --audit-output "$$IMPORT_AUDIT_OUTPUT"; fi;
+        if [ "$${IMPORT_AUDIT_REPLACE:-0}" = "1" ]; then set -- "$$@" --audit-replace; fi;
+        if [ "$${IMPORT_SKIP_KNOWN_NON_MUSIC:-0}" = "1" ]; then set -- "$$@" --skip-known-non-music; fi;
+        if [ "$${IMPORT_SKIP_KNOWN_SUCCESS:-0}" = "1" ]; then set -- "$$@" --skip-known-success; fi;
+        set -- "$$@" --wavlake-only;
+        if [ "$${IMPORT_DRY_RUN:-0}" = "1" ]; then set -- "$$@" --dry-run; fi;
+        exec "$@"
+    restart: "no"
+    env_file:
+      - ./packaging/env/crawler-import-wavlake.compose.env
+    volumes:
+      - crawler-data:/data
+    depends_on:
+      crawler-init:
+        condition: service_completed_successfully
+      primary:
+        condition: service_healthy
+
   import:
     profiles: ["tools"]
     image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
