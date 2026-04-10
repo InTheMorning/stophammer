@@ -23,7 +23,7 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --bins --recipe-path recipe.json
 
 COPY . .
-RUN cargo build --release --bin stophammer
+RUN cargo build --release --bin stophammer --bin rebuild_search
 
 # ── Runtime ────────────────────────────────────────────────────────────────────
 
@@ -37,6 +37,7 @@ RUN apk add --no-cache ca-certificates \
 
 WORKDIR /data
 COPY --from=builder /build/target/release/stophammer /usr/local/bin/stophammer
+COPY --from=builder /build/target/release/rebuild_search /usr/local/bin/rebuild_search
 
 USER stophammer
 
