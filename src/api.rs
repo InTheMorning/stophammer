@@ -1632,7 +1632,7 @@ async fn handle_ingest_feed(
             itunes_type: feed_data.itunes_type.clone(),
             release_artist: Some(artist_name.clone()),
             release_artist_sort: None,
-            release_date: feed_data.pub_date,
+            release_date: feed_data.pub_date.or(oldest_item_at),
             release_kind: Some("unknown".to_string()),
             #[expect(
                 clippy::cast_possible_wrap,
@@ -1701,14 +1701,19 @@ async fn handle_ingest_feed(
             &feed_data.links,
             now,
         );
+        let effective_release_date = feed_data.pub_date.or(oldest_item_at);
         push_source_release_claim(
             &mut source_release_claims,
             &feed_data.feed_guid,
             "feed",
             &feed_data.feed_guid,
             "release_date",
-            feed_data.pub_date.map(|v| v.to_string()),
-            "feed.pub_date",
+            effective_release_date.map(|v| v.to_string()),
+            if feed_data.pub_date.is_some() {
+                "feed.pub_date"
+            } else {
+                "oldest_item.pub_date"
+            },
             now,
         );
         push_source_release_claim(

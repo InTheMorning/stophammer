@@ -112,6 +112,12 @@ pub struct SearchQuery {
     cursor: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PublisherSearchQuery {
+    q: Option<String>,
+    limit: Option<i64>,
+}
+
 // ── Serializable types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -129,6 +135,9 @@ struct FeedResponse {
     publisher_text: Option<String>,
     language: Option<String>,
     explicit: bool,
+    episode_count: Option<i64>,
+    newest_item_at: Option<i64>,
+    oldest_item_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -157,6 +166,8 @@ struct TrackSummary {
     title: String,
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
+    image_url: Option<String>,
+    track_number: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -190,6 +201,7 @@ struct TrackResponse {
     description: Option<String>,
     created_at: i64,
     updated_at: i64,
+    feed_title: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -204,6 +216,40 @@ struct TrackResponse {
     source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_enclosures: Option<Vec<SourceItemEnclosureResponse>>,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherSearchItem {
+    publisher_text: String,
+    feed_count: i64,
+    track_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherFeedSummary {
+    feed_guid: String,
+    feed_url: String,
+    title: String,
+    image_url: Option<String>,
+    episode_count: Option<i64>,
+    raw_medium: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherTrackSummary {
+    track_guid: String,
+    feed_guid: String,
+    title: String,
+    image_url: Option<String>,
+    duration_secs: Option<i64>,
+    track_number: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct PublisherDetailResponse {
+    publisher_text: String,
+    feeds: Vec<PublisherFeedSummary>,
+    tracks: Vec<PublisherTrackSummary>,
 }
 
 #[derive(Debug, Serialize)]
@@ -344,6 +390,7 @@ struct TrackRow {
     description: Option<String>,
     created_at: i64,
     updated_at: i64,
+    feed_title: String,
 }
 
 /// Intermediate row type for feed queries to avoid complex tuple types.
@@ -361,7 +408,9 @@ struct FeedRow {
     publisher_text: Option<String>,
     language: Option<String>,
     explicit_int: i64,
+    episode_count: Option<i64>,
     newest_item_at: Option<i64>,
+    oldest_item_at: Option<i64>,
     created_at: i64,
     updated_at: i64,
 }
@@ -408,7 +457,9 @@ async fn handle_get_feed(
                         publisher_text: row.get(10)?,
                         language: row.get(11)?,
                         explicit_int: row.get(12)?,
+                        episode_count: row.get(13)?,
                         newest_item_at: row.get(14)?,
+                        oldest_item_at: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
                     })
@@ -462,6 +513,9 @@ fn build_feed_response(
         publisher_text: row.publisher_text,
         language: row.language,
         explicit: row.explicit_int != 0,
+        episode_count: row.episode_count,
+        newest_item_at: row.newest_item_at,
+        oldest_item_at: row.oldest_item_at,
         created_at: row.created_at,
         updated_at: row.updated_at,
         tracks: None,
@@ -477,8 +531,8 @@ fn build_feed_response(
 
     if params.includes("tracks") {
         let mut stmt = conn.prepare(
-            "SELECT track_guid, title, pub_date, duration_secs \
-             FROM tracks WHERE feed_guid = ?1 ORDER BY pub_date DESC",
+            "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number \
+             FROM tracks WHERE feed_guid = ?1 ORDER BY track_number ASC, pub_date DESC",
         )?;
         let tracks: Vec<TrackSummary> = stmt
             .query_map(params![feed_guid], |row| {
@@ -487,6 +541,8 @@ fn build_feed_response(
                     title: row.get(1)?,
                     pub_date: row.get(2)?,
                     duration_secs: row.get(3)?,
+                    image_url: row.get(4)?,
+                    track_number: row.get(5)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -601,6 +657,7 @@ fn build_track_response(
         description: row.description,
         created_at: row.created_at,
         updated_at: row.updated_at,
+        feed_title: row.feed_title,
         payment_routes: None,
         value_time_splits: None,
         source_links: None,
@@ -930,10 +987,12 @@ async fn handle_get_track(
 
         let row = conn
             .query_row(
-                "SELECT track_guid, feed_guid, title, publisher, track_artist, track_artist_sort, \
-             pub_date, duration_secs, image_url, language, enclosure_url, enclosure_type, enclosure_bytes, \
-             track_number, season, explicit, description, created_at, updated_at \
-             FROM tracks WHERE track_guid = ?1",
+                "SELECT t.track_guid, t.feed_guid, t.title, t.publisher, t.track_artist, t.track_artist_sort, \
+             t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
+             t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
+             t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, '') \
+             FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+             WHERE t.track_guid = ?1",
                 params![track_guid],
                 |row| {
                     Ok(TrackRow {
@@ -955,6 +1014,7 @@ async fn handle_get_track(
                         description: row.get(16)?,
                         created_at: row.get(17)?,
                         updated_at: row.get(18)?,
+                        feed_title: row.get(19)?,
                     })
                 },
             )
@@ -1051,7 +1111,9 @@ async fn handle_get_recent_feeds(
                         publisher_text: row.get(10)?,
                         language: row.get(11)?,
                         explicit_int: row.get(12)?,
+                        episode_count: row.get(13)?,
                         newest_item_at: row.get(14)?,
+                        oldest_item_at: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
                     })
@@ -1084,7 +1146,9 @@ async fn handle_get_recent_feeds(
                     publisher_text: row.get(10)?,
                     language: row.get(11)?,
                     explicit_int: row.get(12)?,
+                    episode_count: row.get(13)?,
                     newest_item_at: row.get(14)?,
+                    oldest_item_at: row.get(15)?,
                     created_at: row.get(16)?,
                     updated_at: row.get(17)?,
                 })
@@ -1123,6 +1187,9 @@ async fn handle_get_recent_feeds(
                 publisher_text: r.publisher_text,
                 language: r.language,
                 explicit: r.explicit_int != 0,
+                episode_count: r.episode_count,
+                newest_item_at: r.newest_item_at,
+                oldest_item_at: r.oldest_item_at,
                 created_at: r.created_at,
                 updated_at: r.updated_at,
                 tracks: None,
@@ -1564,6 +1631,133 @@ async fn handle_get_wallet(
     Ok(Json(result))
 }
 
+// ── GET /v1/publishers ────────────────────────────────────────────────────────
+
+async fn handle_publisher_search(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<PublisherSearchQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let q = params.q.unwrap_or_default();
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+        let mut stmt = conn.prepare(
+            "SELECT publisher, COUNT(*) as feed_count \
+             FROM feeds \
+             WHERE publisher IS NOT NULL AND publisher != '' \
+               AND (publisher LIKE ?1 ESCAPE '\\' OR ?1 = '%') \
+             GROUP BY publisher \
+             ORDER BY feed_count DESC, publisher ASC \
+             LIMIT ?2",
+        )?;
+        let items: Vec<PublisherSearchItem> = stmt
+            .query_map(params![pattern, limit], |row| {
+                let publisher_text: String = row.get(0)?;
+                let feed_count: i64 = row.get(1)?;
+                Ok((publisher_text, feed_count))
+            })?
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .map(|(publisher_text, feed_count)| {
+                // Count tracks for this publisher
+                let track_count: i64 = conn
+                    .query_row(
+                        "SELECT COUNT(*) FROM tracks WHERE publisher = ?1",
+                        params![publisher_text],
+                        |row| row.get(0),
+                    )
+                    .unwrap_or(0);
+                PublisherSearchItem { publisher_text, feed_count, track_count }
+            })
+            .collect();
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: items,
+            pagination: Pagination { cursor: None, has_more: false },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+    Ok(Json(result))
+}
+
+// ── GET /v1/publishers/{publisher} ────────────────────────────────────────────
+
+async fn handle_publisher_detail(
+    State(state): State<Arc<api::AppState>>,
+    Path(publisher): Path<String>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+
+        let mut fstmt = conn.prepare(
+            "SELECT feed_guid, feed_url, title, image_url, episode_count, raw_medium \
+             FROM feeds WHERE publisher = ?1 ORDER BY newest_item_at DESC LIMIT ?2",
+        )?;
+        let feeds: Vec<PublisherFeedSummary> = fstmt
+            .query_map(params![publisher, limit], |row| {
+                Ok(PublisherFeedSummary {
+                    feed_guid: row.get(0)?,
+                    feed_url: row.get(1)?,
+                    title: row.get(2)?,
+                    image_url: row.get(3)?,
+                    episode_count: row.get(4)?,
+                    raw_medium: row.get(5)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+
+        let mut tstmt = conn.prepare(
+            "SELECT track_guid, feed_guid, title, COALESCE(t.image_url, f.image_url), \
+             duration_secs, track_number \
+             FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+             WHERE t.publisher = ?1 ORDER BY t.pub_date DESC LIMIT ?2",
+        )?;
+        let tracks: Vec<PublisherTrackSummary> = tstmt
+            .query_map(params![publisher, limit], |row| {
+                Ok(PublisherTrackSummary {
+                    track_guid: row.get(0)?,
+                    feed_guid: row.get(1)?,
+                    title: row.get(2)?,
+                    image_url: row.get(3)?,
+                    duration_secs: row.get(4)?,
+                    track_number: row.get(5)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: PublisherDetailResponse { publisher_text: publisher, feeds, tracks },
+            pagination: Pagination { cursor: None, has_more: false },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+    Ok(Json(result))
+}
+
 // ── Router builder ──────────────────────────────────────────────────────────
 
 use axum::routing::get;
@@ -1577,4 +1771,6 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/search", get(handle_search))
         .route("/v1/node/capabilities", get(handle_capabilities))
         .route("/v1/peers", get(handle_get_peers))
+        .route("/v1/publishers", get(handle_publisher_search))
+        .route("/v1/publishers/{publisher}", get(handle_publisher_detail))
 }
