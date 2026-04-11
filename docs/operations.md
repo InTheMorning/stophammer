@@ -169,7 +169,7 @@ Tagged releases also attach the Arch split packages and an
 The compose file intentionally uses runnable sample env files:
 
 - [primary.compose.env.example](../packaging/env/primary.compose.env.example)
-- [podping.compose.env.example](../packaging/env/podping.compose.env.example)
+- [podping-listener.compose.env.example](../packaging/env/podping-listener.compose.env.example)
 - [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
 - [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
 
@@ -180,12 +180,24 @@ services that are not part of the default root stack:
 - [crawler-crawl.compose.env.example](../packaging/env/crawler-crawl.compose.env.example)
 
 Copy them into local ignored `*.compose.env` files before using the compose stack.
-The default stack now includes an in-network `podping` service based on
-`podping.alpha`'s `gossip-listener`, with a shared `podping-data` volume for
+The default stack now includes an in-network `podping-listener` service based on
+`podping.alpha`'s `gossip-listener`, with a shared `podping-listener-data` volume for
 the listener's node key, peer cache, `archive.db`, and the SSE stream that
-`gossip` consumes at `http://podping:8089/events`.
-One-shot `podping-init` and `crawler-init` services fix named-volume ownership
+`gossip` consumes at `http://podping-listener:8089/events`.
+One-shot `podping-listener-init` and `crawler-init` services fix named-volume ownership
 before the long-running non-root containers start.
+
+**One-shot stophammer-crawler service (ad-hoc feed crawl):**
+
+Run a single feed or set of feeds without defining a separate service:
+
+```bash
+docker compose run --rm stophammer-crawler feed https://example.com/feed.xml
+docker compose run --rm stophammer-crawler feed --force https://example.com/feed.xml
+```
+
+This uses the tools profile and `stophammer-crawler` service with `entrypoint: ["stophammer-crawler"]`.
+Both `CRAWL_TOKEN` and `INGEST_URL` must be set in `crawler-feed.compose.env`.
 
 Container runtime contract:
 
