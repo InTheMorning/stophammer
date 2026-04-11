@@ -168,6 +168,7 @@ struct TrackSummary {
     duration_secs: Option<i64>,
     image_url: Option<String>,
     track_number: Option<i64>,
+    publisher_text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -202,6 +203,7 @@ struct TrackResponse {
     created_at: i64,
     updated_at: i64,
     feed_title: String,
+    release_artist: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -391,6 +393,7 @@ struct TrackRow {
     created_at: i64,
     updated_at: i64,
     feed_title: String,
+    release_artist: Option<String>,
 }
 
 /// Intermediate row type for feed queries to avoid complex tuple types.
@@ -531,7 +534,7 @@ fn build_feed_response(
 
     if params.includes("tracks") {
         let mut stmt = conn.prepare(
-            "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number \
+            "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number, publisher \
              FROM tracks WHERE feed_guid = ?1 ORDER BY track_number ASC, pub_date DESC",
         )?;
         let tracks: Vec<TrackSummary> = stmt
@@ -543,6 +546,7 @@ fn build_feed_response(
                     duration_secs: row.get(3)?,
                     image_url: row.get(4)?,
                     track_number: row.get(5)?,
+                    publisher_text: row.get(6)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -658,6 +662,7 @@ fn build_track_response(
         created_at: row.created_at,
         updated_at: row.updated_at,
         feed_title: row.feed_title,
+        release_artist: row.release_artist,
         payment_routes: None,
         value_time_splits: None,
         source_links: None,
@@ -990,7 +995,8 @@ async fn handle_get_track(
                 "SELECT t.track_guid, t.feed_guid, t.title, t.publisher, t.track_artist, t.track_artist_sort, \
              t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
              t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
-             t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, '') \
+             t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
+             f.release_artist \
              FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
              WHERE t.track_guid = ?1",
                 params![track_guid],
@@ -1015,6 +1021,7 @@ async fn handle_get_track(
                         created_at: row.get(17)?,
                         updated_at: row.get(18)?,
                         feed_title: row.get(19)?,
+                        release_artist: row.get(20)?,
                     })
                 },
             )
