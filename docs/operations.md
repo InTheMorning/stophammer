@@ -194,6 +194,9 @@ Run a single feed or set of feeds without defining a separate service:
 ```bash
 docker compose run --rm stophammer-crawler feed https://example.com/feed.xml
 docker compose run --rm stophammer-crawler feed --force https://example.com/feed.xml
+
+# Replay NDJSON corpus without re-fetching
+docker compose run --rm stophammer-crawler ndjson --input /data/feed_audit.ndjson
 ```
 
 This uses the tools profile and `stophammer-crawler` service with `entrypoint: ["stophammer-crawler"]`.
