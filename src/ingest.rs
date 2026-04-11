@@ -27,6 +27,9 @@ pub struct IngestFeedRequest {
     pub http_status: u16,
     pub content_hash: String,
     pub feed_data: Option<IngestFeedData>,
+    /// When true, skip the content-hash dedup check and re-ingest unconditionally.
+    #[serde(default)]
+    pub force_reingest: bool,
 }
 
 /// Parsed feed content supplied by the crawler when the fetch succeeded.

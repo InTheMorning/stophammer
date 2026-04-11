@@ -27,6 +27,10 @@ impl Verifier for ContentHashVerifier {
     }
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
+        if ctx.request.force_reingest {
+            return VerifyResult::Pass;
+        }
+
         let last_hash: Option<String> = ctx
             .db
             .query_row(

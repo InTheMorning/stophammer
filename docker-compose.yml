@@ -1,13 +1,13 @@
 name: stophammer
 
 services:
-  podping-init:
+  podping-listener-init:
     image: alpine:3.20
     user: "0:0"
     command: ["sh", "-lc", "mkdir -p /data && chown -R 1000:1000 /data"]
     restart: "no"
     volumes:
-      - podping-data:/data
+      - podping-listener-data:/data
 
   primary:
     image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
@@ -28,32 +28,52 @@ services:
       retries: 12
       start_period: 10s
 
-  podping:
+  podping-listener:
     image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
     restart: unless-stopped
     env_file:
-      - ./packaging/env/podping.compose.env
+      - ./packaging/env/podping-listener.compose.env
     volumes:
-      - podping-data:/data
+      - podping-listener-data:/data
     depends_on:
-      podping-init:
+      podping-listener-init:
         condition: service_completed_successfully
 
   crawler-init:
-    image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
+    build:
+      context: ./stophammer-crawler
+      target: stophammer-crawler
     user: "0:0"
     command: ["sh", "-lc", "mkdir -p /data && chown -R stophammer-crawler:stophammer-crawler /data"]
     restart: "no"
     volumes:
       - crawler-data:/data
 
+  stophammer-crawler:
+    profiles: ["tools"]
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
+    entrypoint: ["stophammer-crawler"]
+    restart: "no"
+    env_file:
+      - ./packaging/env/crawler-feed.compose.env
+    volumes:
+      - crawler-data:/data
+    depends_on:
+      crawler-init:
+        condition: service_completed_successfully
+      primary:
+        condition: service_healthy
+
   gossip:
-    image: ${STOPHAMMER_GOSSIP_IMAGE:-stophammer-gossip}
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
       - /bin/sh
       - -lc
       - >
-        set -- stophammer-crawler gossip
+        set -- stophammer-crawler;
+        if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        set -- "$$@" gossip
         --state "$${GOSSIP_STATE_DB:-/data/gossip_state.db}"
         --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
         if [ -n "$${GOSSIP_SSE_URL:-}" ]; then set -- "$$@" --sse-url "$$GOSSIP_SSE_URL"; fi;
@@ -69,23 +89,25 @@ services:
       - ./packaging/env/crawler-gossip.compose.env
     volumes:
       - crawler-data:/data
-      - podping-data:/podping:ro
+      - podping-listener-data:/podping:ro
     depends_on:
       crawler-init:
         condition: service_completed_successfully
       primary:
         condition: service_healthy
-      podping:
+      podping-listener:
         condition: service_started
 
   import-wavlake:
     profiles: ["tools"]
-    image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
       - /bin/sh
       - -lc
       - >
-        set -- stophammer-crawler import
+        set -- stophammer-crawler;
+        if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        set -- "$$@" import
         --db "$${PODCASTINDEX_DB:-/data/podcastindex_feeds.db}"
         --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
         --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
@@ -114,12 +136,14 @@ services:
 
   import:
     profiles: ["tools"]
-    image: ${STOPHAMMER_IMPORT_IMAGE:-stophammer-gossip}
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
       - /bin/sh
       - -lc
       - >
-        set -- stophammer-crawler import
+        set -- stophammer-crawler;
+        if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        set -- "$$@" import
         --db "$${PODCASTINDEX_DB:-/data/podcastindex_feeds.db}"
         --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
         --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
@@ -149,4 +173,4 @@ services:
 volumes:
   primary-data:
   crawler-data:
-  podping-data:
+  podping-listener-data:
