@@ -20,6 +20,7 @@ fn sample_request() -> IngestFeedRequest {
         source_url: "https://example.com/feed.xml".into(),
         http_status: 200,
         content_hash: "hash-abc".into(),
+        force_reingest: false,
         feed_data: Some(IngestFeedData {
             feed_guid: "917393e3-1b1e-5f2c-a927-9e29e2d26b32".into(),
             title: "Test Feed".into(),

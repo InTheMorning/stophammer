@@ -558,6 +558,7 @@ fn crawl_token_verifier_pass() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -579,6 +580,7 @@ fn crawl_token_verifier_fail() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -604,6 +606,7 @@ fn content_hash_verifier_pass_new_hash() {
         source_url: String::new(),
         http_status: 200,
         content_hash: "newhash123".into(),
+        force_reingest: false,
         feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -634,6 +637,7 @@ fn content_hash_verifier_fail_unchanged() {
         source_url: String::new(),
         http_status: 200,
         content_hash: "samehash".into(),
+        force_reingest: false,
         feed_data: None,
     };
     let ctx = verifier_ctx(&req, &conn);
@@ -662,6 +666,7 @@ fn medium_music_verifier_pass() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-1".into(),
             title: "Test".into(),
@@ -700,6 +705,7 @@ fn medium_music_verifier_fail_podcast() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-2".into(),
             title: "Test".into(),
@@ -738,6 +744,7 @@ fn medium_music_verifier_fail_absent() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-3".into(),
             title: "Test".into(),
@@ -780,6 +787,7 @@ fn feed_guid_verifier_pass() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "917393e3-1b1e-5f2c-a927-9e29e2d26b32".into(),
             title: "Test".into(),
@@ -818,6 +826,7 @@ fn feed_guid_verifier_fail_bad_guid() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "c9c7bad3-4712-514e-9ebd-d1e208fa1b76".into(),
             title: "Test".into(),
@@ -856,6 +865,7 @@ fn feed_guid_verifier_fail_invalid_uuid() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "not-a-valid-uuid".into(),
             title: "Test".into(),
@@ -899,6 +909,7 @@ fn v4v_payment_verifier_pass() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-v4v".into(),
             title: "Test".into(),
@@ -945,6 +956,7 @@ fn v4v_payment_verifier_fail_no_routes() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-v4v-fail".into(),
             title: "Test".into(),
@@ -987,6 +999,7 @@ fn enclosure_type_verifier_pass_audio() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-enc".into(),
             title: "Test".into(),
@@ -1046,6 +1059,7 @@ fn enclosure_type_verifier_warn_video() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-enc-vid".into(),
             title: "Test".into(),
@@ -1110,6 +1124,7 @@ fn payment_route_sum_verifier_pass() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-prs".into(),
             title: "Test".into(),
@@ -1189,6 +1204,7 @@ fn payment_route_sum_verifier_fail_not_100() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-prs-fail".into(),
             title: "Test".into(),
@@ -1544,6 +1560,7 @@ fn medium_music_verifier_pass_publisher_with_music_children() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-pub".into(),
             title: "Test Publisher".into(),
@@ -1591,6 +1608,7 @@ fn medium_music_verifier_rejects_publisher_no_music_children() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-pub-empty".into(),
             title: "Empty Publisher".into(),
@@ -1633,6 +1651,7 @@ fn medium_music_verifier_accepts_musicl() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-musicl".into(),
             title: "Playlist Feed".into(),
@@ -1675,6 +1694,7 @@ fn v4v_payment_verifier_pass_publisher_no_routes() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-pub-v4v".into(),
             title: "Test Publisher".into(),
@@ -1716,6 +1736,7 @@ fn v4v_payment_verifier_pass_musicl_no_routes() {
         source_url: String::new(),
         http_status: 200,
         content_hash: String::new(),
+        force_reingest: false,
         feed_data: Some(stophammer::ingest::IngestFeedData {
             feed_guid: "guid-musicl-v4v".into(),
             title: "Playlist Feed".into(),

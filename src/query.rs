@@ -1680,12 +1680,19 @@ async fn handle_publisher_search(
                         |row| row.get(0),
                     )
                     .unwrap_or(0);
-                PublisherSearchItem { publisher_text, feed_count, track_count }
+                PublisherSearchItem {
+                    publisher_text,
+                    feed_count,
+                    track_count,
+                }
             })
             .collect();
         Ok::<_, api::ApiError>(QueryResponse {
             data: items,
-            pagination: Pagination { cursor: None, has_more: false },
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
             meta: meta(&state2),
         })
     })
@@ -1751,8 +1758,15 @@ async fn handle_publisher_detail(
             .collect::<Result<_, _>>()?;
 
         Ok::<_, api::ApiError>(QueryResponse {
-            data: PublisherDetailResponse { publisher_text: publisher, feeds, tracks },
-            pagination: Pagination { cursor: None, has_more: false },
+            data: PublisherDetailResponse {
+                publisher_text: publisher,
+                feeds,
+                tracks,
+            },
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
             meta: meta(&state2),
         })
     })

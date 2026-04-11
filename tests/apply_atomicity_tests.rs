@@ -359,7 +359,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed search query");
-    assert!(feed_search, "feed search index must be present after ingest");
+    assert!(
+        feed_search,
+        "feed search index must be present after ingest"
+    );
 
     // 3. Feed quality score is populated inline by ingest
     let feed_quality: bool = conn
@@ -369,7 +372,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("feed quality query");
-    assert!(feed_quality, "feed quality score must be present after ingest");
+    assert!(
+        feed_quality,
+        "feed quality score must be present after ingest"
+    );
 
     // 4. Track search index is populated inline by ingest
     let track_rowid = stophammer::search::rowid_for("track", track_guid);
@@ -380,7 +386,10 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
             |r| r.get(0),
         )
         .expect("track search query");
-    assert!(track_search, "track search index must be present after ingest");
+    assert!(
+        track_search,
+        "track search index must be present after ingest"
+    );
 
     // 5. Track quality score is populated inline by ingest
     let track_quality: bool = conn

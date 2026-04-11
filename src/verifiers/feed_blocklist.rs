@@ -99,6 +99,7 @@ mod tests {
             crawl_token: "token".into(),
             http_status: 200,
             content_hash: "hash".into(),
+            force_reingest: false,
             feed_data: Some(IngestFeedData {
                 feed_guid: feed_guid.into(),
                 title: "title".into(),

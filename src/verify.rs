@@ -397,6 +397,7 @@ mod tests {
             source_url: String::new(),
             http_status: 200,
             content_hash: String::new(),
+            force_reingest: false,
             feed_data: None,
         };
         let ctx = IngestContext {
@@ -420,6 +421,7 @@ mod tests {
             source_url: String::new(),
             http_status: 200,
             content_hash: String::new(),
+            force_reingest: false,
             feed_data: None,
         };
         let ctx = IngestContext {

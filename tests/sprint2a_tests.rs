@@ -436,6 +436,7 @@ fn content_hash_skip_returns_no_change_when_cached_hash_matches() {
         crawl_token: String::new(),
         http_status: 304,
         content_hash: hash.to_string(),
+        force_reingest: false,
         feed_data: None,
     };
 
@@ -483,6 +484,7 @@ fn content_hash_passes_when_hash_differs() {
         crawl_token: String::new(),
         http_status: 200,
         content_hash: "new-hash-value".to_string(),
+        force_reingest: false,
         feed_data: None,
     };
 
@@ -514,6 +516,7 @@ fn content_hash_passes_on_first_crawl() {
         crawl_token: String::new(),
         http_status: 200,
         content_hash: "first-hash".to_string(),
+        force_reingest: false,
         feed_data: None,
     };
 

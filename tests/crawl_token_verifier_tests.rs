@@ -81,6 +81,7 @@ fn make_req(token: &str) -> stophammer::ingest::IngestFeedRequest {
         crawl_token: token.into(),
         http_status: 200,
         content_hash: "abc123".into(),
+        force_reingest: false,
         feed_data: None,
     }
 }
