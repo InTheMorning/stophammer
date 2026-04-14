@@ -216,16 +216,19 @@ pub fn delete_from_search_index(
 /// Strips FTS5 special operators and syntax characters from user input to
 /// prevent malformed queries from causing parse errors.
 ///
-/// Removes: `"`, `(`, `)`, `*`, and the keywords `AND`, `OR`, `NOT`, `NEAR`.
+/// Removes: `"`, `(`, `)`, `*`, `-`, `^`, `{`, `}`, and the keywords
+/// `AND`, `OR`, `NOT`, `NEAR`.
 /// The result is safe to pass directly into an FTS5 `MATCH` clause as a
 /// simple implicit-AND token list.
 #[must_use]
 pub fn sanitize_fts5_query(input: &str) -> String {
     // Strip syntax characters.
+    // `-` is the FTS5 negation prefix operator; a bare `-` or `foo-bar`
+    // causes a parse error or unintended negation → HTTP 500.
     let cleaned: String = input
         .chars()
         .map(|c| match c {
-            '"' | '(' | ')' | '*' => ' ',
+            '"' | '(' | ')' | '*' | '-' | '^' | '{' | '}' => ' ',
             _ => c,
         })
         .collect();
