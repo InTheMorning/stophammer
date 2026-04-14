@@ -69,6 +69,7 @@ fn sample_request() -> IngestFeedRequest {
                 entity_ids: vec![],
                 links: vec![],
                 value_time_splits: vec![],
+                transcripts: vec![],
             }],
         }),
     }

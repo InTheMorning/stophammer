@@ -272,6 +272,22 @@ pub struct SourceItemEnclosure {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceItemTranscript {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub position: i64,
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub language: Option<String>,
+    pub rel: Option<String>,
+    pub source: String,
+    pub extraction_path: String,
+    pub observed_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourcePlatformClaim {
     pub id: Option<i64>,
     pub feed_guid: String,

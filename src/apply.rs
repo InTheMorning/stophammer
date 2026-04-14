@@ -142,6 +142,9 @@ fn apply_single_event_inner(
         event::EventPayload::SourceItemEnclosuresReplaced(p) => {
             db::replace_source_item_enclosures_for_feed(conn, &p.feed_guid, &p.enclosures)?;
         }
+        event::EventPayload::SourceItemTranscriptsReplaced(p) => {
+            db::replace_source_item_transcripts_for_feed(conn, &p.feed_guid, &p.transcripts)?;
+        }
         event::EventPayload::SourcePlatformClaimsReplaced(p) => {
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
         }

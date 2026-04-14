@@ -218,6 +218,8 @@ struct TrackResponse {
     source_release_claims: Option<Vec<SourceReleaseClaimResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_enclosures: Option<Vec<SourceItemEnclosureResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_transcripts: Option<Vec<SourceItemTranscriptResponse>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -327,6 +329,20 @@ struct SourcePlatformClaimResponse {
     platform_key: String,
     url: Option<String>,
     owner_name: Option<String>,
+    source: String,
+    extraction_path: String,
+    observed_at: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct SourceItemTranscriptResponse {
+    entity_type: String,
+    entity_id: String,
+    position: i64,
+    url: String,
+    mime_type: Option<String>,
+    language: Option<String>,
+    rel: Option<String>,
     source: String,
     extraction_path: String,
     observed_at: i64,
@@ -670,6 +686,7 @@ fn build_track_response(
         source_contributors: None,
         source_release_claims: None,
         source_enclosures: None,
+        source_transcripts: None,
     };
 
     if params.includes("payment_routes") {
@@ -781,6 +798,15 @@ fn build_track_response(
         );
     }
 
+    if params.includes("source_transcripts") {
+        resp.source_transcripts = Some(
+            db::get_source_item_transcripts_for_entity(conn, "track", &track_guid)?
+                .into_iter()
+                .map(transcript_response)
+                .collect(),
+        );
+    }
+
     Ok(resp)
 }
 
@@ -869,6 +895,21 @@ fn enclosure_response(enclosure: crate::model::SourceItemEnclosure) -> SourceIte
         source: enclosure.source,
         extraction_path: enclosure.extraction_path,
         observed_at: enclosure.observed_at,
+    }
+}
+
+fn transcript_response(t: crate::model::SourceItemTranscript) -> SourceItemTranscriptResponse {
+    SourceItemTranscriptResponse {
+        entity_type: t.entity_type,
+        entity_id: t.entity_id,
+        position: t.position,
+        url: t.url,
+        mime_type: t.mime_type,
+        language: t.language,
+        rel: t.rel,
+        source: t.source,
+        extraction_path: t.extraction_path,
+        observed_at: t.observed_at,
     }
 }
 
@@ -1418,6 +1459,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "source_contributors",
             "source_release_claims",
             "source_enclosures",
+            "source_transcripts",
         ],
     );
     Json(CapabilitiesResponse {

@@ -21,7 +21,8 @@ use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceItemEnclosure, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
+    SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
+    ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -210,6 +211,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0026_drop_canonical_release_recording_tables.sql"),
     // Migration 27: add source-first track publisher text.
     include_str!("../migrations/0027_add_track_publisher_text.sql"),
+    // Migration 28: add staged source item transcripts for podcast:transcript support.
+    include_str!("../migrations/0028_source_item_transcripts.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1186,7 +1189,7 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
         conn,
         "feed",
         &feed.feed_guid,
-        "",
+        feed.release_artist.as_deref().unwrap_or(""),
         &feed.title,
         feed.description.as_deref().unwrap_or(""),
         feed.raw_medium.as_deref().unwrap_or(""),
@@ -1199,7 +1202,7 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
             conn,
             "track",
             &track.track_guid,
-            "",
+            track.track_artist.as_deref().unwrap_or(""),
             &track.title,
             track.description.as_deref().unwrap_or(""),
             "",
@@ -1909,6 +1912,98 @@ pub fn replace_source_item_enclosures_for_feed(
     Ok(())
 }
 
+// ── source_item_transcripts ─────────────────────────────────────────────────
+
+/// Returns the staged item-transcript rows for a feed ordered by entity + position.
+pub fn get_source_item_transcripts_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<SourceItemTranscript>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, language, rel, \
+         source, extraction_path, observed_at \
+         FROM source_item_transcripts WHERE feed_guid = ?1 \
+         ORDER BY entity_type, entity_id, position, url, id",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok(SourceItemTranscript {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            language: row.get(7)?,
+            rel: row.get(8)?,
+            source: row.get(9)?,
+            extraction_path: row.get(10)?,
+            observed_at: row.get(11)?,
+        })
+    })?;
+
+    let mut transcripts = Vec::new();
+    for row in rows {
+        transcripts.push(row?);
+    }
+    Ok(transcripts)
+}
+
+#[must_use]
+pub fn dedupe_source_item_transcripts(
+    transcripts: &[SourceItemTranscript],
+) -> Vec<SourceItemTranscript> {
+    let mut seen = std::collections::BTreeSet::new();
+    let mut deduped = Vec::with_capacity(transcripts.len());
+    for transcript in transcripts {
+        let key = (
+            transcript.feed_guid.clone(),
+            transcript.entity_type.clone(),
+            transcript.entity_id.clone(),
+            transcript.position,
+            transcript.url.clone(),
+        );
+        if seen.insert(key) {
+            deduped.push(transcript.clone());
+        }
+    }
+    deduped
+}
+
+/// Replaces the staged item-transcript rows for a feed.
+pub fn replace_source_item_transcripts_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    transcripts: &[SourceItemTranscript],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM source_item_transcripts WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for transcript in dedupe_source_item_transcripts(transcripts) {
+        conn.execute(
+            "INSERT INTO source_item_transcripts \
+             (feed_guid, entity_type, entity_id, position, url, mime_type, language, rel, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                &transcript.feed_guid,
+                &transcript.entity_type,
+                &transcript.entity_id,
+                transcript.position,
+                &transcript.url,
+                &transcript.mime_type,
+                &transcript.language,
+                &transcript.rel,
+                &transcript.source,
+                &transcript.extraction_path,
+                transcript.observed_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── source_platform_claims ──────────────────────────────────────────────────
 
 /// Returns the staged platform claims for a feed.
@@ -2134,6 +2229,10 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
     conn.execute(
+        "DELETE FROM source_item_transcripts WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
         "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
@@ -2255,6 +2354,10 @@ pub fn delete_feed_with_event(
     )?;
     tx.execute(
         "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM source_item_transcripts WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
     tx.execute(
@@ -3123,6 +3226,26 @@ fn source_item_enclosures_changed(
         })
 }
 
+fn source_item_transcripts_changed(
+    existing: &[SourceItemTranscript],
+    new: &[SourceItemTranscript],
+) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.feed_guid != b.feed_guid
+                || a.entity_type != b.entity_type
+                || a.entity_id != b.entity_id
+                || a.position != b.position
+                || a.url != b.url
+                || a.mime_type != b.mime_type
+                || a.language != b.language
+                || a.rel != b.rel
+                || a.source != b.source
+                || a.extraction_path != b.extraction_path
+                || a.observed_at != b.observed_at
+        })
+}
+
 fn source_platform_claims_changed(
     existing: &[SourcePlatformClaim],
     new: &[SourcePlatformClaim],
@@ -3166,6 +3289,7 @@ pub fn build_diff_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
@@ -3192,6 +3316,7 @@ pub fn build_diff_events(
                 source_entity_links,
                 source_release_claims,
                 source_item_enclosures,
+                source_item_transcripts,
                 source_platform_claims,
                 feed_routes,
                 live_events,
@@ -3213,6 +3338,7 @@ pub fn build_diff_events(
                 source_entity_links,
                 source_release_claims,
                 source_item_enclosures,
+                source_item_transcripts,
                 source_platform_claims,
                 feed_routes,
                 live_events,
@@ -3241,6 +3367,7 @@ fn build_all_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
@@ -3318,6 +3445,14 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
+    if !source_item_transcripts.is_empty() {
+        event_rows.push(build_source_item_transcripts_event(
+            feed,
+            source_item_transcripts,
+            now,
+            &warn_vec,
+        )?);
+    }
     if !source_platform_claims.is_empty() {
         event_rows.push(build_source_platform_claims_event(
             feed,
@@ -3360,6 +3495,7 @@ fn build_changed_events(
     source_entity_links: &[SourceEntityLink],
     source_release_claims: &[SourceReleaseClaim],
     source_item_enclosures: &[SourceItemEnclosure],
+    source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
@@ -3467,6 +3603,21 @@ fn build_changed_events(
         event_rows.push(build_source_item_enclosures_event(
             feed,
             source_item_enclosures,
+            now,
+            &warn_vec,
+        )?);
+    }
+
+    // --- Staged item-transcript diff ---
+    let existing_source_item_transcripts =
+        get_source_item_transcripts_for_feed(conn, &feed.feed_guid)?;
+    if source_item_transcripts_changed(
+        &existing_source_item_transcripts,
+        source_item_transcripts,
+    ) {
+        event_rows.push(build_source_item_transcripts_event(
+            feed,
+            source_item_transcripts,
             now,
             &warn_vec,
         )?);
@@ -3743,6 +3894,27 @@ fn build_source_item_enclosures_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::SourceItemEnclosuresReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_source_item_transcripts_event(
+    feed: &Feed,
+    transcripts: &[SourceItemTranscript],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::SourceItemTranscriptsReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        transcripts: transcripts.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::SourceItemTranscriptsReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -4325,6 +4497,7 @@ pub fn ingest_transaction(
     source_entity_links: Vec<SourceEntityLink>,
     source_release_claims: Vec<SourceReleaseClaim>,
     source_item_enclosures: Vec<SourceItemEnclosure>,
+    source_item_transcripts: Vec<SourceItemTranscript>,
     source_platform_claims: Vec<SourcePlatformClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
@@ -4337,6 +4510,7 @@ pub fn ingest_transaction(
     let source_entity_links = dedupe_source_entity_links(&source_entity_links);
     let source_release_claims = dedupe_source_release_claims(&source_release_claims);
     let source_item_enclosures = dedupe_source_item_enclosures(&source_item_enclosures);
+    let source_item_transcripts = dedupe_source_item_transcripts(&source_item_transcripts);
     let tx = conn.transaction()?;
 
     // 1. Resolve/insert artist (and ensure a feed-scoped canonical alias row exists)
@@ -4649,7 +4823,33 @@ pub fn ingest_transaction(
         )?;
     }
 
-    // 3j. Replace staged platform claims for this feed
+    // 3j. Replace staged item transcripts for this feed
+    tx.execute(
+        "DELETE FROM source_item_transcripts WHERE feed_guid = ?1",
+        params![feed.feed_guid],
+    )?;
+    for transcript in &source_item_transcripts {
+        tx.execute(
+            "INSERT INTO source_item_transcripts \
+             (feed_guid, entity_type, entity_id, position, url, mime_type, language, rel, source, extraction_path, observed_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                &transcript.feed_guid,
+                &transcript.entity_type,
+                &transcript.entity_id,
+                transcript.position,
+                &transcript.url,
+                &transcript.mime_type,
+                &transcript.language,
+                &transcript.rel,
+                &transcript.source,
+                &transcript.extraction_path,
+                transcript.observed_at,
+            ],
+        )?;
+    }
+
+    // 3k. Replace staged platform claims for this feed
     tx.execute(
         "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
         params![feed.feed_guid],
@@ -5280,6 +5480,41 @@ pub fn get_source_item_enclosures_for_entity(
             source: row.get(11)?,
             extraction_path: row.get(12)?,
             observed_at: row.get(13)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
+pub fn get_source_item_transcripts_for_entity(
+    conn: &Connection,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceItemTranscript>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, language, rel, \
+         source, extraction_path, observed_at \
+         FROM source_item_transcripts \
+         WHERE entity_type = ?1 AND entity_id = ?2 \
+         ORDER BY position, url, id",
+    )?;
+    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
+        Ok(SourceItemTranscript {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            language: row.get(7)?,
+            rel: row.get(8)?,
+            source: row.get(9)?,
+            extraction_path: row.get(10)?,
+            observed_at: row.get(11)?,
         })
     })?;
     let mut result = Vec::new();

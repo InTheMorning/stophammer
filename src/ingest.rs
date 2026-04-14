@@ -100,6 +100,8 @@ pub struct IngestTrackData {
     pub payment_routes: Vec<IngestPaymentRoute>,
     #[serde(default)]
     pub value_time_splits: Vec<IngestValueTimeSplit>,
+    #[serde(default)]
+    pub transcripts: Vec<IngestTranscript>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +144,8 @@ pub struct IngestLiveItemData {
     pub payment_routes: Vec<IngestPaymentRoute>,
     #[serde(default)]
     pub value_time_splits: Vec<IngestValueTimeSplit>,
+    #[serde(default)]
+    pub transcripts: Vec<IngestTranscript>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,6 +184,15 @@ pub struct IngestAlternateEnclosure {
     pub title: Option<String>,
     #[serde(default)]
     pub extraction_path: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct IngestTranscript {
+    pub position: i64,
+    pub url: String,
+    pub mime_type: Option<String>,
+    pub language: Option<String>,
+    pub rel: Option<String>,
 }
 
 /// Ingest-time payment route before a DB row ID is assigned.

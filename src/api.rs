@@ -1047,6 +1047,37 @@ fn build_source_item_enclosures(
     out
 }
 
+fn build_source_item_transcripts(
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+    transcripts: &[ingest::IngestTranscript],
+    now: i64,
+) -> Vec<model::SourceItemTranscript> {
+    let mut out = Vec::new();
+    for transcript in transcripts {
+        let url = transcript.url.trim();
+        if url.is_empty() {
+            continue;
+        }
+        out.push(model::SourceItemTranscript {
+            id: None,
+            feed_guid: feed_guid.to_string(),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            position: i64::try_from(out.len()).unwrap_or(i64::MAX),
+            url: url.to_string(),
+            mime_type: transcript.mime_type.clone(),
+            language: transcript.language.clone(),
+            rel: transcript.rel.clone(),
+            source: "podcast_transcript".to_string(),
+            extraction_path: format!("{entity_type}.podcast:transcript"),
+            observed_at: now,
+        });
+    }
+    out
+}
+
 fn build_source_platform_claims(
     feed_guid: &str,
     canonical_url: &str,
@@ -1694,6 +1725,7 @@ async fn handle_ingest_feed(
         );
         let mut source_release_claims = Vec::new();
         let mut source_item_enclosures = Vec::new();
+        let mut source_item_transcripts: Vec<model::SourceItemTranscript> = Vec::new();
         let source_platform_claims = build_source_platform_claims(
             &feed_data.feed_guid,
             &req.canonical_url,
@@ -1807,6 +1839,13 @@ async fn handle_ingest_feed(
                 track_data.enclosure_type.as_deref(),
                 track_data.enclosure_bytes,
                 &track_data.alternate_enclosures,
+                now,
+            ));
+            source_item_transcripts.extend(build_source_item_transcripts(
+                &feed_data.feed_guid,
+                "track",
+                &track_data.track_guid,
+                &track_data.transcripts,
                 now,
             ));
             push_source_release_claim(
@@ -1941,6 +1980,13 @@ async fn handle_ingest_feed(
                 &live_item.alternate_enclosures,
                 now,
             ));
+            source_item_transcripts.extend(build_source_item_transcripts(
+                &feed_data.feed_guid,
+                "live_item",
+                &live_item.live_item_guid,
+                &live_item.transcripts,
+                now,
+            ));
             push_source_release_claim(
                 &mut source_release_claims,
                 &feed_data.feed_guid,
@@ -2050,6 +2096,7 @@ async fn handle_ingest_feed(
         let source_entity_links = db::dedupe_source_entity_links(&source_entity_links);
         let source_release_claims = db::dedupe_source_release_claims(&source_release_claims);
         let source_item_enclosures = db::dedupe_source_item_enclosures(&source_item_enclosures);
+        let source_item_transcripts = db::dedupe_source_item_transcripts(&source_item_transcripts);
 
         // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
         // Only emit events for entities whose fields actually changed
@@ -2068,6 +2115,7 @@ async fn handle_ingest_feed(
             &source_entity_links,
             &source_release_claims,
             &source_item_enclosures,
+            &source_item_transcripts,
             &source_platform_claims,
             &feed_routes,
             &live_events,
@@ -2112,6 +2160,7 @@ async fn handle_ingest_feed(
             source_entity_links,
             source_release_claims,
             source_item_enclosures,
+            source_item_transcripts,
             source_platform_claims,
             feed_routes,
             live_events,

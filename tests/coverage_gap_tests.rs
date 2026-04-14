@@ -1039,6 +1039,7 @@ fn enclosure_type_verifier_pass_audio() {
                 links: vec![],
                 payment_routes: vec![],
                 value_time_splits: vec![],
+                transcripts: vec![],
             }],
         }),
     };
@@ -1099,6 +1100,7 @@ fn enclosure_type_verifier_warn_video() {
                 links: vec![],
                 payment_routes: vec![],
                 value_time_splits: vec![],
+                transcripts: vec![],
             }],
         }),
     };
@@ -1183,6 +1185,7 @@ fn payment_route_sum_verifier_pass() {
                     },
                 ],
                 value_time_splits: vec![],
+                transcripts: vec![],
             }],
         }),
     };
@@ -1263,6 +1266,7 @@ fn payment_route_sum_verifier_fail_not_100() {
                     },
                 ],
                 value_time_splits: vec![],
+                transcripts: vec![],
             }],
         }),
     };
