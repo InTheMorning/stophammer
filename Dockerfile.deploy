@@ -1,0 +1,29 @@
+# Minimal runtime image — expects pre-built musl binaries in the build context.
+# Used by deploy.sh for fast local-build → ship workflow.
+
+FROM alpine:3.20 AS stophammer-runtime
+
+RUN apk add --no-cache ca-certificates \
+ && addgroup -S stophammer \
+ && adduser -S -G stophammer stophammer \
+ && mkdir -p /data \
+ && chown stophammer:stophammer /data
+
+WORKDIR /data
+COPY stophammer /usr/local/bin/stophammer
+COPY rebuild_search /usr/local/bin/rebuild_search
+
+USER stophammer
+
+ENV DB_PATH=/data/stophammer.db
+ENV KEY_PATH=/data/signing.key
+ENV BIND=0.0.0.0:8008
+
+EXPOSE 8008
+
+FROM stophammer-runtime AS stophammer-indexer
+CMD ["stophammer"]
+
+FROM stophammer-runtime AS stophammer-node
+ENV NODE_MODE=community
+CMD ["stophammer"]
