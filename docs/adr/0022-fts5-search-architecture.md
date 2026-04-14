@@ -5,7 +5,7 @@ Accepted
 
 ## Context
 
-Stophammer provides full-text search over artists, feeds, and tracks via the
+Stophammer provides source-first full-text search over feeds and tracks via the
 `GET /v1/search` endpoint. The search index must support:
 
 - Fast BM25-ranked MATCH queries across multiple text fields (name, title,
@@ -14,7 +14,7 @@ Stophammer provides full-text search over artists, feeds, and tracks via the
   replication.
 - Deletes when feeds are retired or tracks are removed (ADR 0018, ADR 0009).
 - Low storage overhead — the source-of-truth data already lives in the core
-  entity tables (`artists`, `feeds`, `tracks`). Duplicating all text in the
+  entity tables (`feeds`, `tracks`). Duplicating all text in the
   FTS5 index doubles storage for no read-path benefit.
 
 ### Why contentless FTS5
@@ -134,8 +134,8 @@ the JOIN into the inner query would prevent `bm25()` from functioning.
 
 Search results are paginated using keyset cursors rather than OFFSET. The
 cursor encodes the last result's `(effective_rank, rowid)` pair as a
-base64-encoded string following the same `base64(value1 \0 value2)` format
-used by the other paginated endpoints (`/v1/artists/{id}/feeds`, `/v1/recent`).
+base64-encoded string following the `base64(value1 \0 value2)` format used by
+source-first paginated endpoints such as `/v1/search` and `/v1/feeds/recent`.
 
 The `effective_rank` is a quality-adjusted BM25 score:
 `bm25(search_index) * (1.0 + quality_score / 100.0)`. Lower (more negative)

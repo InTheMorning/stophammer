@@ -1,7 +1,11 @@
 # ADR 0020: SSE Push Notifications for Artist Follow
 
 ## Status
-Accepted (updated: id field semantics, mutation path coverage, community node SSE)
+Superseded by [ADR 0037](0037-defer-public-sse-route.md) for the public HTTP route; `seq` signature treatment superseded by [ADR 0036](0036-sign-event-sequence-numbers.md)
+
+Historical note: the current runtime retains the in-memory `SseRegistry` and
+post-commit publish wiring, but does not register `GET /v1/events` in the Axum
+routers.
 
 ## Context
 
@@ -56,7 +60,9 @@ privacy policy.
 
 ## Decision
 
-### Endpoint
+### Historical Endpoint Proposal
+
+This endpoint is not registered in the current Axum routers; see ADR 0037.
 
 ```
 GET /v1/events?artists=<id1>,<id2>,...
@@ -83,9 +89,8 @@ transitions.
 ### Frame `id:` field
 
 Each SSE frame carries an `id:` field set to the event's `seq` value — the monotonically
-increasing integer primary key assigned by the `events` table at commit time. This is the
-same `seq` described in ADR 0004 as delivery-ordering metadata excluded from the event
-signature.
+increasing integer primary key assigned by the `events` table at commit time. Current
+event signatures cover `seq`; see ADR 0036.
 
 An earlier implementation used `subject_guid` (the feed/track/artist GUID) as the `id:`
 field. This was incorrect: `subject_guid` is not unique across events (multiple events
@@ -111,24 +116,26 @@ position (no backfill).
 the database. This includes:
 
 - `POST /ingest/feed` — primary ingest of crawled feeds
-- `PATCH /feeds/{guid}` — feed URL relocation
-- `PATCH /tracks/{guid}` — track enclosure relocation
-- `DELETE /feeds/{guid}` — feed retirement
-- `DELETE /feeds/{guid}/tracks/{track_guid}` — track removal
-- `POST /admin/artists/merge` — artist merge
+- `PATCH /v1/feeds/{guid}` — feed URL relocation
+- `PATCH /v1/tracks/{guid}` — track enclosure relocation
+- `DELETE /v1/feeds/{guid}` — feed retirement
+- `DELETE /v1/feeds/{guid}/tracks/{track_guid}` — track removal
 - `apply_events()` — community node event application (push and poll paths)
 
 A mutation path that commits events without calling `publish_events_to_sse()` is a bug.
 The invariant is: if an event row is inserted into the `events` table, the SSE registry
 must be notified in the same request cycle.
 
-### Community node SSE
+### Community Node SSE Proposal
 
-Community nodes serve `GET /v1/events` on the same read-only router as the primary. The
-`SseRegistry` is instantiated at startup and shared with both the SSE endpoint handler
-and the event application path. When `apply_events()` processes events received via push
-or poll-loop fallback, it publishes each applied event to the registry so that SSE
-clients connected to the community node receive updates without depending on the primary.
+This public route is not registered in the current read-only router; see ADR
+0037. The internal registry and community apply publish wiring remain.
+
+The original design had community nodes serve `GET /v1/events` on the same
+read-only router as the primary. The current runtime instead instantiates
+`SseRegistry` at startup and shares it with the event application path only.
+When `apply_events()` processes events received via push or poll-loop fallback,
+it publishes each applied event to the registry as internal fan-out groundwork.
 
 The `SseRegistry` is passed as `Option<&Arc<SseRegistry>>` to `apply_events()`. On a
 community node this is `Some`; the option exists to allow test harnesses to omit the
@@ -195,8 +202,8 @@ app-store for music clients. That is out of scope and operationally unsustainabl
 
 ## Consequences
 
-- A new route `GET /v1/events` is added to both the primary and read-only (community)
-  routers. Community nodes serve SSE to their own connected clients.
+- Superseded by ADR 0037: the current routers do not register
+  `GET /v1/events`.
 - The node gains an in-memory SSE fanout registry: a map from artist ID to connected
   SSE response senders. This registry is ephemeral — it does not survive restarts.
 - Every mutation path that commits events to the database calls

@@ -54,8 +54,9 @@ The audited code currently enforces the following materially important controls:
   `node/info` fetch described above.
 - Challenge resolution remains single-use via SQL `WHERE state = 'pending'`
   semantics, closing duplicate-issuance races.
-- SSE fan-out is bounded by per-connection artist caps, a global registry cap,
-  and a global concurrent connection cap.
+- Internal SSE fan-out is bounded by a global registry cap and a global
+  connection counter. The current router does not expose a public
+  `GET /v1/events` endpoint.
 
 ---
 
@@ -84,4 +85,5 @@ current codebase, including:
   global pending cap)
 - proof assert response shape (`proof_level`) and status codes
 - TLS environment variable coverage (`TLS_ACME_DIRECTORY_URL`)
-- current security posture of `sync/register`, RSS proof fetches, and SSE limits
+- current security posture of `sync/register`, RSS proof fetches, and internal
+  SSE registry limits

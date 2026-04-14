@@ -101,6 +101,9 @@ Purpose: preserved release-like claims from feeds, tracks, and live items.
 ### `source_item_enclosures`
 Purpose: preserved primary and alternate enclosure variants for tracks and live items.
 
+### `source_item_transcripts`
+Purpose: preserved transcript URLs and metadata for tracks and live items from `podcast:transcript` tags.
+
 ### `source_platform_claims`
 Purpose: preserved feed-level platform evidence such as `wavlake`, `fountain`, or `rss_blue`.
 Notes:

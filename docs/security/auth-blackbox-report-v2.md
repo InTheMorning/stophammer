@@ -27,7 +27,8 @@ All 7 original v1 findings are now CLOSED. The follow-up findings identified acr
 - **SSRF via feed_url** -- `validate_feed_url` guard added to `handle_proofs_assert` with private-IP and scheme validation
 - **TOCTOU double token issue** -- `resolve_challenge` now returns rows-affected count; Phase 3 rejects if 0 rows transitioned
 - **X-Forwarded-For rate limiter bypass** -- `TRUST_PROXY` config added; default ignores XFF to prevent spoofing
-- **SSE unbounded memory** -- per-connection artist caps plus global registry and connection caps
+- **SSE registry memory** -- global registry and connection counters protect the
+  internal fan-out registry; the current router does not expose `GET /v1/events`
 - **sync/register ownership-check rebinding** -- redirects are disabled and validated DNS answers are pinned into the `node/info` verification client
 
 ---
@@ -184,8 +185,6 @@ The guard is placed at the API layer via `AppState.skip_ssrf_validation` flag (s
 **Severity:** Informational (architectural)
 
 The admin token is the sole credential for all privileged operations:
-- `POST /admin/artists/merge` (merge artists)
-- `POST /admin/artists/alias` (add aliases)
 - `DELETE /v1/feeds/{guid}` (delete feeds, as alternative to bearer token)
 - `PATCH /v1/feeds/{guid}` and `PATCH /v1/tracks/{guid}` (as alternative to bearer)
 
@@ -270,13 +269,16 @@ When neither `X-Forwarded-For` nor `ConnectInfo` is available, all requests shar
 
 The `SseRegistry` creates a `tokio::sync::broadcast` channel per unique `artist_id` on `subscribe()`. Without a cap, an attacker could create unlimited channels.
 
-**Fix implemented:** the current code now layers three bounds:
+**Fix implemented:** the current code now layers two registry-level bounds:
 
-- `MAX_SSE_ARTISTS = 50` artist IDs per connection
 - `MAX_SSE_REGISTRY_ARTISTS = 10_000` total tracked artist entries
 - `MAX_SSE_CONNECTIONS = 1_000` concurrent SSE connections server-wide
 
-**Evidence:** Tests cover the per-connection cap, registry cap, and connection cap.
+The current Axum routers do not register a public `GET /v1/events` endpoint, so
+these limits cover internal fan-out groundwork rather than an active public HTTP
+surface.
+
+**Evidence:** Tests cover the registry cap and connection counter.
 
 ### NEW-5b: SSE Cross-Pollination (Information Leak)
 
@@ -389,7 +391,7 @@ All critical and medium findings have been fixed in this audit cycle:
 | 1 | NEW-1c (SSRF) | DONE | `validate_feed_url` in `proof.rs`, called from `handle_proofs_assert` |
 | 2 | NEW-4a (XFF spoofing) | DONE | `TRUST_PROXY` env var in `apply_rate_limit` (`main.rs`) |
 | 3 | NEW-3 (TOCTOU) | DONE | `resolve_challenge` returns `usize`; Phase 3 checks rows == 0 |
-| 4 | NEW-5 (SSE memory) | DONE | Per-connection + global registry / connection caps |
+| 4 | NEW-5 (SSE memory) | DONE | Global registry / connection caps; no public SSE route currently registered |
 | 5 | NEW-7 (CORS) | OPEN | Optional: remove `x-admin-token` from CORS `allow_headers` |
 
 ### Remaining Recommendations

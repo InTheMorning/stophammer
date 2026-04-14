@@ -1,7 +1,7 @@
 # ADR 0009: Community Node Mode
 
 ## Status
-Accepted
+Accepted; sequence-signing consequence superseded by [ADR 0036](0036-sign-event-sequence-numbers.md)
 
 Historical note: The authenticated sync-read requirement described by current
 runtime behavior was decided later in ADR 0027. References below to open
@@ -46,8 +46,9 @@ All community-specific parameters are grouped in `CommunityConfig`:
 
 ### Read-only API
 `api::build_readonly_router` exposes the sync endpoints (`GET /sync/events`,
-`GET /sync/peers`), the full `v1` query API (`/v1/search`, `/v1/artists`, etc.), the SSE
-stream (`GET /v1/events` — see ADR 0020), `GET /node/info`, and `GET /health`. The
+`GET /sync/peers`), the current `v1` query API (`/v1/search`,
+`/v1/feeds/{guid}`, `/v1/tracks/{guid}`, `/v1/wallets/{id}`, publisher reads,
+and related read routes), `GET /node/info`, and `GET /health`. The
 ingest, reconcile, and admin write-paths are absent by construction, not by runtime
 guard. Community mode passes a dummy `VerifierChain` (empty crawl token) because the
 ingest handler is never reachable.
@@ -66,7 +67,8 @@ A new read helper returns `last_seq` for the node's pubkey, or 0 if no cursor ex
 
 ## Consequences
 - A community node can be bootstrapped against any primary URL and will self-heal across network interruptions.
-- Event ordering on the community node may differ from the primary (different `seq` values) because `seq` is assigned by the local DB at insert time. This is consistent with ADR 0004 — `seq` is a delivery-ordering field excluded from the signature.
+- Current implementations verify the primary-signed `seq` before advancing the
+  sync cursor. See [ADR 0036](0036-sign-event-sequence-numbers.md).
 - Duplicate events (received via both push and fallback poll, or replayed during recovery) are detected at the top of the transaction via the `INSERT OR IGNORE` dedup guard and returned as `ApplyOutcome::Duplicate`. No entity mutations are attempted for duplicates, eliminating a class of partial-write bugs where the event row insert could succeed but entity mutations had already been applied.
 - `FeedRetired` and `TrackRemoved` events are fully implemented with cascade hard-deletes. `FeedRetired` removes the feed, all child tracks, payment routes, and search index entries. `TrackRemoved` removes the track, its child rows, and search index entry. Both use `INSERT OR IGNORE` / idempotent semantics consistent with the rest of `apply_single_event`.
 - The read-only router eliminates the ingest surface area on community nodes without any runtime flag checks — the routes simply do not exist.

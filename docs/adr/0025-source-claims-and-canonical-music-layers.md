@@ -38,6 +38,7 @@ snapshot tables. These include:
 - `source_entity_links`
 - `source_release_claims`
 - `source_item_enclosures`
+- `source_item_transcripts`
 - `source_platform_claims`
 
 These rows are source-oriented, not canonical. They preserve provenance such as

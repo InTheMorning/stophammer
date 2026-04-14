@@ -12,7 +12,7 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 - deployment, env vars, TLS, backup, restore:
   [operations.md](../operations.md)
 - packaging, release artifacts, Arch packages, and systemd units:
-  [packaging-plan.md](../packaging-plan.md)
+  [packaging/README.md](../../packaging/README.md)
 - cross-cutting security and trust-boundary rules:
   [security-guidelines.md](../security-guidelines.md)
 - verifier behavior and chain composition:
@@ -24,15 +24,15 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 
 - HTTP API reference:
   [API.md](../API.md)
-- canonical/source model:
+- source-first model:
   [Data-Model-and-API.md](Data-Model-and-API.md)
 
 ## For Curators and Reviewers
 
 - schema reference:
   [schema-reference.md](../schema-reference.md)
-- review workflow and maintenance binaries:
-  [Maintenance-and-Review.md](Maintenance-and-Review.md)
+- identity evidence policy:
+  [identity-evidence-policy.md](../identity-evidence-policy.md)
 
 ## For Maintainers
 
@@ -40,10 +40,10 @@ This wiki is the map of the project, not a replacement for the detailed docs.
   [docs/adr](../adr)
 - security and identity-resolution guidelines:
   [security-guidelines.md](../security-guidelines.md)
-- current resolver/refactor notes:
-  [resolver-refactor-plan.md](../resolver-refactor-plan.md)
-- wallet identity design plan:
-  [wallet-entity-plan.md](../wallet-entity-plan.md)
+- current source-first refactor notes:
+  [v4v-music-metadata-vision.md](../vision/v4v-music-metadata-vision.md)
+- source-first schema decision:
+  [0034-adopt-rebuild-first-source-first-v1-music-schema.md](../adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
 
 ## Manpages
 

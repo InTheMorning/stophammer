@@ -135,14 +135,16 @@ feeds are under 2 MiB.
 
 ### AVAIL-09: SSE Registry Unbounded Artist Entries (MEDIUM) -- FIXED
 
-**Endpoint:** `GET /v1/events?artists=id1,...,id50000`
+**Surface:** internal `SseRegistry` subscription/fan-out code. The current
+router does not expose `GET /v1/events`.
+
 **Pre-fix state:** The `SseRegistry` created a new broadcast channel and
 ring buffer for every unique artist ID requested via SSE subscriptions.
-While each connection was limited to 50 artists (`MAX_SSE_ARTISTS`), there
-was no limit on the total number of unique artists across all connections.
+There was no limit on the total number of unique artists across subscriptions.
 An attacker could:
 
-1. Make 1000 SSE connections, each with 50 unique fabricated artist IDs.
+1. Create subscriptions with many unique fabricated artist IDs if exposed
+   through a handler.
 2. This creates 50,000 broadcast channels + 50,000 ring buffers.
 3. Each broadcast channel allocates a 256-slot buffer.
 4. Memory grows linearly with the number of unique artist IDs.
@@ -161,8 +163,10 @@ buffer map. Legitimate artists already in the registry are unaffected.
 
 ### AVAIL-10: No Concurrent SSE Connection Limit (MEDIUM) -- FIXED
 
-**Endpoint:** `GET /v1/events`
-**Pre-fix state:** Each SSE connection holds a long-lived tokio task that
+**Surface:** `SseRegistry` connection counter. The current router does not
+expose `GET /v1/events`.
+
+**Pre-fix state:** Each SSE connection would hold a long-lived tokio task that
 polls broadcast receivers at 100ms intervals. With no connection limit, an
 attacker could open thousands of persistent SSE connections, each consuming:
 - A tokio task (stack memory + scheduler overhead)
@@ -176,21 +180,18 @@ because:
 - An attacker with a few IPs can create thousands of connections.
 
 **Fix:** Added `MAX_SSE_CONNECTIONS = 1_000` server-wide limit enforced by
-an atomic counter in `SseRegistry`. The handler calls
-`try_acquire_connection()` before subscribing; if the limit is reached, it
-returns `503 Service Unavailable`. An RAII guard (`SseConnectionGuard`)
-releases the slot when the stream is dropped (client disconnects).
+an atomic counter in `SseRegistry`. The current code exposes
+`try_acquire_connection()` and `release_connection()` for any future HTTP
+stream handler to use.
 
 1,000 concurrent SSE connections is generous for any deployment that also
 has rate limiting. For comparison, a typical Axum deployment handles
 ~10,000 concurrent TCP connections before other limits (fd limits, memory)
 become the bottleneck.
 
-**File:** `src/api.rs` -- `handle_sse_events`, `SseConnectionGuard`,
-`MAX_SSE_CONNECTIONS`, `SseRegistry::try_acquire_connection`,
-`SseRegistry::release_connection`
-**Test:** `sse_connection_limit_enforced`,
-`sse_endpoint_rejects_when_connections_full`
+**File:** `src/api.rs` -- `MAX_SSE_CONNECTIONS`,
+`SseRegistry::try_acquire_connection`, `SseRegistry::release_connection`
+**Test:** `sse_connection_limit_enforced`
 
 ---
 
@@ -264,9 +265,9 @@ slow receivers get a `Lagged` error on their next `recv()`. The `publish()`
 method in `SseRegistry` uses `let _ = tx.send(frame)` which discards the
 error (correct behavior: publisher should never block).
 
-The SSE live stream handles `TryRecvError::Lagged(n)` by logging at debug
-level and continuing. This is the correct behavior for an SSE endpoint
-where occasional message loss is acceptable.
+Future stream handlers should handle `TryRecvError::Lagged(n)` by logging at
+debug level and continuing. That is the correct behavior for notification
+streams where occasional message loss is acceptable.
 
 ### Tracing Log Flood
 
@@ -307,7 +308,6 @@ enabled by default.
 | `MAX_SSE_CONNECTIONS` | 1,000 | `api.rs` (NEW) |
 | `SSE_CHANNEL_CAPACITY` | 256 | `api.rs` |
 | `SSE_RING_BUFFER_SIZE` | 100 | `api.rs` |
-| `MAX_SSE_ARTISTS` (per conn) | 50 | `api.rs` |
 
 ---
 

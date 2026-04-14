@@ -93,6 +93,7 @@ The approved v1 base tables are:
 - `source_entity_links`
 - `source_release_claims`
 - `source_item_enclosures`
+- `source_item_transcripts`
 
 ### 4. Tables removed from the v1 music schema
 

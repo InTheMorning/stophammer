@@ -28,7 +28,7 @@ The public v1 model is source-first:
 
 - `feeds` are the release-shaped rows
 - `tracks` are the track-shaped rows
-- source claims, links, IDs, remote items, and enclosure variants are preserved
+- source claims, links, IDs, remote items, enclosure variants, and transcripts are preserved
 - the old canonical release/recording public API is retired
 
 Publisher handling is intentionally strict:
@@ -52,7 +52,8 @@ Publisher handling is intentionally strict:
 - Crawlers are external untrusted processes. This repo does not schedule them.
 
 The crawler runtime and importer live in the separate
-[stophammer-crawler](https://github.com/inthemorning/stophammer-crawler) repo.
+[stophammer-crawler](stophammer-crawler/README.md) package directory, which is
+also published as its own release artifact.
 
 ## Build From Source
 
@@ -97,17 +98,21 @@ docker build --target stophammer-node -t stophammer-node .
 The root [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml) defines the current packaged stack:
 
 - `primary`
-- `podping`
+- `podping-listener`
 - `gossip`
 - `import`
+- `import-wavlake`
+- `stophammer-crawler` (tools profile, one-shot feed crawl)
 
 Copy the sample env files you actually use:
 
 ```bash
 cp packaging/env/primary.compose.env.example packaging/env/primary.compose.env
-cp packaging/env/podping.compose.env.example packaging/env/podping.compose.env
+cp packaging/env/podping-listener.compose.env.example packaging/env/podping-listener.compose.env
+cp packaging/env/crawler-feed.compose.env.example packaging/env/crawler-feed.compose.env
 cp packaging/env/crawler-gossip.compose.env.example packaging/env/crawler-gossip.compose.env
 cp packaging/env/crawler-import.compose.env.example packaging/env/crawler-import.compose.env
+cp packaging/env/crawler-import-wavlake.compose.env.example packaging/env/crawler-import-wavlake.compose.env
 ```
 
 Primary configuration usually needs:
@@ -127,8 +132,10 @@ docker compose up -d --build primary
 Optional bundled crawler services:
 
 ```bash
-docker compose up -d podping gossip
+docker compose up -d podping-listener gossip
 docker compose run --rm import
+docker compose run --rm import-wavlake
+docker compose --profile tools run --rm stophammer-crawler feed https://example.com/feed.xml
 ```
 
 If you are updating an older resolver-era deployment, use:
@@ -167,6 +174,11 @@ Public source-first reads:
 - `GET /v1/tracks/{guid}`
 - `GET /v1/feeds/recent`
 - `GET /v1/search`
+- `GET /v1/wallets/{id}`
+- `GET /v1/publishers`
+- `GET /v1/publishers/{publisher}`
+- `GET /v1/node/capabilities`
+- `GET /v1/peers`
 
 Useful provenance/debug includes on feed reads:
 

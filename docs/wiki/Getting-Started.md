@@ -39,8 +39,8 @@ curl http://127.0.0.1:8008/node/info
 
 - the primary ingests, verifies, signs, and serves
 - community nodes replicate and serve read-only
-- crawlers are external clients, not built into this repo
-- source data and canonical data are distinct by design
+- crawlers run as a separate package directory and release artifact
+- the current public API is source-first, not canonical-first
 
 ## Before You Push Code
 

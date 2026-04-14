@@ -10,8 +10,9 @@ It complements, but does not replace:
 - [ADR 0018](adr/0018-proof-of-possession-mutations.md) for
   proof-of-possession design
 - [operations.md](operations.md) for deployment and operator requirements
-- [wallet-entity-plan.md](wallet-entity-plan.md) for the wallet identity
-  resolution architecture (implements the identity resolution rules below)
+- [schema-reference.md](schema-reference.md) for the current wallet review
+  tables, and [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
+  for source-first v1 schema boundaries
 
 ## Primary Rule
 

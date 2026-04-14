@@ -47,7 +47,7 @@ There are also two practical layers inside the database:
 
 - source-first feed and track rows used by the public API
 - preserved source evidence such as links, IDs, contributors, remote items,
-  platform claims, and enclosure variants
+  platform claims, enclosure variants, and transcripts
 
 The old canonical release/recording public layer has been retired. Review and
 debugging now happen directly against the source-first rows and preserved
@@ -107,6 +107,9 @@ The public read surface is source-first:
 - `/v1/feeds/recent`
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
+- `/v1/wallets/{id}`
+- `/v1/publishers`
+- `/v1/publishers/{publisher}`
 
 Source endpoints are the main endpoints:
 
@@ -139,23 +142,18 @@ The main source entities are:
 - `feed`
 - `track`
 - staged source claims such as links, IDs, contributors, release claims,
-  platform claims, and enclosure variants
+  platform claims, enclosure variants, and transcripts
+- wallet review entities used to inspect normalized payment routes
 
-The main canonical entities are:
-
-- `artist`
-- `release`
-- `recording`
-
-Mappings connect the two:
-
-- `source_feed_release_map`
-- `source_item_recording_map`
+Some compatibility tables still exist internally, especially around artist
+credits and wallet review, but the public v1 API does not expose a canonical
+artist/release/recording graph.
 
 So the general user flow is:
 
-1. discover a canonical release or recording
-2. inspect source/platform variants for that canonical entity
+1. discover a source feed or track through search, recency, publisher facets, or
+   direct GUID lookup
+2. inspect preserved source/platform variants and payment-route evidence
 3. inspect source claims if something looks wrong
 
 ## Everyday Commands
@@ -212,7 +210,7 @@ Read next depending on what you need:
 - quick architecture and startup: [README.md](../README.md)
 - operator deployment and maintenance: [operations.md](operations.md)
 - HTTP routes and payloads: [API.md](API.md)
-- schema and source/canonical tables: [schema-reference.md](schema-reference.md)
+- schema and source-first tables: [schema-reference.md](schema-reference.md)
 - verifier chain behavior: [verifier-guide.md](verifier-guide.md)
 - architecture history: [docs/adr](adr)
 - wiki-style navigation: [wiki/Home.md](wiki/Home.md)

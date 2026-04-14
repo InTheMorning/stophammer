@@ -20,6 +20,9 @@ Use:
 - `/v1/feeds/recent`
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
+- `/v1/wallets/{id}`
+- `/v1/publishers`
+- `/v1/publishers/{publisher}`
 
 ## Provenance and RSS-Truth Views
 
@@ -63,6 +66,9 @@ The source-first layer stores:
 
 Some compatibility tables still exist internally, such as `artists` and
 `artist_credit`, but they are no longer the public API model.
+
+Wallet reads and publisher reads are inspection facets over the source-first
+data. They do not add a canonical artist/release/recording layer.
 
 For exact table meanings, read
 [schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md).

@@ -133,7 +133,10 @@ VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type
 VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
 ```
 
-When `VERIFIER_CHAIN` is absent or empty, the default chain is used. Unknown names in the chain are logged as warnings and skipped -- they do not abort startup.
+When `VERIFIER_CHAIN` is absent, empty, or parses to no verifier names, the
+default chain is used. Unknown names in the chain are fatal startup
+configuration errors; `build_chain` panics rather than silently running a
+weakened gate.
 
 The chain order matters:
 - `crawl_token` should always be first (rejects unauthenticated requests before any DB access)
@@ -260,7 +263,7 @@ VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4
 - **Effect:** Rejects feeds that do not participate in V4V payments
 - **Result:** `Pass` if the feed has at least one valid feed-level payment route (non-empty address, positive split); `Fail` otherwise
 - **Env vars:** None
-- **Notes:** Validates both feed-level and track-level routes. Tracks with no routes of their own are valid (they fall back to feed-level routes). Tracks that declare routes but list no valid recipients are rejected.
+- **Notes:** Validates both feed-level and track-level routes for normal music feeds. Tracks with no routes of their own are valid (they fall back to feed-level routes). Tracks that declare routes but list no valid recipients are rejected. `publisher` and `musicL` feeds are source-layer containers and are payment-exempt.
 
 ### enclosure_type
 

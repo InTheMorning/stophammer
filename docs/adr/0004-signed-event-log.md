@@ -1,7 +1,7 @@
 # ADR 0004: Nostr-Style ed25519 Signed Event Log
 
 ## Status
-Accepted
+Superseded by [ADR 0036](0036-sign-event-sequence-numbers.md) for sequence-number signing; otherwise accepted
 
 ## Context
 Stophammer nodes sync state by exchanging events. Community nodes receive events from the primary and must be able to verify they were not tampered with in transit. The system also needs to be auditable — operators should be able to verify the provenance of any piece of data.

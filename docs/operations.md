@@ -172,12 +172,13 @@ The compose file intentionally uses runnable sample env files:
 - [podping-listener.compose.env.example](../packaging/env/podping-listener.compose.env.example)
 - [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
 - [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
+- [crawler-import-wavlake.compose.env.example](../packaging/env/crawler-import-wavlake.compose.env.example)
 
 Additional Docker-specific templates are also shipped for custom compose
 services that are not part of the default root stack:
 
 - [community.compose.env.example](../packaging/env/community.compose.env.example)
-- [crawler-crawl.compose.env.example](../packaging/env/crawler-crawl.compose.env.example)
+- [crawler-feed.compose.env.example](../packaging/env/crawler-feed.compose.env.example)
 
 Copy them into local ignored `*.compose.env` files before using the compose stack.
 The default stack now includes an in-network `podping-listener` service based on
@@ -192,11 +193,14 @@ before the long-running non-root containers start.
 Run a single feed or set of feeds without defining a separate service:
 
 ```bash
-docker compose run --rm stophammer-crawler feed https://example.com/feed.xml
-docker compose run --rm stophammer-crawler feed --force https://example.com/feed.xml
+docker compose --profile tools run --rm stophammer-crawler feed https://example.com/feed.xml
+docker compose --profile tools run --rm stophammer-crawler feed --force https://example.com/feed.xml
 
 # Replay NDJSON corpus without re-fetching
-docker compose run --rm stophammer-crawler ndjson --input /data/stored-feeds.ndjson
+docker compose --profile tools run --rm stophammer-crawler ndjson --input /data/stored-feeds.ndjson
+
+# Backfill new fields (e.g., transcripts) by replaying with --force (bypasses content-hash dedup)
+docker compose --profile tools run --rm stophammer-crawler ndjson --input /data/stored-feeds.ndjson --force
 ```
 
 This uses the tools profile and `stophammer-crawler` service with `entrypoint: ["stophammer-crawler"]`.
@@ -238,6 +242,12 @@ The Docker Compose stack also includes a one-shot `import` service. Edit
 
 ```bash
 docker compose run --rm import
+```
+
+The Wavlake-specific import pass has its own one-shot service and env file:
+
+```bash
+docker compose run --rm import-wavlake
 ```
 
 The oneshot import/crawl units are examples only. They are not intended to be
@@ -287,7 +297,7 @@ The community node:
 - Registers its push URL with the primary on startup
 - Receives pushed events from the primary and verifies ed25519 signatures
 - Falls back to polling if no push arrives within `PUSH_TIMEOUT_SECS`
-- Serves a read-only API (queries, search, sync/events, sync/peers, node/info, SSE events)
+- Serves the read-only HTTP API (queries, search, sync/events, sync/peers, node/info)
 - Exposes `POST /sync/push` for the primary to deliver events
 
 **Required env vars:** `PRIMARY_URL`, `NODE_ADDRESS`

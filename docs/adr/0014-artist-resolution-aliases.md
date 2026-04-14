@@ -1,7 +1,7 @@
 # ADR 0014: Artist Resolution — Alias Table, Merge Operation, and Admin Endpoints
 
 ## Status
-Accepted
+Superseded by [ADR 0032](0032-retire-resolver-and-review-runtime.md) and [ADR 0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) for public/admin API scope
 
 ## Context
 

@@ -1,7 +1,7 @@
 ## Arch Packaging
 
 This directory contains the first distro-specific packaging target from
-[packaging-plan.md](/home/citizen/build/stophammer/docs/packaging-plan.md).
+[packaging/README.md](/home/citizen/build/stophammer/packaging/README.md).
 
 Current shape:
 
@@ -11,7 +11,7 @@ Current shape:
   - `stophammer-crawler`
 - the `PKGBUILD` reuses the existing role-tarball assembly flow by calling:
   - [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
-- install paths match the packaging plan:
+- install paths match the packaging asset layout:
   - binaries under `/usr/bin`
   - units under `/usr/lib/systemd/system`
   - env files under `/etc/stophammer`
@@ -27,7 +27,7 @@ Notes:
   - `community.env`
   - `crawler-gossip.env`
   - `crawler-import.env`
-  - `crawler-crawl.env`
+  - `crawler-feed.env`
 
 Local build:
 

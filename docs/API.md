@@ -448,7 +448,7 @@ Set-diff catch-up for nodes rejoining after downtime. The community node sends t
 
 ---
 
-## 4. Queries -- Artists
+## 4. Query Envelope
 
 All query endpoints are read-only and available on both primary and community nodes. Responses use a common envelope:
 
@@ -656,7 +656,7 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 Returns a single track by its `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`
+- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`
 
 **Response (`200 OK`):**
 
@@ -750,6 +750,20 @@ Returns a single track by its `track_guid`.
         "extraction_path": "track.podcast:alternateEnclosure[0]",
         "observed_at": 1710288000
       }
+    ],
+    "source_transcripts": [
+      {
+        "entity_type": "track",
+        "entity_id": "uuid",
+        "position": 0,
+        "url": "https://example.com/track-transcript.vtt",
+        "mime_type": "text/vtt",
+        "language": "en",
+        "rel": null,
+        "source": "podcast_transcript",
+        "extraction_path": "track.podcast:transcript[0]",
+        "observed_at": 1710288000
+      }
     ]
   },
   "pagination": { "cursor": null, "has_more": false },
@@ -827,7 +841,10 @@ align with the same public IDs exposed by the direct read endpoints.
 
 ### GET /v1/node/capabilities
 
-Returns the node's capabilities, supported entity types, and valid `include` parameters.
+Returns the node's capabilities, supported entity types, and valid `include`
+parameters. Publisher search/detail routes are available even though
+`publisher` is a stored text facet rather than a standalone entity type in the
+capabilities payload.
 
 - **Authentication:** None
 
@@ -841,7 +858,7 @@ Returns the node's capabilities, supported entity types, and valid `include` par
   "entity_types": ["feed", "track", "wallet"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures"]
+    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts"]
   }
 }
 ```
@@ -939,6 +956,87 @@ Lists all known peer nodes from the `peer_nodes` table.
     "last_push_at": 1710288000
   }
 ]
+```
+
+---
+
+## 8. Queries -- Publishers
+
+Publisher queries group feeds and tracks by stored `publisher_text`. This is a
+source-first publisher facet, not canonical artist identity.
+
+### GET /v1/publishers
+
+Lists non-empty publisher text values with feed and track counts.
+
+- **Authentication:** None
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `q` | string | empty | Optional substring filter. `%` and `_` are escaped before the SQL `LIKE` match. |
+| `limit` | i64 | 20 | Max publishers returned (clamped to 1--100) |
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "publisher_text": "Wavlake",
+      "feed_count": 42,
+      "track_count": 500
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+### GET /v1/publishers/{publisher}
+
+Returns feeds and tracks whose stored publisher text exactly matches the path
+parameter.
+
+- **Authentication:** None
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | i64 | 50 | Max feeds and max tracks returned (clamped to 1--200) |
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "publisher_text": "Wavlake",
+    "feeds": [
+      {
+        "feed_guid": "feed-guid",
+        "feed_url": "https://example.com/feed.xml",
+        "title": "Feed Title",
+        "image_url": "https://example.com/cover.jpg",
+        "episode_count": 12,
+        "raw_medium": "music"
+      }
+    ],
+    "tracks": [
+      {
+        "track_guid": "track-guid",
+        "feed_guid": "feed-guid",
+        "title": "Track Title",
+        "image_url": "https://example.com/track.jpg",
+        "duration_secs": 240,
+        "track_number": 1
+      }
+    ]
+  },
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
 ```
 
 ---
@@ -1098,9 +1196,13 @@ Updates a track's mutable fields. Currently supports `enclosure_url` only. Beare
 
 ## 11. Admin and Diagnostics
 
-Write-side admin endpoints require the `X-Admin-Token` header. The token is compared in constant time (SHA-256 hash comparison via `subtle::ConstantTimeEq`).
+Write-side mutation endpoints accept `X-Admin-Token` where documented. The
+token is compared in constant time (SHA-256 hash comparison via
+`subtle::ConstantTimeEq`).
 
-If `ADMIN_TOKEN` is not configured on the node, write-side admin endpoints return `403`.
+If `ADMIN_TOKEN` is not configured on the node, `X-Admin-Token` authentication
+returns `403`. Feed-scoped bearer tokens from proof-of-possession can still
+authorize the documented feed/track mutations.
 
 ---
 
@@ -1153,6 +1255,8 @@ Removes a single track from a feed. Emits a `TrackRemoved` event.
 ## 12. Event Types
 
 Events are the atomic unit of replication. Each event is ed25519-signed by the primary node.
+The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
+`created_at`, and `seq`.
 
 | Event Type | Subject GUID | Description |
 |------------|-------------|-------------|
@@ -1172,6 +1276,7 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 | `source_entity_links_replaced` | feed_guid | Feed-level staged entity links replaced |
 | `source_release_claims_replaced` | feed_guid | Feed-level staged release claims replaced |
 | `source_item_enclosures_replaced` | feed_guid | Feed-level staged item enclosure snapshot replaced |
+| `source_item_transcripts_replaced` | feed_guid | Feed-level staged item transcript snapshot replaced |
 | `source_platform_claims_replaced` | feed_guid | Feed-level staged platform claims replaced |
 
 ---
@@ -1182,7 +1287,7 @@ Events are the atomic unit of replication. Each event is ed25519-signed by the p
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | write-side `/admin/*`, `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
 | Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}` |
 
 Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.

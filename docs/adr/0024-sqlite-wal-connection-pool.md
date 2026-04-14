@@ -30,9 +30,11 @@ Both tiers open in WAL mode (`PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL
 PRAGMA foreign_keys=ON`). The pool is wrapped in a `DbPool` struct that is
 cheaply cloneable (both fields are `Arc`-wrapped).
 
-All read-only API handlers (`GET /search`, `GET /entities/*`, `GET /events`,
-etc.) obtain a connection from the reader pool. All mutating handlers
-(`POST /ingest`, `POST /admin/*`, etc.) lock the writer mutex.
+All read-only API handlers (`GET /v1/search`, `GET /v1/feeds/*`,
+`GET /v1/tracks/*`, `GET /sync/events`, etc.) obtain a connection from the
+reader pool. All mutating handlers (`POST /ingest/feed`, `POST /sync/register`,
+`POST /sync/reconcile`, `PATCH /v1/*`, `DELETE /v1/*`, etc.) lock the writer
+mutex.
 
 For tests that use in-memory databases (`:memory:`), a `from_writer_only`
 constructor routes both reads and writes through the single writer connection,

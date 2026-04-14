@@ -4,7 +4,7 @@
 **Scope:** Re-audit of all v1 findings plus follow-up verification against the current tree
 **Files audited:**
 - `src/proof.rs` -- `verify_podcast_txt`, `validate_feed_url`, `recompute_binding`, SSRF guard
-- `src/api.rs` -- `handle_proofs_assert` (3-phase RSS verification), `check_admin_token` (CS-02 constant-time), SSE event stream, tracing
+- `src/api.rs` -- `handle_proofs_assert` (3-phase RSS verification), `check_admin_token` (CS-02 constant-time), internal SSE registry, tracing
 - `src/search.rs` -- `SipHasher24` FTS5 rowid computation
 - `src/signing.rs` -- Ed25519 (unchanged from v1)
 - `src/community.rs` -- push registration, tracing audit
@@ -24,7 +24,8 @@ All other v1 findings remain CLOSED (no regressions).
 The current tree closes the critical v1 proof bypass and now also hardens the
 RSS verification path with bounded response bodies, redirect re-validation, and
 DNS pinning across the fetch chain. SSE events remain unsigned by design, which
-is acceptable for their notification-only role. No new critical or high-severity
+is acceptable for their internal notification-only role. The current router does
+not expose a public `GET /v1/events` endpoint. No new critical or high-severity
 vulnerabilities were identified.
 
 ---
@@ -99,7 +100,9 @@ against a second independent DNS lookup.
 | 9 | Challenge Replay | PROTECTED | CLOSED (no regression) |
 | 10 | Community Node Filtering | PROTECTED | CLOSED (no regression) |
 
-No code changes were made to the Ed25519 signing/verification pipeline, event ID generation, or challenge replay protection. The `signing.rs` and `proof.rs` core functions (create_challenge, resolve_challenge, recompute_binding) are unchanged from v1.
+The Ed25519 signing/verification pipeline now also signs `seq` so sync cursors
+cannot be inflated in transit. Event ID generation and challenge replay
+protection remain unchanged from v1.
 
 ---
 
@@ -162,24 +165,28 @@ Cross-challenge replay is impossible because:
 - Each challenge has its own unique `base_token`
 - `resolve_challenge` uses `WHERE state = 'pending'` for single-use enforcement
 
-### N4: SSE Event Stream Integrity
+### N4: SSE Registry Integrity
 
 **Finding: ACCEPTABLE RISK (Informational)**
 
 **Analysis:**
 
-SSE events (api.rs lines 1244-1343) are **not signed**. The `SseFrame` struct contains `event_type`, `subject_guid`, and `payload` (as `serde_json::Value`). Events are broadcast via `tokio::sync::broadcast` channels and serialized as JSON in the SSE data field.
+SSE frames are **not signed**. The `SseFrame` struct contains `event_type`,
+`subject_guid`, and `payload` (as `serde_json::Value`). Events are broadcast via
+in-process `tokio::sync::broadcast` channels.
 
 **Can a malicious event be injected?**
 
-An attacker cannot inject events into the SSE stream because:
+An attacker cannot inject events into the SSE registry because:
 1. The `SseRegistry::publish` method is only called internally by the server (not exposed via any HTTP endpoint).
-2. SSE is a server-to-client protocol -- clients receive events but cannot send them back through the SSE connection.
+2. The current Axum routers do not register a public `GET /v1/events` endpoint.
 3. The broadcast channels are in-process Tokio channels, not network-accessible.
 
-**However**, SSE events are not cryptographically authenticated to the client. A network-level MITM (on a non-TLS connection) could inject or modify SSE frames. The main.rs TLS warning (line 325) already addresses this: "Bearer tokens and crawl tokens are transmitted unencrypted."
+If a public SSE route is reintroduced later, frames should remain informational
+notifications and clients should query the REST API before acting on them.
 
-**Recommendation:** SSE events are real-time notifications (e.g., "a new track was added for artist X"). They do not carry authorization or mutation semantics. Signing each SSE frame would add computational overhead without meaningful security benefit -- the client should always verify state by querying the authenticated REST API before acting on an SSE notification. The current design is appropriate.
+**Recommendation:** Do not document a public SSE API until the handler is present
+in the router. If it returns later, document the notification-only trust model.
 
 ### N5: Tracing / Sensitive Data Logging
 
@@ -252,7 +259,7 @@ response. This closes the earlier memory-exhaustion concern for
 | N1 | SipHash FTS5 Rowid Collisions | ACCEPTABLE RISK | Low |
 | N2 | Constant-Time Admin Token (CS-02) | PROTECTED | N/A |
 | N3 | Token Binding Replay | PROTECTED | N/A |
-| N4 | SSE Event Stream Integrity | ACCEPTABLE RISK | Informational |
+| N4 | SSE Registry Integrity | ACCEPTABLE RISK | Informational |
 | N5 | Tracing Sensitive Data Leakage | PROTECTED | N/A |
 | N6 | RSS Response Body Size | FIXED | Low |
 
@@ -262,4 +269,4 @@ response. This closes the earlier memory-exhaustion concern for
 
 1. **Monitor SipHash collision rates** -- If the search index grows to millions of entities, hash collisions become more likely (birthday bound at ~2^31.5 entities for 63-bit output). Consider logging when a pre-delete affects a different entity than expected.
 
-2. **Document SSE trust model** -- SSE events are informational notifications, not authoritative state. Client applications should query the REST API to confirm state before acting on SSE notifications.
+2. **Document SSE trust model if a public endpoint returns** -- SSE events should be informational notifications, not authoritative state. Client applications should query the REST API to confirm state before acting on SSE notifications.
