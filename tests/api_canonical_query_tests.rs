@@ -243,6 +243,28 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
     );
     assert_eq!(publisher_json["data"]["tracks"][0]["feed_guid"], feed_guid);
 
+    let lowercase_publisher_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/publishers/wavlake?case_sensitive=false")
+                .body(Body::empty())
+                .expect("case-insensitive publisher detail request"),
+        )
+        .await
+        .expect("case-insensitive publisher detail response");
+    assert_eq!(lowercase_publisher_resp.status(), 200);
+    let lowercase_publisher_json = body_json(lowercase_publisher_resp).await;
+    assert_eq!(
+        lowercase_publisher_json["data"]["feeds"][0]["feed_guid"],
+        feed_guid
+    );
+    assert_eq!(
+        lowercase_publisher_json["data"]["tracks"][0]["track_guid"],
+        track_guid
+    );
+
     let search_resp = app
         .clone()
         .oneshot(

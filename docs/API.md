@@ -997,7 +997,7 @@ Lists non-empty publisher text values with feed and track counts.
 ### GET /v1/publishers/{publisher}
 
 Returns feeds and tracks whose stored publisher text exactly matches the path
-parameter.
+parameter by default.
 
 - **Authentication:** None
 
@@ -1006,6 +1006,7 @@ parameter.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `limit` | i64 | 50 | Max feeds and max tracks returned (clamped to 1--200) |
+| `case_sensitive` | bool | `true` | Set to `false` to match publisher text case-insensitively. |
 
 **Response (`200 OK`):**
 

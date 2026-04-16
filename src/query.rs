@@ -118,6 +118,22 @@ pub struct PublisherSearchQuery {
     limit: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct PublisherDetailQuery {
+    limit: Option<i64>,
+    case_sensitive: Option<bool>,
+}
+
+impl PublisherDetailQuery {
+    fn capped_limit(&self) -> i64 {
+        self.limit.unwrap_or(50).clamp(1, 200)
+    }
+
+    fn case_sensitive(&self) -> bool {
+        self.case_sensitive.unwrap_or(true)
+    }
+}
+
 // ── Serializable types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize)]
@@ -1752,7 +1768,7 @@ async fn handle_publisher_search(
 async fn handle_publisher_detail(
     State(state): State<Arc<api::AppState>>,
     Path(publisher): Path<String>,
-    Query(params): Query<ListQuery>,
+    Query(params): Query<PublisherDetailQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
@@ -1762,11 +1778,16 @@ async fn handle_publisher_detail(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let publisher_predicate = if params.case_sensitive() {
+            "publisher = ?1"
+        } else {
+            "publisher = ?1 COLLATE NOCASE"
+        };
 
-        let mut fstmt = conn.prepare(
+        let mut fstmt = conn.prepare(&format!(
             "SELECT feed_guid, feed_url, title, image_url, episode_count, raw_medium \
-             FROM feeds WHERE publisher = ?1 ORDER BY newest_item_at DESC LIMIT ?2",
-        )?;
+             FROM feeds WHERE {publisher_predicate} ORDER BY newest_item_at DESC LIMIT ?2"
+        ))?;
         let feeds: Vec<PublisherFeedSummary> = fstmt
             .query_map(params![publisher, limit], |row| {
                 Ok(PublisherFeedSummary {
@@ -1780,12 +1801,12 @@ async fn handle_publisher_detail(
             })?
             .collect::<Result<_, _>>()?;
 
-        let mut tstmt = conn.prepare(
+        let mut tstmt = conn.prepare(&format!(
             "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
              t.duration_secs, t.track_number \
              FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
-             WHERE t.publisher = ?1 ORDER BY t.pub_date DESC LIMIT ?2",
-        )?;
+             WHERE t.{publisher_predicate} ORDER BY t.pub_date DESC LIMIT ?2"
+        ))?;
         let tracks: Vec<PublisherTrackSummary> = tstmt
             .query_map(params![publisher, limit], |row| {
                 Ok(PublisherTrackSummary {
