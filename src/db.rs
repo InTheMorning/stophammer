@@ -3611,10 +3611,7 @@ fn build_changed_events(
     // --- Staged item-transcript diff ---
     let existing_source_item_transcripts =
         get_source_item_transcripts_for_feed(conn, &feed.feed_guid)?;
-    if source_item_transcripts_changed(
-        &existing_source_item_transcripts,
-        source_item_transcripts,
-    ) {
+    if source_item_transcripts_changed(&existing_source_item_transcripts, source_item_transcripts) {
         event_rows.push(build_source_item_transcripts_event(
             feed,
             source_item_transcripts,

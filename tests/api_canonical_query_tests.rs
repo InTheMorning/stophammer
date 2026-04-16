@@ -222,6 +222,27 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
         .collect::<Vec<_>>();
     assert!(track_enclosure_urls.contains(&"https://cdn.example.com/canonical-query.flac"));
 
+    let publisher_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/publishers/Wavlake")
+                .body(Body::empty())
+                .expect("publisher detail request"),
+        )
+        .await
+        .expect("publisher detail response");
+    assert_eq!(publisher_resp.status(), 200);
+    let publisher_json = body_json(publisher_resp).await;
+    assert_eq!(publisher_json["data"]["publisher_text"], "Wavlake");
+    assert_eq!(publisher_json["data"]["feeds"][0]["feed_guid"], feed_guid);
+    assert_eq!(
+        publisher_json["data"]["tracks"][0]["track_guid"],
+        track_guid
+    );
+    assert_eq!(publisher_json["data"]["tracks"][0]["feed_guid"], feed_guid);
+
     let search_resp = app
         .clone()
         .oneshot(

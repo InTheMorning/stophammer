@@ -1781,8 +1781,8 @@ async fn handle_publisher_detail(
             .collect::<Result<_, _>>()?;
 
         let mut tstmt = conn.prepare(
-            "SELECT track_guid, feed_guid, title, COALESCE(t.image_url, f.image_url), \
-             duration_secs, track_number \
+            "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
+             t.duration_secs, t.track_number \
              FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
              WHERE t.publisher = ?1 ORDER BY t.pub_date DESC LIMIT ?2",
         )?;
