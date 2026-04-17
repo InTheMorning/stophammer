@@ -1,6 +1,6 @@
 # Schema Reference
 
-Source: [src/schema.sql](/home/citizen/build/stophammer/src/schema.sql)
+Source: [src/schema.sql](../src/schema.sql)
 
 This reference describes the current source-first schema. It does not document
 retired canonical release/recording tables.

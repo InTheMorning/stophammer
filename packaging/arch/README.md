@@ -1,7 +1,7 @@
 ## Arch Packaging
 
 This directory contains the first distro-specific packaging target from
-[packaging/README.md](/home/citizen/build/stophammer/packaging/README.md).
+[packaging/README.md](../packaging/README.md).
 
 Current shape:
 
@@ -10,7 +10,7 @@ Current shape:
   - `stophammer-node`
   - `stophammer-crawler`
 - the `PKGBUILD` reuses the existing role-tarball assembly flow by calling:
-  - [scripts/publish-release.sh](/home/citizen/build/stophammer/scripts/publish-release.sh)
+  - [scripts/publish-release.sh](../../scripts/publish-release.sh)
 - install paths match the packaging asset layout:
   - binaries under `/usr/bin`
   - units under `/usr/lib/systemd/system`

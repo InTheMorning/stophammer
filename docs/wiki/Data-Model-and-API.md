@@ -71,7 +71,7 @@ Wallet reads and publisher reads are inspection facets over the source-first
 data. They do not add a canonical artist/release/recording layer.
 
 For exact table meanings, read
-[schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md).
+[schema-reference.md](../schema-reference.md).
 
 For exact route contracts, read
-[API.md](/home/citizen/build/stophammer/docs/API.md).
+[API.md](../API.md).

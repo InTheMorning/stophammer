@@ -4,10 +4,10 @@
 
 If you are new to the repo:
 
-1. read [user-guide.md](/home/citizen/build/stophammer/docs/user-guide.md)
-2. skim [README.md](/home/citizen/build/stophammer/README.md)
-3. then choose either [operations.md](/home/citizen/build/stophammer/docs/operations.md)
-   or [API.md](/home/citizen/build/stophammer/docs/API.md)
+1. read [user-guide.md](../user-guide.md)
+2. skim [README.md](../../README.md)
+3. then choose either [operations.md](../operations.md)
+   or [API.md](../API.md)
 
 ## Fastest Local Start
 

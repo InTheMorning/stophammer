@@ -5,13 +5,13 @@ A quality-gated V4V music index with a source-first v1 data model.
 ## Documentation
 
 - quick start and architecture: this README
-- narrative introduction: [docs/user-guide.md](/home/citizen/build/stophammer/docs/user-guide.md)
-- operator deployment and maintenance: [docs/operations.md](/home/citizen/build/stophammer/docs/operations.md)
-- HTTP API reference: [docs/API.md](/home/citizen/build/stophammer/docs/API.md)
+- narrative introduction: [docs/user-guide.md](docs/user-guide.md)
+- operator deployment and maintenance: [docs/operations.md](docs/operations.md)
+- HTTP API reference: [docs/API.md](docs/API.md)
 - runtime API explorer: `GET /api` (backed by `GET /openapi.json`)
-- schema reference: [docs/schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
-- verifier behavior: [docs/verifier-guide.md](/home/citizen/build/stophammer/docs/verifier-guide.md)
-- source-first music schema ADR: [docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md](/home/citizen/build/stophammer/docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
+- schema reference: [docs/schema-reference.md](docs/schema-reference.md)
+- verifier behavior: [docs/verifier-guide.md](docs/verifier-guide.md)
+- source-first music schema ADR: [docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md](docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
 
 ## What Stophammer Is
 
@@ -96,7 +96,7 @@ docker build --target stophammer-node -t stophammer-node .
 
 ## Reference Compose Stack
 
-The root [docker-compose.yml](/home/citizen/build/stophammer/docker-compose.yml) defines the current packaged stack:
+The root [docker-compose.yml](docker-compose.yml) defines the current packaged stack:
 
 - `primary`
 - `podping-listener`
@@ -191,4 +191,4 @@ Useful provenance/debug includes on feed reads:
 - `source_platforms`
 - `source_release_claims`
 
-See [docs/API.md](/home/citizen/build/stophammer/docs/API.md) for exact payloads.
+See [docs/API.md](docs/API.md) for exact payloads.

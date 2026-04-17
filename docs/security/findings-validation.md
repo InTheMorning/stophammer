@@ -8,10 +8,10 @@ the current tree.
 
 Use these as the current sources of truth instead:
 
-- [final-audit-report.md](/home/citizen/build/stophammer/docs/security/final-audit-report.md)
-- [auth-blackbox-report-v2.md](/home/citizen/build/stophammer/docs/security/auth-blackbox-report-v2.md)
-- [crypto-blackbox-report-v2.md](/home/citizen/build/stophammer/docs/security/crypto-blackbox-report-v2.md)
-- [availability-blackbox-report-v2.md](/home/citizen/build/stophammer/docs/security/availability-blackbox-report-v2.md)
+- [final-audit-report.md](final-audit-report.md)
+- [auth-blackbox-report-v2.md](auth-blackbox-report-v2.md)
+- [crypto-blackbox-report-v2.md](crypto-blackbox-report-v2.md)
+- [availability-blackbox-report-v2.md](availability-blackbox-report-v2.md)
 
 ## Current Status of the Earlier Findings
 

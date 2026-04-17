@@ -33,7 +33,7 @@ verification fetch. The fix now:
   mocks without weakening production behavior
 
 Regression coverage was added in
-[`tests/sync_register_ssrf_tests.rs`](/home/citizen/build/stophammer/tests/sync_register_ssrf_tests.rs)
+[`tests/sync_register_ssrf_tests.rs`](../../tests/sync_register_ssrf_tests.rs)
 to ensure redirected ownership checks fail closed.
 
 ---
