@@ -1,4 +1,4 @@
-//! Dump the stophammer OpenAPI document to stdout.
+//! Dump the stophammer `OpenAPI` document to stdout.
 //!
 //! Use this to generate a static `openapi.json` for previewing the themed
 //! API explorer without running a full stophammer server.

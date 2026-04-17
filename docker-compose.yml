@@ -29,6 +29,7 @@ services:
       start_period: 10s
 
   podping-listener:
+    hostname: podping
     image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
     restart: unless-stopped
     env_file:
@@ -38,6 +39,8 @@ services:
     depends_on:
       podping-listener-init:
         condition: service_completed_successfully
+    ports:
+      - "8089:8089"
 
   crawler-init:
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
