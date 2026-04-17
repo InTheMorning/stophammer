@@ -24,7 +24,7 @@ use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, Path, Query, State},
     http::{HeaderMap, HeaderValue, Method, StatusCode, header},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{delete, get, patch, post},
 };
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
@@ -1415,6 +1415,18 @@ fn build_cors_layer() -> CorsLayer {
 /// Builds the full read-write router used by the primary node.
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::<Arc<AppState>>::new()
+        .route(
+            "/api",
+            get(|| async { Html(crate::openapi::api_explorer_html()) }),
+        )
+        .route(
+            "/api.html",
+            get(|| async { Html(crate::openapi::api_explorer_html()) }),
+        )
+        .route(
+            "/openapi.json",
+            get(|| async { Json(crate::openapi::primary_document()) }),
+        )
         .route("/ingest/feed", post(handle_ingest_feed))
         .route("/sync/events", get(handle_sync_events))
         .route("/sync/reconcile", post(handle_sync_reconcile))
@@ -1444,6 +1456,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 // FG-05 community peers — 2026-03-13
 pub fn build_readonly_router(state: Arc<AppState>) -> Router {
     Router::new()
+        .route(
+            "/api",
+            get(|| async { Html(crate::openapi::api_explorer_html()) }),
+        )
+        .route(
+            "/api.html",
+            get(|| async { Html(crate::openapi::api_explorer_html()) }),
+        )
+        .route(
+            "/openapi.json",
+            get(|| async { Json(crate::openapi::readonly_document()) }),
+        )
         .route("/sync/events", get(handle_sync_events))
         .route("/sync/peers", get(handle_sync_peers))
         .route("/node/info", get(handle_node_info))

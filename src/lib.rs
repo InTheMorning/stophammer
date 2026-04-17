@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 //! Stophammer: a decentralised music feed index with value-for-value (V4V) verification.
 //!
 //! Stophammer ingests podcast-namespace RSS feeds, validates them through a
@@ -41,6 +43,7 @@ pub mod event;
 pub mod ingest;
 pub mod medium;
 pub mod model;
+pub mod openapi;
 pub mod proof;
 pub mod quality;
 pub mod query;

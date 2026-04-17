@@ -8,6 +8,7 @@ A quality-gated V4V music index with a source-first v1 data model.
 - narrative introduction: [docs/user-guide.md](/home/citizen/build/stophammer/docs/user-guide.md)
 - operator deployment and maintenance: [docs/operations.md](/home/citizen/build/stophammer/docs/operations.md)
 - HTTP API reference: [docs/API.md](/home/citizen/build/stophammer/docs/API.md)
+- runtime API explorer: `GET /api` (backed by `GET /openapi.json`)
 - schema reference: [docs/schema-reference.md](/home/citizen/build/stophammer/docs/schema-reference.md)
 - verifier behavior: [docs/verifier-guide.md](/home/citizen/build/stophammer/docs/verifier-guide.md)
 - source-first music schema ADR: [docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md](/home/citizen/build/stophammer/docs/adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)

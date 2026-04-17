@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Stophammer API Explorer</title>
+  <!-- Apply saved theme before CSS renders to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('sh-api:theme');if(t)document.documentElement.setAttribute('data-theme',t);})();</script>
+  <style>
+    /* ── Apple HIG System Foundation ────────────────────────── */
+    :root {
+      --system-bg: #ffffff;
+      --system-secondary-bg: #f2f2f7;
+      --system-tertiary-bg: #ffffff;
+      --system-grouped-bg: #f2f2f7;
+      --system-sep: rgba(60, 60, 67, 0.36);
+      --system-label: #000000;
+      --system-secondary-label: rgba(60, 60, 67, 0.6);
+      --system-tertiary-label: rgba(60, 60, 67, 0.3);
+      --system-accent: #007aff;
+      --system-red: #ff3b30;
+      --system-green: #34c759;
+      --system-orange: #ff9500;
+      --sf-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+      --sidebar-width: 260px;
+      --header-height: 52px;
+    }
+
+    html[data-theme="dark"] {
+      --system-bg: #000000;
+      --system-secondary-bg: #1c1c1e;
+      --system-tertiary-bg: #2c2c2e;
+      --system-grouped-bg: #000000;
+      --system-sep: rgba(84, 84, 88, 0.65);
+      --system-label: #ffffff;
+      --system-secondary-label: rgba(235, 235, 245, 0.6);
+      --system-tertiary-label: rgba(235, 235, 245, 0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--system-bg);
+      color: var(--system-label);
+      font-family: var(--sf-font);
+      font-size: 17px;
+      line-height: 1.3;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Header (Vibrant & Interactive) ────────────────────── */
+    header {
+      height: var(--header-height);
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 20px;
+      background: rgba(var(--system-bg), 0.8);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 0.5px solid var(--system-sep);
+    }
+
+    header h1 {
+      font-size: 17px;
+      font-weight: 600;
+      flex-shrink: 0;
+      letter-spacing: -0.01em;
+    }
+
+    .settings-bar {
+      display: flex;
+      gap: 8px;
+      flex: 1;
+      overflow-x: auto;
+      scrollbar-width: none;
+      align-items: center;
+    }
+    .settings-bar::-webkit-scrollbar { display: none; }
+
+    /* Each field: label prefix + input + optional eye button, all in one pill */
+    .s-group {
+      display: flex;
+      align-items: stretch;
+      height: 30px;
+      border: 0.5px solid var(--system-sep);
+      border-radius: 8px;
+      background: var(--system-secondary-bg);
+      flex-shrink: 0;
+      overflow: hidden;
+      transition: border-color 0.15s;
+    }
+    .s-group:focus-within { border-color: var(--system-accent); }
+
+    .s-group label {
+      display: flex;
+      align-items: center;
+      padding: 0 8px 0 10px;
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--system-secondary-label);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-right: 0.5px solid var(--system-sep);
+      white-space: nowrap;
+      cursor: default;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    .s-group input {
+      background: transparent;
+      border: none;
+      color: var(--system-label);
+      font-size: 13px;
+      font-family: "SF Mono", Menlo, monospace;
+      outline: none;
+      padding: 0 8px;
+      min-width: 0;
+    }
+    .s-group.s-url   input { width: 200px; font-family: var(--sf-font); }
+    .s-group.s-token input { width: 108px; }
+
+    /* Eye reveal button inside token groups */
+    .s-eye {
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      border: none;
+      border-left: 0.5px solid var(--system-sep);
+      background: transparent;
+      color: var(--system-tertiary-label);
+      cursor: pointer;
+      min-height: unset;
+      border-radius: 0;
+      font-size: unset;
+      font-weight: unset;
+      transition: color 0.15s, background 0.15s;
+      flex-shrink: 0;
+    }
+    .s-eye:hover { color: var(--system-secondary-label); background: var(--system-tertiary-bg); }
+    .s-eye svg { display: block; pointer-events: none; }
+    .s-eye .eye-off { display: none; }
+    .s-eye.revealed .eye-on  { display: none; }
+    .s-eye.revealed .eye-off { display: block; }
+
+    /* ── Sidebar (Source List Style) ────────────────────────── */
+    #sidebar {
+      width: var(--sidebar-width);
+      position: fixed;
+      top: var(--header-height);
+      left: 0;
+      bottom: 0;
+      background: var(--system-secondary-bg);
+      border-right: 0.5px solid var(--system-sep);
+      overflow-y: auto;
+      padding: 12px 8px;
+    }
+
+    .nav-group-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--system-secondary-label);
+      padding: 8px 12px 4px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    #sidebar a {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      color: var(--system-label);
+      text-decoration: none;
+      font-size: 14px;
+      border-radius: 8px;
+      margin-bottom: 2px;
+      transition: background 0.1s;
+    }
+
+    #sidebar a:hover { background: rgba(0, 0, 0, 0.05); }
+    html[data-theme="dark"] #sidebar a:hover { background: rgba(255, 255, 255, 0.05); }
+
+    #sidebar a.active {
+      background: var(--system-accent);
+      color: #ffffff;
+    }
+
+    .method-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      margin-right: 10px;
+      flex-shrink: 0;
+    }
+    .dot-GET { background: var(--system-green); }
+    .dot-POST { background: var(--system-accent); }
+    .dot-PATCH { background: var(--system-orange); }
+    .dot-DELETE { background: var(--system-red); }
+
+    /* ── Main Content ───────────────────────────────────────── */
+    main {
+      margin-left: var(--sidebar-width);
+      padding: calc(var(--header-height) + 32px) 40px 60px;
+      max-width: 1100px;
+    }
+
+    .section-title {
+      font-size: 28px;
+      font-weight: 700;
+      margin-bottom: 24px;
+      border-bottom: 0.5px solid var(--system-sep);
+      padding-bottom: 12px;
+    }
+
+    /* ── Endpoint Cards ─────────────────────────────────────── */
+    .card {
+      background: var(--system-tertiary-bg);
+      border: 0.5px solid var(--system-sep);
+      border-radius: 12px;
+      margin-bottom: 16px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+
+    .card-header {
+      padding: 14px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .card-header:hover { background: rgba(0,0,0,0.02); }
+
+    .method-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      min-width: 58px;
+      text-align: center;
+      color: #fff;
+    }
+    .bg-GET { background: var(--system-green); }
+    .bg-POST { background: var(--system-accent); }
+    .bg-PATCH { background: var(--system-orange); }
+    .bg-DELETE { background: var(--system-red); }
+
+    .path-text {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 14px;
+      font-weight: 500;
+      flex: 1;
+    }
+
+    .chevron {
+      font-size: 12px;
+      color: var(--system-tertiary-label);
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .card.open .chevron { transform: rotate(90deg); }
+
+    .card-body {
+      display: none;
+      padding: 20px;
+      border-top: 0.5px solid var(--system-sep);
+      background: var(--system-secondary-bg);
+    }
+    .card.open .card-body { display: block; }
+
+    /* ── Form Elements ──────────────────────────────────────── */
+    .field-group { margin-bottom: 20px; }
+    .field-label {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--system-secondary-label);
+      margin-bottom: 8px;
+      display: block;
+    }
+
+    .param-row {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 12px;
+      margin-bottom: 8px;
+      align-items: center;
+    }
+
+    .param-name {
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 13px;
+    }
+
+    input.text-field, textarea.text-field {
+      width: 100%;
+      background: var(--system-bg);
+      border: 0.5px solid var(--system-sep);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 14px;
+      color: var(--system-label);
+      font-family: inherit;
+      outline: none;
+    }
+    input.text-field:focus { border-color: var(--system-accent); }
+
+    textarea.text-field {
+      font-family: "SF Mono", Menlo, monospace;
+      min-height: 120px;
+      resize: vertical;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    button {
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      min-height: 44px; /* HIG minimum touch target */
+      transition: opacity 0.15s;
+    }
+
+    .btn-primary { background: var(--system-accent); color: #fff; }
+    .btn-secondary { background: var(--system-tertiary-bg); border: 0.5px solid var(--system-sep); color: var(--system-label); }
+    button:active { opacity: 0.7; }
+    button:disabled { opacity: 0.4; cursor: default; }
+
+    /* ── Response View ──────────────────────────────────────── */
+    .response-area {
+      margin-top: 24px;
+      background: #1e1e1e;
+      border-radius: 12px;
+      padding: 16px;
+      color: #d4d4d4;
+      font-family: "SF Mono", Menlo, monospace;
+      font-size: 13px;
+      line-height: 1.5;
+      position: relative;
+    }
+    html[data-theme="light"] .response-area { background: #f0f0f5; color: #1d1d1f; }
+
+    /* ── Theme Toggle ───────────────────────────────────────── */
+    .theme-btn {
+      background: var(--system-secondary-bg);
+      border: 0.5px solid var(--system-sep);
+      border-radius: 8px;
+      padding: 0 9px;
+      min-height: 32px;
+      width: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-left: 8px;
+      flex-shrink: 0;
+      color: var(--system-label);
+      transition: background 0.1s;
+    }
+    .theme-btn:hover { background: var(--system-tertiary-bg); }
+    .theme-btn svg { display: block; }
+    /* Show sun icon in dark mode, moon in light mode */
+    .icon-sun  { display: none; }
+    .icon-moon { display: block; }
+    html[data-theme="dark"]  .icon-sun  { display: block; }
+    html[data-theme="dark"]  .icon-moon { display: none; }
+    html[data-theme="light"] .icon-sun  { display: none; }
+    html[data-theme="light"] .icon-moon { display: block; }
+
+    .status-badge {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .status-ok { background: var(--system-green); color: #fff; }
+    .status-error { background: var(--system-red); color: #fff; }
+
+    pre { white-space: pre-wrap; word-break: break-all; }
+
+    /* ── Accessibility ──────────────────────────────────────── */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      border: 0;
+    }
+
+    /* ── Focus States ───────────────────────────────────────── */
+    :focus-visible {
+      outline: 2px solid var(--system-accent);
+      outline-offset: 2px;
+    }
+
+    @media (max-width: 800px) {
+      #sidebar { display: none; }
+      main { margin-left: 0; padding: 80px 20px; }
+      .param-row { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header role="banner">
+  <h1>Stophammer API</h1>
+  <div class="settings-bar" role="toolbar" aria-label="API Settings">
+
+    <div class="s-group s-url">
+      <label for="s-base">Base URL</label>
+      <input id="s-base" type="text" value="https://musicindex.org" spellcheck="false" autocomplete="url">
+    </div>
+
+    <div class="s-group s-token">
+      <label for="s-bearer">Bearer</label>
+      <input id="s-bearer" type="password" placeholder="token" spellcheck="false" autocomplete="off">
+      <button class="s-eye" data-target="s-bearer" aria-label="Show Bearer token" tabindex="-1">
+        <!-- eye — visible by default (field is hidden) -->
+        <svg class="eye-on" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <!-- eye.slash — shown when revealed -->
+        <svg class="eye-off" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+          <line x1="2" y1="2" x2="14" y2="14"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="s-group s-token">
+      <label for="s-admin">Admin</label>
+      <input id="s-admin" type="password" placeholder="token" spellcheck="false" autocomplete="off">
+      <button class="s-eye" data-target="s-admin" aria-label="Show Admin token" tabindex="-1">
+        <svg class="eye-on" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <svg class="eye-off" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+          <line x1="2" y1="2" x2="14" y2="14"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="s-group s-token">
+      <label for="s-sync">Sync</label>
+      <input id="s-sync" type="password" placeholder="token" spellcheck="false" autocomplete="off">
+      <button class="s-eye" data-target="s-sync" aria-label="Show Sync token" tabindex="-1">
+        <svg class="eye-on" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+        </svg>
+        <svg class="eye-off" width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M1 8s2.5-5 7-5 7 5 7 5-2.5 5-7 5-7-5-7-5z"/>
+          <circle cx="8" cy="8" r="2"/>
+          <line x1="2" y1="2" x2="14" y2="14"/>
+        </svg>
+      </button>
+    </div>
+
+  </div>
+  <button id="theme-toggle" class="theme-btn" aria-label="Switch to light mode">
+    <!-- sun.max — shown in dark mode -->
+    <svg class="icon-sun" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+      <circle cx="9" cy="9" r="3.25"/>
+      <line x1="9" y1="1"   x2="9"   y2="2.8"/>
+      <line x1="9" y1="15.2" x2="9"  y2="17"/>
+      <line x1="1"   y1="9" x2="2.8" y2="9"/>
+      <line x1="15.2" y1="9" x2="17" y2="9"/>
+      <line x1="3.05" y1="3.05" x2="4.32" y2="4.32"/>
+      <line x1="13.68" y1="13.68" x2="14.95" y2="14.95"/>
+      <line x1="14.95" y1="3.05" x2="13.68" y2="4.32"/>
+      <line x1="4.32"  y1="13.68" x2="3.05" y2="14.95"/>
+    </svg>
+    <!-- moon — shown in light mode -->
+    <svg class="icon-moon" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M15.5 11.5A7 7 0 0 1 6.5 2.5a6.5 6.5 0 1 0 9 9z"/>
+    </svg>
+  </button>
+</header>
+
+<div id="sidebar" role="navigation" aria-label="Endpoint Navigation"></div>
+
+<main id="content" role="main"></main>
+
+<script>
+const FIELDS = ['s-base', 's-bearer', 's-admin', 's-sync'];
+const METHOD_ORDER = ['GET', 'POST', 'PATCH', 'DELETE'];
+
+function save() {
+  FIELDS.forEach(id => localStorage.setItem('sh-api:' + id, document.getElementById(id).value));
+}
+
+function load() {
+  FIELDS.forEach(id => {
+    const saved = localStorage.getItem('sh-api:' + id);
+    if (saved) document.getElementById(id).value = saved;
+  });
+
+  const baseInput = document.getElementById('s-base');
+  if (!baseInput.value.trim()) baseInput.value = window.location.origin;
+}
+
+FIELDS.forEach(id => document.getElementById(id).addEventListener('input', save));
+load();
+
+document.querySelectorAll('.s-eye').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    const showing = input.type === 'text';
+    input.type = showing ? 'password' : 'text';
+    btn.classList.toggle('revealed', !showing);
+    btn.setAttribute('aria-label', (showing ? 'Show' : 'Hide') + ' ' + btn.closest('.s-group').querySelector('label').textContent + ' token');
+  });
+});
+
+(function initTheme() {
+  const btn = document.getElementById('theme-toggle');
+  function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    localStorage.setItem('sh-api:theme', theme);
+  }
+  const stored = localStorage.getItem('sh-api:theme') || document.documentElement.getAttribute('data-theme') || 'dark';
+  applyTheme(stored);
+  btn.addEventListener('click', () => applyTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+})();
+
+function cfg(id) {
+  return document.getElementById(id).value.trim();
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function methodRank(method) {
+  const idx = METHOD_ORDER.indexOf(method);
+  return idx === -1 ? METHOD_ORDER.length : idx;
+}
+
+function authKind(operation) {
+  const security = operation.security || [];
+  const names = security.flatMap(req => Object.keys(req));
+  if (names.includes('SyncToken')) return 'sync';
+  if (names.includes('BearerAuth') || names.includes('AdminToken')) return 'bearer';
+  return 'none';
+}
+
+function schemaExample(content) {
+  if (!content) return null;
+  const jsonContent = content['application/json'];
+  if (!jsonContent) return null;
+  if (jsonContent.example !== undefined) return jsonContent.example;
+  const examples = jsonContent.examples ? Object.values(jsonContent.examples) : [];
+  if (examples.length && examples[0] && examples[0].value !== undefined) return examples[0].value;
+  if (jsonContent.schema && jsonContent.schema.example !== undefined) return jsonContent.schema.example;
+  return null;
+}
+
+function normalizeOperation(path, method, operation) {
+  const allParams = operation.parameters || [];
+  const pathParams = allParams.filter(p => p.in === 'path').map(p => ({
+    name: p.name,
+    hint: p.description || 'Path value',
+    required: !!p.required,
+  }));
+  const queryParams = allParams.filter(p => p.in === 'query').map(p => ({
+    name: p.name,
+    hint: p.description || 'Query value',
+    required: !!p.required,
+  }));
+  const bodyExample = schemaExample(operation.requestBody && operation.requestBody.content);
+  const primaryTag = (operation.tags && operation.tags[0]) || 'Other';
+  return {
+    id: `${method}-${path}`.replace(/[^a-z0-9]+/gi, '-').toLowerCase(),
+    method,
+    path,
+    group: primaryTag,
+    summary: operation.summary || path,
+    desc: operation.description || operation.summary || '',
+    auth: authKind(operation),
+    pathParams,
+    queryParams,
+    body: bodyExample == null ? null : { example: JSON.stringify(bodyExample, null, 2) },
+  };
+}
+
+function specGroups(spec) {
+  const tagOrder = new Map((spec.tags || []).map((tag, index) => [tag.name, index]));
+  const byGroup = new Map();
+
+  Object.entries(spec.paths || {}).forEach(([path, pathItem]) => {
+    Object.entries(pathItem || {}).forEach(([method, operation]) => {
+      const upper = method.toUpperCase();
+      if (!METHOD_ORDER.includes(upper)) return;
+      const endpoint = normalizeOperation(path, upper, operation || {});
+      if (!byGroup.has(endpoint.group)) byGroup.set(endpoint.group, []);
+      byGroup.get(endpoint.group).push(endpoint);
+    });
+  });
+
+  return [...byGroup.entries()]
+    .sort((a, b) => (tagOrder.get(a[0]) ?? 999) - (tagOrder.get(b[0]) ?? 999))
+    .map(([label, endpoints]) => ({
+      id: label.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      label,
+      endpoints: endpoints.sort((a, b) =>
+        methodRank(a.method) - methodRank(b.method) || a.path.localeCompare(b.path)
+      ),
+    }));
+}
+
+function buildHeaders(auth) {
+  const headers = {};
+  if (auth === 'bearer') {
+    const bearer = cfg('s-bearer');
+    const admin = cfg('s-admin');
+    if (bearer) headers['Authorization'] = 'Bearer ' + bearer;
+    else if (admin) headers['X-Admin-Token'] = admin;
+  } else if (auth === 'sync') {
+    const sync = cfg('s-sync');
+    if (sync) headers['X-Sync-Token'] = sync;
+  }
+  return headers;
+}
+
+function buildRequest(ep, card) {
+  let path = ep.path;
+  ep.pathParams.forEach(param => {
+    const value = card.querySelector(`[data-path="${param.name}"]`).value.trim();
+    path = path.replace(`{${param.name}}`, encodeURIComponent(value || `{${param.name}}`));
+  });
+
+  const base = cfg('s-base').replace(/\/$/, '') || window.location.origin;
+  const url = new URL(base + path);
+  ep.queryParams.forEach(param => {
+    const value = card.querySelector(`[data-query="${param.name}"]`).value.trim();
+    if (value) url.searchParams.set(param.name, value);
+  });
+
+  const headers = buildHeaders(ep.auth);
+  const hasBody = !!ep.body;
+  if (hasBody) headers['Content-Type'] = 'application/json';
+
+  return {
+    url,
+    options: {
+      method: ep.method,
+      headers,
+      body: hasBody ? card.querySelector('textarea').value : undefined,
+    },
+  };
+}
+
+async function handleSend(ep, card, button) {
+  button.disabled = true;
+  const originalText = button.textContent;
+  button.textContent = 'Sending...';
+
+  const { url, options } = buildRequest(ep, card);
+  const respArea = card.querySelector('.response-area');
+  respArea.style.display = 'block';
+  respArea.innerHTML = '<pre>Loading...</pre>';
+
+  try {
+    const res = await fetch(url, options);
+    const text = await res.text();
+    let body = text;
+    try { body = JSON.stringify(JSON.parse(text), null, 2); } catch (err) {}
+
+    respArea.innerHTML = `
+      <span class="status-badge ${res.ok ? 'status-ok' : 'status-error'}">${res.status}</span>
+      <pre>${escapeHtml(body || '(empty body)')}</pre>
+    `;
+  } catch (err) {
+    respArea.innerHTML = `<span class="status-badge status-error">ERR</span><pre>${escapeHtml(err.message)}</pre>`;
+  } finally {
+    button.disabled = false;
+    button.textContent = originalText;
+  }
+}
+
+async function handleCopyCurl(ep, card, button) {
+  const originalText = button.textContent;
+  const { url, options } = buildRequest(ep, card);
+  const parts = [`curl -i -X ${ep.method}`];
+
+  Object.entries(options.headers || {}).forEach(([name, value]) => {
+    parts.push(`-H ${JSON.stringify(`${name}: ${value}`)}`);
+  });
+  if (options.body !== undefined) {
+    parts.push(`--data ${JSON.stringify(options.body)}`);
+  }
+  parts.push(JSON.stringify(url.toString()));
+
+  try {
+    await navigator.clipboard.writeText(parts.join(' '));
+    button.textContent = 'Copied';
+    setTimeout(() => { button.textContent = originalText; }, 1200);
+  } catch (err) {
+    button.textContent = 'Copy failed';
+    setTimeout(() => { button.textContent = originalText; }, 1200);
+  }
+}
+
+function renderEndpoint(ep) {
+  const card = document.createElement('div');
+  card.className = 'card';
+  card.id = 'ep-' + ep.id;
+
+  card.innerHTML = `
+    <div class="card-header" role="button" aria-expanded="false" tabindex="0">
+      <span class="method-badge bg-${ep.method}">${ep.method}</span>
+      <span class="path-text">${escapeHtml(ep.path)}</span>
+      <span class="chevron">▶</span>
+    </div>
+    <div class="card-body">
+      <p style="font-size: 14px; color: var(--system-secondary-label); margin-bottom: 20px;">${escapeHtml(ep.desc)}</p>
+
+      ${ep.pathParams.length ? `
+        <div class="field-group">
+          <label class="field-label">Path Parameters</label>
+          ${ep.pathParams.map(param => `
+            <div class="param-row">
+              <span class="param-name">${escapeHtml(param.name)}</span>
+              <input class="text-field" data-path="${escapeHtml(param.name)}" type="text" placeholder="${escapeHtml(param.hint)}">
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${ep.queryParams.length ? `
+        <div class="field-group">
+          <label class="field-label">Query Parameters</label>
+          ${ep.queryParams.map(param => `
+            <div class="param-row">
+              <span class="param-name">${escapeHtml(param.name)}${param.required ? ' *' : ''}</span>
+              <input class="text-field" data-query="${escapeHtml(param.name)}" type="text" placeholder="${escapeHtml(param.hint)}">
+            </div>
+          `).join('')}
+        </div>
+      ` : ''}
+
+      ${ep.body ? `
+        <div class="field-group">
+          <label class="field-label">Request Body (JSON)</label>
+          <textarea class="text-field" spellcheck="false">${escapeHtml(ep.body.example)}</textarea>
+        </div>
+      ` : ''}
+
+      <div class="btn-group">
+        <button class="btn-primary send-btn">Send Request</button>
+        <button class="btn-secondary copy-btn">Copy cURL</button>
+      </div>
+
+      <div class="response-area" style="display:none"></div>
+    </div>
+  `;
+
+  const header = card.querySelector('.card-header');
+  const toggle = () => {
+    const isOpen = card.classList.toggle('open');
+    header.setAttribute('aria-expanded', String(isOpen));
+  };
+  header.onclick = toggle;
+  header.onkeydown = event => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      toggle();
+    }
+  };
+
+  card.querySelector('.send-btn').onclick = event => handleSend(ep, card, event.target);
+  card.querySelector('.copy-btn').onclick = event => handleCopyCurl(ep, card, event.target);
+
+  return card;
+}
+
+function renderGroups(groups) {
+  const sidebar = document.getElementById('sidebar');
+  const content = document.getElementById('content');
+  sidebar.innerHTML = '';
+  content.innerHTML = '';
+
+  groups.forEach(group => {
+    const groupTitle = document.createElement('div');
+    groupTitle.className = 'nav-group-title';
+    groupTitle.textContent = group.label;
+    sidebar.appendChild(groupTitle);
+
+    group.endpoints.forEach(ep => {
+      const link = document.createElement('a');
+      link.href = '#ep-' + ep.id;
+      link.innerHTML = `<span class="method-dot dot-${ep.method}"></span> ${escapeHtml(ep.path.replace('/v1/', ''))}`;
+      link.onclick = () => {
+        sidebar.querySelectorAll('a').forEach(el => el.classList.remove('active'));
+        link.classList.add('active');
+      };
+      sidebar.appendChild(link);
+    });
+
+    const section = document.createElement('section');
+    section.innerHTML = `<h2 class="section-title">${escapeHtml(group.label)}</h2>`;
+    group.endpoints.forEach(ep => section.appendChild(renderEndpoint(ep)));
+    content.appendChild(section);
+  });
+}
+
+async function init() {
+  try {
+    const response = await fetch('/openapi.json', { headers: { 'Accept': 'application/json' } });
+    if (!response.ok) throw new Error(`failed to load spec (${response.status})`);
+    const spec = await response.json();
+    renderGroups(specGroups(spec));
+  } catch (err) {
+    document.getElementById('content').innerHTML = `
+      <section>
+        <h2 class="section-title">API Explorer</h2>
+        <div class="card open">
+          <div class="card-body" style="display:block">
+            <p style="font-size: 14px; color: var(--system-secondary-label);">
+              Failed to load <code>/openapi.json</code>: ${escapeHtml(err.message)}
+            </p>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
