@@ -491,16 +491,44 @@ cp signing.key signing.key.bak
 
 ## Maintenance Utilities
 
-Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
-music metadata refactor.
+### gen_openapi
+
+Dumps the Stophammer OpenAPI 3.1 document to stdout. Use this to generate a
+static `openapi.json` for tooling, CI, or previewing the themed API explorer
+without running a live server.
+
+```bash
+# Full spec (primary node — includes write/ingest routes)
+./target/release/gen_openapi > openapi.json
+
+# Read-only spec (community node — omits write/ingest routes)
+./target/release/gen_openapi --readonly > openapi-readonly.json
+```
+
+Flags:
+
+| Flag | Description |
+|------|-------------|
+| `--readonly` | Emit the read-only node spec. Default is the primary (full) spec. |
+
+The live runtime also serves both variants:
+
+- `GET /openapi.json` — full spec
+- `GET /openapi-readonly.json` — read-only spec
+- `GET /api-explorer` — themed Swagger UI pointing at the full spec
+
+### Load testing
 
 ```bash
 FEED_GUID=feed-guid-here ./tests/load_test.sh
 FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name ./tests/load_test.sh
 ```
 
-Use the current source-first API and the vision/ADR documents instead of the
-retired resolver review tooling. The staged plan for later phases lives in:
+### Retired binaries
+
+Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
+music metadata refactor. Use the current source-first API and the vision/ADR
+documents instead:
 
 - [v4v-music-metadata-vision.md](vision/v4v-music-metadata-vision.md)
 - [0032-retire-resolver-and-review-runtime.md](adr/0032-retire-resolver-and-review-runtime.md)
