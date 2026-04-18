@@ -122,8 +122,34 @@ resolved publisher text. Item-level remote items are recorded as *evidence*;
 they do not replace the stored string. A future ADR may use item-level
 reciprocal declarations to override `tracks.publisher`, but that decision is
 deferred so item-level extraction can ship without re-opening the v1
-publisher-text policy (Wavlake exception, strict reciprocal rule for
-non-Wavlake feeds).
+publisher-text policy.
+
+##### Wavlake caveat (ADR 0035)
+
+ADR 0035 fixes `feeds.publisher = "Wavlake"` for any feed whose canonical
+URL is on `wavlake.com` and has a channel-level publisher `remoteItem`
+(see `is_wavlake_url` + the `wavlake_pub_feed` branch in `src/api.rs`).
+Because `tracks.publisher` inherits from the parent feed, Wavlake tracks
+also store `"Wavlake"`. On Wavlake feeds, publisher `remoteItem`
+declarations point at the Wavlake platform-aggregator feed, not a label,
+so their publisher semantics are not directly applicable.
+
+ADR 0038 must preserve this:
+
+1. Item-level `remoteItem medium="publisher"` elements on Wavlake feeds
+   are still extracted and persisted to `track_remote_items_raw` as
+   source-truth evidence — the parser does **not** special-case them.
+2. Neither the ingest transaction nor any derived view writes back into
+   `tracks.publisher` / `feeds.publisher` based on item-level evidence.
+   The inherited `"Wavlake"` string is authoritative for v1.
+3. The derived `publisher` view on `/v1/tracks/{guid}?include=publisher`
+   reports raw direction/reciprocal flags computed from
+   `track_remote_items_raw`. For Wavlake tracks this view reflects the
+   Wavlake-aggregator link and is evidence only; callers displaying a
+   publisher label must read `publisher_text`, not the derived view.
+4. Any future ADR that promotes item-level evidence to override stored
+   publisher text must explicitly address the Wavlake exception before
+   relaxing this rule.
 
 ### Decision B — whitelist music-only for public listings and search
 
@@ -206,6 +232,11 @@ index stays coherent if a feed's medium changes between ingests. Reuse
   the existing `publisher` view on feed reads.
 - `tracks.publisher_text` semantics from ADR 0035 are unchanged; the "can
   item-level override feed-level" question is explicitly deferred.
+- Wavlake feeds continue to store `"Wavlake"` as both feed- and
+  track-level publisher text. Item-level publisher `remoteItem` elements
+  on Wavlake tracks are captured as evidence in `track_remote_items_raw`
+  but never rewrite stored publisher text and never participate in
+  reciprocal validation for the purpose of deriving a label name.
 
 ## Out of scope
 
