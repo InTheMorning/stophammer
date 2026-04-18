@@ -11,7 +11,7 @@ RUN apk add --no-cache ca-certificates \
 
 WORKDIR /data
 COPY stophammer /usr/local/bin/stophammer
-COPY rebuild_search /usr/local/bin/rebuild_search
+COPY gen_openapi /usr/local/bin/gen_openapi
 
 USER stophammer
 
