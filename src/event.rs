@@ -11,7 +11,8 @@
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
     SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure,
-    SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track, ValueTimeSplit,
+    SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw,
+    ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -37,6 +38,8 @@ pub enum EventType {
     FeedRoutesReplaced,
     /// Feed-level remote-item references were replaced.
     FeedRemoteItemsReplaced,
+    /// Per-track remote-item references were replaced.
+    TrackRemoteItemsReplaced,
     /// The ephemeral live-event snapshot for a feed was replaced.
     LiveEventsReplaced,
     /// The staged contributor-claim snapshot for a feed was replaced.
@@ -77,6 +80,8 @@ pub enum EventPayload {
     FeedRoutesReplaced(FeedRoutesReplacedPayload),
     /// Payload for replacing feed-level `podcast:remoteItem` references.
     FeedRemoteItemsReplaced(FeedRemoteItemsReplacedPayload),
+    /// Payload for replacing per-track `podcast:remoteItem` references.
+    TrackRemoteItemsReplaced(TrackRemoteItemsReplacedPayload),
     /// Payload for replacing ephemeral live-event rows for a feed.
     LiveEventsReplaced(LiveEventsReplacedPayload),
     /// Payload for replacing staged contributor claims for a feed.
@@ -209,6 +214,13 @@ pub struct FeedRoutesReplacedPayload {
 pub struct FeedRemoteItemsReplacedPayload {
     pub feed_guid: String,
     pub remote_items: Vec<FeedRemoteItemRaw>,
+}
+
+/// Emitted when the full set of per-track `podcast:remoteItem` refs is replaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackRemoteItemsReplacedPayload {
+    pub track_guid: String,
+    pub remote_items: Vec<TrackRemoteItemRaw>,
 }
 
 /// Emitted when the current in-progress live items for a feed are replaced.

@@ -87,6 +87,7 @@ fn ingest_feed_with_tracks(
         stophammer::model::Track,
         Vec<stophammer::model::PaymentRoute>,
         Vec<stophammer::model::ValueTimeSplit>,
+        Vec<stophammer::model::TrackRemoteItemRaw>,
     )> = track_guids
         .iter()
         .enumerate()
@@ -114,7 +115,7 @@ fn ingest_feed_with_tracks(
                 created_at: now,
                 updated_at: now,
             };
-            (track, vec![], vec![])
+            (track, vec![], vec![], vec![])
         })
         .collect();
 

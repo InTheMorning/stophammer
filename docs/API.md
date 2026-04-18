@@ -151,6 +151,14 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "explicit": false,
         "description": "A great track",
         "author_name": "Track Artist",
+        "remote_items": [
+          {
+            "position": 0,
+            "medium": "publisher",
+            "remote_feed_guid": "track-artist-feed-guid",
+            "remote_feed_url": "https://example.com/track-artist.xml"
+          }
+        ],
         "persons": [],
         "entity_ids": [],
         "links": [],
@@ -190,13 +198,14 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
 
 `feed_data` is `null` when the crawler could not parse the feed (e.g. HTTP error). The verifier chain still runs to record the rejection.
 
-`remote_items` carries feed-level `podcast:remoteItem` references exactly as
-seen in RSS. For a music feed that points to a publisher feed, the relation
-hint is typically `medium="publisher"`. `persons`, `entity_ids`, and `links`
-carry staged source claims from the parser. Track and live-item payloads also
-support `alternate_enclosures`. `live_items` carries parsed `podcast:liveItem`
-entries; `pending` and `live` rows are staged in `live_events`, while `ended`
-rows with enclosures are promoted into normal tracks.
+`remote_items` carries feed-level or track-level `podcast:remoteItem`
+references exactly as seen in RSS. For a music feed or track that points to a
+publisher feed, the relation hint is typically `medium="publisher"`. `persons`,
+`entity_ids`, and `links` carry staged source claims from the parser. Track and
+live-item payloads also support `alternate_enclosures`. `live_items` carries
+parsed `podcast:liveItem` entries; `pending` and `live` rows are staged in
+`live_events`, while `ended` rows with enclosures are promoted into normal
+tracks.
 
 Publisher interpretation happens during ingest, not crawl:
 
@@ -638,8 +647,8 @@ The older canonical `/v1/recent` route has been retired.
 Lists source feeds in recent-source order for provenance/debugging workflows.
 
 - **Authentication:** None
-- **Query parameters:**
-  - `medium` — optional feed medium filter; defaults to `music`
+- **Constraint:** Only feeds with `raw_medium = 'music'` are returned. The `medium` parameter is retired and ignored.
+- **Query parameters:** none (all common pagination/include params supported)
 
 **Response:** Paginated array of feed objects.
 
@@ -656,7 +665,7 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 Returns a single track by its `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`
+- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -794,7 +803,9 @@ Notes:
 
 ### GET /v1/search
 
-Full-text search using SQLite FTS5.
+Full-text search using SQLite FTS5. Only music feeds and tracks are indexed.
+
+- **Constraint:** Only feeds and tracks with `raw_medium = 'music'` are indexed and returned.
 
 Default search includes:
 

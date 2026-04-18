@@ -80,6 +80,12 @@ Notes:
 - powers the derived `publisher` include in the read API
 - non-Wavlake publisher text is only promoted after reciprocal validation
 
+### `track_remote_items_raw`
+Purpose: raw track-level `podcast:remoteItem` declarations.
+Notes:
+- preserves position, `medium`, target GUID, and optional target URL
+- powers the derived `publisher` include for tracks in the read API
+
 ### `live_events`
 Purpose: current `pending` and `live` `podcast:liveItem` rows.
 Notes:

@@ -1828,7 +1828,8 @@ async fn handle_ingest_feed(
             model::Track,
             Vec<model::PaymentRoute>,
             Vec<model::ValueTimeSplit>,
-        )> = Vec::with_capacity(tracks.len());
+            Vec<model::TrackRemoteItemRaw>,
+        )> = Vec::with_capacity(feed_data.tracks.len());
 
         // Track artist credits for event generation
         let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(tracks.len());
@@ -1968,7 +1969,21 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            track_tuples.push((track, routes, vts));
+            let track_remote_items: Vec<model::TrackRemoteItemRaw> = track_data
+                .remote_items
+                .iter()
+                .map(|r| model::TrackRemoteItemRaw {
+                    id: None,
+                    track_guid: track_data.track_guid.clone(),
+                    position: r.position,
+                    medium: r.medium.clone(),
+                    remote_feed_guid: r.remote_feed_guid.clone(),
+                    remote_feed_url: r.remote_feed_url.clone(),
+                    source: "podcast_remote_item".into(),
+                })
+                .collect();
+
+            track_tuples.push((track, routes, vts, track_remote_items));
             track_credits.push(track_credit);
         }
 
@@ -2110,7 +2125,21 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            track_tuples.push((track, routes, vts));
+            let track_remote_items: Vec<model::TrackRemoteItemRaw> = live_item
+                .remote_items
+                .iter()
+                .map(|r| model::TrackRemoteItemRaw {
+                    id: None,
+                    track_guid: live_item.live_item_guid.clone(),
+                    position: r.position,
+                    medium: r.medium.clone(),
+                    remote_feed_guid: r.remote_feed_guid.clone(),
+                    remote_feed_url: r.remote_feed_url.clone(),
+                    source: "podcast_remote_item".into(),
+                })
+                .collect();
+
+            track_tuples.push((track, routes, vts, track_remote_items));
             track_credits.push(track_credit);
         }
 

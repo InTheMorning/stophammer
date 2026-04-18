@@ -785,8 +785,8 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         updated_at: now,
     };
     let tracks = vec![
-        (track_a.clone(), vec![], vec![]),
-        (track_b.clone(), vec![], vec![]),
+        (track_a.clone(), vec![], vec![], vec![]),
+        (track_b.clone(), vec![], vec![], vec![]),
     ];
 
     let event_rows = stophammer::db::build_diff_events(
@@ -1022,8 +1022,8 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         updated_at: now,
     };
     let tracks = vec![
-        (track_a.clone(), vec![], vec![]),
-        (track_b.clone(), vec![], vec![]),
+        (track_a.clone(), vec![], vec![], vec![]),
+        (track_b.clone(), vec![], vec![], vec![]),
     ];
 
     let event_rows = stophammer::db::build_diff_events(
@@ -1308,7 +1308,7 @@ fn ingest_transaction_requires_existing_track_credit_rows() {
         created_at: now,
         updated_at: now,
     };
-    let tracks = vec![(track.clone(), vec![], vec![])];
+    let tracks = vec![(track.clone(), vec![], vec![], vec![])];
 
     let event_rows = stophammer::db::build_diff_events(
         &conn,
@@ -1491,7 +1491,7 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         extraction_path: "track.enclosure".into(),
         observed_at: now,
     }];
-    let tracks = vec![(track.clone(), vec![], vec![])];
+    let tracks = vec![(track.clone(), vec![], vec![], vec![])];
 
     let event_rows = stophammer::db::build_diff_events(
         &conn,
@@ -1718,6 +1718,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                 },
                 vec![],
                 vec![],
+                vec![],
             ),
             (
                 stophammer::model::Track {
@@ -1745,6 +1746,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
                     created_at: now,
                     updated_at: now,
                 },
+                vec![],
                 vec![],
                 vec![],
             ),
@@ -1963,7 +1965,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             extraction_path: "request.canonical_url".into(),
             observed_at: now,
         }];
-        let tracks = vec![(track, vec![], vec![])];
+        let tracks = vec![(track, vec![], vec![], vec![])];
 
         let event_rows = stophammer::db::build_diff_events(
             &conn,
@@ -2243,6 +2245,7 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
             },
             vec![],
             vec![],
+            vec![],
         )];
 
         let event_rows = stophammer::db::build_diff_events(
@@ -2519,6 +2522,7 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
                 created_at: now,
                 updated_at: track_updated_at,
             },
+            vec![],
             vec![],
             vec![],
         )];

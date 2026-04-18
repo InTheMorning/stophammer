@@ -90,6 +90,9 @@ pub struct IngestTrackData {
     pub description: Option<String>,
     /// Per-track author override — some feeds have different artist per track
     pub author_name: Option<String>,
+    /// Per-track remote item references (e.g. publisher).
+    #[serde(default)]
+    pub remote_items: Vec<IngestRemoteFeedRef>,
     #[serde(default)]
     pub persons: Vec<IngestPerson>,
     #[serde(default)]
@@ -134,6 +137,9 @@ pub struct IngestLiveItemData {
     pub explicit: bool,
     pub description: Option<String>,
     pub author_name: Option<String>,
+    /// Per-track remote item references (e.g. publisher).
+    #[serde(default)]
+    pub remote_items: Vec<IngestRemoteFeedRef>,
     #[serde(default)]
     pub persons: Vec<IngestPerson>,
     #[serde(default)]

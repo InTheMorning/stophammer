@@ -84,7 +84,6 @@ pub struct ListQuery {
     cursor: Option<String>,
     limit: Option<i64>,
     include: Option<String>,
-    medium: Option<String>,
 }
 
 impl ListQuery {
@@ -96,10 +95,6 @@ impl ListQuery {
         self.include
             .as_deref()
             .is_some_and(|s| s.split(',').any(|f| f.trim() == field))
-    }
-
-    fn feed_medium(&self) -> &str {
-        self.medium.as_deref().unwrap_or(crate::medium::MUSIC)
     }
 }
 
@@ -236,6 +231,10 @@ struct TrackResponse {
     source_enclosures: Option<Vec<SourceItemEnclosureResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_transcripts: Option<Vec<SourceItemTranscriptResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    remote_items: Option<Vec<TrackRemoteItemResponse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    publisher: Option<Vec<PublisherResponse>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -382,6 +381,15 @@ struct SourceItemEnclosureResponse {
 
 #[derive(Debug, Serialize)]
 struct FeedRemoteItemResponse {
+    position: i64,
+    medium: Option<String>,
+    remote_feed_guid: String,
+    remote_feed_url: Option<String>,
+    source: String,
+}
+
+#[derive(Debug, Serialize)]
+struct TrackRemoteItemResponse {
     position: i64,
     medium: Option<String>,
     remote_feed_guid: String,
@@ -703,6 +711,8 @@ fn build_track_response(
         source_release_claims: None,
         source_enclosures: None,
         source_transcripts: None,
+        remote_items: None,
+        publisher: None,
     };
 
     if params.includes("payment_routes") {
@@ -821,6 +831,14 @@ fn build_track_response(
                 .map(transcript_response)
                 .collect(),
         );
+    }
+
+    if params.includes("remote_items") {
+        resp.remote_items = Some(load_track_remote_items(conn, &track_guid)?);
+    }
+
+    if params.includes("publisher") {
+        resp.publisher = Some(load_track_publisher(conn, &track_guid)?);
     }
 
     Ok(resp)
@@ -1011,6 +1029,103 @@ fn load_publisher(
     Ok(rows)
 }
 
+fn load_track_remote_items(
+    conn: &rusqlite::Connection,
+    track_guid: &str,
+) -> Result<Vec<TrackRemoteItemResponse>, api::ApiError> {
+    let items = db::get_track_remote_items_for_track(conn, track_guid)?;
+    Ok(items
+        .into_iter()
+        .map(|item| TrackRemoteItemResponse {
+            position: item.position,
+            medium: item.medium,
+            remote_feed_guid: item.remote_feed_guid,
+            remote_feed_url: item.remote_feed_url,
+            source: item.source,
+        })
+        .collect())
+}
+
+fn load_track_publisher(
+    conn: &rusqlite::Connection,
+    track_guid: &str,
+) -> Result<Vec<PublisherResponse>, api::ApiError> {
+    let Some(current_track) = db::get_track_by_guid(conn, track_guid)? else {
+        return Ok(Vec::new());
+    };
+    let remote_items = db::get_track_remote_items_for_track(conn, track_guid)?;
+    let mut rows = Vec::new();
+
+    for item in remote_items {
+        let Some(direction) = publisher_direction(item.medium.as_deref()) else {
+            continue;
+        };
+
+        // For item-level, the "music feed" is the track's parent feed
+        let current_feed =
+            db::get_feed(conn, &current_track.feed_guid)?.ok_or_else(|| api::ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: "orphaned track".into(),
+                www_authenticate: None,
+            })?;
+
+        let remote_feed = db::get_feed(conn, &item.remote_feed_guid)?;
+        let reciprocal = db::get_feed_remote_items_for_feed(conn, &item.remote_feed_guid)?
+            .into_iter()
+            .find(|candidate| {
+                candidate.remote_feed_guid == current_track.feed_guid
+                    && candidate.medium.as_deref() == Some(expected_reciprocal_medium(direction))
+            });
+
+        let reciprocal_declared = reciprocal.is_some();
+        let reciprocal_medium = reciprocal
+            .as_ref()
+            .and_then(|candidate| candidate.medium.clone());
+        let two_way_validated = reciprocal_declared;
+
+        let (publisher_feed_guid, publisher_feed_url, music_feed_guid, music_feed_url) =
+            match direction {
+                "music_to_publisher" => (
+                    item.remote_feed_guid.clone(),
+                    remote_feed
+                        .as_ref()
+                        .map(|feed| feed.feed_url.clone())
+                        .or_else(|| item.remote_feed_url.clone()),
+                    current_feed.feed_guid.clone(),
+                    Some(current_feed.feed_url.clone()),
+                ),
+                "publisher_to_music" => (
+                    current_feed.feed_guid.clone(),
+                    Some(current_feed.feed_url.clone()),
+                    item.remote_feed_guid.clone(),
+                    remote_feed
+                        .as_ref()
+                        .map(|feed| feed.feed_url.clone())
+                        .or_else(|| item.remote_feed_url.clone()),
+                ),
+                _ => continue,
+            };
+
+        rows.push(PublisherResponse {
+            direction: direction.to_string(),
+            remote_feed_guid: item.remote_feed_guid,
+            remote_feed_url: item.remote_feed_url,
+            remote_feed_medium: remote_feed
+                .as_ref()
+                .and_then(|feed| feed.raw_medium.clone()),
+            publisher_feed_guid,
+            publisher_feed_url,
+            music_feed_guid,
+            music_feed_url,
+            reciprocal_declared,
+            reciprocal_medium,
+            two_way_validated,
+        });
+    }
+
+    Ok(rows)
+}
+
 fn publisher_direction(medium: Option<&str>) -> Option<&'static str> {
     match medium {
         Some("publisher") => Some("music_to_publisher"),
@@ -1128,7 +1243,6 @@ async fn handle_get_recent_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
-        let medium_filter = params.feed_medium().to_string();
 
         let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
             let decoded = decode_cursor(cursor_str)?;
@@ -1153,13 +1267,13 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
-                 WHERE lower(raw_medium) = lower(?1)
-                   AND (newest_item_at, feed_guid) < (?2, ?3) \
+                 WHERE lower(raw_medium) = 'music'
+                   AND (newest_item_at, feed_guid) < (?1, ?2) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?4",
+                 LIMIT ?3",
             )?;
             stmt.query_map(
-                params![medium_filter, cursor_ts, cursor_guid, limit + 1],
+                params![cursor_ts, cursor_guid, limit + 1],
                 |row| {
                     Ok(FeedRow {
                         feed_guid: row.get(0)?,
@@ -1191,11 +1305,11 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
-                 WHERE lower(raw_medium) = lower(?1) \
+                 WHERE lower(raw_medium) = 'music' \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?2",
+                 LIMIT ?1",
             )?;
-            stmt.query_map(params![medium_filter, limit + 1], |row| {
+            stmt.query_map(params![limit + 1], |row| {
                 Ok(FeedRow {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
@@ -1716,6 +1830,7 @@ async fn handle_publisher_search(
             "SELECT publisher, COUNT(*) as feed_count \
              FROM feeds \
              WHERE publisher IS NOT NULL AND publisher != '' \
+               AND lower(raw_medium) = 'music' \
                AND (publisher LIKE ?1 ESCAPE '\\' OR ?1 = '%') \
              GROUP BY publisher \
              ORDER BY feed_count DESC, publisher ASC \
@@ -1786,7 +1901,8 @@ async fn handle_publisher_detail(
 
         let mut fstmt = conn.prepare(&format!(
             "SELECT feed_guid, feed_url, title, image_url, episode_count, raw_medium \
-             FROM feeds WHERE {publisher_predicate} ORDER BY newest_item_at DESC LIMIT ?2"
+             FROM feeds WHERE {publisher_predicate} AND lower(raw_medium) = 'music' \
+             ORDER BY newest_item_at DESC LIMIT ?2"
         ))?;
         let feeds: Vec<PublisherFeedSummary> = fstmt
             .query_map(params![publisher, limit], |row| {
@@ -1804,8 +1920,9 @@ async fn handle_publisher_detail(
         let mut tstmt = conn.prepare(&format!(
             "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
              t.duration_secs, t.track_number \
-             FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
-             WHERE t.{publisher_predicate} ORDER BY t.pub_date DESC LIMIT ?2"
+             FROM tracks t JOIN feeds f ON f.feed_guid = t.feed_guid \
+             WHERE t.{publisher_predicate} AND lower(f.raw_medium) = 'music' \
+             ORDER BY t.pub_date DESC LIMIT ?2"
         ))?;
         let tracks: Vec<PublisherTrackSummary> = tstmt
             .query_map(params![publisher, limit], |row| {

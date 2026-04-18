@@ -543,7 +543,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         vec![],
         vec![],
         vec![],
-        vec![(track, vec![route], vec![])],
+        vec![(track, vec![route], vec![], vec![])],
         vec![
             stophammer::db::EventRow {
                 event_id: "evt-atomic-s1b-1".into(),

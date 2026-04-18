@@ -124,6 +124,9 @@ fn apply_single_event_inner(
         event::EventPayload::FeedRemoteItemsReplaced(p) => {
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
         }
+        event::EventPayload::TrackRemoteItemsReplaced(p) => {
+            db::replace_track_remote_items_raw(conn, &p.track_guid, &p.remote_items)?;
+        }
         event::EventPayload::LiveEventsReplaced(p) => {
             db::replace_live_events_for_feed(conn, &p.feed_guid, &p.live_events)?;
         }

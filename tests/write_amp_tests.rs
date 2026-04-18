@@ -125,6 +125,7 @@ fn ingest_and_count_track_events(
         stophammer::model::Track,
         Vec<stophammer::model::PaymentRoute>,
         Vec<stophammer::model::ValueTimeSplit>,
+        Vec<stophammer::model::TrackRemoteItemRaw>,
     )> = tracks
         .iter()
         .enumerate()
@@ -152,7 +153,7 @@ fn ingest_and_count_track_events(
                 created_at: now,
                 updated_at: now,
             };
-            (track, vec![], vec![])
+            (track, vec![], vec![], vec![])
         })
         .collect();
 

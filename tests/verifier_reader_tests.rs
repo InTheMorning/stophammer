@@ -52,6 +52,7 @@ fn sample_request() -> IngestFeedRequest {
                 track_guid: "t-guid-1".into(),
                 title: "Track One".into(),
                 author_name: None,
+                remote_items: vec![],
                 pub_date: Some(1_700_000_000),
                 duration_secs: Some(180),
                 enclosure_url: Some("https://example.com/t1.mp3".into()),

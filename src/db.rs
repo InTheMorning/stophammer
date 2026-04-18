@@ -22,7 +22,7 @@ use crate::model::{
     Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
     SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
-    ValueTimeSplit,
+    TrackRemoteItemRaw, ValueTimeSplit,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -213,6 +213,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0027_add_track_publisher_text.sql"),
     // Migration 28: add staged source item transcripts for podcast:transcript support.
     include_str!("../migrations/0028_source_item_transcripts.sql"),
+    // Migration 29: add track-level raw podcast:remoteItem evidence.
+    include_str!("../migrations/0029_track_remote_items.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -1185,28 +1187,55 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
         return Ok(());
     };
 
-    crate::search::populate_search_index(
-        conn,
-        "feed",
-        &feed.feed_guid,
-        feed.release_artist.as_deref().unwrap_or(""),
-        &feed.title,
-        feed.description.as_deref().unwrap_or(""),
-        feed.raw_medium.as_deref().unwrap_or(""),
-    )?;
+    let is_music = feed.raw_medium.as_deref() == Some("music");
+
+    if is_music {
+        crate::search::populate_search_index(
+            conn,
+            "feed",
+            &feed.feed_guid,
+            feed.release_artist.as_deref().unwrap_or(""),
+            &feed.title,
+            feed.description.as_deref().unwrap_or(""),
+            feed.raw_medium.as_deref().unwrap_or(""),
+        )?;
+    } else {
+        crate::search::delete_from_search_index(
+            conn,
+            "feed",
+            &feed.feed_guid,
+            feed.release_artist.as_deref().unwrap_or(""),
+            &feed.title,
+            feed.description.as_deref().unwrap_or(""),
+            feed.raw_medium.as_deref().unwrap_or(""),
+        )?;
+    }
+
     let feed_score = crate::quality::compute_feed_quality(conn, &feed.feed_guid)?;
     crate::quality::store_quality(conn, "feed", &feed.feed_guid, feed_score)?;
 
     for track in get_tracks_for_feed(conn, feed_guid)? {
-        crate::search::populate_search_index(
-            conn,
-            "track",
-            &track.track_guid,
-            track.track_artist.as_deref().unwrap_or(""),
-            &track.title,
-            track.description.as_deref().unwrap_or(""),
-            "",
-        )?;
+        if is_music {
+            crate::search::populate_search_index(
+                conn,
+                "track",
+                &track.track_guid,
+                track.track_artist.as_deref().unwrap_or(""),
+                &track.title,
+                track.description.as_deref().unwrap_or(""),
+                "",
+            )?;
+        } else {
+            crate::search::delete_from_search_index(
+                conn,
+                "track",
+                &track.track_guid,
+                track.track_artist.as_deref().unwrap_or(""),
+                &track.title,
+                track.description.as_deref().unwrap_or(""),
+                "",
+            )?;
+        }
         let track_score = crate::quality::compute_track_quality(conn, &track.track_guid)?;
         crate::quality::store_quality(conn, "track", &track.track_guid, track_score)?;
     }
@@ -1357,6 +1386,33 @@ pub fn get_feed_remote_items_for_feed(
     Ok(items)
 }
 
+pub fn get_track_remote_items_for_track(
+    conn: &Connection,
+    track_guid: &str,
+) -> Result<Vec<TrackRemoteItemRaw>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+         FROM track_remote_items_raw WHERE track_guid = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![track_guid], |row| {
+        Ok(TrackRemoteItemRaw {
+            id: row.get(0)?,
+            track_guid: row.get(1)?,
+            position: row.get(2)?,
+            medium: row.get(3)?,
+            remote_feed_guid: row.get(4)?,
+            remote_feed_url: row.get(5)?,
+            source: row.get(6)?,
+        })
+    })?;
+
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
 /// Replaces the raw feed-level `podcast:remoteItem` refs for a feed.
 pub fn replace_feed_remote_items_raw(
     conn: &Connection,
@@ -1374,6 +1430,33 @@ pub fn replace_feed_remote_items_raw(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 &item.feed_guid,
+                item.position,
+                &item.medium,
+                &item.remote_feed_guid,
+                &item.remote_feed_url,
+                &item.source,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn replace_track_remote_items_raw(
+    conn: &Connection,
+    track_guid: &str,
+    remote_items: &[TrackRemoteItemRaw],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM track_remote_items_raw WHERE track_guid = ?1",
+        params![track_guid],
+    )?;
+    for item in remote_items {
+        conn.execute(
+            "INSERT INTO track_remote_items_raw \
+             (track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                &item.track_guid,
                 item.position,
                 &item.medium,
                 &item.remote_feed_guid,
@@ -3120,6 +3203,17 @@ fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteIt
         })
 }
 
+fn track_remote_items_changed(existing: &[TrackRemoteItemRaw], new: &[TrackRemoteItemRaw]) -> bool {
+    existing.len() != new.len()
+        || existing.iter().zip(new.iter()).any(|(a, b)| {
+            a.position != b.position
+                || a.medium != b.medium
+                || a.remote_feed_guid != b.remote_feed_guid
+                || a.remote_feed_url != b.remote_feed_url
+                || a.source != b.source
+        })
+}
+
 fn live_events_changed(existing: &[LiveEvent], new: &[LiveEvent]) -> bool {
     existing.len() != new.len()
         || existing.iter().zip(new.iter()).any(|(a, b)| {
@@ -3293,7 +3387,12 @@ pub fn build_diff_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    tracks: &[(
+        Track,
+        Vec<PaymentRoute>,
+        Vec<ValueTimeSplit>,
+        Vec<TrackRemoteItemRaw>,
+    )],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -3371,7 +3470,12 @@ fn build_all_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    tracks: &[(
+        Track,
+        Vec<PaymentRoute>,
+        Vec<ValueTimeSplit>,
+        Vec<TrackRemoteItemRaw>,
+    )],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -3465,7 +3569,7 @@ fn build_all_events(
         event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
     }
 
-    for (i, (track, routes, vts)) in tracks.iter().enumerate() {
+    for (i, (track, routes, vts, track_remote_items)) in tracks.iter().enumerate() {
         let credit = if i < track_credits.len() {
             &track_credits[i]
         } else {
@@ -3474,6 +3578,15 @@ fn build_all_events(
         event_rows.push(build_track_upserted_event(
             track, routes, vts, credit, now, &warn_vec,
         )?);
+
+        if !track_remote_items.is_empty() {
+            event_rows.push(build_track_remote_items_event(
+                track,
+                track_remote_items,
+                now,
+                &warn_vec,
+            )?);
+        }
     }
 
     Ok(event_rows)
@@ -3499,7 +3612,12 @@ fn build_changed_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)],
+    tracks: &[(
+        Track,
+        Vec<PaymentRoute>,
+        Vec<ValueTimeSplit>,
+        Vec<TrackRemoteItemRaw>,
+    )],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -3645,7 +3763,7 @@ fn build_changed_events(
         .map(|t| (t.track_guid.as_str(), t))
         .collect();
 
-    for (i, (track, routes, vts)) in tracks.iter().enumerate() {
+    for (i, (track, routes, vts, track_remote_items)) in tracks.iter().enumerate() {
         let is_new_or_changed = existing_map
             .get(track.track_guid.as_str())
             .is_none_or(|existing| track_fields_changed(existing, track));
@@ -3659,6 +3777,28 @@ fn build_changed_events(
             event_rows.push(build_track_upserted_event(
                 track, routes, vts, credit, now, &warn_vec,
             )?);
+
+            if !track_remote_items.is_empty() {
+                event_rows.push(build_track_remote_items_event(
+                    track,
+                    track_remote_items,
+                    now,
+                    &warn_vec,
+                )?);
+            }
+        } else {
+            // Track fields didn't change, but check if remote items changed
+            let existing_remote_items = get_track_remote_items_for_track(conn, &track.track_guid)?;
+            if !track_remote_items.is_empty()
+                && track_remote_items_changed(&existing_remote_items, track_remote_items)
+            {
+                event_rows.push(build_track_remote_items_event(
+                    track,
+                    track_remote_items,
+                    now,
+                    &warn_vec,
+                )?);
+            }
         }
     }
 
@@ -3767,6 +3907,27 @@ fn build_feed_remote_items_event(
         event_type: EventType::FeedRemoteItemsReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_track_remote_items_event(
+    track: &Track,
+    remote_items: &[TrackRemoteItemRaw],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::TrackRemoteItemsReplacedPayload {
+        track_guid: track.track_guid.clone(),
+        remote_items: remote_items.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::TrackRemoteItemsReplaced,
+        payload_json,
+        subject_guid: track.track_guid.clone(),
         created_at: now,
         warnings: warnings.to_vec(),
     })
@@ -4498,7 +4659,12 @@ pub fn ingest_transaction(
     source_platform_claims: Vec<SourcePlatformClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
-    tracks: Vec<(Track, Vec<PaymentRoute>, Vec<ValueTimeSplit>)>,
+    tracks: Vec<(
+        Track,
+        Vec<PaymentRoute>,
+        Vec<ValueTimeSplit>,
+        Vec<TrackRemoteItemRaw>,
+    )>,
     event_rows: Vec<EventRow>,
     signer: &NodeSigner,
 ) -> Result<Vec<(i64, String, String)>, DbError> {
@@ -4881,7 +5047,7 @@ pub fn ingest_transaction(
     };
 
     // 4. Tracks, routes, splits
-    for (track, routes, splits) in &tracks {
+    for (track, routes, splits, remote_items) in &tracks {
         tx.execute(
             "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
              duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
@@ -4985,13 +5151,34 @@ pub fn ingest_transaction(
                 ],
             )?;
         }
+
+        // replace track remote items
+        tx.execute(
+            "DELETE FROM track_remote_items_raw WHERE track_guid = ?1",
+            params![track.track_guid],
+        )?;
+        for item in remote_items {
+            tx.execute(
+                "INSERT INTO track_remote_items_raw \
+                 (track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    &item.track_guid,
+                    item.position,
+                    &item.medium,
+                    &item.remote_feed_guid,
+                    &item.remote_feed_url,
+                    &item.source,
+                ],
+            )?;
+        }
     }
 
     // 4b. Remove stale tracks that are no longer in the new crawl.
     // Issue-STALE-TRACKS — 2026-03-14
     let new_guids: std::collections::HashSet<&str> = tracks
         .iter()
-        .map(|(t, _, _)| t.track_guid.as_str())
+        .map(|(t, _, _, _)| t.track_guid.as_str())
         .collect();
     let mut removal_event_rows: Vec<EventRow> = Vec::new();
     for removed_guid in &existing_guids {

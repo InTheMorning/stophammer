@@ -179,6 +179,17 @@ pub struct FeedRemoteItemRaw {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TrackRemoteItemRaw {
+    pub id: Option<i64>,
+    pub track_guid: String,
+    pub position: i64,
+    pub medium: Option<String>,
+    pub remote_feed_guid: String,
+    pub remote_feed_url: Option<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LiveEvent {
     pub live_item_guid: String,
     pub feed_guid: String,
