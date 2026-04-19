@@ -112,17 +112,39 @@ pub struct SearchQuery {
 pub struct PublisherSearchQuery {
     q: Option<String>,
     limit: Option<i64>,
+    case_sensitive: Option<bool>,
+}
+
+impl PublisherSearchQuery {
+    fn case_sensitive(&self) -> bool {
+        self.case_sensitive.unwrap_or(false)
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PublisherDetailQuery {
     limit: Option<i64>,
+    case_sensitive: Option<bool>,
 }
 
 impl PublisherDetailQuery {
     fn capped_limit(&self) -> i64 {
         self.limit.unwrap_or(50).clamp(1, 200)
     }
+
+    fn case_sensitive(&self) -> bool {
+        self.case_sensitive.unwrap_or(false)
+    }
+}
+
+fn like_contains_pattern(value: &str) -> String {
+    format!(
+        "%{}%",
+        value
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    )
 }
 
 // ── Serializable types ──────────────────────────────────────────────────────
@@ -1813,6 +1835,7 @@ async fn handle_publisher_search(
     State(state): State<Arc<api::AppState>>,
     Query(params): Query<PublisherSearchQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
+    let case_sensitive = params.case_sensitive();
     let q = params.q.unwrap_or_default();
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
     let state2 = Arc::clone(&state);
@@ -1822,19 +1845,28 @@ async fn handle_publisher_search(
             message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
-        let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
-        let mut stmt = conn.prepare(
+        let publisher_match = if case_sensitive {
+            "(?1 = '' OR instr(publisher, ?1) > 0)"
+        } else {
+            "publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE"
+        };
+        let match_arg = if case_sensitive {
+            q
+        } else {
+            like_contains_pattern(&q)
+        };
+        let mut stmt = conn.prepare(&format!(
             "SELECT publisher, COUNT(*) as feed_count \
              FROM feeds \
              WHERE publisher IS NOT NULL AND publisher != '' \
                AND lower(raw_medium) = 'music' \
-               AND (publisher LIKE ?1 ESCAPE '\\' OR ?1 = '%') \
+               AND {publisher_match} \
              GROUP BY publisher \
              ORDER BY feed_count DESC, publisher ASC \
-             LIMIT ?2",
-        )?;
+             LIMIT ?2"
+        ))?;
         let items: Vec<PublisherSearchItem> = stmt
-            .query_map(params![pattern, limit], |row| {
+            .query_map(params![match_arg, limit], |row| {
                 let publisher_text: String = row.get(0)?;
                 let feed_count: i64 = row.get(1)?;
                 Ok((publisher_text, feed_count))
@@ -1890,22 +1922,29 @@ async fn handle_publisher_detail(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
-        let pattern = format!(
-            "%{}%",
-            publisher
-                .replace('\\', "\\\\")
-                .replace('%', "\\%")
-                .replace('_', "\\_")
-        );
+        let publisher_text = publisher.clone();
+        let (feed_match, track_match, match_arg) = if params.case_sensitive() {
+            (
+                "instr(publisher, ?1) > 0",
+                "instr(t.publisher, ?1) > 0",
+                publisher,
+            )
+        } else {
+            (
+                "publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE",
+                "t.publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE",
+                like_contains_pattern(&publisher),
+            )
+        };
 
-        let mut fstmt = conn.prepare(
+        let mut fstmt = conn.prepare(&format!(
             "SELECT feed_guid, feed_url, title, image_url, episode_count, raw_medium \
-             FROM feeds WHERE publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE \
-               AND lower(raw_medium) = 'music' \
-             ORDER BY newest_item_at DESC LIMIT ?2",
-        )?;
+             FROM feeds WHERE {feed_match} \
+             AND lower(raw_medium) = 'music' \
+             ORDER BY newest_item_at DESC LIMIT ?2"
+        ))?;
         let feeds: Vec<PublisherFeedSummary> = fstmt
-            .query_map(params![pattern, limit], |row| {
+            .query_map(params![match_arg, limit], |row| {
                 Ok(PublisherFeedSummary {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
@@ -1917,16 +1956,16 @@ async fn handle_publisher_detail(
             })?
             .collect::<Result<_, _>>()?;
 
-        let mut tstmt = conn.prepare(
+        let mut tstmt = conn.prepare(&format!(
             "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
              t.duration_secs, t.track_number \
              FROM tracks t JOIN feeds f ON f.feed_guid = t.feed_guid \
-             WHERE t.publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE \
-               AND lower(f.raw_medium) = 'music' \
-             ORDER BY t.pub_date DESC LIMIT ?2",
-        )?;
+             WHERE {track_match} \
+             AND lower(f.raw_medium) = 'music' \
+             ORDER BY t.pub_date DESC LIMIT ?2"
+        ))?;
         let tracks: Vec<PublisherTrackSummary> = tstmt
-            .query_map(params![pattern, limit], |row| {
+            .query_map(params![match_arg, limit], |row| {
                 Ok(PublisherTrackSummary {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,
@@ -1940,7 +1979,7 @@ async fn handle_publisher_detail(
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: PublisherDetailResponse {
-                publisher_text: publisher,
+                publisher_text,
                 feeds,
                 tracks,
             },

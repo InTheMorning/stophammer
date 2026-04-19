@@ -265,6 +265,74 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
         track_guid
     );
 
+    let case_sensitive_publisher_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/publishers/wavlake?case_sensitive=true")
+                .body(Body::empty())
+                .expect("case-sensitive publisher detail request"),
+        )
+        .await
+        .expect("case-sensitive publisher detail response");
+    assert_eq!(case_sensitive_publisher_resp.status(), 200);
+    let case_sensitive_publisher_json = body_json(case_sensitive_publisher_resp).await;
+    assert!(
+        case_sensitive_publisher_json["data"]["feeds"]
+            .as_array()
+            .expect("case-sensitive publisher feeds array")
+            .is_empty(),
+        "lowercase publisher path should not match stored mixed-case publisher"
+    );
+    assert!(
+        case_sensitive_publisher_json["data"]["tracks"]
+            .as_array()
+            .expect("case-sensitive publisher tracks array")
+            .is_empty(),
+        "lowercase publisher path should not match mixed-case track publisher"
+    );
+
+    let lowercase_publisher_search_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/publishers?q=wav&case_sensitive=false")
+                .body(Body::empty())
+                .expect("case-insensitive publisher search request"),
+        )
+        .await
+        .expect("case-insensitive publisher search response");
+    assert_eq!(lowercase_publisher_search_resp.status(), 200);
+    let lowercase_publisher_search_json = body_json(lowercase_publisher_search_resp).await;
+    assert_eq!(
+        lowercase_publisher_search_json["data"][0]["publisher_text"],
+        "Wavlake"
+    );
+
+    let case_sensitive_publisher_search_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/v1/publishers?q=wav&case_sensitive=true")
+                .body(Body::empty())
+                .expect("case-sensitive publisher search request"),
+        )
+        .await
+        .expect("case-sensitive publisher search response");
+    assert_eq!(case_sensitive_publisher_search_resp.status(), 200);
+    let case_sensitive_publisher_search_json =
+        body_json(case_sensitive_publisher_search_resp).await;
+    assert!(
+        case_sensitive_publisher_search_json["data"]
+            .as_array()
+            .expect("case-sensitive publisher search data array")
+            .is_empty(),
+        "lowercase publisher query should not match mixed-case publisher"
+    );
+
     let search_resp = app
         .clone()
         .oneshot(

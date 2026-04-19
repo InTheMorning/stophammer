@@ -988,6 +988,7 @@ Lists non-empty publisher text values with feed and track counts.
 |-----------|------|---------|-------------|
 | `q` | string | empty | Optional substring filter. `%` and `_` are escaped before the SQL `LIKE` match. |
 | `limit` | i64 | 20 | Max publishers returned (clamped to 1--100) |
+| `case_sensitive` | bool | `false` | Set to `true` to match publisher text case-sensitively. |
 
 **Response (`200 OK`):**
 
@@ -1008,7 +1009,7 @@ Lists non-empty publisher text values with feed and track counts.
 ### GET /v1/publishers/{publisher}
 
 Returns feeds and tracks whose stored publisher text contains the path
-parameter. Matching is case-insensitive and partial (substring).
+parameter. Matching is partial (substring); case-insensitive by default.
 
 - **Authentication:** None
 
@@ -1017,6 +1018,7 @@ parameter. Matching is case-insensitive and partial (substring).
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `limit` | i64 | 50 | Max feeds and max tracks returned (clamped to 1--200) |
+| `case_sensitive` | bool | `false` | Set to `true` to match publisher text case-sensitively. |
 
 **Response (`200 OK`):**
 
