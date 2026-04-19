@@ -9,6 +9,8 @@ use tower::ServiceExt;
 use wiremock::matchers::method;
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
+use stophammer::ingest::{IngestFeedData, IngestRemoteFeedRef};
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -457,6 +459,68 @@ fn content_hash_skip_returns_no_change_when_cached_hash_matches() {
             );
         }
         other => panic!("expected Fail(NO_CHANGE), got {other:?}"),
+    }
+}
+
+#[test]
+fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
+    let conn = common::test_db();
+    let now = common::now();
+    let feed_url = "https://example.com/publisher.xml";
+    let hash = "publisher-same-hash";
+
+    conn.execute(
+        "INSERT INTO feed_crawl_cache (feed_url, content_hash, crawled_at) \
+         VALUES (?1, ?2, ?3)",
+        rusqlite::params![feed_url, hash, now],
+    )
+    .expect("insert crawl cache");
+
+    let request = stophammer::ingest::IngestFeedRequest {
+        canonical_url: feed_url.to_string(),
+        source_url: feed_url.to_string(),
+        crawl_token: String::new(),
+        http_status: 200,
+        content_hash: hash.to_string(),
+        force_reingest: false,
+        feed_data: Some(IngestFeedData {
+            feed_guid: "publisher-feed-guid".to_string(),
+            title: "Publisher Feed".to_string(),
+            description: None,
+            image_url: None,
+            language: None,
+            explicit: false,
+            itunes_type: None,
+            raw_medium: Some("publisher".to_string()),
+            author_name: None,
+            owner_name: None,
+            pub_date: None,
+            remote_items: vec![IngestRemoteFeedRef {
+                position: 0,
+                medium: Some("music".to_string()),
+                remote_feed_guid: "music-feed-guid".to_string(),
+                remote_feed_url: Some("https://example.com/music.xml".to_string()),
+            }],
+            persons: vec![],
+            entity_ids: vec![],
+            links: vec![],
+            feed_payment_routes: vec![],
+            tracks: vec![],
+            live_items: vec![],
+        }),
+    };
+
+    let verifier = stophammer::verifiers::content_hash::ContentHashVerifier;
+    let ctx = stophammer::verify::IngestContext {
+        request: &request,
+        db: &conn,
+        existing: None,
+    };
+
+    let result = stophammer::verify::Verifier::verify(&verifier, &ctx);
+    match result {
+        stophammer::verify::VerifyResult::Pass => {}
+        other => panic!("expected Pass for publisher feed with cached hash, got {other:?}"),
     }
 }
 

@@ -2,6 +2,7 @@
 
 //! Verifier: content hash deduplication.
 
+use crate::medium;
 use crate::verify::{IngestContext, Verifier, VerifyResult};
 
 /// Returns a sentinel `Fail("NO_CHANGE")` when the content hash matches the
@@ -28,6 +29,14 @@ impl Verifier for ContentHashVerifier {
 
     fn verify(&self, ctx: &IngestContext) -> VerifyResult {
         if ctx.request.force_reingest {
+            return VerifyResult::Pass;
+        }
+        if ctx
+            .request
+            .feed_data
+            .as_ref()
+            .is_some_and(|feed| medium::is_publisher(feed.raw_medium.as_deref()))
+        {
             return VerifyResult::Pass;
         }
 
