@@ -161,7 +161,7 @@ impl SseRegistry {
     /// Returns the number of unique artist entries in the registry.
     #[must_use]
     pub fn artist_count(&self) -> usize {
-        self.senders.read().map(|g| g.len()).unwrap_or(0)
+        self.senders.read().map_or(0, |g| g.len())
     }
 
     /// Returns a broadcast receiver for the given artist. Creates the channel

@@ -2651,16 +2651,16 @@ fn wallet_review_confidence(
     score: Option<u16>,
     conflict_reasons: &[String],
 ) -> &'static str {
-    match source {
-        "likely_wallet_owner_match" if !conflict_reasons.is_empty() => "blocked",
-        "likely_wallet_owner_match" => {
-            if score.unwrap_or_default() >= WALLET_HIGH_CONFIDENCE_MIN_SCORE {
-                "high_confidence"
-            } else {
-                "review_required"
-            }
-        }
-        _ => "review_required",
+    if source != "likely_wallet_owner_match" {
+        return "review_required";
+    }
+    if !conflict_reasons.is_empty() {
+        return "blocked";
+    }
+    if score.unwrap_or_default() >= WALLET_HIGH_CONFIDENCE_MIN_SCORE {
+        "high_confidence"
+    } else {
+        "review_required"
     }
 }
 

@@ -334,9 +334,8 @@ pub fn require_https_for_discovery(primary_url: &str) -> Result<(), String> {
             "PRIMARY_PUBKEY auto-discovery URL uses plain HTTP — vulnerable to MITM"
         );
 
-        let allowed = std::env::var("ALLOW_INSECURE_PUBKEY_DISCOVERY")
-            .map(|v| v == "true" || v == "1")
-            .unwrap_or(false);
+        let allowed =
+            std::env::var("ALLOW_INSECURE_PUBKEY_DISCOVERY").is_ok_and(|v| v == "true" || v == "1");
 
         if !allowed {
             return Err("FATAL: PRIMARY_PUBKEY auto-discovery requires HTTPS. \
