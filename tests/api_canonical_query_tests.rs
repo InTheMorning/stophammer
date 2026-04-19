@@ -518,7 +518,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             "feed_guid": publisher_feed_guid,
             "title": "Publisher Truth Artist",
             "description": "Publisher feed for rss truth query coverage",
-            "image_url": null,
+            "image_url": "https://img.example.com/publisher-truth.jpg",
             "language": "en",
             "explicit": false,
             "itunes_type": null,
@@ -532,7 +532,14 @@ async fn feed_query_exposes_publisher_rss_truth() {
                 "remote_feed_guid": child_feed_guid,
                 "remote_feed_url": "https://wavlake.com/feed/music/publisher-truth-child"
             }],
-            "persons": [],
+            "persons": [{
+                "position": 0,
+                "name": "Publisher Truth Person",
+                "role": "Artist",
+                "group_name": "music",
+                "href": "https://example.com/publisher-truth-person",
+                "img": "https://img.example.com/publisher-truth-person.jpg"
+            }],
             "entity_ids": [],
             "links": [],
             "feed_payment_routes": [],
@@ -611,7 +618,7 @@ async fn feed_query_exposes_publisher_rss_truth() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher"
+                    "/v1/feeds/{publisher_feed_guid}?include=remote_items,publisher,source_contributors"
                 ))
                 .body(Body::empty())
                 .expect("publisher feed request"),
@@ -621,6 +628,22 @@ async fn feed_query_exposes_publisher_rss_truth() {
     assert_eq!(publisher_feed_resp.status(), 200);
     let publisher_feed_json = body_json(publisher_feed_resp).await;
     assert_eq!(publisher_feed_json["data"]["raw_medium"], "publisher");
+    assert_eq!(
+        publisher_feed_json["data"]["image_url"],
+        "https://img.example.com/publisher-truth.jpg"
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["source_contributors"][0]["name"],
+        "Publisher Truth Person"
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["source_contributors"][0]["role_norm"],
+        "artist"
+    );
+    assert_eq!(
+        publisher_feed_json["data"]["source_contributors"][0]["img"],
+        "https://img.example.com/publisher-truth-person.jpg"
+    );
     assert_eq!(
         publisher_feed_json["data"]["remote_items"][0]["medium"],
         "music"
