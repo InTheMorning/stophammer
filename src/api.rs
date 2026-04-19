@@ -82,6 +82,14 @@ pub struct SseFrame {
     pub seq: i64,
 }
 
+#[derive(Debug)]
+struct SignedEventRow {
+    row: db::EventRow,
+    seq: i64,
+    signed_by: String,
+    signature: String,
+}
+
 type IngestBlockingOutput = (
     ingest::IngestResponse,
     Vec<event::Event>,
@@ -699,6 +707,248 @@ fn derive_linked_publisher_name(
     }
 
     Ok(non_empty_trimmed(Some(publisher_feed.title.as_str())).map(str::to_string))
+}
+
+fn feed_remote_item_targets_publisher(
+    item: &model::FeedRemoteItemRaw,
+    publisher_feed: &model::Feed,
+) -> bool {
+    medium::is_publisher(item.medium.as_deref())
+        && (item.remote_feed_guid == publisher_feed.feed_guid
+            || item.remote_feed_url.as_deref() == Some(publisher_feed.feed_url.as_str()))
+}
+
+fn publisher_repair_text(music_feed: &model::Feed, publisher_feed: &model::Feed) -> Option<String> {
+    if is_wavlake_url(&music_feed.feed_url) {
+        return Some("Wavlake".to_string());
+    }
+    non_empty_trimmed(Some(publisher_feed.title.as_str())).map(str::to_string)
+}
+
+fn publisher_repair_release_artist(
+    music_feed: &model::Feed,
+    publisher_feed: &model::Feed,
+) -> Option<String> {
+    if is_wavlake_url(&music_feed.feed_url) {
+        return publisher_feed
+            .release_artist
+            .clone()
+            .or_else(|| Some(publisher_feed.title.clone()));
+    }
+    music_feed.release_artist.clone()
+}
+
+fn event_type_tag(event_type: &event::EventType) -> Result<String, ApiError> {
+    let tag = serde_json::to_string(event_type).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize event type for fan-out: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(tag.trim_matches('"').to_string())
+}
+
+fn signed_row_to_event(signed: SignedEventRow) -> Result<event::Event, ApiError> {
+    let et_str = event_type_tag(&signed.row.event_type)?;
+    let tagged = format!(
+        r#"{{"type":"{et_str}","data":{}}}"#,
+        signed.row.payload_json
+    );
+    let payload = serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to deserialize event payload for fan-out: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(event::Event {
+        event_id: signed.row.event_id,
+        event_type: signed.row.event_type,
+        payload,
+        subject_guid: signed.row.subject_guid,
+        signed_by: signed.signed_by,
+        signature: signed.signature,
+        seq: signed.seq,
+        created_at: signed.row.created_at,
+        warnings: signed.row.warnings,
+        payload_json: signed.row.payload_json,
+    })
+}
+
+fn sign_event_row(
+    conn: &rusqlite::Connection,
+    row: db::EventRow,
+    signer: &signing::NodeSigner,
+) -> Result<SignedEventRow, ApiError> {
+    let (seq, signed_by, signature) = db::insert_event(
+        conn,
+        &row.event_id,
+        &row.event_type,
+        &row.payload_json,
+        &row.subject_guid,
+        signer,
+        row.created_at,
+        &row.warnings,
+    )
+    .map_err(ApiError::from)?;
+    Ok(SignedEventRow {
+        row,
+        seq,
+        signed_by,
+        signature,
+    })
+}
+
+fn feed_upsert_event_row(feed: &model::Feed, now: i64) -> Result<db::EventRow, ApiError> {
+    let payload = event::FeedUpsertedPayload { feed: feed.clone() };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedUpserted payload: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(db::EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: event::EventType::FeedUpserted,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: vec![],
+    })
+}
+
+fn track_upsert_event_row(
+    conn: &rusqlite::Connection,
+    track: &model::Track,
+    now: i64,
+) -> Result<db::EventRow, ApiError> {
+    let payload = event::TrackUpsertedPayload {
+        track: track.clone(),
+        routes: db::get_payment_routes_for_track(conn, &track.track_guid)?,
+        value_time_splits: db::get_value_time_splits_for_track(conn, &track.track_guid)?,
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize TrackUpserted payload: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(db::EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: event::EventType::TrackUpserted,
+        payload_json,
+        subject_guid: track.track_guid.clone(),
+        created_at: now,
+        warnings: vec![],
+    })
+}
+
+fn repair_tracks_for_publisher_text(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    publisher_text: Option<&str>,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    let mut signed_rows = Vec::new();
+    for mut track in db::get_tracks_for_feed(conn, feed_guid)? {
+        if track.publisher.as_deref() == publisher_text {
+            continue;
+        }
+        track.publisher = publisher_text.map(ToOwned::to_owned);
+        track.updated_at = now;
+        db::upsert_track(conn, &track)?;
+        let row = track_upsert_event_row(conn, &track, now)?;
+        signed_rows.push(sign_event_row(conn, row, signer)?);
+    }
+    Ok(signed_rows)
+}
+
+fn music_feed_can_be_repaired_from_publisher(
+    conn: &rusqlite::Connection,
+    music_feed: &model::Feed,
+    publisher_feed: &model::Feed,
+) -> Result<bool, ApiError> {
+    Ok(
+        db::get_feed_remote_items_for_feed(conn, &music_feed.feed_guid)?
+            .iter()
+            .any(|item| feed_remote_item_targets_publisher(item, publisher_feed)),
+    )
+}
+
+fn repair_music_feed_from_publisher(
+    conn: &rusqlite::Connection,
+    mut music_feed: model::Feed,
+    publisher_feed: &model::Feed,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    let Some(publisher_text) = publisher_repair_text(&music_feed, publisher_feed) else {
+        return Ok(Vec::new());
+    };
+    let desired_publisher = Some(publisher_text);
+    let desired_release_artist = publisher_repair_release_artist(&music_feed, publisher_feed);
+    let feed_changed = music_feed.publisher != desired_publisher
+        || music_feed.release_artist != desired_release_artist;
+
+    let mut signed_rows = Vec::new();
+    if feed_changed {
+        music_feed.publisher.clone_from(&desired_publisher);
+        music_feed.release_artist = desired_release_artist;
+        music_feed.updated_at = now;
+        db::upsert_feed(conn, &music_feed)?;
+        signed_rows.push(sign_event_row(
+            conn,
+            feed_upsert_event_row(&music_feed, now)?,
+            signer,
+        )?);
+    }
+
+    signed_rows.extend(repair_tracks_for_publisher_text(
+        conn,
+        &music_feed.feed_guid,
+        desired_publisher.as_deref(),
+        now,
+        signer,
+    )?);
+    db::sync_source_read_models_for_feed(conn, &music_feed.feed_guid)?;
+    Ok(signed_rows)
+}
+
+fn repair_linked_music_feeds_after_publisher_ingest(
+    conn: &mut rusqlite::Connection,
+    publisher_feed: &model::Feed,
+    remote_items: &[model::FeedRemoteItemRaw],
+    signer: &signing::NodeSigner,
+    now: i64,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    if !medium::is_publisher(publisher_feed.raw_medium.as_deref()) {
+        return Ok(Vec::new());
+    }
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+    let mut repaired_feed_guids = HashSet::new();
+    let mut signed_rows = Vec::new();
+    for item in remote_items
+        .iter()
+        .filter(|item| medium::is_music(item.medium.as_deref()))
+    {
+        if !repaired_feed_guids.insert(item.remote_feed_guid.clone()) {
+            continue;
+        }
+        let Some(music_feed) = db::get_feed_by_guid(&tx, &item.remote_feed_guid)? else {
+            continue;
+        };
+        if !medium::is_music(music_feed.raw_medium.as_deref())
+            || !music_feed_can_be_repaired_from_publisher(&tx, &music_feed, publisher_feed)?
+        {
+            continue;
+        }
+        signed_rows.extend(repair_music_feed_from_publisher(
+            &tx,
+            music_feed,
+            publisher_feed,
+            now,
+            signer,
+        )?);
+    }
+    tx.commit().map_err(db::DbError::from)?;
+    Ok(signed_rows)
 }
 
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
@@ -2189,8 +2439,9 @@ async fn handle_ingest_feed(
             www_authenticate: None,
         })?;
 
-        // Collect event_ids and snapshot event data before moving event_rows
-        let event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
+        // Collect event_ids and snapshot event data before moving event_rows.
+        // Publisher repair events may extend this list below.
+        let mut event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
 
         // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
         // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
@@ -2205,6 +2456,8 @@ async fn handle_ingest_feed(
                 warnings: r.warnings.clone(),
             })
             .collect();
+        let ingested_feed = feed.clone();
+        let ingested_remote_items = feed_remote_items.clone();
 
         // 11. Run ingest transaction (signer signs after DB assigns seq)
         // Issue-SEQ-INTEGRITY — 2026-03-14
@@ -2231,41 +2484,40 @@ async fn handle_ingest_feed(
         // 11b. Search index + quality scores are now written inside
         // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
 
-        // 12. Update crawl cache
+        // 12. If this is a publisher feed, repair already-ingested child music
+        // feeds that were waiting for the publisher side of the relationship.
+        let repair_signed_rows = repair_linked_music_feeds_after_publisher_ingest(
+            &mut conn,
+            &ingested_feed,
+            &ingested_remote_items,
+            &state2.signer,
+            now,
+        )?;
+        event_ids.extend(
+            repair_signed_rows
+                .iter()
+                .map(|signed| signed.row.event_id.clone()),
+        );
+
+        // 13. Update crawl cache
         db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
 
-        // 13. Reconstruct events with assigned seqs + signatures for fan-out
+        // 14. Reconstruct events with assigned seqs + signatures for fan-out
         // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
-        let fanout_events: Vec<event::Event> = events_for_fanout
+        let mut signed_rows: Vec<SignedEventRow> = events_for_fanout
             .into_iter()
-            .zip(seqs.iter())
-            .map(|(r, (seq, signed_by, signature))| {
-                let et_str = serde_json::to_string(&r.event_type).map_err(|e| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("failed to serialize event type for fan-out: {e}"),
-                    www_authenticate: None,
-                })?;
-                let et_str = et_str.trim_matches('"');
-                let tagged = format!(r#"{{"type":"{et_str}","data":{}}}"#, r.payload_json);
-                let payload =
-                    serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        message: format!("failed to deserialize event payload for fan-out: {e}"),
-                        www_authenticate: None,
-                    })?;
-                Ok(event::Event {
-                    event_id: r.event_id,
-                    event_type: r.event_type,
-                    payload,
-                    subject_guid: r.subject_guid,
-                    signed_by: signed_by.clone(),
-                    signature: signature.clone(),
-                    seq: *seq,
-                    created_at: r.created_at,
-                    warnings: r.warnings,
-                    payload_json: r.payload_json,
-                })
+            .zip(seqs)
+            .map(|(row, (seq, signed_by, signature))| SignedEventRow {
+                row,
+                seq,
+                signed_by,
+                signature,
             })
+            .collect();
+        signed_rows.extend(repair_signed_rows);
+        let fanout_events: Vec<event::Event> = signed_rows
+            .into_iter()
+            .map(signed_row_to_event)
             .collect::<Result<Vec<_>, ApiError>>()?;
 
         let live_sse_frames = build_live_sse_frames_for_feed(

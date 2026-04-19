@@ -819,6 +819,170 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
 }
 
 #[tokio::test]
+async fn publisher_ingest_repairs_existing_music_feed_without_music_reingest() {
+    let crawl_token = "publisher-repair-crawl-token";
+    let db = common::test_db_arc();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let signer_path = tmp.path().join("publisher-repair.key");
+    let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token, &signer_path);
+    let app = stophammer::api::build_router(state);
+
+    let publisher_feed_guid = "feed-late-publisher";
+    let child_feed_guid = "feed-late-child";
+    let track_guid = "track-late-child";
+
+    let child_payload = serde_json::json!({
+        "canonical_url": "https://artist.example.com/late-release.xml",
+        "source_url": "https://artist.example.com/late-release.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "late-child-hash",
+        "feed_data": {
+            "feed_guid": child_feed_guid,
+            "title": "Late Publisher Release",
+            "description": "Music feed crawled before its publisher feed",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "music",
+            "author_name": "Late Artist",
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "publisher",
+                "remote_feed_guid": publisher_feed_guid,
+                "remote_feed_url": "https://label.example.com/late-publisher.xml"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": [{
+                "track_guid": track_guid,
+                "title": "Late Publisher Song",
+                "pub_date": 1700000300,
+                "duration_secs": 182,
+                "enclosure_url": "https://cdn.example.com/late-publisher-song.mp3",
+                "enclosure_type": "audio/mpeg",
+                "enclosure_bytes": 2345678,
+                "alternate_enclosures": [],
+                "track_number": 1,
+                "season": null,
+                "explicit": false,
+                "description": null,
+                "author_name": null,
+                "persons": [],
+                "entity_ids": [],
+                "links": [],
+                "payment_routes": [],
+                "value_time_splits": []
+            }]
+        }
+    });
+
+    let child_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &child_payload))
+        .await
+        .expect("child ingest");
+    assert_eq!(child_resp.status(), 200);
+
+    let child_feed_before_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/feeds/{child_feed_guid}"))
+                .body(Body::empty())
+                .expect("child feed request before publisher"),
+        )
+        .await
+        .expect("child feed response before publisher");
+    assert_eq!(child_feed_before_resp.status(), 200);
+    let child_feed_before_json = body_json(child_feed_before_resp).await;
+    assert!(child_feed_before_json["data"]["publisher_text"].is_null());
+
+    let publisher_payload = serde_json::json!({
+        "canonical_url": "https://label.example.com/late-publisher.xml",
+        "source_url": "https://label.example.com/late-publisher.xml",
+        "crawl_token": crawl_token,
+        "http_status": 200,
+        "content_hash": "late-publisher-hash",
+        "feed_data": {
+            "feed_guid": publisher_feed_guid,
+            "title": "Late Label",
+            "description": "Publisher feed crawled after the music feed",
+            "image_url": null,
+            "language": "en",
+            "explicit": false,
+            "itunes_type": null,
+            "raw_medium": "publisher",
+            "author_name": null,
+            "owner_name": null,
+            "pub_date": null,
+            "remote_items": [{
+                "position": 0,
+                "medium": "music",
+                "remote_feed_guid": child_feed_guid,
+                "remote_feed_url": "https://artist.example.com/late-release.xml"
+            }],
+            "persons": [],
+            "entity_ids": [],
+            "links": [],
+            "feed_payment_routes": [],
+            "tracks": []
+        }
+    });
+
+    let publisher_resp = app
+        .clone()
+        .oneshot(json_request("POST", "/ingest/feed", &publisher_payload))
+        .await
+        .expect("publisher ingest");
+    assert_eq!(publisher_resp.status(), 200);
+
+    let child_feed_after_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{child_feed_guid}?include=remote_items,publisher"
+                ))
+                .body(Body::empty())
+                .expect("child feed request after publisher"),
+        )
+        .await
+        .expect("child feed response after publisher");
+    assert_eq!(child_feed_after_resp.status(), 200);
+    let child_feed_after_json = body_json(child_feed_after_resp).await;
+    assert_eq!(
+        child_feed_after_json["data"]["publisher_text"],
+        "Late Label"
+    );
+    assert_eq!(
+        child_feed_after_json["data"]["publisher"][0]["two_way_validated"],
+        true
+    );
+
+    let child_track_resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/tracks/{track_guid}"))
+                .body(Body::empty())
+                .expect("child track request after publisher"),
+        )
+        .await
+        .expect("child track response after publisher");
+    assert_eq!(child_track_resp.status(), 200);
+    let child_track_json = body_json(child_track_resp).await;
+    assert_eq!(child_track_json["data"]["publisher_text"], "Late Label");
+}
+
+#[tokio::test]
 async fn non_wavlake_one_way_publisher_remote_item_does_not_set_publisher_text() {
     let crawl_token = "publisher-one-way-crawl-token";
     let db = common::test_db_arc();
