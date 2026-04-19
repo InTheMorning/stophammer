@@ -29,7 +29,7 @@ RUN cargo build --release --bin stophammer --bin gen_openapi
 
 FROM alpine:3.20 AS stophammer-runtime
 
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates sqlite \
  && addgroup -S stophammer \
  && adduser -S -G stophammer stophammer \
  && mkdir -p /data \

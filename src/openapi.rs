@@ -325,12 +325,11 @@ fn spec_value(mode: DocMode) -> Value {
         json!({
             "get": operation(
                 "Get publisher detail",
-                "Returns feeds and tracks whose stored publisher text matches the path parameter.",
+                "Returns feeds and tracks whose stored publisher text contains the path parameter. Matching is case-insensitive and partial (substring).",
                 "Publishers",
                 vec![
-                    path_param("publisher", "string", "Publisher text to match."),
+                    path_param("publisher", "string", "Publisher text to match (case-insensitive substring)."),
                     query_param("limit", "integer", Some("int64"), false, "Maximum feeds and tracks returned."),
-                    query_param("case_sensitive", "boolean", None, false, "Set to `false` for case-insensitive matching.")
                 ],
                 None,
                 json!({

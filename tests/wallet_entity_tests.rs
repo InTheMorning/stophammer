@@ -1072,7 +1072,7 @@ fn per_feed_resolver_creates_endpoints_and_wallets() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "resolver dirty-bit queue was retired in ADR 0032"]
 fn wallet_dirty_bit_is_in_default_mask() {
     // Resolver module retired in ADR 0032
     // use stophammer::resolver::queue;
@@ -1688,6 +1688,10 @@ fn cross_feed_alias_peers_do_not_create_same_feed_owner_match() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "regression test sets up wallet route and source-claim rows end-to-end"
+)]
 fn wallet_claim_feeds_include_routes_and_source_claims() {
     let conn = common::test_db();
     let now = seed_feed_and_track(&conn);
@@ -2536,7 +2540,7 @@ fn get_wallet_detail_returns_full_info() {
 }
 
 #[test]
-#[ignore]
+#[ignore = "resolver dirty-bit queue was retired in ADR 0032"]
 fn wallet_dirty_bit_after_promotions_before_search() {
     // Resolver module retired in ADR 0032
     // use stophammer::resolver::queue;

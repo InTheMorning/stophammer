@@ -45,6 +45,10 @@ async fn body_json(resp: axum::response::Response) -> serde_json::Value {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "ADR0038 end-to-end regression keeps related ingest and query assertions together"
+)]
 async fn test_adr0038_track_remote_items_and_whitelist() {
     let crawl_token = "adr0038-token";
     let db = common::test_db_arc();
@@ -140,8 +144,7 @@ async fn test_adr0038_track_remote_items_and_whitelist() {
             Request::builder()
                 .method("GET")
                 .uri(format!(
-                    "/v1/tracks/{}?include=remote_items,publisher",
-                    track_guid
+                    "/v1/tracks/{track_guid}?include=remote_items,publisher"
                 ))
                 .body(Body::empty())
                 .unwrap(),

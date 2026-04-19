@@ -84,6 +84,7 @@ pub struct ListQuery {
     cursor: Option<String>,
     limit: Option<i64>,
     include: Option<String>,
+    medium: Option<String>,
 }
 
 impl ListQuery {
@@ -116,16 +117,11 @@ pub struct PublisherSearchQuery {
 #[derive(Debug, Deserialize)]
 pub struct PublisherDetailQuery {
     limit: Option<i64>,
-    case_sensitive: Option<bool>,
 }
 
 impl PublisherDetailQuery {
     fn capped_limit(&self) -> i64 {
         self.limit.unwrap_or(50).clamp(1, 200)
-    }
-
-    fn case_sensitive(&self) -> bool {
-        self.case_sensitive.unwrap_or(true)
     }
 }
 
@@ -1243,6 +1239,7 @@ async fn handle_get_recent_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let medium = params.medium.as_deref().unwrap_or("music");
 
         let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
             let decoded = decode_cursor(cursor_str)?;
@@ -1267,13 +1264,13 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
-                 WHERE lower(raw_medium) = 'music'
-                   AND (newest_item_at, feed_guid) < (?1, ?2) \
+                 WHERE lower(raw_medium) = lower(?1)
+                   AND (newest_item_at, feed_guid) < (?2, ?3) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?3",
+                 LIMIT ?4",
             )?;
             stmt.query_map(
-                params![cursor_ts, cursor_guid, limit + 1],
+                params![medium, cursor_ts, cursor_guid, limit + 1],
                 |row| {
                     Ok(FeedRow {
                         feed_guid: row.get(0)?,
@@ -1305,11 +1302,11 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at \
                  FROM feeds \
-                 WHERE lower(raw_medium) = 'music' \
+                 WHERE lower(raw_medium) = lower(?1) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
-                 LIMIT ?1",
+                 LIMIT ?2",
             )?;
-            stmt.query_map(params![limit + 1], |row| {
+            stmt.query_map(params![medium, limit + 1], |row| {
                 Ok(FeedRow {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
@@ -1893,19 +1890,22 @@ async fn handle_publisher_detail(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
-        let publisher_predicate = if params.case_sensitive() {
-            "publisher = ?1"
-        } else {
-            "publisher = ?1 COLLATE NOCASE"
-        };
+        let pattern = format!(
+            "%{}%",
+            publisher
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
 
-        let mut fstmt = conn.prepare(&format!(
+        let mut fstmt = conn.prepare(
             "SELECT feed_guid, feed_url, title, image_url, episode_count, raw_medium \
-             FROM feeds WHERE {publisher_predicate} AND lower(raw_medium) = 'music' \
-             ORDER BY newest_item_at DESC LIMIT ?2"
-        ))?;
+             FROM feeds WHERE publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE \
+               AND lower(raw_medium) = 'music' \
+             ORDER BY newest_item_at DESC LIMIT ?2",
+        )?;
         let feeds: Vec<PublisherFeedSummary> = fstmt
-            .query_map(params![publisher, limit], |row| {
+            .query_map(params![pattern, limit], |row| {
                 Ok(PublisherFeedSummary {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
@@ -1917,15 +1917,16 @@ async fn handle_publisher_detail(
             })?
             .collect::<Result<_, _>>()?;
 
-        let mut tstmt = conn.prepare(&format!(
+        let mut tstmt = conn.prepare(
             "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
              t.duration_secs, t.track_number \
              FROM tracks t JOIN feeds f ON f.feed_guid = t.feed_guid \
-             WHERE t.{publisher_predicate} AND lower(f.raw_medium) = 'music' \
-             ORDER BY t.pub_date DESC LIMIT ?2"
-        ))?;
+             WHERE t.publisher LIKE ?1 ESCAPE '\\' COLLATE NOCASE \
+               AND lower(f.raw_medium) = 'music' \
+             ORDER BY t.pub_date DESC LIMIT ?2",
+        )?;
         let tracks: Vec<PublisherTrackSummary> = tstmt
-            .query_map(params![publisher, limit], |row| {
+            .query_map(params![pattern, limit], |row| {
                 Ok(PublisherTrackSummary {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,

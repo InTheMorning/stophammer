@@ -87,7 +87,7 @@ async fn ingest_musicl_discards_tracks_and_skips_resolver_queue() {
             "raw_medium": "musicL",
             "author_name": "Playlist Curator",
             "owner_name": null,
-            "pub_date": 1700000000,
+            "pub_date": 1_700_000_000,
             "remote_items": [{
                 "position": 0,
                 "medium": "music",
@@ -102,7 +102,7 @@ async fn ingest_musicl_discards_tracks_and_skips_resolver_queue() {
             "tracks": [{
                 "track_guid": "track-musicl-api",
                 "title": "Should Be Discarded",
-                "pub_date": 1700000000,
+                "pub_date": 1_700_000_000,
                 "duration_secs": 120,
                 "enclosure_url": "https://cdn.example.com/discarded.mp3",
                 "enclosure_type": "audio/mpeg",
@@ -169,6 +169,10 @@ async fn ingest_musicl_discards_tracks_and_skips_resolver_queue() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "HTTP regression test keeps paired ingest payloads inline for readability"
+)]
 async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
     let crawl_token = "musicl-recent-crawl-token";
     let db = common::test_db_arc();
@@ -177,7 +181,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
     let state = test_app_state_with_chain(Arc::clone(&db), crawl_token, &signer_path);
     let app = stophammer::api::build_router(state);
 
-    let music_payload = serde_json::json!({
+    let song_feed_payload = serde_json::json!({
         "canonical_url": "https://example.com/music.xml",
         "source_url": "https://example.com/music.xml",
         "crawl_token": crawl_token,
@@ -194,7 +198,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
             "raw_medium": "music",
             "author_name": "Music Artist",
             "owner_name": null,
-            "pub_date": 1700000000,
+            "pub_date": 1_700_000_000,
             "remote_items": [],
             "persons": [],
             "entity_ids": [],
@@ -212,11 +216,11 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
             "tracks": [{
                 "track_guid": "track-music-api",
                 "title": "Music Track",
-                "pub_date": 1700000000,
+                "pub_date": 1_700_000_000,
                 "duration_secs": 180,
                 "enclosure_url": "https://cdn.example.com/music.mp3",
                 "enclosure_type": "audio/mpeg",
-                "enclosure_bytes": 424242,
+                "enclosure_bytes": 424_242,
                 "alternate_enclosures": [],
                 "track_number": 1,
                 "season": null,
@@ -232,7 +236,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
         }
     });
 
-    let musicl_payload = serde_json::json!({
+    let playlist_feed_payload = serde_json::json!({
         "canonical_url": "https://example.com/musicl.xml",
         "source_url": "https://example.com/musicl.xml",
         "crawl_token": crawl_token,
@@ -249,7 +253,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
             "raw_medium": "musicL",
             "author_name": "Playlist Curator",
             "owner_name": null,
-            "pub_date": 1700000001,
+            "pub_date": 1_700_000_001,
             "remote_items": [{
                 "position": 0,
                 "medium": "music",
@@ -265,7 +269,7 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
         }
     });
 
-    for payload in [&music_payload, &musicl_payload] {
+    for payload in [&song_feed_payload, &playlist_feed_payload] {
         let resp = app
             .clone()
             .oneshot(json_request("POST", "/ingest/feed", payload))
@@ -312,6 +316,10 @@ async fn recent_feeds_default_to_music_and_allow_explicit_musicl_filter() {
 }
 
 #[tokio::test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "HTTP regression test keeps paired ingest payloads inline for readability"
+)]
 async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
     let crawl_token = "musicl-artist-crawl-token";
     let db = common::test_db_arc();
@@ -320,7 +328,7 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
     let state = test_app_state_with_chain(Arc::clone(&db), crawl_token, &signer_path);
     let app = stophammer::api::build_router(state);
 
-    let music_payload = serde_json::json!({
+    let song_feed_payload = serde_json::json!({
         "canonical_url": "https://example.com/artist-music.xml",
         "source_url": "https://example.com/artist-music.xml",
         "crawl_token": crawl_token,
@@ -337,7 +345,7 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
             "raw_medium": "music",
             "author_name": "Shared Artist",
             "owner_name": null,
-            "pub_date": 1700000000,
+            "pub_date": 1_700_000_000,
             "remote_items": [],
             "persons": [],
             "entity_ids": [],
@@ -355,11 +363,11 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
             "tracks": [{
                 "track_guid": "track-artist-music",
                 "title": "Artist Music Track",
-                "pub_date": 1700000000,
+                "pub_date": 1_700_000_000,
                 "duration_secs": 180,
                 "enclosure_url": "https://cdn.example.com/artist-music.mp3",
                 "enclosure_type": "audio/mpeg",
-                "enclosure_bytes": 424242,
+                "enclosure_bytes": 424_242,
                 "alternate_enclosures": [],
                 "track_number": 1,
                 "season": null,
@@ -375,7 +383,7 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
         }
     });
 
-    let musicl_payload = serde_json::json!({
+    let playlist_feed_payload = serde_json::json!({
         "canonical_url": "https://example.com/artist-musicl.xml",
         "source_url": "https://example.com/artist-musicl.xml",
         "crawl_token": crawl_token,
@@ -392,7 +400,7 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
             "raw_medium": "musicL",
             "author_name": "Shared Artist",
             "owner_name": null,
-            "pub_date": 1700000001,
+            "pub_date": 1_700_000_001,
             "remote_items": [{
                 "position": 0,
                 "medium": "music",
@@ -408,7 +416,7 @@ async fn recent_feeds_support_default_music_and_explicit_musicl_filters() {
         }
     });
 
-    for payload in [&music_payload, &musicl_payload] {
+    for payload in [&song_feed_payload, &playlist_feed_payload] {
         let resp = app
             .clone()
             .oneshot(json_request("POST", "/ingest/feed", payload))

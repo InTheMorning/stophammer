@@ -90,7 +90,7 @@ fn migration_runs_only_once() {
         .expect("count migrations");
     assert_eq!(
         count,
-        migration_paths().len() as i64,
+        i64::try_from(migration_paths().len()).expect("migration count should fit i64"),
         "schema_migrations count should match the number of migration files"
     );
 }
@@ -147,16 +147,15 @@ fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
         assert!(!exists, "legacy table {name} should not exist in schema");
     }
 
-    for name in ["artist_type"] {
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
-                rusqlite::params![name],
-                |row| row.get(0),
-            )
-            .expect("query sqlite_master");
-        assert!(exists, "table {name} should still exist");
-    }
+    let name = "artist_type";
+    let exists: bool = conn
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+            rusqlite::params![name],
+            |row| row.get(0),
+        )
+        .expect("query sqlite_master");
+    assert!(exists, "table {name} should still exist");
 }
 
 // ---------------------------------------------------------------------------

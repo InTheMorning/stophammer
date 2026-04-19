@@ -121,12 +121,7 @@ fn ingest_and_count_track_events(
         raw_medium: Some("music".into()),
     };
 
-    let track_tuples: Vec<(
-        stophammer::model::Track,
-        Vec<stophammer::model::PaymentRoute>,
-        Vec<stophammer::model::ValueTimeSplit>,
-        Vec<stophammer::model::TrackRemoteItemRaw>,
-    )> = tracks
+    let track_tuples: Vec<stophammer::db::TrackIngestBundle> = tracks
         .iter()
         .enumerate()
         .map(|(i, t)| {

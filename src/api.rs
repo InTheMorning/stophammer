@@ -649,17 +649,27 @@ fn find_linked_publisher_feed(
     conn: &rusqlite::Connection,
     feed_data: &ingest::IngestFeedData,
 ) -> Result<Option<model::Feed>, db::DbError> {
-    let publisher_guid = feed_data
+    // Bottom-up: music feed declares its publisher via remoteItem.
+    if let Some(item) = feed_data
         .remote_items
         .iter()
         .find(|item| item.medium.as_deref() == Some("publisher"))
-        .map(|item| item.remote_feed_guid.as_str());
+    {
+        // GUID lookup first. Fall back to URL if the publisher feed was
+        // re-indexed under a new podcast:guid (guid changed, URL unchanged).
+        if let Some(feed) = db::get_feed(conn, &item.remote_feed_guid)? {
+            return Ok(Some(feed));
+        }
+        if let Some(url) = &item.remote_feed_url
+            && let Some(feed) = db::get_existing_feed(conn, url)?
+        {
+            return Ok(Some(feed));
+        }
+    }
 
-    let Some(guid) = publisher_guid else {
-        return Ok(None);
-    };
-
-    db::get_feed(conn, guid)
+    // Top-down: publisher feed declares this music feed via medium=music remoteItem.
+    // Covers feeds whose RSS does not include <podcast:publisher> themselves.
+    db::get_publisher_feed_for_music_feed(conn, &feed_data.feed_guid)
 }
 
 fn has_reciprocal_music_remote_item(
@@ -1824,12 +1834,8 @@ async fn handle_ingest_feed(
         );
 
         // 9. Build track tuples
-        let mut track_tuples: Vec<(
-            model::Track,
-            Vec<model::PaymentRoute>,
-            Vec<model::ValueTimeSplit>,
-            Vec<model::TrackRemoteItemRaw>,
-        )> = Vec::with_capacity(feed_data.tracks.len());
+        let mut track_tuples: Vec<db::TrackIngestBundle> =
+            Vec::with_capacity(feed_data.tracks.len());
 
         // Track artist credits for event generation
         let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(tracks.len());

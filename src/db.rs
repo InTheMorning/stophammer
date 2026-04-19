@@ -32,6 +32,14 @@ use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
 
 pub type Db = Arc<Mutex<Connection>>;
 
+/// Ingest-time track plus its child rows.
+pub type TrackIngestBundle = (
+    Track,
+    Vec<PaymentRoute>,
+    Vec<ValueTimeSplit>,
+    Vec<TrackRemoteItemRaw>,
+);
+
 /// Default `SQLite` database path for local CLI tools and daemon env fallbacks.
 pub const DEFAULT_DB_PATH: &str = "./stophammer.db";
 
@@ -1384,6 +1392,56 @@ pub fn get_feed_remote_items_for_feed(
         items.push(row?);
     }
     Ok(items)
+}
+
+/// Returns the publisher feed (`raw_medium = 'publisher'`) that has declared
+/// `music_feed_guid` as one of its music feeds via a `podcast:remoteItem
+/// medium="music"` channel-level entry, or `None` if no such feed exists.
+pub fn get_publisher_feed_for_music_feed(
+    conn: &Connection,
+    music_feed_guid: &str,
+) -> Result<Option<Feed>, DbError> {
+    conn.query_row(
+        "SELECT f.feed_guid, f.feed_url, f.title, f.title_lower, f.artist_credit_id, \
+         f.description, f.image_url, f.publisher, f.language, f.explicit, f.itunes_type, \
+         f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
+         f.episode_count, f.newest_item_at, f.oldest_item_at, f.created_at, f.updated_at, \
+         f.raw_medium \
+         FROM feeds f \
+         JOIN feed_remote_items_raw ri ON ri.feed_guid = f.feed_guid \
+         WHERE ri.remote_feed_guid = ?1 \
+           AND ri.medium = 'music' \
+           AND lower(f.raw_medium) = 'publisher' \
+         LIMIT 1",
+        params![music_feed_guid],
+        |row| {
+            Ok(Feed {
+                feed_guid: row.get(0)?,
+                feed_url: row.get(1)?,
+                title: row.get(2)?,
+                title_lower: row.get(3)?,
+                artist_credit_id: row.get(4)?,
+                description: row.get(5)?,
+                image_url: row.get(6)?,
+                publisher: row.get(7)?,
+                language: row.get(8)?,
+                explicit: row.get(9)?,
+                itunes_type: row.get(10)?,
+                release_artist: row.get(11)?,
+                release_artist_sort: row.get(12)?,
+                release_date: row.get(13)?,
+                release_kind: row.get(14)?,
+                episode_count: row.get(15)?,
+                newest_item_at: row.get(16)?,
+                oldest_item_at: row.get(17)?,
+                created_at: row.get(18)?,
+                updated_at: row.get(19)?,
+                raw_medium: row.get(20)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 pub fn get_track_remote_items_for_track(
@@ -3387,12 +3445,7 @@ pub fn build_diff_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(
-        Track,
-        Vec<PaymentRoute>,
-        Vec<ValueTimeSplit>,
-        Vec<TrackRemoteItemRaw>,
-    )],
+    tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -3470,12 +3523,7 @@ fn build_all_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(
-        Track,
-        Vec<PaymentRoute>,
-        Vec<ValueTimeSplit>,
-        Vec<TrackRemoteItemRaw>,
-    )],
+    tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -3612,12 +3660,7 @@ fn build_changed_events(
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
     live_events: &[LiveEvent],
-    tracks: &[(
-        Track,
-        Vec<PaymentRoute>,
-        Vec<ValueTimeSplit>,
-        Vec<TrackRemoteItemRaw>,
-    )],
+    tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
@@ -4659,12 +4702,7 @@ pub fn ingest_transaction(
     source_platform_claims: Vec<SourcePlatformClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
     live_events: Vec<LiveEvent>,
-    tracks: Vec<(
-        Track,
-        Vec<PaymentRoute>,
-        Vec<ValueTimeSplit>,
-        Vec<TrackRemoteItemRaw>,
-    )>,
+    tracks: Vec<TrackIngestBundle>,
     event_rows: Vec<EventRow>,
     signer: &NodeSigner,
 ) -> Result<Vec<(i64, String, String)>, DbError> {

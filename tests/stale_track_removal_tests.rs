@@ -83,12 +83,7 @@ fn ingest_feed_with_tracks(
         raw_medium: Some("music".into()),
     };
 
-    let tracks: Vec<(
-        stophammer::model::Track,
-        Vec<stophammer::model::PaymentRoute>,
-        Vec<stophammer::model::ValueTimeSplit>,
-        Vec<stophammer::model::TrackRemoteItemRaw>,
-    )> = track_guids
+    let tracks: Vec<stophammer::db::TrackIngestBundle> = track_guids
         .iter()
         .enumerate()
         .map(|(i, tg)| {

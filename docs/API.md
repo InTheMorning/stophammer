@@ -647,8 +647,8 @@ The older canonical `/v1/recent` route has been retired.
 Lists source feeds in recent-source order for provenance/debugging workflows.
 
 - **Authentication:** None
-- **Constraint:** Only feeds with `raw_medium = 'music'` are returned. The `medium` parameter is retired and ignored.
-- **Query parameters:** none (all common pagination/include params supported)
+- **Constraint:** Defaults to feeds with `raw_medium = 'music'`; pass `medium=musicL` to list `musicL` containers.
+- **Query parameters:** common pagination/include params plus optional `medium`
 
 **Response:** Paginated array of feed objects.
 
@@ -1007,8 +1007,8 @@ Lists non-empty publisher text values with feed and track counts.
 
 ### GET /v1/publishers/{publisher}
 
-Returns feeds and tracks whose stored publisher text exactly matches the path
-parameter by default.
+Returns feeds and tracks whose stored publisher text contains the path
+parameter. Matching is case-insensitive and partial (substring).
 
 - **Authentication:** None
 
@@ -1017,7 +1017,6 @@ parameter by default.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `limit` | i64 | 50 | Max feeds and max tracks returned (clamped to 1--200) |
-| `case_sensitive` | bool | `true` | Set to `false` to match publisher text case-insensitively. |
 
 **Response (`200 OK`):**
 
