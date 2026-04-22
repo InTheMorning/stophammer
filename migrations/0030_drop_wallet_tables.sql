@@ -1,3 +1,5 @@
+-- Rebuild delete triggers without wallet_* references before dropping the
+-- wallet tables themselves, so no trigger references a missing table.
 DROP TRIGGER IF EXISTS trg_tracks_cleanup_before_delete;
 CREATE TRIGGER trg_tracks_cleanup_before_delete
 BEFORE DELETE ON tracks
@@ -9,24 +11,12 @@ BEGIN
     DELETE FROM value_time_splits
     WHERE source_track_guid = OLD.track_guid;
 
-    DELETE FROM wallet_track_route_map
-    WHERE route_id IN (
-        SELECT id FROM payment_routes WHERE track_guid = OLD.track_guid
-    );
-
     DELETE FROM payment_routes
-    WHERE track_guid = OLD.track_guid;
-
-    DELETE FROM source_item_recording_map
     WHERE track_guid = OLD.track_guid;
 
     DELETE FROM track_rel
     WHERE track_guid_a = OLD.track_guid
        OR track_guid_b = OLD.track_guid;
-
-    UPDATE release_recordings
-    SET source_track_guid = NULL
-    WHERE source_track_guid = OLD.track_guid;
 
     DELETE FROM entity_quality
     WHERE entity_type = 'track'
@@ -44,11 +34,6 @@ FOR EACH ROW
 BEGIN
     DELETE FROM feed_tag
     WHERE feed_guid = OLD.feed_guid;
-
-    DELETE FROM wallet_feed_route_map
-    WHERE route_id IN (
-        SELECT id FROM feed_payment_routes WHERE feed_guid = OLD.feed_guid
-    );
 
     DELETE FROM feed_payment_routes
     WHERE feed_guid = OLD.feed_guid;
@@ -98,9 +83,20 @@ BEGIN
     DELETE FROM source_platform_claims
     WHERE feed_guid = OLD.feed_guid;
 
-    DELETE FROM source_feed_release_map
-    WHERE feed_guid = OLD.feed_guid;
-
     DELETE FROM tracks
     WHERE feed_guid = OLD.feed_guid;
 END;
+
+DROP TABLE IF EXISTS wallet_merge_apply_entry;
+DROP TABLE IF EXISTS wallet_merge_apply_batch;
+DROP TABLE IF EXISTS wallet_identity_override;
+DROP TABLE IF EXISTS wallet_identity_review;
+DROP TABLE IF EXISTS wallet_identity_review_legacy_0023;
+DROP TABLE IF EXISTS wallet_identity_review_legacy_0024;
+DROP TABLE IF EXISTS wallet_artist_links;
+DROP TABLE IF EXISTS wallet_id_redirect;
+DROP TABLE IF EXISTS wallet_feed_route_map;
+DROP TABLE IF EXISTS wallet_track_route_map;
+DROP TABLE IF EXISTS wallet_aliases;
+DROP TABLE IF EXISTS wallet_endpoints;
+DROP TABLE IF EXISTS wallets;

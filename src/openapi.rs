@@ -216,52 +216,13 @@ fn spec_value(mode: DocMode) -> Value {
                             "api_version": "v1",
                             "node_pubkey": "hex-pubkey",
                             "capabilities": ["query", "search", "sync", "push"],
-                            "entity_types": ["feed", "track", "wallet"],
+                            "entity_types": ["feed", "track"],
                             "include_params": {
                                 "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
                                 "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts"]
                             }
                         })
                     )
-                }),
-                None
-            )
-        }),
-    );
-    paths.insert(
-        "/v1/wallets/{id}".into(),
-        json!({
-            "get": operation(
-                "Get wallet by ID",
-                "Returns one wallet entity, including normalized endpoints, historical aliases, and resolved artist links.",
-                "Node",
-                vec![path_param("id", "string", "Wallet identifier.")],
-                None,
-                json!({
-                    "200": json_response(
-                        "Wallet detail response.",
-                        json!({
-                            "data": {
-                                "wallet_id": "wallet-123",
-                                "display_name": "Alice",
-                                "wallet_class": "unknown",
-                                "class_confidence": "provisional",
-                                "endpoints": [{
-                                    "id": 1,
-                                    "route_type": "keysend",
-                                    "normalized_address": "abc123",
-                                    "custom_key": "7629169",
-                                    "custom_value": "pod1"
-                                }],
-                                "aliases": [],
-                                "artist_links": [],
-                                "created_at": 1710288000,
-                                "updated_at": 1710288000
-                            },
-                            "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
-                        })
-                    ),
-                    "404": error_response("Wallet not found.")
                 }),
                 None
             )

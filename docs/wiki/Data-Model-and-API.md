@@ -20,7 +20,6 @@ Use:
 - `/v1/feeds/recent`
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
-- `/v1/wallets/{id}`
 - `/v1/publishers`
 - `/v1/publishers/{publisher}`
 

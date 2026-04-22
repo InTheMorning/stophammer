@@ -107,7 +107,6 @@ The public read surface is source-first:
 - `/v1/feeds/recent`
 - `/v1/feeds/{guid}`
 - `/v1/tracks/{guid}`
-- `/v1/wallets/{id}`
 - `/v1/publishers`
 - `/v1/publishers/{publisher}`
 
@@ -143,10 +142,9 @@ The main source entities are:
 - `track`
 - staged source claims such as links, IDs, contributors, release claims,
   platform claims, enclosure variants, and transcripts
-- wallet review entities used to inspect normalized payment routes
 
 Some compatibility tables still exist internally, especially around artist
-credits and wallet review, but the public v1 API does not expose a canonical
+credits, but the public v1 API does not expose a canonical
 artist/release/recording graph.
 
 So the general user flow is:

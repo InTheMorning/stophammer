@@ -11,7 +11,7 @@ retired canonical release/recording tables.
 Purpose: enumerates artist kinds used by the internal compatibility artist layer.
 
 ### `rel_type`
-Purpose: enumerates relationship kinds still used by internal metadata and wallet link workflows.
+Purpose: enumerates relationship kinds still used by internal metadata workflows.
 
 ## Source-First Feed and Track Tables
 
@@ -178,31 +178,3 @@ Purpose: feed-scoped proof challenges.
 ### `proof_tokens`
 Purpose: short-lived proof tokens issued after successful proof completion.
 
-## Wallet Review Layer
-
-### `wallets`
-Purpose: normalized wallet entities used by wallet review and linking flows.
-
-### `wallet_endpoints`
-Purpose: normalized route endpoints behind feed and track payment routes.
-
-### `wallet_aliases`
-Purpose: observed aliases for wallet endpoints.
-
-### `wallet_track_route_map`
-Purpose: links `payment_routes` rows to normalized wallet endpoints.
-
-### `wallet_feed_route_map`
-Purpose: links `feed_payment_routes` rows to normalized wallet endpoints.
-
-### `wallet_id_redirect`
-Purpose: redirect table for merged wallet identities.
-
-### `wallet_artist_links`
-Purpose: reviewed or provisional links between wallet identities and internal artist rows.
-
-### `wallet_identity_review`
-Purpose: queued or resolved wallet identity review records.
-
-### `wallet_identity_override`
-Purpose: operator overrides for wallet review decisions.

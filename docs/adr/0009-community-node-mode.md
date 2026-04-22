@@ -47,7 +47,7 @@ All community-specific parameters are grouped in `CommunityConfig`:
 ### Read-only API
 `api::build_readonly_router` exposes the sync endpoints (`GET /sync/events`,
 `GET /sync/peers`), the current `v1` query API (`/v1/search`,
-`/v1/feeds/{guid}`, `/v1/tracks/{guid}`, `/v1/wallets/{id}`, publisher reads,
+`/v1/feeds/{guid}`, `/v1/tracks/{guid}`, publisher reads,
 and related read routes), `GET /node/info`, and `GET /health`. The
 ingest, reconcile, and admin write-paths are absent by construction, not by runtime
 guard. Community mode passes a dummy `VerifierChain` (empty crawl token) because the

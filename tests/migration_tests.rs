@@ -6,12 +6,24 @@ use std::fs;
 use std::path::PathBuf;
 
 const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
-    "DROP TABLE wallet_identity_override;",
     "DROP TABLE IF EXISTS source_item_recording_map;",
     "DROP TABLE IF EXISTS source_feed_release_map;",
     "DROP TABLE IF EXISTS release_recordings;",
     "DROP TABLE IF EXISTS recordings;",
     "DROP TABLE IF EXISTS releases;",
+    "DROP TABLE IF EXISTS wallet_merge_apply_entry;",
+    "DROP TABLE IF EXISTS wallet_merge_apply_batch;",
+    "DROP TABLE IF EXISTS wallet_identity_override;",
+    "DROP TABLE IF EXISTS wallet_identity_review;",
+    "DROP TABLE IF EXISTS wallet_identity_review_legacy_0023;",
+    "DROP TABLE IF EXISTS wallet_identity_review_legacy_0024;",
+    "DROP TABLE IF EXISTS wallet_artist_links;",
+    "DROP TABLE IF EXISTS wallet_id_redirect;",
+    "DROP TABLE IF EXISTS wallet_feed_route_map;",
+    "DROP TABLE IF EXISTS wallet_track_route_map;",
+    "DROP TABLE IF EXISTS wallet_aliases;",
+    "DROP TABLE IF EXISTS wallet_endpoints;",
+    "DROP TABLE IF EXISTS wallets;",
 ];
 
 // ---------------------------------------------------------------------------
@@ -136,6 +148,17 @@ fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
         "release_recordings",
         "recordings",
         "releases",
+        "wallets",
+        "wallet_endpoints",
+        "wallet_aliases",
+        "wallet_track_route_map",
+        "wallet_feed_route_map",
+        "wallet_id_redirect",
+        "wallet_artist_links",
+        "wallet_identity_review",
+        "wallet_identity_override",
+        "wallet_merge_apply_batch",
+        "wallet_merge_apply_entry",
     ] {
         let exists: bool = conn
             .query_row(

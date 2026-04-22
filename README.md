@@ -175,7 +175,6 @@ Public source-first reads:
 - `GET /v1/tracks/{guid}`
 - `GET /v1/feeds/recent`
 - `GET /v1/search`
-- `GET /v1/wallets/{id}`
 - `GET /v1/publishers`
 - `GET /v1/publishers/{publisher}`
 - `GET /v1/node/capabilities`
