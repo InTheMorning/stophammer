@@ -169,6 +169,45 @@ fn spec_value(mode: DocMode) -> Value {
     paths.insert("/v1/feeds/{guid}".into(), feed_path_item(mode));
     paths.insert("/v1/tracks/{guid}".into(), track_path_item(mode));
     paths.insert(
+        "/v1/tracks".into(),
+        json!({
+            "get": operation(
+                "List tracks by artist",
+                "Returns all tracks whose `track_artist` matches the given name (case-insensitive). Paginated newest-first.",
+                "Tracks",
+                vec![
+                    query_param("artist", "string", None, true, "Artist name to filter by (case-insensitive exact match)."),
+                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return."),
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated artist tracks.",
+                        query_envelope_example(json!([
+                            {
+                                "track_guid": "track-guid",
+                                "feed_guid": "feed-guid",
+                                "title": "Track Title",
+                                "track_artist": "Artist Name",
+                                "track_artist_sort": "Name, Artist",
+                                "pub_date": 1710288000,
+                                "duration_secs": 210,
+                                "image_url": null,
+                                "track_number": 1,
+                                "feed_title": "Album Title",
+                                "release_artist": "Artist Name",
+                                "created_at": 1710288000
+                            }
+                        ]))
+                    ),
+                    "400": error_response("Missing or invalid `artist` parameter.")
+                }),
+                None
+            )
+        }),
+    );
+    paths.insert(
         "/v1/search".into(),
         json!({
             "get": operation(

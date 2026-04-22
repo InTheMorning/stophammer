@@ -137,6 +137,19 @@ impl PublisherDetailQuery {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ArtistTracksQuery {
+    artist: String,
+    limit: Option<i64>,
+    cursor: Option<String>,
+}
+
+impl ArtistTracksQuery {
+    fn capped_limit(&self) -> i64 {
+        self.limit.unwrap_or(50).clamp(1, 200)
+    }
+}
+
 fn like_contains_pattern(value: &str) -> String {
     format!(
         "%{}%",
@@ -287,6 +300,22 @@ struct PublisherDetailResponse {
     publisher_text: String,
     feeds: Vec<PublisherFeedSummary>,
     tracks: Vec<PublisherTrackSummary>,
+}
+
+#[derive(Debug, Serialize)]
+struct ArtistTrackItem {
+    track_guid: String,
+    feed_guid: String,
+    title: String,
+    track_artist: Option<String>,
+    track_artist_sort: Option<String>,
+    pub_date: Option<i64>,
+    duration_secs: Option<i64>,
+    image_url: Option<String>,
+    track_number: Option<i64>,
+    feed_title: String,
+    release_artist: Option<String>,
+    created_at: i64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1826,6 +1855,131 @@ async fn handle_publisher_detail(
     Ok(Json(result))
 }
 
+// ── GET /v1/tracks ──────────────────────────────────────────────────────────
+
+async fn handle_artist_tracks(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ArtistTracksQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let artist_lower = params.artist.to_lowercase();
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+
+        let rows: Vec<ArtistTrackItem> = if let Some(ref cursor_str) = params.cursor {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor format".into(),
+                    www_authenticate: None,
+                });
+            }
+            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor timestamp".into(),
+                www_authenticate: None,
+            })?;
+            let cursor_guid = parts[1];
+
+            let mut stmt = conn.prepare(
+                "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
+                 t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
+                 COALESCE(f.title, ''), f.release_artist, t.created_at \
+                 FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+                 WHERE lower(t.track_artist) = ?1 \
+                   AND (t.created_at, t.track_guid) < (?2, ?3) \
+                 ORDER BY t.created_at DESC, t.track_guid DESC \
+                 LIMIT ?4",
+            )?;
+            stmt.query_map(
+                params![artist_lower, cursor_ts, cursor_guid, limit + 1],
+                |row| {
+                    Ok(ArtistTrackItem {
+                        track_guid: row.get(0)?,
+                        feed_guid: row.get(1)?,
+                        title: row.get(2)?,
+                        track_artist: row.get(3)?,
+                        track_artist_sort: row.get(4)?,
+                        pub_date: row.get(5)?,
+                        duration_secs: row.get(6)?,
+                        image_url: row.get(7)?,
+                        track_number: row.get(8)?,
+                        feed_title: row.get(9)?,
+                        release_artist: row.get(10)?,
+                        created_at: row.get(11)?,
+                    })
+                },
+            )?
+            .collect::<Result<_, _>>()?
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
+                 t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
+                 COALESCE(f.title, ''), f.release_artist, t.created_at \
+                 FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+                 WHERE lower(t.track_artist) = ?1 \
+                 ORDER BY t.created_at DESC, t.track_guid DESC \
+                 LIMIT ?2",
+            )?;
+            stmt.query_map(params![artist_lower, limit + 1], |row| {
+                Ok(ArtistTrackItem {
+                    track_guid: row.get(0)?,
+                    feed_guid: row.get(1)?,
+                    title: row.get(2)?,
+                    track_artist: row.get(3)?,
+                    track_artist_sort: row.get(4)?,
+                    pub_date: row.get(5)?,
+                    duration_secs: row.get(6)?,
+                    image_url: row.get(7)?,
+                    track_number: row.get(8)?,
+                    feed_title: row.get(9)?,
+                    release_artist: row.get(10)?,
+                    created_at: row.get(11)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?
+        };
+
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+        let items: Vec<_> = rows
+            .into_iter()
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect();
+
+        let next_cursor = if has_more {
+            items
+                .last()
+                .map(|r| encode_cursor(&format!("{}\0{}", r.created_at, r.track_guid)))
+        } else {
+            None
+        };
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: items,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── Router builder ──────────────────────────────────────────────────────────
 
 use axum::routing::get;
@@ -1834,6 +1988,7 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
     axum::Router::new()
         .route("/v1/feeds/{guid}", get(handle_get_feed))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
+        .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/search", get(handle_search))
         .route("/v1/node/capabilities", get(handle_capabilities))

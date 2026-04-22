@@ -204,6 +204,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0029_track_remote_items.sql"),
     // Migration 30: drop wallet identity subsystem and rebuild delete triggers without wallet refs.
     include_str!("../migrations/0030_drop_wallet_tables.sql"),
+    // Migration 31: expression index on lower(track_artist) for artist lookup endpoint.
+    include_str!("../migrations/0031_track_artist_lower_index.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -2554,7 +2556,6 @@ pub fn delete_track_with_event(
     tx.commit()?;
     Ok((seq, signed_by, signature))
 }
-
 
 /// Stats returned by [`cleanup_orphaned_artists`].
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -5398,4 +5399,3 @@ pub fn get_source_item_transcripts_for_entity(
     }
     Ok(result)
 }
-

@@ -243,7 +243,6 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
             "{table} rows should be cleaned on direct feed delete"
         );
     }
-
 }
 
 #[test]
