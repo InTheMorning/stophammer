@@ -18,7 +18,7 @@
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroU32;
 use std::sync::{Arc, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use axum::{
     Json, Router,
@@ -61,6 +61,11 @@ const MAX_SSE_CONNECTIONS: usize = 1_000;
 /// re-issuing an OPTIONS preflight. One hour reduces preflight traffic while
 /// keeping clients reasonably up-to-date with any policy changes.
 const CORS_MAX_AGE_SECS: u64 = 3600;
+
+/// Warn when a primary ingest request takes at least as long as the crawler's
+/// default ingest timeout, so operators can correlate crawler-side
+/// `ingest_error` logs with slow handler completions.
+const INGEST_SLOW_WARNING_SECS: u64 = 10;
 
 /// Access token lifetime in seconds (1 hour) for proof-of-possession tokens.
 ///
@@ -1752,6 +1757,19 @@ async fn handle_ingest_feed(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ingest::IngestFeedRequest>,
 ) -> Result<Json<ingest::IngestResponse>, ApiError> {
+    let started_at = Instant::now();
+    let log_canonical_url = req.canonical_url.clone();
+    let log_source_url = req.source_url.clone();
+    let log_http_status = req.http_status;
+    let log_feed_guid = req
+        .feed_data
+        .as_ref()
+        .map_or_else(String::new, |feed_data| feed_data.feed_guid.clone());
+    let log_raw_medium = req
+        .feed_data
+        .as_ref()
+        .and_then(|feed_data| feed_data.raw_medium.clone())
+        .unwrap_or_default();
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
     let result = tokio::task::spawn_blocking(move || -> Result<IngestBlockingOutput, ApiError> {
@@ -2541,14 +2559,74 @@ async fn handle_ingest_feed(
             live_sse_frames,
         ))
     })
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
+    .await;
 
-    let (response, fanout_events, live_sse_frames) = result?;
+    let elapsed = started_at.elapsed();
+    let elapsed_ms = elapsed.as_millis();
+    let result = match result {
+        Ok(result) => result,
+        Err(e) => {
+            tracing::error!(
+                canonical_url = %log_canonical_url,
+                source_url = %log_source_url,
+                http_status = log_http_status,
+                feed_guid = %log_feed_guid,
+                raw_medium = %log_raw_medium,
+                elapsed_ms,
+                error = %e,
+                "ingest request panicked"
+            );
+            return Err(ApiError {
+                status: StatusCode::INTERNAL_SERVER_ERROR,
+                message: format!("internal task panic: {e}"),
+                www_authenticate: None,
+            });
+        }
+    };
+
+    let (response, fanout_events, live_sse_frames) = match result {
+        Ok(output) => output,
+        Err(err) => {
+            tracing::error!(
+                canonical_url = %log_canonical_url,
+                source_url = %log_source_url,
+                http_status = log_http_status,
+                feed_guid = %log_feed_guid,
+                raw_medium = %log_raw_medium,
+                elapsed_ms,
+                status = err.status.as_u16(),
+                message = %err.message,
+                "ingest request failed"
+            );
+            return Err(err);
+        }
+    };
+
+    if !response.accepted {
+        tracing::warn!(
+            canonical_url = %log_canonical_url,
+            source_url = %log_source_url,
+            http_status = log_http_status,
+            feed_guid = %log_feed_guid,
+            raw_medium = %log_raw_medium,
+            elapsed_ms,
+            no_change = response.no_change,
+            reason = response.reason.as_deref().unwrap_or(""),
+            "ingest request rejected"
+        );
+    } else if elapsed >= Duration::from_secs(INGEST_SLOW_WARNING_SECS) {
+        tracing::warn!(
+            canonical_url = %log_canonical_url,
+            source_url = %log_source_url,
+            http_status = log_http_status,
+            feed_guid = %log_feed_guid,
+            raw_medium = %log_raw_medium,
+            elapsed_ms,
+            no_change = response.no_change,
+            events_emitted = response.events_emitted.len(),
+            "ingest request completed slowly"
+        );
+    }
 
     // Fire-and-forget fan-out to push subscribers.
     if !fanout_events.is_empty() {
