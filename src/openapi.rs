@@ -36,7 +36,16 @@ enum DocMode {
 }
 
 fn document(mode: DocMode) -> utoipa::openapi::OpenApi {
-    serde_json::from_value(spec_value(mode)).expect("static OpenAPI document must be valid")
+    let mut doc: utoipa::openapi::OpenApi =
+        serde_json::from_value(spec_value(mode)).expect("static OpenAPI document must be valid");
+    let feed_track_item: utoipa::openapi::path::PathItem =
+        serde_json::from_value(feed_track_path_item(mode))
+            .expect("feed-scoped track path item must be valid");
+    doc.paths.paths.insert(
+        "/v1/feeds/{guid}/tracks/{track_guid}".into(),
+        feed_track_item,
+    );
+    doc
 }
 
 #[expect(
@@ -228,6 +237,8 @@ fn spec_value(mode: DocMode) -> Value {
                             {
                                 "entity_type": "track",
                                 "entity_id": "track-guid",
+                                "feed_guid": "feed-guid",
+                                "href": "/v1/feeds/feed-guid/tracks/track-guid",
                                 "rank": -1.5,
                                 "quality_score": 0
                             }
@@ -456,25 +467,7 @@ fn spec_value(mode: DocMode) -> Value {
         );
         paths.insert(
             "/v1/feeds/{guid}/tracks/{track_guid}".into(),
-            json!({
-                "delete": operation(
-                    "Remove track from feed",
-                    "Deletes a single track from its parent feed.",
-                    "Tracks",
-                    vec![
-                        path_param("guid", "string", "Parent feed GUID."),
-                        path_param("track_guid", "string", "Track GUID.")
-                    ],
-                    None,
-                    json!({
-                        "204": no_content_response("Track removed."),
-                        "401": error_response("Missing bearer token."),
-                        "403": error_response("Invalid admin token or insufficient bearer scope."),
-                        "404": error_response("Track not found or does not belong to the feed.")
-                    }),
-                    Some(bearer_or_admin_security())
-                )
-            }),
+            feed_track_path_item(mode),
         );
         paths.insert(
             "/v1/proofs/challenge".into(),
@@ -669,11 +662,11 @@ fn track_path_item(mode: DocMode) -> Value {
         "get".into(),
         operation(
             "Get track by GUID",
-            "Returns a single track by its `track_guid`.",
+            "Compatibility lookup by raw `track_guid`. Returns `409 Conflict` if multiple feeds publish the same track GUID; callers should retry the canonical feed-scoped route.",
             "Tracks",
             vec![
                 path_param("guid", "string", "Track GUID."),
-                query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`."),
+                query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
                 query_param("limit", "integer", Some("int64"), false, "Maximum nested rows to return."),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
             ],
@@ -689,7 +682,19 @@ fn track_path_item(mode: DocMode) -> Value {
                         "track_artist": "Artist Name"
                     }))
                 ),
-                "404": error_response("Track not found.")
+                "404": error_response("Track not found."),
+                "409": json_response(
+                    "Track GUID is ambiguous across feeds.",
+                    json!({
+                        "error": "track_guid track-guid is ambiguous; retry with the canonical feed-scoped route",
+                        "code": "ambiguous_track_guid",
+                        "track_guid": "track-guid",
+                        "candidates": [{
+                            "feed_guid": "feed-guid",
+                            "href": "/v1/feeds/feed-guid/tracks/track-guid"
+                        }]
+                    })
+                )
             }),
             None,
         ),
@@ -700,7 +705,7 @@ fn track_path_item(mode: DocMode) -> Value {
             "patch".into(),
             operation(
                 "Patch track",
-                "Updates a track's mutable fields. Currently supports `enclosure_url` only.",
+                "Compatibility mutation by raw `track_guid`. Returns `409 Conflict` if the GUID is ambiguous across feeds; callers should retry the canonical feed-scoped route.",
                 "Tracks",
                 vec![path_param("guid", "string", "Track GUID.")],
                 Some(json_request_body(
@@ -711,7 +716,101 @@ fn track_path_item(mode: DocMode) -> Value {
                     "204": no_content_response("Track updated."),
                     "401": error_response("Missing bearer token."),
                     "403": error_response("Invalid admin token or insufficient bearer scope."),
-                    "404": error_response("Track not found.")
+                    "404": error_response("Track not found."),
+                    "409": json_response(
+                        "Track GUID is ambiguous across feeds.",
+                        json!({
+                            "error": "track_guid track-guid is ambiguous; retry with the canonical feed-scoped route",
+                            "code": "ambiguous_track_guid",
+                            "track_guid": "track-guid",
+                            "candidates": [{
+                                "feed_guid": "feed-guid",
+                                "href": "/v1/feeds/feed-guid/tracks/track-guid"
+                            }]
+                        })
+                    )
+                }),
+                Some(bearer_or_admin_security()),
+            ),
+        );
+    }
+
+    Value::Object(item)
+}
+
+fn feed_track_path_item(mode: DocMode) -> Value {
+    let mut item = serde_json::Map::new();
+    item.insert(
+        "get".into(),
+        operation(
+            "Get track by feed and GUID",
+            "Canonical track lookup by parent `feed_guid` plus raw source `track_guid`.",
+            "Tracks",
+            vec![
+                path_param("guid", "string", "Parent feed GUID."),
+                path_param("track_guid", "string", "Track GUID."),
+                query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
+                query_param("limit", "integer", Some("int64"), false, "Maximum nested rows to return."),
+                query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
+            ],
+            None,
+            json!({
+                "200": json_response(
+                    "Track detail response.",
+                    query_envelope_example(json!({
+                        "track_guid": "track-guid",
+                        "feed_guid": "feed-guid",
+                        "title": "Track Title",
+                        "publisher_text": "Wavlake",
+                        "track_artist": "Artist Name"
+                    }))
+                ),
+                "404": error_response("Track not found in the specified feed.")
+            }),
+            None,
+        ),
+    );
+
+    if matches!(mode, DocMode::Primary) {
+        item.insert(
+            "patch".into(),
+            operation(
+                "Patch track by feed and GUID",
+                "Canonical mutation route for a track scoped by parent `feed_guid` and raw source `track_guid`. Currently supports `enclosure_url` only.",
+                "Tracks",
+                vec![
+                    path_param("guid", "string", "Parent feed GUID."),
+                    path_param("track_guid", "string", "Track GUID.")
+                ],
+                Some(json_request_body(
+                    "JSON Merge Patch payload.",
+                    json!({ "enclosure_url": "https://new-cdn.example.com/track.mp3" }),
+                )),
+                json!({
+                    "204": no_content_response("Track updated."),
+                    "401": error_response("Missing bearer token."),
+                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "404": error_response("Track not found in the specified feed.")
+                }),
+                Some(bearer_or_admin_security()),
+            ),
+        );
+        item.insert(
+            "delete".into(),
+            operation(
+                "Remove track from feed",
+                "Deletes a single track from its parent feed.",
+                "Tracks",
+                vec![
+                    path_param("guid", "string", "Parent feed GUID."),
+                    path_param("track_guid", "string", "Track GUID."),
+                ],
+                None,
+                json!({
+                    "204": no_content_response("Track removed."),
+                    "401": error_response("Missing bearer token."),
+                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "404": error_response("Track not found or does not belong to the feed.")
                 }),
                 Some(bearer_or_admin_security()),
             ),

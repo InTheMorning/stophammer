@@ -366,6 +366,10 @@ fn reingest_same_tracks_no_removals() {
 fn reingest_cleans_up_child_rows() {
     let mut conn = common::test_db();
     let signer = common::temp_signer("stale-track-test-4");
+    let removed_track_entity_id =
+        stophammer::db::canonical_track_entity_id("feed-stale-4", "track-j");
+    let surviving_track_entity_id =
+        stophammer::db::canonical_track_entity_id("feed-stale-4", "track-i");
 
     // First ingest: 2 tracks
     let _ = ingest_feed_with_tracks(&mut conn, "feed-stale-4", &["track-i", "track-j"], &signer);
@@ -373,8 +377,8 @@ fn reingest_cleans_up_child_rows() {
     // Verify quality + search rows exist for track-j
     let quality_exists: bool = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-j'",
-            [],
+            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+            params![removed_track_entity_id],
             |r| r.get(0),
         )
         .unwrap();
@@ -383,7 +387,7 @@ fn reingest_cleans_up_child_rows() {
         "quality row should exist for track-j after first ingest"
     );
 
-    let search_rowid = stophammer::search::rowid_for("track", "track-j");
+    let search_rowid = stophammer::search::rowid_for("track", &removed_track_entity_id);
     let search_exists: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM search_entities WHERE rowid = ?1",
@@ -402,8 +406,8 @@ fn reingest_cleans_up_child_rows() {
     // track-j quality row should be cleaned up
     let quality_after: bool = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-j'",
-            [],
+            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+            params![removed_track_entity_id],
             |r| r.get(0),
         )
         .unwrap();
@@ -428,8 +432,8 @@ fn reingest_cleans_up_child_rows() {
     // track-i should still have its quality and search rows
     let quality_i: bool = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-i'",
-            [],
+            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+            params![surviving_track_entity_id],
             |r| r.get(0),
         )
         .unwrap();

@@ -107,7 +107,7 @@ CREATE INDEX IF NOT EXISTS idx_feeds_title  ON feeds(title_lower);
 CREATE INDEX IF NOT EXISTS idx_feeds_title_guid ON feeds(title_lower, feed_guid);
 
 CREATE TABLE IF NOT EXISTS tracks (
-    track_guid       TEXT PRIMARY KEY,
+    track_guid       TEXT NOT NULL,
     feed_guid        TEXT NOT NULL REFERENCES feeds(feed_guid),
     artist_credit_id INTEGER NOT NULL REFERENCES artist_credit(id),
     title            TEXT NOT NULL,
@@ -127,13 +127,15 @@ CREATE TABLE IF NOT EXISTS tracks (
     track_artist     TEXT,
     track_artist_sort TEXT,
     created_at       INTEGER NOT NULL,
-    updated_at       INTEGER NOT NULL
+    updated_at       INTEGER NOT NULL,
+    PRIMARY KEY (feed_guid, track_guid)
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_tracks_feed     ON tracks(feed_guid);
 CREATE INDEX IF NOT EXISTS idx_tracks_credit   ON tracks(artist_credit_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_pub_date ON tracks(pub_date DESC);
 CREATE INDEX IF NOT EXISTS idx_tracks_title    ON tracks(title_lower);
+CREATE INDEX IF NOT EXISTS idx_tracks_guid     ON tracks(track_guid);
 
 -- Track-level payment routes
 -- NOTE (SG-04/SG-05): CHECK constraints apply to new inserts only on existing
@@ -143,7 +145,7 @@ CREATE INDEX IF NOT EXISTS idx_tracks_title    ON tracks(title_lower);
 -- DROP old -> ALTER TABLE new RENAME TO old.
 CREATE TABLE IF NOT EXISTS payment_routes (
     id              INTEGER PRIMARY KEY,
-    track_guid      TEXT NOT NULL REFERENCES tracks(track_guid),
+    track_guid      TEXT NOT NULL,
     feed_guid       TEXT NOT NULL,
     recipient_name  TEXT,
     route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
@@ -151,11 +153,13 @@ CREATE TABLE IF NOT EXISTS payment_routes (
     custom_key      TEXT NOT NULL DEFAULT '',
     custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
-    fee             INTEGER NOT NULL DEFAULT 0
+    fee             INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (feed_guid, track_guid) REFERENCES tracks(feed_guid, track_guid)
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_routes_track ON payment_routes(track_guid);
 CREATE INDEX IF NOT EXISTS idx_routes_feed  ON payment_routes(feed_guid);
+CREATE INDEX IF NOT EXISTS idx_routes_feed_track ON payment_routes(feed_guid, track_guid);
 
 -- Feed-level payment routes (same CHECK migration note as payment_routes above)
 CREATE TABLE IF NOT EXISTS feed_payment_routes (
@@ -174,16 +178,19 @@ CREATE INDEX IF NOT EXISTS idx_feed_routes_guid ON feed_payment_routes(feed_guid
 
 CREATE TABLE IF NOT EXISTS value_time_splits (
     id                  INTEGER PRIMARY KEY,
-    source_track_guid   TEXT NOT NULL REFERENCES tracks(track_guid),
+    source_feed_guid    TEXT,
+    source_track_guid   TEXT NOT NULL,
     start_time_secs     INTEGER NOT NULL,
     duration_secs       INTEGER,
     remote_feed_guid    TEXT NOT NULL,
     remote_item_guid    TEXT NOT NULL,
     split               INTEGER NOT NULL CHECK(split >= 0),
-    created_at          INTEGER NOT NULL
+    created_at          INTEGER NOT NULL,
+    FOREIGN KEY (source_feed_guid, source_track_guid) REFERENCES tracks(feed_guid, track_guid)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_vts_source ON value_time_splits(source_track_guid);
+CREATE INDEX IF NOT EXISTS idx_vts_source ON value_time_splits(source_feed_guid, source_track_guid);
+CREATE INDEX IF NOT EXISTS idx_vts_track_guid_only ON value_time_splits(source_track_guid);
 
 CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
     id               INTEGER PRIMARY KEY,
@@ -198,6 +205,23 @@ CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
 
 CREATE INDEX IF NOT EXISTS idx_feed_remote_items_feed ON feed_remote_items_raw(feed_guid);
 CREATE INDEX IF NOT EXISTS idx_feed_remote_items_guid ON feed_remote_items_raw(remote_feed_guid);
+
+CREATE TABLE IF NOT EXISTS track_remote_items_raw (
+    id               INTEGER PRIMARY KEY,
+    feed_guid        TEXT,
+    track_guid       TEXT NOT NULL,
+    position         INTEGER NOT NULL,
+    medium           TEXT,
+    remote_feed_guid TEXT NOT NULL,
+    remote_feed_url  TEXT,
+    source           TEXT NOT NULL DEFAULT 'podcast_remote_item',
+    UNIQUE(feed_guid, track_guid, position),
+    FOREIGN KEY (feed_guid, track_guid) REFERENCES tracks(feed_guid, track_guid)
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_track_remote_items_track ON track_remote_items_raw(feed_guid, track_guid);
+CREATE INDEX IF NOT EXISTS idx_track_remote_items_guid  ON track_remote_items_raw(remote_feed_guid);
+CREATE INDEX IF NOT EXISTS idx_track_remote_items_track_guid_only ON track_remote_items_raw(track_guid);
 
 CREATE TABLE IF NOT EXISTS live_events (
     live_item_guid  TEXT NOT NULL,
@@ -539,4 +563,3 @@ CREATE TABLE IF NOT EXISTS proof_tokens (
     created_at        INTEGER NOT NULL
 ) STRICT;
 CREATE INDEX IF NOT EXISTS idx_proof_tokens_expires ON proof_tokens(expires_at);
-

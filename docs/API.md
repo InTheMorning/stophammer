@@ -660,9 +660,28 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 
 ## 6. Queries -- Tracks
 
+### GET /v1/feeds/{guid}/tracks/{track_guid}
+
+Canonical track lookup by parent `feed_guid` plus raw source `track_guid`.
+
+- **Authentication:** None
+- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
+
+**Response (`200 OK`):** same shape as `GET /v1/tracks/{guid}`.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 404  | Track not found in the specified feed |
+
+---
+
 ### GET /v1/tracks/{guid}
 
-Returns a single track by its `track_guid`.
+Compatibility lookup by raw `track_guid`. If exactly one track matches, the
+response is identical to the canonical feed-scoped route. If multiple feeds
+publish the same `track_guid`, the endpoint returns `409 Conflict` with
+canonical feed-scoped URLs for the caller to retry.
 
 - **Authentication:** None
 - **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
@@ -796,6 +815,23 @@ Notes:
 |------|---------|
 | 200  | Success |
 | 404  | Track not found |
+| 409  | `track_guid` is ambiguous across feeds; retry with the canonical feed-scoped route |
+
+**Ambiguous response (`409 Conflict`):**
+
+```json
+{
+  "error": "track_guid track-guid is ambiguous; retry with the canonical feed-scoped route",
+  "code": "ambiguous_track_guid",
+  "track_guid": "track-guid",
+  "candidates": [
+    {
+      "feed_guid": "feed-guid",
+      "href": "/v1/feeds/feed-guid/tracks/track-guid"
+    }
+  ]
+}
+```
 
 ---
 
@@ -814,6 +850,11 @@ Default search includes:
 
 Search is source-first in the current runtime. Feed and track search results
 align with the same public IDs exposed by the direct read endpoints.
+
+Track search hits also include canonical disambiguators:
+
+- `feed_guid` when `entity_type = "track"`
+- `href` pointing at `GET /v1/feeds/{feed_guid}/tracks/{track_guid}`
 
 - **Authentication:** None
 
@@ -834,6 +875,8 @@ align with the same public IDs exposed by the direct read endpoints.
     {
       "entity_type": "track",
       "entity_id": "track-guid",
+      "feed_guid": "feed-guid",
+      "href": "/v1/feeds/feed-guid/tracks/track-guid",
       "rank": -1.5,
       "quality_score": 0
     }
@@ -1116,7 +1159,11 @@ Updates a feed's mutable fields. Currently supports `feed_url` only.
 
 ### PATCH /v1/tracks/{guid}
 
-Updates a track's mutable fields. Currently supports `enclosure_url` only. Bearer token scope is validated against the track's parent feed.
+Compatibility mutation by raw `track_guid`. If exactly one track matches, the
+update proceeds as before. If multiple feeds publish the same `track_guid`, the
+endpoint returns `409 Conflict` with canonical feed-scoped URLs for the caller
+to retry. Bearer token scope is validated against the resolved track's parent
+feed.
 
 - **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for the track's parent feed)
 - **Available on:** Primary only
@@ -1137,6 +1184,28 @@ Updates a track's mutable fields. Currently supports `enclosure_url` only. Beare
 | 401  | Missing `Authorization` header |
 | 403  | Invalid admin token, or bearer token scoped to a different feed |
 | 404  | Track not found |
+| 409  | `track_guid` is ambiguous across feeds; retry with the canonical feed-scoped route |
+
+---
+
+### PATCH /v1/feeds/{guid}/tracks/{track_guid}
+
+Canonical mutation route for a track scoped by parent `feed_guid` and raw
+source `track_guid`. Currently supports `enclosure_url` only.
+
+- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for the parent feed)
+- **Available on:** Primary only
+
+**Request body:** same as `PATCH /v1/tracks/{guid}`.
+
+**Response:** `204 No Content` on success. Emits a `TrackUpserted` event and fans out to peers.
+
+| Code | Meaning |
+|------|---------|
+| 204  | Updated |
+| 401  | Missing `Authorization` header |
+| 403  | Invalid admin token, or bearer token scoped to a different feed |
+| 404  | Track not found in the specified feed |
 
 ---
 
@@ -1233,8 +1302,8 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*` |
-| Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*` |
+| Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}`, `PATCH /v1/feeds/{guid}/tracks/{track_guid}` |
 
 Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.
 

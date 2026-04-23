@@ -378,7 +378,8 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     );
 
     // 4. Track search index is populated inline by ingest
-    let track_rowid = stophammer::search::rowid_for("track", track_guid);
+    let track_entity_id = stophammer::db::canonical_track_entity_id(feed_guid, track_guid);
+    let track_rowid = stophammer::search::rowid_for("track", &track_entity_id);
     let track_search: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
@@ -395,7 +396,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     let track_quality: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-            params![track_guid],
+            params![track_entity_id],
             |r| r.get(0),
         )
         .expect("track quality query");
@@ -624,7 +625,9 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     );
 
     // Track search index must be present
-    let track_rowid = stophammer::search::rowid_for("track", "track-atomic-s1b-01");
+    let track_entity_id =
+        stophammer::db::canonical_track_entity_id("feed-atomic-s1b", "track-atomic-s1b-01");
+    let track_rowid = stophammer::search::rowid_for("track", &track_entity_id);
     let track_search: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
@@ -640,8 +643,8 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     // Track quality score must be present
     let track_quality: bool = conn
         .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = 'track-atomic-s1b-01'",
-            [],
+            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
+            params![track_entity_id],
             |r| r.get(0),
         )
         .expect("track quality query");

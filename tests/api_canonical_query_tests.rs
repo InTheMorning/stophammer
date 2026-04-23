@@ -191,6 +191,25 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
         .collect::<Vec<_>>();
     assert!(feed_claim_types.contains(&"release_date"));
 
+    let canonical_track_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!(
+                    "/v1/feeds/{feed_guid}/tracks/{track_guid}?include=source_links,source_contributors,source_enclosures"
+                ))
+                .body(Body::empty())
+                .expect("canonical track request"),
+        )
+        .await
+        .expect("canonical track response");
+    assert_eq!(canonical_track_resp.status(), 200);
+    let canonical_track_json = body_json(canonical_track_resp).await;
+    assert_eq!(canonical_track_json["data"]["feed_guid"], feed_guid);
+    assert_eq!(canonical_track_json["data"]["track_guid"], track_guid);
+    assert_eq!(canonical_track_json["data"]["publisher_text"], "Wavlake");
+
     let track_resp = app
         .clone()
         .oneshot(
@@ -384,6 +403,11 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
     let track_search_json = body_json(track_search_resp).await;
     assert_eq!(track_search_json["data"][0]["entity_type"], "track");
     assert_eq!(track_search_json["data"][0]["entity_id"], track_guid);
+    assert_eq!(track_search_json["data"][0]["feed_guid"], feed_guid);
+    assert_eq!(
+        track_search_json["data"][0]["href"],
+        format!("/v1/feeds/{feed_guid}/tracks/{track_guid}")
+    );
 
     let recent_feeds_resp = app
         .clone()
@@ -891,7 +915,7 @@ async fn non_wavlake_reciprocal_publisher_remote_item_sets_publisher_text() {
         .oneshot(
             Request::builder()
                 .method("GET")
-                .uri("/v1/tracks/track-remoteitem-child")
+                .uri("/v1/feeds/feed-remoteitem-child/tracks/track-remoteitem-child")
                 .body(Body::empty())
                 .expect("child track request"),
         )

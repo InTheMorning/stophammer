@@ -86,6 +86,8 @@ async fn primary_router_serves_primary_openapi_json() {
     assert_eq!(json["info"]["title"], "Stophammer API");
     assert!(json["paths"]["/ingest/feed"]["post"].is_object());
     assert!(json["paths"]["/sync/push"].is_null());
+    assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["get"].is_object());
+    assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["patch"].is_object());
     assert_eq!(
         json["components"]["securitySchemes"]["AdminToken"]["name"],
         "X-Admin-Token"
@@ -113,5 +115,7 @@ async fn readonly_router_serves_readonly_openapi_json_without_primary_mutations(
     assert!(json["paths"]["/sync/register"].is_null());
     assert!(json["paths"]["/v1/proofs/challenge"].is_null());
     assert!(json["paths"]["/v1/feeds/{guid}"]["patch"].is_null());
+    assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["get"].is_object());
+    assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["patch"].is_null());
     assert_eq!(json["paths"]["/v1/search"]["get"]["tags"][0], "Search");
 }

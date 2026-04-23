@@ -87,6 +87,52 @@ pub struct SseFrame {
     pub seq: i64,
 }
 
+#[derive(Clone, Debug, Serialize)]
+pub struct AmbiguousTrackGuidCandidate {
+    pub feed_guid: String,
+    pub href: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AmbiguousTrackGuidBody {
+    pub error: String,
+    pub code: &'static str,
+    pub track_guid: String,
+    pub candidates: Vec<AmbiguousTrackGuidCandidate>,
+}
+
+#[must_use]
+pub fn canonical_track_href(feed_guid: &str, track_guid: &str) -> String {
+    format!("/v1/feeds/{feed_guid}/tracks/{track_guid}")
+}
+
+#[must_use]
+pub fn ambiguous_track_guid_body(
+    track_guid: &str,
+    candidates: Vec<AmbiguousTrackGuidCandidate>,
+) -> AmbiguousTrackGuidBody {
+    AmbiguousTrackGuidBody {
+        error: format!(
+            "track_guid {track_guid} is ambiguous; retry with the canonical feed-scoped route"
+        ),
+        code: "ambiguous_track_guid",
+        track_guid: track_guid.to_string(),
+        candidates,
+    }
+}
+
+#[must_use]
+pub fn ambiguous_track_guid_response(
+    track_guid: &str,
+    candidates: Vec<AmbiguousTrackGuidCandidate>,
+) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(ambiguous_track_guid_body(track_guid, candidates)),
+    )
+        .into_response()
+}
+
 #[derive(Debug)]
 struct SignedEventRow {
     row: db::EventRow,
@@ -825,8 +871,12 @@ fn track_upsert_event_row(
 ) -> Result<db::EventRow, ApiError> {
     let payload = event::TrackUpsertedPayload {
         track: track.clone(),
-        routes: db::get_payment_routes_for_track(conn, &track.track_guid)?,
-        value_time_splits: db::get_value_time_splits_for_track(conn, &track.track_guid)?,
+        routes: db::get_payment_routes_for_feed_track(conn, &track.feed_guid, &track.track_guid)?,
+        value_time_splits: db::get_value_time_splits_for_feed_track(
+            conn,
+            &track.feed_guid,
+            &track.track_guid,
+        )?,
     };
     let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -1705,7 +1755,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/v1/feeds/{guid}/tracks/{track_guid}",
-            delete(handle_remove_track),
+            patch(handle_patch_feed_track).delete(handle_remove_track),
         )
         .route("/v1/tracks/{guid}", patch(handle_patch_track))
         .route("/v1/proofs/challenge", post(handle_proofs_challenge))
@@ -2233,6 +2283,7 @@ async fn handle_ingest_feed(
                 .iter()
                 .map(|v| model::ValueTimeSplit {
                     id: None,
+                    source_feed_guid: feed_data.feed_guid.clone(),
                     source_track_guid: track_data.track_guid.clone(),
                     start_time_secs: v.start_time_secs,
                     duration_secs: v.duration_secs,
@@ -2248,6 +2299,7 @@ async fn handle_ingest_feed(
                 .iter()
                 .map(|r| model::TrackRemoteItemRaw {
                     id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
                     track_guid: track_data.track_guid.clone(),
                     position: r.position,
                     medium: r.medium.clone(),
@@ -2389,6 +2441,7 @@ async fn handle_ingest_feed(
                 .iter()
                 .map(|v| model::ValueTimeSplit {
                     id: None,
+                    source_feed_guid: feed_data.feed_guid.clone(),
                     source_track_guid: live_item.live_item_guid.clone(),
                     start_time_secs: v.start_time_secs,
                     duration_secs: v.duration_secs,
@@ -2404,6 +2457,7 @@ async fn handle_ingest_feed(
                 .iter()
                 .map(|r| model::TrackRemoteItemRaw {
                     id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
                     track_guid: live_item.live_item_guid.clone(),
                     position: r.position,
                     medium: r.medium.clone(),
@@ -3376,7 +3430,7 @@ async fn handle_retire_feed(
                 let _ = crate::search::delete_from_search_index(
                     &conn,
                     "track",
-                    &track.track_guid,
+                    &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                     "",
                     &track.title,
                     track.description.as_deref().unwrap_or(""),
@@ -3473,10 +3527,6 @@ async fn handle_retire_feed(
 
 // ── DELETE /feeds/{guid}/tracks/{track_guid} ────────────────────────────────
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "event signing, SSE publish, and fan-out all live in one handler"
-)]
 async fn handle_remove_track(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -3505,26 +3555,18 @@ async fn handle_remove_track(
             )?;
 
             // Look up the track — 404 if not found.
-            let track = db::get_track_by_guid(&conn, &track_guid2)?.ok_or_else(|| ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: format!("track {track_guid2} not found"),
-                www_authenticate: None,
-            })?;
-
-            // Verify the track belongs to the specified feed.
-            if track.feed_guid != guid2 {
-                return Err(ApiError {
+            let track =
+                db::get_track_for_feed(&conn, &guid2, &track_guid2)?.ok_or_else(|| ApiError {
                     status: StatusCode::NOT_FOUND,
-                    message: format!("track {track_guid2} does not belong to feed {guid2}"),
+                    message: format!("track {track_guid2} not found"),
                     www_authenticate: None,
-                });
-            }
+                })?;
 
             // Remove search index entry (best-effort).
             let _ = crate::search::delete_from_search_index(
                 &conn,
                 "track",
-                &track.track_guid,
+                &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                 "",
                 &track.title,
                 track.description.as_deref().unwrap_or(""),
@@ -3548,6 +3590,7 @@ async fn handle_remove_track(
             // which signs after the DB assigns seq.
             let (seq, signed_by, signature) = db::delete_track_with_event(
                 &mut conn,
+                &guid2,
                 &track_guid2,
                 &event_id,
                 &payload_json,
@@ -4252,158 +4295,242 @@ struct PatchTrackRequest {
     enclosure_url: Option<String>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "event signing and fan-out follow the handle_retire_feed pattern"
-)]
+enum PatchTrackOutcome {
+    NoContent,
+    Updated(Vec<event::Event>),
+    Conflict(Vec<AmbiguousTrackGuidCandidate>),
+}
+
+fn ambiguous_track_candidates_for_tracks(
+    tracks: &[model::Track],
+) -> Vec<AmbiguousTrackGuidCandidate> {
+    tracks
+        .iter()
+        .map(|track| AmbiguousTrackGuidCandidate {
+            feed_guid: track.feed_guid.clone(),
+            href: canonical_track_href(&track.feed_guid, &track.track_guid),
+        })
+        .collect()
+}
+
+fn patch_resolved_track(
+    conn: &mut rusqlite::Connection,
+    headers: &HeaderMap,
+    state: &AppState,
+    track: &model::Track,
+    track_guid: &str,
+    req: &PatchTrackRequest,
+) -> Result<PatchTrackOutcome, ApiError> {
+    check_admin_or_bearer_with_conn(
+        conn,
+        headers,
+        &state.admin_token,
+        "feed:write",
+        &track.feed_guid,
+    )?;
+
+    let Some(new_url) = &req.enclosure_url else {
+        return Ok(PatchTrackOutcome::NoContent);
+    };
+
+    // Wrap mutation + event insert in a single transaction.
+    // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
+    let tx = conn
+        .transaction()
+        .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+    tx.execute(
+        "UPDATE tracks SET enclosure_url = ?1 WHERE feed_guid = ?2 AND track_guid = ?3",
+        params![new_url, track.feed_guid, track_guid],
+    )
+    .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+    // Issue-12 PATCH emits events — 2026-03-13
+    // Re-read the track after the update to capture current state.
+    let updated_track = db::get_track_for_feed(&tx, &track.feed_guid, track_guid)
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("track {track_guid} vanished after update"),
+            www_authenticate: None,
+        })?;
+
+    // Look up payment routes and value-time splits.
+    let routes = db::get_payment_routes_for_feed_track(&tx, &track.feed_guid, track_guid)
+        .map_err(ApiError::from)?;
+    let value_time_splits =
+        db::get_value_time_splits_for_feed_track(&tx, &track.feed_guid, track_guid)
+            .map_err(ApiError::from)?;
+
+    // Build and sign a TrackUpserted event.
+    let now = db::unix_now();
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let payload = event::TrackUpsertedPayload {
+        track: updated_track,
+        routes,
+        value_time_splits,
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize TrackUpserted payload: {e}"),
+        www_authenticate: None,
+    })?;
+    // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+    let (seq, signed_by, signature) = db::insert_event(
+        &tx,
+        &event_id,
+        &event::EventType::TrackUpserted,
+        &payload_json,
+        track_guid,
+        &state.signer,
+        now,
+        &[],
+    )
+    .map_err(ApiError::from)?;
+
+    tx.commit()
+        .map_err(|e| ApiError::from(db::DbError::from(e)))?;
+
+    // Build event for fan-out AFTER commit.
+    let tagged = format!(r#"{{"type":"track_upserted","data":{payload_json}}}"#);
+    let ev_payload =
+        serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("failed to deserialize TrackUpserted event for fan-out: {e}"),
+            www_authenticate: None,
+        })?;
+
+    let fanout_event = event::Event {
+        event_id,
+        event_type: event::EventType::TrackUpserted,
+        payload: ev_payload,
+        subject_guid: track_guid.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at: now,
+        warnings: vec![],
+        payload_json,
+    };
+
+    Ok(PatchTrackOutcome::Updated(vec![fanout_event]))
+}
+
 async fn handle_patch_track(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(guid): Path<String>,
     Json(req): Json<PatchTrackRequest>,
-) -> Result<StatusCode, ApiError> {
+) -> Result<Response, ApiError> {
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
     // Finding-2 atomic mutation+event — 2026-03-13
-    let result =
-        tokio::task::spawn_blocking(move || -> Result<Option<Vec<event::Event>>, ApiError> {
-            let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "database mutex poisoned".into(),
-                www_authenticate: None,
-            })?;
-
-            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-            // Look up the track first to find its parent feed guid, then validate
-            // the bearer token against that feed.
-            // Issue-13 PATCH 404 check — 2026-03-13
-            let track = db::get_track_by_guid(&conn, &guid2)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::NOT_FOUND,
-                    message: format!("track {guid2} not found"),
-                    www_authenticate: None,
-                })?;
-
-            check_admin_or_bearer_with_conn(
-                &conn,
-                &headers,
-                &state2.admin_token,
-                "feed:write",
-                &track.feed_guid,
-            )?;
-
-            let Some(new_url) = &req.enclosure_url else {
-                return Ok(None);
-            };
-
-            // Wrap mutation + event insert in a single transaction.
-            // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
-            let tx = conn
-                .transaction()
-                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            tx.execute(
-                "UPDATE tracks SET enclosure_url = ?1 WHERE track_guid = ?2",
-                params![new_url, guid2],
-            )
-            .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            // Issue-12 PATCH emits events — 2026-03-13
-            // Re-read the track after the update to capture current state.
-            let updated_track = db::get_track_by_guid(&tx, &guid2)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("track {guid2} vanished after update"),
-                    www_authenticate: None,
-                })?;
-
-            // Look up payment routes and value-time splits.
-            let routes = db::get_payment_routes_for_track(&tx, &guid2).map_err(ApiError::from)?;
-            let value_time_splits =
-                db::get_value_time_splits_for_track(&tx, &guid2).map_err(ApiError::from)?;
-
-            // Build and sign a TrackUpserted event.
-            let now = db::unix_now();
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::TrackUpsertedPayload {
-                track: updated_track,
-                routes,
-                value_time_splits,
-            };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize TrackUpserted payload: {e}"),
-                www_authenticate: None,
-            })?;
-            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-            let (seq, signed_by, signature) = db::insert_event(
-                &tx,
-                &event_id,
-                &event::EventType::TrackUpserted,
-                &payload_json,
-                &guid2,
-                &state2.signer,
-                now,
-                &[],
-            )
-            .map_err(ApiError::from)?;
-
-            tx.commit()
-                .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            // Build event for fan-out AFTER commit.
-            let tagged = format!(r#"{{"type":"track_upserted","data":{payload_json}}}"#);
-            let ev_payload =
-                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("failed to deserialize TrackUpserted event for fan-out: {e}"),
-                    www_authenticate: None,
-                })?;
-
-            let fanout_event = event::Event {
-                event_id,
-                event_type: event::EventType::TrackUpserted,
-                payload: ev_payload,
-                subject_guid: guid2,
-                signed_by,
-                signature,
-                seq,
-                created_at: now,
-                warnings: vec![],
-                payload_json,
-            };
-
-            Ok(Some(vec![fanout_event]))
-        })
-        .await
-        .map_err(|e| ApiError {
+    let result = tokio::task::spawn_blocking(move || -> Result<PatchTrackOutcome, ApiError> {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: format!("internal task panic: {e}"),
+            message: "database mutex poisoned".into(),
             www_authenticate: None,
         })?;
 
-    let fanout_events = result?;
+        let tracks = db::get_tracks_by_guid(&conn, &guid2).map_err(ApiError::from)?;
+        let Some(track) = tracks.first() else {
+            return Err(ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("track {guid2} not found"),
+                www_authenticate: None,
+            });
+        };
+        if tracks.len() > 1 {
+            return Ok(PatchTrackOutcome::Conflict(
+                ambiguous_track_candidates_for_tracks(&tracks),
+            ));
+        }
 
-    // Fire-and-forget fan-out.
-    if let Some(events) = fanout_events
-        && !events.is_empty()
-    {
-        // Issue-SSE-PUBLISH — 2026-03-14
-        publish_events_to_sse(&state.sse_registry, &events);
+        patch_resolved_track(&mut conn, &headers, &state2, track, &guid2, &req)
+    })
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })?;
 
-        let db_fanout = state.db.clone();
-        let client_fanout = state.push_client.clone();
-        let subscribers_fanout = Arc::clone(&state.push_subscribers);
-        tokio::spawn(fan_out_push(
-            db_fanout,
-            client_fanout,
-            subscribers_fanout,
-            events,
-        ));
+    match result? {
+        PatchTrackOutcome::NoContent => Ok(StatusCode::NO_CONTENT.into_response()),
+        PatchTrackOutcome::Updated(events) => {
+            publish_events_to_sse(&state.sse_registry, &events);
+
+            let db_fanout = state.db.clone();
+            let client_fanout = state.push_client.clone();
+            let subscribers_fanout = Arc::clone(&state.push_subscribers);
+            tokio::spawn(fan_out_push(
+                db_fanout,
+                client_fanout,
+                subscribers_fanout,
+                events,
+            ));
+
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        PatchTrackOutcome::Conflict(candidates) => {
+            Ok(ambiguous_track_guid_response(&guid, candidates))
+        }
     }
+}
 
-    Ok(StatusCode::NO_CONTENT)
+async fn handle_patch_feed_track(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((feed_guid, track_guid)): Path<(String, String)>,
+    Json(req): Json<PatchTrackRequest>,
+) -> Result<Response, ApiError> {
+    let state2 = Arc::clone(&state);
+    let feed_guid2 = feed_guid.clone();
+    let track_guid2 = track_guid.clone();
+    let result = tokio::task::spawn_blocking(move || -> Result<PatchTrackOutcome, ApiError> {
+        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "database mutex poisoned".into(),
+            www_authenticate: None,
+        })?;
+
+        let track = db::get_track_for_feed(&conn, &feed_guid2, &track_guid2)
+            .map_err(ApiError::from)?
+            .ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("track {track_guid2} not found in feed {feed_guid2}"),
+                www_authenticate: None,
+            })?;
+
+        patch_resolved_track(&mut conn, &headers, &state2, &track, &track_guid2, &req)
+    })
+    .await
+    .map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })?;
+
+    match result? {
+        PatchTrackOutcome::NoContent => Ok(StatusCode::NO_CONTENT.into_response()),
+        PatchTrackOutcome::Updated(events) => {
+            publish_events_to_sse(&state.sse_registry, &events);
+
+            let db_fanout = state.db.clone();
+            let client_fanout = state.push_client.clone();
+            let subscribers_fanout = Arc::clone(&state.push_subscribers);
+            tokio::spawn(fan_out_push(
+                db_fanout,
+                client_fanout,
+                subscribers_fanout,
+                events,
+            ));
+
+            Ok(StatusCode::NO_CONTENT.into_response())
+        }
+        PatchTrackOutcome::Conflict(candidates) => {
+            Ok(ambiguous_track_guid_response(&track_guid, candidates))
+        }
+    }
 }

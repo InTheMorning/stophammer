@@ -271,6 +271,43 @@ async fn patch_track_at_v1_prefix_returns_204() {
 }
 
 // ---------------------------------------------------------------------------
+// Test: PATCH /v1/feeds/{guid}/tracks/{track_guid} responds with 204
+// ---------------------------------------------------------------------------
+#[tokio::test]
+async fn patch_feed_scoped_track_at_v1_prefix_returns_204() {
+    let db = common::test_db_arc();
+    let token;
+    {
+        let conn = db.lock().expect("lock db");
+        let (credit_id, now) = seed_feed(&conn);
+        insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
+        token = issue_token_for_feed(&conn, "feed-1");
+    }
+    let state = test_app_state(Arc::clone(&db));
+    let app = stophammer::api::build_router(state);
+
+    let req = Request::builder()
+        .method("PATCH")
+        .uri("/v1/feeds/feed-1/tracks/track-1")
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {token}"))
+        .body(axum::body::Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "enclosure_url": "https://cdn.example.com/new-song.mp3"
+            }))
+            .expect("serialize JSON"),
+        ))
+        .expect("build request");
+
+    let resp = app.oneshot(req).await.expect("call handler");
+    assert_eq!(
+        resp.status(),
+        204,
+        "PATCH /v1/feeds/feed-1/tracks/track-1 should return 204"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Test: POST /v1/proofs/challenge responds with 201
 // ---------------------------------------------------------------------------
 #[tokio::test]

@@ -209,7 +209,36 @@ async fn test_e2e_ingest_to_query_golden_path() {
         "feed title should match"
     );
 
-    // ── Step 3: GET /v1/tracks/{track_guid} → verify track title ───────────
+    // ── Step 3: GET canonical and flat track routes → verify track title ───
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/v1/feeds/{feed_guid}/tracks/{track_guid}"))
+                .body(Body::empty())
+                .expect("build canonical get track request"),
+        )
+        .await
+        .expect("canonical get track should not panic");
+
+    assert_eq!(resp.status(), 200, "canonical GET track should return 200");
+    let canonical_track_body = body_json(resp).await;
+    assert_eq!(
+        canonical_track_body["data"]["title"]
+            .as_str()
+            .expect("title field"),
+        track_title,
+        "canonical track title should match"
+    );
+    assert_eq!(
+        canonical_track_body["data"]["feed_guid"]
+            .as_str()
+            .expect("feed_guid field"),
+        feed_guid,
+        "canonical track feed_guid should match"
+    );
+
     let resp = app
         .clone()
         .oneshot(
@@ -276,6 +305,12 @@ async fn test_e2e_ingest_to_query_golden_path() {
         default_track_hit.is_some(),
         "default search results should include the track with entity_type='track' and entity_id='{track_guid}'"
     );
+    let default_track_hit = default_track_hit.expect("default track hit");
+    assert_eq!(default_track_hit["feed_guid"], feed_guid);
+    assert_eq!(
+        default_track_hit["href"],
+        format!("/v1/feeds/{feed_guid}/tracks/{track_guid}")
+    );
 
     // Explicit feed search should still surface the source feed hit.
     let resp = app
@@ -335,6 +370,12 @@ async fn test_e2e_ingest_to_query_golden_path() {
     assert!(
         track_hit.is_some(),
         "track search results should include the track with entity_type='track' and entity_id='{track_guid}'"
+    );
+    let track_hit = track_hit.expect("track hit");
+    assert_eq!(track_hit["feed_guid"], feed_guid);
+    assert_eq!(
+        track_hit["href"],
+        format!("/v1/feeds/{feed_guid}/tracks/{track_guid}")
     );
 
     // ── Step 5: GET /v1/feeds/{guid}?include=payment_routes → verify routes ─

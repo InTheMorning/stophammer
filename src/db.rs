@@ -206,6 +206,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0030_drop_wallet_tables.sql"),
     // Migration 31: expression index on lower(track_artist) for artist lookup endpoint.
     include_str!("../migrations/0031_track_artist_lower_index.sql"),
+    // Migration 32: make source track storage feed-scoped so duplicate raw track GUIDs can coexist.
+    include_str!("../migrations/0032_feed_scoped_track_identity.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -314,6 +316,22 @@ fn route_type_from_db(rt_str: &str, context: &str) -> RouteType {
             RouteType::Node
         }
     }
+}
+
+/// Returns the internal track entity key used for search and quality rows.
+///
+/// # Panics
+///
+/// Panics if serializing a tuple of two strings to JSON ever fails.
+#[must_use]
+pub fn canonical_track_entity_id(feed_guid: &str, track_guid: &str) -> String {
+    serde_json::to_string(&(feed_guid, track_guid))
+        .expect("serializing a pair of strings to JSON cannot fail")
+}
+
+#[must_use]
+pub fn parse_canonical_track_entity_id(entity_id: &str) -> Option<(String, String)> {
+    serde_json::from_str::<(String, String)>(entity_id).ok()
 }
 
 // ── Helper: current unix timestamp ──────────────────────────────────────────
@@ -478,6 +496,35 @@ pub fn get_payment_routes_for_track(
     Ok(result)
 }
 
+pub fn get_payment_routes_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Vec<PaymentRoute>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, track_guid, feed_guid, recipient_name, route_type, address, \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+         FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, track_guid], |row| {
+        let rt_str: String = row.get(4)?;
+        let fee_i: i64 = row.get(9)?;
+        Ok(PaymentRoute {
+            id: row.get(0)?,
+            track_guid: row.get(1)?,
+            feed_guid: row.get(2)?,
+            recipient_name: row.get(3)?,
+            route_type: route_type_from_db(&rt_str, "payment_routes"),
+            address: row.get(5)?,
+            custom_key: row.get(6)?,
+            custom_value: row.get(7)?,
+            split: row.get(8)?,
+            fee: fee_i != 0,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
 // ── get_value_time_splits_for_track ──────────────────────────────────────────
 // Issue-12 PATCH emits events — 2026-03-13
 
@@ -491,20 +538,21 @@ pub fn get_value_time_splits_for_track(
     track_guid: &str,
 ) -> Result<Vec<ValueTimeSplit>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
+        "SELECT id, source_feed_guid, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
          remote_item_guid, split, created_at \
          FROM value_time_splits WHERE source_track_guid = ?1",
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
         Ok(ValueTimeSplit {
             id: row.get(0)?,
-            source_track_guid: row.get(1)?,
-            start_time_secs: row.get(2)?,
-            duration_secs: row.get(3)?,
-            remote_feed_guid: row.get(4)?,
-            remote_item_guid: row.get(5)?,
-            split: row.get(6)?,
-            created_at: row.get(7)?,
+            source_feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            source_track_guid: row.get(2)?,
+            start_time_secs: row.get(3)?,
+            duration_secs: row.get(4)?,
+            remote_feed_guid: row.get(5)?,
+            remote_item_guid: row.get(6)?,
+            split: row.get(7)?,
+            created_at: row.get(8)?,
         })
     })?;
     let mut result = Vec::new();
@@ -512,6 +560,33 @@ pub fn get_value_time_splits_for_track(
         result.push(row?);
     }
     Ok(result)
+}
+
+pub fn get_value_time_splits_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Vec<ValueTimeSplit>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_feed_guid, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
+         remote_item_guid, split, created_at \
+         FROM value_time_splits \
+         WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, track_guid], |row| {
+        Ok(ValueTimeSplit {
+            id: row.get(0)?,
+            source_feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            source_track_guid: row.get(2)?,
+            start_time_secs: row.get(3)?,
+            duration_secs: row.get(4)?,
+            remote_feed_guid: row.get(5)?,
+            remote_item_guid: row.get(6)?,
+            split: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
 // ── add_artist_alias ──────────────────────────────────────────────────────────
@@ -1102,7 +1177,7 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
 
 // ── upsert_track ──────────────────────────────────────────────────────────────
 
-/// Inserts or updates a track row keyed on `track_guid`.
+/// Inserts or updates a track row keyed on `(feed_guid, track_guid)`.
 ///
 /// # Errors
 ///
@@ -1113,8 +1188,7 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
          explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
-         ON CONFLICT(track_guid) DO UPDATE SET \
-           feed_guid        = excluded.feed_guid, \
+         ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
            artist_credit_id = excluded.artist_credit_id, \
            title            = excluded.title, \
            title_lower      = excluded.title_lower, \
@@ -1210,7 +1284,7 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
             crate::search::populate_search_index(
                 conn,
                 "track",
-                &track.track_guid,
+                &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                 track.track_artist.as_deref().unwrap_or(""),
                 &track.title,
                 track.description.as_deref().unwrap_or(""),
@@ -1220,15 +1294,24 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
             crate::search::delete_from_search_index(
                 conn,
                 "track",
-                &track.track_guid,
+                &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                 track.track_artist.as_deref().unwrap_or(""),
                 &track.title,
                 track.description.as_deref().unwrap_or(""),
                 "",
             )?;
         }
-        let track_score = crate::quality::compute_track_quality(conn, &track.track_guid)?;
-        crate::quality::store_quality(conn, "track", &track.track_guid, track_score)?;
+        let track_score = crate::quality::compute_track_quality_for_feed_track(
+            conn,
+            &track.feed_guid,
+            &track.track_guid,
+        )?;
+        crate::quality::store_quality(
+            conn,
+            "track",
+            &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
+            track_score,
+        )?;
     }
 
     Ok(())
@@ -1260,6 +1343,39 @@ pub fn replace_payment_routes(
             params![
                 r.track_guid,
                 r.feed_guid,
+                r.recipient_name,
+                route_type,
+                r.address,
+                r.custom_key.as_deref().unwrap_or(""),
+                r.custom_value.as_deref().unwrap_or(""),
+                r.split,
+                i64::from(r.fee),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn replace_payment_routes_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+    routes: &[PaymentRoute],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
+        params![feed_guid, track_guid],
+    )?;
+    for r in routes {
+        let route_type = serde_json::to_string(&r.route_type)?;
+        let route_type = route_type.trim_matches('"');
+        conn.execute(
+            "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
+             custom_key, custom_value, split, fee) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                track_guid,
+                feed_guid,
                 r.recipient_name,
                 route_type,
                 r.address,
@@ -1334,6 +1450,40 @@ pub fn replace_value_time_splits(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 s.source_track_guid,
+                s.start_time_secs,
+                s.duration_secs,
+                s.remote_feed_guid,
+                s.remote_item_guid,
+                s.split,
+                s.created_at,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn replace_value_time_splits_for_feed_track(
+    conn: &Connection,
+    source_feed_guid: &str,
+    source_track_guid: &str,
+    splits: &[ValueTimeSplit],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
+        params![source_feed_guid, source_track_guid],
+    )?;
+    for s in splits {
+        conn.execute(
+            "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, start_time_secs, duration_secs, \
+             remote_feed_guid, remote_item_guid, split, created_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![
+                if s.source_feed_guid.is_empty() {
+                    source_feed_guid
+                } else {
+                    s.source_feed_guid.as_str()
+                },
+                source_track_guid,
                 s.start_time_secs,
                 s.duration_secs,
                 s.remote_feed_guid,
@@ -1432,18 +1582,19 @@ pub fn get_track_remote_items_for_track(
     track_guid: &str,
 ) -> Result<Vec<TrackRemoteItemRaw>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
          FROM track_remote_items_raw WHERE track_guid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
         Ok(TrackRemoteItemRaw {
             id: row.get(0)?,
-            track_guid: row.get(1)?,
-            position: row.get(2)?,
-            medium: row.get(3)?,
-            remote_feed_guid: row.get(4)?,
-            remote_feed_url: row.get(5)?,
-            source: row.get(6)?,
+            feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            track_guid: row.get(2)?,
+            position: row.get(3)?,
+            medium: row.get(4)?,
+            remote_feed_guid: row.get(5)?,
+            remote_feed_url: row.get(6)?,
+            source: row.get(7)?,
         })
     })?;
 
@@ -1452,6 +1603,32 @@ pub fn get_track_remote_items_for_track(
         items.push(row?);
     }
     Ok(items)
+}
+
+pub fn get_track_remote_items_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Vec<TrackRemoteItemRaw>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+         FROM track_remote_items_raw \
+         WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL) \
+         ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, track_guid], |row| {
+        Ok(TrackRemoteItemRaw {
+            id: row.get(0)?,
+            feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            track_guid: row.get(2)?,
+            position: row.get(3)?,
+            medium: row.get(4)?,
+            remote_feed_guid: row.get(5)?,
+            remote_feed_url: row.get(6)?,
+            source: row.get(7)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
 /// Replaces the raw feed-level `podcast:remoteItem` refs for a feed.
@@ -1498,6 +1675,39 @@ pub fn replace_track_remote_items_raw(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 &item.track_guid,
+                item.position,
+                &item.medium,
+                &item.remote_feed_guid,
+                &item.remote_feed_url,
+                &item.source,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+pub fn replace_track_remote_items_raw_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+    remote_items: &[TrackRemoteItemRaw],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL)",
+        params![feed_guid, track_guid],
+    )?;
+    for item in remote_items {
+        conn.execute(
+            "INSERT INTO track_remote_items_raw \
+             (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                if item.feed_guid.is_empty() {
+                    feed_guid
+                } else {
+                    item.feed_guid.as_str()
+                },
+                track_guid,
                 item.position,
                 &item.medium,
                 &item.remote_feed_guid,
@@ -2201,10 +2411,23 @@ pub fn replace_source_platform_claims_for_feed(
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if any SQL delete fails.
+/// Returns [`DbError`] if any SQL delete fails or the raw `track_guid` is
+/// ambiguous across feeds.
 pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbError> {
+    let Some(track) = get_track_by_guid(conn, track_guid)? else {
+        return Ok(());
+    };
+    delete_track_for_feed(conn, &track.feed_guid, &track.track_guid)
+}
+
+/// Idempotent: calling with a non-existent `(feed_guid, track_guid)` pair is a no-op.
+pub fn delete_track_for_feed(
+    conn: &mut Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<(), DbError> {
     let sp = conn.savepoint()?;
-    delete_track_sql(&sp, track_guid)?;
+    delete_track_sql(&sp, feed_guid, track_guid)?;
     sp.commit()?;
     Ok(())
 }
@@ -2212,22 +2435,30 @@ pub fn delete_track(conn: &mut Connection, track_guid: &str) -> Result<(), DbErr
 /// Inner implementation of track cascade-delete: executes all SQL deletes on
 /// the provided connection without managing its own transaction.  Callers
 /// must ensure they are already inside a transaction or savepoint.
-pub(crate) fn delete_track_sql(conn: &Connection, track_guid: &str) -> Result<(), DbError> {
+pub(crate) fn delete_track_sql(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<(), DbError> {
     conn.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
+        params![feed_guid, track_guid],
     )?;
     conn.execute(
-        "DELETE FROM payment_routes WHERE track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
+        params![feed_guid, track_guid],
     )?;
     conn.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-        params![track_guid],
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN (?1, ?2)",
+        params![canonical_track_entity_id(feed_guid, track_guid), track_guid],
     )?;
     conn.execute(
-        "DELETE FROM tracks WHERE track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL)",
+        params![feed_guid, track_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+        params![feed_guid, track_guid],
     )?;
     Ok(())
 }
@@ -2259,32 +2490,49 @@ pub fn delete_feed(conn: &mut Connection, feed_guid: &str) -> Result<(), DbError
 /// must ensure they are already inside a transaction or savepoint.
 // DB performance compliant (subqueries) — 2026-03-12
 pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
-    // 1. value_time_splits for all tracks (subquery)
+    let mut stmt =
+        conn.prepare("SELECT track_guid FROM tracks WHERE feed_guid = ?1 ORDER BY track_guid ASC")?;
+    let track_guids = stmt
+        .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+
     conn.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        "DELETE FROM value_time_splits WHERE source_feed_guid = ?1",
         params![feed_guid],
     )?;
+    for track_guid in &track_guids {
+        conn.execute(
+            "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND source_feed_guid IS NULL",
+            params![feed_guid, track_guid],
+        )?;
+    }
 
-    // 2. payment_routes for all tracks (subquery)
     conn.execute(
-        "DELETE FROM payment_routes WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
+        "DELETE FROM payment_routes WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
+    conn.execute(
+        "DELETE FROM track_remote_items_raw WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for track_guid in &track_guids {
+        conn.execute(
+            "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND feed_guid IS NULL",
+            params![feed_guid, track_guid],
+        )?;
+    }
 
-    // 5. feed_payment_routes
     conn.execute(
         "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
-    // 6. entity_quality for all tracks (subquery) and the feed
-    conn.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
+    for track_guid in &track_guids {
+        conn.execute(
+            "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN (?1, ?2)",
+            params![canonical_track_entity_id(feed_guid, track_guid), track_guid],
+        )?;
+    }
     conn.execute(
         "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
         params![feed_guid],
@@ -2300,8 +2548,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 9. Feed-scoped relationships
-    // 10. Feed-scoped staged/source rows
     conn.execute(
         "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
         params![feed_guid],
@@ -2343,13 +2589,11 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 11. tracks
     conn.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
-    // 12. feeds
     conn.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
 
     Ok(())
@@ -2384,85 +2628,7 @@ pub fn delete_feed_with_event(
     warnings: &[String],
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
-
-    tx.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM payment_routes WHERE track_guid IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM feed_payment_routes WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN \
-         (SELECT track_guid FROM tracks WHERE feed_guid = ?1)",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'feed' AND entity_id = ?1",
-        params![feed_guid],
-    )?;
-    // proof_tokens & proof_challenges (SG-07)
-    tx.execute(
-        "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM proof_challenges WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-
-    tx.execute(
-        "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM live_events WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM live_events_legacy WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_entity_ids WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_entity_links WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_release_claims WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_item_enclosures WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_item_transcripts WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM source_platform_claims WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM tracks WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    tx.execute("DELETE FROM feeds WHERE feed_guid = ?1", params![feed_guid])?;
+    delete_feed_sql(&tx, feed_guid)?;
 
     let et_str = event_type_str(&crate::event::EventType::FeedRetired)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -2505,6 +2671,7 @@ pub fn delete_feed_with_event(
 )]
 pub fn delete_track_with_event(
     conn: &mut Connection,
+    feed_guid: &str,
     track_guid: &str,
     event_id: &str,
     payload_json: &str,
@@ -2516,20 +2683,24 @@ pub fn delete_track_with_event(
     let tx = conn.transaction()?;
 
     tx.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
+        params![feed_guid, track_guid],
     )?;
     tx.execute(
-        "DELETE FROM payment_routes WHERE track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
+        params![feed_guid, track_guid],
     )?;
     tx.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id = ?1",
-        params![track_guid],
+        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN (?1, ?2)",
+        params![canonical_track_entity_id(feed_guid, track_guid), track_guid],
     )?;
     tx.execute(
-        "DELETE FROM tracks WHERE track_guid = ?1",
-        params![track_guid],
+        "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL)",
+        params![feed_guid, track_guid],
+    )?;
+    tx.execute(
+        "DELETE FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+        params![feed_guid, track_guid],
     )?;
 
     let et_str = event_type_str(&crate::event::EventType::TrackRemoved)?;
@@ -2717,15 +2888,83 @@ pub fn list_all_feed_guids(conn: &Connection) -> Result<Vec<String>, DbError> {
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if the SQL query fails.
+/// Returns [`DbError`] if the SQL query fails or the raw `track_guid` is
+/// ambiguous across feeds.
 pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<Track>, DbError> {
+    let tracks = get_tracks_by_guid(conn, track_guid)?;
+    match tracks.as_slice() {
+        [] => Ok(None),
+        [track] => Ok(Some(track.clone())),
+        _ => Err(DbError::Other(format!(
+            "track_guid {track_guid} is ambiguous; resolve with feed scope"
+        ))),
+    }
+}
+
+/// Returns all track rows matching the given source `track_guid`.
+///
+/// Today this usually returns at most one row, but callers that expose the
+/// flat `/v1/tracks/{guid}` compatibility route use this helper so they can
+/// detect and report future cross-feed collisions safely.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_tracks_by_guid(conn: &Connection, track_guid: &str) -> Result<Vec<Track>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
+         season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
+         FROM tracks WHERE track_guid = ?1 ORDER BY feed_guid ASC",
+    )?;
+
+    let rows = stmt.query_map(params![track_guid], |row| {
+        let explicit_i: i64 = row.get(15)?;
+        Ok(Track {
+            track_guid: row.get(0)?,
+            feed_guid: row.get(1)?,
+            artist_credit_id: row.get(2)?,
+            title: row.get(3)?,
+            title_lower: row.get(4)?,
+            pub_date: row.get(5)?,
+            duration_secs: row.get(6)?,
+            image_url: row.get(7)?,
+            publisher: row.get(8)?,
+            language: row.get(9)?,
+            enclosure_url: row.get(10)?,
+            enclosure_type: row.get(11)?,
+            enclosure_bytes: row.get(12)?,
+            track_number: row.get(13)?,
+            season: row.get(14)?,
+            explicit: explicit_i != 0,
+            description: row.get(16)?,
+            track_artist: row.get(17)?,
+            track_artist_sort: row.get(18)?,
+            created_at: row.get(19)?,
+            updated_at: row.get(20)?,
+        })
+    })?;
+
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
+/// Looks up a track by the canonical `(feed_guid, track_guid)` pair.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn get_track_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Option<Track>, DbError> {
     let result = conn
         .query_row(
             "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
-         FROM tracks WHERE track_guid = ?1",
-            params![track_guid],
+         FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+            params![feed_guid, track_guid],
             |row| {
                 let explicit_i: i64 = row.get(15)?;
                 Ok(Track {
@@ -3497,7 +3736,8 @@ fn build_changed_events(
             }
         } else {
             // Track fields didn't change, but check if remote items changed
-            let existing_remote_items = get_track_remote_items_for_track(conn, &track.track_guid)?;
+            let existing_remote_items =
+                get_track_remote_items_for_feed_track(conn, &track.feed_guid, &track.track_guid)?;
             if !track_remote_items.is_empty()
                 && track_remote_items_changed(&existing_remote_items, track_remote_items)
             {
@@ -3629,6 +3869,7 @@ fn build_track_remote_items_event(
 ) -> Result<EventRow, DbError> {
     let payload = crate::event::TrackRemoteItemsReplacedPayload {
         track_guid: track.track_guid.clone(),
+        feed_guid: Some(track.feed_guid.clone()),
         remote_items: remote_items.to_vec(),
     };
     let payload_json = serde_json::to_string(&payload)?;
@@ -4751,8 +4992,7 @@ pub fn ingest_transaction(
              duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
              explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
-             ON CONFLICT(track_guid) DO UPDATE SET \
-               feed_guid        = excluded.feed_guid, \
+             ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
                artist_credit_id = excluded.artist_credit_id, \
                title            = excluded.title, \
                title_lower      = excluded.title_lower, \
@@ -4798,8 +5038,8 @@ pub fn ingest_transaction(
 
         // replace payment routes
         tx.execute(
-            "DELETE FROM payment_routes WHERE track_guid = ?1",
-            params![track.track_guid],
+            "DELETE FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
+            params![track.feed_guid, track.track_guid],
         )?;
         for r in routes {
             let route_type = serde_json::to_string(&r.route_type)?;
@@ -4809,8 +5049,8 @@ pub fn ingest_transaction(
                  custom_key, custom_value, split, fee) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                 params![
-                    r.track_guid,
-                    r.feed_guid,
+                    &track.track_guid,
+                    &track.feed_guid,
                     r.recipient_name,
                     route_type,
                     r.address,
@@ -4824,16 +5064,21 @@ pub fn ingest_transaction(
 
         // replace value time splits
         tx.execute(
-            "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
-            params![track.track_guid],
+            "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
+            params![track.feed_guid, track.track_guid],
         )?;
         for s in splits {
             tx.execute(
-                "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, \
+                "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, start_time_secs, duration_secs, \
                  remote_feed_guid, remote_item_guid, split, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
-                    s.source_track_guid,
+                    if s.source_feed_guid.is_empty() {
+                        track.feed_guid.as_str()
+                    } else {
+                        s.source_feed_guid.as_str()
+                    },
+                    &track.track_guid,
                     s.start_time_secs,
                     s.duration_secs,
                     s.remote_feed_guid,
@@ -4846,16 +5091,21 @@ pub fn ingest_transaction(
 
         // replace track remote items
         tx.execute(
-            "DELETE FROM track_remote_items_raw WHERE track_guid = ?1",
-            params![track.track_guid],
+            "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL)",
+            params![track.feed_guid, track.track_guid],
         )?;
         for item in remote_items {
             tx.execute(
                 "INSERT INTO track_remote_items_raw \
-                 (track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                 (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                 params![
-                    &item.track_guid,
+                    if item.feed_guid.is_empty() {
+                        track.feed_guid.as_str()
+                    } else {
+                        item.feed_guid.as_str()
+                    },
+                    &track.track_guid,
                     item.position,
                     &item.medium,
                     &item.remote_feed_guid,
@@ -4878,20 +5128,20 @@ pub fn ingest_transaction(
             continue;
         }
         // Look up the track to get search-index fields before deleting.
-        let track_opt = get_track_by_guid(&tx, removed_guid)?;
+        let track_opt = get_track_for_feed(&tx, &feed.feed_guid, removed_guid)?;
         if let Some(track) = track_opt {
             // Remove the track's search index entry (best-effort).
             let _ = crate::search::delete_from_search_index(
                 &tx,
                 "track",
-                &track.track_guid,
+                &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                 "",
                 &track.title,
                 track.description.as_deref().unwrap_or(""),
                 "",
             );
             // Cascade-delete the track and its child rows.
-            delete_track_sql(&tx, removed_guid)?;
+            delete_track_sql(&tx, &feed.feed_guid, removed_guid)?;
         }
         // Build a TrackRemoved event row.
         let payload = crate::event::TrackRemovedPayload {
@@ -5138,40 +5388,7 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
 
 /// Returns a source track by GUID, or `None` if it does not exist.
 pub fn get_track(conn: &Connection, track_guid: &str) -> Result<Option<Track>, DbError> {
-    conn.query_row(
-        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
-         duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
-         season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
-         FROM tracks WHERE track_guid = ?1",
-        params![track_guid],
-        |row| {
-            Ok(Track {
-                track_guid: row.get(0)?,
-                feed_guid: row.get(1)?,
-                artist_credit_id: row.get(2)?,
-                title: row.get(3)?,
-                title_lower: row.get(4)?,
-                pub_date: row.get(5)?,
-                duration_secs: row.get(6)?,
-                image_url: row.get(7)?,
-                publisher: row.get(8)?,
-                language: row.get(9)?,
-                enclosure_url: row.get(10)?,
-                enclosure_type: row.get(11)?,
-                enclosure_bytes: row.get(12)?,
-                track_number: row.get(13)?,
-                season: row.get(14)?,
-                explicit: row.get::<_, i64>(15)? != 0,
-                description: row.get(16)?,
-                track_artist: row.get(17)?,
-                track_artist_sort: row.get(18)?,
-                created_at: row.get(19)?,
-                updated_at: row.get(20)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(Into::into)
+    get_track_by_guid(conn, track_guid)
 }
 
 /// Returns staged contributor claims for one entity.
@@ -5217,12 +5434,47 @@ pub fn get_effective_source_contributor_claims_for_track(
     feed_guid: &str,
     track_guid: &str,
 ) -> Result<Vec<SourceContributorClaim>, DbError> {
-    let track_claims = get_source_contributor_claims_for_entity(conn, "track", track_guid)?;
+    let track_claims =
+        get_source_contributor_claims_for_feed_entity(conn, feed_guid, "track", track_guid)?;
     if track_claims.is_empty() {
-        get_source_contributor_claims_for_entity(conn, "feed", feed_guid)
+        get_source_contributor_claims_for_feed_entity(conn, feed_guid, "feed", feed_guid)
     } else {
         Ok(track_claims)
     }
+}
+
+pub fn get_source_contributor_claims_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceContributorClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, \
+         group_name, href, img, source, extraction_path, observed_at \
+         FROM source_contributor_claims \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY position, name, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceContributorClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            name: row.get(5)?,
+            role: row.get(6)?,
+            role_norm: row.get(7)?,
+            group_name: row.get(8)?,
+            href: row.get(9)?,
+            img: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
 /// Returns staged entity-ID claims for one entity.
@@ -5259,6 +5511,36 @@ pub fn get_source_entity_ids_for_entity(
     Ok(result)
 }
 
+pub fn get_source_entity_ids_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceEntityIdClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, scheme, value, source, \
+         extraction_path, observed_at \
+         FROM source_entity_ids \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY position, scheme, value, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceEntityIdClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            scheme: row.get(5)?,
+            value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
 /// Returns staged link claims for one entity.
 pub fn get_source_entity_links_for_entity(
     conn: &Connection,
@@ -5293,6 +5575,36 @@ pub fn get_source_entity_links_for_entity(
     Ok(result)
 }
 
+pub fn get_source_entity_links_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceEntityLink>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
+         extraction_path, observed_at \
+         FROM source_entity_links \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY position, link_type, url, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceEntityLink {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            link_type: row.get(5)?,
+            url: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
 /// Returns staged release claims for one entity.
 pub fn get_source_release_claims_for_entity(
     conn: &Connection,
@@ -5325,6 +5637,36 @@ pub fn get_source_release_claims_for_entity(
         result.push(row?);
     }
     Ok(result)
+}
+
+pub fn get_source_release_claims_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceReleaseClaim>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, claim_type, claim_value, \
+         source, extraction_path, observed_at \
+         FROM source_release_claims \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY claim_type, position, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceReleaseClaim {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            claim_type: row.get(5)?,
+            claim_value: row.get(6)?,
+            source: row.get(7)?,
+            extraction_path: row.get(8)?,
+            observed_at: row.get(9)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
 /// Returns staged enclosure variants for one entity.
@@ -5365,6 +5707,40 @@ pub fn get_source_item_enclosures_for_entity(
     Ok(result)
 }
 
+pub fn get_source_item_enclosures_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceItemEnclosure>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, bytes, rel, \
+         title, is_primary, source, extraction_path, observed_at \
+         FROM source_item_enclosures \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY position, url, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceItemEnclosure {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            bytes: row.get(7)?,
+            rel: row.get(8)?,
+            title: row.get(9)?,
+            is_primary: row.get(10)?,
+            source: row.get(11)?,
+            extraction_path: row.get(12)?,
+            observed_at: row.get(13)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
 pub fn get_source_item_transcripts_for_entity(
     conn: &Connection,
     entity_type: &str,
@@ -5398,4 +5774,36 @@ pub fn get_source_item_transcripts_for_entity(
         result.push(row?);
     }
     Ok(result)
+}
+
+pub fn get_source_item_transcripts_for_feed_entity(
+    conn: &Connection,
+    feed_guid: &str,
+    entity_type: &str,
+    entity_id: &str,
+) -> Result<Vec<SourceItemTranscript>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, entity_type, entity_id, position, url, mime_type, language, rel, \
+         source, extraction_path, observed_at \
+         FROM source_item_transcripts \
+         WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
+         ORDER BY position, url, id",
+    )?;
+    let rows = stmt.query_map(params![feed_guid, entity_type, entity_id], |row| {
+        Ok(SourceItemTranscript {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            entity_type: row.get(2)?,
+            entity_id: row.get(3)?,
+            position: row.get(4)?,
+            url: row.get(5)?,
+            mime_type: row.get(6)?,
+            language: row.get(7)?,
+            rel: row.get(8)?,
+            source: row.get(9)?,
+            extraction_path: row.get(10)?,
+            observed_at: row.get(11)?,
+        })
+    })?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }

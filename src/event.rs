@@ -193,6 +193,8 @@ pub struct ArtistUpsertedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RoutesReplacedPayload {
     pub track_guid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_guid: Option<String>,
     pub routes: Vec<PaymentRoute>,
 }
 
@@ -220,6 +222,8 @@ pub struct FeedRemoteItemsReplacedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrackRemoteItemsReplacedPayload {
     pub track_guid: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub feed_guid: Option<String>,
     pub remote_items: Vec<TrackRemoteItemRaw>,
 }
 

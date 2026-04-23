@@ -105,15 +105,34 @@ fn apply_single_event_inner(
         }
         event::EventPayload::TrackUpserted(p) => {
             db::upsert_track(conn, &p.track)?;
-            db::replace_payment_routes(conn, &p.track.track_guid, &p.routes)?;
-            db::replace_value_time_splits(conn, &p.track.track_guid, &p.value_time_splits)?;
+            db::replace_payment_routes_for_feed_track(
+                conn,
+                &p.track.feed_guid,
+                &p.track.track_guid,
+                &p.routes,
+            )?;
+            db::replace_value_time_splits_for_feed_track(
+                conn,
+                &p.track.feed_guid,
+                &p.track.track_guid,
+                &p.value_time_splits,
+            )?;
             // Rebuild search index and quality scores for the feed containing this track.
             // Replicas must populate read models immediately on event apply, just like
             // the primary node does at ingest time (see ingest_transaction).
             db::sync_source_read_models_for_feed(conn, &p.track.feed_guid)?;
         }
         event::EventPayload::RoutesReplaced(p) => {
-            db::replace_payment_routes(conn, &p.track_guid, &p.routes)?;
+            if let Some(feed_guid) = p.feed_guid.as_deref() {
+                db::replace_payment_routes_for_feed_track(
+                    conn,
+                    feed_guid,
+                    &p.track_guid,
+                    &p.routes,
+                )?;
+            } else {
+                db::replace_payment_routes(conn, &p.track_guid, &p.routes)?;
+            }
         }
         event::EventPayload::ArtistCreditCreated(p) => {
             upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
@@ -125,7 +144,16 @@ fn apply_single_event_inner(
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
         }
         event::EventPayload::TrackRemoteItemsReplaced(p) => {
-            db::replace_track_remote_items_raw(conn, &p.track_guid, &p.remote_items)?;
+            if let Some(feed_guid) = p.feed_guid.as_deref() {
+                db::replace_track_remote_items_raw_for_feed_track(
+                    conn,
+                    feed_guid,
+                    &p.track_guid,
+                    &p.remote_items,
+                )?;
+            } else {
+                db::replace_track_remote_items_raw(conn, &p.track_guid, &p.remote_items)?;
+            }
         }
         event::EventPayload::LiveEventsReplaced(p) => {
             db::replace_live_events_for_feed(conn, &p.feed_guid, &p.live_events)?;
@@ -161,7 +189,7 @@ fn apply_single_event_inner(
                     let _ = crate::search::delete_from_search_index(
                         conn,
                         "track",
-                        &track.track_guid,
+                        &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                         "",
                         &track.title,
                         track.description.as_deref().unwrap_or(""),
@@ -185,13 +213,13 @@ fn apply_single_event_inner(
         }
         event::EventPayload::TrackRemoved(p) => {
             // Look up the track to get search-index fields. If already gone, no-op.
-            let track_opt = db::get_track_by_guid(conn, &p.track_guid)?;
+            let track_opt = db::get_track_for_feed(conn, &p.feed_guid, &p.track_guid)?;
             if let Some(track) = track_opt {
                 // Remove the track's search index entry.
                 let _ = crate::search::delete_from_search_index(
                     conn,
                     "track",
-                    &track.track_guid,
+                    &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
                     "",
                     &track.title,
                     track.description.as_deref().unwrap_or(""),
@@ -199,7 +227,7 @@ fn apply_single_event_inner(
                 ); // best-effort
                 // Cascade-delete the track and its child rows (using inner
                 // _sql variant that works on &Connection within our tx).
-                db::delete_track_sql(conn, &p.track_guid)?;
+                db::delete_track_sql(conn, &p.feed_guid, &p.track_guid)?;
             }
         }
     }

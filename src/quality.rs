@@ -7,7 +7,7 @@
 
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::db::DbError;
+use crate::db::{self, DbError};
 
 // SP-05 epoch guard — 2026-03-12
 /// Returns the current unix timestamp in seconds.
@@ -250,15 +250,19 @@ struct TrackFields {
 /// # Errors
 ///
 /// Returns [`DbError`] if any SQL query fails.
-pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64, DbError> {
+pub fn compute_track_quality_for_feed_track(
+    conn: &Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<i64, DbError> {
     let mut score: i64 = 0;
 
     let row: Option<TrackFields> = conn
         .query_row(
             "SELECT title, enclosure_url, enclosure_type, duration_secs, pub_date, \
                 description, track_number, season, artist_credit_id \
-         FROM tracks WHERE track_guid = ?1",
-            params![track_guid],
+         FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+            params![feed_guid, track_guid],
             |row| {
                 Ok(TrackFields {
                     title: row.get(0)?,
@@ -307,8 +311,8 @@ pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64,
 
     // Has payment routes?
     let has_routes: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM payment_routes WHERE track_guid = ?1)",
-        params![track_guid],
+        "SELECT EXISTS(SELECT 1 FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2)",
+        params![feed_guid, track_guid],
         |row| row.get(0),
     )?;
     if has_routes {
@@ -317,8 +321,11 @@ pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64,
 
     // Has value time splits?
     let has_vts: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM value_time_splits WHERE source_track_guid = ?1)",
-        params![track_guid],
+        "SELECT EXISTS( \
+             SELECT 1 FROM value_time_splits \
+             WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL) \
+         )",
+        params![feed_guid, track_guid],
         |row| row.get(0),
     )?;
     if has_vts {
@@ -326,6 +333,23 @@ pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64,
     }
 
     Ok(score)
+}
+
+/// Compatibility wrapper that resolves a raw `track_guid` when it is unique.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the lookup fails or the raw `track_guid` is
+/// ambiguous across feeds.
+pub fn compute_track_quality(conn: &Connection, track_guid: &str) -> Result<i64, DbError> {
+    let tracks = db::get_tracks_by_guid(conn, track_guid)?;
+    match tracks.as_slice() {
+        [] => Ok(0),
+        [track] => compute_track_quality_for_feed_track(conn, &track.feed_guid, &track.track_guid),
+        _ => Err(DbError::Other(format!(
+            "track_guid {track_guid} is ambiguous; compute quality with feed scope"
+        ))),
+    }
 }
 
 /// Upserts a quality score into the `entity_quality` table.

@@ -157,6 +157,8 @@ pub struct FeedPaymentRoute {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueTimeSplit {
     pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub source_feed_guid: String,
     /// GUID of the track whose playback triggers this split.
     pub source_track_guid: String,
     pub start_time_secs: i64,
@@ -181,6 +183,8 @@ pub struct FeedRemoteItemRaw {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TrackRemoteItemRaw {
     pub id: Option<i64>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub feed_guid: String,
     pub track_guid: String,
     pub position: i64,
     pub medium: Option<String>,

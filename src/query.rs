@@ -20,10 +20,10 @@ use axum::{
     Json,
     extract::{Path, Query, State},
     http::StatusCode,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
 };
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
 use crate::{api, db};
@@ -303,6 +303,18 @@ struct PublisherDetailResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct SearchResponseItem {
+    entity_type: String,
+    entity_id: String,
+    rank: f64,
+    quality_score: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    feed_guid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    href: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 struct ArtistTrackItem {
     track_guid: String,
     feed_guid: String,
@@ -481,6 +493,69 @@ struct TrackRow {
     updated_at: i64,
     feed_title: String,
     release_artist: Option<String>,
+}
+
+fn parse_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
+    Ok(TrackRow {
+        track_guid: row.get(0)?,
+        feed_guid: row.get(1)?,
+        title: row.get(2)?,
+        publisher_text: row.get(3)?,
+        track_artist: row.get(4)?,
+        track_artist_sort: row.get(5)?,
+        pub_date: row.get(6)?,
+        duration_secs: row.get(7)?,
+        image_url: row.get(8)?,
+        language: row.get(9)?,
+        enclosure_url: row.get(10)?,
+        enclosure_type: row.get(11)?,
+        enclosure_bytes: row.get(12)?,
+        track_number: row.get(13)?,
+        explicit_int: row.get(15)?,
+        description: row.get(16)?,
+        created_at: row.get(17)?,
+        updated_at: row.get(18)?,
+        feed_title: row.get(19)?,
+        release_artist: row.get(20)?,
+    })
+}
+
+fn get_track_rows_by_guid(
+    conn: &rusqlite::Connection,
+    track_guid: &str,
+) -> Result<Vec<TrackRow>, api::ApiError> {
+    let mut stmt = conn.prepare(
+        "SELECT t.track_guid, t.feed_guid, t.title, t.publisher, t.track_artist, t.track_artist_sort, \
+         t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
+         t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
+         t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
+         f.release_artist \
+         FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+         WHERE t.track_guid = ?1 ORDER BY t.feed_guid ASC",
+    )?;
+
+    let rows = stmt.query_map(params![track_guid], parse_track_row)?;
+    rows.collect::<Result<_, _>>().map_err(api::ApiError::from)
+}
+
+fn get_track_row_for_feed(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    track_guid: &str,
+) -> Result<Option<TrackRow>, api::ApiError> {
+    conn.query_row(
+        "SELECT t.track_guid, t.feed_guid, t.title, t.publisher, t.track_artist, t.track_artist_sort, \
+         t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
+         t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
+         t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
+         f.release_artist \
+         FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
+         WHERE t.feed_guid = ?1 AND t.track_guid = ?2",
+        params![feed_guid, track_guid],
+        parse_track_row,
+    )
+    .optional()
+    .map_err(api::ApiError::from)
 }
 
 /// Intermediate row type for feed queries to avoid complex tuple types.
@@ -728,6 +803,7 @@ fn build_track_response(
     params: &ListQuery,
 ) -> Result<TrackResponse, api::ApiError> {
     let track_guid = row.track_guid.clone();
+    let feed_guid = row.feed_guid.clone();
 
     let mut resp = TrackResponse {
         track_guid: row.track_guid,
@@ -763,23 +839,22 @@ fn build_track_response(
     };
 
     if params.includes("payment_routes") {
-        let mut stmt = conn.prepare(
-            "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
-             FROM payment_routes WHERE track_guid = ?1",
-        )?;
-        let routes: Vec<RouteResponse> = stmt
-            .query_map(params![track_guid], |row| {
-                Ok(RouteResponse {
-                    recipient_name: row.get(0)?,
-                    route_type: row.get(1)?,
-                    address: row.get(2)?,
-                    custom_key: row.get(3)?,
-                    custom_value: row.get(4)?,
-                    split: row.get(5)?,
-                    fee: row.get::<_, i64>(6)? != 0,
+        let routes: Vec<RouteResponse> =
+            db::get_payment_routes_for_feed_track(conn, &feed_guid, &track_guid)?
+                .into_iter()
+                .map(|route| RouteResponse {
+                    recipient_name: route.recipient_name,
+                    route_type: serde_json::to_string(&route.route_type)
+                        .expect("serializing RouteType cannot fail")
+                        .trim_matches('"')
+                        .to_string(),
+                    address: route.address,
+                    custom_key: route.custom_key,
+                    custom_value: route.custom_value,
+                    split: route.split,
+                    fee: route.fee,
                 })
-            })?
-            .collect::<Result<_, _>>()?;
+                .collect();
         // Feed→track inheritance: fall back to parent feed routes when the
         // track has none of its own.
         let routes = if routes.is_empty() {
@@ -807,27 +882,23 @@ fn build_track_response(
     }
 
     if params.includes("value_time_splits") {
-        let mut stmt = conn.prepare(
-            "SELECT start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split \
-             FROM value_time_splits WHERE source_track_guid = ?1",
-        )?;
-        let vts: Vec<VtsResponse> = stmt
-            .query_map(params![track_guid], |row| {
-                Ok(VtsResponse {
-                    start_time_secs: row.get(0)?,
-                    duration_secs: row.get(1)?,
-                    remote_feed_guid: row.get(2)?,
-                    remote_item_guid: row.get(3)?,
-                    split: row.get(4)?,
+        let vts: Vec<VtsResponse> =
+            db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
+                .into_iter()
+                .map(|split| VtsResponse {
+                    start_time_secs: split.start_time_secs,
+                    duration_secs: split.duration_secs,
+                    remote_feed_guid: split.remote_feed_guid,
+                    remote_item_guid: split.remote_item_guid,
+                    split: split.split,
                 })
-            })?
-            .collect::<Result<_, _>>()?;
+                .collect();
         resp.value_time_splits = Some(vts);
     }
 
     if params.includes("source_links") {
         resp.source_links = Some(
-            db::get_source_entity_links_for_entity(conn, "track", &track_guid)?
+            db::get_source_entity_links_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
                 .into_iter()
                 .map(entity_link_response)
                 .collect(),
@@ -836,7 +907,7 @@ fn build_track_response(
 
     if params.includes("source_ids") {
         resp.source_ids = Some(
-            db::get_source_entity_ids_for_entity(conn, "track", &track_guid)?
+            db::get_source_entity_ids_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
                 .into_iter()
                 .map(entity_id_response)
                 .collect(),
@@ -855,7 +926,7 @@ fn build_track_response(
 
     if params.includes("source_release_claims") {
         resp.source_release_claims = Some(
-            db::get_source_release_claims_for_entity(conn, "track", &track_guid)?
+            db::get_source_release_claims_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
                 .into_iter()
                 .map(release_claim_response)
                 .collect(),
@@ -864,7 +935,7 @@ fn build_track_response(
 
     if params.includes("source_enclosures") {
         resp.source_enclosures = Some(
-            db::get_source_item_enclosures_for_entity(conn, "track", &track_guid)?
+            db::get_source_item_enclosures_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
                 .into_iter()
                 .map(enclosure_response)
                 .collect(),
@@ -873,19 +944,24 @@ fn build_track_response(
 
     if params.includes("source_transcripts") {
         resp.source_transcripts = Some(
-            db::get_source_item_transcripts_for_entity(conn, "track", &track_guid)?
-                .into_iter()
-                .map(transcript_response)
-                .collect(),
+            db::get_source_item_transcripts_for_feed_entity(
+                conn,
+                &feed_guid,
+                "track",
+                &track_guid,
+            )?
+            .into_iter()
+            .map(transcript_response)
+            .collect(),
         );
     }
 
     if params.includes("remote_items") {
-        resp.remote_items = Some(load_track_remote_items(conn, &track_guid)?);
+        resp.remote_items = Some(load_track_remote_items(conn, &feed_guid, &track_guid)?);
     }
 
     if params.includes("publisher") {
-        resp.publisher = Some(load_track_publisher(conn, &track_guid)?);
+        resp.publisher = Some(load_track_publisher(conn, &feed_guid, &track_guid)?);
     }
 
     Ok(resp)
@@ -1078,9 +1154,10 @@ fn load_publisher(
 
 fn load_track_remote_items(
     conn: &rusqlite::Connection,
+    feed_guid: &str,
     track_guid: &str,
 ) -> Result<Vec<TrackRemoteItemResponse>, api::ApiError> {
-    let items = db::get_track_remote_items_for_track(conn, track_guid)?;
+    let items = db::get_track_remote_items_for_feed_track(conn, feed_guid, track_guid)?;
     Ok(items
         .into_iter()
         .map(|item| TrackRemoteItemResponse {
@@ -1095,12 +1172,13 @@ fn load_track_remote_items(
 
 fn load_track_publisher(
     conn: &rusqlite::Connection,
+    feed_guid: &str,
     track_guid: &str,
 ) -> Result<Vec<PublisherResponse>, api::ApiError> {
-    let Some(current_track) = db::get_track_by_guid(conn, track_guid)? else {
+    let Some(current_track) = db::get_track_for_feed(conn, feed_guid, track_guid)? else {
         return Ok(Vec::new());
     };
-    let remote_items = db::get_track_remote_items_for_track(conn, track_guid)?;
+    let remote_items = db::get_track_remote_items_for_feed_track(conn, feed_guid, track_guid)?;
     let mut rows = Vec::new();
 
     for item in remote_items {
@@ -1199,8 +1277,9 @@ async fn handle_get_track(
     State(state): State<Arc<api::AppState>>,
     Path(track_guid): Path<String>,
     Query(params): Query<ListQuery>,
-) -> Result<impl IntoResponse, api::ApiError> {
+) -> Result<Response, api::ApiError> {
     let state2 = Arc::clone(&state);
+    let track_guid2 = track_guid.clone();
     let result = tokio::task::spawn_blocking(move || {
         // Mutex safety compliant — 2026-03-12
         let conn = state2.db.reader().map_err(|e| api::ApiError {
@@ -1209,57 +1288,30 @@ async fn handle_get_track(
             www_authenticate: None,
         })?;
 
-        let row = conn
-            .query_row(
-                "SELECT t.track_guid, t.feed_guid, t.title, t.publisher, t.track_artist, t.track_artist_sort, \
-             t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
-             t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
-             t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
-             f.release_artist \
-             FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
-             WHERE t.track_guid = ?1",
-                params![track_guid],
-                |row| {
-                    Ok(TrackRow {
-                        track_guid: row.get(0)?,
-                        feed_guid: row.get(1)?,
-                        title: row.get(2)?,
-                        publisher_text: row.get(3)?,
-                        track_artist: row.get(4)?,
-                        track_artist_sort: row.get(5)?,
-                        pub_date: row.get(6)?,
-                        duration_secs: row.get(7)?,
-                        image_url: row.get(8)?,
-                        language: row.get(9)?,
-                        enclosure_url: row.get(10)?,
-                        enclosure_type: row.get(11)?,
-                        enclosure_bytes: row.get(12)?,
-                        track_number: row.get(13)?,
-                        explicit_int: row.get(15)?,
-                        description: row.get(16)?,
-                        created_at: row.get(17)?,
-                        updated_at: row.get(18)?,
-                        feed_title: row.get(19)?,
-                        release_artist: row.get(20)?,
-                    })
-                },
-            )
-            .map_err(|_err| api::ApiError {
+        let rows = get_track_rows_by_guid(&conn, &track_guid2)?;
+        match rows.len() {
+            0 => Err(api::ApiError {
                 status: StatusCode::NOT_FOUND,
                 message: "track not found".into(),
                 www_authenticate: None,
-            })?;
-
-        let resp = build_track_response(&conn, row, &params)?;
-
-        Ok::<_, api::ApiError>(QueryResponse {
-            data: resp,
-            pagination: Pagination {
-                cursor: None,
-                has_more: false,
-            },
-            meta: meta(&state2),
-        })
+            }),
+            1 => {
+                let resp = build_track_response(
+                    &conn,
+                    rows.into_iter().next().expect("one row"),
+                    &params,
+                )?;
+                Ok::<_, api::ApiError>(EitherTrackResponse::Found(Box::new(resp)))
+            }
+            _ => Ok(EitherTrackResponse::Ambiguous(
+                rows.iter()
+                    .map(|row| api::AmbiguousTrackGuidCandidate {
+                        feed_guid: row.feed_guid.clone(),
+                        href: api::canonical_track_href(&row.feed_guid, &row.track_guid),
+                    })
+                    .collect(),
+            )),
+        }
     })
     .await
     .map_err(|e| api::ApiError {
@@ -1268,7 +1320,69 @@ async fn handle_get_track(
         www_authenticate: None,
     })??;
 
-    Ok(Json(result))
+    match result {
+        EitherTrackResponse::Found(resp) => Ok(Json(QueryResponse {
+            data: *resp,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state),
+        })
+        .into_response()),
+        EitherTrackResponse::Ambiguous(candidates) => {
+            Ok(api::ambiguous_track_guid_response(&track_guid, candidates))
+        }
+    }
+}
+
+enum EitherTrackResponse {
+    Found(Box<TrackResponse>),
+    Ambiguous(Vec<api::AmbiguousTrackGuidCandidate>),
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "single paginated-detail flow with optional includes"
+)]
+async fn handle_get_feed_track(
+    State(state): State<Arc<api::AppState>>,
+    Path((feed_guid, track_guid)): Path<(String, String)>,
+    Query(params): Query<ListQuery>,
+) -> Result<Response, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let row = get_track_row_for_feed(&conn, &feed_guid, &track_guid)?.ok_or_else(|| {
+            api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("track {track_guid} not found in feed {feed_guid}"),
+                www_authenticate: None,
+            }
+        })?;
+        build_track_response(&conn, row, &params)
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(QueryResponse {
+        data: result,
+        pagination: Pagination {
+            cursor: None,
+            has_more: false,
+        },
+        meta: meta(&state),
+    })
+    .into_response())
 }
 
 // ── GET /v1/feeds/recent ────────────────────────────────────────────────────
@@ -1565,18 +1679,6 @@ async fn handle_search(
     })?;
 
     let has_more = results.len() > usize::try_from(limit).unwrap_or(0);
-    let data: Vec<serde_json::Value> = results
-        .iter()
-        .take(usize::try_from(limit).unwrap_or(0))
-        .map(|r| {
-            serde_json::json!({
-                "entity_type": r.entity_type,
-                "entity_id": r.entity_id,
-                "rank": r.rank,
-                "quality_score": r.quality_score,
-            })
-        })
-        .collect();
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Encode keyset cursor from the last result's (effective_rank, rowid).
@@ -1589,6 +1691,53 @@ async fn handle_search(
     } else {
         None
     };
+
+    let limited_results: Vec<_> = results
+        .into_iter()
+        .take(usize::try_from(limit).unwrap_or(0))
+        .collect();
+    let pool = state.db.clone();
+    let data =
+        tokio::task::spawn_blocking(move || -> Result<Vec<SearchResponseItem>, api::ApiError> {
+            let conn = pool.reader().map_err(api::ApiError::from)?;
+            limited_results
+                .into_iter()
+                .map(|r| {
+                    let (entity_id, feed_guid, href) = if r.entity_type == "track" {
+                        if let Some((feed_guid, track_guid)) =
+                            db::parse_canonical_track_entity_id(&r.entity_id)
+                        {
+                            let href = Some(api::canonical_track_href(&feed_guid, &track_guid));
+                            (track_guid, Some(feed_guid), href)
+                        } else {
+                            let track = db::get_track_by_guid(&conn, &r.entity_id)
+                                .map_err(api::ApiError::from)?;
+                            let feed_guid = track.as_ref().map(|track| track.feed_guid.clone());
+                            let href = track.as_ref().map(|track| {
+                                api::canonical_track_href(&track.feed_guid, &track.track_guid)
+                            });
+                            (r.entity_id.clone(), feed_guid, href)
+                        }
+                    } else {
+                        (r.entity_id.clone(), None, None)
+                    };
+                    Ok(SearchResponseItem {
+                        entity_type: r.entity_type,
+                        entity_id,
+                        rank: r.rank,
+                        quality_score: r.quality_score,
+                        feed_guid,
+                        href,
+                    })
+                })
+                .collect()
+        })
+        .await
+        .map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("internal task panic: {e}"),
+            www_authenticate: None,
+        })??;
 
     Ok(Json(QueryResponse {
         data,
@@ -1987,6 +2136,10 @@ use axum::routing::get;
 pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
     axum::Router::new()
         .route("/v1/feeds/{guid}", get(handle_get_feed))
+        .route(
+            "/v1/feeds/{guid}/tracks/{track_guid}",
+            get(handle_get_feed_track),
+        )
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
