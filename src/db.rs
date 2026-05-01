@@ -358,6 +358,19 @@ fn repair_track_remote_items_feed_scope(conn: &mut Connection) -> Result<(), DbE
     Ok(())
 }
 
+fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "source_contributor_claims", "npub")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE source_contributor_claims ADD COLUMN npub TEXT;")?;
+    conn.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        params![27_i64, unix_now()],
+    )?;
+    Ok(())
+}
+
 // ── open_db ──────────────────────────────────────────────────────────────────
 
 /// Opens the `SQLite` database at `path` and runs pending schema migrations.
@@ -385,6 +398,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     )?;
     run_migrations(&mut conn)?;
     ensure_feed_scoped_track_identity_schema(&mut conn)?;
+    ensure_source_contributor_npub_schema(&conn)?;
     Ok(conn)
 }
 

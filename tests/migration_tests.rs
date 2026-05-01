@@ -143,6 +143,38 @@ fn open_db_repairs_feed_scoped_track_identity_when_0032_was_skipped() {
     );
 }
 
+#[test]
+fn open_db_repairs_source_contributor_npub_when_0033_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("legacy-high-watermark-npub.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through_0032(&conn);
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (33, 1);",
+        )
+        .expect("mark high migration watermark");
+
+        assert!(
+            !table_has_column(&conn, "source_contributor_claims", "npub"),
+            "legacy fixture should start without source_contributor_claims.npub"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "source_contributor_claims", "npub"),
+        "open_db should repair skipped 0033 contributor npub schema"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // no_drop_table_in_migrations: scan every migration SQL for DROP TABLE to
 // guard against accidental data destruction.
@@ -267,12 +299,20 @@ fn table_has_composite_pk(
 }
 
 fn apply_migration_files_through_0031(conn: &rusqlite::Connection) {
+    apply_migration_files_through(conn, "0031_track_artist_lower_index.sql");
+}
+
+fn apply_migration_files_through_0032(conn: &rusqlite::Connection) {
+    apply_migration_files_through(conn, "0032_feed_scoped_track_identity.sql");
+}
+
+fn apply_migration_files_through(conn: &rusqlite::Connection, upper_file_name: &str) {
     for path in migration_paths() {
         let file_name = path
             .file_name()
             .and_then(std::ffi::OsStr::to_str)
             .expect("migration path should have UTF-8 file name");
-        if file_name <= "0031_track_artist_lower_index.sql" {
+        if file_name <= upper_file_name {
             let sql = fs::read_to_string(&path).expect("read migration SQL");
             conn.execute_batch(&sql).expect("apply migration SQL");
         }
