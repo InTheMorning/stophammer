@@ -107,6 +107,42 @@ fn migration_runs_only_once() {
     );
 }
 
+#[test]
+fn open_db_repairs_feed_scoped_track_identity_when_0032_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("legacy-high-watermark.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through_0031(&conn);
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (32, 1);",
+        )
+        .expect("mark high migration watermark");
+
+        assert!(
+            !table_has_column(&conn, "track_remote_items_raw", "feed_guid"),
+            "legacy fixture should start with pre-0032 track_remote_items_raw"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "track_remote_items_raw", "feed_guid"),
+        "open_db should repair skipped 0032 track remote item schema"
+    );
+    assert!(
+        table_has_composite_pk(&conn, "tracks", &["track_guid", "feed_guid"]),
+        "open_db should repair skipped 0032 track primary key schema"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // no_drop_table_in_migrations: scan every migration SQL for DROP TABLE to
 // guard against accidental data destruction.
@@ -193,6 +229,54 @@ fn table_names(conn: &rusqlite::Connection) -> Vec<String> {
         .expect("query tables")
         .collect::<Result<_, _>>()
         .expect("collect table names")
+}
+
+fn table_has_column(conn: &rusqlite::Connection, table_name: &str, column_name: &str) -> bool {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .expect("prepare table info");
+    stmt.query_map([], |row| row.get::<_, String>(1))
+        .expect("query table info")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect column names")
+        .iter()
+        .any(|name| name == column_name)
+}
+
+fn table_has_composite_pk(
+    conn: &rusqlite::Connection,
+    table_name: &str,
+    column_names: &[&str],
+) -> bool {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .expect("prepare table info");
+    let pk_columns = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(1)?, row.get::<_, i64>(5)?))
+        })
+        .expect("query table info")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("collect table info");
+
+    column_names.iter().all(|expected| {
+        pk_columns
+            .iter()
+            .any(|(name, pk_position)| name == expected && *pk_position > 0)
+    })
+}
+
+fn apply_migration_files_through_0031(conn: &rusqlite::Connection) {
+    for path in migration_paths() {
+        let file_name = path
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .expect("migration path should have UTF-8 file name");
+        if file_name <= "0031_track_artist_lower_index.sql" {
+            let sql = fs::read_to_string(&path).expect("read migration SQL");
+            conn.execute_batch(&sql).expect("apply migration SQL");
+        }
+    }
 }
 
 fn migration_paths() -> Vec<PathBuf> {

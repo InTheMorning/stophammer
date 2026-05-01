@@ -254,6 +254,108 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+fn table_has_column(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> Result<bool, DbError> {
+    let mut stmt = conn.prepare(&format!("PRAGMA table_info({table_name})"))?;
+    let columns = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    for column in columns {
+        if column? == column_name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn tracks_are_feed_scoped(conn: &Connection) -> Result<bool, DbError> {
+    let mut stmt = conn.prepare("PRAGMA table_info(tracks)")?;
+    let columns = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(1)?, row.get::<_, i64>(5)?))
+    })?;
+
+    let mut track_guid_is_pk = false;
+    let mut feed_guid_is_pk = false;
+    for column in columns {
+        let (name, pk_position) = column?;
+        if name == "track_guid" && pk_position > 0 {
+            track_guid_is_pk = true;
+        } else if name == "feed_guid" && pk_position > 0 {
+            feed_guid_is_pk = true;
+        }
+    }
+
+    Ok(track_guid_is_pk && feed_guid_is_pk)
+}
+
+fn ensure_feed_scoped_track_identity_schema(conn: &mut Connection) -> Result<(), DbError> {
+    let tracks_are_feed_scoped = tracks_are_feed_scoped(conn)?;
+    let remote_items_are_feed_scoped =
+        table_has_column(conn, "track_remote_items_raw", "feed_guid")?;
+
+    if tracks_are_feed_scoped && remote_items_are_feed_scoped {
+        return Ok(());
+    }
+
+    if tracks_are_feed_scoped {
+        repair_track_remote_items_feed_scope(conn)
+    } else {
+        let tx = conn.transaction()?;
+        tx.execute_batch(include_str!(
+            "../migrations/0032_feed_scoped_track_identity.sql"
+        ))?;
+        tx.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+            params![26_i64, unix_now()],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+}
+
+fn repair_track_remote_items_feed_scope(conn: &mut Connection) -> Result<(), DbError> {
+    let tx = conn.transaction()?;
+    tx.execute_batch(
+        "ALTER TABLE track_remote_items_raw RENAME TO track_remote_items_raw_legacy_feed_scope_repair;
+
+         CREATE TABLE track_remote_items_raw (
+             id               INTEGER PRIMARY KEY,
+             feed_guid        TEXT,
+             track_guid       TEXT NOT NULL,
+             position         INTEGER NOT NULL,
+             medium           TEXT,
+             remote_feed_guid TEXT NOT NULL,
+             remote_feed_url  TEXT,
+             source           TEXT NOT NULL DEFAULT 'podcast_remote_item',
+             UNIQUE(feed_guid, track_guid, position),
+             FOREIGN KEY (feed_guid, track_guid) REFERENCES tracks(feed_guid, track_guid)
+         ) STRICT;
+
+         INSERT INTO track_remote_items_raw (
+             id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source
+         )
+         SELECT
+             r.id, t.feed_guid, r.track_guid, r.position, r.medium,
+             r.remote_feed_guid, r.remote_feed_url, r.source
+         FROM track_remote_items_raw_legacy_feed_scope_repair r
+         LEFT JOIN tracks t ON t.track_guid = r.track_guid;
+
+         CREATE INDEX IF NOT EXISTS idx_track_remote_items_track_0032
+             ON track_remote_items_raw(feed_guid, track_guid);
+         CREATE INDEX IF NOT EXISTS idx_track_remote_items_guid_0032
+             ON track_remote_items_raw(remote_feed_guid);
+         CREATE INDEX IF NOT EXISTS idx_track_remote_items_track_guid_only_0032
+             ON track_remote_items_raw(track_guid);",
+    )?;
+    tx.execute(
+        "INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        params![26_i64, unix_now()],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
 // ── open_db ──────────────────────────────────────────────────────────────────
 
 /// Opens the `SQLite` database at `path` and runs pending schema migrations.
@@ -280,6 +382,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
          PRAGMA cache_size = -65536;",
     )?;
     run_migrations(&mut conn)?;
+    ensure_feed_scoped_track_identity_schema(&mut conn)?;
     Ok(conn)
 }
 
