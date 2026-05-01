@@ -97,7 +97,8 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "role": "vocals",
         "group_name": null,
         "href": "https://example.com/artist",
-        "img": null
+        "img": null,
+        "npub": "npub1..."
       }
     ],
     "entity_ids": [
@@ -618,9 +619,9 @@ Artist and contributor identity in v1 is source evidence, not a canonical
 profile graph. `release_artist`, `track_artist`, and artwork fields are stored
 display metadata on feeds and tracks. `source_ids` exposes entity-level IDs
 such as `podcast:txt purpose="npub"` with `scheme = "nostr_npub"`.
-`source_contributors` exposes `podcast:person` evidence including `href` and
-`img`. These rows are not promoted into `artists` table profile fields. For the
-full storage boundary, see
+`source_contributors` exposes `podcast:person` evidence including `href`,
+`img`, and row-scoped `npub` attributes. These rows are not promoted into
+`artists` table profile fields. For the full storage boundary, see
 [artist-source-evidence.md](schema/artist-source-evidence.md).
 
 For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
@@ -752,6 +753,7 @@ canonical feed-scoped URLs for the caller to retry.
         "group_name": null,
         "href": null,
         "img": null,
+        "npub": "npub1...",
         "source": "podcast_person",
         "extraction_path": "track.podcast:person[0]",
         "observed_at": 1710288000
@@ -819,10 +821,10 @@ Notes:
 - Stophammer does not yet expose a canonical contributor graph for tracks or
   recordings. `source_contributors` is a staged evidence layer, not a resolved
   contributor-identity model.
-- Contributor `npub` is not represented as a resolved contributor-profile
-  field. Entity-level npubs published as `podcast:txt purpose="npub"` are
-  available through `source_ids`; contributor images published as
-  `podcast:person img` are available on `source_contributors`.
+- Contributor `npub` from `podcast:person npub="..."` is available on that
+  `source_contributors` row. Entity-level npubs published as
+  `podcast:txt purpose="npub"` remain available through `source_ids`.
+  Neither form creates a resolved contributor profile.
 
 | Code | Meaning |
 |------|---------|

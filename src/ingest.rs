@@ -162,6 +162,8 @@ pub struct IngestPerson {
     pub group_name: Option<String>,
     pub href: Option<String>,
     pub img: Option<String>,
+    #[serde(default)]
+    pub npub: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

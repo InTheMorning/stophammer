@@ -2114,6 +2114,7 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
             group_name: None,
             href: None,
             img: None,
+            npub: None,
             source: "podcast_person".into(),
             extraction_path: "track.podcast:person[0]".into(),
             observed_at: now,
@@ -3549,6 +3550,7 @@ fn source_contributor_claims_replace_round_trip() {
             group_name: Some("cast".into()),
             href: Some("https://example.com/alice".into()),
             img: None,
+            npub: Some("npub1alice".into()),
             source: "podcast_person".into(),
             extraction_path: "channel/podcast:person".into(),
             observed_at: common::now(),
@@ -3565,6 +3567,7 @@ fn source_contributor_claims_replace_round_trip() {
             group_name: None,
             href: None,
             img: None,
+            npub: None,
             source: "podcast_person".into(),
             extraction_path: "item/podcast:person".into(),
             observed_at: common::now(),
@@ -3578,6 +3581,7 @@ fn source_contributor_claims_replace_round_trip() {
         .expect("get contributor claims");
     assert_eq!(stored.len(), 2);
     assert_eq!(stored[0].name, "Alice");
+    assert_eq!(stored[0].npub.as_deref(), Some("npub1alice"));
     assert_eq!(stored[1].entity_type, "track");
     assert_eq!(stored[1].role.as_deref(), Some("guitar"));
     assert_eq!(stored[1].role_norm.as_deref(), Some("guitar"));
@@ -3609,6 +3613,7 @@ fn source_contributor_claims_replace_dedupes_duplicate_unique_keys() {
         group_name: None,
         href: None,
         img: None,
+        npub: None,
         source: "podcast_person".into(),
         extraction_path: "channel/podcast:person".into(),
         observed_at: common::now(),
@@ -3927,6 +3932,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
             group_name: Some("music".into()),
             href: Some("https://example.com/artist".into()),
             img: None,
+            npub: Some("npub1claimartist".into()),
             source: "podcast_person".into(),
             extraction_path: "feed.podcast:person".into(),
             observed_at: now,
@@ -3943,6 +3949,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
             group_name: Some("cast".into()),
             href: None,
             img: None,
+            npub: None,
             source: "podcast_person".into(),
             extraction_path: "live_item.podcast:person".into(),
             observed_at: now,
@@ -4035,6 +4042,10 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
             .expect("stored entity ids");
 
     assert_eq!(stored_contributor_claims.len(), 2);
+    assert_eq!(
+        stored_contributor_claims[0].npub.as_deref(),
+        Some("npub1claimartist")
+    );
     assert_eq!(stored_entity_id_claims.len(), 2);
     assert_eq!(stored_contributor_claims[1].entity_type, "live_item");
     assert_eq!(stored_entity_id_claims[0].scheme, "nostr_npub");

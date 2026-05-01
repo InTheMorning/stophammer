@@ -1027,6 +1027,7 @@ fn apply_source_contributor_claims_replaced() {
             group_name: Some("cast".into()),
             href: Some("https://example.com/alice".into()),
             img: None,
+            npub: Some("npub1alice".into()),
             source: "podcast_person".into(),
             extraction_path: "channel/podcast:person".into(),
             observed_at: now,

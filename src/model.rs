@@ -221,6 +221,8 @@ pub struct SourceContributorClaim {
     pub group_name: Option<String>,
     pub href: Option<String>,
     pub img: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub npub: Option<String>,
     pub source: String,
     pub extraction_path: String,
     pub observed_at: i64,

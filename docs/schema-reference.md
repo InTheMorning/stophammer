@@ -99,7 +99,8 @@ Notes:
 ### `source_contributor_claims`
 Purpose: preserved contributor evidence such as `podcast:person` and other contributor claims.
 Notes:
-- stores contributor `name`, `role`, normalized role, group, `href`, and `img`
+- stores contributor `name`, `role`, normalized role, group, `href`, `img`,
+  and row-scoped `npub`
 - evidence is attached to a feed or track, not to a canonical contributor
   profile
 

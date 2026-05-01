@@ -252,6 +252,7 @@ CREATE TABLE IF NOT EXISTS source_contributor_claims (
     group_name      TEXT,
     href            TEXT,
     img             TEXT,
+    npub            TEXT,
     source          TEXT NOT NULL,
     extraction_path TEXT NOT NULL,
     observed_at     INTEGER NOT NULL,

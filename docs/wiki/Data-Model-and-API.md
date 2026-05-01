@@ -73,8 +73,8 @@ Artist and contributor evidence lives in source tables:
 
 - entity-level npubs from `podcast:txt purpose="npub"` are exposed through
   `source_ids` as `nostr_npub`
-- `podcast:person` names, roles, `href`, and `img` are exposed through
-  `source_contributors`
+- `podcast:person` names, roles, `href`, `img`, and row-scoped `npub`
+  attributes are exposed through `source_contributors`
 
 Some compatibility tables still exist internally, such as `artists` and
 `artist_credit`, but they are no longer the public API model.

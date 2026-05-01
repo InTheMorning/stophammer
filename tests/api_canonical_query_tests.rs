@@ -135,7 +135,8 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
                     "role": "Vocals",
                     "group_name": null,
                     "href": null,
-                    "img": null
+                    "img": null,
+                    "npub": "npub1canonicalquerycontributor"
                 }],
                 "entity_ids": [],
                 "links": [{
@@ -232,6 +233,10 @@ async fn source_first_query_endpoints_expose_feed_track_and_source_links() {
     assert_eq!(
         track_json["data"]["source_contributors"][0]["role_norm"],
         "vocals"
+    );
+    assert_eq!(
+        track_json["data"]["source_contributors"][0]["npub"],
+        "npub1canonicalquerycontributor"
     );
     let track_enclosure_urls = track_json["data"]["source_enclosures"]
         .as_array()

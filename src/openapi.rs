@@ -1025,7 +1025,8 @@ fn ingest_request_example() -> Value {
                 "role": "vocals",
                 "group_name": null,
                 "href": "https://example.com/artist",
-                "img": null
+                "img": null,
+                "npub": "npub1..."
             }],
             "entity_ids": [{
                 "position": 0,

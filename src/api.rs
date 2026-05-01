@@ -652,6 +652,7 @@ fn build_source_contributor_claims(
                 group_name: person.group_name.clone(),
                 href: person.href.clone(),
                 img: person.img.clone(),
+                npub: person.npub.clone(),
                 source: "podcast_person".to_string(),
                 extraction_path: format!("{entity_type}.podcast:person"),
                 observed_at: now,
@@ -1101,6 +1102,7 @@ mod tests {
                 group_name: None,
                 href: None,
                 img: None,
+                npub: Some("npub1alice".into()),
             },
             IngestPerson {
                 position: 0,
@@ -1109,12 +1111,14 @@ mod tests {
                 group_name: None,
                 href: None,
                 img: None,
+                npub: None,
             },
         ];
 
         let claims = build_source_contributor_claims("feed-1", "feed", "feed-1", &persons, 123);
         assert_eq!(claims.len(), 2);
         assert_eq!(claims[0].position, 0);
+        assert_eq!(claims[0].npub.as_deref(), Some("npub1alice"));
         assert_eq!(claims[1].position, 1);
     }
 

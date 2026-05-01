@@ -208,6 +208,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0031_track_artist_lower_index.sql"),
     // Migration 32: make source track storage feed-scoped so duplicate raw track GUIDs can coexist.
     include_str!("../migrations/0032_feed_scoped_track_identity.sql"),
+    // Migration 33: preserve contributor-scoped podcast:person npub evidence.
+    include_str!("../migrations/0033_source_contributor_npub.sql"),
 ];
 
 /// Applies any pending schema migrations to `conn`.
@@ -2006,7 +2008,7 @@ pub fn get_source_contributor_claims_for_feed(
 ) -> Result<Vec<SourceContributorClaim>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, \
-         img, source, extraction_path, observed_at \
+         img, npub, source, extraction_path, observed_at \
          FROM source_contributor_claims WHERE feed_guid = ?1 \
          ORDER BY entity_type, entity_id, position, id",
     )?;
@@ -2024,9 +2026,10 @@ pub fn get_source_contributor_claims_for_feed(
             group_name: row.get(8)?,
             href: row.get(9)?,
             img: row.get(10)?,
-            source: row.get(11)?,
-            extraction_path: row.get(12)?,
-            observed_at: row.get(13)?,
+            npub: row.get(11)?,
+            source: row.get(12)?,
+            extraction_path: row.get(13)?,
+            observed_at: row.get(14)?,
         })
     })?;
 
@@ -2050,9 +2053,9 @@ pub fn replace_source_contributor_claims_for_feed(
     for claim in dedupe_source_contributor_claims(claims) {
         conn.execute(
             "INSERT INTO source_contributor_claims \
-             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, \
+             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, npub, \
               source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 &claim.feed_guid,
                 &claim.entity_type,
@@ -2064,6 +2067,7 @@ pub fn replace_source_contributor_claims_for_feed(
                 &claim.group_name,
                 &claim.href,
                 &claim.img,
+                &claim.npub,
                 &claim.source,
                 &claim.extraction_path,
                 claim.observed_at,
@@ -3307,6 +3311,7 @@ fn source_contributor_claims_changed(
                 || a.group_name != b.group_name
                 || a.href != b.href
                 || a.img != b.img
+                || a.npub != b.npub
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
                 || a.observed_at != b.observed_at
@@ -4907,9 +4912,9 @@ pub fn ingest_transaction(
     for claim in &source_contributor_claims {
         tx.execute(
             "INSERT INTO source_contributor_claims \
-             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, \
+             (feed_guid, entity_type, entity_id, position, name, role, role_norm, group_name, href, img, npub, \
               source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 &claim.feed_guid,
                 &claim.entity_type,
@@ -4921,6 +4926,7 @@ pub fn ingest_transaction(
                 &claim.group_name,
                 &claim.href,
                 &claim.img,
+                &claim.npub,
                 &claim.source,
                 &claim.extraction_path,
                 claim.observed_at,
@@ -5502,7 +5508,7 @@ pub fn get_source_contributor_claims_for_entity(
 ) -> Result<Vec<SourceContributorClaim>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, \
-         group_name, href, img, source, extraction_path, observed_at \
+         group_name, href, img, npub, source, extraction_path, observed_at \
          FROM source_contributor_claims \
          WHERE entity_type = ?1 AND entity_id = ?2 \
          ORDER BY position, name, id",
@@ -5520,9 +5526,10 @@ pub fn get_source_contributor_claims_for_entity(
             group_name: row.get(8)?,
             href: row.get(9)?,
             img: row.get(10)?,
-            source: row.get(11)?,
-            extraction_path: row.get(12)?,
-            observed_at: row.get(13)?,
+            npub: row.get(11)?,
+            source: row.get(12)?,
+            extraction_path: row.get(13)?,
+            observed_at: row.get(14)?,
         })
     })?;
     let mut result = Vec::new();
@@ -5554,7 +5561,7 @@ pub fn get_source_contributor_claims_for_feed_entity(
 ) -> Result<Vec<SourceContributorClaim>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, name, role, role_norm, \
-         group_name, href, img, source, extraction_path, observed_at \
+         group_name, href, img, npub, source, extraction_path, observed_at \
          FROM source_contributor_claims \
          WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
          ORDER BY position, name, id",
@@ -5572,9 +5579,10 @@ pub fn get_source_contributor_claims_for_feed_entity(
             group_name: row.get(8)?,
             href: row.get(9)?,
             img: row.get(10)?,
-            source: row.get(11)?,
-            extraction_path: row.get(12)?,
-            observed_at: row.get(13)?,
+            npub: row.get(11)?,
+            source: row.get(12)?,
+            extraction_path: row.get(13)?,
+            observed_at: row.get(14)?,
         })
     })?;
     rows.collect::<Result<_, _>>().map_err(DbError::from)

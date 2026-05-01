@@ -27,8 +27,8 @@ layer, not stable artist identities.
 RSS contributor and identity evidence is preserved in source tables:
 
 - `source_contributor_claims` stores `podcast:person` evidence:
-  `name`, `role`, normalized role, group, `href`, `img`, source, extraction
-  path, and observation time.
+  `name`, `role`, normalized role, group, `href`, `img`, row-scoped `npub`,
+  source, extraction path, and observation time.
 - `source_entity_ids` stores entity-level IDs such as
   `podcast:txt purpose="npub"` as `scheme = "nostr_npub"`.
 - `source_entity_links` stores typed entity links such as websites and release
@@ -76,10 +76,10 @@ In particular, Stophammer does not currently store:
 
 - a canonical artist profile npub
 - a canonical contributor profile npub
-- a normalized mapping from one `podcast:person` row to one `npub`
 - a global artist image distinct from feed, track, or contributor evidence
 
-If an npub appears as `podcast:txt purpose="npub"`, Stophammer stores it as an
-entity-level source ID for the feed or track. If a contributor image appears as
-`podcast:person img`, Stophammer stores it on the contributor claim. Neither
-one is promoted into a resolved artist or contributor identity.
+If an entity npub appears as `podcast:txt purpose="npub"`, Stophammer stores it
+as an entity-level source ID for the feed or track. If contributor-specific
+evidence appears as `podcast:person npub`, `podcast:person img`, or
+`podcast:person href`, Stophammer stores it on that contributor claim row. None
+of these fields are promoted into a resolved artist or contributor identity.
