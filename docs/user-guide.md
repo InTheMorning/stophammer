@@ -116,6 +116,14 @@ Source endpoints are the main endpoints:
 - `/v1/tracks/{guid}`
 
 Those are useful for provenance, source claims, platform links, and audit views.
+Artist information is split between display fields and preserved source
+evidence. `release_artist`, `track_artist`, feed images, and track images are
+stored directly on feed/track rows. Entity-level npubs from
+`podcast:txt purpose="npub"` are exposed through `source_ids`. Contributor
+names, roles, `href`, and `img` from `podcast:person` are exposed through
+`source_contributors`. Stophammer does not currently resolve those rows into a
+canonical artist or contributor profile.
+
 `GET /v1/feeds/{guid}?include=remote_items,publisher` is the RSS-truth
 debug view for publisher relationships. The `publisher` include reports
 direction and reciprocal validation directly from RSS. For stored
@@ -146,6 +154,9 @@ The main source entities are:
 Some compatibility tables still exist internally, especially around artist
 credits, but the public v1 API does not expose a canonical
 artist/release/recording graph.
+
+For the detailed artist/contributor storage boundary, see
+[artist-source-evidence.md](schema/artist-source-evidence.md).
 
 So the general user flow is:
 

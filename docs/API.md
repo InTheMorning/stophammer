@@ -614,6 +614,15 @@ Returns a single feed by its `podcast:guid`.
 `remote_items` is the stored source-truth snapshot of feed-level
 `podcast:remoteItem` declarations.
 
+Artist and contributor identity in v1 is source evidence, not a canonical
+profile graph. `release_artist`, `track_artist`, and artwork fields are stored
+display metadata on feeds and tracks. `source_ids` exposes entity-level IDs
+such as `podcast:txt purpose="npub"` with `scheme = "nostr_npub"`.
+`source_contributors` exposes `podcast:person` evidence including `href` and
+`img`. These rows are not promoted into `artists` table profile fields. For the
+full storage boundary, see
+[artist-source-evidence.md](schema/artist-source-evidence.md).
+
 For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
 remain visible, but local tracks are intentionally not materialized into the
 `tracks` table.
@@ -810,6 +819,10 @@ Notes:
 - Stophammer does not yet expose a canonical contributor graph for tracks or
   recordings. `source_contributors` is a staged evidence layer, not a resolved
   contributor-identity model.
+- Contributor `npub` is not represented as a resolved contributor-profile
+  field. Entity-level npubs published as `podcast:txt purpose="npub"` are
+  available through `source_ids`; contributor images published as
+  `podcast:person img` are available on `source_contributors`.
 
 | Code | Meaning |
 |------|---------|

@@ -5,6 +5,10 @@ Source: [src/schema.sql](../src/schema.sql)
 This reference describes the current source-first schema. It does not document
 retired canonical release/recording tables.
 
+For the boundary between stored artist text, source evidence, and RSS-only
+artist/contributor identity, see
+[artist-source-evidence.md](schema/artist-source-evidence.md).
+
 ## Lookup Tables
 
 ### `artist_type`
@@ -94,9 +98,17 @@ Notes:
 
 ### `source_contributor_claims`
 Purpose: preserved contributor evidence such as `podcast:person` and other contributor claims.
+Notes:
+- stores contributor `name`, `role`, normalized role, group, `href`, and `img`
+- evidence is attached to a feed or track, not to a canonical contributor
+  profile
 
 ### `source_entity_ids`
 Purpose: preserved source-level IDs such as `npub`, MusicBrainz IDs, ISRCs, and platform-native IDs.
+Notes:
+- `podcast:txt purpose="npub"` is stored as `scheme = "nostr_npub"`
+- IDs are entity-level source evidence; they are not promoted into canonical
+  artist or contributor identity
 
 ### `source_entity_links`
 Purpose: preserved typed links such as websites, self-feed links, and release pages.
@@ -123,6 +135,8 @@ Purpose: internal compatibility artist rows still used by `artist_credit` and so
 Notes:
 - this is not the public API model
 - v1 public reads use `release_artist` and `track_artist` text directly
+- ingest-created source-text artist rows do not receive RSS `npub`,
+  `podcast:person img`, or feed artwork as canonical artist-profile fields
 
 ### `artist_aliases`
 Purpose: stored aliases attached to internal artist rows.
@@ -177,4 +191,3 @@ Purpose: feed-scoped proof challenges.
 
 ### `proof_tokens`
 Purpose: short-lived proof tokens issued after successful proof completion.
-

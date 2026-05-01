@@ -63,11 +63,29 @@ The source-first layer stores:
 - source item enclosures
 - source platform claims
 
+Artist display data lives on feed and track rows:
+
+- `feeds.release_artist`
+- `tracks.track_artist`
+- feed and track `image_url`
+
+Artist and contributor evidence lives in source tables:
+
+- entity-level npubs from `podcast:txt purpose="npub"` are exposed through
+  `source_ids` as `nostr_npub`
+- `podcast:person` names, roles, `href`, and `img` are exposed through
+  `source_contributors`
+
 Some compatibility tables still exist internally, such as `artists` and
 `artist_credit`, but they are no longer the public API model.
+Those tables are not canonical artist profiles and do not receive RSS npubs,
+contributor images, or feed artwork as resolved artist fields.
 
 Wallet reads and publisher reads are inspection facets over the source-first
 data. They do not add a canonical artist/release/recording layer.
+
+For the detailed artist/contributor storage boundary, read
+[artist-source-evidence.md](../schema/artist-source-evidence.md).
 
 For exact table meanings, read
 [schema-reference.md](../schema-reference.md).
