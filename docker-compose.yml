@@ -28,6 +28,34 @@ services:
       retries: 12
       start_period: 10s
 
+  live-relay:
+    # MusicIndex live metadata relay.
+    # Upstream: https://github.com/InTheMorning/Live-Metadata-Relay
+    # Deployed by ./deploy-live-relay.sh, which builds a static musl binary
+    # locally and sets STOPHAMMER_LIVE_RELAY_IMAGE in the remote .env.
+    #
+    # Stateless by design: all live items and broadcaster tokens live in
+    # memory, so recreating this container invalidates every provisioned
+    # event_id and token. No volume, deliberately.
+    image: ${STOPHAMMER_LIVE_RELAY_IMAGE:-musicindex-live-relay}
+    build:
+      context: .
+      dockerfile: Dockerfile.deploy
+      target: musicindex-live-relay
+    restart: unless-stopped
+    env_file:
+      - ./packaging/env/live-relay.compose.env
+    ports:
+      # Host loopback only: nginx proxies /v1/liveitems/* here. Publishing on
+      # all interfaces would expose an unauthenticated create endpoint.
+      - "127.0.0.1:8018:8018"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8018/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 5s
+
   podping-listener:
     hostname: podping
     image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}

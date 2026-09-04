@@ -428,6 +428,74 @@ Notes:
 
 ---
 
+## MusicIndex Live Metadata Relay
+
+The `live-relay` Compose service runs `musicindex-live-relay` from
+[Live-Metadata-Relay](https://github.com/InTheMorning/Live-Metadata-Relay). It
+serves the Podcasting 2.0 live item routes that broadcasters publish now-playing
+value splits to.
+
+### Routes
+
+| Route | Purpose |
+| --- | --- |
+| `POST /v1/liveitems` | provision a live item; returns a one-time broadcaster token |
+| `POST /v1/liveitems/{event_id}/metadata` | publish a live value payload |
+| `GET /v1/liveitems/{event_id}/remoteValue` | latest payload for listening apps |
+| `GET /v1/liveitems/{event_id}/events` | SSE stream |
+| `GET /socket.io/*` | Socket.IO transport |
+| `GET /v1/liveitems/health` | relay health |
+
+Use `/v1/liveitems/health`, **not** the top-level `/health`, to check the relay.
+On `api.musicindex.org` the top-level route belongs to `primary`, so `/health`
+can return 200 while the relay is down.
+
+### State Is In Memory Only
+
+The relay persists nothing. Restarting or recreating the container drops every
+live item, broadcaster token, latest snapshot, and replay buffer. There is no
+volume and no backup, deliberately.
+
+Consequences for operators:
+
+- Every broadcaster must re-provision after a relay restart. Their existing
+  `event_id` becomes unknown and publishes fail with HTTP 404.
+- Any RSS live value block advertising an `event_id` goes stale on restart.
+- Do not recreate this service casually alongside unrelated deploys.
+
+### Deploy
+
+```bash
+./deploy-live-relay.sh
+```
+
+Builds a static musl binary from a local Live-Metadata-Relay checkout, ships it
+to the VPS, builds the `musicindex-live-relay` stage of `Dockerfile.deploy`
+there, sets `STOPHAMMER_LIVE_RELAY_IMAGE` in the remote `.env`, recreates the
+service, and verifies `/v1/liveitems/health` through the public URL.
+
+Override the source checkout with `RELAY_SRC_DIR=`. The script refuses to run if
+that path is not the `musicindex-live-relay` crate, and warns when the checkout
+is dirty, since it ships the working tree rather than a named ref.
+
+### Proxy Requirements
+
+The container publishes on `127.0.0.1:8018` only. The front-end proxy needs
+`/v1/liveitems`, `/v1/liveitems/`, and `/socket.io/` pointing there; all other
+API routes continue to `primary`. The relay's README carries the reference
+nginx locations.
+
+Two settings matter beyond a plain `proxy_pass`: `proxy_http_version 1.1` with
+`Upgrade`/`Connection` headers for Socket.IO, and `proxy_buffering off` for the
+SSE stream. Without them `/health` still returns 200 while live updates stall.
+
+Per-IP rate limiting is the proxy's job. `MAX_CREATES_PER_SEC` in
+`packaging/env/live-relay.compose.env` is a global safety bound, not a
+per-client limit. CORS is permissive at the relay so browser apps can consume
+SSE directly; restrict it at the proxy if you need a stricter origin policy.
+
+---
+
 ## Backup and Restore
 
 ### What to Back Up

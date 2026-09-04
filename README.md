@@ -99,6 +99,7 @@ docker build --target stophammer-node -t stophammer-node .
 The root [docker-compose.yml](docker-compose.yml) defines the current packaged stack:
 
 - `primary`
+- `live-relay` (MusicIndex live metadata relay)
 - `podping-listener`
 - `gossip`
 - `import`
@@ -109,6 +110,7 @@ Copy the sample env files you actually use:
 
 ```bash
 cp packaging/env/primary.compose.env.example packaging/env/primary.compose.env
+cp packaging/env/live-relay.compose.env.example packaging/env/live-relay.compose.env
 cp packaging/env/podping-listener.compose.env.example packaging/env/podping-listener.compose.env
 cp packaging/env/crawler-feed.compose.env.example packaging/env/crawler-feed.compose.env
 cp packaging/env/crawler-gossip.compose.env.example packaging/env/crawler-gossip.compose.env
@@ -129,6 +131,18 @@ Start the primary:
 ```bash
 docker compose up -d --build primary
 ```
+
+The MusicIndex live metadata relay, which serves `/v1/liveitems/*`:
+
+```bash
+docker compose up -d --build live-relay
+```
+
+It publishes on the host loopback at `127.0.0.1:8018` for a front-end proxy to
+reach. All of its state is in memory, so recreating the container invalidates
+every provisioned `event_id` and broadcaster token. Deploy prebuilt binaries
+with [`deploy-live-relay.sh`](deploy-live-relay.sh); source lives in
+[Live-Metadata-Relay](https://github.com/InTheMorning/Live-Metadata-Relay).
 
 Optional bundled crawler services:
 
