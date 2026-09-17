@@ -1,3 +1,10 @@
+# check=skip=SecretsUsedInArgOrEnv
+#
+# KEY_PATH and DB_PATH are filesystem locations, not credentials. BuildKit's
+# SecretsUsedInArgOrEnv check matches on the variable name containing "KEY",
+# so it flags them as a false positive on every build. The signing key itself
+# lives in the primary-data volume and is never baked into the image.
+#
 # Minimal runtime image — expects pre-built musl binaries in the build context.
 # Used by deploy.sh for fast local-build → ship workflow.
 
