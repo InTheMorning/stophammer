@@ -1,7 +1,7 @@
 # ADR 0042: Query Responses Name The Owner Of Each Field
 
 ## Status
-Proposed
+Accepted
 
 ## Date
 2026-09-22

@@ -14,19 +14,23 @@ found each one correct. The client document is
 measurements are in
 [the verification record](docs/reviews/v4vmm-musicindex-api-change-request-verification.md).
 
-Four decisions are Proposed. No agent has implemented one of them.
+ADR 0042, ADR 0043 and ADR 0044 are Accepted on 2026-09-22. The work runs in
+this sequence:
 
-- [ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md) adds owned
-  artwork fields and search summary fields. It needs no reingest.
-- [ADR 0043](docs/adr/0043-feed-publication-date-records-its-source-element.md)
-  stops `lastBuildDate` from supplying a release date. Today 94 percent of
-  feeds hold a feed build time in `release_date`. It needs incremental
-  reingest, and it changes `stophammer-parser`.
-- [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md) makes the
-  OpenAPI document declare its fields. Today all 54 JSON responses declare
-  none.
-- [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) adopts
-  the v4vmm governance model and names the owner of the MusicIndex API.
+1. [ADR 0043](docs/adr/0043-feed-publication-date-records-its-source-element.md)
+   in `stophammer-parser`, then in this crate. It stops `lastBuildDate` from
+   supplying a release date. Today 94 percent of feeds hold a feed build time
+   in `release_date`. It needs no migration and no protocol change.
+2. The `FORCE_REINGEST` trickle over the affected feeds. It drains while the
+   rest of the work continues.
+3. [ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md). Artwork
+   ownership first, then the search summary fields.
+4. [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md). The response
+   types declare their schemas.
+
+[ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
+Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
+files follow it.
 
 The node at `api.musicindex.org` serves the same OpenAPI document that commit
 `a220f44` makes.

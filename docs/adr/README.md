@@ -45,7 +45,7 @@ disagree.
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh | Proposed |
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter | Proposed |
-| [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Proposed |
+| [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 
 ## HTTP API And Contract
 
@@ -54,8 +54,8 @@ disagree.
 | [0022](0022-fts5-search-architecture.md) | FTS5 contentless search with a companion table | Accepted |
 | [0037](0037-defer-public-sse-route.md) | The public SSE route is deferred | Accepted |
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
-| [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Proposed |
-| [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Proposed |
+| [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
+| [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 
 ## Identity, Signing And Security
 

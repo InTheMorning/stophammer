@@ -1,7 +1,7 @@
 # ADR 0044: The API Contract Declares Its Fields
 
 ## Status
-Proposed
+Accepted
 
 ## Date
 2026-09-22

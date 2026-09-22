@@ -1,7 +1,11 @@
 # ADR 0043: A Feed Publication Date Records Its Source Element
 
 ## Status
-Proposed
+Accepted
+
+Amended 2026-09-22: the API also returns `last_build_date` on the feed.
+The operator decided this when the work started. An added field stays inside
+`v1` by ADR 0044. The amendment adds a field and reverses no decision.
 
 ## Date
 2026-09-22
@@ -56,6 +60,9 @@ time is not a release date.
 4. The ingest layer records a second claim with the path
    `feed.last_build_date` when the feed holds a `lastBuildDate` element.
    Stophammer keeps that evidence and does not use it as a release date.
+5. `FeedResponse` returns `last_build_date` so a client can show feed
+   freshness. The field is the feed build time. A client must not present it
+   as a release date.
 
 Reingest is incremental. A parser change corrects a feed when the crawler or
 the podping listener reads that feed again. `ContentHashVerifier` stops an
@@ -91,6 +98,8 @@ element supplied it. Rejected.
   `oldest_item.pub_date` claim count rises by about 7,095.
 - A new claim path `feed.last_build_date` appears. It holds evidence that
   Stophammer did not keep before.
+- `FeedResponse` gains `last_build_date`. This is an added field, so it needs
+  no new path version.
 - A client that sorted by `release_date` sees a large change in sequence. The
   new sequence shows publication. The sequence before this change showed feed
   generation.
