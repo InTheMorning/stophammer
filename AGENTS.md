@@ -128,11 +128,6 @@ CRAWL_TOKEN=xxx \
   INGEST_URL=http://localhost:8008/ingest/feed \
   cargo run -- gossip [--since-hours 24] [--concurrency 5]
 
-# Legacy Hive-based podping (slow, ~4hr delay)
-CRAWL_TOKEN=xxx \
-  INGEST_URL=http://localhost:8008/ingest/feed \
-  cargo run -- podping [--state ./podping_state.db]
-
 # Import from PodcastIndex snapshot
 cargo run -- import [--db ./podcastindex_feeds.db]
 
@@ -141,9 +136,13 @@ CRAWL_TOKEN=xxx \
   INGEST_URL=http://localhost:8008/ingest/feed \
   cargo run -- ndjson [--input ./stored-feeds.ndjson] [--concurrency 5]
 
-# Crawl an explicit URL list
-cargo run -- crawl <urls.txt
+# Fetch an explicit URL list (`crawl` is an alias of `feed`)
+cargo run -- feed <urls.txt
 ```
+
+There are four modes: `feed`, `import`, `ndjson` and `gossip`. There is no
+`podping` mode. The `gossip` mode consumes the stream that carries podping
+notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
 
 ### Parser CLI (`stophammer-parser/`)
 
@@ -247,7 +246,11 @@ do not leave `// removed ...` breadcrumbs.
 
 ## Lint Configuration
 
-Lints are declared in each crate's `Cargo.toml` under `[lints]`. Do not
+This section describes the `stophammer` crate. `stophammer-crawler` and
+`stophammer-parser` declare `[lints.clippy] pedantic = "deny"` and nothing
+more. Each crate's own `AGENTS.md` states its lint set.
+
+Lints are declared in this crate's `Cargo.toml` under `[lints]`. Do not
 override them with broad `#[allow(...)]`. When an exception is needed,
 use `#[expect(..., reason = "...")]` at the narrowest scope and justify
 the `reason`.
@@ -457,3 +460,5 @@ ADR.
 - `migrations/` — monotonic SQL migrations.
 - `scripts/` — operator-facing scripts.
 - `packaging/` — distribution artefacts.
+- `stophammer-crawler/AGENTS.md`, `stophammer-parser/AGENTS.md` — the rules for
+  those repositories. Read the one for the crate you change.

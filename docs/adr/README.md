@@ -102,7 +102,7 @@ records what each file states. Correcting a file is a separate change.
 |---|---|---|
 | [0032](0032-retire-resolver-and-review-runtime.md) | Proposed | No resolver module in `src/`, and no `stophammer-resolver` directory. ADR 0029 already names ADR 0032 as its successor |
 | [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Proposed | `migrations/0025` and `migrations/0032` are merged, and the seven `source_*` tables exist |
-| [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Proposed | Not checked. The evidence is in `stophammer-crawler` |
+| [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Proposed | Both halves are in `stophammer-crawler`. `music_first_lower_bound` in `src/modes/import.rs` gives the cursor, and `format_if_modified_since_value` gives the conditional refresh |
 
 Four files also use a different status format. ADR 0035, ADR 0038, ADR 0039 and
 ADR 0040 give `- Status:` in a list, and the rest use a `## Status` heading.
