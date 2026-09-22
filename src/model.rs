@@ -87,6 +87,12 @@ pub struct Feed {
     pub updated_at: i64,
     /// Verbatim value of the `podcast:medium` tag from the RSS feed, if present.
     pub raw_medium: Option<String>,
+    /// Channel `lastBuildDate` as Unix seconds, if the feed published one.
+    ///
+    /// This is the time the feed file was generated. It is not a release date.
+    /// ADR 0043 owns this distinction.
+    #[serde(default)]
+    pub last_build_date: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

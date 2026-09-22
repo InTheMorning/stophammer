@@ -171,6 +171,7 @@ struct FeedResponse {
     release_artist: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
+    last_build_date: Option<i64>,
     release_kind: Option<String>,
     description: Option<String>,
     image_url: Option<String>,
@@ -568,6 +569,7 @@ struct FeedRow {
     release_artist: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
+    last_build_date: Option<i64>,
     release_kind: Option<String>,
     description: Option<String>,
     image_url: Option<String>,
@@ -605,7 +607,8 @@ async fn handle_get_feed(
             .query_row(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
              release_artist_sort, release_date, release_kind, description, image_url, publisher, \
-             language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at \
+             language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, \
+             last_build_date \
              FROM feeds WHERE feed_guid = ?1",
                 params![feed_guid],
                 |row| {
@@ -628,6 +631,7 @@ async fn handle_get_feed(
                         oldest_item_at: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
+                        last_build_date: row.get(18)?,
                     })
                 },
             )
@@ -673,6 +677,7 @@ fn build_feed_response(
         release_artist: row.release_artist,
         release_artist_sort: row.release_artist_sort,
         release_date: row.release_date,
+        last_build_date: row.last_build_date,
         release_kind: row.release_kind,
         description: row.description,
         image_url: row.image_url,
@@ -1429,7 +1434,7 @@ async fn handle_get_recent_feeds(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at \
+                 created_at, updated_at, last_build_date \
                  FROM feeds \
                  WHERE lower(raw_medium) = lower(?1)
                    AND (newest_item_at, feed_guid) < (?2, ?3) \
@@ -1458,6 +1463,7 @@ async fn handle_get_recent_feeds(
                         oldest_item_at: row.get(15)?,
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
+                        last_build_date: row.get(18)?,
                     })
                 },
             )?
@@ -1467,7 +1473,7 @@ async fn handle_get_recent_feeds(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at \
+                 created_at, updated_at, last_build_date \
                  FROM feeds \
                  WHERE lower(raw_medium) = lower(?1) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
@@ -1493,6 +1499,7 @@ async fn handle_get_recent_feeds(
                     oldest_item_at: row.get(15)?,
                     created_at: row.get(16)?,
                     updated_at: row.get(17)?,
+                    last_build_date: row.get(18)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -1523,6 +1530,7 @@ async fn handle_get_recent_feeds(
                 release_artist: r.release_artist,
                 release_artist_sort: r.release_artist_sort,
                 release_date: r.release_date,
+                last_build_date: r.last_build_date,
                 release_kind: r.release_kind,
                 description: r.description,
                 image_url: r.image_url,

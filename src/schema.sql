@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     oldest_item_at   INTEGER,
     created_at       INTEGER NOT NULL,
     updated_at       INTEGER NOT NULL,
-    raw_medium       TEXT
+    raw_medium       TEXT,
+    last_build_date  INTEGER
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feeds_credit ON feeds(artist_credit_id);

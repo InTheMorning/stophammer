@@ -210,7 +210,24 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0032_feed_scoped_track_identity.sql"),
     // Migration 33: preserve contributor-scoped podcast:person npub evidence.
     include_str!("../migrations/0033_source_contributor_npub.sql"),
+    // Migration 34: keep the feed build time apart from the publication date
+    // (ADR 0043)
+    include_str!("../migrations/0034_feed_last_build_date.sql"),
 ];
+
+/// Reports whether a newly appended migration can still run.
+///
+/// A migration's version is its 1-indexed position in [`MIGRATIONS`], so the
+/// newest entry is assigned `total`. The runner applies an entry only when its
+/// version is greater than the highest version the database records. When that
+/// recorded version has already reached `total`, the newest entry is skipped
+/// and nothing reports it.
+///
+/// ADR 0046 owns this behaviour.
+fn migrations_can_advance(recorded_version: i64, total: usize) -> bool {
+    let total = i64::try_from(total).unwrap_or(i64::MAX);
+    recorded_version < total
+}
 
 /// Applies any pending schema migrations to `conn`.
 ///
@@ -236,6 +253,19 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
         [],
         |r| r.get(0),
     )?;
+
+    if !migrations_can_advance(current, MIGRATIONS.len()) {
+        tracing::error!(
+            recorded_version = current,
+            migration_count = MIGRATIONS.len(),
+            "ADR 0046: the database records migration version {current} but the code \
+             has {} migrations, so a newly added migration is assigned version {} and \
+             is skipped without an error. Add an ensure_*_schema repair in src/db.rs \
+             and call it from open_db.",
+            MIGRATIONS.len(),
+            MIGRATIONS.len(),
+        );
+    }
 
     for (idx, sql) in MIGRATIONS.iter().enumerate() {
         // Migration versions are 1-indexed; the array will never have enough
@@ -358,6 +388,22 @@ fn repair_track_remote_items_feed_scope(conn: &mut Connection) -> Result<(), DbE
     Ok(())
 }
 
+/// Adds `feeds.last_build_date` when migration 0034 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already equals this migration's position never runs it. An existing index
+/// sits at that watermark, so the column has to be repaired on open. ADR 0043
+/// owns the field. This repair leaves `schema_migrations` untouched, because
+/// the watermark it would write is already claimed by an earlier migration.
+fn ensure_feed_last_build_date_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "feeds", "last_build_date")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE feeds ADD COLUMN last_build_date INTEGER;")?;
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -399,6 +445,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     run_migrations(&mut conn)?;
     ensure_feed_scoped_track_identity_schema(&mut conn)?;
     ensure_source_contributor_npub_schema(&conn)?;
+    ensure_feed_last_build_date_schema(&conn)?;
     Ok(conn)
 }
 
@@ -1245,8 +1292,10 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
-         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
+         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
+         last_build_date) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
+         ?22) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -1266,7 +1315,8 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
            newest_item_at   = excluded.newest_item_at, \
            oldest_item_at   = excluded.oldest_item_at, \
            updated_at       = excluded.updated_at, \
-           raw_medium       = excluded.raw_medium",
+           raw_medium       = excluded.raw_medium, \
+           last_build_date  = excluded.last_build_date",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -1289,6 +1339,7 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             feed.created_at,
             feed.updated_at,
             feed.raw_medium,
+            feed.last_build_date,
         ],
     )?;
     Ok(())
@@ -1658,7 +1709,7 @@ pub fn get_publisher_feed_for_music_feed(
          f.description, f.image_url, f.publisher, f.language, f.explicit, f.itunes_type, \
          f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
          f.episode_count, f.newest_item_at, f.oldest_item_at, f.created_at, f.updated_at, \
-         f.raw_medium \
+         f.raw_medium, f.last_build_date \
          FROM feeds f \
          JOIN feed_remote_items_raw ri ON ri.feed_guid = f.feed_guid \
          WHERE ri.remote_feed_guid = ?1 \
@@ -1689,6 +1740,7 @@ pub fn get_publisher_feed_for_music_feed(
                 created_at: row.get(18)?,
                 updated_at: row.get(19)?,
                 raw_medium: row.get(20)?,
+                last_build_date: row.get(21)?,
             })
         },
     )
@@ -2950,7 +3002,8 @@ pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Fee
     let result = conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
-         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium \
+         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
+         last_build_date \
          FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
@@ -2977,6 +3030,7 @@ pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Fee
                 created_at:       row.get(18)?,
                 updated_at:       row.get(19)?,
                 raw_medium:       row.get(20)?,
+                last_build_date:  row.get(21)?,
             })
         },
     ).optional()?;
@@ -4647,7 +4701,8 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
     let result = conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
-         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium \
+         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
+         last_build_date \
          FROM feeds WHERE feed_url = ?1",
         params![feed_url],
         |row| {
@@ -4674,6 +4729,7 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
                 created_at:       row.get(18)?,
                 updated_at:       row.get(19)?,
                 raw_medium:       row.get(20)?,
+                last_build_date:  row.get(21)?,
             })
         },
     ).optional()?;
@@ -4801,8 +4857,10 @@ pub fn ingest_transaction(
     tx.execute(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
-         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
+         release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
+         last_build_date) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
+         ?22) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -4822,7 +4880,8 @@ pub fn ingest_transaction(
            newest_item_at   = excluded.newest_item_at, \
            oldest_item_at   = excluded.oldest_item_at, \
            updated_at       = excluded.updated_at, \
-           raw_medium       = excluded.raw_medium",
+           raw_medium       = excluded.raw_medium, \
+           last_build_date  = excluded.last_build_date",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -4845,6 +4904,7 @@ pub fn ingest_transaction(
             feed.created_at,
             feed.updated_at,
             feed.raw_medium,
+            feed.last_build_date,
         ],
     )?;
 
@@ -5476,7 +5536,8 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
     conn.query_row(
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, \
          image_url, publisher, language, explicit, itunes_type, release_artist, release_artist_sort, \
-         release_date, release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium \
+         release_date, release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
+         last_build_date \
          FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
@@ -5502,6 +5563,7 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
                 created_at: row.get(18)?,
                 updated_at: row.get(19)?,
                 raw_medium: row.get(20)?,
+                last_build_date: row.get(21)?,
             })
         },
     )
@@ -5931,4 +5993,35 @@ pub fn get_source_item_transcripts_for_feed_entity(
         })
     })?;
     rows.collect::<Result<_, _>>().map_err(DbError::from)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MIGRATIONS, migrations_can_advance};
+
+    #[test]
+    fn a_newly_appended_migration_can_run_on_a_fresh_database() {
+        assert!(
+            migrations_can_advance(0, MIGRATIONS.len()),
+            "a fresh database must run every migration"
+        );
+    }
+
+    #[test]
+    fn a_recorded_version_at_the_migration_count_blocks_the_newest_entry() {
+        let total = MIGRATIONS.len();
+        let at_count = i64::try_from(total).expect("migration count fits i64");
+        assert!(
+            !migrations_can_advance(at_count, total),
+            "version {at_count} equals the migration count, so the newest entry is skipped"
+        );
+        assert!(
+            !migrations_can_advance(at_count + 1, total),
+            "a recorded version above the migration count also skips the newest entry"
+        );
+        assert!(
+            migrations_can_advance(at_count - 1, total),
+            "one below the count still leaves room for the newest entry"
+        );
+    }
 }

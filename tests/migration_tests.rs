@@ -328,3 +328,41 @@ fn migration_paths() -> Vec<PathBuf> {
     paths.sort();
     paths
 }
+
+// ---------------------------------------------------------------------------
+// ADR 0043: migration 0034 adds feeds.last_build_date. Its version equals an
+// array position that an existing index has already recorded, so the runner
+// skips it. open_db must repair the column.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_repairs_feed_last_build_date_when_0034_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("legacy-high-watermark-last-build-date.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0033_source_contributor_npub.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (99, 1);",
+        )
+        .expect("mark high migration watermark");
+
+        assert!(
+            !table_has_column(&conn, "feeds", "last_build_date"),
+            "legacy fixture should start without feeds.last_build_date"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "feeds", "last_build_date"),
+        "open_db should repair skipped 0034 feed last_build_date schema"
+    );
+}

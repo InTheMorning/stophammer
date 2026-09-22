@@ -47,6 +47,11 @@ pub struct IngestFeedData {
     pub owner_name: Option<String>,
     /// Publication date of the feed channel; drives `newest_item_at` tracking.
     pub pub_date: Option<i64>,
+    /// Channel `lastBuildDate`: the time the feed file was generated.
+    ///
+    /// This is not a release date. ADR 0043 owns that distinction.
+    #[serde(default)]
+    pub last_build_date: Option<i64>,
     /// Feed-level `podcast:remoteItem` references to artist/publisher feeds.
     #[serde(default)]
     pub remote_items: Vec<IngestRemoteFeedRef>,

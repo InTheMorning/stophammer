@@ -662,6 +662,7 @@ fn ingest_transaction_builds_deterministic_release_and_recording_rows() {
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
     let track_a = stophammer::model::Track {
         track_guid: "track-canon-a".into(),
@@ -899,6 +900,7 @@ fn canonical_release_dedupes_duplicate_recording_memberships_within_one_feed() {
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
     let track_a = stophammer::model::Track {
         track_guid: "track-dup-release-a".into(),
@@ -1209,6 +1211,7 @@ fn ingest_transaction_requires_existing_track_credit_rows() {
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
     let track = stophammer::model::Track {
         track_guid: "track-credit-guid".into(),
@@ -1338,6 +1341,7 @@ fn ingest_transaction_promotes_high_confidence_ids_and_sources() {
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
     let track = stophammer::model::Track {
         track_guid: "track-promote-1".into(),
@@ -1613,6 +1617,7 @@ fn exact_mirror_feeds_cluster_into_one_release_and_recordings() {
             created_at: now,
             updated_at: now,
             raw_medium: Some("music".into()),
+            last_build_date: None,
         };
         let tracks = vec![
             (
@@ -1856,6 +1861,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
             created_at: now,
             updated_at: now,
             raw_medium: Some("music".into()),
+            last_build_date: None,
         };
         let track = stophammer::model::Track {
             track_guid: format!("track-{feed_guid}"),
@@ -2059,6 +2065,7 @@ fn canonical_read_helpers_return_release_recording_and_source_evidence() {
             created_at: now,
             updated_at: now,
             raw_medium: Some("music".into()),
+            last_build_date: None,
         };
         let source_entity_links = vec![stophammer::model::SourceEntityLink {
             id: None,
@@ -2423,6 +2430,7 @@ fn canonical_rebuild_prefers_richer_source_metadata_over_smallest_guid() {
             created_at: now,
             updated_at: feed_updated_at,
             raw_medium: Some("music".into()),
+            last_build_date: None,
         };
         let tracks = vec![(
             stophammer::model::Track {
@@ -3917,6 +3925,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
 
     let contributor_claims = vec![

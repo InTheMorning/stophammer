@@ -21,8 +21,8 @@ this sequence:
    in `stophammer-parser`, then in this crate. It stops `lastBuildDate` from
    supplying a release date. Today 94 percent of feeds hold a feed build time
    in `release_date`. It needs no migration and no protocol change.
-2. The `FORCE_REINGEST` trickle over the affected feeds. It drains while the
-   rest of the work continues.
+2. The `FORCE_REINGEST` trickle over the affected feeds. Scope it to the feeds
+   the index already holds. It drains while the rest of the work continues.
 3. [ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md). Artwork
    ownership first, then the search summary fields.
 4. [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md). The response
@@ -87,7 +87,7 @@ cargo test                       # All tests
 cargo test <name>                # Single test by name substring
 cargo test --test <file>         # One integration test file
 cargo test --lib                 # Library unit tests only
-cargo test migration_tests       # Migration-specific tests (stophammer)
+cargo test --test migration_tests  # Migration tests (stophammer)
 ```
 
 ### Lint & Format
@@ -339,7 +339,12 @@ Binaries live in `src/bin/`. Current binaries:
    migration — add a new one.
 3. Keep `src/schema.sql` consistent with the union of all migrations
    (used for fresh bootstraps).
-4. Verify with `cargo test migration_tests`.
+4. A migration version is its position in the `MIGRATIONS` array, not its
+   file name. An existing database may already record that version, in which
+   case the runner skips the migration and reports it with a `tracing::error!`
+   at start. When that happens, add an `ensure_<name>_schema` repair in
+   `src/db.rs` and call it from `open_db`. ADR 0046 owns this step.
+5. Verify with `cargo test --test migration_tests`.
 
 ### New API Endpoint
 

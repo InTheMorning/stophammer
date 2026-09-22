@@ -119,6 +119,7 @@ fn ingest_and_count_track_events(
         created_at: now,
         updated_at: now,
         raw_medium: Some("music".into()),
+        last_build_date: None,
     };
 
     let track_tuples: Vec<stophammer::db::TrackIngestBundle> = tracks

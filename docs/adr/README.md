@@ -16,6 +16,7 @@ disagree.
 |---|---|---|
 | [0001](0001-record-architecture-decisions.md) | ADRs record decisions. Sequential numbering, Nygard structure | Accepted |
 | [0045](0045-governance-model-and-contract-ownership.md) | Adopts v4vmm ADR 0061. Names the MusicIndex API owner. Covers the three repositories | Proposed |
+| [0046](0046-migration-versions-are-array-positions.md) | A migration version is its array position. A skipped migration needs a repair, and the runner reports the condition | Accepted |
 
 ## Foundation And Storage
 

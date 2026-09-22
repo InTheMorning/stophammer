@@ -32,6 +32,7 @@ fn sample_request() -> IngestFeedRequest {
             explicit: false,
             itunes_type: None,
             raw_medium: Some("music".into()),
+            last_build_date: None,
             pub_date: None,
             remote_items: vec![],
             persons: vec![],

@@ -1498,6 +1498,7 @@ fn make_feed_upserted_event(
         created_at: now,
         updated_at: now,
         raw_medium: None,
+        last_build_date: None,
     };
 
     let inner = FeedUpsertedPayload { feed };

@@ -1132,6 +1132,7 @@ mod tests {
             explicit: false,
             itunes_type: None,
             raw_medium: Some("music".into()),
+            last_build_date: None,
             author_name: None,
             owner_name: None,
             pub_date: None,
@@ -2031,6 +2032,7 @@ async fn handle_ingest_feed(
             created_at: now,
             updated_at: now,
             raw_medium: feed_data.raw_medium.clone(),
+            last_build_date: feed_data.last_build_date,
         };
         let track_publisher = feed.publisher.clone();
 
@@ -2102,6 +2104,18 @@ async fn handle_ingest_feed(
             } else {
                 "oldest_item.pub_date"
             },
+            now,
+        );
+        // ADR 0043: lastBuildDate is kept as its own claim. It is the feed
+        // build time and never supplies the release date.
+        push_source_release_claim(
+            &mut source_release_claims,
+            &feed_data.feed_guid,
+            "feed",
+            &feed_data.feed_guid,
+            "last_build_date",
+            feed_data.last_build_date.map(|v| v.to_string()),
+            "feed.last_build_date",
             now,
         );
         push_source_release_claim(

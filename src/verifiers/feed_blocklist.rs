@@ -109,6 +109,7 @@ mod tests {
                 explicit: false,
                 itunes_type: None,
                 raw_medium: Some("music".into()),
+                last_build_date: None,
                 author_name: None,
                 owner_name: None,
                 pub_date: None,
