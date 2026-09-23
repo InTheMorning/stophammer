@@ -48,6 +48,7 @@ disagree.
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter | Proposed |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
+| [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Proposed |
 
 ## HTTP API And Contract
 

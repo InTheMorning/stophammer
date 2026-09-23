@@ -6,7 +6,7 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Current priority - 2026-09-22: the MusicIndex API metadata contract.
+Current priority - 2026-09-23: the MusicIndex API metadata contract.
 
 v4vmm reported four defects in the read API. Stophammer verified each one and
 found each one correct. The client document is
@@ -14,47 +14,49 @@ found each one correct. The client document is
 measurements are in
 [the verification record](docs/reviews/v4vmm-musicindex-api-change-request-verification.md).
 
-ADR 0042, ADR 0043 and ADR 0044 are Accepted on 2026-09-22.
+Complete and deployed:
 
-[ADR 0043](docs/adr/0043-feed-publication-date-records-its-source-element.md) is
-complete and deployed. `lastBuildDate` no longer supplies a release date, and
-the API returns `last_build_date` beside it. Migration 0034 adds the column, and
-[ADR 0046](docs/adr/0046-migration-versions-are-array-positions.md) covers the
-repair that applies it to a database the runner cannot advance. Two feeds are
-corrected and verified against the live node. About 7,093 remain.
+- [ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md). A response
+  that carries a track reports `track_image_url` and `feed_image_url` beside
+  the resolved `image_url`, and `image_url` means the same on every route. A
+  search result carries the values a client needs to show a row.
+- [ADR 0043](docs/adr/0043-feed-publication-date-records-its-source-element.md).
+  `lastBuildDate` no longer supplies a release date, and the API returns
+  `last_build_date` beside it. Migration 0034 adds the column, and
+  [ADR 0046](docs/adr/0046-migration-versions-are-array-positions.md) covers
+  the repair that applies it to a database the runner cannot advance.
+- [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md). The `refresh`
+  mode reads the feed list of the node, then runs the crawl pipeline over it.
+  The pass has run.
+- Task 001 of [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md).
+  The response types derive `utoipa::ToSchema`, and the document declares 36
+  schemas under `components.schemas`.
 
-[ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md) is complete and
-not deployed. A response that carries a track reports `track_image_url` and
-`feed_image_url` beside the resolved `image_url`, and `image_url` now means the
-same on every route. A search result carries the values a client needs to show a
-row.
+The node at `api.musicindex.org` serves the OpenAPI document that commit
+`a4f05a1` makes.
 
 The work that remains:
 
-1. A pass over the affected feeds. Scope it to the feeds the index already
-   holds. Measured over the 7,095 affected feeds in the audit snapshot, 6,643
-   carry a `lastBuildDate` that the host stamps at fetch time, with a median
-   difference of 3 seconds. Their content hash changes on every fetch, so any
-   fetch re-ingests them and `--force` is not needed. The other 452 hold a
-   static `lastBuildDate`, and `ContentHashVerifier` stops those without
-   `--force`. A fetch still happens only when the crawler reads the feed, so a
-   dormant feed needs the deliberate pass whichever group it is in.
-2. [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md). The response
-   types declare their schemas. Its
-   [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and
-   [first packet](docs/tasks/adr-0044-task-001-response-type-schemas.md) are
-   written. No code is written.
-3. [ADR 0047](docs/adr/0047-crawler-reingest-from-its-own-outcome-record.md).
-   The `reingest` mode in `stophammer-crawler`. Its
-   [packet](docs/tasks/adr-0047-task-001-crawler-reingest-mode.md) is written.
-   No code is written.
+1. [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md) is
+   Proposed and needs a decision. The corrective pass showed that
+   `V4VPaymentVerifier` refuses a feed that carries a valid `podcast:value`
+   block on each track and none on the channel. Such a feed keeps the incorrect
+   release date that ADR 0043 corrects.
+   [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
+   holds the measurement and names the two scripts that repeat it.
+2. Task 002 of ADR 0044. Each documented response must point at its schema. No
+   response points at one today, and all 54 carry an inline shape or none.
+   `QueryResponse<T>` needs one utoipa alias for each instantiation, because
+   the derive removes the type parameter.
+3. Task 003 of ADR 0044. The guards, and the correction of this file where it
+   describes the document. The
+   [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
+   [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
+   sequence.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
 files follow it.
-
-The node at `api.musicindex.org` serves the same OpenAPI document that commit
-`a220f44` makes.
 
 The recorded status of ADR 0032, ADR 0033 and ADR 0034 disagrees with the code.
 [The index](docs/adr/README.md) lists each one under "Status Needs A Check".
@@ -163,10 +165,15 @@ CRAWL_TOKEN=xxx \
 
 # Fetch an explicit URL list (`crawl` is an alias of `feed`)
 cargo run -- feed <urls.txt
+
+# Corrective pass over the feeds the node already holds (ADR 0047)
+CRAWL_TOKEN=xxx \
+  INGEST_URL=http://localhost:8008/ingest/feed \
+  cargo run -- refresh [--concurrency 5] [--force]
 ```
 
-There are four modes: `feed`, `import`, `ndjson` and `gossip`. There is no
-`podping` mode. The `gossip` mode consumes the stream that carries podping
+There are five modes: `feed`, `import`, `ndjson`, `gossip` and `refresh`. There
+is no `podping` mode. The `gossip` mode consumes the stream that carries podping
 notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
 
 ### Parser CLI (`stophammer-parser/`)
