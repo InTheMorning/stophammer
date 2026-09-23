@@ -3,6 +3,11 @@
 ## Status
 Accepted
 
+Amended 2026-09-23: the field-declaration rule covers a response that a
+client decodes without a credential. It said every documented response, which
+obliged the node to publish its internal event model for the sake of four
+routes that need the sync token. That obligation served no client.
+
 ## Date
 2026-09-22
 
@@ -45,7 +50,9 @@ contract comes from the response types.
 1. Each type that a documented response returns derives `utoipa::ToSchema`.
 2. The document references those schemas. It does not hold a second copy of
    the field names in a hand-written literal.
-3. A documented JSON response must not hold a bare `{"type":"object"}` schema.
+3. A response that a client decodes without a credential declares its
+   fields. A route that needs the sync token serves a node operator, and
+   this decision states nothing about it.
 4. A field rename or a field removal in a `v1` response is a breaking change.
    It needs a new path version. An added field is not a breaking change.
 5. `AGENTS.md` states the correct procedure for a new endpoint in the same
@@ -91,6 +98,6 @@ for each added field costs more than it returns. Rejected.
 A silent rename cost a client months of missing data. This rule earns a
 test.
 
-- No documented JSON response holds a schema with no properties.
+- A response that needs no credential holds a schema with properties.
 - Each route in `build_router` and in `query_routes` appears in the document.
 - The document that `gen_openapi` prints parses as a correct OpenAPI document.

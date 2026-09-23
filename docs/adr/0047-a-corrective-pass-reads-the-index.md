@@ -28,15 +28,20 @@ from `GET /v1/feeds/recent` through that route's cursor.
 1. The index is the definition of the set of feeds the node holds. A corpus
    read from it is therefore complete by construction. A record derived from
    the crawler's own activity cannot give that guarantee.
-2. The pass reads a public route that needs no credential. It gains no
-   authority from the read, and ADR 0006 keeps the node's distrust of a crawler
-   submission unchanged.
-3. The pass derives the query origin from `INGEST_URL`, which already names
+2. The pass asks for `medium=all`. The feed list filters to the music medium
+   by default, and the index also holds publisher and `musicL` feeds, so a
+   pass that takes the default covers one medium and omits the rest without
+   saying so.
+3. The pass reads a public route that needs no credential. It gains no
+   authority from the read, and ADR 0006 keeps the node's distrust of a
+   crawler submission unchanged.
+4. The pass derives the query origin from `INGEST_URL`, which already names
    the node and always ends in the ingest path. The query route is on that
    same origin, so the pass adds no required configuration.
-4. The pass reuses the existing pipeline through `batch::run_urls`, so the host
-   interleave, the concurrency pool and the failed-feeds output all apply.
-5. The operator combines the pass with `--force`, because a corrective pass
+5. The pass reuses the existing pipeline through `batch::run_urls`, so the
+   host interleave, the concurrency pool and the failed-feeds output all
+   apply.
+6. The operator combines the pass with `--force`, because a corrective pass
    needs the content-hash check bypassed.
 
 ## Alternatives Considered

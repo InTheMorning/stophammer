@@ -1479,7 +1479,10 @@ async fn handle_get_recent_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
-        let medium = params.medium.as_deref().unwrap_or("music");
+        // ADR 0047: a corrective pass needs every feed the index holds, not one
+        // medium. `all` skips the filter. The value is lowered here so the SQL
+        // compares one lowered column against one lowered bind.
+        let medium = params.medium.as_deref().unwrap_or("music").to_lowercase();
 
         let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
             let decoded = decode_cursor(cursor_str)?;
@@ -1504,7 +1507,7 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at, last_build_date \
                  FROM feeds \
-                 WHERE lower(raw_medium) = lower(?1)
+                 WHERE (?1 = 'all' OR lower(raw_medium) = ?1)
                    AND (newest_item_at, feed_guid) < (?2, ?3) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
                  LIMIT ?4",
@@ -1543,7 +1546,7 @@ async fn handle_get_recent_feeds(
                  episode_count, newest_item_at, oldest_item_at, \
                  created_at, updated_at, last_build_date \
                  FROM feeds \
-                 WHERE lower(raw_medium) = lower(?1) \
+                 WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
                  LIMIT ?2",
             )?;

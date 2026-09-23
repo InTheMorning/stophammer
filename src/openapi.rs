@@ -157,7 +157,7 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     query_param("limit", "integer", Some("int64"), false, "Maximum rows to return."),
                     query_param("include", "string", None, false, "Comma-separated include list. Supports `tracks`."),
-                    query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`.")
+                    query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium.")
                 ],
                 None,
                 json!({

@@ -682,7 +682,11 @@ The older canonical `/v1/recent` route has been retired.
 Lists source feeds in recent-source order for provenance/debugging workflows.
 
 - **Authentication:** None
-- **Constraint:** Defaults to feeds with `raw_medium = 'music'`; pass `medium=musicL` to list `musicL` containers.
+- **Constraint:** Defaults to feeds with `raw_medium = 'music'`. Pass
+  `medium=musicL` to list `musicL` containers, `medium=publisher` for publisher
+  feeds, or `medium=all` for every feed the index holds whatever its medium.
+  `all` is what a corrective pass uses, because a pass that covers one medium
+  silently omits the others. ADR 0047 owns that use.
 - **Query parameters:** common pagination/include params plus optional `medium`
 
 **Response:** Paginated array of feed objects.
