@@ -202,7 +202,9 @@ fn spec_value(mode: DocMode) -> Value {
                                 "track_artist_sort": "Name, Artist",
                                 "pub_date": 1710288000,
                                 "duration_secs": 210,
-                                "image_url": null,
+                                "image_url": "https://example.com/cover.jpg",
+                                "track_image_url": null,
+                                "feed_image_url": "https://example.com/cover.jpg",
                                 "track_number": 1,
                                 "feed_title": "Album Title",
                                 "release_artist": "Artist Name",
@@ -240,7 +242,12 @@ fn spec_value(mode: DocMode) -> Value {
                                 "feed_guid": "feed-guid",
                                 "href": "/v1/feeds/feed-guid/tracks/track-guid",
                                 "rank": -1.5,
-                                "quality_score": 0
+                                "quality_score": 0,
+                                "title": "Track Title",
+                                "feed_title": "Album Title",
+                                "track_image_url": null,
+                                "feed_image_url": "https://example.com/cover.jpg",
+                                "pub_date": 1710288000
                             }
                         ]))
                     ),
@@ -363,6 +370,8 @@ fn spec_value(mode: DocMode) -> Value {
                                 "feed_guid": "feed-guid",
                                 "title": "Track Title",
                                 "image_url": "https://example.com/track.jpg",
+                                "track_image_url": "https://example.com/track.jpg",
+                                "feed_image_url": "https://example.com/cover.jpg",
                                 "duration_secs": 240,
                                 "track_number": 1
                             }]

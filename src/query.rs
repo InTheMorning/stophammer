@@ -210,6 +210,8 @@ struct TrackSummary {
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
     image_url: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
     track_number: Option<i64>,
     publisher_text: Option<String>,
 }
@@ -236,6 +238,8 @@ struct TrackResponse {
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
     image_url: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
     language: Option<String>,
     enclosure_url: Option<String>,
     enclosure_type: Option<String>,
@@ -292,6 +296,8 @@ struct PublisherTrackSummary {
     feed_guid: String,
     title: String,
     image_url: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
     duration_secs: Option<i64>,
     track_number: Option<i64>,
 }
@@ -313,6 +319,19 @@ struct SearchResponseItem {
     feed_guid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     href: Option<String>,
+    // ADR 0042: a result row is drawable from the search response alone. The
+    // title key is always present. It is null only when the indexed row is
+    // gone. A summary field that is absent is not evidence that the value is
+    // absent in the full record.
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    feed_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    feed_image_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub_date: Option<i64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -325,6 +344,8 @@ struct ArtistTrackItem {
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
     image_url: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
     track_number: Option<i64>,
     feed_title: String,
     release_artist: Option<String>,
@@ -484,6 +505,8 @@ struct TrackRow {
     pub_date: Option<i64>,
     duration_secs: Option<i64>,
     image_url: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
     language: Option<String>,
     enclosure_url: Option<String>,
     enclosure_type: Option<String>,
@@ -519,7 +542,42 @@ fn parse_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         updated_at: row.get(18)?,
         feed_title: row.get(19)?,
         release_artist: row.get(20)?,
+        track_image_url: row.get(21)?,
+        feed_image_url: row.get(22)?,
     })
+}
+
+/// Summary values a search result needs to draw a row. ADR 0042.
+#[derive(Default)]
+struct SearchSummary {
+    title: Option<String>,
+    feed_title: Option<String>,
+    track_image_url: Option<String>,
+    feed_image_url: Option<String>,
+    pub_date: Option<i64>,
+}
+
+/// Reads the summary values for a feed hit.
+///
+/// A feed row holds no track publication date, so `pub_date` stays empty.
+fn feed_search_summary(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<SearchSummary, api::ApiError> {
+    conn.query_row(
+        "SELECT title, image_url FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| {
+            Ok(SearchSummary {
+                title: row.get(0)?,
+                feed_image_url: row.get(1)?,
+                ..SearchSummary::default()
+            })
+        },
+    )
+    .optional()
+    .map(Option::unwrap_or_default)
+    .map_err(api::ApiError::from)
 }
 
 fn get_track_rows_by_guid(
@@ -531,7 +589,7 @@ fn get_track_rows_by_guid(
          t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
          t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
          t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
-         f.release_artist \
+         f.release_artist, t.image_url, f.image_url \
          FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
          WHERE t.track_guid = ?1 ORDER BY t.feed_guid ASC",
     )?;
@@ -550,7 +608,7 @@ fn get_track_row_for_feed(
          t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
          t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
          t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
-         f.release_artist \
+         f.release_artist, t.image_url, f.image_url \
          FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
          WHERE t.feed_guid = ?1 AND t.track_guid = ?2",
         params![feed_guid, track_guid],
@@ -701,18 +759,25 @@ fn build_feed_response(
     };
 
     if params.includes("tracks") {
+        // ADR 0042: this route read the track column alone, so `image_url` meant
+        // something different here than on every other track route. The feed
+        // artwork is already in hand, so no join is needed to resolve it.
+        let feed_artwork = resp.image_url.clone();
         let mut stmt = conn.prepare(
             "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number, publisher \
              FROM tracks WHERE feed_guid = ?1 ORDER BY track_number ASC, pub_date DESC",
         )?;
         let tracks: Vec<TrackSummary> = stmt
             .query_map(params![feed_guid], |row| {
+                let track_image_url: Option<String> = row.get(4)?;
                 Ok(TrackSummary {
                     track_guid: row.get(0)?,
                     title: row.get(1)?,
                     pub_date: row.get(2)?,
                     duration_secs: row.get(3)?,
-                    image_url: row.get(4)?,
+                    image_url: track_image_url.clone().or_else(|| feed_artwork.clone()),
+                    track_image_url,
+                    feed_image_url: feed_artwork.clone(),
                     track_number: row.get(5)?,
                     publisher_text: row.get(6)?,
                 })
@@ -821,6 +886,8 @@ fn build_track_response(
         pub_date: row.pub_date,
         duration_secs: row.duration_secs,
         image_url: row.image_url,
+        track_image_url: row.track_image_url,
+        feed_image_url: row.feed_image_url,
         language: row.language,
         enclosure_url: row.enclosure_url,
         enclosure_type: row.enclosure_type,
@@ -1731,6 +1798,21 @@ async fn handle_search(
                     } else {
                         (r.entity_id.clone(), None, None)
                     };
+                    let mut summary = SearchSummary::default();
+                    if r.entity_type == "track" {
+                        if let Some(feed_guid) = feed_guid.as_deref()
+                            && let Some(row) = get_track_row_for_feed(&conn, feed_guid, &entity_id)?
+                        {
+                            summary.title = Some(row.title);
+                            summary.feed_title = Some(row.feed_title);
+                            summary.track_image_url = row.track_image_url;
+                            summary.feed_image_url = row.feed_image_url;
+                            summary.pub_date = row.pub_date;
+                        }
+                    } else {
+                        summary = feed_search_summary(&conn, &entity_id)?;
+                    }
+
                     Ok(SearchResponseItem {
                         entity_type: r.entity_type,
                         entity_id,
@@ -1738,6 +1820,11 @@ async fn handle_search(
                         quality_score: r.quality_score,
                         feed_guid,
                         href,
+                        title: summary.title,
+                        feed_title: summary.feed_title,
+                        track_image_url: summary.track_image_url,
+                        feed_image_url: summary.feed_image_url,
+                        pub_date: summary.pub_date,
                     })
                 })
                 .collect()
@@ -1973,7 +2060,7 @@ async fn handle_publisher_detail(
 
         let mut tstmt = conn.prepare(&format!(
             "SELECT t.track_guid, t.feed_guid, t.title, COALESCE(t.image_url, f.image_url), \
-             t.duration_secs, t.track_number \
+             t.duration_secs, t.track_number, t.image_url, f.image_url \
              FROM tracks t JOIN feeds f ON f.feed_guid = t.feed_guid \
              WHERE {track_match} \
              AND lower(f.raw_medium) = 'music' \
@@ -1988,6 +2075,8 @@ async fn handle_publisher_detail(
                     image_url: row.get(3)?,
                     duration_secs: row.get(4)?,
                     track_number: row.get(5)?,
+                    track_image_url: row.get(6)?,
+                    feed_image_url: row.get(7)?,
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -2050,7 +2139,8 @@ async fn handle_artist_tracks(
             let mut stmt = conn.prepare(
                 "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
                  t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
-                 COALESCE(f.title, ''), f.release_artist, t.created_at \
+                 COALESCE(f.title, ''), f.release_artist, t.created_at, t.image_url, \
+                 f.image_url \
                  FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
                  WHERE lower(t.track_artist) = ?1 \
                    AND (t.created_at, t.track_guid) < (?2, ?3) \
@@ -2073,6 +2163,8 @@ async fn handle_artist_tracks(
                         feed_title: row.get(9)?,
                         release_artist: row.get(10)?,
                         created_at: row.get(11)?,
+                        track_image_url: row.get(12)?,
+                        feed_image_url: row.get(13)?,
                     })
                 },
             )?
@@ -2081,7 +2173,8 @@ async fn handle_artist_tracks(
             let mut stmt = conn.prepare(
                 "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
                  t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
-                 COALESCE(f.title, ''), f.release_artist, t.created_at \
+                 COALESCE(f.title, ''), f.release_artist, t.created_at, t.image_url, \
+                 f.image_url \
                  FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
                  WHERE lower(t.track_artist) = ?1 \
                  ORDER BY t.created_at DESC, t.track_guid DESC \
@@ -2101,6 +2194,8 @@ async fn handle_artist_tracks(
                     feed_title: row.get(9)?,
                     release_artist: row.get(10)?,
                     created_at: row.get(11)?,
+                    track_image_url: row.get(12)?,
+                    feed_image_url: row.get(13)?,
                 })
             })?
             .collect::<Result<_, _>>()?

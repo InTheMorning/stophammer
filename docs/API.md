@@ -507,6 +507,7 @@ Returns a single feed by its `podcast:guid`.
     "release_artist": "Artist Name",
     "release_artist_sort": null,
     "release_date": 1710288000,
+    "last_build_date": 1766049431,
     "release_kind": "unknown",
     "description": "...",
     "image_url": "https://...",
@@ -516,7 +517,13 @@ Returns a single feed by its `podcast:guid`.
     "created_at": 1710288000,
     "updated_at": 1710288000,
     "tracks": [
-      { "track_guid": "uuid", "title": "Track", "pub_date": 1710288000, "duration_secs": 240 }
+      {
+        "track_guid": "uuid", "title": "Track", "pub_date": 1710288000,
+        "duration_secs": 240,
+        "image_url": "https://example.com/cover.jpg",
+        "track_image_url": null,
+        "feed_image_url": "https://example.com/cover.jpg"
+      }
     ],
     "payment_routes": [
       {
@@ -615,6 +622,24 @@ Returns a single feed by its `podcast:guid`.
 `remote_items` is the stored source-truth snapshot of feed-level
 `podcast:remoteItem` declarations.
 
+`last_build_date` is the channel `lastBuildDate`: the time the feed file was
+generated. It is not a release date, and a generator can rewrite it on every
+fetch. ADR 0043 owns that boundary. `release_date` comes from the channel
+`pubDate`, and from the oldest item when the channel publishes none.
+
+Each response that carries a track reports artwork with three fields. ADR 0042
+owns them.
+
+| Field | Owner |
+|---|---|
+| `track_image_url` | the track alone. Null when the track asserts none |
+| `feed_image_url` | the feed alone |
+| `image_url` | resolved display artwork: the track's when it has one, the feed's when it does not |
+
+`image_url` means the same thing on every route that returns a track. Use the
+two owned fields to tell album artwork from track artwork, because matching
+URLs do not show the difference.
+
 Artist and contributor identity in v1 is source evidence, not a canonical
 profile graph. `release_artist`, `track_artist`, and artwork fields are stored
 display metadata on feeds and tracks. `source_ids` exposes entity-level IDs
@@ -710,6 +735,8 @@ canonical feed-scoped URLs for the caller to retry.
     "pub_date": 1710288000,
     "duration_secs": 240,
     "image_url": "https://example.com/track.jpg",
+    "track_image_url": "https://example.com/track.jpg",
+    "feed_image_url": "https://example.com/cover.jpg",
     "language": "en",
     "enclosure_url": "https://example.com/track.mp3",
     "enclosure_type": "audio/mpeg",
@@ -871,6 +898,15 @@ Track search hits also include canonical disambiguators:
 - `feed_guid` when `entity_type = "track"`
 - `href` pointing at `GET /v1/feeds/{feed_guid}/tracks/{track_guid}`
 
+A result also carries the values a client needs to show a row, so a list view
+needs no request for each hit. ADR 0042 owns these fields.
+
+- `title` is always present. It is null only when the indexed row is gone.
+- `feed_title`, `track_image_url`, `feed_image_url` and `pub_date` are present
+  when the row holds them.
+- A summary field that is absent is not evidence that the value is absent in
+  the full record.
+
 - **Authentication:** None
 
 **Query parameters:**
@@ -893,7 +929,12 @@ Track search hits also include canonical disambiguators:
       "feed_guid": "feed-guid",
       "href": "/v1/feeds/feed-guid/tracks/track-guid",
       "rank": -1.5,
-      "quality_score": 0
+      "quality_score": 0,
+      "title": "Track Title",
+      "feed_title": "Album Title",
+      "track_image_url": null,
+      "feed_image_url": "https://example.com/cover.jpg",
+      "pub_date": 1710288000
     }
   ],
   "pagination": { "cursor": "cursor-token", "has_more": true },
