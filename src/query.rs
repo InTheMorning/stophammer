@@ -514,6 +514,28 @@ struct PublisherResponse {
     reciprocal_declared: bool,
     reciprocal_medium: Option<String>,
     two_way_validated: bool,
+    /// Raw `rel` of the `medium="music"` item, on the publisher feed, that
+    /// lists this album. Null when that item is missing or has no `rel`.
+    ///
+    /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
+    /// so this value is non-standard. ADR 0049 §6.
+    publisher_rel: Option<String>,
+    /// Raw `rel` of the `medium="publisher"` item, on the album feed, that
+    /// names this publisher. Null when that item is missing or has no
+    /// `rel`.
+    ///
+    /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
+    /// so this value is non-standard. ADR 0049 §6.
+    music_rel: Option<String>,
+    /// The stated role, normalized, or `"artist"` when neither side states
+    /// one. Null on a conflict between the two sides. ADR 0049 §6.
+    ///
+    /// `"artist"` with `role_source = "default"` is an assumption. It is
+    /// not a statement that the feed makes.
+    role: Option<String>,
+    /// The source of `role`: `"publisher_rel"`, `"music_rel"`, `"default"`
+    /// or `"conflict"`. ADR 0049 §6.
+    role_source: String,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -1189,6 +1211,9 @@ struct PublisherLinkFacts {
     publisher_feed_url: Option<String>,
     music_feed_guid: String,
     music_feed_url: Option<String>,
+    /// The raw `rel` of the matched item on the other side, when the loop
+    /// found one. `None` when no candidate matched. ADR 0049 §6.
+    matched_item_rel: Option<String>,
 }
 
 /// Returns the resolved feed's GUID and stored URL, or the declared GUID and
@@ -1229,6 +1254,7 @@ fn music_to_publisher_facts(
     let mut publisher_link_resolution = "unresolved";
     let mut publisher_link_observed_at = None;
     let mut reciprocal_medium = None;
+    let mut matched_item_rel = None;
 
     if let Some(publisher_guid) = publisher_resolution.feed_guid() {
         for candidate in db::get_feed_remote_items_for_feed(conn, publisher_guid)?
@@ -1245,6 +1271,7 @@ fn music_to_publisher_facts(
                 publisher_link_resolution = candidate_resolution.kind();
                 publisher_link_observed_at = candidate_resolution.observed_at();
                 reciprocal_medium = candidate.medium;
+                matched_item_rel = candidate.rel;
                 break;
             }
         }
@@ -1260,6 +1287,7 @@ fn music_to_publisher_facts(
         publisher_feed_url,
         music_feed_guid: current_feed.feed_guid.clone(),
         music_feed_url: Some(current_feed.feed_url.clone()),
+        matched_item_rel,
     })
 }
 
@@ -1282,6 +1310,7 @@ fn publisher_to_music_facts(
 
     let mut music_names_publisher = false;
     let mut reciprocal_medium = None;
+    let mut matched_item_rel = None;
 
     if let Some(album_guid) = music_resolution.feed_guid() {
         for candidate in db::get_feed_remote_items_for_feed(conn, album_guid)?
@@ -1296,6 +1325,7 @@ fn publisher_to_music_facts(
             if candidate_resolution.feed_guid() == Some(current_feed.feed_guid.as_str()) {
                 music_names_publisher = true;
                 reciprocal_medium = candidate.medium;
+                matched_item_rel = candidate.rel;
                 break;
             }
         }
@@ -1311,18 +1341,62 @@ fn publisher_to_music_facts(
         publisher_feed_url: Some(current_feed.feed_url.clone()),
         music_feed_guid,
         music_feed_url,
+        matched_item_rel,
     })
+}
+
+/// Normalizes a raw `rel` value for comparison: trims it, then lowercases
+/// it in the ASCII range. An empty result after trim counts as no value.
+/// ADR 0049 §6, plan decision 8.
+///
+/// A value with a comma, such as `"Artist, Producer"`, is one value. This
+/// function does not split it (plan decision 13); it normalizes to
+/// `"artist, producer"`.
+fn normalize_rel(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_ascii_lowercase())
+    }
+}
+
+/// Derives `role` and `role_source` from the raw `rel` of the two items of a
+/// `publisher` view row. ADR 0049 §6, plan decision 8.
+///
+/// Each side normalizes with [`normalize_rel`] before the comparison. When
+/// both sides state a value and the values are equal, the result names
+/// `publisher_rel` as the source. When the values differ, the result is a
+/// conflict and carries no role: Provenance First requires that the
+/// conflict stay visible rather than have the node pick a side.
+fn resolve_role(
+    publisher_rel: Option<&str>,
+    music_rel: Option<&str>,
+) -> (Option<String>, &'static str) {
+    let publisher_value = publisher_rel.and_then(normalize_rel);
+    let music_value = music_rel.and_then(normalize_rel);
+
+    match (publisher_value, music_value) {
+        (Some(value), None) => (Some(value), "publisher_rel"),
+        (None, Some(value)) => (Some(value), "music_rel"),
+        (Some(publisher_value), Some(music_value)) if publisher_value == music_value => {
+            (Some(publisher_value), "publisher_rel")
+        }
+        (Some(_), Some(_)) => (None, "conflict"),
+        (None, None) => (Some("artist".to_string()), "default"),
+    }
 }
 
 /// Builds one `publisher` view row for a remote item of `current_feed`, or
 /// `None` when the item's medium is neither `"publisher"` nor `"music"`.
-/// ADR 0049 §3 and §4.
+/// ADR 0049 §3, §4 and §6.
 fn build_publisher_row(
     conn: &rusqlite::Connection,
     current_feed: &Feed,
     item_medium: Option<&str>,
     item_remote_feed_guid: &str,
     item_remote_feed_url: Option<&str>,
+    item_rel: Option<&str>,
 ) -> Result<Option<PublisherResponse>, api::ApiError> {
     let Some(direction) = publisher_direction(item_medium) else {
         return Ok(None);
@@ -1349,6 +1423,18 @@ fn build_publisher_row(
 
     let reciprocal_declared = facts.music_names_publisher && facts.publisher_lists_music;
 
+    // `item` (this row's own remote item) and `facts.matched_item_rel` (the
+    // matched item on the other side, if any) give `publisher_rel` and
+    // `music_rel` in an order that depends on which side `item` is on.
+    // ADR 0049 §6, task 006 "Constraints".
+    let own_rel = item_rel.map(str::to_string);
+    let (publisher_rel, music_rel) = match direction {
+        "music_to_publisher" => (facts.matched_item_rel, own_rel),
+        "publisher_to_music" => (own_rel, facts.matched_item_rel),
+        _ => unreachable!("publisher_direction only returns the two names handled above"),
+    };
+    let (role, role_source) = resolve_role(publisher_rel.as_deref(), music_rel.as_deref());
+
     Ok(Some(PublisherResponse {
         direction: direction.to_string(),
         remote_feed_guid: item_remote_feed_guid.to_string(),
@@ -1365,6 +1451,10 @@ fn build_publisher_row(
         reciprocal_declared,
         reciprocal_medium: facts.reciprocal_medium,
         two_way_validated: reciprocal_declared,
+        publisher_rel,
+        music_rel,
+        role,
+        role_source: role_source.to_string(),
     }))
 }
 
@@ -1385,6 +1475,7 @@ fn load_publisher(
             item.medium.as_deref(),
             &item.remote_feed_guid,
             item.remote_feed_url.as_deref(),
+            item.rel.as_deref(),
         )? {
             rows.push(row);
         }
@@ -1437,6 +1528,7 @@ fn load_track_publisher(
             item.medium.as_deref(),
             &item.remote_feed_guid,
             item.remote_feed_url.as_deref(),
+            item.rel.as_deref(),
         )? {
             rows.push(row);
         }
@@ -2401,4 +2493,71 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<SearchResponseItem>(&mut schemas);
     register_schema::<ArtistTrackItem>(&mut schemas);
     schemas
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── normalize_rel ──────────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_rel_trims_and_lowercases() {
+        assert_eq!(normalize_rel(" Label "), Some("label".to_string()));
+    }
+
+    #[test]
+    fn normalize_rel_empty_after_trim_is_no_value() {
+        assert_eq!(normalize_rel("   "), None);
+    }
+
+    #[test]
+    fn normalize_rel_keeps_a_comma_as_one_value() {
+        assert_eq!(
+            normalize_rel("Artist, Producer"),
+            Some("artist, producer".to_string())
+        );
+    }
+
+    // ── resolve_role: one case per table row (task 006 "Constraints") ──────
+
+    #[test]
+    fn resolve_role_publisher_rel_only() {
+        assert_eq!(
+            resolve_role(Some("label"), None),
+            (Some("label".to_string()), "publisher_rel")
+        );
+    }
+
+    #[test]
+    fn resolve_role_music_rel_only() {
+        assert_eq!(
+            resolve_role(None, Some("artist")),
+            (Some("artist".to_string()), "music_rel")
+        );
+    }
+
+    #[test]
+    fn resolve_role_both_equal_after_normalization() {
+        assert_eq!(
+            resolve_role(Some(" Label "), Some("label")),
+            (Some("label".to_string()), "publisher_rel")
+        );
+    }
+
+    #[test]
+    fn resolve_role_both_different_is_conflict() {
+        assert_eq!(
+            resolve_role(Some("artist, producer"), Some("artist")),
+            (None, "conflict")
+        );
+    }
+
+    #[test]
+    fn resolve_role_neither_defaults_to_artist() {
+        assert_eq!(
+            resolve_role(None, None),
+            (Some("artist".to_string()), "default")
+        );
+    }
 }

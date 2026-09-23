@@ -608,7 +608,11 @@ Returns a single feed by its `podcast:guid`.
         "publisher_link_observed_at": null,
         "reciprocal_declared": true,
         "reciprocal_medium": "music",
-        "two_way_validated": true
+        "two_way_validated": true,
+        "publisher_rel": "label",
+        "music_rel": null,
+        "role": "label",
+        "role_source": "publisher_rel"
       }
     ]
   },
