@@ -1806,6 +1806,7 @@ fn cross_platform_single_track_mirrors_cluster_despite_one_second_duration_drift
                 medium: Some("publisher".into()),
                 remote_feed_guid: "publisher-feed-guid-1".into(),
                 remote_feed_url: Some("https://wavlake.com/relaxed-artist".into()),
+                rel: None,
                 source: "podcast_remote_item".into(),
             }],
             Some("https://wavlake.com/relaxed-artist".to_string()),

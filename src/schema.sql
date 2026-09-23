@@ -200,6 +200,7 @@ CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
     medium           TEXT,
     remote_feed_guid TEXT NOT NULL,
     remote_feed_url  TEXT,
+    rel              TEXT,
     source           TEXT NOT NULL DEFAULT 'podcast_remote_item',
     UNIQUE(feed_guid, position)
 ) STRICT;
@@ -215,6 +216,7 @@ CREATE TABLE IF NOT EXISTS track_remote_items_raw (
     medium           TEXT,
     remote_feed_guid TEXT NOT NULL,
     remote_feed_url  TEXT,
+    rel              TEXT,
     source           TEXT NOT NULL DEFAULT 'podcast_remote_item',
     UNIQUE(feed_guid, track_guid, position),
     FOREIGN KEY (feed_guid, track_guid) REFERENCES tracks(feed_guid, track_guid)

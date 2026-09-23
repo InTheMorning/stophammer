@@ -468,6 +468,9 @@ struct FeedRemoteItemResponse {
     medium: Option<String>,
     remote_feed_guid: String,
     remote_feed_url: Option<String>,
+    /// Raw `rel` attribute. The Podcast Namespace does not define `rel` on
+    /// `podcast:remoteItem`, so this value is non-standard.
+    rel: Option<String>,
     source: String,
 }
 
@@ -477,6 +480,9 @@ struct TrackRemoteItemResponse {
     medium: Option<String>,
     remote_feed_guid: String,
     remote_feed_url: Option<String>,
+    /// Raw `rel` attribute. The Podcast Namespace does not define `rel` on
+    /// `podcast:remoteItem`, so this value is non-standard.
+    rel: Option<String>,
     source: String,
 }
 
@@ -1151,6 +1157,7 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
         medium: item.medium,
         remote_feed_guid: item.remote_feed_guid,
         remote_feed_url: item.remote_feed_url,
+        rel: item.rel,
         source: item.source,
     }
 }
@@ -1240,6 +1247,7 @@ fn load_track_remote_items(
             medium: item.medium,
             remote_feed_guid: item.remote_feed_guid,
             remote_feed_url: item.remote_feed_url,
+            rel: item.rel,
             source: item.source,
         })
         .collect())

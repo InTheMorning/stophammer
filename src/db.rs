@@ -213,6 +213,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 34: keep the feed build time apart from the publication date
     // (ADR 0043)
     include_str!("../migrations/0034_feed_last_build_date.sql"),
+    // Migration 35: store the raw `rel` attribute of a `podcast:remoteItem`
+    // (ADR 0049)
+    include_str!("../migrations/0035_remote_item_rel.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -404,6 +407,26 @@ fn ensure_feed_last_build_date_schema(conn: &Connection) -> Result<(), DbError> 
     Ok(())
 }
 
+/// Adds `rel` to `feed_remote_items_raw` and `track_remote_items_raw` when
+/// migration 0035 could not run.
+///
+/// Migration versions are array positions. ADR 0046 records that a production
+/// database already recorded version 29 before this migration existed, and
+/// migration 0035 is the 29th entry in [`MIGRATIONS`], so that database skips
+/// it and never gains the `rel` columns on its own. This repair runs after
+/// [`ensure_feed_scoped_track_identity_schema`], so it sees the final shape of
+/// `track_remote_items_raw` whichever path that repair took. ADR 0049 owns the
+/// field.
+fn ensure_remote_item_rel_schema(conn: &Connection) -> Result<(), DbError> {
+    if !table_has_column(conn, "feed_remote_items_raw", "rel")? {
+        conn.execute_batch("ALTER TABLE feed_remote_items_raw ADD COLUMN rel TEXT;")?;
+    }
+    if !table_has_column(conn, "track_remote_items_raw", "rel")? {
+        conn.execute_batch("ALTER TABLE track_remote_items_raw ADD COLUMN rel TEXT;")?;
+    }
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -446,6 +469,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_scoped_track_identity_schema(&mut conn)?;
     ensure_source_contributor_npub_schema(&conn)?;
     ensure_feed_last_build_date_schema(&conn)?;
+    ensure_remote_item_rel_schema(&conn)?;
     Ok(conn)
 }
 
@@ -1674,7 +1698,7 @@ pub fn get_feed_remote_items_for_feed(
     feed_guid: &str,
 ) -> Result<Vec<FeedRemoteItemRaw>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source \
          FROM feed_remote_items_raw WHERE feed_guid = ?1 ORDER BY position",
     )?;
 
@@ -1686,7 +1710,8 @@ pub fn get_feed_remote_items_for_feed(
             medium: row.get(3)?,
             remote_feed_guid: row.get(4)?,
             remote_feed_url: row.get(5)?,
-            source: row.get(6)?,
+            rel: row.get(6)?,
+            source: row.get(7)?,
         })
     })?;
 
@@ -1753,7 +1778,7 @@ pub fn get_track_remote_items_for_track(
     track_guid: &str,
 ) -> Result<Vec<TrackRemoteItemRaw>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source \
          FROM track_remote_items_raw WHERE track_guid = ?1 ORDER BY position",
     )?;
     let rows = stmt.query_map(params![track_guid], |row| {
@@ -1765,7 +1790,8 @@ pub fn get_track_remote_items_for_track(
             medium: row.get(4)?,
             remote_feed_guid: row.get(5)?,
             remote_feed_url: row.get(6)?,
-            source: row.get(7)?,
+            rel: row.get(7)?,
+            source: row.get(8)?,
         })
     })?;
 
@@ -1782,7 +1808,7 @@ pub fn get_track_remote_items_for_feed_track(
     track_guid: &str,
 ) -> Result<Vec<TrackRemoteItemRaw>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source \
+        "SELECT id, feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source \
          FROM track_remote_items_raw \
          WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL) \
          ORDER BY position",
@@ -1796,7 +1822,8 @@ pub fn get_track_remote_items_for_feed_track(
             medium: row.get(4)?,
             remote_feed_guid: row.get(5)?,
             remote_feed_url: row.get(6)?,
-            source: row.get(7)?,
+            rel: row.get(7)?,
+            source: row.get(8)?,
         })
     })?;
     rows.collect::<Result<_, _>>().map_err(DbError::from)
@@ -1815,14 +1842,15 @@ pub fn replace_feed_remote_items_raw(
     for item in remote_items {
         conn.execute(
             "INSERT INTO feed_remote_items_raw \
-             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 &item.feed_guid,
                 item.position,
                 &item.medium,
                 &item.remote_feed_guid,
                 &item.remote_feed_url,
+                &item.rel,
                 &item.source,
             ],
         )?;
@@ -1842,14 +1870,15 @@ pub fn replace_track_remote_items_raw(
     for item in remote_items {
         conn.execute(
             "INSERT INTO track_remote_items_raw \
-             (track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (track_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 &item.track_guid,
                 item.position,
                 &item.medium,
                 &item.remote_feed_guid,
                 &item.remote_feed_url,
+                &item.rel,
                 &item.source,
             ],
         )?;
@@ -1870,8 +1899,8 @@ pub fn replace_track_remote_items_raw_for_feed_track(
     for item in remote_items {
         conn.execute(
             "INSERT INTO track_remote_items_raw \
-             (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 if item.feed_guid.is_empty() {
                     feed_guid
@@ -1883,6 +1912,7 @@ pub fn replace_track_remote_items_raw_for_feed_track(
                 &item.medium,
                 &item.remote_feed_guid,
                 &item.remote_feed_url,
+                &item.rel,
                 &item.source,
             ],
         )?;
@@ -4941,14 +4971,15 @@ pub fn ingest_transaction(
     for item in &remote_items {
         tx.execute(
             "INSERT INTO feed_remote_items_raw \
-             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 &item.feed_guid,
                 item.position,
                 &item.medium,
                 &item.remote_feed_guid,
                 &item.remote_feed_url,
+                &item.rel,
                 &item.source,
             ],
         )?;
@@ -5280,8 +5311,8 @@ pub fn ingest_transaction(
         for item in remote_items {
             tx.execute(
                 "INSERT INTO track_remote_items_raw \
-                 (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                 (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     if item.feed_guid.is_empty() {
                         track.feed_guid.as_str()
@@ -5293,6 +5324,7 @@ pub fn ingest_transaction(
                     &item.medium,
                     &item.remote_feed_guid,
                     &item.remote_feed_url,
+                    &item.rel,
                     &item.source,
                 ],
             )?;

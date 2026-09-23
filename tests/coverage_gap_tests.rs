@@ -1599,6 +1599,7 @@ fn medium_music_verifier_pass_publisher_with_music_children() {
                 medium: Some("music".into()),
                 remote_feed_guid: "child-guid-1".into(),
                 remote_feed_url: Some("https://example.com/feed/child1".into()),
+                rel: None,
             }],
             persons: vec![],
             entity_ids: vec![],

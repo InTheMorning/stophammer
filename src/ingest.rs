@@ -119,6 +119,12 @@ pub struct IngestRemoteFeedRef {
     pub medium: Option<String>,
     pub remote_feed_guid: String,
     pub remote_feed_url: Option<String>,
+    /// Raw `rel` attribute of the `podcast:remoteItem` element.
+    ///
+    /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
+    /// so this value is non-standard.
+    #[serde(default)]
+    pub rel: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

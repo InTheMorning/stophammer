@@ -366,3 +366,129 @@ fn open_db_repairs_feed_last_build_date_when_0034_was_skipped() {
         "open_db should repair skipped 0034 feed last_build_date schema"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR 0049: migration 0035 adds `rel` to both remote-item tables. A row
+// written before the migration must read `rel` as null afterward.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn remote_item_rel_column_exists_and_legacy_row_reads_null() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("remote-item-rel-legacy-row.db");
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open db");
+    apply_migration_files_through(&conn, "0034_feed_last_build_date.sql");
+    // Migration 0032 turns foreign_keys back on. This test only cares about
+    // the rel column, not about seeding valid parent feed/track rows.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .expect("disable foreign keys for this fixture");
+
+    assert!(
+        !table_has_column(&conn, "feed_remote_items_raw", "rel"),
+        "feed_remote_items_raw must start without rel"
+    );
+    assert!(
+        !table_has_column(&conn, "track_remote_items_raw", "rel"),
+        "track_remote_items_raw must start without rel"
+    );
+
+    conn.execute(
+        "INSERT INTO feed_remote_items_raw \
+         (feed_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+         VALUES ('legacy-feed', 0, 'music', 'legacy-remote-guid', NULL, 'podcast_remote_item')",
+        [],
+    )
+    .expect("insert legacy feed remote item");
+    conn.execute(
+        "INSERT INTO track_remote_items_raw \
+         (feed_guid, track_guid, position, medium, remote_feed_guid, remote_feed_url, source) \
+         VALUES ('legacy-feed', 'legacy-track', 0, 'publisher', 'legacy-remote-guid-2', NULL, 'podcast_remote_item')",
+        [],
+    )
+    .expect("insert legacy track remote item");
+
+    let sql_0035 =
+        fs::read_to_string("migrations/0035_remote_item_rel.sql").expect("read migration 0035");
+    conn.execute_batch(&sql_0035).expect("apply migration 0035");
+
+    assert!(
+        table_has_column(&conn, "feed_remote_items_raw", "rel"),
+        "feed_remote_items_raw must gain rel after migration 0035"
+    );
+    assert!(
+        table_has_column(&conn, "track_remote_items_raw", "rel"),
+        "track_remote_items_raw must gain rel after migration 0035"
+    );
+
+    let feed_rel: Option<String> = conn
+        .query_row(
+            "SELECT rel FROM feed_remote_items_raw WHERE feed_guid = 'legacy-feed' AND position = 0",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read feed remote item rel");
+    assert_eq!(
+        feed_rel, None,
+        "a feed remote item row written before migration 0035 must read rel as null"
+    );
+
+    let track_rel: Option<String> = conn
+        .query_row(
+            "SELECT rel FROM track_remote_items_raw WHERE track_guid = 'legacy-track' AND position = 0",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read track remote item rel");
+    assert_eq!(
+        track_rel, None,
+        "a track remote item row written before migration 0035 must read rel as null"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0049 task 003: migration 0035 is the 29th entry in MIGRATIONS. ADR 0046
+// records that a production database already recorded version 29 before this
+// migration existed, so the runner skips it there. open_db must repair the
+// column on both tables.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_repairs_remote_item_rel_when_0035_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("legacy-high-watermark-remote-item-rel.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0034_feed_last_build_date.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (99, 1);",
+        )
+        .expect("mark high migration watermark");
+
+        assert!(
+            !table_has_column(&conn, "feed_remote_items_raw", "rel"),
+            "legacy fixture should start without feed_remote_items_raw.rel"
+        );
+        assert!(
+            !table_has_column(&conn, "track_remote_items_raw", "rel"),
+            "legacy fixture should start without track_remote_items_raw.rel"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "feed_remote_items_raw", "rel"),
+        "open_db should repair skipped 0035 feed_remote_items_raw.rel schema"
+    );
+    assert!(
+        table_has_column(&conn, "track_remote_items_raw", "rel"),
+        "open_db should repair skipped 0035 track_remote_items_raw.rel schema"
+    );
+}

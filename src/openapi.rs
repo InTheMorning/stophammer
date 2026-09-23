@@ -1053,7 +1053,8 @@ fn ingest_request_example() -> Value {
                 "position": 0,
                 "medium": "publisher",
                 "remote_feed_guid": "artist-feed-guid",
-                "remote_feed_url": "https://example.com/artist.xml"
+                "remote_feed_url": "https://example.com/artist.xml",
+                "rel": null
             }],
             "persons": [{
                 "position": 0,

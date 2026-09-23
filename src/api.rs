@@ -1928,6 +1928,7 @@ async fn handle_ingest_feed(
                 medium: item.medium.clone(),
                 remote_feed_guid: item.remote_feed_guid.clone(),
                 remote_feed_url: item.remote_feed_url.clone(),
+                rel: item.rel.clone(),
                 source: "podcast_remote_item".to_string(),
             })
             .collect();
@@ -2324,6 +2325,7 @@ async fn handle_ingest_feed(
                     medium: r.medium.clone(),
                     remote_feed_guid: r.remote_feed_guid.clone(),
                     remote_feed_url: r.remote_feed_url.clone(),
+                    rel: r.rel.clone(),
                     source: "podcast_remote_item".into(),
                 })
                 .collect();
@@ -2482,6 +2484,7 @@ async fn handle_ingest_feed(
                     medium: r.medium.clone(),
                     remote_feed_guid: r.remote_feed_guid.clone(),
                     remote_feed_url: r.remote_feed_url.clone(),
+                    rel: r.rel.clone(),
                     source: "podcast_remote_item".into(),
                 })
                 .collect();

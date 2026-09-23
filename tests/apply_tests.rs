@@ -871,6 +871,7 @@ fn apply_feed_remote_items_replaced() {
             medium: Some("music".into()),
             remote_feed_guid: "artist-feed-guid".into(),
             remote_feed_url: Some("https://example.com/artist.xml".into()),
+            rel: None,
             source: "podcast_remote_item".into(),
         }],
     };

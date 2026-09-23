@@ -538,6 +538,7 @@ fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
                 medium: Some("music".to_string()),
                 remote_feed_guid: "music-feed-guid".to_string(),
                 remote_feed_url: Some("https://example.com/music.xml".to_string()),
+                rel: None,
             }],
             persons: vec![],
             entity_ids: vec![],
