@@ -385,6 +385,30 @@ fn spec_value(mode: DocMode) -> Value {
             )
         }),
     );
+    paths.insert(
+        "/v1/publisher-links/stats".into(),
+        json!({
+            "get": operation(
+                "Get publisher link statistics",
+                "Gives the number of listed publisher links, by resolution: `guid`, `feed_url` or `unresolved`. ADR 0049 section 8.",
+                "Publishers",
+                vec![],
+                None,
+                json!({
+                    "200": json_response(
+                        "Publisher link statistics.",
+                        query_envelope_example(json!({
+                            "listed_links": 40,
+                            "resolved_by_guid": 10,
+                            "resolved_by_feed_url": 25,
+                            "unresolved": 5
+                        }))
+                    )
+                }),
+                None
+            )
+        }),
+    );
     if matches!(mode, DocMode::Primary) {
         paths.insert(
             "/ingest/feed".into(),

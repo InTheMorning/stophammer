@@ -2447,6 +2447,58 @@ async fn handle_publisher_detail(
     Ok(Json(result))
 }
 
+// ── GET /v1/publisher-links/stats ───────────────────────────────────────────
+
+/// The counts `GET /v1/publisher-links/stats` gives (ADR 0049 §8, plan
+/// decision 9). `listed_links` is the sum of the other three fields.
+#[derive(Debug, Serialize, ToSchema)]
+struct PublisherLinkStatsResponse {
+    listed_links: i64,
+    resolved_by_guid: i64,
+    resolved_by_feed_url: i64,
+    unresolved: i64,
+}
+
+impl From<db::PublisherLinkStats> for PublisherLinkStatsResponse {
+    fn from(stats: db::PublisherLinkStats) -> Self {
+        Self {
+            listed_links: stats.listed_links,
+            resolved_by_guid: stats.resolved_by_guid,
+            resolved_by_feed_url: stats.resolved_by_feed_url,
+            unresolved: stats.unresolved,
+        }
+    }
+}
+
+async fn handle_publisher_link_stats(
+    State(state): State<Arc<api::AppState>>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let link_stats = db::get_publisher_link_stats(&conn)?;
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: PublisherLinkStatsResponse::from(link_stats),
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+    Ok(Json(result))
+}
+
 // ── GET /v1/tracks ──────────────────────────────────────────────────────────
 
 async fn handle_artist_tracks(
@@ -2599,6 +2651,10 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/peers", get(handle_get_peers))
         .route("/v1/publishers", get(handle_publisher_search))
         .route("/v1/publishers/{publisher}", get(handle_publisher_detail))
+        .route(
+            "/v1/publisher-links/stats",
+            get(handle_publisher_link_stats),
+        )
 }
 
 // ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────
@@ -2631,6 +2687,7 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<PublisherDetailResponse>(&mut schemas);
     register_schema::<SearchResponseItem>(&mut schemas);
     register_schema::<ArtistTrackItem>(&mut schemas);
+    register_schema::<PublisherLinkStatsResponse>(&mut schemas);
     schemas
 }
 

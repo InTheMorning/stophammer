@@ -1117,6 +1117,33 @@ parameter. Matching is partial (substring); case-insensitive by default.
 }
 ```
 
+### GET /v1/publisher-links/stats
+
+Gives the number of listed publisher links, by resolution. A listed link is a
+`podcast:remoteItem` with `medium="music"` on a publisher feed. ADR 0049
+section 8 owns this route.
+
+- **Authentication:** None
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": {
+    "listed_links": 40,
+    "resolved_by_guid": 10,
+    "resolved_by_feed_url": 25,
+    "unresolved": 5
+  },
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+`listed_links` is the sum of `resolved_by_guid`, `resolved_by_feed_url` and
+`unresolved`. The `refresh` pass of the crawler reads this route after each
+run, so an operator can see the unresolved count change over time.
+
 ---
 
 ## 9. Mutations -- Proof-of-Possession

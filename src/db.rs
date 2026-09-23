@@ -4689,6 +4689,72 @@ pub fn get_publisher_album_release_artists(
     Ok(albums)
 }
 
+// ── publisher link statistics (ADR 0049 §8) ─────────────────────────────────
+
+/// The counts [`get_publisher_link_stats`] returns, one per resolution kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PublisherLinkStats {
+    /// The number of listed publisher links. The sum of the three fields
+    /// below.
+    pub listed_links: i64,
+    /// The number resolved by [`ListedFeedResolution::Guid`].
+    pub resolved_by_guid: i64,
+    /// The number resolved by [`ListedFeedResolution::FeedUrl`].
+    pub resolved_by_feed_url: i64,
+    /// The number that resolved to neither: [`ListedFeedResolution::Unresolved`].
+    pub unresolved: i64,
+}
+
+/// Returns the resolution counts of each listed publisher link, for `GET
+/// /v1/publisher-links/stats` (ADR 0049 §8, plan decision 9).
+///
+/// A listed link is a `feed_remote_items_raw` row with `medium = "music"`
+/// whose feed has `raw_medium = "publisher"`. The `raw_medium` comparison is
+/// case-insensitive, in SQL, the way [`crate::medium::is_publisher`]
+/// compares it in Rust. The `medium` comparison is the exact match the
+/// `publisher` view itself uses, so this count agrees with that view.
+///
+/// This function resolves each listed link with [`resolve_listed_feed`] and
+/// counts each resolution kind.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn get_publisher_link_stats(conn: &Connection) -> Result<PublisherLinkStats, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT r.remote_feed_guid, r.remote_feed_url \
+         FROM feed_remote_items_raw r \
+         JOIN feeds f ON f.feed_guid = r.feed_guid \
+         WHERE r.medium = 'music' AND lower(f.raw_medium) = 'publisher'",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?))
+    })?;
+
+    let mut listed_links = Vec::new();
+    for row in rows {
+        listed_links.push(row?);
+    }
+
+    let mut resolved_by_guid = 0i64;
+    let mut resolved_by_feed_url = 0i64;
+    let mut unresolved = 0i64;
+    for (remote_feed_guid, remote_feed_url) in &listed_links {
+        match resolve_listed_feed(conn, remote_feed_guid, remote_feed_url.as_deref())? {
+            ListedFeedResolution::Guid { .. } => resolved_by_guid += 1,
+            ListedFeedResolution::FeedUrl { .. } => resolved_by_feed_url += 1,
+            ListedFeedResolution::Unresolved => unresolved += 1,
+        }
+    }
+
+    Ok(PublisherLinkStats {
+        listed_links: resolved_by_guid + resolved_by_feed_url + unresolved,
+        resolved_by_guid,
+        resolved_by_feed_url,
+        unresolved,
+    })
+}
+
 // ── get_events_since ──────────────────────────────────────────────────────────
 
 /// Returns up to `limit` events with `seq > after_seq`, ordered ascending.
