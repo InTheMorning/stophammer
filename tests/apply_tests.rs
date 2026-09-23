@@ -1500,6 +1500,7 @@ fn make_feed_upserted_event(
         updated_at: now,
         raw_medium: None,
         last_build_date: None,
+        release_artist_source: None,
     };
 
     let inner = FeedUpsertedPayload { feed };

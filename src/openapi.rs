@@ -210,6 +210,7 @@ fn spec_value(mode: DocMode) -> Value {
                                 "track_number": 1,
                                 "feed_title": "Album Title",
                                 "release_artist": "Artist Name",
+                                "release_artist_source": "itunes_author",
                                 "created_at": 1710288000
                             }
                         ]))
@@ -640,7 +641,9 @@ fn feed_path_item(mode: DocMode) -> Value {
                         "feed_guid": "feed-guid",
                         "feed_url": "https://example.com/feed.xml",
                         "title": "My Music Feed",
-                        "release_artist": "Artist Name"
+                        "release_artist": "Artist Name",
+                        "release_artist_source": "itunes_author",
+                        "publisher_feed_title": "Publisher Feed Title"
                     }))
                 ),
                 "404": error_response("Feed not found.")

@@ -690,119 +690,30 @@ fn normalize_role(role: Option<&str>) -> Option<String> {
     )
 }
 
-fn derive_feed_artist_name(feed_data: &ingest::IngestFeedData) -> String {
+/// Gives the feed release artist and the name of the source that gave it.
+///
+/// The order is: a non-empty trimmed `itunes:author`, giving
+/// `"itunes_author"`; else a non-empty trimmed `itunes:owner` name that does
+/// not name a platform, giving `"itunes_owner"`; else the placeholder
+/// `"Unknown Artist"`, giving `"placeholder"`. ADR 0049 §5 owns this rule.
+fn derive_release_artist(feed_data: &ingest::IngestFeedData) -> (String, &'static str) {
     if let Some(author_name) = non_empty_trimmed(feed_data.author_name.as_deref()) {
-        return author_name.to_string();
-    }
-
-    if let Some(wavlake_slug_name) = wavlake_artist_name_from_links(&feed_data.links) {
-        return wavlake_slug_name;
+        return (author_name.to_string(), "itunes_author");
     }
 
     if let Some(owner_name) = non_empty_trimmed(feed_data.owner_name.as_deref())
         && !is_platform_owner_name(owner_name)
     {
-        return owner_name.to_string();
+        return (owner_name.to_string(), "itunes_owner");
     }
 
-    "Unknown Artist".to_string()
+    ("Unknown Artist".to_string(), "placeholder")
 }
 
+/// Gives the feed `publisher_text`: the trimmed `itunes:owner` name, or
+/// `None`. ADR 0049 §5 owns this rule.
 fn derive_publisher_name(feed_data: &ingest::IngestFeedData) -> Option<String> {
     non_empty_trimmed(feed_data.owner_name.as_deref()).map(str::to_string)
-}
-
-/// Returns true when the canonical feed URL is hosted on wavlake.com.
-fn is_wavlake_url(url: &str) -> bool {
-    reqwest::Url::parse(url)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
-        .is_some_and(|h| h == "wavlake.com" || h == "www.wavlake.com")
-}
-
-fn find_linked_publisher_feed(
-    conn: &rusqlite::Connection,
-    feed_data: &ingest::IngestFeedData,
-) -> Result<Option<model::Feed>, db::DbError> {
-    // Bottom-up: music feed declares its publisher via remoteItem.
-    if let Some(item) = feed_data
-        .remote_items
-        .iter()
-        .find(|item| item.medium.as_deref() == Some("publisher"))
-    {
-        // GUID lookup first. Fall back to URL if the publisher feed was
-        // re-indexed under a new podcast:guid (guid changed, URL unchanged).
-        if let Some(feed) = db::get_feed(conn, &item.remote_feed_guid)? {
-            return Ok(Some(feed));
-        }
-        if let Some(url) = &item.remote_feed_url
-            && let Some(feed) = db::get_existing_feed(conn, url)?
-        {
-            return Ok(Some(feed));
-        }
-    }
-
-    // Top-down: publisher feed declares this music feed via medium=music remoteItem.
-    // Covers feeds whose RSS does not include <podcast:publisher> themselves.
-    db::get_publisher_feed_for_music_feed(conn, &feed_data.feed_guid)
-}
-
-fn has_reciprocal_music_remote_item(
-    conn: &rusqlite::Connection,
-    publisher_feed_guid: &str,
-    music_feed_guid: &str,
-) -> Result<bool, db::DbError> {
-    Ok(
-        db::get_feed_remote_items_for_feed(conn, publisher_feed_guid)?
-            .into_iter()
-            .any(|item| {
-                item.remote_feed_guid == music_feed_guid && item.medium.as_deref() == Some("music")
-            }),
-    )
-}
-
-fn derive_linked_publisher_name(
-    conn: &rusqlite::Connection,
-    feed_data: &ingest::IngestFeedData,
-) -> Result<Option<String>, db::DbError> {
-    let Some(publisher_feed) = find_linked_publisher_feed(conn, feed_data)? else {
-        return Ok(None);
-    };
-
-    if !has_reciprocal_music_remote_item(conn, &publisher_feed.feed_guid, &feed_data.feed_guid)? {
-        return Ok(None);
-    }
-
-    Ok(non_empty_trimmed(Some(publisher_feed.title.as_str())).map(str::to_string))
-}
-
-fn feed_remote_item_targets_publisher(
-    item: &model::FeedRemoteItemRaw,
-    publisher_feed: &model::Feed,
-) -> bool {
-    medium::is_publisher(item.medium.as_deref())
-        && (item.remote_feed_guid == publisher_feed.feed_guid
-            || item.remote_feed_url.as_deref() == Some(publisher_feed.feed_url.as_str()))
-}
-
-fn publisher_repair_text(music_feed: &model::Feed, publisher_feed: &model::Feed) -> Option<String> {
-    if is_wavlake_url(&music_feed.feed_url) {
-        return Some("Wavlake".to_string());
-    }
-    non_empty_trimmed(Some(publisher_feed.title.as_str())).map(str::to_string)
-}
-
-fn publisher_repair_release_artist(
-    music_feed: &model::Feed,
-    publisher_feed: &model::Feed,
-) -> Option<String> {
-    if is_wavlake_url(&music_feed.feed_url) {
-        return publisher_feed
-            .release_artist
-            .clone()
-            .or_else(|| Some(publisher_feed.title.clone()));
-    }
-    music_feed.release_artist.clone()
 }
 
 fn event_type_tag(event_type: &event::EventType) -> Result<String, ApiError> {
@@ -863,85 +774,6 @@ fn sign_event_row(
     })
 }
 
-fn feed_upsert_event_row(feed: &model::Feed, now: i64) -> Result<db::EventRow, ApiError> {
-    let payload = event::FeedUpsertedPayload { feed: feed.clone() };
-    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("failed to serialize FeedUpserted payload: {e}"),
-        www_authenticate: None,
-    })?;
-    Ok(db::EventRow {
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_type: event::EventType::FeedUpserted,
-        payload_json,
-        subject_guid: feed.feed_guid.clone(),
-        created_at: now,
-        warnings: vec![],
-    })
-}
-
-fn track_upsert_event_row(
-    conn: &rusqlite::Connection,
-    track: &model::Track,
-    now: i64,
-) -> Result<db::EventRow, ApiError> {
-    let payload = event::TrackUpsertedPayload {
-        track: track.clone(),
-        routes: db::get_payment_routes_for_feed_track(conn, &track.feed_guid, &track.track_guid)?,
-        value_time_splits: db::get_value_time_splits_for_feed_track(
-            conn,
-            &track.feed_guid,
-            &track.track_guid,
-        )?,
-    };
-    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("failed to serialize TrackUpserted payload: {e}"),
-        www_authenticate: None,
-    })?;
-    Ok(db::EventRow {
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_type: event::EventType::TrackUpserted,
-        payload_json,
-        subject_guid: track.track_guid.clone(),
-        created_at: now,
-        warnings: vec![],
-    })
-}
-
-fn repair_tracks_for_publisher_text(
-    conn: &rusqlite::Connection,
-    feed_guid: &str,
-    publisher_text: Option<&str>,
-    now: i64,
-    signer: &signing::NodeSigner,
-) -> Result<Vec<SignedEventRow>, ApiError> {
-    let mut signed_rows = Vec::new();
-    for mut track in db::get_tracks_for_feed(conn, feed_guid)? {
-        if track.publisher.as_deref() == publisher_text {
-            continue;
-        }
-        track.publisher = publisher_text.map(ToOwned::to_owned);
-        track.updated_at = now;
-        db::upsert_track(conn, &track)?;
-        let row = track_upsert_event_row(conn, &track, now)?;
-        signed_rows.push(sign_event_row(conn, row, signer)?);
-    }
-    Ok(signed_rows)
-}
-
-fn music_feed_can_be_repaired_from_publisher(
-    conn: &rusqlite::Connection,
-    music_feed: &model::Feed,
-    publisher_feed: &model::Feed,
-) -> Result<bool, ApiError> {
-    Ok(
-        db::get_feed_remote_items_for_feed(conn, &music_feed.feed_guid)?
-            .iter()
-            .any(|item| feed_remote_item_targets_publisher(item, publisher_feed)),
-    )
-}
-
 fn feed_url_observed_event_row(
     observation: &db::FeedUrlObservation,
 ) -> Result<db::EventRow, ApiError> {
@@ -969,9 +801,8 @@ fn feed_url_observed_event_row(
 /// for each URL whose observation changed (ADR 0049 Section 1).
 ///
 /// Records `canonical_url`, and `source_url` too when it differs from
-/// `canonical_url`. Runs in its own transaction, the way
-/// [`repair_linked_music_feeds_after_publisher_ingest`] runs its own
-/// transaction after the main ingest transaction commits.
+/// `canonical_url`. Runs in its own transaction, after the main ingest
+/// transaction commits.
 fn record_feed_url_observations_for_ingest(
     conn: &mut rusqlite::Connection,
     canonical_url: &str,
@@ -1000,86 +831,6 @@ fn record_feed_url_observations_for_ingest(
     Ok(signed_rows)
 }
 
-fn repair_music_feed_from_publisher(
-    conn: &rusqlite::Connection,
-    mut music_feed: model::Feed,
-    publisher_feed: &model::Feed,
-    now: i64,
-    signer: &signing::NodeSigner,
-) -> Result<Vec<SignedEventRow>, ApiError> {
-    let Some(publisher_text) = publisher_repair_text(&music_feed, publisher_feed) else {
-        return Ok(Vec::new());
-    };
-    let desired_publisher = Some(publisher_text);
-    let desired_release_artist = publisher_repair_release_artist(&music_feed, publisher_feed);
-    let feed_changed = music_feed.publisher != desired_publisher
-        || music_feed.release_artist != desired_release_artist;
-
-    let mut signed_rows = Vec::new();
-    if feed_changed {
-        music_feed.publisher.clone_from(&desired_publisher);
-        music_feed.release_artist = desired_release_artist;
-        music_feed.updated_at = now;
-        db::upsert_feed(conn, &music_feed)?;
-        signed_rows.push(sign_event_row(
-            conn,
-            feed_upsert_event_row(&music_feed, now)?,
-            signer,
-        )?);
-    }
-
-    signed_rows.extend(repair_tracks_for_publisher_text(
-        conn,
-        &music_feed.feed_guid,
-        desired_publisher.as_deref(),
-        now,
-        signer,
-    )?);
-    db::sync_source_read_models_for_feed(conn, &music_feed.feed_guid)?;
-    Ok(signed_rows)
-}
-
-fn repair_linked_music_feeds_after_publisher_ingest(
-    conn: &mut rusqlite::Connection,
-    publisher_feed: &model::Feed,
-    remote_items: &[model::FeedRemoteItemRaw],
-    signer: &signing::NodeSigner,
-    now: i64,
-) -> Result<Vec<SignedEventRow>, ApiError> {
-    if !medium::is_publisher(publisher_feed.raw_medium.as_deref()) {
-        return Ok(Vec::new());
-    }
-
-    let tx = conn.transaction().map_err(db::DbError::from)?;
-    let mut repaired_feed_guids = HashSet::new();
-    let mut signed_rows = Vec::new();
-    for item in remote_items
-        .iter()
-        .filter(|item| medium::is_music(item.medium.as_deref()))
-    {
-        if !repaired_feed_guids.insert(item.remote_feed_guid.clone()) {
-            continue;
-        }
-        let Some(music_feed) = db::get_feed_by_guid(&tx, &item.remote_feed_guid)? else {
-            continue;
-        };
-        if !medium::is_music(music_feed.raw_medium.as_deref())
-            || !music_feed_can_be_repaired_from_publisher(&tx, &music_feed, publisher_feed)?
-        {
-            continue;
-        }
-        signed_rows.extend(repair_music_feed_from_publisher(
-            &tx,
-            music_feed,
-            publisher_feed,
-            now,
-            signer,
-        )?);
-    }
-    tx.commit().map_err(db::DbError::from)?;
-    Ok(signed_rows)
-}
-
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     if value.is_empty() { None } else { Some(value) }
@@ -1089,51 +840,11 @@ fn is_platform_owner_name(name: &str) -> bool {
     classify_platform_owner(name).is_some()
 }
 
-fn wavlake_artist_name_from_links(links: &[ingest::IngestLink]) -> Option<String> {
-    links
-        .iter()
-        .filter(|link| link.link_type == "website")
-        .find_map(|link| {
-            let url = reqwest::Url::parse(&link.url).ok()?;
-            let host = url.host_str()?.to_ascii_lowercase();
-            if host != "wavlake.com" && host != "www.wavlake.com" {
-                return None;
-            }
-
-            let slug = url.path_segments()?.find(|segment| !segment.is_empty())?;
-            let slug = slug.trim();
-            if slug.is_empty() || matches!(slug, "feed" | "music" | "node") {
-                return None;
-            }
-
-            Some(humanize_slug(slug))
-        })
-}
-
-fn humanize_slug(slug: &str) -> String {
-    slug.split(['-', '_'])
-        .filter(|part| !part.is_empty())
-        .map(capitalize_word)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn capitalize_word(word: &str) -> String {
-    let mut chars = word.chars();
-    let Some(first) = chars.next() else {
-        return String::new();
-    };
-    let mut out = String::new();
-    out.extend(first.to_uppercase());
-    out.push_str(chars.as_str());
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         build_source_contributor_claims, build_source_entity_links, build_source_platform_claims,
-        derive_feed_artist_name, is_wavlake_url, normalize_role, wavlake_artist_name_from_links,
+        derive_release_artist, normalize_role,
     };
     use crate::ingest::{IngestFeedData, IngestLink, IngestPerson};
 
@@ -1220,16 +931,7 @@ mod tests {
     }
 
     #[test]
-    fn is_wavlake_url_matches_known_hosts() {
-        assert!(is_wavlake_url("https://wavlake.com/feed/music/abc123"));
-        assert!(is_wavlake_url("https://www.wavlake.com/feed/music/abc123"));
-        assert!(!is_wavlake_url("https://example.com/feed.rss"));
-        assert!(!is_wavlake_url("https://fountain.fm/feed/abc"));
-        assert!(!is_wavlake_url("not a url"));
-    }
-
-    #[test]
-    fn derive_feed_artist_prefers_author_name() {
+    fn derive_release_artist_prefers_author_name() {
         let mut feed = empty_feed();
         feed.author_name = Some("Real Artist".into());
         feed.owner_name = Some("Wavlake".into());
@@ -1240,33 +942,42 @@ mod tests {
             extraction_path: "feed.link".into(),
         });
 
-        assert_eq!(derive_feed_artist_name(&feed), "Real Artist");
+        assert_eq!(
+            derive_release_artist(&feed),
+            ("Real Artist".to_string(), "itunes_author")
+        );
     }
 
     #[test]
-    fn derive_feed_artist_uses_wavlake_profile_slug_before_platform_owner() {
+    fn derive_release_artist_falls_back_to_non_platform_owner_name() {
         let mut feed = empty_feed();
-        feed.owner_name = Some("Wavlake".into());
-        feed.links.push(IngestLink {
-            position: 0,
-            link_type: "website".into(),
-            url: "https://wavlake.com/dead-reckoning-band".into(),
-            extraction_path: "feed.link".into(),
-        });
+        feed.owner_name = Some("  Indie Collective  ".into());
 
         assert_eq!(
-            wavlake_artist_name_from_links(&feed.links).as_deref(),
-            Some("Dead Reckoning Band")
+            derive_release_artist(&feed),
+            ("Indie Collective".to_string(), "itunes_owner")
         );
-        assert_eq!(derive_feed_artist_name(&feed), "Dead Reckoning Band");
     }
 
     #[test]
-    fn derive_feed_artist_does_not_fall_back_to_release_title() {
+    fn derive_release_artist_owner_wavlake_with_no_author_gives_placeholder() {
         let mut feed = empty_feed();
         feed.owner_name = Some("Wavlake".into());
 
-        assert_eq!(derive_feed_artist_name(&feed), "Unknown Artist");
+        assert_eq!(
+            derive_release_artist(&feed),
+            ("Unknown Artist".to_string(), "placeholder")
+        );
+    }
+
+    #[test]
+    fn derive_release_artist_gives_placeholder_when_no_author_or_owner() {
+        let feed = empty_feed();
+
+        assert_eq!(
+            derive_release_artist(&feed),
+            ("Unknown Artist".to_string(), "placeholder")
+        );
     }
 
     #[test]
@@ -2080,20 +1791,9 @@ async fn handle_ingest_feed(
         // compatibility artist/credit for the published release artist text
         // without invoking cross-feed resolution in ingest.
         //
-        // For Wavlake feeds with a publisher remoteItem, use the publisher
-        // feed's release_artist (or title) as the artist name so that the
-        // label/aggregator name is preserved rather than falling back to the
-        // slug heuristic.
-        let linked_publisher_feed = find_linked_publisher_feed(&conn, feed_data)?;
-        let wavlake_pub_feed = if is_wavlake_url(&req.canonical_url) {
-            linked_publisher_feed.clone()
-        } else {
-            None
-        };
-        let artist_name = wavlake_pub_feed
-            .as_ref()
-            .and_then(|f| f.release_artist.clone().or(Some(f.title.clone())))
-            .unwrap_or_else(|| derive_feed_artist_name(feed_data));
+        // ADR 0049 §5: the feed release artist comes from one RSS element,
+        // and the field that names its source travels beside it.
+        let (artist_name, release_artist_source) = derive_release_artist(feed_data);
         let feed_artist_credit =
             db::get_or_create_feed_scoped_source_text_credit(&conn, &artist_name, feed_guid_str)?;
         let feed_artist_id = feed_artist_credit
@@ -2147,12 +1847,7 @@ async fn handle_ingest_feed(
             artist_credit_id: feed_artist_credit.id,
             description: feed_data.description.clone(),
             image_url: feed_data.image_url.clone(),
-            publisher: if wavlake_pub_feed.is_some() {
-                Some("Wavlake".to_string())
-            } else {
-                derive_linked_publisher_name(&conn, feed_data)?
-                    .or_else(|| derive_publisher_name(feed_data))
-            },
+            publisher: derive_publisher_name(feed_data),
             language: feed_data.language.clone(),
             explicit: feed_data.explicit,
             itunes_type: feed_data.itunes_type.clone(),
@@ -2171,6 +1866,7 @@ async fn handle_ingest_feed(
             updated_at: now,
             raw_medium: feed_data.raw_medium.clone(),
             last_build_date: feed_data.last_build_date,
+            release_artist_source: Some(release_artist_source.to_string()),
         };
         let track_publisher = feed.publisher.clone();
 
@@ -2670,7 +2366,6 @@ async fn handle_ingest_feed(
         })?;
 
         // Collect event_ids and snapshot event data before moving event_rows.
-        // Publisher repair events may extend this list below.
         let mut event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
 
         // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
@@ -2687,7 +2382,6 @@ async fn handle_ingest_feed(
             })
             .collect();
         let ingested_feed = feed.clone();
-        let ingested_remote_items = feed_remote_items.clone();
 
         // 11. Run ingest transaction (signer signs after DB assigns seq)
         // Issue-SEQ-INTEGRITY — 2026-03-14
@@ -2729,21 +2423,6 @@ async fn handle_ingest_feed(
                 .map(|signed| signed.row.event_id.clone()),
         );
 
-        // 12. If this is a publisher feed, repair already-ingested child music
-        // feeds that were waiting for the publisher side of the relationship.
-        let repair_signed_rows = repair_linked_music_feeds_after_publisher_ingest(
-            &mut conn,
-            &ingested_feed,
-            &ingested_remote_items,
-            &state2.signer,
-            now,
-        )?;
-        event_ids.extend(
-            repair_signed_rows
-                .iter()
-                .map(|signed| signed.row.event_id.clone()),
-        );
-
         // 13. Update crawl cache
         db::upsert_feed_crawl_cache(&conn, &req.canonical_url, &req.content_hash, now)?;
 
@@ -2760,7 +2439,6 @@ async fn handle_ingest_feed(
             })
             .collect();
         signed_rows.extend(url_observation_rows);
-        signed_rows.extend(repair_signed_rows);
         let fanout_events: Vec<event::Event> = signed_rows
             .into_iter()
             .map(signed_row_to_event)

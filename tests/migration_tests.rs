@@ -588,13 +588,121 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
         "migration 0036 must run at the recorded watermark of 29, with no repair"
     );
 
+    // ADR 0049 task 007 added migration 0037 after this fixture was written.
+    // The fixture still stops at 0035, so open_db also runs 0037 (entry 31),
+    // one migration past the 0036 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 30,
-        "the runner must record version 30 after migration 0036 runs"
+        recorded_version, 31,
+        "the runner must record version 31 after migrations 0036 and 0037 run"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0049 task 007: migration 0037 adds `release_artist_source` to `feeds`.
+// A row written before the migration must read it as null.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn feed_release_artist_source_column_exists_and_legacy_row_reads_null() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("feed-release-artist-source-legacy-row.db");
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open db");
+    apply_migration_files_through(&conn, "0036_feed_url_observations.sql");
+    // Migration 0032 turns foreign_keys back on. This test only cares about
+    // the release_artist_source column, not about seeding a valid artist
+    // credit row.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .expect("disable foreign keys for this fixture");
+
+    assert!(
+        !table_has_column(&conn, "feeds", "release_artist_source"),
+        "feeds must start without release_artist_source"
+    );
+
+    conn.execute(
+        "INSERT INTO feeds \
+         (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, \
+          episode_count, created_at, updated_at) \
+         VALUES ('legacy-feed', 'https://example.com/legacy-ras.xml', 'Legacy Feed', \
+                 'legacy feed', 1, 0, 0, 1700000000, 1700000100)",
+        [],
+    )
+    .expect("insert legacy feed");
+
+    let sql_0037 = fs::read_to_string("migrations/0037_feed_release_artist_source.sql")
+        .expect("read migration 0037");
+    conn.execute_batch(&sql_0037).expect("apply migration 0037");
+
+    assert!(
+        table_has_column(&conn, "feeds", "release_artist_source"),
+        "feeds must gain release_artist_source after migration 0037"
+    );
+
+    let source: Option<String> = conn
+        .query_row(
+            "SELECT release_artist_source FROM feeds WHERE feed_guid = 'legacy-feed'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read release_artist_source");
+    assert_eq!(
+        source, None,
+        "a feed row written before migration 0037 must read release_artist_source as null"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0049 task 007: migration 0037 is the 31st entry in MIGRATIONS. ADR 0046
+// records that a production database already recorded version 29, two below
+// 31, so the runner applies this migration there without a repair.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir
+        .path()
+        .join("adr-0046-watermark-release-artist-source.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0036_feed_url_observations.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (29, 1);",
+        )
+        .expect("mark the ADR 0046 recorded watermark");
+
+        assert!(
+            !table_has_column(&conn, "feeds", "release_artist_source"),
+            "legacy fixture should start without feeds.release_artist_source"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "feeds", "release_artist_source"),
+        "migration 0037 must run at the recorded watermark of 29, with no repair"
+    );
+
+    let recorded_version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+            r.get(0)
+        })
+        .expect("read recorded migration version");
+    assert_eq!(
+        recorded_version, 31,
+        "the runner must record version 31 after migration 0037 runs"
     );
 }

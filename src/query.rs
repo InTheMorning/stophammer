@@ -171,6 +171,10 @@ struct FeedResponse {
     title: String,
     raw_medium: Option<String>,
     release_artist: Option<String>,
+    /// The source of `release_artist`: `itunes_author`, `itunes_owner`, or
+    /// `placeholder`. Null when no ingest has run since migration 0037. ADR
+    /// 0049 §5.
+    release_artist_source: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
     last_build_date: Option<i64>,
@@ -178,6 +182,13 @@ struct FeedResponse {
     description: Option<String>,
     image_url: Option<String>,
     publisher_text: Option<String>,
+    /// The title of the feed this album names as its publisher.
+    ///
+    /// Derived when the node reads this feed: the feed's own
+    /// `medium="publisher"` remote item at the lowest position, resolved
+    /// with [`db::resolve_listed_feed`]. Null when the feed names no
+    /// publisher or the resolver cannot place it. ADR 0049 §5.
+    publisher_feed_title: Option<String>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -253,6 +264,10 @@ struct TrackResponse {
     updated_at: i64,
     feed_title: String,
     release_artist: Option<String>,
+    /// The source of `release_artist`: `itunes_author`, `itunes_owner`, or
+    /// `placeholder`. Null when no ingest has run since migration 0037. ADR
+    /// 0049 §5.
+    release_artist_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -351,6 +366,10 @@ struct ArtistTrackItem {
     track_number: Option<i64>,
     feed_title: String,
     release_artist: Option<String>,
+    /// The source of `release_artist`: `itunes_author`, `itunes_owner`, or
+    /// `placeholder`. Null when no ingest has run since migration 0037. ADR
+    /// 0049 §5.
+    release_artist_source: Option<String>,
     created_at: i64,
 }
 
@@ -562,6 +581,7 @@ struct TrackRow {
     updated_at: i64,
     feed_title: String,
     release_artist: Option<String>,
+    release_artist_source: Option<String>,
 }
 
 fn parse_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
@@ -588,6 +608,7 @@ fn parse_track_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<TrackRow> {
         release_artist: row.get(20)?,
         track_image_url: row.get(21)?,
         feed_image_url: row.get(22)?,
+        release_artist_source: row.get(23)?,
     })
 }
 
@@ -633,7 +654,7 @@ fn get_track_rows_by_guid(
          t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
          t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
          t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
-         f.release_artist, t.image_url, f.image_url \
+         f.release_artist, t.image_url, f.image_url, f.release_artist_source \
          FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
          WHERE t.track_guid = ?1 ORDER BY t.feed_guid ASC",
     )?;
@@ -652,7 +673,7 @@ fn get_track_row_for_feed(
          t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.language, \
          t.enclosure_url, t.enclosure_type, t.enclosure_bytes, t.track_number, t.season, \
          t.explicit, t.description, t.created_at, t.updated_at, COALESCE(f.title, ''), \
-         f.release_artist, t.image_url, f.image_url \
+         f.release_artist, t.image_url, f.image_url, f.release_artist_source \
          FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
          WHERE t.feed_guid = ?1 AND t.track_guid = ?2",
         params![feed_guid, track_guid],
@@ -669,6 +690,7 @@ struct FeedRow {
     title: String,
     raw_medium: Option<String>,
     release_artist: Option<String>,
+    release_artist_source: Option<String>,
     release_artist_sort: Option<String>,
     release_date: Option<i64>,
     last_build_date: Option<i64>,
@@ -710,7 +732,7 @@ async fn handle_get_feed(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
              release_artist_sort, release_date, release_kind, description, image_url, publisher, \
              language, explicit, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, \
-             last_build_date \
+             last_build_date, release_artist_source \
              FROM feeds WHERE feed_guid = ?1",
                 params![feed_guid],
                 |row| {
@@ -734,6 +756,7 @@ async fn handle_get_feed(
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
                         last_build_date: row.get(18)?,
+                        release_artist_source: row.get(19)?,
                     })
                 },
             )
@@ -764,12 +787,43 @@ async fn handle_get_feed(
     Ok(Json(result))
 }
 
+/// Gives the title of the feed that `feed_guid` names as its publisher.
+///
+/// Takes the feed's own `medium="publisher"` remote item at the lowest
+/// position (the items are stored in position order), resolves it with
+/// [`db::resolve_listed_feed`], and reads the title of the resolved feed.
+/// Gives `None` when the feed names no publisher or the resolver cannot
+/// place it. ADR 0049 §5.
+fn resolve_publisher_feed_title(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Option<String>, api::ApiError> {
+    let Some(item) = db::get_feed_remote_items_for_feed(conn, feed_guid)?
+        .into_iter()
+        .find(|item| item.medium.as_deref() == Some("publisher"))
+    else {
+        return Ok(None);
+    };
+
+    let resolution = db::resolve_listed_feed(
+        conn,
+        &item.remote_feed_guid,
+        item.remote_feed_url.as_deref(),
+    )?;
+    let Some(resolved_guid) = resolution.feed_guid() else {
+        return Ok(None);
+    };
+
+    Ok(db::get_feed(conn, resolved_guid)?.map(|feed| feed.title))
+}
+
 fn build_feed_response(
     conn: &rusqlite::Connection,
     row: FeedRow,
     params: &ListQuery,
 ) -> Result<FeedResponse, api::ApiError> {
     let feed_guid = row.feed_guid.clone();
+    let publisher_feed_title = resolve_publisher_feed_title(conn, &feed_guid)?;
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
@@ -777,6 +831,7 @@ fn build_feed_response(
         title: row.title,
         raw_medium: row.raw_medium,
         release_artist: row.release_artist,
+        release_artist_source: row.release_artist_source,
         release_artist_sort: row.release_artist_sort,
         release_date: row.release_date,
         last_build_date: row.last_build_date,
@@ -784,6 +839,7 @@ fn build_feed_response(
         description: row.description,
         image_url: row.image_url,
         publisher_text: row.publisher_text,
+        publisher_feed_title,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -943,6 +999,7 @@ fn build_track_response(
         updated_at: row.updated_at,
         feed_title: row.feed_title,
         release_artist: row.release_artist,
+        release_artist_source: row.release_artist_source,
         payment_routes: None,
         value_time_splits: None,
         source_links: None,
@@ -1708,7 +1765,7 @@ async fn handle_get_recent_feeds(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at, last_build_date \
+                 created_at, updated_at, last_build_date, release_artist_source \
                  FROM feeds \
                  WHERE (?1 = 'all' OR lower(raw_medium) = ?1)
                    AND (newest_item_at, feed_guid) < (?2, ?3) \
@@ -1738,6 +1795,7 @@ async fn handle_get_recent_feeds(
                         created_at: row.get(16)?,
                         updated_at: row.get(17)?,
                         last_build_date: row.get(18)?,
+                        release_artist_source: row.get(19)?,
                     })
                 },
             )?
@@ -1747,7 +1805,7 @@ async fn handle_get_recent_feeds(
                 "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
                  release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
                  episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at, last_build_date \
+                 created_at, updated_at, last_build_date, release_artist_source \
                  FROM feeds \
                  WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
                  ORDER BY newest_item_at DESC, feed_guid DESC \
@@ -1774,6 +1832,7 @@ async fn handle_get_recent_feeds(
                     created_at: row.get(16)?,
                     updated_at: row.get(17)?,
                     last_build_date: row.get(18)?,
+                    release_artist_source: row.get(19)?,
                 })
             })?
             .collect::<Result<_, _>>()?
@@ -1796,12 +1855,14 @@ async fn handle_get_recent_feeds(
 
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
+            let publisher_feed_title = resolve_publisher_feed_title(&conn, &r.feed_guid)?;
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
                 title: r.title,
                 raw_medium: r.raw_medium,
                 release_artist: r.release_artist,
+                release_artist_source: r.release_artist_source,
                 release_artist_sort: r.release_artist_sort,
                 release_date: r.release_date,
                 last_build_date: r.last_build_date,
@@ -1809,6 +1870,7 @@ async fn handle_get_recent_feeds(
                 description: r.description,
                 image_url: r.image_url,
                 publisher_text: r.publisher_text,
+                publisher_feed_title,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,
@@ -2347,7 +2409,7 @@ async fn handle_artist_tracks(
                 "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
                  t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
                  COALESCE(f.title, ''), f.release_artist, t.created_at, t.image_url, \
-                 f.image_url \
+                 f.image_url, f.release_artist_source \
                  FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
                  WHERE lower(t.track_artist) = ?1 \
                    AND (t.created_at, t.track_guid) < (?2, ?3) \
@@ -2372,6 +2434,7 @@ async fn handle_artist_tracks(
                         created_at: row.get(11)?,
                         track_image_url: row.get(12)?,
                         feed_image_url: row.get(13)?,
+                        release_artist_source: row.get(14)?,
                     })
                 },
             )?
@@ -2381,7 +2444,7 @@ async fn handle_artist_tracks(
                 "SELECT t.track_guid, t.feed_guid, t.title, t.track_artist, t.track_artist_sort, \
                  t.pub_date, t.duration_secs, COALESCE(t.image_url, f.image_url), t.track_number, \
                  COALESCE(f.title, ''), f.release_artist, t.created_at, t.image_url, \
-                 f.image_url \
+                 f.image_url, f.release_artist_source \
                  FROM tracks t LEFT JOIN feeds f ON f.feed_guid = t.feed_guid \
                  WHERE lower(t.track_artist) = ?1 \
                  ORDER BY t.created_at DESC, t.track_guid DESC \
@@ -2403,6 +2466,7 @@ async fn handle_artist_tracks(
                     created_at: row.get(11)?,
                     track_image_url: row.get(12)?,
                     feed_image_url: row.get(13)?,
+                    release_artist_source: row.get(14)?,
                 })
             })?
             .collect::<Result<_, _>>()?

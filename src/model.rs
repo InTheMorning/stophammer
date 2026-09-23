@@ -93,6 +93,13 @@ pub struct Feed {
     /// ADR 0043 owns this distinction.
     #[serde(default)]
     pub last_build_date: Option<i64>,
+    /// The source of `release_artist`: `"itunes_author"`, `"itunes_owner"`, or
+    /// `"placeholder"`.
+    ///
+    /// Null when no ingest has run since migration 0037 added the column.
+    /// ADR 0049 §5 owns this field.
+    #[serde(default)]
+    pub release_artist_source: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

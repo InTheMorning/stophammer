@@ -489,6 +489,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         updated_at: now,
         raw_medium: Some("music".into()),
         last_build_date: None,
+        release_artist_source: None,
     };
 
     let track = stophammer::model::Track {
@@ -750,6 +751,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         updated_at: now,
         raw_medium: Some("music".into()),
         last_build_date: None,
+        release_artist_source: None,
     };
 
     // Drop the events table to force a failure during event insertion

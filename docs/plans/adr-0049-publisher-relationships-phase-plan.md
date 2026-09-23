@@ -218,9 +218,11 @@ These values change for clients:
   match there. Only `db::resolve_listed_feed` compares a listed GUID with a
   feed GUID. The time it broke: three separate matches by
   `feedGuid` hid the Wavlake defect.
-- Task 007 adds a guard that the node source holds no host literal
-  `wavlake.com` outside the platform classifiers. The time it broke: the host
-  rule of commits `984b78c` and `8dc3789`.
+- Task 007 adds a guard that `src/api.rs` holds no `fn is_wavlake_url` and no
+  `fn wavlake_artist_name_from_links`. The time it broke: the host rule of
+  commits `984b78c` and `8dc3789`. The guard names the deleted functions, not
+  the host literal, because `classify_platform_url` keeps `wavlake.com` for the
+  source platform claims.
 
 Visual checks, kept apart:
 

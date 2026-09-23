@@ -219,6 +219,8 @@ const MIGRATIONS: &[&str] = &[
     // Migration 36: record which URL gave which podcast:guid, seeded from
     // the stored feeds (ADR 0049 Section 1)
     include_str!("../migrations/0036_feed_url_observations.sql"),
+    // Migration 37: name the source of feeds.release_artist (ADR 0049 §5)
+    include_str!("../migrations/0037_feed_release_artist_source.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -1320,9 +1322,9 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date) \
+         last_build_date, release_artist_source) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
-         ?22) \
+         ?22, ?23) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -1343,7 +1345,8 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
            oldest_item_at   = excluded.oldest_item_at, \
            updated_at       = excluded.updated_at, \
            raw_medium       = excluded.raw_medium, \
-           last_build_date  = excluded.last_build_date",
+           last_build_date  = excluded.last_build_date, \
+           release_artist_source = excluded.release_artist_source",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -1367,6 +1370,7 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             feed.updated_at,
             feed.raw_medium,
             feed.last_build_date,
+            feed.release_artist_source,
         ],
     )?;
     Ok(())
@@ -1723,57 +1727,6 @@ pub fn get_feed_remote_items_for_feed(
         items.push(row?);
     }
     Ok(items)
-}
-
-/// Returns the publisher feed (`raw_medium = 'publisher'`) that has declared
-/// `music_feed_guid` as one of its music feeds via a `podcast:remoteItem
-/// medium="music"` channel-level entry, or `None` if no such feed exists.
-pub fn get_publisher_feed_for_music_feed(
-    conn: &Connection,
-    music_feed_guid: &str,
-) -> Result<Option<Feed>, DbError> {
-    conn.query_row(
-        "SELECT f.feed_guid, f.feed_url, f.title, f.title_lower, f.artist_credit_id, \
-         f.description, f.image_url, f.publisher, f.language, f.explicit, f.itunes_type, \
-         f.release_artist, f.release_artist_sort, f.release_date, f.release_kind, \
-         f.episode_count, f.newest_item_at, f.oldest_item_at, f.created_at, f.updated_at, \
-         f.raw_medium, f.last_build_date \
-         FROM feeds f \
-         JOIN feed_remote_items_raw ri ON ri.feed_guid = f.feed_guid \
-         WHERE ri.remote_feed_guid = ?1 \
-           AND ri.medium = 'music' \
-           AND lower(f.raw_medium) = 'publisher' \
-         LIMIT 1",
-        params![music_feed_guid],
-        |row| {
-            Ok(Feed {
-                feed_guid: row.get(0)?,
-                feed_url: row.get(1)?,
-                title: row.get(2)?,
-                title_lower: row.get(3)?,
-                artist_credit_id: row.get(4)?,
-                description: row.get(5)?,
-                image_url: row.get(6)?,
-                publisher: row.get(7)?,
-                language: row.get(8)?,
-                explicit: row.get(9)?,
-                itunes_type: row.get(10)?,
-                release_artist: row.get(11)?,
-                release_artist_sort: row.get(12)?,
-                release_date: row.get(13)?,
-                release_kind: row.get(14)?,
-                episode_count: row.get(15)?,
-                newest_item_at: row.get(16)?,
-                oldest_item_at: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
-                raw_medium: row.get(20)?,
-                last_build_date: row.get(21)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(Into::into)
 }
 
 pub fn get_track_remote_items_for_track(
@@ -3036,7 +2989,7 @@ pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Fee
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date \
+         last_build_date, release_artist_source \
          FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
@@ -3064,6 +3017,7 @@ pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Fee
                 updated_at:       row.get(19)?,
                 raw_medium:       row.get(20)?,
                 last_build_date:  row.get(21)?,
+                release_artist_source: row.get(22)?,
             })
         },
     ).optional()?;
@@ -4955,7 +4909,7 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date \
+         last_build_date, release_artist_source \
          FROM feeds WHERE feed_url = ?1",
         params![feed_url],
         |row| {
@@ -4983,6 +4937,7 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
                 updated_at:       row.get(19)?,
                 raw_medium:       row.get(20)?,
                 last_build_date:  row.get(21)?,
+                release_artist_source: row.get(22)?,
             })
         },
     ).optional()?;
@@ -5111,9 +5066,9 @@ pub fn ingest_transaction(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date) \
+         last_build_date, release_artist_source) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
-         ?22) \
+         ?22, ?23) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -5134,7 +5089,8 @@ pub fn ingest_transaction(
            oldest_item_at   = excluded.oldest_item_at, \
            updated_at       = excluded.updated_at, \
            raw_medium       = excluded.raw_medium, \
-           last_build_date  = excluded.last_build_date",
+           last_build_date  = excluded.last_build_date, \
+           release_artist_source = excluded.release_artist_source",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -5158,6 +5114,7 @@ pub fn ingest_transaction(
             feed.updated_at,
             feed.raw_medium,
             feed.last_build_date,
+            feed.release_artist_source,
         ],
     )?;
 
@@ -5792,7 +5749,7 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
         "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, \
          image_url, publisher, language, explicit, itunes_type, release_artist, release_artist_sort, \
          release_date, release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date \
+         last_build_date, release_artist_source \
          FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
@@ -5819,6 +5776,7 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
                 updated_at: row.get(19)?,
                 raw_medium: row.get(20)?,
                 last_build_date: row.get(21)?,
+                release_artist_source: row.get(22)?,
             })
         },
     )

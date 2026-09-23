@@ -82,6 +82,7 @@ fn ingest_feed_with_tracks(
         updated_at: now,
         raw_medium: Some("music".into()),
         last_build_date: None,
+        release_artist_source: None,
     };
 
     let tracks: Vec<stophammer::db::TrackIngestBundle> = track_guids
