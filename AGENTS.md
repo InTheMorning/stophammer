@@ -54,7 +54,9 @@ The work that remains:
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
 4. [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md) is
-   Accepted and needs a phase plan. It answers
+   Accepted. The
+   [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
+   gives 13 tasks in `docs/tasks/`, and none has started. It answers
    [the publisher relationship request](docs/plans/v4vmm-publisher-relationship-request.md)
    from v4vmm. The work spans the three repositories. Until it is complete,
    the Wavlake host rules in `src/api.rs` stay in the code.
