@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:psc="http://podlove.org/simple-chapters" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+	<channel>
+		<title><![CDATA[Fool me]]></title>
+		<description><![CDATA[If you've ever heard my music on the radio, this is the song... I got a royalty payment for this song a few weeks ago.....WOO HOO.....$.87....Hey.87cents aint nothin..... Anyway, this song was a lot of fun to record. It's mostly live, in the studio. We did add the Organ later, Gregg Dechert is such a monster. Google him....and some other bits., but  basically it was Steve Zucalla on drums, Atilla Toth on bass, Tyson Froese on guitar, aaaaaaaaaand my own self howlin away, live....Thats how I like makin records, with people, playing instruments, together.]]></description>
+		<link>https://wavlake.com/jimmy-v</link>
+		<generator>Wavlake</generator>
+		<lastBuildDate>Wed, 23 Sep 2026 17:34:05 GMT</lastBuildDate>
+		<atom:link href="https://wavlake.com/feed/music/a047ea02-7c6b-4180-939d-6207ab17b9aa" rel="self" type="application/rss+xml"/>
+		<author><![CDATA[Jimmy V]]></author>
+		<podcast:medium>music</podcast:medium>
+		<podcast:remoteItem medium="publisher" feedGuid="ea2bd6ee-9695-4ab4-a536-84c62ecfece0" feedUrl="https://wavlake.com/feed/artist/ea2bd6ee-9695-4ab4-a536-84c62ecfece0">
+		</podcast:remoteItem>
+		<podcast:category text="Rock">
+			<podcast:category text="Blues-Rock"/>
+		</podcast:category>
+		<podcast:guid>e88e5602-7105-5c7c-8b27-54513aac0ce8</podcast:guid>
+		<podcast:value type="lightning" method="keysend">
+			<podcast:valueRecipient name="Fool me via Wavlake" type="node" address="02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2" customKey="16180339" customValue="a047ea02-7c6b-4180-939d-6207ab17b9aa" split="100"/>
+		</podcast:value>
+		<itunes:author>Jimmy V</itunes:author>
+		<itunes:summary>If you&apos;ve ever heard my music on the radio, this is the song... I got a royalty payment for this song a few weeks ago.....WOO HOO.....$.87....Hey.87cents aint nothin..... Anyway, this song was a lot of fun to record. It&apos;s mostly live, in the studio. We did add the Organ later, Gregg Dechert is such a monster. Google him....and some other bits., but  basically it was Steve Zucalla on drums, Atilla Toth on bass, Tyson Froese on guitar, aaaaaaaaaand my own self howlin away, live....Thats how I like makin records, with people, playing instruments, together.</itunes:summary>
+		<itunes:owner>
+			<itunes:name>Wavlake</itunes:name>
+			<itunes:email>contact@wavlake.com</itunes:email>
+		</itunes:owner>
+		<itunes:explicit>false</itunes:explicit>
+		<itunes:image href="https://d12wklypp119aj.cloudfront.net/image/a047ea02-7c6b-4180-939d-6207ab17b9aa.jpg"/>
+		<item>
+			<title><![CDATA[Fool me]]></title>
+			<link>https://www.wavlake.com/album/a047ea02-7c6b-4180-939d-6207ab17b9aa</link>
+			<guid isPermaLink="false">ccc1470c-ad85-4ae8-bf3a-10d7db63c402</guid>
+			<dc:creator><![CDATA[Jimmy V]]></dc:creator>
+			<pubDate>Sat, 26 Aug 2023 17:29:36 GMT</pubDate>
+			<enclosure url="https://op3.dev/e,pg=e88e5602-7105-5c7c-8b27-54513aac0ce8/https://d12wklypp119aj.cloudfront.net/track/ccc1470c-ad85-4ae8-bf3a-10d7db63c402.mp3" length="4027871" type="audio/mpeg"/>
+			<podcast:episode>1</podcast:episode>
+			<podcast:season>1</podcast:season>
+			<podcast:value type="lightning" method="keysend">
+				<podcast:valueRecipient name="Jimmy V via Wavlake" type="node" address="02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2" customKey="16180339" customValue="ccc1470c-ad85-4ae8-bf3a-10d7db63c402" split="100"/>
+			</podcast:value>
+			<itunes:explicit>false</itunes:explicit>
+			<itunes:duration>00:04:11</itunes:duration>
+		</item>
+	</channel>
+</rss>

@@ -1,0 +1,41 @@
+<rss xmlns:podcast="https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md" version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Sir Libre Records</title>
+    <link>https://v4vmusic.com</link>
+    <description>This is a test publisher feed testing the rel proposal from github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145</description>
+    <itunes:image href="https://cdn.kolomona.com/podcasts/test-feeds/alternate-enclosure-test/v4vmusic-test-logo-1000.jpg"/>
+    <podcast:person href="https://sirlibre.com" img="https://cdn.kolomona.com/media/images/profiles/sunflower01.jpg" group="cast" role="host">Sir Libre</podcast:person>
+    <podcast:guid>34bf795f-f551-4db1-8877-ad19aa5f89c8</podcast:guid>
+    <podcast:medium>publisher</podcast:medium>
+
+    <!-- Faces Pale -->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="2960ba9d-be5a-5fe4-b4e0-18b527e2519c" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/reap-what-you-sow.xml"/>
+      <podcast:remoteItem medium="music" rel="label" feedGuid="cb123fdd-2c91-5af4-a1aa-fd4e0f992696" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/face-pale.xml"/>
+    
+    <!-- Crash Landing -->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="f4d63bc4-de49-5697-9a8f-75dc9521b1e5" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/the-world-deserves-to-know/crash-landing-the-world-deserves-to-know-rss.xml"/>
+      <!-- The feed below will reciprocate the WRONG rel tag -->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="5f63f39a-98eb-5ff3-9a58-d615b566173e" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/crash-landing-demo/crash-landing-demo-rss.xml"/>
+    
+    <!-- Motive to Kill -->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="0a8495bd-9b8f-5e6b-b522-f5b986d5faac" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/motive-to-kill/motive-to-kill/motive-to-kill.xml"/>
+    
+    <!-- Thrash Forward -->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="4ba92892-d795-5532-9989-9e4c363146ea" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-96-remix/thrash-forward-thrash-forward-96-remix-rss.xml"/>
+      <!-- The feed below will not have a rel tag-->
+      <podcast:remoteItem medium="music" rel="label" feedGuid="4fbdf291-c286-5e6c-8e96-a3344a0951a1" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-alliance/thrash-forward-thrash-forward-aliance-rss.xml"/> 
+    
+    
+    <podcast:complete>no</podcast:complete>
+    <itunes:owner>
+      <itunes:email/>
+      <itunes:name>Sir Libre Records</itunes:name>
+    </itunes:owner>
+    <podcast:funding url="https://sirlibre.com/donate">Please support my endeavours</podcast:funding>
+    <itunes:author>Sir Libre Records</itunes:author>
+    <managingEditor>Sir Libre Records</managingEditor>
+    <pubDate>Sun, 21 May 2026 00:00:07 +0000</pubDate>
+    <lastBuildDate>Sun, 21 May 2026 00:00:07 +0000</lastBuildDate>
+    <generator>SirLibre</generator>
+  </channel>
+</rss>

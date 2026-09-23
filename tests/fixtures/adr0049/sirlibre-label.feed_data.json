@@ -1,0 +1,242 @@
+{
+  "feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+  "title": "Sir Libre Records",
+  "description": "This is a test publisher feed testing the rel proposal from github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145",
+  "image_url": "https://cdn.kolomona.com/podcasts/test-feeds/alternate-enclosure-test/v4vmusic-test-logo-1000.jpg",
+  "language": null,
+  "explicit": false,
+  "itunes_type": null,
+  "raw_medium": "publisher",
+  "author_name": "Sir Libre Records",
+  "owner_name": "Sir Libre Records",
+  "pub_date": null,
+  "last_build_date": null,
+  "remote_items": [
+    {
+      "position": 0,
+      "medium": "music",
+      "remote_feed_guid": "2960ba9d-be5a-5fe4-b4e0-18b527e2519c",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/reap-what-you-sow.xml",
+      "rel": "label"
+    },
+    {
+      "position": 1,
+      "medium": "music",
+      "remote_feed_guid": "cb123fdd-2c91-5af4-a1aa-fd4e0f992696",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/face-pale.xml",
+      "rel": "label"
+    },
+    {
+      "position": 2,
+      "medium": "music",
+      "remote_feed_guid": "f4d63bc4-de49-5697-9a8f-75dc9521b1e5",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/the-world-deserves-to-know/crash-landing-the-world-deserves-to-know-rss.xml",
+      "rel": "label"
+    },
+    {
+      "position": 3,
+      "medium": "music",
+      "remote_feed_guid": "5f63f39a-98eb-5ff3-9a58-d615b566173e",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/crash-landing-demo/crash-landing-demo-rss.xml",
+      "rel": "label"
+    },
+    {
+      "position": 4,
+      "medium": "music",
+      "remote_feed_guid": "0a8495bd-9b8f-5e6b-b522-f5b986d5faac",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/motive-to-kill/motive-to-kill/motive-to-kill.xml",
+      "rel": "label"
+    },
+    {
+      "position": 5,
+      "medium": "music",
+      "remote_feed_guid": "4ba92892-d795-5532-9989-9e4c363146ea",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-96-remix/thrash-forward-thrash-forward-96-remix-rss.xml",
+      "rel": "label"
+    },
+    {
+      "position": 6,
+      "medium": "music",
+      "remote_feed_guid": "4fbdf291-c286-5e6c-8e96-a3344a0951a1",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-alliance/thrash-forward-thrash-forward-aliance-rss.xml",
+      "rel": "label"
+    }
+  ],
+  "persons": [
+    {
+      "position": 0,
+      "name": "Sir Libre",
+      "role": "host",
+      "group_name": "cast",
+      "href": "https://sirlibre.com",
+      "img": "https://cdn.kolomona.com/media/images/profiles/sunflower01.jpg",
+      "npub": null
+    }
+  ],
+  "entity_ids": [],
+  "links": [
+    {
+      "position": 0,
+      "link_type": "website",
+      "url": "https://v4vmusic.com",
+      "extraction_path": "feed.link"
+    }
+  ],
+  "podcast_namespace": {
+    "tags": [
+      {
+        "position": 0,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:person",
+        "tag": "podcast:person",
+        "attributes": {
+          "href": "https://sirlibre.com",
+          "role": "host",
+          "img": "https://cdn.kolomona.com/media/images/profiles/sunflower01.jpg",
+          "group": "cast"
+        },
+        "text": "Sir Libre"
+      },
+      {
+        "position": 1,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:guid",
+        "tag": "podcast:guid",
+        "attributes": {},
+        "text": "34bf795f-f551-4db1-8877-ad19aa5f89c8"
+      },
+      {
+        "position": 2,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:medium",
+        "tag": "podcast:medium",
+        "attributes": {},
+        "text": "publisher"
+      },
+      {
+        "position": 3,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/reap-what-you-sow.xml",
+          "rel": "label",
+          "medium": "music",
+          "feedGuid": "2960ba9d-be5a-5fe4-b4e0-18b527e2519c"
+        },
+        "text": null
+      },
+      {
+        "position": 4,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "feedGuid": "cb123fdd-2c91-5af4-a1aa-fd4e0f992696",
+          "medium": "music",
+          "rel": "label",
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/face-pale.xml"
+        },
+        "text": null
+      },
+      {
+        "position": 5,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/the-world-deserves-to-know/crash-landing-the-world-deserves-to-know-rss.xml",
+          "rel": "label",
+          "medium": "music",
+          "feedGuid": "f4d63bc4-de49-5697-9a8f-75dc9521b1e5"
+        },
+        "text": null
+      },
+      {
+        "position": 6,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "medium": "music",
+          "rel": "label",
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/crash-landing/crash-landing-demo/crash-landing-demo-rss.xml",
+          "feedGuid": "5f63f39a-98eb-5ff3-9a58-d615b566173e"
+        },
+        "text": null
+      },
+      {
+        "position": 7,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/motive-to-kill/motive-to-kill/motive-to-kill.xml",
+          "rel": "label",
+          "feedGuid": "0a8495bd-9b8f-5e6b-b522-f5b986d5faac",
+          "medium": "music"
+        },
+        "text": null
+      },
+      {
+        "position": 8,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "rel": "label",
+          "feedGuid": "4ba92892-d795-5532-9989-9e4c363146ea",
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-96-remix/thrash-forward-thrash-forward-96-remix-rss.xml",
+          "medium": "music"
+        },
+        "text": null
+      },
+      {
+        "position": 9,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "rel": "label",
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/bands/thrash-forward/thrash-forward-alliance/thrash-forward-thrash-forward-aliance-rss.xml",
+          "feedGuid": "4fbdf291-c286-5e6c-8e96-a3344a0951a1",
+          "medium": "music"
+        },
+        "text": null
+      },
+      {
+        "position": 10,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:complete",
+        "tag": "podcast:complete",
+        "attributes": {},
+        "text": "no"
+      },
+      {
+        "position": 11,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:funding",
+        "tag": "podcast:funding",
+        "attributes": {
+          "url": "https://sirlibre.com/donate"
+        },
+        "text": "Please support my endeavours"
+      }
+    ]
+  },
+  "feed_payment_routes": [],
+  "live_items": [],
+  "tracks": []
+}

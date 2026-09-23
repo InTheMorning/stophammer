@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet href="https://feeds.rssblue.com/e-pluribus-unum/style?timestamp=1766049366" type="text/xsl"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0" xmlns:psc="http://podlove.org/simple-chapters">
+  <channel>
+    <description><![CDATA[<p>New-Age Space Punk</p>
+]]></description>
+    <generator>RSS Blue v1.21.4</generator>
+    <language>en</language>
+    <lastBuildDate>Thu, 18 Dec 2025 09:16:06 GMT</lastBuildDate>
+    <title>E Pluribus Unum</title>
+    <atom:link href="https://feeds.rssblue.com/e-pluribus-unum" rel="self" type="application/rss+xml"></atom:link>
+    <itunes:author>A Cold Trip Nowhere</itunes:author>
+    <itunes:category text="Music"></itunes:category>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:image href="https://media.rssblue.com/podcasts/e-pluribus-unum/cover-art.actn-e-pluribus-unum.jpg"></itunes:image>
+    <itunes:owner>
+      <itunes:name>A Cold Trip Nowhere</itunes:name>
+      <itunes:email>christiannichols1994@gmail.com</itunes:email>
+    </itunes:owner>
+    <itunes:type>serial</itunes:type>
+    <podcast:guid>38edc858-5731-5221-86bf-86db9f886e2b</podcast:guid>
+    <podcast:locked owner="christiannichols1994@gmail.com">no</podcast:locked>
+    <podcast:medium>music</podcast:medium>
+    <podcast:podping usesPodping="true"></podcast:podping>
+    <podcast:publisher>
+      <podcast:remoteItem feedGuid="844e0b32-7c69-5850-bf62-5abb28b3830b" feedUrl="https://publishers.rssblue.com/acoldtripnowhere" medium="publisher"></podcast:remoteItem>
+    </podcast:publisher>
+    <podcast:value type="lightning" method="keysend">
+      <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+      <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+      <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+    </podcast:value>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/autobiography-the-ender/audio.06-a-cold-trip-nowhere-autobiography-the-ender.mp3" length="17748767" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">21430ec7-f699-5388-8502-8a3c1c8cb8cd</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:47 GMT</pubDate>
+      <title>Autobiography (The Ender)</title>
+      <itunes:duration>441</itunes:duration>
+      <itunes:episode>6</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>6</podcast:episode>
+      <podcast:isrc>USHM21448936</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/make-amends-meet/audio.05-a-cold-trip-nowhere-make-amends-meet.mp3" length="6561036" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">0d315fe8-1f30-579d-9ae4-a253a1f34b58</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:46 GMT</pubDate>
+      <title>Make Amends Meet</title>
+      <itunes:duration>163</itunes:duration>
+      <itunes:episode>5</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>5</podcast:episode>
+      <podcast:isrc>USHM21448935</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/the-last-dance/audio.04-a-cold-trip-nowhere-the-last-dance.mp3" length="12971483" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">ea0303a2-5f52-53c1-8bc1-15465440ed94</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:45 GMT</pubDate>
+      <title>The Last Dance</title>
+      <itunes:duration>322</itunes:duration>
+      <itunes:episode>4</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>4</podcast:episode>
+      <podcast:isrc>USCGH1418735</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/orphans/audio.03-a-cold-trip-nowhere-orphans.mp3" length="10177419" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">081a5aa0-0992-5aea-9a5e-70f3f29d1a70</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:44 GMT</pubDate>
+      <title>Orphans</title>
+      <itunes:duration>253</itunes:duration>
+      <itunes:episode>3</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>3</podcast:episode>
+      <podcast:isrc>USHM21448933</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/hold-steady/audio.02-a-cold-trip-nowhere-hold-steady.mp3" length="8976835" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">06092253-3373-5b85-91cf-680833ab656d</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:43 GMT</pubDate>
+      <title>Hold Steady</title>
+      <itunes:duration>223</itunes:duration>
+      <itunes:episode>2</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>2</podcast:episode>
+      <podcast:isrc>USHM21448932</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+    <item>
+      <enclosure url="https://media.rssblue.com/podcasts/e-pluribus-unum/world-trade-center/audio.01-a-cold-trip-nowhere-world-trade-center.mp3" length="11745822" type="audio/mpeg"></enclosure>
+      <guid isPermaLink="false">6cd3752b-cad0-5f5c-8c2a-b0a1560d6eec</guid>
+      <pubDate>Thu, 25 Apr 2024 05:00:42 GMT</pubDate>
+      <title>World Trade Center</title>
+      <itunes:duration>292</itunes:duration>
+      <itunes:episode>1</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>1</podcast:episode>
+      <podcast:isrc>USHM21448931</podcast:isrc>
+      <podcast:season>1</podcast:season>
+      <podcast:value type="lightning" method="keysend">
+        <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+        <podcast:valueRecipient name="RSS Blue" type="node" address="02d256a6f93e3d4f95db0d9b3e85bc49f8c61a15b6e9c59e946d1b2806a87f6eb7" split="2"></podcast:valueRecipient>
+      </podcast:value>
+    </item>
+  </channel>
+</rss>

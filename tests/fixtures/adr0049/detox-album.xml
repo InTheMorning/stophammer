@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:psc="http://podlove.org/simple-chapters" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+	<channel>
+		<title><![CDATA[Another World]]></title>
+		<description><![CDATA[52 Weeks 52 Releases]]></description>
+		<link>https://wavlake.com/official-detox-music</link>
+		<generator>Wavlake</generator>
+		<lastBuildDate>Wed, 23 Sep 2026 16:54:46 GMT</lastBuildDate>
+		<atom:link href="https://wavlake.com/feed/music/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a" rel="self" type="application/rss+xml"/>
+		<author><![CDATA[Official DETOX Music]]></author>
+		<podcast:medium>music</podcast:medium>
+		<podcast:remoteItem medium="publisher" feedGuid="137aaa9c-75ff-4916-9f23-e02968b2d15e" feedUrl="https://wavlake.com/feed/artist/137aaa9c-75ff-4916-9f23-e02968b2d15e">
+		</podcast:remoteItem>
+		<podcast:category text="null">
+			<podcast:category text="null"/>
+		</podcast:category>
+		<podcast:guid>e5ac2d62-2ce7-517a-8bfd-24bff61b2aa9</podcast:guid>
+		<podcast:value type="lightning" method="keysend">
+			<podcast:valueRecipient name="Another World via Wavlake" type="node" address="02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2" customKey="16180339" customValue="cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a" split="100"/>
+		</podcast:value>
+		<itunes:author>Official DETOX Music</itunes:author>
+		<itunes:summary>52 Weeks 52 Releases</itunes:summary>
+		<itunes:owner>
+			<itunes:name>Wavlake</itunes:name>
+			<itunes:email>contact@wavlake.com</itunes:email>
+		</itunes:owner>
+		<itunes:explicit>false</itunes:explicit>
+		<itunes:image href="https://d12wklypp119aj.cloudfront.net/image/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a.jpg"/>
+		<item>
+			<title><![CDATA[Another World]]></title>
+			<link>https://www.wavlake.com/album/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a</link>
+			<guid isPermaLink="false">0f45b925-6020-47f8-b427-cb6437ee8378</guid>
+			<dc:creator><![CDATA[Official DETOX Music]]></dc:creator>
+			<pubDate>Sat, 29 Apr 2023 00:31:51 GMT</pubDate>
+			<enclosure url="https://op3.dev/e,pg=e5ac2d62-2ce7-517a-8bfd-24bff61b2aa9/https://d12wklypp119aj.cloudfront.net/track/0f45b925-6020-47f8-b427-cb6437ee8378.mp3" length="4875837" type="audio/mpeg"/>
+			<podcast:episode>1</podcast:episode>
+			<podcast:season>1</podcast:season>
+			<podcast:value type="lightning" method="keysend">
+				<podcast:valueRecipient name="Official DETOX Music via Wavlake" type="node" address="02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2" customKey="16180339" customValue="0f45b925-6020-47f8-b427-cb6437ee8378" split="100"/>
+			</podcast:value>
+			<itunes:explicit>false</itunes:explicit>
+			<itunes:duration>00:05:04</itunes:duration>
+		</item>
+	</channel>
+</rss>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://podcastindex.org/namespace/1.0">
+  <channel>
+    <generator>RSS Blue v1.20.128</generator>
+    <lastBuildDate>Sun, 19 May 2024 19:37:15 GMT</lastBuildDate>
+    <title>A Cold Trip Nowhere</title>
+    <podcast:guid>844e0b32-7c69-5850-bf62-5abb28b3830b</podcast:guid>
+    <podcast:medium>publisher</podcast:medium>
+    <podcast:remoteItem feedGuid="38edc858-5731-5221-86bf-86db9f886e2b" feedUrl="https://feeds.rssblue.com/e-pluribus-unum" medium="music"></podcast:remoteItem>
+    <podcast:remoteItem feedGuid="f0138eff-8fee-5fbf-abcd-a7a80bdba7f2" feedUrl="https://www.wavlake.com/feed/a05167dd-8271-4ea4-81f0-ec238936bbf0" medium="music"></podcast:remoteItem>
+    <podcast:value type="lightning" method="keysend">
+      <podcast:valueRecipient name="Christian" customKey="696969" customValue="WUKhfmuv5wmHwmWlpBTF" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+      <podcast:valueRecipient name="Lennon" customKey="696969" customValue="yAyzWh0hznXiBOXfFBAJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="49"></podcast:valueRecipient>
+      <podcast:valueRecipient name="RSS Blue" customKey="696969" customValue="JNhG48KDpK6UH6AjmhhJ" type="node" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" split="2"></podcast:valueRecipient>
+    </podcast:value>
+  </channel>
+</rss>

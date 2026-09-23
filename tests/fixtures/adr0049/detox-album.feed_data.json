@@ -1,0 +1,225 @@
+{
+  "feed_guid": "e5ac2d62-2ce7-517a-8bfd-24bff61b2aa9",
+  "title": "Another World",
+  "description": "52 Weeks 52 Releases",
+  "image_url": "https://d12wklypp119aj.cloudfront.net/image/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a.jpg",
+  "language": null,
+  "explicit": false,
+  "itunes_type": null,
+  "raw_medium": "music",
+  "author_name": "Official DETOX Music",
+  "owner_name": "Wavlake",
+  "pub_date": null,
+  "last_build_date": 1790182486,
+  "remote_items": [
+    {
+      "position": 0,
+      "medium": "publisher",
+      "remote_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+      "remote_feed_url": "https://wavlake.com/feed/artist/137aaa9c-75ff-4916-9f23-e02968b2d15e",
+      "rel": null
+    }
+  ],
+  "persons": [],
+  "entity_ids": [],
+  "links": [
+    {
+      "position": 0,
+      "link_type": "website",
+      "url": "https://wavlake.com/official-detox-music",
+      "extraction_path": "feed.link"
+    },
+    {
+      "position": 1,
+      "link_type": "self_feed",
+      "url": "https://wavlake.com/feed/music/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a",
+      "extraction_path": "feed.atom:link[@rel='self']"
+    }
+  ],
+  "podcast_namespace": {
+    "tags": [
+      {
+        "position": 0,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:medium",
+        "tag": "podcast:medium",
+        "attributes": {},
+        "text": "music"
+      },
+      {
+        "position": 1,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "medium": "publisher",
+          "feedGuid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
+          "feedUrl": "https://wavlake.com/feed/artist/137aaa9c-75ff-4916-9f23-e02968b2d15e"
+        },
+        "text": null
+      },
+      {
+        "position": 2,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:category",
+        "tag": "podcast:category",
+        "attributes": {
+          "text": "null"
+        },
+        "text": null
+      },
+      {
+        "position": 3,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:category.podcast:category",
+        "tag": "podcast:category",
+        "attributes": {
+          "text": "null"
+        },
+        "text": null
+      },
+      {
+        "position": 4,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:guid",
+        "tag": "podcast:guid",
+        "attributes": {},
+        "text": "e5ac2d62-2ce7-517a-8bfd-24bff61b2aa9"
+      },
+      {
+        "position": 5,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "type": "lightning",
+          "method": "keysend"
+        },
+        "text": null
+      },
+      {
+        "position": 6,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customKey": "16180339",
+          "split": "100",
+          "type": "node",
+          "customValue": "cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a",
+          "name": "Another World via Wavlake",
+          "address": "02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2"
+        },
+        "text": null
+      },
+      {
+        "position": 7,
+        "entity_scope": "item",
+        "entity_guid": "0f45b925-6020-47f8-b427-cb6437ee8378",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 8,
+        "entity_scope": "item",
+        "entity_guid": "0f45b925-6020-47f8-b427-cb6437ee8378",
+        "path": "rss.channel.item.podcast:season",
+        "tag": "podcast:season",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 9,
+        "entity_scope": "item",
+        "entity_guid": "0f45b925-6020-47f8-b427-cb6437ee8378",
+        "path": "rss.channel.item.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "type": "lightning",
+          "method": "keysend"
+        },
+        "text": null
+      },
+      {
+        "position": 10,
+        "entity_scope": "item",
+        "entity_guid": "0f45b925-6020-47f8-b427-cb6437ee8378",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "type": "node",
+          "address": "02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2",
+          "customKey": "16180339",
+          "split": "100",
+          "name": "Official DETOX Music via Wavlake",
+          "customValue": "0f45b925-6020-47f8-b427-cb6437ee8378"
+        },
+        "text": null
+      }
+    ]
+  },
+  "feed_payment_routes": [
+    {
+      "recipient_name": "Another World via Wavlake",
+      "route_type": "node",
+      "address": "02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2",
+      "custom_key": "16180339",
+      "custom_value": "cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a",
+      "split": 100,
+      "fee": false
+    }
+  ],
+  "live_items": [],
+  "tracks": [
+    {
+      "track_guid": "0f45b925-6020-47f8-b427-cb6437ee8378",
+      "title": "Another World",
+      "pub_date": 1682728311,
+      "duration_secs": 304,
+      "image_url": null,
+      "language": null,
+      "enclosure_url": "https://op3.dev/e,pg=e5ac2d62-2ce7-517a-8bfd-24bff61b2aa9/https://d12wklypp119aj.cloudfront.net/track/0f45b925-6020-47f8-b427-cb6437ee8378.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 4875837,
+      "alternate_enclosures": [],
+      "track_number": 1,
+      "season": 1,
+      "explicit": false,
+      "description": null,
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://www.wavlake.com/album/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [
+        {
+          "recipient_name": "Official DETOX Music via Wavlake",
+          "route_type": "node",
+          "address": "02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2",
+          "custom_key": "16180339",
+          "custom_value": "0f45b925-6020-47f8-b427-cb6437ee8378",
+          "split": 100,
+          "fee": false
+        }
+      ],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    }
+  ]
+}

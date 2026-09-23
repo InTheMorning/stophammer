@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:podcast="https://podcastindex.org/namespace/1.0" xmlns:trackback="http://madskills.com/public/xml/rss/module/trackback/">
+  <channel>
+    <title>Into the Blue</title>
+    <link>https://robertwilley.com</link>
+    <description>
+      <![CDATA[<p>by Robert Willey (2007).</p>]]>
+    </description>
+    <language>en</language>
+    <pubDate>Wed, 09 Mar 2022 14:38:36 +0000</pubDate>
+    <lastBuildDate>Wed, 09 Mar 2022 14:38:36 +0000</lastBuildDate>
+    <copyright>copyright 2022 Robert Willey</copyright>
+    <image>
+      <title>Into the Blue</title>
+      <url>https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836697402-cover%20square%201400.jpg</url>
+      <link>https://robertwilley.com</link>
+    </image>
+    <itunes:author>Robert Willey</itunes:author>
+    <itunes:image href="https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836697402-cover%20square%201400.jpg"/>
+    <itunes:category text="Music">
+      <itunes:category text="Other Music"/>
+    </itunes:category>
+    <itunes:owner>
+      <itunes:name>Robert Willey</itunes:name>
+      <itunes:email>luvlythinking@gmail.com</itunes:email>
+    </itunes:owner>
+    <itunes:type>serial</itunes:type>
+    <itunes:keywords/>
+    <itunes:explicit>No</itunes:explicit>
+    <podcast:locked owner="luvlythinking@gmail.com">no</podcast:locked>
+    <podcast:medium>music</podcast:medium>
+    <podcast:value type="lightning" method="keysend" suggested="0.00000005">
+      <podcast:valueRecipient name="lovelythinking@getalby.com" type="node" address="02436e734efe5f0810522659d385ac386ccb209b3b6dd6542a964cf3eec64abdce" split="99" fee="false" customKey="696969" customValue="2"/>
+      <podcast:valueRecipient name="Podcastindex.org" type="node" address="03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a" split="1" fee="false"/>
+    </podcast:value>
+    <podcast:person href="http://robertwilley.com" img="https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836452888-blue%20head.png" group="Creative Direction" role="Producer" host_href="https://justcast.com/shows/44720/about_us">Robert WIlley</podcast:person>
+    <item>
+      <title>May I ?</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245717</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245717</guid>
+      <description>
+        <![CDATA[<p>The change heard on&nbsp;<a href="https://robertwilley.com/intotheblue.html" rel="noopener noreferrer" target="_blank">Into the Blue</a>&nbsp;from&nbsp;<a href="https://robertwilley.com/outoftheblue.html" rel="noopener noreferrer" target="_blank">Out of the Blue</a>&nbsp;is due to a natural maturity over the years and advances in technology. Only the Yamaha KX76 controller and acoustic guitar remain, now in proximity to an iMac running Pro Tools LE and Reason, and a lone piece of outboard gear–an antique Digitech Vocalist harmonizer.</p><p><img src="https://robertwilley.com/itbnotes_files/droppedImage.jpg"></p><p> Most of the synthesis and processing were done “in the box”. The improvement in sound quality was as inspiring as the excitement experienced with earlier setups. The sounds have gotten clearer, and the forms more linear, with smoother transitions between sections. An abundance of audio tracks and types of processing are available, along with new editing options. The whole process is sped up, which is good, because I have less time to compose now.</p><p>“May I ?” was done with Reason. I never figured out exactly what was causing the weird plucking sound, or how to control its volume, but appreciate its serendipitous contribution.</p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:38:36 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245717.mp3" length="5686033" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/YQvLD3cxUS5vXk2PJ6PJbwRe.jpeg"/>
+      <itunes:duration>00:03:56</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>1</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>1</podcast:episode>
+    </item>
+    <item>
+      <title>for the Time Being</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245718</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245718</guid>
+      <description>
+        <![CDATA[<p>“for the Time Being” is dedicated to the giver of the moments we have to explore life. The metallic balls of János Négyesy’s clock heard at the beginning and end of the song were recorded by Josef Kucera for one of our projects at U.C. San Diego sometime in the 1980’s.</p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:44:00 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245718.mp3" length="9961768" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/NhzR5EGCMDRQEug1n2oRzFi3.jpeg"/>
+      <itunes:duration>00:06:54</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>2</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>2</podcast:episode>
+    </item>
+    <item>
+      <title>Upstate</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245719</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245719</guid>
+      <description>
+        <![CDATA[<p>“Upstate” was written while living in Oneonta, New York, after a visit to Brazil. I’m working on a book on Brazilian piano styles with Alfredo Cardim, who reminds me that samba should be played in cut time, with the bass player imitating the surdo part, with the first beat a bit muffled and the second beat louder. I gave in to the impulse to add sixteenth notes to the bass part on the bridge.</p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:45:35 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245719.mp3" length="7107932" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/af82WVYJcebgH1dNhTJYciec.jpeg"/>
+      <itunes:duration>00:04:56</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>3</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>3</podcast:episode>
+    </item>
+    <item>
+      <title>Into the Blue</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245720</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245720</guid>
+      <description>
+        <![CDATA[<p>The impetus for changing the name from the original “<a href="https://robertwilley.com/podcast/Entries/2007/4/27_Little_Fox.html" rel="noopener noreferrer" target="_blank">Little Fox</a>” to “<a href="http://www.google.com/" rel="noopener noreferrer" target="_blank">Into the Blue</a>” came from realizing its similarity with an earlier composition, “<a href="https://robertwilley.com/outoftheblue.html" rel="noopener noreferrer" target="_blank">Out of the Blue</a>.” I suppose the impulse for the chord progression comes from Pachebel’s “Canon in D”.</p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:46:15 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245720.mp3" length="5271634" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/BNMQpa9KcWVLLJE3EXtf1ik8.jpeg"/>
+      <itunes:duration>00:03:39</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>4</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>4</podcast:episode>
+    </item>
+    <item>
+      <title>Diary of the Night</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245722</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245722</guid>
+      <description>
+        <![CDATA[<p>“Diary of the Night” is a translation of the name of a restaurant in Belo Horizonte, Brazil.</p><p><a href="http://willshare.com/v4v/albums/IntoTheNight/diary.pdf">score</a></p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:46:56 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245722.mp3" length="3269823" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/zVLs2Drz83AF7wpUuPengBvd.jpeg"/>
+      <itunes:duration>00:02:16</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>5</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>5</podcast:episode>
+    </item>
+    <item>
+      <title>Where Did They Go?</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245725</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245725</guid>
+      <description>
+        <![CDATA[<p>“Where Did They Go ?” is dedicated to my parents, George and Jill Willey.</p><p><br></p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:50:45 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245725.mp3" length="3798333" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/LFpAQxptsoY89wuGtsYKiEcP.jpeg"/>
+      <itunes:duration>00:02:38</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>6</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>6</podcast:episode>
+    </item>
+    <item>
+      <title>Saudades de Ouro Preto</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245728</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245728</guid>
+      <description>
+        <![CDATA[<p><br></p>]]>
+      </description>
+      <pubDate>Wed, 09 Mar 2022 14:52:00 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245728.mp3" length="10044528" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/V7bxe73WHGpVeVGVSasd4vsv.jpeg"/>
+      <itunes:duration>00:06:58</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>7</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>7</podcast:episode>
+    </item>
+    <item>
+      <title>All That Matters Is You</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245726</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245726</guid>
+      <pubDate>Wed, 09 Mar 2022 14:52:18 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245726.mp3" length="5623983" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/vLCDnbqFPEXxZwdiGxDn43jq.jpeg"/>
+      <itunes:duration>00:03:54</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>8</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>8</podcast:episode>
+    </item>
+    <item>
+      <title>Coming To Meet</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245727</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245727</guid>
+      <pubDate>Wed, 09 Mar 2022 14:54:25 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245727.mp3" length="8492219" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/Yny7XYwQEUVjfztZfv8ctp3B.jpeg"/>
+      <itunes:duration>00:05:53</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>9</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>9</podcast:episode>
+    </item>
+    <item>
+      <title>Good at Geometry</title>
+      <link>https://justcast.com/shows/44720/audioposts/1245729</link>
+      <guid isPermaLink="false">https://justcast.com/shows/44720/audioposts/1245729</guid>
+      <pubDate>Wed, 09 Mar 2022 14:58:00 +0000</pubDate>
+      <enclosure url="https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245729.mp3" length="11848853" type="audio/mpeg"/>
+      <itunes:explicit>No</itunes:explicit>
+      <itunes:image href="https://backend-api.justcast.com/media_files/SUiFtnBGAQhTacq4f9YfZfqU.jpeg"/>
+      <itunes:duration>00:08:13</itunes:duration>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:episode>10</itunes:episode>
+      <itunes:keywords></itunes:keywords>
+      <itunes:season>1</itunes:season>
+      <podcast:episode>10</podcast:episode>
+    </item>
+  </channel>
+</rss>

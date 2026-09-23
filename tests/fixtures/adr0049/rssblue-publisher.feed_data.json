@@ -1,0 +1,172 @@
+{
+  "feed_guid": "844e0b32-7c69-5850-bf62-5abb28b3830b",
+  "title": "A Cold Trip Nowhere",
+  "description": null,
+  "image_url": null,
+  "language": null,
+  "explicit": false,
+  "itunes_type": null,
+  "raw_medium": "publisher",
+  "author_name": null,
+  "owner_name": null,
+  "pub_date": null,
+  "last_build_date": 1716147435,
+  "remote_items": [
+    {
+      "position": 0,
+      "medium": "music",
+      "remote_feed_guid": "38edc858-5731-5221-86bf-86db9f886e2b",
+      "remote_feed_url": "https://feeds.rssblue.com/e-pluribus-unum",
+      "rel": null
+    },
+    {
+      "position": 1,
+      "medium": "music",
+      "remote_feed_guid": "f0138eff-8fee-5fbf-abcd-a7a80bdba7f2",
+      "remote_feed_url": "https://www.wavlake.com/feed/a05167dd-8271-4ea4-81f0-ec238936bbf0",
+      "rel": null
+    }
+  ],
+  "persons": [],
+  "entity_ids": [],
+  "links": [],
+  "podcast_namespace": {
+    "tags": [
+      {
+        "position": 0,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:guid",
+        "tag": "podcast:guid",
+        "attributes": {},
+        "text": "844e0b32-7c69-5850-bf62-5abb28b3830b"
+      },
+      {
+        "position": 1,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:medium",
+        "tag": "podcast:medium",
+        "attributes": {},
+        "text": "publisher"
+      },
+      {
+        "position": 2,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "medium": "music",
+          "feedGuid": "38edc858-5731-5221-86bf-86db9f886e2b",
+          "feedUrl": "https://feeds.rssblue.com/e-pluribus-unum"
+        },
+        "text": null
+      },
+      {
+        "position": 3,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "medium": "music",
+          "feedGuid": "f0138eff-8fee-5fbf-abcd-a7a80bdba7f2",
+          "feedUrl": "https://www.wavlake.com/feed/a05167dd-8271-4ea4-81f0-ec238936bbf0"
+        },
+        "text": null
+      },
+      {
+        "position": 4,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "method": "keysend",
+          "type": "lightning"
+        },
+        "text": null
+      },
+      {
+        "position": 5,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "split": "49",
+          "name": "Christian",
+          "customValue": "WUKhfmuv5wmHwmWlpBTF",
+          "type": "node",
+          "customKey": "696969"
+        },
+        "text": null
+      },
+      {
+        "position": 6,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customValue": "yAyzWh0hznXiBOXfFBAJ",
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "customKey": "696969",
+          "type": "node",
+          "split": "49",
+          "name": "Lennon"
+        },
+        "text": null
+      },
+      {
+        "position": 7,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customValue": "JNhG48KDpK6UH6AjmhhJ",
+          "name": "RSS Blue",
+          "type": "node",
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "split": "2",
+          "customKey": "696969"
+        },
+        "text": null
+      }
+    ]
+  },
+  "feed_payment_routes": [
+    {
+      "recipient_name": "Christian",
+      "route_type": "node",
+      "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+      "custom_key": "696969",
+      "custom_value": "WUKhfmuv5wmHwmWlpBTF",
+      "split": 49,
+      "fee": false
+    },
+    {
+      "recipient_name": "Lennon",
+      "route_type": "node",
+      "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+      "custom_key": "696969",
+      "custom_value": "yAyzWh0hznXiBOXfFBAJ",
+      "split": 49,
+      "fee": false
+    },
+    {
+      "recipient_name": "RSS Blue",
+      "route_type": "node",
+      "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+      "custom_key": "696969",
+      "custom_value": "JNhG48KDpK6UH6AjmhhJ",
+      "split": 2,
+      "fee": false
+    }
+  ],
+  "live_items": [],
+  "tracks": []
+}

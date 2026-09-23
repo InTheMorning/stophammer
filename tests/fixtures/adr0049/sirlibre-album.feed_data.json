@@ -1,0 +1,516 @@
+{
+  "feed_guid": "2960ba9d-be5a-5fe4-b4e0-18b527e2519c",
+  "title": "Reap What You Sow",
+  "description": "Faces Pale is a metal band from the Tacoma, Washington area. Featuring heavy and fast rhythms and epic guitar solos.",
+  "image_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/album.jpg",
+  "language": null,
+  "explicit": false,
+  "itunes_type": null,
+  "raw_medium": "music",
+  "author_name": "Faces Pale",
+  "owner_name": "Kolomona Myer - Sir Libre",
+  "pub_date": 1746242734,
+  "last_build_date": 1746242734,
+  "remote_items": [
+    {
+      "position": 0,
+      "medium": "publisher",
+      "remote_feed_guid": "66222b31-294a-4921-be38-f4fae1a61591",
+      "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/faces-pale-publisher-rss.xml",
+      "rel": "artist"
+    },
+    {
+      "position": 1,
+      "medium": "publisher",
+      "remote_feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+      "remote_feed_url": "https://sirlibre.com/publisher/sir-libre-records-publisher-rss.xml",
+      "rel": "label"
+    }
+  ],
+  "persons": [
+    {
+      "position": 0,
+      "name": "Paul Clark",
+      "role": "vocals",
+      "group_name": "band",
+      "href": "https://www.facebook.com/faces.pale",
+      "img": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/paul-clark.jpg",
+      "npub": null
+    },
+    {
+      "position": 1,
+      "name": "Jimmy KOrN",
+      "role": "drums",
+      "group_name": "band",
+      "href": "https://lightningthrashes.com",
+      "img": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/KOrN-01.jpg",
+      "npub": null
+    }
+  ],
+  "entity_ids": [],
+  "links": [
+    {
+      "position": 0,
+      "link_type": "website",
+      "url": "https://www.facebook.com/facespale2019",
+      "extraction_path": "feed.link"
+    }
+  ],
+  "podcast_namespace": {
+    "tags": [
+      {
+        "position": 0,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:medium",
+        "tag": "podcast:medium",
+        "attributes": {},
+        "text": "music"
+      },
+      {
+        "position": 1,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:publisher",
+        "tag": "podcast:publisher",
+        "attributes": {},
+        "text": null
+      },
+      {
+        "position": 2,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:publisher.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "feedGuid": "66222b31-294a-4921-be38-f4fae1a61591",
+          "medium": "publisher",
+          "feedUrl": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/faces-pale-publisher-rss.xml",
+          "rel": "artist"
+        },
+        "text": null
+      },
+      {
+        "position": 3,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:publisher.podcast:remoteItem",
+        "tag": "podcast:remoteItem",
+        "attributes": {
+          "rel": "label",
+          "feedGuid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
+          "medium": "publisher",
+          "feedUrl": "https://sirlibre.com/publisher/sir-libre-records-publisher-rss.xml"
+        },
+        "text": null
+      },
+      {
+        "position": 4,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "type": "lightning",
+          "method": "keysend"
+        },
+        "text": null
+      },
+      {
+        "position": 5,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customValue": "UzrnTK2oEHR55gw7Djmb",
+          "split": "5",
+          "type": "node",
+          "name": "Music Side Project",
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "customKey": "696969"
+        },
+        "text": null
+      },
+      {
+        "position": 6,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "split": "5",
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+          "type": "node",
+          "name": "Kolomona - Sir Libre"
+        },
+        "text": null
+      },
+      {
+        "position": 7,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+          "name": "Podcastindex.org",
+          "split": "1",
+          "type": "node"
+        },
+        "text": null
+      },
+      {
+        "position": 8,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623",
+          "split": "5",
+          "name": "IPFS Podcasting",
+          "type": "node"
+        },
+        "text": null
+      },
+      {
+        "position": 9,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customKey": "696969",
+          "split": "84",
+          "customValue": "3",
+          "type": "node",
+          "name": "Jimmy KOrN",
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57"
+        },
+        "text": null
+      },
+      {
+        "position": 10,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:guid",
+        "tag": "podcast:guid",
+        "attributes": {},
+        "text": "2960ba9d-be5a-5fe4-b4e0-18b527e2519c"
+      },
+      {
+        "position": 11,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:person",
+        "tag": "podcast:person",
+        "attributes": {
+          "role": "vocals",
+          "group": "band",
+          "img": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/paul-clark.jpg",
+          "href": "https://www.facebook.com/faces.pale"
+        },
+        "text": "Paul Clark"
+      },
+      {
+        "position": 12,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:person",
+        "tag": "podcast:person",
+        "attributes": {
+          "img": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/KOrN-01.jpg",
+          "group": "band",
+          "href": "https://lightningthrashes.com",
+          "role": "drums"
+        },
+        "text": "Jimmy KOrN"
+      },
+      {
+        "position": 13,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:complete",
+        "tag": "podcast:complete",
+        "attributes": {},
+        "text": "no"
+      },
+      {
+        "position": 14,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:block",
+        "tag": "podcast:block",
+        "attributes": {},
+        "text": "no"
+      },
+      {
+        "position": 15,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:season",
+        "tag": "podcast:season",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 16,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 17,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "type": "lightning",
+          "method": "keysend"
+        },
+        "text": null
+      },
+      {
+        "position": 18,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "type": "node",
+          "split": "5",
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "name": "Music Side Project",
+          "customKey": "696969",
+          "customValue": "UzrnTK2oEHR55gw7Djmb"
+        },
+        "text": null
+      },
+      {
+        "position": 19,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+          "type": "node",
+          "name": "Kolomona - Sir Libre",
+          "split": "5"
+        },
+        "text": null
+      },
+      {
+        "position": 20,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+          "split": "1",
+          "name": "Podcastindex.org",
+          "type": "node"
+        },
+        "text": null
+      },
+      {
+        "position": 21,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "name": "IPFS Podcasting",
+          "type": "node",
+          "split": "5",
+          "address": "028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623"
+        },
+        "text": null
+      },
+      {
+        "position": 22,
+        "entity_scope": "item",
+        "entity_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+        "path": "rss.channel.item.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "customKey": "696969",
+          "customValue": "3",
+          "type": "node",
+          "name": "Jimmy KOrN",
+          "split": "84",
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57"
+        },
+        "text": null
+      },
+      {
+        "position": 23,
+        "entity_scope": "item",
+        "entity_guid": "4ebbb45f-53b0-417c-8581-c5753ec1ca5e",
+        "path": "rss.channel.item.podcast:season",
+        "tag": "podcast:season",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 24,
+        "entity_scope": "item",
+        "entity_guid": "4ebbb45f-53b0-417c-8581-c5753ec1ca5e",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "2"
+      }
+    ]
+  },
+  "feed_payment_routes": [
+    {
+      "recipient_name": "Music Side Project",
+      "route_type": "node",
+      "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+      "custom_key": "696969",
+      "custom_value": "UzrnTK2oEHR55gw7Djmb",
+      "split": 5,
+      "fee": false
+    },
+    {
+      "recipient_name": "Kolomona - Sir Libre",
+      "route_type": "node",
+      "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+      "custom_key": null,
+      "custom_value": null,
+      "split": 5,
+      "fee": false
+    },
+    {
+      "recipient_name": "Podcastindex.org",
+      "route_type": "node",
+      "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+      "custom_key": null,
+      "custom_value": null,
+      "split": 1,
+      "fee": false
+    },
+    {
+      "recipient_name": "IPFS Podcasting",
+      "route_type": "node",
+      "address": "028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623",
+      "custom_key": null,
+      "custom_value": null,
+      "split": 5,
+      "fee": false
+    },
+    {
+      "recipient_name": "Jimmy KOrN",
+      "route_type": "node",
+      "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+      "custom_key": "696969",
+      "custom_value": "3",
+      "split": 84,
+      "fee": false
+    }
+  ],
+  "live_items": [],
+  "tracks": [
+    {
+      "track_guid": "14f6219e-16a0-4237-8522-849b4f7d0f17",
+      "title": "Molt",
+      "pub_date": 1694496406,
+      "duration_secs": 229,
+      "image_url": "https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/03-Molt.jpg",
+      "language": null,
+      "enclosure_url": "https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/03-Molt.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 1833674,
+      "alternate_enclosures": [],
+      "track_number": 1,
+      "season": 1,
+      "explicit": false,
+      "description": "Molt",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [],
+      "payment_routes": [
+        {
+          "recipient_name": "Music Side Project",
+          "route_type": "node",
+          "address": "030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3",
+          "custom_key": "696969",
+          "custom_value": "UzrnTK2oEHR55gw7Djmb",
+          "split": 5,
+          "fee": false
+        },
+        {
+          "recipient_name": "Kolomona - Sir Libre",
+          "route_type": "node",
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+          "custom_key": null,
+          "custom_value": null,
+          "split": 5,
+          "fee": false
+        },
+        {
+          "recipient_name": "Podcastindex.org",
+          "route_type": "node",
+          "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+          "custom_key": null,
+          "custom_value": null,
+          "split": 1,
+          "fee": false
+        },
+        {
+          "recipient_name": "IPFS Podcasting",
+          "route_type": "node",
+          "address": "028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623",
+          "custom_key": null,
+          "custom_value": null,
+          "split": 5,
+          "fee": false
+        },
+        {
+          "recipient_name": "Jimmy KOrN",
+          "route_type": "node",
+          "address": "03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57",
+          "custom_key": "696969",
+          "custom_value": "3",
+          "split": 84,
+          "fee": false
+        }
+      ],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "4ebbb45f-53b0-417c-8581-c5753ec1ca5e",
+      "title": "Bloodfeast",
+      "pub_date": 1694496346,
+      "duration_secs": 530,
+      "image_url": "https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/05-Bloodfeast.jpg",
+      "language": null,
+      "enclosure_url": "https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/05-Bloodfeast.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 4244880,
+      "alternate_enclosures": [],
+      "track_number": 2,
+      "season": 1,
+      "explicit": false,
+      "description": "Bloodfeast",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    }
+  ]
+}

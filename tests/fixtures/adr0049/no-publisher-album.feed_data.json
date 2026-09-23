@@ -1,0 +1,542 @@
+{
+  "feed_guid": "48ad9b64-d3a8-5719-b452-9ae85e57ab54",
+  "title": "Into the Blue",
+  "description": "by Robert Willey (2007).",
+  "image_url": "https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836697402-cover%20square%201400.jpg",
+  "language": "en",
+  "explicit": false,
+  "itunes_type": "serial",
+  "raw_medium": "music",
+  "author_name": "Robert Willey",
+  "owner_name": "Robert Willey",
+  "pub_date": 1646836716,
+  "last_build_date": 1646836716,
+  "remote_items": [],
+  "persons": [
+    {
+      "position": 0,
+      "name": "Robert WIlley",
+      "role": "Producer",
+      "group_name": "Creative Direction",
+      "href": "http://robertwilley.com",
+      "img": "https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836452888-blue%20head.png",
+      "npub": null
+    }
+  ],
+  "entity_ids": [],
+  "links": [
+    {
+      "position": 0,
+      "link_type": "website",
+      "url": "https://robertwilley.com",
+      "extraction_path": "feed.link"
+    }
+  ],
+  "podcast_namespace": {
+    "tags": [
+      {
+        "position": 0,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:locked",
+        "tag": "podcast:locked",
+        "attributes": {
+          "owner": "luvlythinking@gmail.com"
+        },
+        "text": "no"
+      },
+      {
+        "position": 1,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:medium",
+        "tag": "podcast:medium",
+        "attributes": {},
+        "text": "music"
+      },
+      {
+        "position": 2,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value",
+        "tag": "podcast:value",
+        "attributes": {
+          "type": "lightning",
+          "method": "keysend",
+          "suggested": "0.00000005"
+        },
+        "text": null
+      },
+      {
+        "position": 3,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "address": "02436e734efe5f0810522659d385ac386ccb209b3b6dd6542a964cf3eec64abdce",
+          "type": "node",
+          "split": "99",
+          "fee": "false",
+          "customKey": "696969",
+          "name": "lovelythinking@getalby.com",
+          "customValue": "2"
+        },
+        "text": null
+      },
+      {
+        "position": 4,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:value.podcast:valueRecipient",
+        "tag": "podcast:valueRecipient",
+        "attributes": {
+          "name": "Podcastindex.org",
+          "type": "node",
+          "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+          "split": "1",
+          "fee": "false"
+        },
+        "text": null
+      },
+      {
+        "position": 5,
+        "entity_scope": "channel",
+        "entity_guid": null,
+        "path": "rss.channel.podcast:person",
+        "tag": "podcast:person",
+        "attributes": {
+          "host_href": "https://justcast.com/shows/44720/about_us",
+          "href": "http://robertwilley.com",
+          "group": "Creative Direction",
+          "img": "https://justcast.sfo2.digitaloceanspaces.com/js-production/1646836452888-blue%20head.png",
+          "role": "Producer"
+        },
+        "text": "Robert WIlley"
+      },
+      {
+        "position": 6,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245717",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "1"
+      },
+      {
+        "position": 7,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245718",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "2"
+      },
+      {
+        "position": 8,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245719",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "3"
+      },
+      {
+        "position": 9,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245720",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "4"
+      },
+      {
+        "position": 10,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245722",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "5"
+      },
+      {
+        "position": 11,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245725",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "6"
+      },
+      {
+        "position": 12,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245728",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "7"
+      },
+      {
+        "position": 13,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245726",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "8"
+      },
+      {
+        "position": 14,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245727",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "9"
+      },
+      {
+        "position": 15,
+        "entity_scope": "item",
+        "entity_guid": "https://justcast.com/shows/44720/audioposts/1245729",
+        "path": "rss.channel.item.podcast:episode",
+        "tag": "podcast:episode",
+        "attributes": {},
+        "text": "10"
+      }
+    ]
+  },
+  "feed_payment_routes": [
+    {
+      "recipient_name": "lovelythinking@getalby.com",
+      "route_type": "node",
+      "address": "02436e734efe5f0810522659d385ac386ccb209b3b6dd6542a964cf3eec64abdce",
+      "custom_key": "696969",
+      "custom_value": "2",
+      "split": 99,
+      "fee": false
+    },
+    {
+      "recipient_name": "Podcastindex.org",
+      "route_type": "node",
+      "address": "03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a",
+      "custom_key": null,
+      "custom_value": null,
+      "split": 1,
+      "fee": false
+    }
+  ],
+  "live_items": [],
+  "tracks": [
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245717",
+      "title": "May I ?",
+      "pub_date": 1646836716,
+      "duration_secs": 236,
+      "image_url": "https://backend-api.justcast.com/media_files/YQvLD3cxUS5vXk2PJ6PJbwRe.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245717.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 5686033,
+      "alternate_enclosures": [],
+      "track_number": 1,
+      "season": 1,
+      "explicit": false,
+      "description": "The change heard on&nbsp;Into the Blue&nbsp;from&nbsp;Out of the Blue&nbsp;is due to a natural maturity over the years and advances in technology. Only the Yamaha KX76 controller and acoustic guitar remain, now in proximity to an iMac running Pro Tools LE and Reason, and a lone piece of outboard gear–an antique Digitech Vocalist harmonizer. Most of the synthesis and processing were done “in the box”. The improvement in sound quality was as inspiring as the excitement experienced with earlier setups. The sounds have gotten clearer, and the forms more linear, with smoother transitions between sections. An abundance of audio tracks and types of processing are available, along with new editing options. The whole process is sped up, which is good, because I have less time to compose now.“May I ?” was done with Reason. I never figured out exactly what was causing the weird plucking sound, or how to control its volume, but appreciate its serendipitous contribution.",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245717",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245718",
+      "title": "for the Time Being",
+      "pub_date": 1646837040,
+      "duration_secs": 414,
+      "image_url": "https://backend-api.justcast.com/media_files/NhzR5EGCMDRQEug1n2oRzFi3.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245718.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 9961768,
+      "alternate_enclosures": [],
+      "track_number": 2,
+      "season": 1,
+      "explicit": false,
+      "description": "“for the Time Being” is dedicated to the giver of the moments we have to explore life. The metallic balls of János Négyesy’s clock heard at the beginning and end of the song were recorded by Josef Kucera for one of our projects at U.C. San Diego sometime in the 1980’s.",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245718",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245719",
+      "title": "Upstate",
+      "pub_date": 1646837135,
+      "duration_secs": 296,
+      "image_url": "https://backend-api.justcast.com/media_files/af82WVYJcebgH1dNhTJYciec.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245719.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 7107932,
+      "alternate_enclosures": [],
+      "track_number": 3,
+      "season": 1,
+      "explicit": false,
+      "description": "“Upstate” was written while living in Oneonta, New York, after a visit to Brazil. I’m working on a book on Brazilian piano styles with Alfredo Cardim, who reminds me that samba should be played in cut time, with the bass player imitating the surdo part, with the first beat a bit muffled and the second beat louder. I gave in to the impulse to add sixteenth notes to the bass part on the bridge.",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245719",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245720",
+      "title": "Into the Blue",
+      "pub_date": 1646837175,
+      "duration_secs": 219,
+      "image_url": "https://backend-api.justcast.com/media_files/BNMQpa9KcWVLLJE3EXtf1ik8.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245720.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 5271634,
+      "alternate_enclosures": [],
+      "track_number": 4,
+      "season": 1,
+      "explicit": false,
+      "description": "The impetus for changing the name from the original “Little Fox” to “Into the Blue” came from realizing its similarity with an earlier composition, “Out of the Blue.” I suppose the impulse for the chord progression comes from Pachebel’s “Canon in D”.",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245720",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245722",
+      "title": "Diary of the Night",
+      "pub_date": 1646837216,
+      "duration_secs": 136,
+      "image_url": "https://backend-api.justcast.com/media_files/zVLs2Drz83AF7wpUuPengBvd.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245722.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 3269823,
+      "alternate_enclosures": [],
+      "track_number": 5,
+      "season": 1,
+      "explicit": false,
+      "description": "“Diary of the Night” is a translation of the name of a restaurant in Belo Horizonte, Brazil.score",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245722",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245725",
+      "title": "Where Did They Go?",
+      "pub_date": 1646837445,
+      "duration_secs": 158,
+      "image_url": "https://backend-api.justcast.com/media_files/LFpAQxptsoY89wuGtsYKiEcP.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245725.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 3798333,
+      "alternate_enclosures": [],
+      "track_number": 6,
+      "season": 1,
+      "explicit": false,
+      "description": "“Where Did They Go ?” is dedicated to my parents, George and Jill Willey.",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245725",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245728",
+      "title": "Saudades de Ouro Preto",
+      "pub_date": 1646837520,
+      "duration_secs": 418,
+      "image_url": "https://backend-api.justcast.com/media_files/V7bxe73WHGpVeVGVSasd4vsv.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245728.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 10044528,
+      "alternate_enclosures": [],
+      "track_number": 7,
+      "season": 1,
+      "explicit": false,
+      "description": "",
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245728",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245726",
+      "title": "All That Matters Is You",
+      "pub_date": 1646837538,
+      "duration_secs": 234,
+      "image_url": "https://backend-api.justcast.com/media_files/vLCDnbqFPEXxZwdiGxDn43jq.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245726.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 5623983,
+      "alternate_enclosures": [],
+      "track_number": 8,
+      "season": 1,
+      "explicit": false,
+      "description": null,
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245726",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245727",
+      "title": "Coming To Meet",
+      "pub_date": 1646837665,
+      "duration_secs": 353,
+      "image_url": "https://backend-api.justcast.com/media_files/Yny7XYwQEUVjfztZfv8ctp3B.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245727.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 8492219,
+      "alternate_enclosures": [],
+      "track_number": 9,
+      "season": 1,
+      "explicit": false,
+      "description": null,
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245727",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    },
+    {
+      "track_guid": "https://justcast.com/shows/44720/audioposts/1245729",
+      "title": "Good at Geometry",
+      "pub_date": 1646837880,
+      "duration_secs": 493,
+      "image_url": "https://backend-api.justcast.com/media_files/SUiFtnBGAQhTacq4f9YfZfqU.jpeg",
+      "language": "en",
+      "enclosure_url": "https://backend-api.justcast.com/public_feeds/into-the-blue/episodes/1245729.mp3",
+      "enclosure_type": "audio/mpeg",
+      "enclosure_bytes": 11848853,
+      "alternate_enclosures": [],
+      "track_number": 10,
+      "season": 1,
+      "explicit": false,
+      "description": null,
+      "author_name": null,
+      "persons": [],
+      "entity_ids": [],
+      "links": [
+        {
+          "position": 0,
+          "link_type": "web_page",
+          "url": "https://justcast.com/shows/44720/audioposts/1245729",
+          "extraction_path": "entity.link"
+        }
+      ],
+      "payment_routes": [],
+      "value_time_splits": [],
+      "transcripts": [],
+      "remote_items": []
+    }
+  ]
+}

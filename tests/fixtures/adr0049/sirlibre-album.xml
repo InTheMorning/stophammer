@@ -1,0 +1,80 @@
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:podcast="https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md">
+  <channel>
+    <generator>Sovereign Feeds</generator>
+    <itunes:category text="Music"/>
+    <itunes:keywords>music</itunes:keywords>
+    <podcast:medium>music</podcast:medium>
+    <itunes:author>Faces Pale</itunes:author>
+    <itunes:owner itunes:name="Faces Pale" itunes:email="">
+      <itunes:name>Kolomona Myer - Sir Libre</itunes:name>
+      <itunes:email>kolomona@kolomona.com</itunes:email>
+    </itunes:owner>
+    <title>Reap What You Sow</title>
+    <description>Faces Pale is a metal band from the Tacoma, Washington area. Featuring heavy and fast rhythms and epic guitar solos.</description>
+    <itunes:image href="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/album.jpg"/>
+    <itunes:explicit>no</itunes:explicit>
+    <link>https://www.facebook.com/facespale2019</link>
+
+    <podcast:publisher>
+      <!-- Artist publisher feed -->
+      <podcast:remoteItem rel="artist" medium="publisher" feedGuid="66222b31-294a-4921-be38-f4fae1a61591" feedUrl="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/faces-pale-publisher-rss.xml"/>
+      <!-- Record Label publisher feed -->
+      <podcast:remoteItem rel="label" medium="publisher" feedGuid="34bf795f-f551-4db1-8877-ad19aa5f89c8" feedUrl="https://sirlibre.com/publisher/sir-libre-records-publisher-rss.xml"/>
+    </podcast:publisher>
+
+    <podcast:value type="lightning" method="keysend">
+      <podcast:valueRecipient type="node" name="Music Side Project" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" customKey="696969" customValue="UzrnTK2oEHR55gw7Djmb" split="5"/>
+      <podcast:valueRecipient type="node" name="Kolomona - Sir Libre" address="03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57" split="5"/>
+      <podcast:valueRecipient type="node" name="Podcastindex.org" address="03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a" split="1"/>
+      <podcast:valueRecipient type="node" name="IPFS Podcasting" address="028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623" split="5"/>
+      <podcast:valueRecipient type="node" name="Jimmy KOrN" address="03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57" split="84" customValue="3" customKey="696969"/>
+    </podcast:value>
+    <podcast:guid>2960ba9d-be5a-5fe4-b4e0-18b527e2519c</podcast:guid>
+    <podcast:person href="https://www.facebook.com/faces.pale" img="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/paul-clark.jpg" group="band" role="vocals">Paul Clark</podcast:person>
+    <podcast:person href="https://lightningthrashes.com" img="https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/KOrN-01.jpg" group="band" role="drums">Jimmy KOrN</podcast:person>
+    <podcast:complete>no</podcast:complete>
+    <podcast:block>no</podcast:block>
+    <pubDate>Sat, 03 May 2025 03:25:34 +0000</pubDate>
+    <lastBuildDate>Sat, 03 May 2025 03:25:34 +0000</lastBuildDate>
+    <category>Music</category>
+    <image>
+      <url>https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/album.jpg</url>
+      <link>https://www.facebook.com/facespale2019</link>
+      <title>Reap What You Sow</title>
+      <description>Faces Pale is a metal band from the Tacoma, Washington area. Featuring heavy and fast rhythms and epic guitar solos.</description>
+      <width>144</width>
+      <height>144</height>
+    </image>
+    <item>
+      <pubDate>Tue, 12 Sep 2023 05:26:46 +0000</pubDate>
+      <podcast:season>1</podcast:season>
+      <podcast:episode>1</podcast:episode>
+      <guid isPermaLink="false">14f6219e-16a0-4237-8522-849b4f7d0f17</guid>
+      <title>Molt</title>
+      <enclosure url="https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/03-Molt.mp3" type="audio/mpeg" length="1833674"/>
+      <itunes:duration>229</itunes:duration>
+      <description>Molt</description>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:image href="https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/03-Molt.jpg"/>
+      <podcast:value method="keysend" type="lightning">
+        <podcast:valueRecipient type="node" name="Music Side Project" address="030a58b8653d32b99200a2334cfe913e51dc7d155aa0116c176657a4f1722677a3" customKey="696969" customValue="UzrnTK2oEHR55gw7Djmb" split="5"/>
+        <podcast:valueRecipient type="node" name="Kolomona - Sir Libre" address="03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57" split="5"/>
+        <podcast:valueRecipient type="node" name="Podcastindex.org" address="03ae9f91a0cb8ff43840e3c322c4c61f019d8c1c3cea15a25cfc425ac605e61a4a" split="1"/>
+        <podcast:valueRecipient type="node" name="IPFS Podcasting" address="028eb5be336f7fdf2a4e40c57ff55d3d5d71277bb4197ea14957f756bff249e623" split="5"/>
+        <podcast:valueRecipient type="node" name="Jimmy KOrN" address="03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57" split="84" customValue="3" customKey="696969"/>
+      </podcast:value>
+    </item>
+    <item>
+      <pubDate>Tue, 12 Sep 2023 05:25:46 +0000</pubDate>
+      <podcast:season>1</podcast:season>
+      <podcast:episode>2</podcast:episode>
+      <guid isPermaLink="false">4ebbb45f-53b0-417c-8581-c5753ec1ca5e</guid>
+      <title>Bloodfeast</title>
+      <enclosure url="https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/05-Bloodfeast.mp3" type="audio/mpeg" length="4244880"/>
+      <itunes:duration>530</itunes:duration>
+      <description>Bloodfeast</description>
+      <itunes:explicit>no</itunes:explicit>
+      <itunes:image href="https://ipfspodcasting.net/e/cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/reap-what-you-sow/05-Bloodfeast.jpg"/>
+    </item>
+  </channel>
+</rss>

@@ -115,3 +115,24 @@ pub fn temp_signer(label: &str) -> stophammer::signing::NodeSigner {
     let key_path = dir.path().join(format!("{label}.key"));
     stophammer::signing::NodeSigner::load_or_create(&key_path).expect("create signer")
 }
+
+/// Reads a stored ADR 0049 real-feed fixture.
+///
+/// Reads `tests/fixtures/adr0049/<name>.feed_data.json` from disk and parses
+/// it as JSON. Never fetches over the network. `tests/fixtures/adr0049/
+/// SOURCES.md` records the URL, fetch time, HTTP status, and SHA-256 that
+/// produced each fixture, and the parser commit that read it.
+// ADR 0049 Task 002 — 2026-09-23
+#[allow(
+    dead_code,
+    reason = "shared test helper is used selectively across integration tests"
+)]
+pub fn adr0049_feed_data(name: &str) -> serde_json::Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/adr0049")
+        .join(format!("{name}.feed_data.json"));
+    let raw = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("failed to read fixture {}: {err}", path.display()));
+    serde_json::from_str(&raw)
+        .unwrap_or_else(|err| panic!("failed to parse fixture {}: {err}", path.display()))
+}

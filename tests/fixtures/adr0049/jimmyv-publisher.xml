@@ -1,0 +1,44 @@
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:podcast="https://github.com/Podcastindex-org/podcast-namespace/blob/main/docs/1.0.md" version="2.0">
+  <channel>
+    <title>Jimmy V</title>
+    <description>Jimmy V is a musician and music producer</description>
+    <itunes:image href="https:///music.jimmyv4v.com/publisher/jimmy-v-publisher.jpg"/>
+    <link>https://jimmyv4v.com</link>
+    <generator>SirLibre</generator>
+    <podcast:medium>publisher</podcast:medium>
+    <podcast:guid>efa7f6e4-9410-5b49-a3e6-0ef0d405a88d</podcast:guid>
+    <image>
+      <url>https:///music.jimmyv4v.com/publisher/jimmy-v-publisher.jpg</url>
+      <link>https://jimmyv4v.com</link>
+      <title>Jimmy V</title>
+      <width>1000</width>
+      <height>1000</height>
+    </image>
+    <podcast:value type="lightning" method="keysend" suggested="0.00000005000">
+      <podcast:valueRecipient name="Jimmy V" type="node" address="03b6f613e88bd874177c28c6ad83b3baba43c4c656f56be1f8df84669556054b79" customKey="906608" customValue="01dIRsYB86CoEkZ4yUubfh" split="88"/>
+      <podcast:valueRecipient name="SirLibre Node" type="node" address="03460a453d13c98ff06b36b3b6a8c06a7b48328ad5f983dacc3a7b0991b841bc57" split="12"/>
+    </podcast:value>
+    <podcast:block>no</podcast:block>
+    <itunes:owner>
+      <itunes:email/>
+      <itunes:name/>
+    </itunes:owner>
+    <podcast:remoteItem rel="artist" feedGuid="dbad52b9-6253-4a9b-bfab-246b9e839815" feedUrl="https://music.jimmyv4v.com/bands/jimmy-v/jimmy-v-collection/jimmy_v-jimmy_v_collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/jimmy-v/jimmy-v-collection/album-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="e88e5602-7105-5c7c-8b27-54513aac0ce8" feedUrl="https://www.wavlake.com/feed/a047ea02-7c6b-4180-939d-6207ab17b9aa" feedImg="https://d12wklypp119aj.cloudfront.net/image/a047ea02-7c6b-4180-939d-6207ab17b9aa.jpg"/>
+    <podcast:remoteItem rel="artist, producer" feedGuid="29da0d11-4534-542d-80c6-052554b1597a" feedUrl="https://music.jimmyv4v.com/bands/billy-bigrig/billy-bigrig-collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/billy-bigrig/album.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="99d74aa0-2f55-5b2c-9c7a-47a3f31357f3" feedUrl="https://music.jimmyv4v.com/bands/blackstone-valley/blackstone-valley-collection/blackstone-valley-collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/blackstone-valley/blackstone-valley-collection/album.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="50d3837c-949b-5246-85bc-7ec10983af94" feedUrl="https://music.jimmyv4v.com/bands/faron_beaudin/faron-beaudin-collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/faron_beaudin/melllow_life_in_yellowknife-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="e3bdb8c7-2966-5735-9d6a-45fd8c5c9ff6" feedUrl="https://music.jimmyv4v.com/bands/ian_north/ian_north_music-rss.xml" feedImg="https://music.jimmyv4v.com/bands/ian_north/the_beautiful_city/ian_north-the_beautiful_city-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="f544dc44-d3c5-5420-912a-7165305a0141" feedUrl="https://music.jimmyv4v.com/bands/my-wicked-twin/twin_turbo/my_wicked_twin-twin_turbo-rss.xml" feedImg="https://music.jimmyv4v.com/bands/my-wicked-twin/twin_turbo/album-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="79aaf6c1-b95e-5c5d-8181-bf572f959d5c" feedUrl="https://music.jimmyv4v.com/bands/my-wicked-twin/the_ash_tray_sonatas/my_wicked_twin-the_ash_tray_sonatas-rss.xml" feedImg="https://music.jimmyv4v.com/bands/my-wicked-twin/the_ash_tray_sonatas/album.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="2514d117-8a84-5345-82e8-8ed7b940cf1f" feedUrl="https://music.jimmyv4v.com/bands/rebel-hero/rebel-hero-collection/rebel_hero-collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/rebel-hero/rebel-hero-collection/album-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="49ec73c9-abe2-5a65-83d6-f7152b919df7" feedUrl="https://music.jimmyv4v.com/bands/studio_v/studio_v-featuring_tamala/studio_v_feat_tamala-rss.xml" feedImg="https://music.jimmyv4v.com/images/Stone-V-3-500.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="a84a2e0f-faba-488b-a0a2-43c4745878ac" feedUrl="https://music.jimmyv4v.com/bands/tamala/tamala/tamala-tamala-rss.xml" feedImg="https://music.jimmyv4v.com/bands/tamala/tamala/album.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="85da7fea-1e1c-59e5-a655-9fdf3b96429e" feedUrl="https://music.jimmyv4v.com/bands/toby_pease/toby_pease_collection/toby_pease-collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/toby_pease/toby_pease_collection/album-1000.jpg"/>
+    <podcast:remoteItem rel="producer" feedGuid="ec20d4ed-76c2-50dc-b4d9-0ba407f8cd81" feedUrl="https://music.jimmyv4v.com/bands/tyson_froese/tyson_froese_collection/tyson_froese_collection-rss.xml" feedImg="https://music.jimmyv4v.com/bands/tyson_froese/tyson_froese_collection/album-1000.jpg"/>
+    <itunes:author>Jimmy V</itunes:author>
+    <pubDate>Fri, 21 Nov 2025 02:16:17 +0000</pubDate>
+    <lastBuildDate>Tue, 26 May 2026 09:44:14 -0500</lastBuildDate>
+    
+  </channel>
+</rss>
