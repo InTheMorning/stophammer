@@ -11,6 +11,8 @@
 
 use serde_json::{Value, json};
 
+use crate::{api, ingest, query, sync};
+
 /// Returns the primary-node `OpenAPI` document.
 #[must_use]
 pub fn primary_document() -> utoipa::openapi::OpenApi {
@@ -584,10 +586,35 @@ fn spec_value(mode: DocMode) -> Value {
                     "in": "header",
                     "name": "X-Sync-Token"
                 }
-            }
+            },
+            "schemas": Value::Object(schemas_object())
         },
         "paths": Value::Object(paths)
     })
+}
+
+// ── `components.schemas` (ADR 0044) ─────────────────────────────────────────
+//
+// Each `ToSchema` type below is a JSON response type from `query`, `api`,
+// `ingest` or `sync`. No response in this document references a schema by
+// `$ref` yet; that comes in a later task. This section only publishes the
+// schemas so a client can compare its own field expectations against them.
+
+/// Builds `components.schemas` from every documented response type's
+/// `utoipa::ToSchema` derive.
+fn schemas_object() -> serde_json::Map<String, Value> {
+    let mut schemas = Vec::new();
+    schemas.extend(query::response_schemas());
+    schemas.extend(api::response_schemas());
+    schemas.extend(ingest::response_schemas());
+    schemas.extend(sync::response_schemas());
+
+    let mut map = serde_json::Map::new();
+    for (name, schema) in schemas {
+        let value = serde_json::to_value(schema).expect("utoipa schema serializes");
+        map.insert(name, value);
+    }
+    map
 }
 
 fn feed_path_item(mode: DocMode) -> Value {

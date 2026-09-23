@@ -38,7 +38,7 @@ const TOKEN_TTL_SECS: i64 = 3600;
 /// implementation only performs Phase 1 (RSS proof), so all tokens are
 /// issued at `RssOnly`. See ADR-0018 "Current Implementation Status"
 /// for details on the assurance gap.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ProofLevel {
     /// RSS feed proof only (Phase 1). Asserts control of the feed document.

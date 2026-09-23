@@ -10,6 +10,7 @@
 
 use crate::event::Event;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 /// Response for `GET /sync/events?after_seq={n}&limit={m}`.
 /// Community nodes poll this to stay current.
@@ -98,13 +99,13 @@ pub struct RegisterSigningPayload<'a> {
 }
 
 /// Response from `POST /sync/register` on the primary.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct RegisterResponse {
     pub ok: bool,
 }
 
 /// Entry in the `GET /sync/peers` response.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PeerEntry {
     pub node_pubkey: String,
     pub node_url: String,
@@ -112,7 +113,36 @@ pub struct PeerEntry {
 }
 
 /// Response from `GET /sync/peers` on the primary.
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PeersResponse {
     pub nodes: Vec<PeerEntry>,
+}
+
+// ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────
+
+/// A named `OpenAPI` schema, paired for insertion into `components.schemas`.
+type SchemaEntry = (
+    String,
+    utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+);
+
+/// Pushes `T`'s own schema, plus every schema `T` references, onto `schemas`.
+fn register_schema<T: ToSchema>(schemas: &mut Vec<SchemaEntry>) {
+    schemas.push((T::name().into_owned(), T::schema()));
+    T::schemas(schemas);
+}
+
+/// Schemas for the documented `/sync/*` JSON responses this module returns.
+///
+/// `SyncEventsResponse` and `ReconcileResponse` are not included: both carry
+/// [`Event`], whose payload spans the full `model` and `event` type graphs.
+/// See the ADR 0044 task 001 report for the unresolved-concerns note.
+///
+/// Read by `openapi::spec_value` to fill `components.schemas`. No response
+/// references these schemas yet (ADR 0044 task 001); a later task adds that.
+pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
+    let mut schemas = Vec::new();
+    register_schema::<RegisterResponse>(&mut schemas);
+    register_schema::<PeersResponse>(&mut schemas);
+    schemas
 }

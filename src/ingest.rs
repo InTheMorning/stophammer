@@ -9,6 +9,7 @@
 
 use crate::model::RouteType;
 use serde::{Deserialize, Serialize};
+use utoipa::{PartialSchema, ToSchema};
 
 /// Full crawler submission for `POST /ingest/feed`.
 ///
@@ -238,7 +239,7 @@ pub struct IngestValueTimeSplit {
 }
 
 /// Response returned to the crawler after a `POST /ingest/feed` attempt.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct IngestResponse {
     /// `true` when the submission was accepted and written to the database.
     pub accepted: bool,
@@ -250,4 +251,26 @@ pub struct IngestResponse {
     pub no_change: bool,
     /// Non-fatal verifier warnings recorded alongside the events.
     pub warnings: Vec<String>,
+}
+
+// ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────
+
+/// A named `OpenAPI` schema, paired for insertion into `components.schemas`.
+type SchemaEntry = (
+    String,
+    utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+);
+
+/// Schemas for every documented JSON response this module returns.
+///
+/// Read by `openapi::spec_value` to fill `components.schemas`. No response
+/// references these schemas yet (ADR 0044 task 001); a later task adds that.
+pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
+    let mut schemas = Vec::new();
+    schemas.push((
+        IngestResponse::name().into_owned(),
+        IngestResponse::schema(),
+    ));
+    IngestResponse::schemas(&mut schemas);
+    schemas
 }

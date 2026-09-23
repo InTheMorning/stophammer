@@ -25,12 +25,13 @@ use axum::{
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::{api, db};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct Pagination {
     cursor: Option<String>,
     has_more: bool,
@@ -57,14 +58,14 @@ fn decode_cursor(cursor: &str) -> Result<String, api::ApiError> {
 
 // ── Response envelope ───────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct QueryResponse<T> {
     data: T,
     pagination: Pagination,
     meta: ResponseMeta,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct ResponseMeta {
     api_version: &'static str,
     node_pubkey: String,
@@ -162,7 +163,7 @@ fn like_contains_pattern(value: &str) -> String {
 
 // ── Serializable types ──────────────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct FeedResponse {
     feed_guid: String,
     feed_url: String,
@@ -203,7 +204,7 @@ struct FeedResponse {
     publisher: Option<Vec<PublisherResponse>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct TrackSummary {
     track_guid: String,
     title: String,
@@ -216,7 +217,7 @@ struct TrackSummary {
     publisher_text: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct RouteResponse {
     recipient_name: Option<String>,
     route_type: String,
@@ -227,7 +228,7 @@ struct RouteResponse {
     fee: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct TrackResponse {
     track_guid: String,
     feed_guid: String,
@@ -273,14 +274,14 @@ struct TrackResponse {
     publisher: Option<Vec<PublisherResponse>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PublisherSearchItem {
     publisher_text: String,
     feed_count: i64,
     track_count: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PublisherFeedSummary {
     feed_guid: String,
     feed_url: String,
@@ -290,7 +291,7 @@ struct PublisherFeedSummary {
     raw_medium: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PublisherTrackSummary {
     track_guid: String,
     feed_guid: String,
@@ -302,14 +303,14 @@ struct PublisherTrackSummary {
     track_number: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PublisherDetailResponse {
     publisher_text: String,
     feeds: Vec<PublisherFeedSummary>,
     tracks: Vec<PublisherTrackSummary>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SearchResponseItem {
     entity_type: String,
     entity_id: String,
@@ -334,7 +335,7 @@ struct SearchResponseItem {
     pub_date: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct ArtistTrackItem {
     track_guid: String,
     feed_guid: String,
@@ -352,7 +353,7 @@ struct ArtistTrackItem {
     created_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct VtsResponse {
     start_time_secs: i64,
     duration_secs: Option<i64>,
@@ -361,14 +362,14 @@ struct VtsResponse {
     split: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PeerResponse {
     node_pubkey: String,
     node_url: String,
     last_push_at: Option<i64>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceContributorClaimResponse {
     entity_type: String,
     entity_id: String,
@@ -385,7 +386,7 @@ struct SourceContributorClaimResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceEntityIdResponse {
     entity_type: String,
     entity_id: String,
@@ -397,7 +398,7 @@ struct SourceEntityIdResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceEntityLinkResponse {
     entity_type: String,
     entity_id: String,
@@ -409,7 +410,7 @@ struct SourceEntityLinkResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceReleaseClaimResponse {
     entity_type: String,
     entity_id: String,
@@ -421,7 +422,7 @@ struct SourceReleaseClaimResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourcePlatformClaimResponse {
     platform_key: String,
     url: Option<String>,
@@ -431,7 +432,7 @@ struct SourcePlatformClaimResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceItemTranscriptResponse {
     entity_type: String,
     entity_id: String,
@@ -445,7 +446,7 @@ struct SourceItemTranscriptResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct SourceItemEnclosureResponse {
     entity_type: String,
     entity_id: String,
@@ -461,7 +462,7 @@ struct SourceItemEnclosureResponse {
     observed_at: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct FeedRemoteItemResponse {
     position: i64,
     medium: Option<String>,
@@ -470,7 +471,7 @@ struct FeedRemoteItemResponse {
     source: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct TrackRemoteItemResponse {
     position: i64,
     medium: Option<String>,
@@ -479,7 +480,7 @@ struct TrackRemoteItemResponse {
     source: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct PublisherResponse {
     direction: String,
     remote_feed_guid: String,
@@ -1848,7 +1849,7 @@ async fn handle_search(
 
 // ── GET /v1/node/capabilities ───────────────────────────────────────────────
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 struct CapabilitiesResponse {
     api_version: &'static str,
     node_pubkey: String,
@@ -2253,4 +2254,37 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/peers", get(handle_get_peers))
         .route("/v1/publishers", get(handle_publisher_search))
         .route("/v1/publishers/{publisher}", get(handle_publisher_detail))
+}
+
+// ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────
+
+/// A named `OpenAPI` schema, paired for insertion into `components.schemas`.
+type SchemaEntry = (
+    String,
+    utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+);
+
+/// Pushes `T`'s own schema, plus every schema `T` references, onto `schemas`.
+fn register_schema<T: ToSchema>(schemas: &mut Vec<SchemaEntry>) {
+    schemas.push((T::name().into_owned(), T::schema()));
+    T::schemas(schemas);
+}
+
+/// Schemas for every documented `/v1/*` JSON response this module returns.
+///
+/// Read by `openapi::spec_value` to fill `components.schemas`. No response
+/// references these schemas yet (ADR 0044 task 001); a later task adds that.
+pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
+    let mut schemas = Vec::new();
+    register_schema::<Pagination>(&mut schemas);
+    register_schema::<ResponseMeta>(&mut schemas);
+    register_schema::<FeedResponse>(&mut schemas);
+    register_schema::<TrackResponse>(&mut schemas);
+    register_schema::<CapabilitiesResponse>(&mut schemas);
+    register_schema::<PeerResponse>(&mut schemas);
+    register_schema::<PublisherSearchItem>(&mut schemas);
+    register_schema::<PublisherDetailResponse>(&mut schemas);
+    register_schema::<SearchResponseItem>(&mut schemas);
+    register_schema::<ArtistTrackItem>(&mut schemas);
+    schemas
 }

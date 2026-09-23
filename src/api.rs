@@ -31,6 +31,7 @@ use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKey
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
+use utoipa::ToSchema;
 
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -87,13 +88,13 @@ pub struct SseFrame {
     pub seq: i64,
 }
 
-#[derive(Clone, Debug, Serialize)]
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub struct AmbiguousTrackGuidCandidate {
     pub feed_guid: String,
     pub href: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, ToSchema)]
 pub struct AmbiguousTrackGuidBody {
     pub error: String,
     pub code: &'static str,
@@ -1557,7 +1558,7 @@ pub struct ApiError {
     pub www_authenticate: Option<HeaderValue>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ErrorBody {
     error: String,
 }
@@ -3214,7 +3215,7 @@ async fn handle_sync_peers(
 
 // ── GET /node/info ────────────────────────────────────────────────────────────
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, ToSchema)]
 struct NodeInfoResponse {
     node_pubkey: String,
 }
@@ -3769,7 +3770,7 @@ struct ProofsChallengeRequest {
     requester_nonce: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ProofsChallengeResponse {
     challenge_id: String,
     token_binding: String,
@@ -3901,7 +3902,7 @@ struct ProofsAssertRequest {
 }
 
 // Issue-PROOF-LEVEL — 2026-03-14
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 struct ProofsAssertResponse {
     access_token: String,
     scope: String,
@@ -4551,4 +4552,32 @@ async fn handle_patch_feed_track(
             Ok(ambiguous_track_guid_response(&track_guid, candidates))
         }
     }
+}
+
+// ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────
+
+/// A named `OpenAPI` schema, paired for insertion into `components.schemas`.
+type SchemaEntry = (
+    String,
+    utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
+);
+
+/// Pushes `T`'s own schema, plus every schema `T` references, onto `schemas`.
+fn register_schema<T: ToSchema>(schemas: &mut Vec<SchemaEntry>) {
+    schemas.push((T::name().into_owned(), T::schema()));
+    T::schemas(schemas);
+}
+
+/// Schemas for every documented JSON response this module returns.
+///
+/// Read by `openapi::spec_value` to fill `components.schemas`. No response
+/// references these schemas yet (ADR 0044 task 001); a later task adds that.
+pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
+    let mut schemas = Vec::new();
+    register_schema::<AmbiguousTrackGuidBody>(&mut schemas);
+    register_schema::<ErrorBody>(&mut schemas);
+    register_schema::<NodeInfoResponse>(&mut schemas);
+    register_schema::<ProofsChallengeResponse>(&mut schemas);
+    register_schema::<ProofsAssertResponse>(&mut schemas);
+    schemas
 }
