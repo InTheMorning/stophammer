@@ -1,7 +1,7 @@
 # ADR 0049: Publisher Relationships Are RSS Facts
 
 ## Status
-Proposed
+Accepted
 
 ## Date
 2026-09-23

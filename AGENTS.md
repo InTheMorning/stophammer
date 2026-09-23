@@ -54,10 +54,10 @@ The work that remains:
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
 4. [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md) is
-   Proposed and needs a decision. v4vmm asks for publisher relationships as RSS
-   facts, in
-   [the publisher relationship request](docs/plans/v4vmm-publisher-relationship-request.md).
-   The operator answered the three open questions on 2026-09-23.
+   Accepted and needs a phase plan. It answers
+   [the publisher relationship request](docs/plans/v4vmm-publisher-relationship-request.md)
+   from v4vmm. The work spans the three repositories. Until it is complete,
+   the Wavlake host rules in `src/api.rs` stay in the code.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`

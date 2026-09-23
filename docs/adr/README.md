@@ -28,7 +28,7 @@ disagree.
 | [0024](0024-sqlite-wal-connection-pool.md) | SQLite WAL connection pool | Accepted |
 | [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers | Accepted |
 | [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema | Proposed |
-| [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text | Accepted |
+| [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text. Wavlake exception superseded by ADR 0049 | Accepted in part |
 | [0040](0040-store-track-identity-as-feed-scoped.md) | Track identity stored as feed-scoped | Accepted |
 | [0041](0041-contributor-npub-source-evidence.md) | Contributor npub kept as source evidence | Accepted |
 
@@ -46,10 +46,10 @@ disagree.
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh | Proposed |
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
-| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter | Proposed |
+| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. Wavlake caveat superseded by ADR 0049 | Proposed |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Proposed |
-| [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. Replaces the Wavlake exception of ADR 0035 | Proposed |
+| [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. Replaces the Wavlake exception of ADR 0035 | Accepted |
 
 ## HTTP API And Contract
 

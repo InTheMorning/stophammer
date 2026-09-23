@@ -1,6 +1,7 @@
 # 0035: Add Track-Level Publisher Text
 
-- Status: Accepted
+- Status: Accepted. [ADR 0049](0049-publisher-relationships-are-rss-facts.md)
+  supersedes the Wavlake exception.
 - Date: 2026-04-09
 
 ## Context

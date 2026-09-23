@@ -126,6 +126,9 @@ publisher-text policy.
 
 ##### Wavlake caveat (ADR 0035)
 
+> Superseded by [ADR 0049](0049-publisher-relationships-are-rss-facts.md).
+> This section and the Wavlake statements in Consequences state no rule.
+
 ADR 0035 fixes `feeds.publisher = "Wavlake"` for any feed whose canonical
 URL is on `wavlake.com` and has a channel-level publisher `remoteItem`
 (see `is_wavlake_url` + the `wavlake_pub_feed` branch in `src/api.rs`).

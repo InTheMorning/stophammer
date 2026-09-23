@@ -8,7 +8,7 @@
 > copy of the research note in this repository.
 >
 > **Status.** The v4vmm team asks for these changes. This document states no
-> rule for this repository. The decision is ADR 0049, which is Proposed. ADR
+> rule for this repository. The decision is ADR 0049, which is Accepted. ADR
 > 0049 gives the statements that Stophammer found incorrect or incomplete.
 
 
