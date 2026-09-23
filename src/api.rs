@@ -148,6 +148,20 @@ type IngestBlockingOutput = (
     Vec<(String, SseFrame)>,
 );
 
+/// Outcome of the read-only verification phase of `handle_ingest_feed`.
+///
+/// The reader connection that produces this value is dropped before any of
+/// the three outcomes is handled, so a `NoChange` outcome is free to acquire
+/// the writer lock for the URL-observation step of ADR 0049 Section 1.
+enum ReadPhaseOutcome {
+    /// The verifier chain passed; carries the accumulated warnings.
+    Verified(Vec<String>),
+    /// The content hash matched the last crawl; the feed body is unchanged.
+    NoChange,
+    /// A verifier refused the submission; carries the rejection reason.
+    Rejected(String),
+}
+
 /// Registry managing per-artist broadcast channels and ring buffers for SSE.
 // CRIT-03 Debug — 2026-03-13
 pub struct SseRegistry {
@@ -926,6 +940,64 @@ fn music_feed_can_be_repaired_from_publisher(
             .iter()
             .any(|item| feed_remote_item_targets_publisher(item, publisher_feed)),
     )
+}
+
+fn feed_url_observed_event_row(
+    observation: &db::FeedUrlObservation,
+) -> Result<db::EventRow, ApiError> {
+    let payload = event::FeedUrlObservedPayload {
+        url: observation.url.clone(),
+        feed_guid: observation.feed_guid.clone(),
+        observed_at: observation.observed_at,
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedUrlObserved payload: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(db::EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: event::EventType::FeedUrlObserved,
+        payload_json,
+        subject_guid: observation.feed_guid.clone(),
+        created_at: observation.observed_at,
+        warnings: vec![],
+    })
+}
+
+/// Records which URL gave `feed_guid`, and signs one `FeedUrlObserved` event
+/// for each URL whose observation changed (ADR 0049 Section 1).
+///
+/// Records `canonical_url`, and `source_url` too when it differs from
+/// `canonical_url`. Runs in its own transaction, the way
+/// [`repair_linked_music_feeds_after_publisher_ingest`] runs its own
+/// transaction after the main ingest transaction commits.
+fn record_feed_url_observations_for_ingest(
+    conn: &mut rusqlite::Connection,
+    canonical_url: &str,
+    source_url: &str,
+    feed_guid: &str,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    let mut urls = vec![canonical_url];
+    if source_url != canonical_url {
+        urls.push(source_url);
+    }
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+    let mut signed_rows = Vec::new();
+    for url in urls {
+        if let Some(observation) = db::record_feed_url_observation(&tx, url, feed_guid, now)? {
+            signed_rows.push(sign_event_row(
+                &tx,
+                feed_url_observed_event_row(&observation)?,
+                signer,
+            )?);
+        }
+    }
+    tx.commit().map_err(db::DbError::from)?;
+    Ok(signed_rows)
 }
 
 fn repair_music_feed_from_publisher(
@@ -1801,6 +1873,24 @@ pub fn build_readonly_router(state: Arc<AppState>) -> Router {
 
 // ── POST /ingest/feed ─────────────────────────────────────────────────────────
 
+/// Reports whether `reason`, taken from `VerifierChain::run`'s rejection
+/// error, is the content-hash verifier's no-change sentinel.
+///
+/// `VerifierChain::run` wraps every `Fail` message as `"[<verifier name>]
+/// <message>"` before returning it, so a bare comparison against
+/// [`crate::verifiers::content_hash::NO_CHANGE_SENTINEL`] never matches. This
+/// applies the same wrapping so the comparison matches the value the chain
+/// actually returns.
+fn is_no_change_reason(reason: &str) -> bool {
+    use crate::verify::Verifier as _;
+    reason
+        == format!(
+            "[{}] {}",
+            crate::verifiers::content_hash::ContentHashVerifier.name(),
+            crate::verifiers::content_hash::NO_CHANGE_SENTINEL
+        )
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "single ingest flow — splitting would obscure the sequential validation steps"
@@ -1833,7 +1923,7 @@ async fn handle_ingest_feed(
         // Phase 1: verify against a READ-ONLY connection (reader pool).
         // This avoids holding the writer mutex during verification, so
         // non-trivial verifiers never block the global write path.
-        let warnings = {
+        let read_outcome = {
             let reader = state2.db.reader().map_err(|e| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
                 message: format!("reader pool error: {e}"),
@@ -1851,36 +1941,75 @@ async fn handle_ingest_feed(
             };
 
             match state2.chain.run(&ctx) {
-                Err(ref e) if e.0 == crate::verifiers::content_hash::NO_CHANGE_SENTINEL => {
-                    return Ok((
-                        ingest::IngestResponse {
-                            accepted: true,
-                            no_change: true,
-                            reason: None,
-                            events_emitted: vec![],
-                            warnings: vec![],
-                        },
-                        vec![],
-                        vec![],
-                    ));
-                }
-                Err(e) => {
-                    return Ok((
-                        ingest::IngestResponse {
-                            accepted: false,
-                            no_change: false,
-                            reason: Some(e.0),
-                            events_emitted: vec![],
-                            warnings: vec![],
-                        },
-                        vec![],
-                        vec![],
-                    ));
-                }
-                Ok(w) => w,
+                Err(ref e) if is_no_change_reason(&e.0) => ReadPhaseOutcome::NoChange,
+                Err(e) => ReadPhaseOutcome::Rejected(e.0),
+                Ok(w) => ReadPhaseOutcome::Verified(w),
             }
         };
         // reader is dropped here — writer lock is never contested by verification
+
+        let warnings = match read_outcome {
+            ReadPhaseOutcome::Rejected(reason) => {
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: false,
+                        no_change: false,
+                        reason: Some(reason),
+                        events_emitted: vec![],
+                        warnings: vec![],
+                    },
+                    vec![],
+                    vec![],
+                ));
+            }
+            ReadPhaseOutcome::NoChange => {
+                // ADR 0049 Section 1: the feed body did not change, but the
+                // URL that delivered it may still be new, or a redirect may
+                // have carried a different source_url. The early return
+                // above skips the writer, so this step takes it here. Skip
+                // it when the crawler sent no feed body to read a
+                // podcast:guid from.
+                let (event_ids, fanout_events) = if let Some(feed_data) = req.feed_data.as_ref() {
+                    let now = db::unix_now();
+                    let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: "database mutex poisoned".into(),
+                        www_authenticate: None,
+                    })?;
+                    let url_observation_rows = record_feed_url_observations_for_ingest(
+                        &mut conn,
+                        &req.canonical_url,
+                        &req.source_url,
+                        &feed_data.feed_guid,
+                        now,
+                        &state2.signer,
+                    )?;
+                    let event_ids = url_observation_rows
+                        .iter()
+                        .map(|signed| signed.row.event_id.clone())
+                        .collect();
+                    let fanout_events = url_observation_rows
+                        .into_iter()
+                        .map(signed_row_to_event)
+                        .collect::<Result<Vec<_>, ApiError>>()?;
+                    (event_ids, fanout_events)
+                } else {
+                    (vec![], vec![])
+                };
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: true,
+                        no_change: true,
+                        reason: None,
+                        events_emitted: event_ids,
+                        warnings: vec![],
+                    },
+                    fanout_events,
+                    vec![],
+                ));
+            }
+            ReadPhaseOutcome::Verified(w) => w,
+        };
 
         // Phase 2: mutate — acquire writer lock only after verification passed.
         let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
@@ -2002,10 +2131,17 @@ async fn handle_ingest_feed(
         let newest_item_at = pub_dates.iter().copied().max();
         let oldest_item_at = pub_dates.iter().copied().min();
 
+        // 7b. ADR 0049 Section 1: a known GUID keeps its stored feed_url. A
+        // GUID that is new to this node takes the URL it arrived through.
+        let feed_url = db::get_feed(&conn, feed_guid_str)?.map_or_else(
+            || req.canonical_url.clone(),
+            |existing_feed| existing_feed.feed_url,
+        );
+
         // 8. Build Feed struct
         let feed = model::Feed {
             feed_guid: feed_data.feed_guid.clone(),
-            feed_url: req.canonical_url.clone(),
+            feed_url,
             title: feed_data.title.clone(),
             title_lower: feed_data.title.to_lowercase(),
             artist_credit_id: feed_artist_credit.id,
@@ -2578,6 +2714,21 @@ async fn handle_ingest_feed(
         // 11b. Search index + quality scores are now written inside
         // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
 
+        // 11c. ADR 0049 Section 1: record which URL gave this podcast:guid.
+        let url_observation_rows = record_feed_url_observations_for_ingest(
+            &mut conn,
+            &req.canonical_url,
+            &req.source_url,
+            &ingested_feed.feed_guid,
+            now,
+            &state2.signer,
+        )?;
+        event_ids.extend(
+            url_observation_rows
+                .iter()
+                .map(|signed| signed.row.event_id.clone()),
+        );
+
         // 12. If this is a publisher feed, repair already-ingested child music
         // feeds that were waiting for the publisher side of the relationship.
         let repair_signed_rows = repair_linked_music_feeds_after_publisher_ingest(
@@ -2608,6 +2759,7 @@ async fn handle_ingest_feed(
                 signature,
             })
             .collect();
+        signed_rows.extend(url_observation_rows);
         signed_rows.extend(repair_signed_rows);
         let fanout_events: Vec<event::Event> = signed_rows
             .into_iter()

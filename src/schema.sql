@@ -404,6 +404,17 @@ CREATE TABLE IF NOT EXISTS feed_crawl_cache (
     crawled_at   INTEGER NOT NULL
 ) STRICT;
 
+-- Which URL gave which podcast:guid (ADR 0049 Section 1). A fresh database
+-- has no feeds yet, so this table starts empty here; migration 0036 seeds it
+-- on an existing database from the stored feeds.feed_url.
+CREATE TABLE IF NOT EXISTS feed_url_observations (
+    url         TEXT PRIMARY KEY,
+    feed_guid   TEXT NOT NULL,
+    observed_at INTEGER NOT NULL
+) STRICT;
+CREATE INDEX IF NOT EXISTS idx_feed_url_observations_guid
+    ON feed_url_observations(feed_guid);
+
 CREATE TABLE IF NOT EXISTS node_sync_state (
     node_pubkey  TEXT PRIMARY KEY,
     last_seq     INTEGER NOT NULL DEFAULT 0,

@@ -56,6 +56,8 @@ pub enum EventType {
     SourceItemTranscriptsReplaced,
     /// The staged platform-claim snapshot for a feed was replaced.
     SourcePlatformClaimsReplaced,
+    /// A URL was observed to give a `podcast:guid`.
+    FeedUrlObserved,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -98,6 +100,8 @@ pub enum EventPayload {
     SourceItemTranscriptsReplaced(SourceItemTranscriptsReplacedPayload),
     /// Payload for replacing staged platform claims for a feed.
     SourcePlatformClaimsReplaced(SourcePlatformClaimsReplacedPayload),
+    /// Payload for a URL-observation event.
+    FeedUrlObserved(FeedUrlObservedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -281,4 +285,17 @@ pub struct SourceItemTranscriptsReplacedPayload {
 pub struct SourcePlatformClaimsReplacedPayload {
     pub feed_guid: String,
     pub claims: Vec<SourcePlatformClaim>,
+}
+
+/// Emitted when the node observes that a URL gives a `podcast:guid`.
+///
+/// ADR 0049 Section 1. `url` is `canonical_url` or `source_url` from the
+/// ingest request. `feed_guid` is the `podcast:guid` the feed body carried.
+/// A community node applies this to derive the same URL-to-GUID table the
+/// primary node holds.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedUrlObservedPayload {
+    pub url: String,
+    pub feed_guid: String,
+    pub observed_at: i64,
 }

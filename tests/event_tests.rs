@@ -69,6 +69,7 @@ fn event_type_snake_case() {
         "source_release_claims_replaced",
         "source_item_enclosures_replaced",
         "source_platform_claims_replaced",
+        "feed_url_observed",
     ];
     // Verify each can be deserialized from quoted JSON
     for t in &types {

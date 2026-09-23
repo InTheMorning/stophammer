@@ -492,3 +492,109 @@ fn open_db_repairs_remote_item_rel_when_0035_was_skipped() {
         "open_db should repair skipped 0035 track_remote_items_raw.rel schema"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR 0049 task 004: migration 0036 adds feed_url_observations and seeds it
+// from the feeds table already on disk, so a feed's own URL gets an
+// observation whose observed_at equals the feed's created_at.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn migration_0036_seeds_feed_url_observations_from_existing_feeds() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("feed-url-observations-seed.db");
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open db");
+    apply_migration_files_through(&conn, "0035_remote_item_rel.sql");
+    // The feeds row below has no matching artist_credit row; this test only
+    // cares about the seed, not about a fully valid feed.
+    conn.execute_batch("PRAGMA foreign_keys = OFF;")
+        .expect("disable foreign keys for this fixture");
+
+    assert!(
+        !table_has_column(&conn, "feed_url_observations", "url"),
+        "feed_url_observations must not exist before migration 0036"
+    );
+
+    conn.execute(
+        "INSERT INTO feeds \
+         (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, \
+          episode_count, created_at, updated_at) \
+         VALUES ('legacy-feed', 'https://example.com/legacy.xml', 'Legacy Feed', \
+                 'legacy feed', 1, 0, 0, 1700000000, 1700000100)",
+        [],
+    )
+    .expect("insert legacy feed");
+
+    let sql_0036 = fs::read_to_string("migrations/0036_feed_url_observations.sql")
+        .expect("read migration 0036");
+    conn.execute_batch(&sql_0036).expect("apply migration 0036");
+
+    let (feed_guid, observed_at): (String, i64) = conn
+        .query_row(
+            "SELECT feed_guid, observed_at FROM feed_url_observations \
+             WHERE url = 'https://example.com/legacy.xml'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .expect("read the seeded observation");
+
+    assert_eq!(
+        feed_guid, "legacy-feed",
+        "the seed must name the feed's own feed_guid"
+    );
+    assert_eq!(
+        observed_at, 1_700_000_000,
+        "the seed's observed_at must equal the feed's created_at"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0049 task 004: migration 0036 is the 30th entry in MIGRATIONS. ADR 0046
+// records that a production database already recorded version 29, one below
+// 30, so the runner applies this migration there without a repair.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir
+        .path()
+        .join("adr-0046-watermark-feed-url-observations.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0035_remote_item_rel.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (29, 1);",
+        )
+        .expect("mark the ADR 0046 recorded watermark");
+
+        assert!(
+            !table_has_column(&conn, "feed_url_observations", "url"),
+            "legacy fixture should start without feed_url_observations"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_has_column(&conn, "feed_url_observations", "url"),
+        "migration 0036 must run at the recorded watermark of 29, with no repair"
+    );
+
+    let recorded_version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+            r.get(0)
+        })
+        .expect("read recorded migration version");
+    assert_eq!(
+        recorded_version, 30,
+        "the runner must record version 30 after migration 0036 runs"
+    );
+}

@@ -216,6 +216,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 35: store the raw `rel` attribute of a `podcast:remoteItem`
     // (ADR 0049)
     include_str!("../migrations/0035_remote_item_rel.sql"),
+    // Migration 36: record which URL gave which podcast:guid, seeded from
+    // the stored feeds (ADR 0049 Section 1)
+    include_str!("../migrations/0036_feed_url_observations.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -4391,6 +4394,118 @@ pub fn upsert_feed_crawl_cache(
            content_hash = excluded.content_hash, \
            crawled_at   = excluded.crawled_at",
         params![feed_url, content_hash, crawled_at],
+    )?;
+    Ok(())
+}
+
+// ── feed_url_observations ─────────────────────────────────────────────────────
+
+/// A record of which URL gave which `podcast:guid`, and when.
+///
+/// ADR 0049 Section 1. The node keeps one row per URL. A node may see the
+/// same `podcast:guid` at more than one URL, so more than one row may name
+/// the same `feed_guid`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeedUrlObservation {
+    pub url: String,
+    pub feed_guid: String,
+    pub observed_at: i64,
+}
+
+/// Returns the stored observation for `url`, or `None` when the node has
+/// never recorded that URL.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_feed_url_observation(
+    conn: &Connection,
+    url: &str,
+) -> Result<Option<FeedUrlObservation>, DbError> {
+    conn.query_row(
+        "SELECT url, feed_guid, observed_at FROM feed_url_observations WHERE url = ?1",
+        params![url],
+        |row| {
+            Ok(FeedUrlObservation {
+                url: row.get(0)?,
+                feed_guid: row.get(1)?,
+                observed_at: row.get(2)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Records that `url` gave `feed_guid` at `now`, following the record rule of
+/// ADR 0049 Section 1.
+///
+/// - No row for `url` yet: inserts one and returns `Some`.
+/// - A row for `url` names a different `feed_guid`: replaces `feed_guid` and
+///   `observed_at`, and returns `Some`.
+/// - A row for `url` already names `feed_guid`: writes nothing and returns
+///   `None`.
+///
+/// The caller emits a signed `FeedUrlObserved` event for each `Some`, so a
+/// community node can derive the same table from the event log.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query or write fails.
+pub fn record_feed_url_observation(
+    conn: &Connection,
+    url: &str,
+    feed_guid: &str,
+    now: i64,
+) -> Result<Option<FeedUrlObservation>, DbError> {
+    match get_feed_url_observation(conn, url)? {
+        None => {
+            conn.execute(
+                "INSERT INTO feed_url_observations (url, feed_guid, observed_at) \
+                 VALUES (?1, ?2, ?3)",
+                params![url, feed_guid, now],
+            )?;
+        }
+        Some(row) if row.feed_guid == feed_guid => return Ok(None),
+        Some(_) => {
+            conn.execute(
+                "UPDATE feed_url_observations SET feed_guid = ?1, observed_at = ?2 \
+                 WHERE url = ?3",
+                params![feed_guid, now, url],
+            )?;
+        }
+    }
+    Ok(Some(FeedUrlObservation {
+        url: url.to_string(),
+        feed_guid: feed_guid.to_string(),
+        observed_at: now,
+    }))
+}
+
+/// Writes the observation carried by a `FeedUrlObserved` event, upserting on
+/// `url`.
+///
+/// The primary node already decided the row through
+/// [`record_feed_url_observation`] and signed the event from its result. A
+/// replica applying that event trusts it and does not re-run the record
+/// rule.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn upsert_feed_url_observation(
+    conn: &Connection,
+    url: &str,
+    feed_guid: &str,
+    observed_at: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO feed_url_observations (url, feed_guid, observed_at) \
+         VALUES (?1, ?2, ?3) \
+         ON CONFLICT(url) DO UPDATE SET \
+           feed_guid   = excluded.feed_guid, \
+           observed_at = excluded.observed_at",
+        params![url, feed_guid, observed_at],
     )?;
     Ok(())
 }

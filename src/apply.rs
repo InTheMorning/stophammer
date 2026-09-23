@@ -179,6 +179,9 @@ fn apply_single_event_inner(
         event::EventPayload::SourcePlatformClaimsReplaced(p) => {
             db::replace_source_platform_claims_for_feed(conn, &p.feed_guid, &p.claims)?;
         }
+        event::EventPayload::FeedUrlObserved(p) => {
+            db::upsert_feed_url_observation(conn, &p.url, &p.feed_guid, p.observed_at)?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;
