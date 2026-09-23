@@ -4510,6 +4510,114 @@ pub fn upsert_feed_url_observation(
     Ok(())
 }
 
+// ── resolve_listed_feed ───────────────────────────────────────────────────────
+
+/// The result of resolving a listed feed reference against the index.
+///
+/// A `podcast:remoteItem` names a `feedGuid` and, often, a `feedUrl`. The
+/// named `feedGuid` can be wrong. ADR 0049 §3 gives the order this type
+/// follows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListedFeedResolution {
+    /// The listed `feedGuid` is the GUID of an indexed feed.
+    Guid {
+        /// The listed `feedGuid`, unchanged.
+        feed_guid: String,
+    },
+    /// The listed `feedGuid` is not indexed. A URL observation for the listed
+    /// `feedUrl` names an indexed GUID.
+    FeedUrl {
+        /// The GUID that the observation names.
+        feed_guid: String,
+        /// The time of the observation.
+        observed_at: i64,
+    },
+    /// The listed `feedGuid` is not indexed. No observation for the listed
+    /// `feedUrl` names an indexed feed either.
+    Unresolved,
+}
+
+impl ListedFeedResolution {
+    /// Returns the resolved `feed_guid`, or `None` when unresolved.
+    #[must_use]
+    pub fn feed_guid(&self) -> Option<&str> {
+        match self {
+            Self::Guid { feed_guid } | Self::FeedUrl { feed_guid, .. } => Some(feed_guid),
+            Self::Unresolved => None,
+        }
+    }
+
+    /// Returns the wire value of this resolution: `"guid"`, `"feed_url"` or
+    /// `"unresolved"`.
+    #[must_use]
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Guid { .. } => "guid",
+            Self::FeedUrl { .. } => "feed_url",
+            Self::Unresolved => "unresolved",
+        }
+    }
+
+    /// Returns the time of the URL observation for a `feed_url` resolution.
+    /// Returns `None` for the other two kinds.
+    #[must_use]
+    pub fn observed_at(&self) -> Option<i64> {
+        match self {
+            Self::FeedUrl { observed_at, .. } => Some(*observed_at),
+            Self::Guid { .. } | Self::Unresolved => None,
+        }
+    }
+}
+
+/// Returns whether `feed_guid` names a row in `feeds`.
+fn feed_guid_is_indexed(conn: &Connection, feed_guid: &str) -> Result<bool, DbError> {
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM feeds WHERE feed_guid = ?1)",
+        params![feed_guid],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+/// Resolves a listed feed reference to an indexed `feed_guid`, in the order
+/// ADR 0049 §3 gives:
+///
+/// 1. `listed_feed_guid` is the GUID of an indexed feed:
+///    [`ListedFeedResolution::Guid`].
+/// 2. A URL observation for `listed_feed_url` names an indexed feed:
+///    [`ListedFeedResolution::FeedUrl`].
+/// 3. Neither: [`ListedFeedResolution::Unresolved`].
+///
+/// This function never parses a URL. It never compares URL parts. It never
+/// guesses. It only follows a `feedGuid` match or a stored observation.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn resolve_listed_feed(
+    conn: &Connection,
+    listed_feed_guid: &str,
+    listed_feed_url: Option<&str>,
+) -> Result<ListedFeedResolution, DbError> {
+    if feed_guid_is_indexed(conn, listed_feed_guid)? {
+        return Ok(ListedFeedResolution::Guid {
+            feed_guid: listed_feed_guid.to_string(),
+        });
+    }
+
+    if let Some(url) = listed_feed_url
+        && let Some(observation) = get_feed_url_observation(conn, url)?
+        && feed_guid_is_indexed(conn, &observation.feed_guid)?
+    {
+        return Ok(ListedFeedResolution::FeedUrl {
+            feed_guid: observation.feed_guid,
+            observed_at: observation.observed_at,
+        });
+    }
+
+    Ok(ListedFeedResolution::Unresolved)
+}
+
 // ── get_events_since ──────────────────────────────────────────────────────────
 
 /// Returns up to `limit` events with `seq > after_seq`, ordered ascending.

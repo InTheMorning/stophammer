@@ -27,6 +27,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use crate::model::Feed;
 use crate::{api, db};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
@@ -487,6 +488,10 @@ struct TrackRemoteItemResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is a named RSS fact in the wire contract (ADR 0049 §4), not a state machine"
+)]
 struct PublisherResponse {
     direction: String,
     remote_feed_guid: String,
@@ -496,6 +501,16 @@ struct PublisherResponse {
     publisher_feed_url: Option<String>,
     music_feed_guid: String,
     music_feed_url: Option<String>,
+    /// The album names this publisher feed. ADR 0049 §4.
+    music_names_publisher: bool,
+    /// The publisher feed lists this album, by any resolution. ADR 0049 §4.
+    publisher_lists_music: bool,
+    /// How the node resolved the feed that carries `publisher_lists_music`:
+    /// `"guid"`, `"feed_url"` or `"unresolved"`. ADR 0049 §3.
+    publisher_link_resolution: String,
+    /// The time of the URL observation behind `publisher_link_resolution`.
+    /// Null unless that value is `"feed_url"`. ADR 0049 §3.
+    publisher_link_observed_at: Option<i64>,
     reciprocal_declared: bool,
     reciprocal_medium: Option<String>,
     two_way_validated: bool,
@@ -1162,6 +1177,197 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
     }
 }
 
+/// The resolver-derived facts shared by both directions of a `publisher`
+/// view row. ADR 0049 §3 and §4.
+struct PublisherLinkFacts {
+    music_names_publisher: bool,
+    publisher_lists_music: bool,
+    publisher_link_resolution: &'static str,
+    publisher_link_observed_at: Option<i64>,
+    reciprocal_medium: Option<String>,
+    publisher_feed_guid: String,
+    publisher_feed_url: Option<String>,
+    music_feed_guid: String,
+    music_feed_url: Option<String>,
+}
+
+/// Returns the resolved feed's GUID and stored URL, or the declared GUID and
+/// URL when `resolution` did not resolve. Plan decision 11.
+fn resolved_or_declared(
+    conn: &rusqlite::Connection,
+    resolution: &db::ListedFeedResolution,
+    declared_guid: &str,
+    declared_url: Option<&str>,
+) -> Result<(String, Option<String>), api::ApiError> {
+    let Some(feed_guid) = resolution.feed_guid() else {
+        return Ok((declared_guid.to_string(), declared_url.map(str::to_string)));
+    };
+    let feed_url = db::get_feed(conn, feed_guid)?.map(|feed| feed.feed_url);
+    Ok((
+        feed_guid.to_string(),
+        feed_url.or_else(|| declared_url.map(str::to_string)),
+    ))
+}
+
+/// Builds the facts for a `music_to_publisher` row: `current_feed` names
+/// `listed_guid` (declared) as its publisher.
+///
+/// `music_names_publisher` is true by declaration. `publisher_lists_music`
+/// holds when the resolved publisher's own `medium="music"` items include one
+/// that resolves back to `current_feed`. ADR 0049 §3, task 005 "Constraints".
+fn music_to_publisher_facts(
+    conn: &rusqlite::Connection,
+    current_feed: &Feed,
+    listed_guid: &str,
+    listed_url: Option<&str>,
+) -> Result<PublisherLinkFacts, api::ApiError> {
+    let publisher_resolution = db::resolve_listed_feed(conn, listed_guid, listed_url)?;
+    let (publisher_feed_guid, publisher_feed_url) =
+        resolved_or_declared(conn, &publisher_resolution, listed_guid, listed_url)?;
+
+    let mut publisher_lists_music = false;
+    let mut publisher_link_resolution = "unresolved";
+    let mut publisher_link_observed_at = None;
+    let mut reciprocal_medium = None;
+
+    if let Some(publisher_guid) = publisher_resolution.feed_guid() {
+        for candidate in db::get_feed_remote_items_for_feed(conn, publisher_guid)?
+            .into_iter()
+            .filter(|item| item.medium.as_deref() == Some("music"))
+        {
+            let candidate_resolution = db::resolve_listed_feed(
+                conn,
+                &candidate.remote_feed_guid,
+                candidate.remote_feed_url.as_deref(),
+            )?;
+            if candidate_resolution.feed_guid() == Some(current_feed.feed_guid.as_str()) {
+                publisher_lists_music = true;
+                publisher_link_resolution = candidate_resolution.kind();
+                publisher_link_observed_at = candidate_resolution.observed_at();
+                reciprocal_medium = candidate.medium;
+                break;
+            }
+        }
+    }
+
+    Ok(PublisherLinkFacts {
+        music_names_publisher: true,
+        publisher_lists_music,
+        publisher_link_resolution,
+        publisher_link_observed_at,
+        reciprocal_medium,
+        publisher_feed_guid,
+        publisher_feed_url,
+        music_feed_guid: current_feed.feed_guid.clone(),
+        music_feed_url: Some(current_feed.feed_url.clone()),
+    })
+}
+
+/// Builds the facts for a `publisher_to_music` row: `current_feed` (a
+/// publisher feed) lists `listed_guid` (declared) with `medium="music"`.
+///
+/// `publisher_lists_music` is true by declaration, and its resolution is the
+/// resolution of the listed album. `music_names_publisher` holds when the
+/// resolved album's own `medium="publisher"` items include one that resolves
+/// back to `current_feed`. ADR 0049 §3, task 005 "Constraints".
+fn publisher_to_music_facts(
+    conn: &rusqlite::Connection,
+    current_feed: &Feed,
+    listed_guid: &str,
+    listed_url: Option<&str>,
+) -> Result<PublisherLinkFacts, api::ApiError> {
+    let music_resolution = db::resolve_listed_feed(conn, listed_guid, listed_url)?;
+    let (music_feed_guid, music_feed_url) =
+        resolved_or_declared(conn, &music_resolution, listed_guid, listed_url)?;
+
+    let mut music_names_publisher = false;
+    let mut reciprocal_medium = None;
+
+    if let Some(album_guid) = music_resolution.feed_guid() {
+        for candidate in db::get_feed_remote_items_for_feed(conn, album_guid)?
+            .into_iter()
+            .filter(|item| item.medium.as_deref() == Some("publisher"))
+        {
+            let candidate_resolution = db::resolve_listed_feed(
+                conn,
+                &candidate.remote_feed_guid,
+                candidate.remote_feed_url.as_deref(),
+            )?;
+            if candidate_resolution.feed_guid() == Some(current_feed.feed_guid.as_str()) {
+                music_names_publisher = true;
+                reciprocal_medium = candidate.medium;
+                break;
+            }
+        }
+    }
+
+    Ok(PublisherLinkFacts {
+        music_names_publisher,
+        publisher_lists_music: true,
+        publisher_link_resolution: music_resolution.kind(),
+        publisher_link_observed_at: music_resolution.observed_at(),
+        reciprocal_medium,
+        publisher_feed_guid: current_feed.feed_guid.clone(),
+        publisher_feed_url: Some(current_feed.feed_url.clone()),
+        music_feed_guid,
+        music_feed_url,
+    })
+}
+
+/// Builds one `publisher` view row for a remote item of `current_feed`, or
+/// `None` when the item's medium is neither `"publisher"` nor `"music"`.
+/// ADR 0049 §3 and §4.
+fn build_publisher_row(
+    conn: &rusqlite::Connection,
+    current_feed: &Feed,
+    item_medium: Option<&str>,
+    item_remote_feed_guid: &str,
+    item_remote_feed_url: Option<&str>,
+) -> Result<Option<PublisherResponse>, api::ApiError> {
+    let Some(direction) = publisher_direction(item_medium) else {
+        return Ok(None);
+    };
+
+    let remote_feed_medium =
+        db::get_feed(conn, item_remote_feed_guid)?.and_then(|feed| feed.raw_medium);
+
+    let facts = match direction {
+        "music_to_publisher" => music_to_publisher_facts(
+            conn,
+            current_feed,
+            item_remote_feed_guid,
+            item_remote_feed_url,
+        )?,
+        "publisher_to_music" => publisher_to_music_facts(
+            conn,
+            current_feed,
+            item_remote_feed_guid,
+            item_remote_feed_url,
+        )?,
+        _ => unreachable!("publisher_direction only returns the two names handled above"),
+    };
+
+    let reciprocal_declared = facts.music_names_publisher && facts.publisher_lists_music;
+
+    Ok(Some(PublisherResponse {
+        direction: direction.to_string(),
+        remote_feed_guid: item_remote_feed_guid.to_string(),
+        remote_feed_url: item_remote_feed_url.map(str::to_string),
+        remote_feed_medium,
+        publisher_feed_guid: facts.publisher_feed_guid,
+        publisher_feed_url: facts.publisher_feed_url,
+        music_feed_guid: facts.music_feed_guid,
+        music_feed_url: facts.music_feed_url,
+        music_names_publisher: facts.music_names_publisher,
+        publisher_lists_music: facts.publisher_lists_music,
+        publisher_link_resolution: facts.publisher_link_resolution.to_string(),
+        publisher_link_observed_at: facts.publisher_link_observed_at,
+        reciprocal_declared,
+        reciprocal_medium: facts.reciprocal_medium,
+        two_way_validated: reciprocal_declared,
+    }))
+}
+
 fn load_publisher(
     conn: &rusqlite::Connection,
     feed_guid: &str,
@@ -1173,62 +1379,15 @@ fn load_publisher(
     let mut rows = Vec::new();
 
     for item in remote_items {
-        let Some(direction) = publisher_direction(item.medium.as_deref()) else {
-            continue;
-        };
-
-        let remote_feed = db::get_feed(conn, &item.remote_feed_guid)?;
-        let reciprocal = db::get_feed_remote_items_for_feed(conn, &item.remote_feed_guid)?
-            .into_iter()
-            .find(|candidate| {
-                candidate.remote_feed_guid == current_feed.feed_guid
-                    && candidate.medium.as_deref() == Some(expected_reciprocal_medium(direction))
-            });
-
-        let reciprocal_declared = reciprocal.is_some();
-        let reciprocal_medium = reciprocal
-            .as_ref()
-            .and_then(|candidate| candidate.medium.clone());
-        let two_way_validated = reciprocal_declared;
-
-        let (publisher_feed_guid, publisher_feed_url, music_feed_guid, music_feed_url) =
-            match direction {
-                "music_to_publisher" => (
-                    item.remote_feed_guid.clone(),
-                    remote_feed
-                        .as_ref()
-                        .map(|feed| feed.feed_url.clone())
-                        .or_else(|| item.remote_feed_url.clone()),
-                    current_feed.feed_guid.clone(),
-                    Some(current_feed.feed_url.clone()),
-                ),
-                "publisher_to_music" => (
-                    current_feed.feed_guid.clone(),
-                    Some(current_feed.feed_url.clone()),
-                    item.remote_feed_guid.clone(),
-                    remote_feed
-                        .as_ref()
-                        .map(|feed| feed.feed_url.clone())
-                        .or_else(|| item.remote_feed_url.clone()),
-                ),
-                _ => continue,
-            };
-
-        rows.push(PublisherResponse {
-            direction: direction.to_string(),
-            remote_feed_guid: item.remote_feed_guid,
-            remote_feed_url: item.remote_feed_url,
-            remote_feed_medium: remote_feed
-                .as_ref()
-                .and_then(|feed| feed.raw_medium.clone()),
-            publisher_feed_guid,
-            publisher_feed_url,
-            music_feed_guid,
-            music_feed_url,
-            reciprocal_declared,
-            reciprocal_medium,
-            two_way_validated,
-        });
+        if let Some(row) = build_publisher_row(
+            conn,
+            &current_feed,
+            item.medium.as_deref(),
+            &item.remote_feed_guid,
+            item.remote_feed_url.as_deref(),
+        )? {
+            rows.push(row);
+        }
     }
 
     Ok(rows)
@@ -1261,74 +1420,26 @@ fn load_track_publisher(
     let Some(current_track) = db::get_track_for_feed(conn, feed_guid, track_guid)? else {
         return Ok(Vec::new());
     };
+    // For item-level, the "music feed" is the track's parent feed.
+    let current_feed =
+        db::get_feed(conn, &current_track.feed_guid)?.ok_or_else(|| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "orphaned track".into(),
+            www_authenticate: None,
+        })?;
     let remote_items = db::get_track_remote_items_for_feed_track(conn, feed_guid, track_guid)?;
     let mut rows = Vec::new();
 
     for item in remote_items {
-        let Some(direction) = publisher_direction(item.medium.as_deref()) else {
-            continue;
-        };
-
-        // For item-level, the "music feed" is the track's parent feed
-        let current_feed =
-            db::get_feed(conn, &current_track.feed_guid)?.ok_or_else(|| api::ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "orphaned track".into(),
-                www_authenticate: None,
-            })?;
-
-        let remote_feed = db::get_feed(conn, &item.remote_feed_guid)?;
-        let reciprocal = db::get_feed_remote_items_for_feed(conn, &item.remote_feed_guid)?
-            .into_iter()
-            .find(|candidate| {
-                candidate.remote_feed_guid == current_track.feed_guid
-                    && candidate.medium.as_deref() == Some(expected_reciprocal_medium(direction))
-            });
-
-        let reciprocal_declared = reciprocal.is_some();
-        let reciprocal_medium = reciprocal
-            .as_ref()
-            .and_then(|candidate| candidate.medium.clone());
-        let two_way_validated = reciprocal_declared;
-
-        let (publisher_feed_guid, publisher_feed_url, music_feed_guid, music_feed_url) =
-            match direction {
-                "music_to_publisher" => (
-                    item.remote_feed_guid.clone(),
-                    remote_feed
-                        .as_ref()
-                        .map(|feed| feed.feed_url.clone())
-                        .or_else(|| item.remote_feed_url.clone()),
-                    current_feed.feed_guid.clone(),
-                    Some(current_feed.feed_url.clone()),
-                ),
-                "publisher_to_music" => (
-                    current_feed.feed_guid.clone(),
-                    Some(current_feed.feed_url.clone()),
-                    item.remote_feed_guid.clone(),
-                    remote_feed
-                        .as_ref()
-                        .map(|feed| feed.feed_url.clone())
-                        .or_else(|| item.remote_feed_url.clone()),
-                ),
-                _ => continue,
-            };
-
-        rows.push(PublisherResponse {
-            direction: direction.to_string(),
-            remote_feed_guid: item.remote_feed_guid,
-            remote_feed_url: item.remote_feed_url,
-            remote_feed_medium: remote_feed
-                .as_ref()
-                .and_then(|feed| feed.raw_medium.clone()),
-            publisher_feed_guid,
-            publisher_feed_url,
-            music_feed_guid,
-            music_feed_url,
-            reciprocal_declared,
-            reciprocal_medium,
-            two_way_validated,
-        });
+        if let Some(row) = build_publisher_row(
+            conn,
+            &current_feed,
+            item.medium.as_deref(),
+            &item.remote_feed_guid,
+            item.remote_feed_url.as_deref(),
+        )? {
+            rows.push(row);
+        }
     }
 
     Ok(rows)
@@ -1339,14 +1450,6 @@ fn publisher_direction(medium: Option<&str>) -> Option<&'static str> {
         Some("publisher") => Some("music_to_publisher"),
         Some("music") => Some("publisher_to_music"),
         _ => None,
-    }
-}
-
-fn expected_reciprocal_medium(direction: &str) -> &'static str {
-    match direction {
-        "music_to_publisher" => "music",
-        "publisher_to_music" => "publisher",
-        _ => unreachable!("unexpected publisher direction"),
     }
 }
 

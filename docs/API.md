@@ -602,6 +602,10 @@ Returns a single feed by its `podcast:guid`.
         "publisher_feed_url": "https://example.com/publisher.xml",
         "music_feed_guid": "uuid",
         "music_feed_url": "https://...",
+        "music_names_publisher": true,
+        "publisher_lists_music": true,
+        "publisher_link_resolution": "guid",
+        "publisher_link_observed_at": null,
         "reciprocal_declared": true,
         "reciprocal_medium": "music",
         "two_way_validated": true
