@@ -120,9 +120,13 @@ Mechanical:
   `https://wavlake.com/feed/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a`. The album view
   gives `publisher_link_resolution = "unresolved"` and `two_way_validated =
   false`.
-- Jimmy V test: ingest `jimmyv-publisher` and `jimmyv-produced-album`. The
-  publisher view gives a row for that album with `publisher_lists_music = true`
-  and `music_names_publisher = false`.
+- "Listed by" test, with inline payloads: a publisher feed P lists an album A
+  with `medium="music"`, and A names a different publisher Q. The view of P
+  gives a row for A with `publisher_lists_music = true` and
+  `music_names_publisher = false`. Name the test after the Jimmy V case.
+- Jimmy V refusal test: submit `jimmyv-publisher`. The node refuses it with the
+  `medium_music` reason. Its remote items have no `medium`, and the Podcast
+  Namespace default is `podcast` (plan decision 12).
 - RSS Blue test: `rssblue-publisher` and `rssblue-album` give
   `publisher_link_resolution = "guid"`.
 - `no-publisher-album` gives no publisher row.
@@ -197,8 +201,8 @@ Acceptance criteria:
 - The gate is green.
 - Tests prove the resolver branches, including an observation whose GUID is not
   in `feeds`.
-- The DETOX, other-URL, Jimmy V, RSS Blue and no-publisher cases give the
-  values in the task file.
+- The DETOX, other-URL, "listed by", Jimmy V refusal, RSS Blue and
+  no-publisher cases give the values in the task file.
 - A guard test proves that `src/query.rs` holds no `remote_feed_guid ==`.
 - The report names each changed existing test with its old and new values.
 

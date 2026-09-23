@@ -89,6 +89,13 @@ The ADR leaves these points to the plan. A task packet does not change them.
     `publisher_feed_guid` and `music_feed_guid` give the resolved GUID, and the
     declared value when a side does not resolve. `remote_feed_guid` always
     gives the declared value.
+12. **A remote item with no `medium` follows the Podcast Namespace.** The
+    default is `podcast`, so the item is not a listed album. The node keeps
+    refusing a publisher feed with no `medium="music"` item. The Jimmy V
+    publisher feed is such a feed. The operator decided this on 2026-09-23.
+13. **A `rel` with a comma is one value.** `"artist, producer"` stays one
+    string in `role`. A client can split it. The operator decided this on
+    2026-09-23.
 
 ## Affected Modules
 

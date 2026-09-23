@@ -17,8 +17,9 @@ and the source of that role.
 - `src/model.rs`: `FeedRemoteItemRaw.rel`, `TrackRemoteItemRaw.rel` from
   task 003
 - `src/openapi.rs`: the `include=publisher` examples
-- the task 002 fixtures `sirlibre-label`, `jimmyv-publisher`,
-  `jimmyv-produced-album`, `detox-artist`
+- the task 002 fixtures `sirlibre-label`, `sirlibre-album`, `detox-artist`,
+  `detox-album`. The node refuses `jimmyv-publisher` (plan decision 12), so the
+  producer cases use inline payloads
 
 ## Files Likely To Change
 
@@ -43,6 +44,8 @@ and the source of that role.
 - The two items are the same items that task 005 matched.
 - Normalize a value for comparison with trim and ASCII lowercase. An empty
   value after trim counts as no value.
+- A value with a comma, such as `"artist, producer"`, is one value. Do not split
+  it (plan decision 13). Its normalized form is `"artist, producer"`.
 - `role` and `role_source`:
 
 | `publisher_rel` | `music_rel` | `role` | `role_source` |
@@ -79,8 +82,14 @@ Mechanical:
 - Sir Libre test: the `sirlibre-label` view gives a row for `sirlibre-album`
   with `publisher_rel = "label"`, `role = "label"`,
   `role_source = "publisher_rel"`.
-- Jimmy V test: the `jimmyv-publisher` view gives a row for
-  `jimmyv-produced-album` with `role = "producer"`.
+- Producer test, with inline payloads: a publisher item with
+  `rel="producer"` gives `role = "producer"` and
+  `role_source = "publisher_rel"`.
+- List test, with inline payloads: a publisher item with
+  `rel="Artist, Producer"` gives `publisher_rel = "Artist, Producer"`,
+  `role = "artist, producer"` and `role_source = "publisher_rel"`.
+- A unit test proves that `"artist, producer"` and `"artist"` are different
+  values, so the pair gives `"conflict"`.
 - DETOX test: a row between `detox-artist` and `detox-album` gives
   `role = "artist"` and `role_source = "default"`.
 
@@ -132,6 +141,7 @@ Constraints:
 - `publisher_rel` and `music_rel` are raw, from the two items that task 005
   matched, or `null`.
 - Compare after trim and ASCII lowercase. Empty after trim is no value.
+- A value with a comma is one value. Do not split it.
 - Use the table in the task file for `role` and `role_source`. A conflict gives
   `role = null` and `role_source = "conflict"`.
 - The doc comments mark `rel` as non-standard, and mark the default `"artist"`
@@ -146,9 +156,12 @@ Do not touch:
 Acceptance criteria:
 - The gate is green.
 - Unit tests cover each table row and prove that `" Label "` equals `"label"`.
-- Sir Libre gives `role = "label"`, `role_source = "publisher_rel"`. Jimmy V
-  gives `role = "producer"` for the produced album. DETOX gives `role =
-  "artist"`, `role_source = "default"`.
+- Sir Libre gives `role = "label"`, `role_source = "publisher_rel"`. DETOX
+  gives `role = "artist"`, `role_source = "default"`.
+- Inline payloads prove:
+  - `rel="producer"` gives `role = "producer"`.
+  - `rel="Artist, Producer"` gives `role = "artist, producer"`.
+  - `"artist, producer"` against `"artist"` gives `"conflict"`.
 
 Test commands:
 - `cargo build`
