@@ -31,11 +31,23 @@ row.
 
 The work that remains:
 
-1. The `FORCE_REINGEST` trickle over the affected feeds. Scope it to the feeds
-   the index already holds. Almost every affected feed needs it, because a feed
-   with unchanged content is stopped by `ContentHashVerifier`.
+1. A pass over the affected feeds. Scope it to the feeds the index already
+   holds. Measured over the 7,095 affected feeds in the audit snapshot, 6,643
+   carry a `lastBuildDate` that the host stamps at fetch time, with a median
+   difference of 3 seconds. Their content hash changes on every fetch, so any
+   fetch re-ingests them and `--force` is not needed. The other 452 hold a
+   static `lastBuildDate`, and `ContentHashVerifier` stops those without
+   `--force`. A fetch still happens only when the crawler reads the feed, so a
+   dormant feed needs the deliberate pass whichever group it is in.
 2. [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md). The response
-   types declare their schemas.
+   types declare their schemas. Its
+   [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and
+   [first packet](docs/tasks/adr-0044-task-001-response-type-schemas.md) are
+   written. No code is written.
+3. [ADR 0047](docs/adr/0047-crawler-reingest-from-its-own-outcome-record.md).
+   The `reingest` mode in `stophammer-crawler`. Its
+   [packet](docs/tasks/adr-0047-task-001-crawler-reingest-mode.md) is written.
+   No code is written.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
