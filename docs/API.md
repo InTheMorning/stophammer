@@ -667,6 +667,25 @@ remain visible, but local tracks are intentionally not materialized into the
 direction and reciprocal validation exactly from RSS and does not add any
 canonical artist-confirmation layer in v1.
 
+A publisher feed read also has two derived fields:
+
+```json
+{
+  "data": {
+    "feed_guid": "publisher-feed-guid",
+    "title": "Publisher Feed",
+    "raw_medium": "publisher",
+    "distinct_release_artist_count": 2,
+    "distinct_release_artists": ["Jimmy V", "Sir Libre"]
+  }
+}
+```
+
+`distinct_release_artist_count` and `distinct_release_artists` are derived.
+They count only an album with a `release_artist` from `itunes:author`.
+A "feat." credit can count as a different artist. A music feed read does not
+have these two fields. ADR 0049 §7.
+
 Stored `publisher_text` follows the same strict policy:
 
 - Wavlake music feeds with a linked publisher feed store `publisher_text` as

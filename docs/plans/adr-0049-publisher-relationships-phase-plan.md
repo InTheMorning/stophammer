@@ -203,6 +203,12 @@ These values change for clients:
   in the publisher view resolves each listed item with two indexed lookups. Task
   005 reports the read time of the `detox-artist` fixture. Task 009 reports the
   time of the statistics route against a copy of the local database.
+- **The URL branch of the artist count scans a table.** Task 008 matches each
+  observed URL of a publisher with `feed_remote_items_raw.remote_feed_url`. No
+  index covers that column. On 2026-09-23 the local database held 7,512 rows,
+  and one scan took 2.6 ms. A publisher read does one scan for each URL that
+  gave its GUID, usually one. If the table becomes ten times larger, add an
+  index in a migration.
 
 ## Test Strategy
 

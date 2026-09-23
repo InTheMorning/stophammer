@@ -4572,6 +4572,123 @@ pub fn resolve_listed_feed(
     Ok(ListedFeedResolution::Unresolved)
 }
 
+// ── publisher album release artists (ADR 0049 §7) ──────────────────────────
+
+/// One album's `release_artist`, given by [`get_publisher_album_release_artists`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublisherAlbumArtist {
+    /// The `feed_guid` of the album.
+    pub feed_guid: String,
+    /// The album's stored `release_artist`.
+    pub release_artist: String,
+}
+
+/// Returns the `release_artist` of each album of publisher feed
+/// `publisher_feed_guid`, for the derived artist count of ADR 0049 §7.
+///
+/// An album is a music feed with a remote item, `medium = "publisher"`, that
+/// [`resolve_listed_feed`] resolves to `publisher_feed_guid`. This function
+/// finds a candidate album in two steps, then confirms each one with
+/// [`resolve_listed_feed`] so the result agrees with the `publisher` view:
+///
+/// 1. The GUID step. A remote item whose declared `remote_feed_guid` equals
+///    `publisher_feed_guid`. This query uses `idx_feed_remote_items_guid`.
+/// 2. The URL step. The observed URLs of `publisher_feed_guid`, read with
+///    `idx_feed_url_observations_guid`, matched against `remote_feed_url`. No
+///    index covers `remote_feed_url`, so this second query scans
+///    `feed_remote_items_raw`. Task 008 of the ADR 0049 phase plan names this
+///    scan as a point to report, not to fix with a new index, because an
+///    index is a migration.
+///
+/// Only an album with `release_artist_source = "itunes_author"` is included.
+/// A candidate that the GUID step and the URL step both name is included
+/// once. The order of the result is not defined; sort it before use.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn get_publisher_album_release_artists(
+    conn: &Connection,
+    publisher_feed_guid: &str,
+) -> Result<Vec<PublisherAlbumArtist>, DbError> {
+    let mut candidate_feed_guids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    // GUID step: SEARCH feed_remote_items_raw USING INDEX
+    // idx_feed_remote_items_guid (remote_feed_guid=?).
+    let mut guid_stmt = conn.prepare(
+        "SELECT feed_guid, remote_feed_guid, remote_feed_url \
+         FROM feed_remote_items_raw \
+         WHERE medium = 'publisher' AND remote_feed_guid = ?1",
+    )?;
+    let guid_candidates = guid_stmt.query_map(params![publisher_feed_guid], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+    for candidate in guid_candidates {
+        let (feed_guid, remote_feed_guid, remote_feed_url) = candidate?;
+        if resolve_listed_feed(conn, &remote_feed_guid, remote_feed_url.as_deref())?.feed_guid()
+            == Some(publisher_feed_guid)
+        {
+            candidate_feed_guids.insert(feed_guid);
+        }
+    }
+
+    // URL step: the URLs the node has observed for `publisher_feed_guid`
+    // (SEARCH feed_url_observations USING INDEX
+    // idx_feed_url_observations_guid), then a match against
+    // `remote_feed_url` (SCAN feed_remote_items_raw; see the function doc).
+    let mut observation_stmt =
+        conn.prepare("SELECT url FROM feed_url_observations WHERE feed_guid = ?1")?;
+    let observed_urls: Vec<String> = observation_stmt
+        .query_map(params![publisher_feed_guid], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+
+    for url in &observed_urls {
+        let mut url_stmt = conn.prepare(
+            "SELECT feed_guid, remote_feed_guid, remote_feed_url \
+             FROM feed_remote_items_raw \
+             WHERE medium = 'publisher' AND remote_feed_url = ?1",
+        )?;
+        let url_candidates = url_stmt.query_map(params![url], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?;
+        for candidate in url_candidates {
+            let (feed_guid, remote_feed_guid, remote_feed_url) = candidate?;
+            if resolve_listed_feed(conn, &remote_feed_guid, remote_feed_url.as_deref())?.feed_guid()
+                == Some(publisher_feed_guid)
+            {
+                candidate_feed_guids.insert(feed_guid);
+            }
+        }
+    }
+
+    let mut albums = Vec::new();
+    for feed_guid in candidate_feed_guids {
+        let Some(feed) = get_feed(conn, &feed_guid)? else {
+            continue;
+        };
+        if feed.release_artist_source.as_deref() != Some("itunes_author") {
+            continue;
+        }
+        if let Some(release_artist) = feed.release_artist {
+            albums.push(PublisherAlbumArtist {
+                feed_guid: feed.feed_guid,
+                release_artist,
+            });
+        }
+    }
+
+    Ok(albums)
+}
+
 // ── get_events_since ──────────────────────────────────────────────────────────
 
 /// Returns up to `limit` events with `seq > after_seq`, ordered ascending.

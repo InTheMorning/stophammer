@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::model::Feed;
-use crate::{api, db};
+use crate::{api, db, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
@@ -189,6 +189,23 @@ struct FeedResponse {
     /// with [`db::resolve_listed_feed`]. Null when the feed names no
     /// publisher or the resolver cannot place it. ADR 0049 §5.
     publisher_feed_title: Option<String>,
+    /// The number of distinct album artists of a publisher feed.
+    ///
+    /// The value is derived, not stored. It counts only an album whose
+    /// `release_artist` comes from `itunes:author`. A "feat." credit can
+    /// count as a different artist. Present only when this feed is a
+    /// publisher feed. ADR 0049 §7.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    distinct_release_artist_count: Option<i64>,
+    /// One raw `release_artist` value for each count in
+    /// `distinct_release_artist_count`, sorted by the normalized value.
+    ///
+    /// The value is derived, not stored. It counts only an album whose
+    /// `release_artist` comes from `itunes:author`. A "feat." credit can
+    /// count as a different artist. Present only when this feed is a
+    /// publisher feed. ADR 0049 §7.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    distinct_release_artists: Option<Vec<String>>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -817,6 +834,51 @@ fn resolve_publisher_feed_title(
     Ok(db::get_feed(conn, resolved_guid)?.map(|feed| feed.title))
 }
 
+/// Normalizes a `release_artist` value for the publisher artist count of
+/// ADR 0049 §7.
+///
+/// The steps are: remove the white space at the start and at the end,
+/// replace each internal run of white space with one space, then apply
+/// [`str::to_lowercase`]. This function does not split a credit such as
+/// "feat.": two different credits normalize to two different values.
+fn normalize_release_artist(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+/// Builds the derived artist count of a publisher feed, ADR 0049 §7.
+///
+/// Reads the albums of `feed_guid` with
+/// [`db::get_publisher_album_release_artists`], keeps the album with the
+/// lowest `feed_guid` for each distinct normalized `release_artist`, and
+/// gives the count and the raw values, sorted by the normalized value.
+fn publisher_artist_count(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<(i64, Vec<String>), api::ApiError> {
+    let mut albums = db::get_publisher_album_release_artists(conn, feed_guid)?;
+    albums.sort_by(|a, b| a.feed_guid.cmp(&b.feed_guid));
+
+    // A `BTreeMap` keyed by the normalized value both dedupes and sorts by
+    // that value. `albums` is sorted by `feed_guid` ascending, so the first
+    // album `entry` sees for a normalized value is the one with the lowest
+    // `feed_guid`, and `or_insert` keeps only that one.
+    let mut by_normalized: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    for album in albums {
+        by_normalized
+            .entry(normalize_release_artist(&album.release_artist))
+            .or_insert(album.release_artist);
+    }
+
+    let count = i64::try_from(by_normalized.len()).unwrap_or(i64::MAX);
+    let artists: Vec<String> = by_normalized.into_values().collect();
+    Ok((count, artists))
+}
+
 fn build_feed_response(
     conn: &rusqlite::Connection,
     row: FeedRow,
@@ -840,6 +902,8 @@ fn build_feed_response(
         image_url: row.image_url,
         publisher_text: row.publisher_text,
         publisher_feed_title,
+        distinct_release_artist_count: None,
+        distinct_release_artists: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -857,6 +921,13 @@ fn build_feed_response(
         remote_items: None,
         publisher: None,
     };
+
+    // ADR 0049 §7: only a publisher feed carries the derived artist count.
+    if medium::is_publisher(resp.raw_medium.as_deref()) {
+        let (count, artists) = publisher_artist_count(conn, &feed_guid)?;
+        resp.distinct_release_artist_count = Some(count);
+        resp.distinct_release_artists = Some(artists);
+    }
 
     if params.includes("tracks") {
         // ADR 0042: this route read the track column alone, so `image_url` meant
@@ -1871,6 +1942,10 @@ async fn handle_get_recent_feeds(
                 image_url: r.image_url,
                 publisher_text: r.publisher_text,
                 publisher_feed_title,
+                // The list route does not compute this per-row aggregate.
+                // ADR 0049 §7 scopes it to a single feed read.
+                distinct_release_artist_count: None,
+                distinct_release_artists: None,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,
@@ -2622,6 +2697,22 @@ mod tests {
         assert_eq!(
             resolve_role(None, None),
             (Some("artist".to_string()), "default")
+        );
+    }
+
+    // ── normalize_release_artist (task 008 "Constraints") ───────────────────
+
+    #[test]
+    fn normalize_release_artist_trims_and_collapses_and_lowercases() {
+        assert_eq!(normalize_release_artist("  Jimmy   V "), "jimmy v");
+        assert_eq!(normalize_release_artist("jimmy v"), "jimmy v");
+    }
+
+    #[test]
+    fn normalize_release_artist_does_not_split_a_feat_credit() {
+        assert_ne!(
+            normalize_release_artist("A feat. B"),
+            normalize_release_artist("A")
         );
     }
 }

@@ -56,7 +56,7 @@ The work that remains:
 4. [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md) is
    Accepted. The
    [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
-   gives 13 tasks in `docs/tasks/`. Tasks 001 to 007 are complete and not
+   gives 13 tasks in `docs/tasks/`. Tasks 001 to 008 are complete and not
    deployed. Task 004 adds the `FeedUrlObserved` event, so each community node
    must run the new code before the primary node does. It answers
    [the publisher relationship request](docs/plans/v4vmm-publisher-relationship-request.md)
