@@ -31,17 +31,24 @@ Complete and deployed:
 - Task 001 of [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md).
   The response types derive `utoipa::ToSchema`, and the document declares 36
   schemas under `components.schemas`.
+- The node tasks of
+  [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md): 001 to
+  009, and 004b. The publisher view reports each relationship fact, and
+  `GET /v1/publisher-links/stats` gives the link counts. Deployed on
+  2026-09-24. On that day the route gave 709 listed links: 693 resolved by
+  GUID, 1 by URL and 15 unresolved.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`a4f05a1` makes.
+`1fbfc32` makes.
 
 The work that remains:
 
 1. [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md) is
-   Proposed and needs a decision. The corrective pass showed that
-   `V4VPaymentVerifier` refuses a feed that carries a valid `podcast:value`
-   block on each track and none on the channel. Such a feed keeps the incorrect
-   release date that ADR 0043 corrects.
+   Accepted and not implemented. `V4VPaymentVerifier` still refuses a feed
+   that carries a valid `podcast:value` block on each track and none on the
+   channel. The change is in `src/verifiers/v4v_payment.rs`, with the four
+   guard tests that the ADR lists. After the deploy, a second corrective pass
+   reaches the refused feeds, so ADR 0043 can correct their release dates.
    [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
    holds the measurement and names the two scripts that repeat it.
 2. Task 002 of ADR 0044. Each documented response must point at its schema. No
@@ -53,16 +60,13 @@ The work that remains:
    [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
-4. [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md) is
-   Accepted. The
+4. The crawler tasks of ADR 0049, 010 to 012, and task 013 for the reference
+   documents. The
    [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
-   gives 13 tasks in `docs/tasks/`. Tasks 001 to 009, and task 004b, are
-   complete and not deployed. Task 004 adds the `FeedUrlObserved` event, so each community node
-   must run the new code before the primary node does. It answers
-   [the publisher relationship request](docs/plans/v4vmm-publisher-relationship-request.md)
-   from v4vmm. The work spans the three repositories. Task 007 deleted the
-   Wavlake host rules from the code. `docs/API.md`, `docs/schema-reference.md`
-   and `docs/user-guide.md` still describe them until task 013.
+   holds the sequence. Do not run `refresh --force` before task 010 is
+   deployed, because the pass would not follow publisher links.
+   `docs/API.md`, `docs/schema-reference.md` and `docs/user-guide.md` still
+   describe the deleted Wavlake rules until task 013.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`

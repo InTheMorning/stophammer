@@ -1,7 +1,7 @@
 # ADR 0048: Every Track Resolves To A Payment Route
 
 ## Status
-Proposed
+Accepted
 
 ## Date
 2026-09-23

@@ -48,7 +48,7 @@ disagree.
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. Wavlake caveat superseded by ADR 0049 | Proposed |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
-| [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Proposed |
+| [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
 | [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. Replaces the Wavlake exception of ADR 0035 | Accepted |
 
 ## HTTP API And Contract
