@@ -28,7 +28,6 @@ disagree.
 | [0024](0024-sqlite-wal-connection-pool.md) | SQLite WAL connection pool | Accepted |
 | [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers | Accepted |
 | [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema | Proposed |
-| [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text. Wavlake exception superseded by ADR 0049 | Accepted in part |
 | [0040](0040-store-track-identity-as-feed-scoped.md) | Track identity stored as feed-scoped | Accepted |
 | [0041](0041-contributor-npub-source-evidence.md) | Contributor npub kept as source evidence | Accepted |
 
@@ -97,6 +96,7 @@ research, not for a live rule.
 | [0014](0014-artist-resolution-aliases.md) | Artist resolution, alias table, merge operation, admin endpoints | ADR 0032 and ADR 0034 |
 | [0020](0020-sse-artist-follow-notifications.md) | SSE push notifications for artist follow | ADR 0037 and ADR 0036 |
 | [0029](0029-primary-resolved-replication-authority.md) | Primary resolver authority for replicated read models | ADR 0032 |
+| [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
 
 ## Status Needs A Check
 

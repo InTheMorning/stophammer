@@ -31,8 +31,6 @@ This wiki is the map of the project, not a replacement for the detailed docs.
 
 - schema reference:
   [schema-reference.md](../schema-reference.md)
-- identity evidence policy:
-  [identity-evidence-policy.md](../identity-evidence-policy.md)
 
 ## For Maintainers
 
