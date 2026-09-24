@@ -132,6 +132,7 @@ Each task is one commit in one repository. Each task ends green.
 | [008](../tasks/adr-0049-task-008-artist-count.md) | `stophammer` | `distinct_release_artist_count` and `distinct_release_artists` | 005, 007 |
 | [009](../tasks/adr-0049-task-009-link-stats-route.md) | `stophammer` | `GET /v1/publisher-links/stats` | 005 |
 | [010](../tasks/adr-0049-task-010-batch-follows-links.md) | `stophammer-crawler` | The batch path follows publisher links | 004 deployed |
+| [010b](../tasks/adr-0049-task-010b-follow-album-lists-of-new-publishers.md) | `stophammer-crawler` | A publisher found through an album has its album list followed (wave 3, gossip level 2) | 010, 012 |
 | [011](../tasks/adr-0049-task-011-refresh-reports-unresolved.md) | `stophammer-crawler` | The `refresh` pass reports the unresolved count | 009, 010 |
 | [012](../tasks/adr-0049-task-012-gossip-follows-links.md) | `stophammer-crawler` | The gossip path follows publisher links | 010 |
 | [013](../tasks/adr-0049-task-013-reference-documents.md) | `stophammer` | Reference documents and `AGENTS.md` | 002 to 012 |
