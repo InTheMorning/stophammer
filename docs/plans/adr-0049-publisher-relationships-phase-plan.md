@@ -85,8 +85,9 @@ The ADR leaves these points to the plan. A task packet does not change them.
 7. **The contract document marks `rel` as non-standard.** The field
    descriptions in the `ToSchema` doc comments and in `docs/API.md` say so. The
    response carries no extra marker field.
-8. **Two `rel` values are equal after trim and ASCII lowercase.** `role` is
-   that normalized value. `publisher_rel` and `music_rel` stay raw.
+8. **Two `rel` values are equal when their role sets are equal.** Decision 13
+   gives the set. `role` is that set, sorted and joined by `", "`.
+   `publisher_rel` and `music_rel` stay raw.
 9. **A new route gives the link counts.** `GET /v1/publisher-links/stats` gives
    the number of listed links for each resolution. The `refresh` pass reads it.
 10. **The crawler follows links in the batch path and the gossip path.** The
@@ -99,9 +100,17 @@ The ADR leaves these points to the plan. A task packet does not change them.
     default is `podcast`, so the item is not a listed album. The node keeps
     refusing a publisher feed with no `medium="music"` item. The Jimmy V
     publisher feed is such a feed. The operator decided this on 2026-09-23.
-13. **A `rel` with a comma is one value.** `"artist, producer"` stays one
-    string in `role`. A client can split it. The operator decided this on
-    2026-09-23.
+13. **A comma separates the roles in a `rel` value.** Each role is trimmed,
+    its internal white space becomes one space, and it is ASCII-lowercased.
+    Empty roles and duplicates are removed. A value with no comma is one role,
+    even when it holds a space, so `"sound engineer, mastering engineer"` gives
+    two roles. The Podcast Namespace discussion #579 has two proposals: a comma
+    list (Kolomona, 2026-05-26) and space-separated keywords as in HTML
+    (matthewruzzi, 2026-05-26). Spaces cannot express a role of two words
+    without a special spelling, and the one real feed with more than one role
+    uses commas. The operator decided this on 2026-09-24. It replaces the rule
+    of 2026-09-23 that a value with a comma is one value. Task 006b implements
+    it.
 
 ## Affected Modules
 
@@ -128,6 +137,7 @@ Each task is one commit in one repository. Each task ends green.
 | [004b](../tasks/adr-0049-task-004b-stored-url-resolves.md) | `stophammer` | The resolver accepts the stored `feed_url`, so a new community node agrees with the primary node | 004, 005, 008, 009 |
 | [005](../tasks/adr-0049-task-005-back-link-resolver.md) | `stophammer` | The resolver and the relationship fields | 004 |
 | [006](../tasks/adr-0049-task-006-role-fields.md) | `stophammer` | `publisher_rel`, `music_rel`, `role`, `role_source` | 003, 005 |
+| [006b](../tasks/adr-0049-task-006b-rel-is-a-comma-list.md) | `stophammer` | A comma separates the roles in `rel`, and the sides compare as sets | 006 |
 | [007](../tasks/adr-0049-task-007-text-fields.md) | `stophammer` | Text fields from one source each. The Wavlake rules are deleted. Migration 0037 | 005 |
 | [008](../tasks/adr-0049-task-008-artist-count.md) | `stophammer` | `distinct_release_artist_count` and `distinct_release_artists` | 005, 007 |
 | [009](../tasks/adr-0049-task-009-link-stats-route.md) | `stophammer` | `GET /v1/publisher-links/stats` | 005 |

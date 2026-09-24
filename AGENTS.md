@@ -62,10 +62,17 @@ The work that remains:
    [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
    holds the sequence. `docs/API.md`, `docs/schema-reference.md` and
    `docs/user-guide.md` still describe the deleted Wavlake rules until task 013.
-4. The corrective pass for ADR 0043, ADR 0048 and ADR 0049 runs on the VPS
-   since 2026-09-24, as the container `refresh-adr0049`. It ends with a
-   `publisher links:` line. Do not deploy the crawler while it runs, because
-   the deploy recreates the `gossip` service.
+4. [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md) task 002.
+   `GET /v1/feeds/recent` leaves out each feed with a null `newest_item_at`, so
+   the `refresh` pass never reads publisher feeds. The
+   [packet](docs/tasks/adr-0047-task-002-feed-list-includes-undated-feeds.md)
+   gives the fix.
+5. A pass over the publisher feeds, `publisher-lists-adr0049`, runs on the VPS
+   since 2026-09-24. It uses `feed` mode with a list that was read from the
+   database, because of item 4. The full corrective pass of 2026-09-24 ended
+   with 8,200 listed links and 1,780 unresolved, because packet 010 stopped one
+   level too early. Task 010b corrects that. Do not deploy the crawler while a
+   pass runs.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
