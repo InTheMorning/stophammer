@@ -66,13 +66,17 @@ The work that remains:
    [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
-3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted
-   on 2026-09-24 and not implemented. The crawler sends a conditional GET and
-   keeps the last body, so a corrective pass transfers almost no feed body. The
-   [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives five
-   tasks. Its open question, whether a `304` counts against the Wavlake `429`
-   limit, needs two passes after the deploy: one fills the cache, the second
-   measures.
+3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
+   2026-09-24. Tasks 001 to 005 are complete on 2026-09-24 and not deployed.
+   The crawler sends a conditional GET and keeps the last body, so a
+   corrective pass transfers almost no feed body. The crawler deploy waits
+   until no pass runs on the VPS.
+
+   The [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives
+   five tasks. Two passes of plan decision 10 remain after the deploy. The
+   first pass fills the cache, and the second pass measures. The open
+   question, whether a `304` counts against the Wavlake `429` limit, stays
+   open until the second pass.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
@@ -195,6 +199,8 @@ CRAWL_TOKEN=xxx \
 There are five modes: `feed`, `import`, `ndjson`, `gossip` and `refresh`. There
 is no `podping` mode. The `gossip` mode consumes the stream that carries podping
 notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
+The `feed`, `refresh`, `gossip` and `import` modes keep a fetch cache (ADR
+0050).
 
 `feed`, `refresh` and `gossip` follow a publisher link. ADR 0049 section 2
 owns the rule. `feed` and `refresh` follow in three waves: the input feeds,

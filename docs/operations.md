@@ -506,6 +506,7 @@ SSE directly; restrict it at the proxy if you need a stricter origin policy.
 | `KEY_PATH` (signing.key) | ed25519 identity | Lose identity; community nodes reject new events |
 | `TLS_CERT_PATH`, `TLS_KEY_PATH` | TLS certificate and key | Re-provisioned automatically on next start |
 | `TLS_ACME_ACCOUNT_PATH` | ACME account credentials | New account created on next provisioning |
+| `FEED_CACHE_DB` (`feed_cache.db`) | Validators and last body of each fetched feed | Loss means that the next pass fetches each body again. No restore is needed. |
 
 ### SQLite Backup Procedure
 
@@ -618,6 +619,45 @@ The Wavlake album fetches took about 2 hours 46 minutes at the default host
 delay, on the first pass after the crawler gained this feature. This time is a
 measured fact from that one pass, not a guarantee for a later pass.
 
+### Fetch Cache
+
+`stophammer-crawler` keeps validators and the last body of each fetched feed
+in `feed_cache.db`. ADR 0050 owns the cache. A normal crawl sends no ingest
+after a `304` answer, because the node already holds that content. A
+`--force` pass submits the kept body after a `304`, the same as after a `200`
+answer.
+
+Pass `--no-revalidate` for a host that sends a wrong `ETag`. The flag turns
+off the conditional GET for that pass, so each fetch returns a full body. A
+batch pass prints one summary line at the end:
+
+```
+fetch: ok=N not_modified=N rate_limited=N other=N
+```
+
+`ok` counts `200`, `not_modified` counts `304`, `rate_limited` counts `429`,
+and `other` counts each remaining result, including a failed connection.
+
+Plan decision 10 of the
+[phase plan](plans/adr-0050-feed-revalidation-phase-plan.md) needs two passes
+after the deploy, on the VPS, in the compose directory:
+
+```bash
+docker compose run -d --name <name> stophammer-crawler --force refresh \
+  --concurrency 3 --host-delay-ms 3000
+```
+
+The first pass fills the cache, and its `fetch:` line shows mostly `ok`. Run
+the second pass some hours later. Its `fetch:` line shows mostly
+`not_modified`. Read each pass with this command:
+
+```bash
+docker logs <name> 2>&1 | grep '^fetch:'
+```
+
+A `rate_limited` count near zero in the second pass answers the ADR 0050 open
+question. A `304` then does not count against the Wavlake `429` limit.
+
 ### Retired binaries
 
 Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
@@ -690,6 +730,7 @@ The background pruner logs `proof-pruner: pruned expired proof rows` at debug le
 | WAL file | Up to ~1 MB during writes | Checkpointed automatically by SQLite |
 | Signing key | 64 bytes | Static |
 | TLS certificates | ~5 KB | Renewed in place |
+| Feed cache (`feed_cache.db`) | About 30 MB to 50 MB per 10,000 feeds | The 2026-04-03 snapshot is the source of this estimate |
 
 For a deployment indexing 50,000 music feeds with ~500,000 tracks, expect the database to be 500 MB - 1 GB. The events table will be the largest component over time.
 

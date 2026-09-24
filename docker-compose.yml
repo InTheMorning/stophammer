@@ -104,9 +104,11 @@ services:
       - >
         set -- stophammer-crawler;
         if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        if [ "$${NO_REVALIDATE:-0}" = "1" ]; then set -- "$$@" --no-revalidate; fi;
         set -- "$$@" gossip
         --state "$${GOSSIP_STATE_DB:-/data/gossip_state.db}"
-        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}"
+        --feed-cache "$${FEED_CACHE_DB:-/data/feed_cache.db}";
         if [ -n "$${GOSSIP_SSE_URL:-}" ]; then set -- "$$@" --sse-url "$$GOSSIP_SSE_URL"; fi;
         if [ -n "$${GOSSIP_ARCHIVE_DB:-}" ]; then set -- "$$@" --archive-db "$$GOSSIP_ARCHIVE_DB"; fi;
         if [ -n "$${GOSSIP_SINCE_HOURS:-}" ]; then set -- "$$@" --since-hours "$$GOSSIP_SINCE_HOURS"; fi;
@@ -138,10 +140,12 @@ services:
       - >
         set -- stophammer-crawler;
         if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        if [ "$${NO_REVALIDATE:-0}" = "1" ]; then set -- "$$@" --no-revalidate; fi;
         set -- "$$@" import
         --db "$${PODCASTINDEX_DB:-/data/podcastindex_feeds.db}"
         --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
-        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}"
+        --feed-cache "$${FEED_CACHE_DB:-/data/feed_cache.db}";
         if [ -n "$${PODCASTINDEX_DB_URL:-}" ]; then set -- "$$@" --db-url "$$PODCASTINDEX_DB_URL"; fi;
         if [ "$${IMPORT_REFRESH_DB:-0}" = "1" ]; then set -- "$$@" --refresh-db; fi;
         if [ -n "$${CONCURRENCY:-}" ]; then set -- "$$@" --concurrency "$$CONCURRENCY"; fi;
@@ -174,10 +178,12 @@ services:
       - >
         set -- stophammer-crawler;
         if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        if [ "$${NO_REVALIDATE:-0}" = "1" ]; then set -- "$$@" --no-revalidate; fi;
         set -- "$$@" import
         --db "$${PODCASTINDEX_DB:-/data/podcastindex_feeds.db}"
         --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
-        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}";
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}"
+        --feed-cache "$${FEED_CACHE_DB:-/data/feed_cache.db}";
         if [ -n "$${PODCASTINDEX_DB_URL:-}" ]; then set -- "$$@" --db-url "$$PODCASTINDEX_DB_URL"; fi;
         if [ "$${IMPORT_REFRESH_DB:-0}" = "1" ]; then set -- "$$@" --refresh-db; fi;
         if [ -n "$${CONCURRENCY:-}" ]; then set -- "$$@" --concurrency "$$CONCURRENCY"; fi;
