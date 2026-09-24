@@ -37,36 +37,35 @@ Complete and deployed:
   `GET /v1/publisher-links/stats` gives the link counts. Deployed on
   2026-09-24. On that day the route gave 709 listed links: 693 resolved by
   GUID, 1 by URL and 15 unresolved.
+- [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
+  gate is track coverage. A feed needs a channel-level `podcast:value` block
+  only when a track declares none. Deployed on 2026-09-24.
+  [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
+  holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`1fbfc32` makes.
+`1d1524c` makes.
 
 The work that remains:
 
-1. [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md) is
-   Accepted and implemented, and not deployed. `V4VPaymentVerifier` accepts a
-   feed that carries a valid `podcast:value` block on each track and none on
-   the channel. `tests/adr0048_track_coverage_tests.rs` holds the guards.
-   After the deploy, a second corrective pass reaches the feeds that the old
-   rule refused, so ADR 0043 can correct their release dates.
-   [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
-   holds the measurement and names the two scripts that repeat it.
-2. Task 002 of ADR 0044. Each documented response must point at its schema. No
+1. Task 002 of ADR 0044. Each documented response must point at its schema. No
    response points at one today, and all 54 carry an inline shape or none.
    `QueryResponse<T>` needs one utoipa alias for each instantiation, because
    the derive removes the type parameter.
-3. Task 003 of ADR 0044. The guards, and the correction of this file where it
+2. Task 003 of ADR 0044. The guards, and the correction of this file where it
    describes the document. The
    [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
-4. The crawler tasks of ADR 0049, 010 to 012, and task 013 for the reference
-   documents. The
+3. ADR 0049 task 012, the gossip follow, and task 013, the reference
+   documents. Tasks 010 and 011 are deployed. The
    [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
-   holds the sequence. Do not run `refresh --force` before task 010 is
-   deployed, because the pass would not follow publisher links.
-   `docs/API.md`, `docs/schema-reference.md` and `docs/user-guide.md` still
-   describe the deleted Wavlake rules until task 013.
+   holds the sequence. `docs/API.md`, `docs/schema-reference.md` and
+   `docs/user-guide.md` still describe the deleted Wavlake rules until task 013.
+4. The corrective pass for ADR 0043, ADR 0048 and ADR 0049 runs on the VPS
+   since 2026-09-24, as the container `refresh-adr0049`. It ends with a
+   `publisher links:` line. Do not deploy the crawler while it runs, because
+   the deploy recreates the `gossip` service.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`

@@ -58,7 +58,8 @@ follow fetch.
   has a parsed feed, call `follow::follow_urls`.
 - For each follow URL, apply the same dedup and skip checks that a notification
   URL gets. Then spawn a follow fetch.
-- A follow fetch takes a `Semaphore` permit, waits for the host throttle, and
+- A follow fetch takes a permit of its own follow `Semaphore`, not of the
+  notification `Semaphore`. Then it waits for the host throttle, and
   calls `crawl_feed_report`. It records its outcome in `skip_db` and in the
   progress store as a notification crawl does.
 - A follow fetch does not call `follow::follow_urls`.
@@ -142,7 +143,8 @@ Constraints:
   mode. `run` makes one shared `HostThrottle`.
 - Follow from `Accepted` or `NoChange` reports that have a parsed feed.
 - Each follow URL gets the same dedup and skip checks as a notification URL.
-- A follow fetch takes a `Semaphore` permit, waits for the throttle, calls
+- A follow fetch takes a permit of its own follow `Semaphore`, waits for the
+  throttle, calls
   `crawl_feed_report`, records its outcome in `skip_db` and the progress store,
   and never follows.
 - Count follow fetches in a new `GossipCounters` field and print it.

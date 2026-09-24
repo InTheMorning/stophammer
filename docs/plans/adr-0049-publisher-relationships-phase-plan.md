@@ -205,7 +205,9 @@ These values change for clients:
   delay.
 - **The gossip mode has no host throttle.** It limits only the number of fetches
   at one time. Task 012 adds a host throttle for follow fetches only, so that a
-  podping for one artist feed does not send 131 requests to one host.
+  podping for one artist feed does not send 131 requests to one host. Follow
+  fetches also use their own semaphore. A follow fetch that waits for the
+  throttle must not hold a slot of the notification crawls.
 - **The cost of the resolver.** A publisher feed can list 131 albums. Each row
   in the publisher view resolves each listed item with two indexed lookups. Task
   005 reports the read time of the `detox-artist` fixture. Task 009 reports the
