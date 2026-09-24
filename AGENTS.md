@@ -44,11 +44,11 @@ The node at `api.musicindex.org` serves the OpenAPI document that commit
 The work that remains:
 
 1. [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md) is
-   Accepted and not implemented. `V4VPaymentVerifier` still refuses a feed
-   that carries a valid `podcast:value` block on each track and none on the
-   channel. The change is in `src/verifiers/v4v_payment.rs`, with the four
-   guard tests that the ADR lists. After the deploy, a second corrective pass
-   reaches the refused feeds, so ADR 0043 can correct their release dates.
+   Accepted and implemented, and not deployed. `V4VPaymentVerifier` accepts a
+   feed that carries a valid `podcast:value` block on each track and none on
+   the channel. `tests/adr0048_track_coverage_tests.rs` holds the guards.
+   After the deploy, a second corrective pass reaches the feeds that the old
+   rule refused, so ADR 0043 can correct their release dates.
    [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
    holds the measurement and names the two scripts that repeat it.
 2. Task 002 of ADR 0044. Each documented response must point at its schema. No

@@ -6,24 +6,28 @@ use crate::ingest::IngestPaymentRoute;
 use crate::medium;
 use crate::verify::{IngestContext, Verifier, VerifyResult};
 
-/// Rejects feeds that do not participate in V4V (value-for-value) payments.
+/// Rejects feeds in which a track resolves to no valid payment route.
+///
+/// ADR 0048 owns these rules. The gate is coverage, not the presence of a
+/// feed-level block.
 ///
 /// # Rules
 ///
-/// 1. The feed must have at least one feed-level payment route with a non-empty
-///    address and a positive split — this is the fallback wallet for all tracks.
+/// 1. A track that declares its own `podcast:value` block is covered by those
+///    routes. They must hold at least one valid recipient.
 ///
-/// 2. For each track that declares its own `podcast:value` block (non-empty
-///    `payment_routes`), those routes must also contain at least one valid
-///    recipient. A track that declares the block but lists no recipients is
-///    malformed and is rejected.
+/// 2. A track that declares no routes is covered by the feed-level routes.
+///    Those must hold at least one valid recipient.
 ///
-/// 3. Tracks with no routes of their own are valid — they fall back to the
-///    feed-level routes at play time.
+/// 3. A feed-level block is therefore required only when a track declares no
+///    routes. A feed-level block that the feed declares must still be valid.
 ///
-/// 4. All routes (feed and track level) must have positive splits (`> 0`).
-///    A split of zero means the recipient receives nothing and indicates a
-///    malformed `podcast:valueRecipient` entry.
+/// 4. A feed with no tracks must have a valid feed-level block. It has nothing
+///    else to cover, and a music feed with no track does not participate.
+///
+/// 5. A valid recipient has a non-empty address and a positive split.
+///
+/// 6. A failure for a track names that track.
 ///
 /// # Fallback model
 ///
@@ -50,23 +54,37 @@ impl Verifier for V4VPaymentVerifier {
             return VerifyResult::Pass;
         }
 
-        // ── 1. Feed must have at least one valid feed-level route ─────────────
-        if feed_data.feed_payment_routes.is_empty() {
+        // ── A declared feed-level block must be valid ─────────────────────────
+        let feed_routes_valid = if feed_data.feed_payment_routes.is_empty() {
+            false
+        } else {
+            if let Err(msg) = validate_routes("feed", &feed_data.feed_payment_routes) {
+                return VerifyResult::Fail(msg);
+            }
+            true
+        };
+
+        // ── A feed with no tracks needs a valid feed-level block ──────────────
+        if feed_data.tracks.is_empty() && !feed_routes_valid {
             return VerifyResult::Fail(
-                "no feed-level podcast:value block — feed does not participate in V4V".into(),
+                "no feed-level podcast:value block and no tracks — feed does not \
+                 participate in V4V"
+                    .into(),
             );
         }
-        if let Err(msg) = validate_routes("feed", &feed_data.feed_payment_routes) {
-            return VerifyResult::Fail(msg);
-        }
 
-        // ── 2 & 3. Per-track validation ───────────────────────────────────────
+        // ── Each track resolves to a valid route ──────────────────────────────
         for track in &feed_data.tracks {
             if track.payment_routes.is_empty() {
-                // No track-level routes: falls back to feed routes (already validated).
-                continue;
+                if feed_routes_valid {
+                    continue;
+                }
+                return VerifyResult::Fail(format!(
+                    "track '{}' declares no podcast:value block, and the feed has no \
+                     feed-level block to fall back to",
+                    track.track_guid
+                ));
             }
-            // Track declared its own routes — they must be valid.
             if let Err(msg) = validate_routes(
                 &format!("track '{}'", track.track_guid),
                 &track.payment_routes,
