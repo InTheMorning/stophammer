@@ -637,6 +637,12 @@ generated. It is not a release date, and a generator can rewrite it on every
 fetch. ADR 0043 owns that boundary. `release_date` comes from the channel
 `pubDate`, and from the oldest item when the channel publishes none.
 
+`publisher_rel` and `music_rel` hold the raw `rel` value from the feed. A
+comma separates two or more roles in that value. `role` reads each side as
+a set of roles and compares the two sets. The value of `role` is the set,
+sorted and joined by `", "`. `role_source` is `"conflict"` when the two
+sets differ. ADR 0049 §6.
+
 Each response that carries a track reports artwork with three fields. ADR 0042
 owns them.
 

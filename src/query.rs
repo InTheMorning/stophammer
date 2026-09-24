@@ -552,19 +552,21 @@ struct PublisherResponse {
     two_way_validated: bool,
     /// Raw `rel` of the `medium="music"` item, on the publisher feed, that
     /// lists this album. Null when that item is missing or has no `rel`.
+    /// A comma separates two or more roles in this raw value.
     ///
     /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
     /// so this value is non-standard. ADR 0049 §6.
     publisher_rel: Option<String>,
     /// Raw `rel` of the `medium="publisher"` item, on the album feed, that
     /// names this publisher. Null when that item is missing or has no
-    /// `rel`.
+    /// `rel`. A comma separates two or more roles in this raw value.
     ///
     /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
     /// so this value is non-standard. ADR 0049 §6.
     music_rel: Option<String>,
-    /// The stated role, normalized, or `"artist"` when neither side states
-    /// one. Null on a conflict between the two sides. ADR 0049 §6.
+    /// The role set, sorted and joined by `", "`, or `"artist"` when
+    /// neither side states one. Null on a conflict between the two role
+    /// sets. ADR 0049 §6, plan decision 13.
     ///
     /// `"artist"` with `role_source = "default"` is an assumption. It is
     /// not a statement that the feed makes.
@@ -1473,29 +1475,45 @@ fn publisher_to_music_facts(
     })
 }
 
-/// Normalizes a raw `rel` value for comparison: trims it, then lowercases
-/// it in the ASCII range. An empty result after trim counts as no value.
-/// ADR 0049 §6, plan decision 8.
+/// Reads a raw `rel` value as a set of roles, and gives that set back as
+/// one canonical string. ADR 0049 §6, plan decision 13.
 ///
-/// A value with a comma, such as `"Artist, Producer"`, is one value. This
-/// function does not split it (plan decision 13); it normalizes to
-/// `"artist, producer"`.
+/// A comma separates the roles. Each role loses the white space at its
+/// start and its end, each internal run of white space becomes one space,
+/// and the role is lowercased in the ASCII range. An empty role and a
+/// duplicate role are removed. A value with no comma is one role, even
+/// when it holds a space, such as `"sound engineer"`.
+///
+/// The result is the role set, sorted by byte order and joined by `", "`.
+/// No role can hold a comma, so this joined string is a faithful encoding
+/// of the set: two raw values normalize to the same string exactly when
+/// their role sets hold the same roles. An empty set counts as no value.
 fn normalize_rel(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
+    let roles: std::collections::BTreeSet<String> = value
+        .split(',')
+        .map(|part| {
+            part.split_whitespace()
+                .collect::<Vec<&str>>()
+                .join(" ")
+                .to_ascii_lowercase()
+        })
+        .filter(|role| !role.is_empty())
+        .collect();
+
+    if roles.is_empty() {
         None
     } else {
-        Some(trimmed.to_ascii_lowercase())
+        Some(roles.into_iter().collect::<Vec<String>>().join(", "))
     }
 }
 
 /// Derives `role` and `role_source` from the raw `rel` of the two items of a
-/// `publisher` view row. ADR 0049 §6, plan decision 8.
+/// `publisher` view row. ADR 0049 §6, plan decisions 8 and 13.
 ///
-/// Each side normalizes with [`normalize_rel`] before the comparison. When
-/// both sides state a value and the values are equal, the result names
-/// `publisher_rel` as the source. When the values differ, the result is a
-/// conflict and carries no role: Provenance First requires that the
+/// Each side normalizes with [`normalize_rel`] into its role set. When
+/// both sides state a value and the role sets are equal, the result names
+/// `publisher_rel` as the source. When the role sets differ, the result is
+/// a conflict and carries no role: Provenance First requires that the
 /// conflict stay visible rather than have the node pick a side.
 fn resolve_role(
     publisher_rel: Option<&str>,
@@ -2707,12 +2725,44 @@ mod tests {
         assert_eq!(normalize_rel("   "), None);
     }
 
+    // Renamed from `normalize_rel_keeps_a_comma_as_one_value` (task 006b,
+    // plan decision 13). The old rule kept a comma-bearing value as one
+    // un-split value: `normalize_rel("sound engineer,  Mastering
+    // Engineer")` gave `Some("sound engineer,  mastering   engineer")`
+    // (internal spacing kept, no split). The new rule splits on the comma,
+    // collapses and trims each role, and sorts the set by byte order.
     #[test]
-    fn normalize_rel_keeps_a_comma_as_one_value() {
+    fn normalize_rel_splits_a_comma_list_into_a_sorted_role_set() {
+        assert_eq!(
+            normalize_rel("sound engineer,  Mastering   Engineer"),
+            Some("mastering engineer, sound engineer".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_rel_sorts_multiple_roles() {
         assert_eq!(
             normalize_rel("Artist, Producer"),
             Some("artist, producer".to_string())
         );
+    }
+
+    #[test]
+    fn normalize_rel_a_value_with_no_comma_is_one_role() {
+        assert_eq!(
+            normalize_rel("artist producer"),
+            Some("artist producer".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_rel_all_empty_parts_is_no_value() {
+        assert_eq!(normalize_rel(" , ,"), None);
+    }
+
+    #[test]
+    fn normalize_rel_deduplicates_roles_after_lowercasing() {
+        assert_eq!(normalize_rel("Label, label"), Some("label".to_string()));
     }
 
     // ── resolve_role: one case per table row (task 006 "Constraints") ──────
@@ -2738,6 +2788,14 @@ mod tests {
         assert_eq!(
             resolve_role(Some(" Label "), Some("label")),
             (Some("label".to_string()), "publisher_rel")
+        );
+    }
+
+    #[test]
+    fn resolve_role_equal_role_sets_in_different_order() {
+        assert_eq!(
+            resolve_role(Some("producer, artist"), Some("Artist, Producer")),
+            (Some("artist, producer".to_string()), "publisher_rel")
         );
     }
 
