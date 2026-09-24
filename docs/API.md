@@ -722,6 +722,8 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
   feeds, or `medium=all` for every feed the index holds whatever its medium.
   `all` is what a corrective pass uses, because a pass that covers one medium
   silently omits the others. ADR 0047 owns that use.
+- **Sequence:** the newest item comes first. A feed with no dated item, such
+  as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional `medium`
 
 **Response:** Paginated array of feed objects.

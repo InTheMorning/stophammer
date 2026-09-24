@@ -62,17 +62,25 @@ The work that remains:
    [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
    holds the sequence. `docs/API.md`, `docs/schema-reference.md` and
    `docs/user-guide.md` still describe the deleted Wavlake rules until task 013.
-4. [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md) task 002.
-   `GET /v1/feeds/recent` leaves out each feed with a null `newest_item_at`, so
-   the `refresh` pass never reads publisher feeds. The
-   [packet](docs/tasks/adr-0047-task-002-feed-list-includes-undated-feeds.md)
-   gives the fix.
+4. [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md) task 002 and
+   ADR 0049 task 006b are implemented and not deployed. `GET /v1/feeds/recent`
+   now lists each feed with a null `newest_item_at`, after the dated feeds, so
+   the `refresh` pass reaches publisher feeds. A comma separates the roles in
+   `rel`. Deploy the node after item 5 ends, because a restart interrupts the
+   ingests of a running pass.
 5. A pass over the publisher feeds, `publisher-lists-adr0049`, runs on the VPS
    since 2026-09-24. It uses `feed` mode with a list that was read from the
    database, because of item 4. The full corrective pass of 2026-09-24 ended
    with 8,200 listed links and 1,780 unresolved, because packet 010 stopped one
    level too early. Task 010b corrects that. Do not deploy the crawler while a
    pass runs.
+6. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted
+   on 2026-09-24 and not implemented. The crawler sends a conditional GET and
+   keeps the last body, so a corrective pass transfers almost no feed body. The
+   [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives five
+   tasks. Its open question, whether a `304` counts against the Wavlake `429`
+   limit, needs two passes after the deploy: one fills the cache, the second
+   measures.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`

@@ -1843,6 +1843,11 @@ async fn handle_get_recent_feeds(
                     www_authenticate: None,
                 });
             }
+            // ADR 0047 task 002: this value is the sort key
+            // `COALESCE(newest_item_at, -1)` of the last row of the page
+            // before, not always a real timestamp. `-1` marks a feed with no
+            // dated item. A cursor made before this change always carries a
+            // real timestamp here, and that value still orders the same way.
             let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
                 status: StatusCode::BAD_REQUEST,
                 message: "invalid cursor timestamp".into(),
@@ -1857,8 +1862,8 @@ async fn handle_get_recent_feeds(
                  created_at, updated_at, last_build_date, release_artist_source \
                  FROM feeds \
                  WHERE (?1 = 'all' OR lower(raw_medium) = ?1)
-                   AND (newest_item_at, feed_guid) < (?2, ?3) \
-                 ORDER BY newest_item_at DESC, feed_guid DESC \
+                   AND (COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3) \
+                 ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
                  LIMIT ?4",
             )?;
             stmt.query_map(
@@ -1897,7 +1902,7 @@ async fn handle_get_recent_feeds(
                  created_at, updated_at, last_build_date, release_artist_source \
                  FROM feeds \
                  WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
-                 ORDER BY newest_item_at DESC, feed_guid DESC \
+                 ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
                  LIMIT ?2",
             )?;
             stmt.query_map(params![medium, limit + 1], |row| {
@@ -1933,10 +1938,14 @@ async fn handle_get_recent_feeds(
             .take(usize::try_from(limit).unwrap_or(usize::MAX))
             .collect();
 
+        // ADR 0047 task 002: the cursor always encodes the sort key
+        // `COALESCE(newest_item_at, -1)`, so a page that ends on a feed with
+        // no dated item still gets a cursor, and `has_more: true` never pairs
+        // with a null cursor.
         let next_cursor = if has_more {
-            items.last().and_then(|r| {
-                r.newest_item_at
-                    .map(|ts| encode_cursor(&format!("{ts}\0{}", r.feed_guid)))
+            items.last().map(|r| {
+                let sort_key = r.newest_item_at.unwrap_or(-1);
+                encode_cursor(&format!("{sort_key}\0{}", r.feed_guid))
             })
         } else {
             None
