@@ -27,16 +27,25 @@ Complete and deployed:
   the repair that applies it to a database the runner cannot advance.
 - [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md). The `refresh`
   mode reads the feed list of the node, then runs the crawl pipeline over it.
-  The pass has run.
+  The pass has run. Task 002 corrected `GET /v1/feeds/recent`: a feed with a
+  null `newest_item_at` now sorts after each dated feed, at cursor `-1`.
+  Verified on production on 2026-09-24.
 - Task 001 of [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md).
   The response types derive `utoipa::ToSchema`, and the document declares 36
   schemas under `components.schemas`.
-- The node tasks of
-  [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md): 001 to
-  009, and 004b. The publisher view reports each relationship fact, and
-  `GET /v1/publisher-links/stats` gives the link counts. Deployed on
-  2026-09-24. On that day the route gave 709 listed links: 693 resolved by
-  GUID, 1 by URL and 15 unresolved.
+- [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md), tasks 001
+  to 013, with 004b, 006b and 010b. The publisher view reports each
+  relationship fact by an RSS fact, never by a host rule. `resolve_listed_feed`
+  also accepts the stored `feed_url`, so a new community node resolves a link
+  the same way the primary node does. `rel` splits on commas into a role set.
+  `GET /v1/publisher-links/stats` gives the link counts.
+
+  The `feed` and `refresh` crawler modes follow a publisher link in three
+  waves. The `gossip` mode follows in two levels, with its own throttle.
+  Deployed on 2026-09-24. After the pass over the publisher feeds, the stats
+  route gave 8,249 listed links: 767 resolved by GUID, 7,316 by URL and 166
+  unresolved. The feeds that failed are listed in `/data/failed_feeds.txt` on
+  the VPS.
 - [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
   gate is track coverage. A feed needs a channel-level `podcast:value` block
   only when a track declares none. Deployed on 2026-09-24.
@@ -44,7 +53,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`1d1524c` makes.
+`6ded342` makes.
 
 The work that remains:
 
@@ -57,23 +66,7 @@ The work that remains:
    [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
-3. ADR 0049 task 013, the reference documents. `docs/API.md`,
-   `docs/schema-reference.md` and `docs/user-guide.md` still describe the
-   deleted Wavlake rules until task 013. The
-   [phase plan](docs/plans/adr-0049-publisher-relationships-phase-plan.md)
-   holds the sequence.
-4. Deploy the node and the crawler. The node has
-   [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md) task 002 and
-   ADR 0049 task 006b. `GET /v1/feeds/recent` lists each feed with a null
-   `newest_item_at`, after the dated feeds, so the `refresh` pass reaches
-   publisher feeds. A comma separates the roles in `rel`. The crawler has ADR
-   0049 task 010b, the album list of a publisher found through an album, and
-   task 012, the gossip follow.
-5. The pass over the publisher feeds, `publisher-lists-adr0049`, ended on
-   2026-09-24. After it, the stats route gave 8,249 listed links: 767 resolved
-   by GUID, 7,316 by URL and 166 unresolved. The feeds that failed are in
-   `/data/failed_feeds.txt` on the VPS.
-6. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted
+3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted
    on 2026-09-24 and not implemented. The crawler sends a conditional GET and
    keeps the last body, so a corrective pass transfers almost no feed body. The
    [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives five
@@ -202,6 +195,11 @@ CRAWL_TOKEN=xxx \
 There are five modes: `feed`, `import`, `ndjson`, `gossip` and `refresh`. There
 is no `podping` mode. The `gossip` mode consumes the stream that carries podping
 notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
+
+`feed`, `refresh` and `gossip` follow a publisher link. ADR 0049 section 2
+owns the rule. `feed` and `refresh` follow in three waves: the input feeds,
+the feeds they name, and the album list of a publisher found through an
+album. `gossip` follows in two levels, with its own throttle.
 
 ### Parser CLI (`stophammer-parser/`)
 

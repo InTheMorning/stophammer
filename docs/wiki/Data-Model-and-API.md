@@ -40,12 +40,10 @@ published.
 
 `publisher` is a derived view over those declarations:
 
-- it reports direction and reciprocal validation from RSS
+- it reports direction, resolution, and reciprocal validation from RSS
 - it does not create canonical artist truth
-- non-Wavlake `publisher_text` is only promoted after a reciprocal
-  publisher/music pair exists
-- Wavlake is the narrow compatibility exception where a linked publisher feed
-  may supply artist text while stored `publisher_text` remains `"Wavlake"`
+- stored `publisher_text` is the trimmed `itunes:owner` name, with no host
+  exception (ADR 0049 section 5)
 
 ## Where the Evidence Lives
 

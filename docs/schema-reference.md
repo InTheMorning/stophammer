@@ -27,6 +27,7 @@ Key columns:
 - `title`
 - `raw_medium`
 - `release_artist`
+- `release_artist_source`
 - `release_date`
 - `release_kind`
 - `publisher`
@@ -36,9 +37,12 @@ Key columns:
 
 Notes:
 - `title` is the release title in v1.
-- `publisher` means publisher by default.
-- Wavlake is the narrow compatibility exception where linked publisher data may
-  also supply artist text while stored `publisher` remains `"Wavlake"`.
+- `publisher` means publisher by default. It has no host exception. ADR 0049
+  section 5.
+- `release_artist_source` is nullable. It names the value that
+  `release_artist` used: `itunes_author`, `itunes_owner`, or `placeholder`. A
+  feed with no ingest since migration 0037 has a null value. ADR 0049 section
+  5.
 - `episode_count`, `newest_item_at`, and `oldest_item_at` are ingest-maintained
   convenience fields.
 
@@ -80,14 +84,17 @@ Purpose: `podcast:valueTimeSplit` rows for time-ranged payment overrides.
 ### `feed_remote_items_raw`
 Purpose: raw feed-level `podcast:remoteItem` declarations.
 Notes:
-- preserves position, `medium`, target GUID, and optional target URL
+- preserves position, `medium`, target GUID, target URL, and `rel`, all
+  optional except position, medium, and target GUID
+- `rel` is nullable. The Podcast Namespace does not define `rel` on
+  `podcast:remoteItem`, so the value is non-standard. Migration 0035.
 - powers the derived `publisher` include in the read API
-- non-Wavlake publisher text is only promoted after reciprocal validation
 
 ### `track_remote_items_raw`
 Purpose: raw track-level `podcast:remoteItem` declarations.
 Notes:
-- preserves position, `medium`, target GUID, and optional target URL
+- preserves position, `medium`, target GUID, target URL, and `rel`, the same
+  as `feed_remote_items_raw`
 - powers the derived `publisher` include for tracks in the read API
 
 ### `live_events`
@@ -128,6 +135,23 @@ Purpose: preserved feed-level platform evidence such as `wavlake`, `fountain`, o
 Notes:
 - evidence-oriented, not artist identity
 - may include URL and owner-name evidence
+
+### `feed_url_observations`
+Purpose: records which URL gave which `podcast:guid` on an accepted ingest.
+Key columns:
+- `url` (primary key)
+- `feed_guid`
+- `observed_at`
+
+Notes:
+- a later accepted ingest of the same URL replaces its row
+- `db::resolve_listed_feed` reads this table to resolve a publisher link by
+  URL. ADR 0049 section 1 and section 3.
+- migration 0036 seeded one row for each feed from `feeds.feed_url` and
+  `feeds.created_at`. The seed is not an event, so a community node that
+  started empty holds no seeded row. `resolve_listed_feed` also reads
+  `feeds.feed_url` directly, so a node without the seed still resolves the
+  same link. Task 004b.
 
 ## Internal Compatibility and Search Tables
 
@@ -175,6 +199,12 @@ Key columns:
 - `signed_by`
 - `signature`
 - `seq`
+
+`feed_url_observed` is one `event_type` value. Its payload carries `url`,
+`feed_guid`, and `observed_at`. The primary node signs and sends it on each
+new URL-to-GUID observation. A community node applies it to
+`feed_url_observations`. Deploy each community node before the primary node
+sends this type. ADR 0049 section 1.
 
 ### `feed_crawl_cache`
 Purpose: content-hash deduplication cache for crawler submissions.

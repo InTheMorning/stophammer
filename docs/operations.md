@@ -592,6 +592,32 @@ FEED_GUID=feed-guid-here ./tests/load_test.sh
 FEED_GUID=feed-guid-here SEARCH_QUERY=artist-name ./tests/load_test.sh
 ```
 
+### Publisher Link Corrective Pass
+
+`stophammer-crawler refresh` reads `GET /v1/feeds/recent?medium=all` on the
+node, then runs the crawl pipeline over that corpus. ADR 0047 owns the mode.
+Today the route lists each feed the index holds, music and publisher alike.
+Each feed with no dated item comes after each feed that has one. Before ADR
+0047 task 002, the paging stopped at the first such feed. Now a `refresh` pass
+reaches the publisher feeds, and it needs no separate list read from the
+database.
+
+The pass follows each publisher link that ADR 0049 section 2 describes, and
+prints one summary line at the end:
+
+```
+publisher links: listed=8249 guid=767 feed_url=7316 unresolved=166
+```
+
+`listed` is the total number of listed links. `guid` and `feed_url` are the
+links the node resolved, by each of the two methods. `unresolved` is the
+number the node could not resolve. Watch `unresolved` across passes. A rise in
+that count can show a change in a publisher feed's format.
+
+The Wavlake album fetches took about 2 hours 46 minutes at the default host
+delay, on the first pass after the crawler gained this feature. This time is a
+measured fact from that one pass, not a guarantee for a later pass.
+
 ### Retired binaries
 
 Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
@@ -689,6 +715,11 @@ The node recovers its sync cursor from the database on startup. No data is lost.
    - After `PUSH_TIMEOUT_SECS` (default 90s), they fall back to polling
    - After the primary restarts, community nodes re-register on their next poll cycle
 3. To force immediate re-registration, restart the community nodes after the primary is up.
+
+**A code upgrade that adds a signed event type needs this order too.** Deploy
+each community node before the primary node sends the new type. An old
+community node cannot decode an event type it does not know. `FeedUrlObserved`
+is one such type. ADR 0049 section 1 owns it.
 
 ### Docker Compose
 

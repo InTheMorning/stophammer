@@ -34,9 +34,9 @@ The public v1 model is source-first:
 
 Publisher handling is intentionally strict:
 
-- `publisher` means publisher by default
-- non-Wavlake publisher text is only promoted from `podcast:remoteItem` links when the publisher/music relation is reciprocal
-- Wavlake is a narrow compatibility exception where the linked publisher feed may supply artist text for the music feed while the stored publisher remains `"Wavlake"`
+- `publisher` means publisher by default, with no host exception (ADR 0049)
+- `publisher_text` is the trimmed `itunes:owner` name
+- `publisher_feed_title` is the separate derived title of a named publisher feed
 - track rows inherit that same publisher truth in `tracks.publisher`
 
 ## Architecture

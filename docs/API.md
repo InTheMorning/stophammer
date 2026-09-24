@@ -87,7 +87,8 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "position": 0,
         "medium": "publisher",
         "remote_feed_guid": "artist-feed-guid",
-        "remote_feed_url": "https://example.com/artist.xml"
+        "remote_feed_url": "https://example.com/artist.xml",
+        "rel": null
       }
     ],
     "persons": [
@@ -157,7 +158,8 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
             "position": 0,
             "medium": "publisher",
             "remote_feed_guid": "track-artist-feed-guid",
-            "remote_feed_url": "https://example.com/track-artist.xml"
+            "remote_feed_url": "https://example.com/track-artist.xml",
+            "rel": null
           }
         ],
         "persons": [],
@@ -208,14 +210,22 @@ parsed `podcast:liveItem` entries; `pending` and `live` rows are staged in
 `live_events`, while `ended` rows with enclosures are promoted into normal
 tracks.
 
-Publisher interpretation happens during ingest, not crawl:
+`rel` is the raw `rel` attribute on a remote item. The Podcast Namespace does
+not specify `rel` on `podcast:remoteItem`. The API marks this value as
+non-standard.
 
-- non-Wavlake feeds keep `publisher` as publisher
-- non-Wavlake `publisher_text` is derived from a linked publisher feed only
-  when the publisher/music `remoteItem` pair is reciprocal
-- Wavlake is the narrow compatibility exception where a linked publisher feed
-  may also provide artist text for the music feed, while stored
-  `publisher_text` remains `"Wavlake"`
+Text interpretation happens during ingest, not crawl. ADR 0049 section 5 owns
+these rules:
+
+- `publisher_text` is the trimmed `itunes:owner` name. The rule has no host
+  exception. A Wavlake album reports `publisher_text` "Wavlake" because its
+  `itunes:owner` name is "Wavlake".
+- `release_artist` is the trimmed `itunes:author` name. When a feed states no
+  `itunes:author`, `release_artist` is the `itunes:owner` name, unless that
+  name is a known platform name such as "Wavlake". When neither value is
+  usable, `release_artist` is "Unknown Artist".
+- `release_artist_source` names the value that `release_artist` used:
+  `itunes_author`, `itunes_owner`, or `placeholder`.
 
 **Response (`200 OK`):**
 
@@ -591,6 +601,7 @@ Returns a single feed by its `podcast:guid`.
         "medium": "publisher",
         "remote_feed_guid": "publisher-feed-guid",
         "remote_feed_url": "https://example.com/publisher.xml",
+        "rel": null,
         "source": "podcast_remote_item"
       }
     ],
@@ -692,14 +703,12 @@ They count only an album with a `release_artist` from `itunes:author`.
 A "feat." credit can count as a different artist. A music feed read does not
 have these two fields. ADR 0049 §7.
 
-Stored `publisher_text` follows the same strict policy:
-
-- Wavlake music feeds with a linked publisher feed store `publisher_text` as
-  `"Wavlake"` and may use the linked publisher feed as artist text fallback
-- non-Wavlake feeds only store a linked publisher title after a reciprocal
-  `publisher` <-> `music` declaration is present
-- one-way publisher links remain visible in `remote_items` and `publisher`, but
-  do not populate `publisher_text`
+`publisher_feed_title` is derived. It is the title of the feed that this feed
+names as its publisher. The node resolves the named link with
+`resolve_listed_feed` and reads the title of the resolved feed. The field is
+null when the feed names no publisher, or the resolver cannot place the link.
+A one-way link, with no reciprocal declaration on the other side, still
+resolves `publisher_feed_title`. ADR 0049 section 5.
 
 ---
 
@@ -787,6 +796,9 @@ canonical feed-scoped URLs for the caller to retry.
     "description": "...",
     "created_at": 1710288000,
     "updated_at": 1710288000,
+    "feed_title": "Album Title",
+    "release_artist": "Artist Name",
+    "release_artist_source": "itunes_author",
     "payment_routes": [...],
     "value_time_splits": [
       {
@@ -1014,13 +1026,12 @@ capabilities payload.
 }
 ```
 
-`publisher_text` on track reads is source-first publisher text. In v1 it
-inherits the resolved feed publisher:
+`publisher_text` on a track read is source-first publisher text. A track
+inherits the field from its parent feed at ingest. ADR 0035 and ADR 0049
+section 5 own this rule.
 
-- Wavlake tracks store `"Wavlake"` even when linked publisher metadata also
-  supplies artist fallback text
-- non-Wavlake tracks only store linked publisher text after a reciprocal
-  `publisher` <-> `music` remote-item pair is present on the parent feed
+A track read also carries `feed_title`, `release_artist`, and
+`release_artist_source`, copied from the parent feed at read time.
 
 ---
 

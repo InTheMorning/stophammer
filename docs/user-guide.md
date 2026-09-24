@@ -126,11 +126,10 @@ currently resolve those rows into a canonical artist or contributor profile.
 
 `GET /v1/feeds/{guid}?include=remote_items,publisher` is the RSS-truth
 debug view for publisher relationships. The `publisher` include reports
-direction and reciprocal validation directly from RSS. For stored
-`publisher_text`, non-Wavlake feeds only promote a publisher title after a
-reciprocal publisher/music remote-item pair is present. Wavlake is the narrow
-exception where the linked publisher feed may also provide artist text while
-the stored publisher remains `"Wavlake"`.
+direction, resolution, and reciprocal validation directly from RSS. Stored
+`publisher_text` is the trimmed `itunes:owner` name, with no host exception.
+`publisher_feed_title` is the separate derived field for the title of the
+named publisher feed. ADR 0049 section 5.
 
 ### I want to inspect or repair canonical data
 
