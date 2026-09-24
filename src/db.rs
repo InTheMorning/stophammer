@@ -4533,17 +4533,44 @@ fn feed_guid_is_indexed(conn: &Connection, feed_guid: &str) -> Result<bool, DbEr
     .map_err(Into::into)
 }
 
+/// Returns the `feed_guid` and `created_at` of the indexed feed whose stored
+/// `feed_url` equals `url`, or `None` when no feed is stored at that URL.
+///
+/// The comparison is exact. `feeds.feed_url` carries a `UNIQUE` constraint,
+/// so this query matches at most one row.
+fn feed_indexed_by_stored_url(
+    conn: &Connection,
+    url: &str,
+) -> Result<Option<(String, i64)>, DbError> {
+    conn.query_row(
+        "SELECT feed_guid, created_at FROM feeds WHERE feed_url = ?1",
+        params![url],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Resolves a listed feed reference to an indexed `feed_guid`, in the order
 /// ADR 0049 §3 gives:
 ///
 /// 1. `listed_feed_guid` is the GUID of an indexed feed:
 ///    [`ListedFeedResolution::Guid`].
 /// 2. A URL observation for `listed_feed_url` names an indexed feed:
-///    [`ListedFeedResolution::FeedUrl`].
-/// 3. Neither: [`ListedFeedResolution::Unresolved`].
+///    [`ListedFeedResolution::FeedUrl`], with the observation's `observed_at`.
+/// 3. An indexed feed has `feeds.feed_url` equal to `listed_feed_url`:
+///    [`ListedFeedResolution::FeedUrl`], with `observed_at` set to that
+///    feed's `created_at`.
+/// 4. None of the above: [`ListedFeedResolution::Unresolved`].
+///
+/// Step 3 exists for a new community node. Migration 0036 copied each stored
+/// `feeds.feed_url` into `feed_url_observations` on the node that ran it, but
+/// that copy is not an event. A new node never replays it, so without step 3
+/// a new node would resolve a link that the primary node resolves.
 ///
 /// This function never parses a URL. It never compares URL parts. It never
-/// guesses. It only follows a `feedGuid` match or a stored observation.
+/// guesses. It only follows a `feedGuid` match, a stored observation, or a
+/// stored `feed_url`.
 ///
 /// # Errors
 ///
@@ -4559,14 +4586,22 @@ pub fn resolve_listed_feed(
         });
     }
 
-    if let Some(url) = listed_feed_url
-        && let Some(observation) = get_feed_url_observation(conn, url)?
-        && feed_guid_is_indexed(conn, &observation.feed_guid)?
-    {
-        return Ok(ListedFeedResolution::FeedUrl {
-            feed_guid: observation.feed_guid,
-            observed_at: observation.observed_at,
-        });
+    if let Some(url) = listed_feed_url {
+        if let Some(observation) = get_feed_url_observation(conn, url)?
+            && feed_guid_is_indexed(conn, &observation.feed_guid)?
+        {
+            return Ok(ListedFeedResolution::FeedUrl {
+                feed_guid: observation.feed_guid,
+                observed_at: observation.observed_at,
+            });
+        }
+
+        if let Some((feed_guid, created_at)) = feed_indexed_by_stored_url(conn, url)? {
+            return Ok(ListedFeedResolution::FeedUrl {
+                feed_guid,
+                observed_at: created_at,
+            });
+        }
     }
 
     Ok(ListedFeedResolution::Unresolved)
@@ -4593,12 +4628,14 @@ pub struct PublisherAlbumArtist {
 ///
 /// 1. The GUID step. A remote item whose declared `remote_feed_guid` equals
 ///    `publisher_feed_guid`. This query uses `idx_feed_remote_items_guid`.
-/// 2. The URL step. The observed URLs of `publisher_feed_guid`, read with
-///    `idx_feed_url_observations_guid`, matched against `remote_feed_url`. No
-///    index covers `remote_feed_url`, so this second query scans
-///    `feed_remote_items_raw`. Task 008 of the ADR 0049 phase plan names this
-///    scan as a point to report, not to fix with a new index, because an
-///    index is a migration.
+/// 2. The URL step. The URLs that name `publisher_feed_guid`: the observed
+///    URLs, read with `idx_feed_url_observations_guid`, plus the feed's own
+///    stored `feeds.feed_url` (task 004b, so a node with no observation still
+///    finds the match), deduplicated. Each is matched against
+///    `remote_feed_url`. No index covers `remote_feed_url`, so this second
+///    query scans `feed_remote_items_raw`. Task 008 of the ADR 0049 phase
+///    plan names this scan as a point to report, not to fix with a new
+///    index, because an index is a migration.
 ///
 /// Only an album with `release_artist_source = "itunes_author"` is included.
 /// A candidate that the GUID step and the URL step both name is included
@@ -4639,13 +4676,17 @@ pub fn get_publisher_album_release_artists(
 
     // URL step: the URLs the node has observed for `publisher_feed_guid`
     // (SEARCH feed_url_observations USING INDEX
-    // idx_feed_url_observations_guid), then a match against
+    // idx_feed_url_observations_guid), plus the feed's own stored
+    // `feeds.feed_url` (task 004b), deduplicated. Then a match against
     // `remote_feed_url` (SCAN feed_remote_items_raw; see the function doc).
     let mut observation_stmt =
         conn.prepare("SELECT url FROM feed_url_observations WHERE feed_guid = ?1")?;
-    let observed_urls: Vec<String> = observation_stmt
+    let mut observed_urls: std::collections::HashSet<String> = observation_stmt
         .query_map(params![publisher_feed_guid], |row| row.get(0))?
         .collect::<Result<_, _>>()?;
+    if let Some(publisher_feed) = get_feed(conn, publisher_feed_guid)? {
+        observed_urls.insert(publisher_feed.feed_url);
+    }
 
     for url in &observed_urls {
         let mut url_stmt = conn.prepare(

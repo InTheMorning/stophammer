@@ -64,9 +64,15 @@ The ADR leaves these points to the plan. A task packet does not change them.
    emits an event.
 2. **The observations have their own event.** The new event type is
    `FeedUrlObserved`. `FeedUpserted` does not change for observations.
-3. **The migration seeds the observations.** Each stored `feed_url` becomes an
-   observation with `observed_at = feeds.created_at`. A community node runs the
-   same migration on the same replicated rows, so the result is the same.
+3. **The stored `feed_url` counts as an observation.** Migration 0036 copies
+   each stored `feed_url` into `feed_url_observations` with
+   `observed_at = feeds.created_at`. That copy is not an event, so a new
+   community node, which starts empty, does not get it. Task 004b therefore
+   adds a resolver step: an exact match of the listed URL with
+   `feeds.feed_url` gives `feed_url`, with `observed_at = feeds.created_at`.
+   The column is replicated, so each node gives the same result. A new
+   community node on 2026-09-23 showed the gap: 1,272 feeds and 0
+   observations.
 4. **Ingest keeps the stored URL.** When the GUID is already indexed, ingest
    writes the stored `feed_url` into the `Feed` that it signs. `upsert_feed`
    does not change. A community node then applies the same value.
@@ -119,6 +125,7 @@ Each task is one commit in one repository. Each task ends green.
 | [002](../tasks/adr-0049-task-002-real-feed-fixtures.md) | `stophammer` | Real-feed fixtures, and a probe that the verifier chain accepts a Wavlake artist feed | 001 |
 | [003](../tasks/adr-0049-task-003-node-stores-rel.md) | `stophammer` | The node stores `rel`. Migration 0035 | 001 |
 | [004](../tasks/adr-0049-task-004-url-observations.md) | `stophammer` | URL observations, `FeedUrlObserved`, stable `feed_url`. Migration 0036 | 002, 003 |
+| [004b](../tasks/adr-0049-task-004b-stored-url-resolves.md) | `stophammer` | The resolver accepts the stored `feed_url`, so a new community node agrees with the primary node | 004, 005, 008, 009 |
 | [005](../tasks/adr-0049-task-005-back-link-resolver.md) | `stophammer` | The resolver and the relationship fields | 004 |
 | [006](../tasks/adr-0049-task-006-role-fields.md) | `stophammer` | `publisher_rel`, `music_rel`, `role`, `role_source` | 003, 005 |
 | [007](../tasks/adr-0049-task-007-text-fields.md) | `stophammer` | Text fields from one source each. The Wavlake rules are deleted. Migration 0037 | 005 |
