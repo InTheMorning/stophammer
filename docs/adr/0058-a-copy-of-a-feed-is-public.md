@@ -1,7 +1,7 @@
 # ADR 0058: A Copy Of A Feed Is Public
 
 ## Status
-Proposed
+Accepted on 2026-09-25
 
 ## Date
 2026-09-25
@@ -220,7 +220,7 @@ with different payment exists. The index shows its conflicts. Rejected.
 ## Non-Goals
 
 - The `record_conflict` and `guid_change_pending` cases of ADR 0051. ADR 0052
-  section 4 owns the GUID change.
+  section 4 owns the GUID change and its public list.
 - An automatic choice between two copies.
 - A fetch by the node. The summary comes from what the crawler submits.
 

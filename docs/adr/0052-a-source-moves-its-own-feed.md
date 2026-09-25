@@ -15,8 +15,11 @@ also stops two honest changes:
    `podcast:guid`. The namespace requires that the GUID stays the same
    across a move.
 2. **A GUID change.** The publisher tool starts to declare a different GUID
-   at the same URL. On 2026-09-24 a Doerfelverse feed changed its channel
-   GUID and kept its five item GUIDs.
+   at the same URL. On 2026-09-11 the Doerfelverse tool gave four Elijah Lied
+   releases new channel GUIDs, and each release kept its item GUIDs. The new
+   GUIDs stayed in each fetch for 14 days or more. On 2026-09-25 the
+   publisher confirmed that the tool made them in error. No GUID, old or new,
+   is the UUIDv5 of its feed URL.
 
 Today no crate reads `itunes:new-feed-url` or `podcast:locked`. The crawler
 follows redirects with the reqwest default policy. It reports the first and
@@ -123,19 +126,42 @@ The source URL controls what the record declares. When the source URL
 declares a new GUID that no record holds, ADR 0051 answers
 `guid_change_pending`. This ADR decides what follows.
 
-The node records the pending change: the source URL, the old GUID, the new
-GUID, the first time and the last time it was seen. A table holds at most one
-row for each source URL.
+The namespace makes a GUID permanent. A change at the same URL is usually a
+tool error, and the error can stay in each fetch for weeks. The Doerfelverse
+case shows this. Thus a wait does not tell an error from an intended change.
 
-The node makes the change when one of these is true:
+**The pending row.** The node records the pending change: the source URL, the
+old GUID, the new GUID, and the first and the last time it was seen. A table
+holds at most one row for each source URL. If the source URL declares the old
+GUID again, the node deletes the row. The record keeps its content, its GUID
+and its track identities while the row exists.
 
-- The source URL declared the same new GUID in two fetches with 24 hours or
-  more between them, and in each fetch between them.
-- The operator approves the change with the admin token.
+**The automatic case.** The node makes the change at once when the new GUID
+is the UUIDv5 of the source URL. The UUIDv5 is made as in ADR 0058 section
+1b. The GUID was made for that URL, so the source corrects its GUID to the
+form of the namespace. No other case is automatic.
 
-A tool error that gives a wrong GUID for one fetch does not pass the first
-condition. If the source URL returns to the old GUID, the node deletes the
-pending row.
+**The operator case.** In each other case, the node makes the change only when
+the operator approves it. `POST /v1/feeds/{guid}/guid-change` needs the admin
+token. The body gives a decision, `approve` or `reject`, and a reason. The
+node signs one `FeedGuidChangeDecided` event with the old GUID, the new GUID,
+the decision and the reason.
+
+- `approve` runs section 5.
+- `reject` keeps the record. The rejection holds while the source URL
+  declares the same new GUID. A different new GUID makes a new pending row.
+
+**The public list.** Each pending row is public, so a publisher can see the
+error of a tool:
+
+- `GET /v1/feeds/{guid}` adds `pending_guid_change` with the new GUID, the
+  first and the last time seen, and the rejection when one holds.
+- `GET /v1/guid-changes` lists each pending row with no rejection that holds,
+  newest first, with the `QueryResponse` pagination.
+
+The pending row and the decision replicate through signed events, so a
+community node gives the same answer. `last_seen` is local to the primary,
+as in ADR 0058.
 
 ### 5. A GUID change keeps a link to the old record
 
@@ -177,7 +203,7 @@ when ADR 0054 exists.
 - The parser adds `itunes:new-feed-url`. The ingest request adds
   `new_feed_url` and `redirects`. Both fields are optional, so an older
   crawler still works without moves.
-- `FeedGuidSuperseded` is a new event type. The rollout upgrades each
+- `FeedGuidSuperseded` and `FeedGuidChangeDecided` are new event types. The rollout upgrades each
   community node before the primary emits one. An older community node cannot
   parse a type that it does not know.
 - ADR 0044 requires the new response field in the OpenAPI document.
@@ -210,7 +236,12 @@ Rejected.
   first crawl after the move.
 - A publisher that loses the old host needs the operator. This is the cost of
   a rule that an attacker cannot use.
-- The Doerfelverse case resolves after 24 hours with no operator action.
+- A tool error that changes a GUID stays pending and public. The records keep
+  their content and track identities. When the tool declares the old GUID
+  again, the row goes away with no operator action. The Doerfelverse case
+  follows this path.
+- An intended GUID change that is not the UUIDv5 of the source URL needs the
+  operator.
 - A GUID change creates new track identities. A client that stored the old
   ones follows `superseded_by`.
 - A compromised source host can move its feed. ADR 0056 keeps this limit of
@@ -223,6 +254,8 @@ Rejected.
 - The source URL changes only by a trigger in section 1.
 - An unavailable source never releases its record.
 - `superseded_by` never selects a payment route.
+- A GUID change applies only when the new GUID is the UUIDv5 of the source
+  URL, or when the operator approves it.
 
 ## Guards
 
@@ -235,7 +268,34 @@ protects a payment route:
   nothing.
 - An `itunes:new-feed-url` value in a mirror body moves nothing.
 - A new GUID seen in one fetch only changes nothing.
+- A new GUID that is not the UUIDv5 of the source URL changes nothing, in any
+  number of fetches over any time, until the operator approves it.
+- A new GUID that is the UUIDv5 of the source URL applies on the first fetch.
+- A return to the old GUID deletes the pending row, and the record keeps its
+  track identities.
+- A `reject` holds for the same new GUID, and a different new GUID opens a new
+  row.
 - A relocation to the source URL of a different record returns `409`.
 - A self link in a mirror body moves nothing.
 - A self link stored in `source_entity_links` before the deploy moves
   nothing. Only `feeds.declared_self_url` counts.
+
+## Amendment Of 2026-09-25
+
+Section 4 first applied a GUID change after the source URL declared it for 24
+hours. The Doerfelverse error stayed for 14 days or more, so that rule would
+have retired four correct records and made new track identities. The
+publisher then corrects the tool, and the rule runs again in the other
+direction. The amendment makes the change automatic only for the UUIDv5 of the
+source URL, needs the operator in each other case, and makes pending changes
+public.
+
+### Alternatives considered for the amendment
+
+- **A longer wait, for example 7 or 30 days.** The error lasted longer than 7
+  days, and a wait gives no evidence of intent. Rejected.
+- **Keep the old GUID as the identity, and record the new GUID as an alias.**
+  The record keeps its track identities. A record could then differ from the
+  GUID that its feed declares, and a second record could claim the alias. The
+  alternative "Keep a stable internal identity" above covers the storage
+  cost. Deferred until an intended change occurs.

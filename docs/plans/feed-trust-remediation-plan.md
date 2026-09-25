@@ -174,17 +174,22 @@ Tasks:
   kept body.
 - The crawler adds a `new_feed_url` value to its follow list.
 - The node applies the two move triggers, the pending GUID change table, the
-  24-hour rule, and the transition of ADR 0052 section 5.
+  UUIDv5 rule and the operator decision of ADR 0052 section 4, and the
+  transition of ADR 0052 section 5.
+- `GET /v1/guid-changes`, `pending_guid_change` on `GET /v1/feeds/{guid}`,
+  and `POST /v1/feeds/{guid}/guid-change`.
 - `PATCH /v1/feeds/{guid}` returns `409` when the new URL is the source URL of
   a different record.
-- The `FeedGuidSuperseded` event, and `superseded_by` on
-  `GET /v1/feeds/{guid}`.
+- The `FeedGuidSuperseded` and `FeedGuidChangeDecided` events, and
+  `superseded_by` on `GET /v1/feeds/{guid}`.
 
-Deployment gate: each community node knows `FeedGuidSuperseded` before the
-primary emits one.
+Deployment gate: each community node knows both events before the primary
+emits one.
 
 Mechanical criteria are the Guards of ADR 0052. Add one test for the
-Doerfelverse shape: the same URL, a new GUID and the same five item GUIDs.
+Doerfelverse shape: the same URL, a new GUID that is not the UUIDv5 of the
+URL, and the same five item GUIDs. The change stays pending, and a return to
+the old GUID deletes the row.
 
 ## Phase 7: Nominators And The Fetch Worker (ADR 0055)
 

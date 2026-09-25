@@ -29,7 +29,7 @@ owner in each case.
 |---|---|---|
 | Verification component (section 5) | A worker fetches each feed again after the discovery crawler | ADR 0055: crawlers only nominate URLs. The worker is the only fetcher, so each feed is fetched once |
 | A permanent redirect (M1, M2, section 5) | A lasting transfer needs a separate decision | ADR 0052: a `301` or `308` from the source URL moves the record when the target declares the same GUID and is not held |
-| Same source, new unused GUID (section 6) | A reversible transition is preferred. The form is open | ADR 0052: the change occurs after 24 hours of the same declaration, after proof, or after operator approval. The old record retires. A signed navigation link names the new GUID |
+| Same source, new unused GUID (section 6) | A reversible transition is preferred. The form is open | ADR 0052, as amended on 2026-09-25: the change occurs when the new GUID is the UUIDv5 of the source URL, or after operator approval. A pending change is public. The old record retires. A signed navigation link names the new GUID |
 | Repair (section 8, item 2) | Needs a signed retraction of observations | ADR 0051: a forced pass over the source URLs restores content. A mirror observation is a true RSS fact and stays. A retraction event is not decided |
 | Immediate containment | A URL-string guard cannot satisfy the security claim | ADR 0051: the guard stops each attacker without the crawl token now. ADR 0055 owns the attacker with the token |
 
