@@ -1,7 +1,7 @@
 # ADR 0051: Feed Content Comes From Its Source URL
 
 ## Status
-Proposed
+Accepted on 2026-09-25. Deployed on 2026-09-25.
 
 ## Date
 2026-09-24

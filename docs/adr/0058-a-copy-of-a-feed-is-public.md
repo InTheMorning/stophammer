@@ -164,8 +164,8 @@ safe decision, because it changes no payment route.
 
 ### 5. A relocation clears the fields that belong to the old source
 
-Each relocation clears `last_build_date` and `declared_self_url` of the
-record. This applies to `relocate` and to `PATCH /v1/feeds/{guid}` with
+Each relocation clears `last_build_date`, `declared_self_url` and
+`declared_new_feed_url` of the record. ADR 0052 adds the third column. This applies to `relocate` and to `PATCH /v1/feeds/{guid}` with
 `feed_url`. The next body from the new source URL applies with no stale rule
 and records its own self link. The relocation requires a reason, and the
 signed `FeedUpserted` event of the relocation carries it.

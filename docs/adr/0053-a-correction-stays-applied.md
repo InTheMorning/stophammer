@@ -1,7 +1,7 @@
 # ADR 0053: A Correction Stays Applied
 
 ## Status
-Proposed
+Accepted on 2026-09-25. Deployed on 2026-09-25.
 
 ## Date
 2026-09-24

@@ -1,7 +1,7 @@
 # ADR 0052: A Source Moves Its Own Feed
 
 ## Status
-Proposed
+Accepted on 2026-09-25
 
 ## Date
 2026-09-24
@@ -147,7 +147,8 @@ token. The body gives a decision, `approve` or `reject`, and a reason. The
 node signs one `FeedGuidChangeDecided` event with the old GUID, the new GUID,
 the decision and the reason.
 
-- `approve` runs section 5.
+- `approve` runs section 5 at the next submission of the new GUID from the
+  source URL. The node does not keep the body of an earlier submission.
 - `reject` keeps the record. The rejection holds while the source URL
   declares the same new GUID. A different new GUID makes a new pending row.
 
@@ -168,7 +169,9 @@ as in ADR 0058.
 In one transaction, the node:
 
 1. Retires the old record with the signed `FeedRetired` event and the reason
-   `guid_superseded`.
+   `guid_superseded`. The retirement writes no block of ADR 0053. A block
+   would stop each later submission from the source URL, and a revert would
+   then be impossible.
 2. Records the link from the old GUID to the new GUID with a new signed event,
    `FeedGuidSuperseded`.
 3. Admits the new record with the source URL, from the body that gave the new
@@ -203,7 +206,8 @@ when ADR 0054 exists.
 - The parser adds `itunes:new-feed-url`. The ingest request adds
   `new_feed_url` and `redirects`. Both fields are optional, so an older
   crawler still works without moves.
-- `FeedGuidSuperseded` and `FeedGuidChangeDecided` are new event types. The rollout upgrades each
+- `FeedGuidChangeObserved`, `FeedGuidChangeDecided` and `FeedGuidSuperseded`
+  are new event types. `FeedGuidChangeObserved` replicates the pending row. The rollout upgrades each
   community node before the primary emits one. An older community node cannot
   parse a type that it does not know.
 - ADR 0044 requires the new response field in the OpenAPI document.
@@ -254,6 +258,7 @@ Rejected.
 - The source URL changes only by a trigger in section 1.
 - An unavailable source never releases its record.
 - `superseded_by` never selects a payment route.
+- A GUID change retires the old record with no block.
 - A GUID change applies only when the new GUID is the UUIDv5 of the source
   URL, or when the operator approves it.
 

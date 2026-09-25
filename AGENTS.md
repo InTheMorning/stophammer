@@ -78,7 +78,8 @@ The work that remains:
    question, whether a `304` counts against the Wavlake `429` limit, stays
    open until the second pass.
 
-4. The feed trust work. ADRs 0051 to 0055 are Proposed.
+4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
+   ADR 0054 and ADR 0055 are Proposed.
    [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
    [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
    The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
