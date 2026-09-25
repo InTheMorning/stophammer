@@ -512,3 +512,83 @@ async fn the_same_history_from_a_replica_database_matches() {
         "the route history must be equal from the replica database"
     );
 }
+
+/// An update that changes only the keysend custom value of the feed route
+/// adds a new entry. A shared keysend node names the account in the custom
+/// record, so the payment goes to a different recipient (ADR 0053 Section 4).
+#[tokio::test]
+async fn a_keysend_custom_value_only_change_adds_a_new_entry() {
+    let crawl_token = "adr0053-route-history-token-custom";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(state);
+
+    let feed_guid = "adr0053-route-history-feed-custom";
+    let track_guid = format!("{feed_guid}-track-01");
+    let canonical_url = "https://example.com/adr0053-route-history-custom.xml";
+    let node = "02682b7c86f474d082fa9d274c3751291225448468691784c6f112187de975a8c2";
+
+    let with_custom_value = |value: &str| {
+        let mut data = feed_data_with_feed_route(
+            feed_guid,
+            "Keysend Feed",
+            &track_guid,
+            "Artist",
+            node,
+            100,
+            "t@ln.example",
+        );
+        let route = &mut data["feed_payment_routes"][0];
+        route["route_type"] = serde_json::json!("keysend");
+        route["custom_key"] = serde_json::json!("906608");
+        route["custom_value"] = serde_json::json!(value);
+        data
+    };
+
+    for (hash, value) in [
+        ("rh-custom-1", "01IMQkt4BFzAiSynxcQQqd"),
+        ("rh-custom-2", "attacker"),
+    ] {
+        let (status, body) = ingest(
+            app.clone(),
+            &ingest_payload(
+                canonical_url,
+                canonical_url,
+                crawl_token,
+                hash,
+                &with_custom_value(value),
+            ),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["accepted"], true, "the ingest must succeed: {body:?}");
+    }
+
+    let (status, body) = send(
+        app,
+        "GET",
+        &format!("/v1/feeds/{feed_guid}/route-history"),
+        None,
+    )
+    .await;
+    assert_eq!(status, 200);
+    let feed_entries: Vec<_> = body["data"]
+        .as_array()
+        .expect("data array")
+        .iter()
+        .filter(|entry| entry["subject"] == "feed")
+        .collect();
+    assert_eq!(
+        feed_entries.len(),
+        2,
+        "a custom-value-only change must add a feed entry: {feed_entries:?}"
+    );
+    assert_eq!(
+        feed_entries[1]["old_recipients"][0]["custom_value"], "01IMQkt4BFzAiSynxcQQqd",
+        "the old set must carry the old custom value"
+    );
+    assert_eq!(
+        feed_entries[1]["new_recipients"][0]["custom_value"], "attacker",
+        "the new set must carry the new custom value"
+    );
+}

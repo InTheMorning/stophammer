@@ -816,9 +816,12 @@ community node serves it too.
 - **Authentication:** None
 - **Sequence:** entries are in `seq` order, the newest last. The response
   holds at most 1,000 entries.
-- **The recipient set:** the ordered list of `{ address, split }` of the
-  routes. The set excludes the name, the route type and `fee`. A change of
-  one of those alone writes no entry.
+- **The recipient set:** the ordered list of `{ address, custom_key,
+  custom_value, split }` of the routes. A keysend route to a shared node
+  names the account in `custom_key` and `custom_value`. The response omits
+  the two fields when the route has no custom record. The set excludes the
+  name, the route type and `fee`. A change of one of those alone writes no
+  entry.
 
 **Response (`200 OK`):**
 

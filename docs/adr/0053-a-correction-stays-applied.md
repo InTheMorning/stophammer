@@ -110,8 +110,11 @@ the stored date. The operator can clear the stored date with a retire and
 ### 4. A change of payment recipients is visible
 
 The primary records each change of the recipient set of a feed or a track. A
-recipient set is the list of pairs of address and split, in order. A change
-of name or of `fee` only is not a change of recipients.
+recipient set is the ordered list of the address, the keysend `custom_key`
+and `custom_value`, and the split of each route. A keysend route to a shared
+node names the account in the custom record, so a change of that record is a
+change of recipients. A change of name or of `fee` only is not a change of
+recipients.
 
 - `GET /v1/feeds/{guid}/route-history` returns the changes for the feed and
   its tracks, in event order. Each entry gives the subject (the feed, or one

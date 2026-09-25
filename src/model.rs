@@ -169,14 +169,21 @@ pub struct FeedPaymentRoute {
 
 // ── route-history recipient set (ADR 0053 Section 4) ────────────────────────
 
-/// One recipient of a payment-route set: an address and its split.
+/// One recipient of a payment-route set: an address, its keysend custom
+/// record, and its split.
 ///
 /// The route-history read of ADR 0053 Section 4 compares an ordered list of
-/// these to decide whether a payment change occurred. The set excludes the
-/// name, the route type and `fee`.
+/// these to decide whether a payment change occurred. A keysend route to a
+/// shared node names the account in `custom_key` and `custom_value`, so a
+/// change of either one sends the payment to a different recipient. The set
+/// excludes the name, the route type and `fee`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RouteRecipient {
     pub address: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_value: Option<String>,
     pub split: i64,
 }
 
@@ -184,6 +191,8 @@ impl From<&PaymentRoute> for RouteRecipient {
     fn from(route: &PaymentRoute) -> Self {
         Self {
             address: route.address.clone(),
+            custom_key: route.custom_key.clone(),
+            custom_value: route.custom_value.clone(),
             split: route.split,
         }
     }
@@ -193,6 +202,8 @@ impl From<&FeedPaymentRoute> for RouteRecipient {
     fn from(route: &FeedPaymentRoute) -> Self {
         Self {
             address: route.address.clone(),
+            custom_key: route.custom_key.clone(),
+            custom_value: route.custom_value.clone(),
             split: route.split,
         }
     }
