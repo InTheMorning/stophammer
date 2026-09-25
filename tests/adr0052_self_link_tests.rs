@@ -519,3 +519,123 @@ async fn a_mirror_submission_does_not_write_declared_self_url() {
         "a mirror body's own self link must not overwrite declared_self_url"
     );
 }
+
+/// **A move must not stop at `no_change`.** Task 003. A submission from the
+/// declared self link, with a hash the crawl cache already holds, still
+/// moves the record. The content-hash verifier alone would answer
+/// `no_change`; the self-link move takes priority.
+#[tokio::test]
+async fn a_no_change_hash_at_the_self_link_still_moves_the_record() {
+    let crawl_token = "adr0052-t003-move-token";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let feed_guid = "adr0052-t003-move-guid";
+    let cached_hash = "adr0052-t003-cached-hash";
+
+    let feed_data_a = feed_data_with_self_link(feed_guid, "Original Title", Some(UM));
+    let payload_a = ingest_payload(UA, UA, crawl_token, "adr0052-t003-hash-a", &feed_data_a);
+    ingest(
+        stophammer::api::build_router(Arc::clone(&state)),
+        &payload_a,
+    )
+    .await;
+
+    // The node crawl cache already holds this hash for the self-link URL,
+    // as it would when the node accepted that URL before ADR 0051.
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::upsert_feed_crawl_cache(&conn, UM, cached_hash, stophammer::db::unix_now())
+            .expect("seed feed_crawl_cache");
+    }
+
+    let feed_data_m = feed_data_with_self_link(feed_guid, "New Title", None);
+    let mut payload_m = ingest_payload(UM, UM, crawl_token, cached_hash, &feed_data_m);
+    payload_m["force_reingest"] = serde_json::json!(false);
+    let resp = ingest_response(
+        stophammer::api::build_router(Arc::clone(&state)),
+        &payload_m,
+    )
+    .await;
+
+    assert_eq!(
+        resp["accepted"], true,
+        "a self-link move must be accepted even at a cached hash: {resp:?}"
+    );
+    let warnings = resp["warnings"]
+        .as_array()
+        .expect("warnings must be an array");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.as_str() == Some(&format!("moved from {UA} to {UM} (ADR 0052 self link)"))),
+        "the warning must name both URLs: {resp:?}"
+    );
+
+    let feed = stored_feed(&db, feed_guid);
+    assert_eq!(
+        feed.feed_url, UM,
+        "the stored feed_url must become the self URL, not stay at no_change"
+    );
+    assert_eq!(feed.title, "New Title", "the move must apply the new body");
+}
+
+/// **A plain mirror still gets `no_change`.** Task 003. A mirror submission
+/// from a URL that is not the self link, with a hash the crawl cache already
+/// holds, still answers `no_change`, and the record does not move.
+#[tokio::test]
+async fn a_no_change_hash_at_an_unrelated_mirror_url_still_answers_no_change() {
+    let crawl_token = "adr0052-t003-nomove-token";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let feed_guid = "adr0052-t003-nomove-guid";
+    let mirror_url = "https://wavlake.example/feed/mirror-c";
+    let cached_hash = "adr0052-t003-nomove-cached-hash";
+
+    let feed_data_a = feed_data_with_self_link(feed_guid, "Original Title", Some(UM));
+    let payload_a = ingest_payload(
+        UA,
+        UA,
+        crawl_token,
+        "adr0052-t003-nomove-hash-a",
+        &feed_data_a,
+    );
+    ingest(
+        stophammer::api::build_router(Arc::clone(&state)),
+        &payload_a,
+    )
+    .await;
+
+    {
+        let conn = db.lock().expect("lock db");
+        stophammer::db::upsert_feed_crawl_cache(
+            &conn,
+            mirror_url,
+            cached_hash,
+            stophammer::db::unix_now(),
+        )
+        .expect("seed feed_crawl_cache");
+    }
+
+    let feed_data_c = feed_data_with_self_link(feed_guid, "Attacker Title", None);
+    let payload_c = ingest_payload(
+        mirror_url,
+        mirror_url,
+        crawl_token,
+        cached_hash,
+        &feed_data_c,
+    );
+    let resp = ingest_response(
+        stophammer::api::build_router(Arc::clone(&state)),
+        &payload_c,
+    )
+    .await;
+
+    assert_eq!(resp["accepted"], true, "{resp:?}");
+    assert_eq!(
+        resp["no_change"], true,
+        "a plain mirror at a cached hash must still answer no_change: {resp:?}"
+    );
+
+    let feed = stored_feed(&db, feed_guid);
+    assert_eq!(feed.feed_url, UA, "a plain mirror must not move the record");
+}

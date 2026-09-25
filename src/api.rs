@@ -1723,6 +1723,38 @@ fn is_no_change_reason(reason: &str) -> bool {
         )
 }
 
+/// ADR 0052 section 2, task 003: the one test for a self-link move.
+///
+/// A submission is a move when both facts hold:
+///
+/// - `classify_submission` gives `Mirror` for `feed_guid`, `source_url` and
+///   `canonical_url`.
+/// - The record's `feeds.declared_self_url` equals `source_url` or
+///   `canonical_url`.
+///
+/// Returns the self-link URL when the submission is a move, and `None`
+/// otherwise. Both the read phase and the `Mirror` arm of the write phase of
+/// `handle_ingest_feed` call this function, so the two phases use one rule
+/// and cannot disagree.
+///
+/// # Errors
+///
+/// Returns [`ApiError`] if a database read fails.
+fn self_link_move_target(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    source_url: &str,
+    canonical_url: &str,
+) -> Result<Option<String>, ApiError> {
+    let classification = db::classify_submission(conn, feed_guid, source_url, canonical_url)?;
+    if !matches!(classification, db::SubmissionClass::Mirror { .. }) {
+        return Ok(None);
+    }
+    let target = db::get_declared_self_url(conn, feed_guid)?
+        .filter(|self_url| self_url == source_url || self_url == canonical_url);
+    Ok(target)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "single ingest flow — splitting would obscure the sequential validation steps"
@@ -1733,7 +1765,9 @@ fn is_no_change_reason(reason: &str) -> bool {
 )]
 async fn handle_ingest_feed(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ingest::IngestFeedRequest>,
+    // ADR 0052 section 2, task 003: `mut` lets the read phase set
+    // `force_reingest` on a self-link move, before the verifier chain runs.
+    Json(mut req): Json<ingest::IngestFeedRequest>,
 ) -> Result<Json<ingest::IngestResponse>, ApiError> {
     let started_at = Instant::now();
     let log_canonical_url = req.canonical_url.clone();
@@ -1807,6 +1841,22 @@ async fn handle_ingest_feed(
                     vec![],
                     vec![],
                 ));
+            }
+
+            // ADR 0052 section 2, task 003: a self-link move must not stop
+            // at `no_change`. Check the move here, before the chain runs, and
+            // force the chain to re-ingest when it is one. The other
+            // verifiers still run.
+            if let Some(feed_data) = req.feed_data.as_ref()
+                && self_link_move_target(
+                    &reader,
+                    &feed_data.feed_guid,
+                    &req.source_url,
+                    &req.canonical_url,
+                )?
+                .is_some()
+            {
+                req.force_reingest = true;
             }
 
             // 1. Get existing feed (read-only)
@@ -2033,11 +2083,15 @@ async fn handle_ingest_feed(
                 // exactly this submission's URL. The node reads
                 // `feeds.declared_self_url` for this decision, and never
                 // `source_entity_links` (ADR 0052 Guards): a mirror body
-                // cannot supply this evidence.
-                let move_target =
-                    db::get_declared_self_url(&conn, &feed_data.feed_guid)?.filter(|self_url| {
-                        *self_url == req.source_url || *self_url == req.canonical_url
-                    });
+                // cannot supply this evidence. `self_link_move_target` is the
+                // one test for this; the read phase above calls the same
+                // function, so the two places cannot disagree.
+                let move_target = self_link_move_target(
+                    &conn,
+                    &feed_data.feed_guid,
+                    &req.source_url,
+                    &req.canonical_url,
+                )?;
 
                 if let Some(new_feed_url) = move_target {
                     warnings.push(format!(
