@@ -110,6 +110,9 @@ The work that remains:
 
    - The ADR 0057 code. It changes the parser, the ingest contract and the
      node.
+   - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Proposed. The
+     API shows each copy of a feed at a URL that is not its source, and the
+     operator keeps the source or relocates the record.
    - ADR 0054 and ADR 0055.
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
