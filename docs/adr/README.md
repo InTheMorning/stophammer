@@ -71,6 +71,11 @@ disagree.
 | [0027](0027-authenticate-sync-read-endpoints.md) | Authenticate sync read endpoints | Accepted |
 | [0028](0028-require-dedicated-sync-token.md) | A dedicated sync token is required | Accepted |
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
+| [0051](0051-feed-content-comes-from-its-source-url.md) | Only content from the stored source URL changes a feed record. Authentication is first and cannot be removed | Proposed |
+| [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect or `itunes:new-feed-url` at its source URL, by proof or by the operator. A GUID change at the source URL links the old record | Proposed |
+| [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Proposed |
+| [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits | Proposed |
+| [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content | Proposed |
 
 ## Nodes, Replication And Deployment
 

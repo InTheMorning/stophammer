@@ -78,6 +78,13 @@ The work that remains:
    question, whether a `304` counts against the Wavlake `429` limit, stays
    open until the second pass.
 
+4. The feed trust ADRs, 0051 to 0055, are Proposed. A feed at any URL can
+   declare the `podcast:guid` of a held feed and replace its tracks and
+   payment routes. This defect is open on the production node. ADR 0051
+   closes it, and a forced corrective pass then repairs the damaged records.
+   The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
+   sequence.
+
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
 files follow it.
