@@ -78,45 +78,41 @@ The work that remains:
    question, whether a `304` counts against the Wavlake `429` limit, stays
    open until the second pass.
 
-4. The feed trust ADRs, 0051 to 0055, are Proposed. A feed at any URL can
-   declare the `podcast:guid` of a held feed and replace its tracks and
-   payment routes. This defect is open on the production node. The
-   [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
+4. The feed trust work. ADRs 0051 to 0055 are Proposed.
+   [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
+   [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
+   The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
    sequence.
 
-   [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) is Accepted
-   on 2026-09-25. It takes the public proof flow of ADR 0018 offline. The code
-   change is complete on 2026-09-25 and not deployed.
+   Deployed on 2026-09-25, in one deploy of the primary and the crawler:
 
-   [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) is Accepted on
-   2026-09-25. A `podcast:block` tag at the source URL retires the feed. The
-   code change is not done. It comes after ADR 0056, and it changes the
-   parser, the ingest contract and the node.
+   - ADR 0051 tasks 001 to 004. Only content from the stored source URL
+     changes a record, and the node checks the crawl token first.
+   - ADR 0053 tasks 001 to 007. A block is a signed row that each node
+     applies. A submission with an older `lastBuildDate` changes nothing.
+     `GET /v1/feeds/{guid}/route-history` shows each change of the payment
+     recipients.
+   - ADR 0052 task 001. A record moves to the self link that its source
+     declares.
+   - ADR 0056 task 001. The public proof flow is removed, and each write
+     route needs the admin token.
 
-   ADR 0051 tasks 001 to 004 are complete on 2026-09-25 and not deployed.
-   The node checks the crawl token first, and only content from the stored
-   source URL changes a record. Task 005 is the deploy and the forced repair
-   pass. Before the deploy, remove `crawl_token` from `VERIFIER_CHAIN` on the
-   VPS, or the primary does not start. The
-   [phase plan](docs/plans/adr-0051-source-url-phase-plan.md) and the
-   [review checklist](docs/reviews/adr-0051-review-checklist.md) hold the
-   sequence.
+   The repair ran on 2026-09-25 from the fetch cache of the `refresh` pass
+   that started on 2026-09-24 at 23:52 UTC. The replay sent 10,202 source
+   bodies. The stale rule rejected 1,403 records, because a mirror had
+   written a newer `lastBuildDate` before ADR 0051. Their stored dates were
+   cleared, and their bodies were sent again. The copy before that change is
+   `pre-stale-reset.db` in the `primary-data` volume. After the repair, 7,713
+   records have `declared_self_url`, and 1,516 records can move on their next
+   crawl.
 
-   ADR 0053 tasks 001 to 007 are complete on 2026-09-25 and not deployed. A
-   block is a signed row that each node applies, and a retirement blocks the
-   feed. The environment blocklist is a seed at the first start. A submission
-   with an older `lastBuildDate` changes nothing.
-   `GET /v1/feeds/{guid}/route-history` shows each change of the payment
-   recipients. Task 008 is the deploy, after the ADR 0051 repair.
+   The work that remains:
 
-   The self-link move of ADR 0052, task 001, is complete on 2026-09-25 and not
-   deployed. Task 002 is the deploy. After it, a forced pass fills
-   `declared_self_url`.
-
-   The deploy of ADR 0053, ADR 0052 task 001 and ADR 0056 is one image. Each
-   community node gets it before the primary. The
-   [ADR 0053 plan](docs/plans/adr-0053-durable-corrections-phase-plan.md)
-   gives the sequence.
+   - The ADR 0057 code. It changes the parser, the ingest contract and the
+     node.
+   - ADR 0054 and ADR 0055.
+   - A migration that drops the two proof tables and changes the trigger
+     `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`

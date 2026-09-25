@@ -18,12 +18,19 @@ types before the primary emits one.
    repair of a record that a mirror changed, so the repair must come first.
    The [research record](../reviews/last-build-date-behavior-research.md)
    gives the reason.
+
+   If the stale rule is live before the repair, the replay rejects each
+   record that a mirror changed, with `stale_submission`. A new fetch does
+   not help, because the source body carries the same older date. For each
+   rejected GUID in the primary log, clear the stored `last_build_date`, with
+   the primary stopped and after a backup. Then replay those rows again. The
+   operator did this on 2026-09-25 for 1,403 records.
 2. Run this query on the primary. The count must be `0`. If it is not, stop,
    and ask for the clamp of option B of the research record first.
 
    ```sql
    SELECT COUNT(*) FROM feeds
-   WHERE last_build_date > CAST(strftime('%s','now') AS INTEGER) + 86400;
+   WHERE last_build_date > unixepoch() + 86400;
    ```
 
 3. Read `BLOCKED_FEED_GUIDS` and `BLOCKED_FEED_URLS` on the primary. Each
