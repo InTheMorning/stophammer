@@ -590,6 +590,7 @@ Returns a single feed by its `podcast:guid`.
     "publisher_feed_title": "Publisher Feed Title",
     "language": "en",
     "explicit": false,
+    "copy_count": 0,
     "created_at": 1710288000,
     "updated_at": 1710288000,
     "tracks": [
@@ -774,6 +775,10 @@ null when the feed names no publisher, or the resolver cannot place the link.
 A one-way link, with no reciprocal declaration on the other side, still
 resolves `publisher_feed_title`. ADR 0049 section 5.
 
+`copy_count` is derived. It is the number of open copies of this feed.
+`GET /v1/feeds/{guid}/copies` lists each copy, open or not. ADR 0058 owns
+`copy_count` and the two copy routes below.
+
 ---
 
 `GET /v1/feeds/recent` is the public recency listing for source-first v1.
@@ -859,6 +864,103 @@ community node serves it too.
 |------|---------|
 | 200  | Route-history entries |
 | 404  | No event names a route set of this feed |
+
+---
+
+### GET /v1/feeds/{guid}/copies
+
+Gives each `feed_copies` row of a feed. ADR 0058 owns this route.
+
+- **Authentication:** None
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "url": "https://mirror.example.com/feed.xml",
+      "first_seen": 1710288000,
+      "last_seen": 1710300000,
+      "title": "Mirror Feed",
+      "differs_tracks": false,
+      "differs_recipients": true,
+      "guid_origin": false,
+      "open": true,
+      "feed_recipients": [{ "address": "attacker@ln.example", "split": 100 }],
+      "track_recipients": {},
+      "resolution": null
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" },
+  "copies_over_limit": 0
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Feed-copy rows, in `first_seen` sequence, earliest first |
+| 404  | Feed not found |
+
+A copy is a stored summary of a mirror body. The body carries the same
+`podcast:guid`, at a URL that differs from the record's source URL.
+`differs_tracks` compares the item GUIDs of the row against the feed's
+current tracks. `differs_recipients` compares the feed-level recipient set,
+and the recipient set of each shared track. A row with no difference is an
+alias.
+
+`open` is `true` when the row differs and has no resolution that holds. A
+resolution holds while its digest matches the row's own `summary_digest`. A
+changed summary opens a resolved copy again.
+
+`guid_origin` is `true` when the `UUIDv5` of the row's URL equals the feed
+GUID, and the `UUIDv5` of the record's source URL does not. This is an
+indication for the operator, not a rule.
+
+`copies_over_limit` counts a mirror body that named a new URL after the
+feed's GUID held 20 rows (the ADR 0058 section 1a limit). This count is
+local to the primary. A community node answers `0`.
+
+`last_seen` is local to the primary. A community node answers `null`.
+
+---
+
+### GET /v1/copies
+
+Gives each record with an open copy, or with a `copies_over_limit` counter
+above zero. ADR 0058 owns this route.
+
+- **Authentication:** None
+- **Sequence:** newest first, by the newest `first_seen` of an open copy.
+- **Query parameters:** `cursor`, and `limit`, at most 100.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "feed_guid": "feed-guid",
+      "feed_url": "https://example.com/feed.xml",
+      "title": "Victim Feed",
+      "copy_count": 1,
+      "copies_over_limit": 0,
+      "newest_first_seen": 1710300000
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+`copy_count` is the number of open copies of the record. `newest_first_seen`
+is null when the record has no open copy, and is listed only because its
+`copies_over_limit` is above zero.
 
 ---
 
@@ -1291,7 +1393,10 @@ the public proof flow, so each one needs the admin token.
 
 ### PATCH /v1/feeds/{guid}
 
-Updates a feed's mutable fields. Currently supports `feed_url` only.
+Updates a feed's mutable fields. Currently supports `feed_url` only. A
+`feed_url` change is a relocation (ADR 0058 section 5): the node also clears
+`last_build_date` and `declared_self_url`, in the same transaction, and needs
+a `reason`.
 
 - **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -1300,17 +1405,27 @@ Updates a feed's mutable fields. Currently supports `feed_url` only.
 
 ```json
 {
-  "feed_url": "https://new-feed-url.example.com/feed.xml"
+  "feed_url": "https://new-feed-url.example.com/feed.xml",
+  "reason": "confirmed move to the new host"
 }
 ```
 
-**Response:** `204 No Content` on success. Emits a `FeedUpserted` event and fans out to peers.
+`reason` is required with `feed_url`, and must not be empty after trim.
+
+**Response:** `204 No Content` on success. Emits a `FeedUpserted` event, with
+`reason` in its payload, and fans out to peers.
+
+`declared_self_url` is local to the primary. It is not a field of the `Feed`
+model. The `FeedUpserted` event does not carry it. A community node does not
+clear its own copy of this column — it has none.
 
 | Code | Meaning |
 |------|---------|
 | 204  | Updated |
+| 400  | Missing `reason` when `feed_url` is given, or an empty `reason` after trim |
 | 403  | Missing or invalid admin token |
 | 404  | Feed not found |
+| 409  | Another record already holds `feed_url` as its own source URL |
 
 ---
 
@@ -1518,6 +1633,76 @@ Removes a block row. Signs one `FeedUnblocked` event.
 
 ---
 
+### POST /v1/feeds/{guid}/copies/resolve
+
+The operator resolves an open copy of a feed (ADR 0058 section 4).
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Request body:**
+
+```json
+{
+  "url": "https://mirror.example.com/feed.xml",
+  "decision": "keep_source",
+  "reason": "confirmed this is an impersonation; keeping the held record"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `url` | string | The URL of the `feed_copies` row to resolve |
+| `decision` | string | `keep_source` or `relocate` |
+| `reason` | string | Why the operator picked this decision |
+
+`keep_source` signs one `FeedCopyResolved` event. It carries the row's
+current `summary_digest`. The record does not change.
+
+`relocate` calls the relocation of `PATCH /v1/feeds/{guid}`, with the row's
+own URL. This clears `last_build_date` and `declared_self_url`, and signs
+one `FeedUpserted` event. It then signs one `FeedCopyResolved` event, in the
+same transaction.
+
+A resolution holds while the row's `summary_digest` stays the same. When the
+copy changes, the row opens again (ADR 0058 section 4).
+
+**Response (`200 OK`):**
+
+```json
+{
+  "event_ids": ["uuid-1", "uuid-2"]
+}
+```
+
+`event_ids` has one entry for `keep_source`. It has two entries for
+`relocate`: the `FeedUpserted` event, then the `FeedCopyResolved` event.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Resolution applied |
+| 400  | Empty `reason`, or `decision` is not `keep_source` or `relocate` |
+| 403  | Missing or invalid admin token |
+| 404  | Feed not found, or it has no `feed_copies` row at that `url` |
+| 409  | `decision` is `relocate`, and another record already holds `url` as its own source URL |
+
+ADR 0058 section 4 owns four checks for the operator, before a `relocate`:
+
+1. The new URL declares the same `podcast:guid` now. The operator fetches
+   it.
+2. No other record has the new URL as its own source URL.
+3. Signs of a move back this up: a redirect or `itunes:new-feed-url` at the
+   first URL, the self link of the new URL, `guid_origin`, and the first
+   time the node saw each URL.
+4. The payment recipients of the new URL belong to the same artist. The
+   operator gets this fact from the artist, through a channel the requester
+   does not control.
+
+When a check fails, the operator picks `keep_source`. This decision changes
+no payment route.
+
+---
+
 ## 11. Event Types
 
 Events are the atomic unit of replication. Each event is ed25519-signed by the primary node.
@@ -1546,6 +1731,8 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 | `source_platform_claims_replaced` | feed_guid | Feed-level staged platform claims replaced |
 | `feed_blocked` | block_id | A feed GUID or URL was blocked from ingest |
 | `feed_unblocked` | block_id | A blocked feed GUID or URL was unblocked |
+| `feed_copy_observed` | feed_guid | A new or changed summary of a feed copy at a URL that is not the source (ADR 0058) |
+| `feed_copy_resolved` | feed_guid | The operator resolved a feed copy with `keep_source` or `relocate` (ADR 0058) |
 
 ---
 
@@ -1555,7 +1742,7 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/feeds/*/copies/resolve`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
 
 ADR 0056 took the public proof flow offline. Each write route in this table
 needs the admin token. No route takes a bearer token.

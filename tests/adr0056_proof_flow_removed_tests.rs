@@ -304,9 +304,10 @@ async fn patch_feed_with_admin_token_still_succeeds() {
         .uri("/v1/feeds/adr0056-feed")
         .header("Content-Type", "application/json")
         .header("X-Admin-Token", ADMIN_TOKEN)
-        .body(json_body(
-            &serde_json::json!({ "feed_url": "https://updated.example.com/feed.xml" }),
-        ))
+        .body(json_body(&serde_json::json!({
+            "feed_url": "https://updated.example.com/feed.xml",
+            "reason": "confirmed move to the new host"
+        })))
         .expect("build request");
 
     let resp = app.oneshot(req).await.expect("call handler");

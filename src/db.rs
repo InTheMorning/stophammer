@@ -19,14 +19,16 @@
 
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
-    Artist, ArtistCredit, ArtistCreditName, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteType, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
-    TrackRemoteItemRaw, ValueTimeSplit,
+    Artist, ArtistCredit, ArtistCreditName, CopySummary, Feed, FeedPaymentRoute, FeedRemoteItemRaw,
+    LiveEvent, PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim,
+    SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
+    SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
+    feed_recipient_set, recipient_set,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::Digest;
+use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
 
@@ -227,6 +229,10 @@ const MIGRATIONS: &[&str] = &[
     // Migration 39: the self link a source body declares for its own feed
     // (ADR 0052 §2)
     include_str!("../migrations/0039_feed_declared_self_url.sql"),
+    // Migration 40: a summary row for each pair of GUID and URL that mirrors
+    // a feed, and the overflow counter of a GUID at its row limit
+    // (ADR 0058 §1, §1a)
+    include_str!("../migrations/0040_feed_copies.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -2744,6 +2750,17 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
+    // ADR 0058 Section 1: a feed delete also removes the mirror summaries and
+    // the overflow counter of the GUID.
+    conn.execute(
+        "DELETE FROM feed_copies WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM feed_copy_overflow WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+
     conn.execute(
         "DELETE FROM tracks WHERE feed_guid = ?1",
         params![feed_guid],
@@ -4032,7 +4049,10 @@ fn build_feed_upserted_event(
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
-    let payload = crate::event::FeedUpsertedPayload { feed: feed.clone() };
+    let payload = crate::event::FeedUpsertedPayload {
+        feed: feed.clone(),
+        reason: None,
+    };
     let payload_json = serde_json::to_string(&payload)?;
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
@@ -4554,6 +4574,12 @@ pub fn insert_feed_block(conn: &Connection, block: &FeedBlock) -> Result<bool, D
             block.blocked_at
         ],
     )?;
+    if changed > 0 && block.kind == FeedBlockKind::Url {
+        // ADR 0058 Section 1: a new URL block clears each feed_copies row of
+        // that URL, on the same connection, so the block also frees the
+        // GUID's row limit.
+        conn.execute("DELETE FROM feed_copies WHERE url = ?1", params![value])?;
+    }
     Ok(changed > 0)
 }
 
@@ -4666,6 +4692,454 @@ pub fn find_feed_block(
         }
     }
     Ok(None)
+}
+
+// ── feed_copies (ADR 0058) ───────────────────────────────────────────────────
+
+/// The most rows one feed GUID may hold in `feed_copies` (ADR 0058 Section
+/// 1a). A new URL past this limit writes no row and no event.
+pub const MAX_COPIES_PER_GUID: i64 = 20;
+
+/// A row of `feed_copies`: the ADR 0058 Section 1 summary the node holds for
+/// one pair of GUID and URL, and its resolution when one exists.
+// CRIT-03 Debug derive — 2026-03-13
+#[derive(Debug, Clone, PartialEq)]
+pub struct FeedCopyRow {
+    pub feed_guid: String,
+    pub url: String,
+    pub first_seen: i64,
+    pub last_seen: Option<i64>,
+    pub title: String,
+    pub item_guids: Vec<String>,
+    pub feed_recipients: Vec<RouteRecipient>,
+    pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
+    pub summary_digest: String,
+    pub resolution: Option<String>,
+    pub resolution_reason: Option<String>,
+    pub resolved_at: Option<i64>,
+    pub resolved_digest: Option<String>,
+}
+
+/// The plain-column shape of a `feed_copies` row, before the three JSON
+/// columns are parsed into their typed form.
+type RawFeedCopyRow = (
+    String,
+    String,
+    i64,
+    Option<i64>,
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<String>,
+);
+
+const FEED_COPY_COLUMNS: &str = "feed_guid, url, first_seen, last_seen, title, item_guids, \
+     feed_recipients, track_recipients, summary_digest, resolution, resolution_reason, \
+     resolved_at, resolved_digest";
+
+fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCopyRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+        row.get(8)?,
+        row.get(9)?,
+        row.get(10)?,
+        row.get(11)?,
+        row.get(12)?,
+    ))
+}
+
+/// Parses the three JSON columns of a raw `feed_copies` row.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a JSON column does not parse.
+fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
+    let (
+        feed_guid,
+        url,
+        first_seen,
+        last_seen,
+        title,
+        item_guids_json,
+        feed_recipients_json,
+        track_recipients_json,
+        summary_digest,
+        resolution,
+        resolution_reason,
+        resolved_at,
+        resolved_digest,
+    ) = raw;
+    Ok(FeedCopyRow {
+        feed_guid,
+        url,
+        first_seen,
+        last_seen,
+        title,
+        item_guids: serde_json::from_str(&item_guids_json)?,
+        feed_recipients: serde_json::from_str(&feed_recipients_json)?,
+        track_recipients: serde_json::from_str(&track_recipients_json)?,
+        summary_digest,
+        resolution,
+        resolution_reason,
+        resolved_at,
+        resolved_digest,
+    })
+}
+
+/// Returns the `feed_copies` row for `feed_guid` and `url`, or `None` when no
+/// row matches.
+///
+/// ADR 0058 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query or a JSON column fails to parse.
+pub fn get_feed_copy(
+    conn: &Connection,
+    feed_guid: &str,
+    url: &str,
+) -> Result<Option<FeedCopyRow>, DbError> {
+    let raw: Option<RawFeedCopyRow> = conn
+        .query_row(
+            &format!(
+                "SELECT {FEED_COPY_COLUMNS} FROM feed_copies WHERE feed_guid = ?1 AND url = ?2"
+            ),
+            params![feed_guid, url],
+            feed_copy_raw_from_row,
+        )
+        .optional()?;
+    raw.map(feed_copy_row_from_raw).transpose()
+}
+
+/// Returns every `feed_copies` row of `feed_guid`, ordered by `first_seen`.
+///
+/// ADR 0058 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query or a JSON column fails to parse.
+pub fn list_feed_copies(conn: &Connection, feed_guid: &str) -> Result<Vec<FeedCopyRow>, DbError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {FEED_COPY_COLUMNS} FROM feed_copies WHERE feed_guid = ?1 ORDER BY first_seen"
+    ))?;
+    let raw_rows = stmt
+        .query_map(params![feed_guid], feed_copy_raw_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    raw_rows
+        .into_iter()
+        .map(feed_copy_row_from_raw)
+        .collect::<Result<Vec<_>, _>>()
+}
+
+/// Returns the number of `feed_copies` rows of `feed_guid`.
+///
+/// ADR 0058 Section 1a.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn count_feed_copies(conn: &Connection, feed_guid: &str) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT COUNT(*) FROM feed_copies WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| row.get(0),
+    )
+    .map_err(Into::into)
+}
+
+/// Upserts the ADR 0058 Section 1 summary of `feed_guid` at `url`.
+///
+/// Inserting a new pair writes `first_seen`. A pair that already has a row
+/// keeps its stored `first_seen`, `last_seen` and resolution columns: only
+/// the summary columns and `summary_digest` are overwritten. Idempotent, and
+/// used by both the apply step and the ingest path.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a JSON column fails to serialize or the write
+/// fails.
+pub fn upsert_feed_copy_summary(
+    conn: &Connection,
+    feed_guid: &str,
+    url: &str,
+    first_seen: i64,
+    summary: &CopySummary,
+    digest: &str,
+) -> Result<(), DbError> {
+    let item_guids = serde_json::to_string(&summary.item_guids)?;
+    let feed_recipients = serde_json::to_string(&summary.feed_recipients)?;
+    let track_recipients = serde_json::to_string(&summary.track_recipients)?;
+    conn.execute(
+        "INSERT INTO feed_copies \
+         (feed_guid, url, first_seen, title, item_guids, feed_recipients, \
+          track_recipients, summary_digest) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+         ON CONFLICT(feed_guid, url) DO UPDATE SET \
+           title            = excluded.title, \
+           item_guids       = excluded.item_guids, \
+           feed_recipients  = excluded.feed_recipients, \
+           track_recipients = excluded.track_recipients, \
+           summary_digest   = excluded.summary_digest",
+        params![
+            feed_guid,
+            url,
+            first_seen,
+            summary.title,
+            item_guids,
+            feed_recipients,
+            track_recipients,
+            digest
+        ],
+    )?;
+    Ok(())
+}
+
+/// Sets `last_seen` on the `feed_copies` row of `feed_guid` and `url`.
+///
+/// Local to the primary ingest path. A community node never calls this.
+///
+/// ADR 0058 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn touch_feed_copy_last_seen(
+    conn: &Connection,
+    feed_guid: &str,
+    url: &str,
+    now: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feed_copies SET last_seen = ?1 WHERE feed_guid = ?2 AND url = ?3",
+        params![now, feed_guid, url],
+    )?;
+    Ok(())
+}
+
+/// Adds one to the `feed_copy_overflow` counter of `feed_guid`, creating the
+/// row at `1` when none exists.
+///
+/// Local to the primary ingest path (ADR 0058 Section 1a).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn increment_copy_overflow(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO feed_copy_overflow (feed_guid, count) VALUES (?1, 1) \
+         ON CONFLICT(feed_guid) DO UPDATE SET count = count + 1",
+        params![feed_guid],
+    )?;
+    Ok(())
+}
+
+/// Returns the `feed_copy_overflow` counter of `feed_guid`, or `0` when no
+/// row exists.
+///
+/// ADR 0058 Section 1a.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_copy_overflow(conn: &Connection, feed_guid: &str) -> Result<i64, DbError> {
+    conn.query_row(
+        "SELECT count FROM feed_copy_overflow WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|count: Option<i64>| count.unwrap_or(0))
+    .map_err(Into::into)
+}
+
+/// Writes the resolution columns of the `feed_copies` row of `feed_guid` and
+/// `url`: `resolution`, `resolution_reason`, `resolved_at` and
+/// `resolved_digest`. Does nothing, and does not fail, when no such row
+/// exists.
+///
+/// ADR 0058 Section 4.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn set_feed_copy_resolution(
+    conn: &Connection,
+    feed_guid: &str,
+    url: &str,
+    decision: &str,
+    reason: &str,
+    resolved_at: i64,
+    resolved_digest: &str,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feed_copies SET resolution = ?1, resolution_reason = ?2, \
+         resolved_at = ?3, resolved_digest = ?4 \
+         WHERE feed_guid = ?5 AND url = ?6",
+        params![
+            decision,
+            reason,
+            resolved_at,
+            resolved_digest,
+            feed_guid,
+            url
+        ],
+    )?;
+    Ok(())
+}
+
+/// The sortable identity of a [`RouteRecipient`], with no regard to the
+/// order the recipient appeared in.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct RecipientKey {
+    address: String,
+    custom_key: Option<String>,
+    custom_value: Option<String>,
+    split: i64,
+}
+
+fn recipient_key(recipient: &RouteRecipient) -> RecipientKey {
+    RecipientKey {
+        address: recipient.address.clone(),
+        custom_key: recipient.custom_key.clone(),
+        custom_value: recipient.custom_value.clone(),
+        split: recipient.split,
+    }
+}
+
+/// True when `a` and `b` hold the same recipients, in any order.
+fn recipient_sets_equal(a: &[RouteRecipient], b: &[RouteRecipient]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut a_sorted: Vec<RecipientKey> = a.iter().map(recipient_key).collect();
+    let mut b_sorted: Vec<RecipientKey> = b.iter().map(recipient_key).collect();
+    a_sorted.sort();
+    b_sorted.sort();
+    a_sorted == b_sorted
+}
+
+/// Compares one `feed_copies` row against the current record of
+/// `feed_guid` (ADR 0058 Section 2, plan decision 7).
+///
+/// `differs_tracks` is true when the row's item GUIDs are not the same set
+/// as the feed's current tracks. `differs_recipients` is true when the
+/// feed-level recipient set differs, or when a track GUID that is in both
+/// the row and the current tracks carries a different recipient set. A
+/// track GUID that only one side names does not, by itself, make
+/// `differs_recipients` true; `differs_tracks` already reports that case.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn copy_differences(
+    conn: &Connection,
+    feed_guid: &str,
+    row: &FeedCopyRow,
+) -> Result<(bool, bool), DbError> {
+    let tracks = get_tracks_for_feed(conn, feed_guid)?;
+
+    let current_item_guids: std::collections::HashSet<&str> =
+        tracks.iter().map(|t| t.track_guid.as_str()).collect();
+    let row_item_guids: std::collections::HashSet<&str> =
+        row.item_guids.iter().map(String::as_str).collect();
+    let differs_tracks = current_item_guids != row_item_guids;
+
+    let current_feed_routes = get_feed_payment_routes_for_feed(conn, feed_guid)?;
+    let current_feed_recipients = feed_recipient_set(&current_feed_routes);
+    let mut differs_recipients =
+        !recipient_sets_equal(&current_feed_recipients, &row.feed_recipients);
+
+    if !differs_recipients {
+        for track in &tracks {
+            let Some(row_recipients) = row.track_recipients.get(&track.track_guid) else {
+                continue;
+            };
+            let current_routes =
+                get_payment_routes_for_feed_track(conn, feed_guid, &track.track_guid)?;
+            let current_recipients = recipient_set(&current_routes);
+            if !recipient_sets_equal(&current_recipients, row_recipients) {
+                differs_recipients = true;
+                break;
+            }
+        }
+    }
+
+    Ok((differs_tracks, differs_recipients))
+}
+
+/// True when `row` is an open copy of `feed_guid` (ADR 0058 Section 4, plan
+/// decision 9): it differs from the current record, and no resolution holds
+/// for its current summary. `differs_tracks` and `differs_recipients` come
+/// from [`copy_differences`].
+#[must_use]
+pub fn is_open_copy(differs_tracks: bool, differs_recipients: bool, row: &FeedCopyRow) -> bool {
+    let differs = differs_tracks || differs_recipients;
+    let resolution_holds = row
+        .resolved_digest
+        .as_deref()
+        .is_some_and(|digest| digest == row.summary_digest);
+    differs && !resolution_holds
+}
+
+/// Returns the number of open copies of `feed_guid`, and the newest
+/// `first_seen` of an open copy, or `None` when it has none.
+///
+/// Short-circuits at `(0, None)` when the GUID has no `feed_copies` row, so
+/// the common case of a feed with no copy costs one indexed `COUNT(*)`.
+/// Otherwise it reads every row and applies [`copy_differences`] and
+/// [`is_open_copy`] to each.
+///
+/// ADR 0058 Section 3.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn open_copy_summary(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<(i64, Option<i64>), DbError> {
+    if count_feed_copies(conn, feed_guid)? == 0 {
+        return Ok((0, None));
+    }
+
+    let rows = list_feed_copies(conn, feed_guid)?;
+    let mut count = 0i64;
+    let mut newest_first_seen: Option<i64> = None;
+    for row in &rows {
+        let (differs_tracks, differs_recipients) = copy_differences(conn, feed_guid, row)?;
+        if is_open_copy(differs_tracks, differs_recipients, row) {
+            count += 1;
+            newest_first_seen =
+                Some(newest_first_seen.map_or(row.first_seen, |seen| seen.max(row.first_seen)));
+        }
+    }
+    Ok((count, newest_first_seen))
+}
+
+/// Returns every distinct `feed_guid` that has at least one `feed_copies`
+/// row, in no particular order.
+///
+/// ADR 0058 Section 3.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn list_feed_copy_guids(conn: &Connection) -> Result<Vec<String>, DbError> {
+    let mut stmt = conn.prepare("SELECT DISTINCT feed_guid FROM feed_copies")?;
+    let rows = stmt.query_map([], |row| row.get(0))?;
+    rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
 // ── resolve_listed_feed ───────────────────────────────────────────────────────

@@ -8,9 +8,11 @@
 //! `seq` is included in the signing payload to prevent MITM inflation of
 //! the delivery-ordering cursor (Issue-SEQ-INTEGRITY).
 
+use std::collections::BTreeMap;
+
 use crate::model::{
     Artist, ArtistCredit, Feed, FeedBlockKind, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
+    PaymentRoute, RouteRecipient, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
     SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
     TrackRemoteItemRaw, ValueTimeSplit,
 };
@@ -62,6 +64,10 @@ pub enum EventType {
     FeedBlocked,
     /// A previously blocked feed GUID or URL was unblocked (ADR 0053 Section 1).
     FeedUnblocked,
+    /// The summary of a mirror body at a URL is new or changed (ADR 0058 §1).
+    FeedCopyObserved,
+    /// The operator resolved an open copy (ADR 0058 §4).
+    FeedCopyResolved,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -110,6 +116,10 @@ pub enum EventPayload {
     FeedBlocked(FeedBlockedPayload),
     /// Payload for a feed-unblock event.
     FeedUnblocked(FeedUnblockedPayload),
+    /// Payload for a mirror-summary-observed event.
+    FeedCopyObserved(FeedCopyObservedPayload),
+    /// Payload for a copy-resolution event.
+    FeedCopyResolved(FeedCopyResolvedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -171,6 +181,11 @@ pub struct EventSigningPayload<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUpsertedPayload {
     pub feed: Feed,
+    /// The operator's reason for an ADR 0058 section 5 relocation. `None`
+    /// outside a relocation. The apply step does not read this field; the
+    /// updated `feed` already carries every column a replica applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Emitted when a feed is permanently removed from the index.
@@ -329,4 +344,40 @@ pub struct FeedBlockedPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedUnblockedPayload {
     pub block_id: String,
+}
+
+/// Emitted when the ADR 0058 Section 1 summary of a mirror body at `url` is
+/// new or changes for `feed_guid`.
+///
+/// The subject GUID of the [`Event`] carrying this payload is `feed_guid`.
+/// `first_seen` is the time the primary first saw this pair. A replayed
+/// event for the same pair carries the same `first_seen`, so applying it
+/// keeps the row's original value.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedCopyObservedPayload {
+    pub feed_guid: String,
+    pub url: String,
+    pub first_seen: i64,
+    pub title: String,
+    pub item_guids: Vec<String>,
+    pub feed_recipients: Vec<RouteRecipient>,
+    pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
+    pub summary_digest: String,
+}
+
+/// Emitted when the operator resolves an open copy of `feed_guid` at `url`
+/// (ADR 0058 Section 4).
+///
+/// The subject GUID of the [`Event`] carrying this payload is `feed_guid`.
+/// `decision` is `"keep_source"` or `"relocate"`. `resolved_digest` is the
+/// `summary_digest` of the row at the time of the resolution. The
+/// resolution holds only while the row keeps that digest.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedCopyResolvedPayload {
+    pub feed_guid: String,
+    pub url: String,
+    pub decision: String,
+    pub reason: String,
+    pub resolved_at: i64,
+    pub resolved_digest: String,
 }

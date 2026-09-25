@@ -9,7 +9,12 @@
 //! All types derive `Serialize` and `Deserialize` so they can be embedded in
 //! event payloads and returned from API endpoints without additional mapping.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
+
+use crate::ingest::{IngestFeedData, IngestPaymentRoute};
 
 // Field names intentionally repeat the struct prefix (e.g. artist_id, feed_guid)
 // because these are canonical Podcast Namespace identifiers used verbatim in
@@ -454,4 +459,113 @@ pub struct FeedBlock {
     pub value: String,
     pub reason: String,
     pub blocked_at: i64,
+}
+
+// ── feed_copies (ADR 0058) ───────────────────────────────────────────────────
+
+/// This is the ADR 0058 Section 1 summary of one submission at a URL for a
+/// feed GUID. It holds the channel title, the item GUIDs in the feed's own
+/// order, and the recipient set of the feed and of each track.
+///
+/// [`summary_digest`] covers `item_guids`, `feed_recipients` and
+/// `track_recipients` only, so a title change alone makes no event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CopySummary {
+    pub title: String,
+    pub item_guids: Vec<String>,
+    pub feed_recipients: Vec<RouteRecipient>,
+    pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
+}
+
+impl From<&IngestPaymentRoute> for RouteRecipient {
+    fn from(route: &IngestPaymentRoute) -> Self {
+        Self {
+            address: route.address.clone(),
+            custom_key: route.custom_key.clone(),
+            custom_value: route.custom_value.clone(),
+            split: route.split,
+        }
+    }
+}
+
+/// Builds the ADR 0058 Section 1 summary of a mirror body. The summary
+/// holds the channel title, the item GUIDs in the feed's own order, and the
+/// recipient set of the feed and of each track.
+#[must_use]
+pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
+    let feed_recipients = feed
+        .feed_payment_routes
+        .iter()
+        .map(RouteRecipient::from)
+        .collect();
+
+    let mut item_guids = Vec::with_capacity(feed.tracks.len());
+    let mut track_recipients = BTreeMap::new();
+    for track in &feed.tracks {
+        item_guids.push(track.track_guid.clone());
+        let recipients: Vec<RouteRecipient> = track
+            .payment_routes
+            .iter()
+            .map(RouteRecipient::from)
+            .collect();
+        track_recipients.insert(track.track_guid.clone(), recipients);
+    }
+
+    CopySummary {
+        title: feed.title.clone(),
+        item_guids,
+        feed_recipients,
+        track_recipients,
+    }
+}
+
+/// The identity fields of a [`CopySummary`] (ADR 0058 Section 1). The title
+/// is left out, so a title change alone does not change the digest.
+#[derive(Serialize)]
+struct CopySummaryDigestFields<'a> {
+    item_guids: &'a [String],
+    feed_recipients: &'a [RouteRecipient],
+    track_recipients: &'a BTreeMap<String, Vec<RouteRecipient>>,
+}
+
+/// Returns the SHA-256 hex digest of the identity fields of `summary`: the
+/// `item_guids`, `feed_recipients` and `track_recipients` (ADR 0058 Section
+/// 1). The title is not part of the digest.
+///
+/// `item_guids` and `feed_recipients` keep the submission order, and
+/// `BTreeMap` keeps a stable key order, so the same summary always makes the
+/// same bytes.
+///
+/// # Panics
+///
+/// Panics if `CopySummaryDigestFields` cannot be serialized to JSON. This is
+/// a programming error, since the type always serializes.
+#[must_use]
+pub fn summary_digest(summary: &CopySummary) -> String {
+    let fields = CopySummaryDigestFields {
+        item_guids: &summary.item_guids,
+        feed_recipients: &summary.feed_recipients,
+        track_recipients: &summary.track_recipients,
+    };
+    let bytes =
+        serde_json::to_vec(&fields).expect("CopySummaryDigestFields always serializes to JSON");
+    hex::encode(sha2::Sha256::digest(&bytes))
+}
+
+/// The ADR 0058 Section 1b namespace for deriving a `podcast:guid` from a
+/// feed URL.
+const GUID_ORIGIN_NAMESPACE: uuid::Uuid = uuid::uuid!("ead4c236-bf58-58c6-a2c6-a6b28d128cb6");
+
+/// True when `feed_guid` is the `UUIDv5` that the ADR 0058 Section 1b
+/// namespace derives from `url`. The check removes the scheme and one
+/// trailing slash from `url` first.
+///
+/// This is evidence for the operator. It is not a rule. A correct move to a
+/// new host keeps the old GUID, so the old URL can also match.
+#[must_use]
+pub fn guid_origin_matches(feed_guid: &str, url: &str) -> bool {
+    let without_scheme = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let name = without_scheme.strip_suffix('/').unwrap_or(without_scheme);
+    let derived = uuid::Uuid::new_v5(&GUID_ORIGIN_NAMESPACE, name.as_bytes());
+    derived.to_string().eq_ignore_ascii_case(feed_guid)
 }

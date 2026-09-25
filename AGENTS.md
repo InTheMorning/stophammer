@@ -112,9 +112,11 @@ The work that remains:
      node.
    - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Accepted on
      2026-09-25. The API shows each copy of a feed at a URL that is not its
-     source, and the operator keeps the source or relocates the record. The
-     [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md) gives the
-     sequence.
+     source, and the operator keeps the source or relocates the record. Tasks
+     001 to 004 are complete on 2026-09-25 and not deployed. A relocation
+     through `PATCH /v1/feeds/{guid}` now needs a `reason`. Task 005 is the
+     deploy. The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md)
+     gives the sequence.
    - ADR 0052 section 4, amended on 2026-09-25. A GUID change at the source
      URL is public and pending. It applies when the new GUID is the UUIDv5 of
      the source URL, or when the operator approves it. Not built.

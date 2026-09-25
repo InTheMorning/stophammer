@@ -201,6 +201,38 @@ fn apply_single_event_inner(
             // (ADR 0053 Section 1).
             db::delete_feed_block(conn, &p.block_id)?;
         }
+        event::EventPayload::FeedCopyObserved(p) => {
+            // Idempotent upsert: it keeps the row's first_seen and resolution
+            // columns, and never writes last_seen or the overflow counter,
+            // both local to the primary ingest path (ADR 0058 Section 1).
+            let summary = crate::model::CopySummary {
+                title: p.title.clone(),
+                item_guids: p.item_guids.clone(),
+                feed_recipients: p.feed_recipients.clone(),
+                track_recipients: p.track_recipients.clone(),
+            };
+            db::upsert_feed_copy_summary(
+                conn,
+                &p.feed_guid,
+                &p.url,
+                p.first_seen,
+                &summary,
+                &p.summary_digest,
+            )?;
+        }
+        event::EventPayload::FeedCopyResolved(p) => {
+            // Idempotent: writing the resolution of a missing row is a no-op
+            // (ADR 0058 Section 4).
+            db::set_feed_copy_resolution(
+                conn,
+                &p.feed_guid,
+                &p.url,
+                &p.decision,
+                &p.reason,
+                p.resolved_at,
+                &p.resolved_digest,
+            )?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

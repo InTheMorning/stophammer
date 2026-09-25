@@ -28,7 +28,7 @@ use axum::{
     routing::{delete, get, patch, post},
 };
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::keyed::DefaultKeyedStateStore};
-use rusqlite::params;
+use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use tower_http::cors::{Any, CorsLayer};
 use utoipa::ToSchema;
@@ -819,6 +819,115 @@ fn record_feed_url_observations_for_ingest(
     Ok(signed_rows)
 }
 
+/// Builds the `FeedCopyObserved` event row for one summary of `feed_guid` at
+/// `url` (ADR 0058 sections 1 and 1a).
+fn feed_copy_observed_event_row(
+    feed_guid: &str,
+    url: &str,
+    first_seen: i64,
+    summary: &model::CopySummary,
+    digest: &str,
+    now: i64,
+) -> Result<db::EventRow, ApiError> {
+    let payload = event::FeedCopyObservedPayload {
+        feed_guid: feed_guid.to_string(),
+        url: url.to_string(),
+        first_seen,
+        title: summary.title.clone(),
+        item_guids: summary.item_guids.clone(),
+        feed_recipients: summary.feed_recipients.clone(),
+        track_recipients: summary.track_recipients.clone(),
+        summary_digest: digest.to_string(),
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedCopyObserved payload: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(db::EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: event::EventType::FeedCopyObserved,
+        payload_json,
+        subject_guid: feed_guid.to_string(),
+        created_at: now,
+        warnings: vec![],
+    })
+}
+
+/// Records the ADR 0058 sections 1 and 1a summary of a mirror body at `url`
+/// for `feed_guid`. Signs one `FeedCopyObserved` event for a new or a
+/// changed summary.
+///
+/// A row that exists gets a new `last_seen`. The digest decides the rest:
+/// the same digest signs no event, and a changed digest writes the new
+/// summary and signs one event, with the row's own `first_seen`. When no row
+/// exists and the GUID already holds `MAX_COPIES_PER_GUID` rows, the call
+/// writes no row and no event, and adds one to the overflow count instead.
+///
+/// Runs in its own transaction. Returns the signed event, when the call
+/// signs one, or an empty list.
+fn record_feed_copy_for_ingest(
+    conn: &mut rusqlite::Connection,
+    feed_guid: &str,
+    url: &str,
+    feed_data: &ingest::IngestFeedData,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    let summary = model::copy_summary(feed_data);
+    let digest = model::summary_digest(&summary);
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+    let existing = db::get_feed_copy(&tx, feed_guid, url)?;
+
+    let signed_row = match existing {
+        Some(row) => {
+            db::touch_feed_copy_last_seen(&tx, feed_guid, url, now)?;
+            if digest == row.summary_digest {
+                None
+            } else {
+                db::upsert_feed_copy_summary(
+                    &tx,
+                    feed_guid,
+                    url,
+                    row.first_seen,
+                    &summary,
+                    &digest,
+                )?;
+                Some(sign_event_row(
+                    &tx,
+                    feed_copy_observed_event_row(
+                        feed_guid,
+                        url,
+                        row.first_seen,
+                        &summary,
+                        &digest,
+                        now,
+                    )?,
+                    signer,
+                )?)
+            }
+        }
+        None => {
+            if db::count_feed_copies(&tx, feed_guid)? >= db::MAX_COPIES_PER_GUID {
+                db::increment_copy_overflow(&tx, feed_guid)?;
+                None
+            } else {
+                db::upsert_feed_copy_summary(&tx, feed_guid, url, now, &summary, &digest)?;
+                db::touch_feed_copy_last_seen(&tx, feed_guid, url, now)?;
+                Some(sign_event_row(
+                    &tx,
+                    feed_copy_observed_event_row(feed_guid, url, now, &summary, &digest, now)?,
+                    signer,
+                )?)
+            }
+        }
+    };
+
+    tx.commit().map_err(db::DbError::from)?;
+    Ok(signed_row.into_iter().collect())
+}
+
 /// Logs one rejection reason of ADR 0051 section 2.
 ///
 /// `source_url` and `canonical_url` are the two URLs the crawler reported
@@ -1554,6 +1663,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/v1/feeds/{guid}/tracks/{track_guid}",
             patch(handle_patch_feed_track).delete(handle_remove_track),
         )
+        .route("/v1/feeds/{guid}/copies/resolve", post(handle_resolve_copy))
         .route("/v1/tracks/{guid}", patch(handle_patch_track))
         .route(
             "/v1/blocks",
@@ -1750,12 +1860,13 @@ async fn handle_ingest_feed(
                     // ADR 0051 section 2: classify before recording an
                     // observation. Update, Mirror and NewFeed keep today's
                     // behavior here; the two conflict cases write nothing.
-                    let conflict_reason = match db::classify_submission(
+                    let classification = db::classify_submission(
                         &conn,
                         &feed_data.feed_guid,
                         &req.source_url,
                         &req.canonical_url,
-                    )? {
+                    )?;
+                    let conflict_reason = match &classification {
                         db::SubmissionClass::RecordConflict => Some("record_conflict"),
                         db::SubmissionClass::GuidChange { .. } => Some("guid_change_pending"),
                         db::SubmissionClass::Update
@@ -1791,14 +1902,47 @@ async fn handle_ingest_feed(
                         now,
                         &state2.signer,
                     )?;
-                    let event_ids = url_observation_rows
+
+                    // ADR 0058 sections 1 and 1a: a mirror body that repeats
+                    // its last submission still reaches this branch, not the
+                    // write phase below. It needs its own copy summary here.
+                    let mut copy_rows = Vec::new();
+                    if let db::SubmissionClass::Mirror { source_url } = &classification {
+                        copy_rows = record_feed_copy_for_ingest(
+                            &mut conn,
+                            &feed_data.feed_guid,
+                            &req.canonical_url,
+                            feed_data,
+                            now,
+                            &state2.signer,
+                        )?;
+                        if &req.source_url != source_url && req.source_url != req.canonical_url {
+                            copy_rows.extend(record_feed_copy_for_ingest(
+                                &mut conn,
+                                &feed_data.feed_guid,
+                                &req.source_url,
+                                feed_data,
+                                now,
+                                &state2.signer,
+                            )?);
+                        }
+                    }
+
+                    let mut event_ids: Vec<String> = url_observation_rows
                         .iter()
                         .map(|signed| signed.row.event_id.clone())
                         .collect();
-                    let fanout_events = url_observation_rows
+                    event_ids.extend(copy_rows.iter().map(|signed| signed.row.event_id.clone()));
+                    let mut fanout_events = url_observation_rows
                         .into_iter()
                         .map(signed_row_to_event)
                         .collect::<Result<Vec<_>, ApiError>>()?;
+                    fanout_events.extend(
+                        copy_rows
+                            .into_iter()
+                            .map(signed_row_to_event)
+                            .collect::<Result<Vec<_>, ApiError>>()?,
+                    );
                     (event_ids, fanout_events)
                 } else {
                     (vec![], vec![])
@@ -1918,14 +2062,44 @@ async fn handle_ingest_feed(
                         now,
                         &state2.signer,
                     )?;
-                    let event_ids = url_observation_rows
+
+                    // ADR 0058 sections 1 and 1a: the mirror records a copy
+                    // summary of itself, in the same writer lock as the URL
+                    // observation above.
+                    let mut copy_rows = record_feed_copy_for_ingest(
+                        &mut conn,
+                        &feed_data.feed_guid,
+                        &req.canonical_url,
+                        feed_data,
+                        now,
+                        &state2.signer,
+                    )?;
+                    if req.source_url != source_url && req.source_url != req.canonical_url {
+                        copy_rows.extend(record_feed_copy_for_ingest(
+                            &mut conn,
+                            &feed_data.feed_guid,
+                            &req.source_url,
+                            feed_data,
+                            now,
+                            &state2.signer,
+                        )?);
+                    }
+
+                    let mut event_ids: Vec<String> = url_observation_rows
                         .iter()
                         .map(|signed| signed.row.event_id.clone())
                         .collect();
-                    let fanout_events = url_observation_rows
+                    event_ids.extend(copy_rows.iter().map(|signed| signed.row.event_id.clone()));
+                    let mut fanout_events = url_observation_rows
                         .into_iter()
                         .map(signed_row_to_event)
                         .collect::<Result<Vec<_>, ApiError>>()?;
+                    fanout_events.extend(
+                        copy_rows
+                            .into_iter()
+                            .map(signed_row_to_event)
+                            .collect::<Result<Vec<_>, ApiError>>()?,
+                    );
                     return Ok((
                         ingest::IngestResponse {
                             accepted: false,
@@ -4080,12 +4254,101 @@ async fn handle_delete_block(
 #[derive(Deserialize)]
 struct PatchFeedRequest {
     feed_url: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "event signing and fan-out follow the handle_retire_feed pattern"
-)]
+/// The result of [`relocate_feed`].
+enum RelocateOutcome {
+    /// Another record already holds `new_url` as its own stored source URL
+    /// (ADR 0052's relocation rule). The caller's transaction commits
+    /// nothing.
+    Conflict,
+    /// The relocation applied. Carries the signed `FeedUpserted` event.
+    Relocated(SignedEventRow),
+}
+
+/// Relocates `feed_guid` to `new_url` inside the caller's transaction: sets
+/// `feed_url`, clears `last_build_date` and `declared_self_url`, and signs
+/// one `FeedUpserted` event carrying `reason`. `PATCH /v1/feeds/{guid}` and
+/// `POST /v1/feeds/{guid}/copies/resolve` both call this function so a
+/// relocation always clears the same two fields (ADR 0058 sections 4 and 5).
+///
+/// `declared_self_url` is local to the primary: it is not a field of the
+/// `Feed` model, so the `FeedUpserted` event cannot carry it, and a replica
+/// never clears its own copy (ADR 0052 section 2 owns the column).
+///
+/// Returns [`RelocateOutcome::Conflict`] and writes nothing when another
+/// record already holds `new_url` as its stored source URL.
+///
+/// # Errors
+///
+/// Returns [`db::DbError`] if a query, the update, or event serialization
+/// fails.
+fn relocate_feed(
+    tx: &rusqlite::Transaction,
+    feed_guid: &str,
+    new_url: &str,
+    reason: &str,
+    signer: &signing::NodeSigner,
+    now: i64,
+) -> Result<RelocateOutcome, db::DbError> {
+    let conflict: Option<String> = tx
+        .query_row(
+            "SELECT feed_guid FROM feeds WHERE feed_url = ?1 AND feed_guid <> ?2",
+            params![new_url, feed_guid],
+            |row| row.get(0),
+        )
+        .optional()?;
+    if conflict.is_some() {
+        return Ok(RelocateOutcome::Conflict);
+    }
+
+    tx.execute(
+        "UPDATE feeds SET feed_url = ?1, last_build_date = NULL WHERE feed_guid = ?2",
+        params![new_url, feed_guid],
+    )?;
+    // ADR 0058 section 5: cleared in the same transaction as feed_url, so
+    // the next body from new_url applies with no stale rule and records its
+    // own self link.
+    db::set_declared_self_url(tx, feed_guid, None)?;
+
+    let feed = db::get_feed_by_guid(tx, feed_guid)?
+        .ok_or_else(|| db::DbError::Other(format!("feed {feed_guid} vanished after relocation")))?;
+
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let payload = event::FeedUpsertedPayload {
+        feed,
+        reason: Some(reason.to_string()),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+    let (seq, signed_by, signature) = db::insert_event(
+        tx,
+        &event_id,
+        &event::EventType::FeedUpserted,
+        &payload_json,
+        feed_guid,
+        signer,
+        now,
+        &[],
+    )?;
+
+    Ok(RelocateOutcome::Relocated(SignedEventRow {
+        row: db::EventRow {
+            event_id,
+            event_type: event::EventType::FeedUpserted,
+            payload_json,
+            subject_guid: feed_guid.to_string(),
+            created_at: now,
+            warnings: vec![],
+        },
+        seq,
+        signed_by,
+        signature,
+    }))
+}
+
 async fn handle_patch_feed(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -4121,76 +4384,40 @@ async fn handle_patch_feed(
                 return Ok(None);
             };
 
+            // ADR 0058 section 5: a relocation by feed_url needs a reason.
+            let reason = req.reason.as_deref().unwrap_or("").trim();
+            if reason.is_empty() {
+                return Err(ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "reason must not be empty when patching feed_url".into(),
+                    www_authenticate: None,
+                });
+            }
+
             // Wrap mutation + event insert in a single transaction.
             // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from writer lock, no nesting.
             let tx = conn
                 .transaction()
                 .map_err(|e| ApiError::from(db::DbError::from(e)))?;
 
-            tx.execute(
-                "UPDATE feeds SET feed_url = ?1 WHERE feed_guid = ?2",
-                params![new_url, guid2],
-            )
-            .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            // Issue-12 PATCH emits events — 2026-03-13
-            // Re-read the feed after the update to capture current state.
-            let feed = db::get_feed_by_guid(&tx, &guid2)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("feed {guid2} vanished after update"),
-                    www_authenticate: None,
-                })?;
-
-            // Build and sign a FeedUpserted event.
             let now = db::unix_now();
-            let event_id = uuid::Uuid::new_v4().to_string();
-            let payload = event::FeedUpsertedPayload { feed };
-            let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("failed to serialize FeedUpserted payload: {e}"),
-                www_authenticate: None,
-            })?;
-            // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
-            let (seq, signed_by, signature) = db::insert_event(
-                &tx,
-                &event_id,
-                &event::EventType::FeedUpserted,
-                &payload_json,
-                &guid2,
-                &state2.signer,
-                now,
-                &[],
-            )
-            .map_err(ApiError::from)?;
+            let signed = match relocate_feed(&tx, &guid2, new_url, reason, &state2.signer, now)
+                .map_err(ApiError::from)?
+            {
+                RelocateOutcome::Conflict => {
+                    return Err(ApiError {
+                        status: StatusCode::CONFLICT,
+                        message: format!("{new_url} is already the source URL of another record"),
+                        www_authenticate: None,
+                    });
+                }
+                RelocateOutcome::Relocated(signed) => signed,
+            };
 
             tx.commit()
                 .map_err(|e| ApiError::from(db::DbError::from(e)))?;
 
-            // Build event for fan-out AFTER commit.
-            let tagged = format!(r#"{{"type":"feed_upserted","data":{payload_json}}}"#);
-            let ev_payload =
-                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("failed to deserialize FeedUpserted event for fan-out: {e}"),
-                    www_authenticate: None,
-                })?;
-
-            let fanout_event = event::Event {
-                event_id,
-                event_type: event::EventType::FeedUpserted,
-                payload: ev_payload,
-                subject_guid: guid2,
-                signed_by,
-                signature,
-                seq,
-                created_at: now,
-                warnings: vec![],
-                payload_json,
-            };
-
-            Ok(Some(vec![fanout_event]))
+            Ok(Some(vec![signed_row_to_event(signed)?]))
         })
         .await
         .map_err(|e| ApiError {
@@ -4220,6 +4447,190 @@ async fn handle_patch_feed(
     }
 
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ── POST /v1/feeds/{guid}/copies/resolve ────────────────────────────────────
+// ADR 0058 sections 4 and 5: the operator keeps the source or relocates the
+// record. Admin token only, following the handle_create_block pattern of one
+// signed event and a post-commit fan-out.
+
+/// Request body for `POST /v1/feeds/{guid}/copies/resolve`.
+#[derive(Deserialize)]
+struct ResolveCopyRequest {
+    url: String,
+    decision: String,
+    reason: String,
+}
+
+/// Response body for a resolved copy: the IDs of every event the resolution
+/// signed, in the order they were signed. `relocate` signs a `FeedUpserted`
+/// and a `FeedCopyResolved`; `keep_source` signs only the latter.
+#[derive(Serialize)]
+struct ResolveCopyResponse {
+    event_ids: Vec<String>,
+}
+
+/// The result of the resolve transaction, decided before any fan-out.
+enum ResolveCopyOutcome {
+    /// `feed_guid` names no record, or the record has no `feed_copies` row
+    /// at the given `url`.
+    NotFound,
+    /// `decision` was `relocate`, and another record already holds `url` as
+    /// its own stored source URL. Nothing was written.
+    Conflict,
+    /// The resolution applied. Carries every signed event for fan-out.
+    Resolved {
+        event_ids: Vec<String>,
+        events: Vec<SignedEventRow>,
+    },
+}
+
+#[expect(
+    clippy::too_many_lines,
+    reason = "one transaction covers both the optional relocation and the FeedCopyResolved event, following the handle_create_block pattern"
+)]
+async fn handle_resolve_copy(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+    Json(req): Json<ResolveCopyRequest>,
+) -> Result<Response, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let reason = req.reason.trim().to_string();
+    if reason.is_empty() {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "reason must not be empty".into(),
+            www_authenticate: None,
+        });
+    }
+    if req.decision != "keep_source" && req.decision != "relocate" {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: format!(
+                "decision must be \"keep_source\" or \"relocate\", got {:?}",
+                req.decision
+            ),
+            www_authenticate: None,
+        });
+    }
+
+    let decision = req.decision.clone();
+    let url = req.url.clone();
+    let guid2 = guid.clone();
+    let state2 = Arc::clone(&state);
+    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+        let tx = conn.transaction()?;
+
+        if db::get_feed_by_guid(&tx, &guid2)?.is_none() {
+            return Ok(ResolveCopyOutcome::NotFound);
+        }
+        let Some(row) = db::get_feed_copy(&tx, &guid2, &url)? else {
+            return Ok(ResolveCopyOutcome::NotFound);
+        };
+
+        let now = db::unix_now();
+        let mut event_ids = Vec::new();
+        let mut events = Vec::new();
+
+        // ADR 0058 section 4: `relocate` clears the section 5 fields in the
+        // same transaction as the resolution, using the row's own URL.
+        if decision == "relocate" {
+            match relocate_feed(&tx, &guid2, &row.url, &reason, &state2.signer, now)? {
+                RelocateOutcome::Conflict => return Ok(ResolveCopyOutcome::Conflict),
+                RelocateOutcome::Relocated(signed) => {
+                    event_ids.push(signed.row.event_id.clone());
+                    events.push(signed);
+                }
+            }
+        }
+
+        // The resolution names the row's own summary_digest — not a
+        // recomputed one — so it holds until that summary next changes.
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let payload = event::FeedCopyResolvedPayload {
+            feed_guid: guid2.clone(),
+            url: row.url.clone(),
+            decision: decision.clone(),
+            reason: reason.clone(),
+            resolved_at: now,
+            resolved_digest: row.summary_digest.clone(),
+        };
+        let payload_json = serde_json::to_string(&payload)?;
+        let (seq, signed_by, signature) = db::insert_event(
+            &tx,
+            &event_id,
+            &event::EventType::FeedCopyResolved,
+            &payload_json,
+            &guid2,
+            &state2.signer,
+            now,
+            &[],
+        )?;
+        db::set_feed_copy_resolution(
+            &tx,
+            &guid2,
+            &row.url,
+            &decision,
+            &reason,
+            now,
+            &row.summary_digest,
+        )?;
+
+        tx.commit()?;
+
+        event_ids.push(event_id.clone());
+        events.push(SignedEventRow {
+            row: db::EventRow {
+                event_id,
+                event_type: event::EventType::FeedCopyResolved,
+                payload_json,
+                subject_guid: guid2.clone(),
+                created_at: now,
+                warnings: vec![],
+            },
+            seq,
+            signed_by,
+            signature,
+        });
+
+        Ok(ResolveCopyOutcome::Resolved { event_ids, events })
+    })
+    .await?;
+
+    match outcome {
+        ResolveCopyOutcome::NotFound => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("feed {guid} not found, or it has no copy at that url"),
+            www_authenticate: None,
+        }),
+        ResolveCopyOutcome::Conflict => Err(ApiError {
+            status: StatusCode::CONFLICT,
+            message: "the copy's url is already the source URL of another record".into(),
+            www_authenticate: None,
+        }),
+        ResolveCopyOutcome::Resolved { event_ids, events } => {
+            let fanout_events = events
+                .into_iter()
+                .map(signed_row_to_event)
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Fire-and-forget fan-out, as handle_create_block does.
+            publish_events_to_sse(&state.sse_registry, &fanout_events);
+            let db_fanout = state.db.clone();
+            let client_fanout = state.push_client.clone();
+            let subscribers_fanout = Arc::clone(&state.push_subscribers);
+            tokio::spawn(fan_out_push(
+                db_fanout,
+                client_fanout,
+                subscribers_fanout,
+                fanout_events,
+            ));
+
+            Ok((StatusCode::OK, Json(ResolveCopyResponse { event_ids })).into_response())
+        }
+    }
 }
 
 // ── PATCH /tracks/{guid} ───────────────────────────────────────────────────

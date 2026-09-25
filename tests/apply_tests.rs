@@ -1503,7 +1503,7 @@ fn make_feed_upserted_event(
         release_artist_source: None,
     };
 
-    let inner = FeedUpsertedPayload { feed };
+    let inner = FeedUpsertedPayload { feed, reason: None };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
     Event {

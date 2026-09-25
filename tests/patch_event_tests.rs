@@ -141,7 +141,8 @@ async fn patch_feed_emits_feed_upserted_event() {
         .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
-                "feed_url": "https://updated.example.com/feed.xml"
+                "feed_url": "https://updated.example.com/feed.xml",
+                "reason": "confirmed move to the new host"
             }))
             .expect("serialize JSON"),
         ))
@@ -232,7 +233,8 @@ async fn patch_feed_event_has_valid_signature() {
         .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
-                "feed_url": "https://signed.example.com/feed.xml"
+                "feed_url": "https://signed.example.com/feed.xml",
+                "reason": "confirmed move to the new host"
             }))
             .expect("serialize JSON"),
         ))

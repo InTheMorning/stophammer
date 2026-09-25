@@ -13,7 +13,7 @@
 //! Pagination uses opaque base64-encoded cursors. Nested data can be requested
 //! via the `?include=` query parameter.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use axum::{
@@ -27,7 +27,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::model::{Feed, RouteRecipient};
+use crate::model::{Feed, RouteRecipient, guid_origin_matches};
 use crate::{api, db, event, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
@@ -211,6 +211,9 @@ struct FeedResponse {
     episode_count: Option<i64>,
     newest_item_at: Option<i64>,
     oldest_item_at: Option<i64>,
+    /// The number of open copies of this feed (ADR 0058 sections 2 to 4).
+    /// `GET /v1/feeds/{guid}/copies` lists them.
+    copy_count: i64,
     created_at: i64,
     updated_at: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -231,6 +234,70 @@ struct FeedResponse {
     remote_items: Option<Vec<FeedRemoteItemResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publisher: Option<Vec<PublisherResponse>>,
+}
+
+/// The resolution of one `feed_copies` row (ADR 0058 Section 4). `current`
+/// is true while the resolution's digest still matches the row's own
+/// digest; a changed summary makes the copy open again with `current: false`.
+#[derive(Debug, Serialize, ToSchema)]
+struct FeedCopyResolutionResponse {
+    decision: String,
+    reason: String,
+    resolved_at: i64,
+    current: bool,
+}
+
+/// One row of `GET /v1/feeds/{guid}/copies` (ADR 0058 sections 1 to 4).
+#[derive(Debug, Serialize, ToSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is a named ADR 0058 fact of the row (differs_tracks, differs_recipients, guid_origin, open), not a state machine"
+)]
+struct FeedCopyResponse {
+    url: String,
+    first_seen: i64,
+    /// Local to the primary. Null on a community node.
+    last_seen: Option<i64>,
+    title: String,
+    differs_tracks: bool,
+    differs_recipients: bool,
+    /// True when this URL's GUID is the `UUIDv5` of the URL itself, and not
+    /// of the record's stored source URL (ADR 0058 Section 1b).
+    guid_origin: bool,
+    /// True when the row differs and has no resolution that holds.
+    open: bool,
+    feed_recipients: Vec<RouteRecipient>,
+    track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
+    resolution: Option<FeedCopyResolutionResponse>,
+}
+
+/// Envelope of `GET /v1/feeds/{guid}/copies`. It carries one extra field
+/// beyond the shared [`QueryResponse`] envelope: `copies_over_limit`, the
+/// ADR 0058 Section 1a counter of this GUID. Local to the primary; `0` on a
+/// community node.
+#[derive(Debug, Serialize, ToSchema)]
+struct FeedCopiesResponse {
+    data: Vec<FeedCopyResponse>,
+    pagination: Pagination,
+    meta: ResponseMeta,
+    copies_over_limit: i64,
+}
+
+/// One item of `GET /v1/copies` (ADR 0058 Section 3): a record with at
+/// least one open copy, or with a `copies_over_limit` counter above zero.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+struct CopyRecordResponse {
+    feed_guid: String,
+    feed_url: String,
+    title: String,
+    /// The number of open copies of this record.
+    copy_count: i64,
+    /// Local to the primary. `0` on a community node.
+    copies_over_limit: i64,
+    /// The newest `first_seen` of an open copy of this record. Null when
+    /// the record has no open copy, which happens only when it is listed
+    /// solely for a `copies_over_limit` above zero.
+    newest_first_seen: Option<i64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -888,6 +955,7 @@ fn build_feed_response(
 ) -> Result<FeedResponse, api::ApiError> {
     let feed_guid = row.feed_guid.clone();
     let publisher_feed_title = resolve_publisher_feed_title(conn, &feed_guid)?;
+    let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &feed_guid)?;
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
@@ -911,6 +979,7 @@ fn build_feed_response(
         episode_count: row.episode_count,
         newest_item_at: row.newest_item_at,
         oldest_item_at: row.oldest_item_at,
+        copy_count,
         created_at: row.created_at,
         updated_at: row.updated_at,
         tracks: None,
@@ -1947,6 +2016,199 @@ async fn handle_get_route_history(
     Ok(Json(result))
 }
 
+// ── GET /v1/feeds/{guid}/copies ─────────────────────────────────────────────
+// ADR 0058 sections 1b, 2 and 3.
+
+/// Builds the response row of one `feed_copies` row: the two differences,
+/// `guid_origin`, `open`, and the resolution when one exists.
+fn build_feed_copy_response(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    row: db::FeedCopyRow,
+) -> Result<FeedCopyResponse, api::ApiError> {
+    let (differs_tracks, differs_recipients) = db::copy_differences(conn, feed_guid, &row)?;
+    let open = db::is_open_copy(differs_tracks, differs_recipients, &row);
+    let resolution = row.resolution.map(|decision| {
+        let current = row
+            .resolved_digest
+            .as_deref()
+            .is_some_and(|digest| digest == row.summary_digest);
+        FeedCopyResolutionResponse {
+            decision,
+            reason: row.resolution_reason.unwrap_or_default(),
+            resolved_at: row.resolved_at.unwrap_or_default(),
+            current,
+        }
+    });
+
+    Ok(FeedCopyResponse {
+        guid_origin: guid_origin_matches(feed_guid, &row.url),
+        url: row.url,
+        first_seen: row.first_seen,
+        last_seen: row.last_seen,
+        title: row.title,
+        differs_tracks,
+        differs_recipients,
+        open,
+        feed_recipients: row.feed_recipients,
+        track_recipients: row.track_recipients,
+        resolution,
+    })
+}
+
+async fn handle_get_feed_copies(
+    State(state): State<Arc<api::AppState>>,
+    Path(feed_guid): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        if db::get_feed_by_guid(&conn, &feed_guid)?.is_none() {
+            return Err(api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "feed not found".into(),
+                www_authenticate: None,
+            });
+        }
+
+        let rows = db::list_feed_copies(&conn, &feed_guid)?;
+        let mut data = Vec::with_capacity(rows.len());
+        for row in rows {
+            data.push(build_feed_copy_response(&conn, &feed_guid, row)?);
+        }
+        let copies_over_limit = db::get_copy_overflow(&conn, &feed_guid)?;
+
+        Ok::<_, api::ApiError>(FeedCopiesResponse {
+            data,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+            copies_over_limit,
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/copies ──────────────────────────────────────────────────────────
+// ADR 0058 Section 3.
+
+/// The `(sort_key, feed_guid)` ordering of a [`CopyRecordResponse`]: newest
+/// `newest_first_seen` first, with a null `newest_first_seen` (an
+/// overflow-only record) sorted as `-1`, the same sentinel
+/// `handle_get_recent_feeds` uses for a feed with no dated item.
+fn copy_record_sort_key(record: &CopyRecordResponse) -> (i64, &str) {
+    (
+        record.newest_first_seen.unwrap_or(-1),
+        record.feed_guid.as_str(),
+    )
+}
+
+async fn handle_list_copy_records(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit().min(100);
+
+        let mut records = Vec::new();
+        for feed_guid in db::list_feed_copy_guids(&conn)? {
+            let (copy_count, newest_first_seen) = db::open_copy_summary(&conn, &feed_guid)?;
+            let copies_over_limit = db::get_copy_overflow(&conn, &feed_guid)?;
+            if copy_count == 0 && copies_over_limit == 0 {
+                continue;
+            }
+            let Some(feed) = db::get_feed_by_guid(&conn, &feed_guid)? else {
+                continue;
+            };
+            records.push(CopyRecordResponse {
+                feed_guid,
+                feed_url: feed.feed_url,
+                title: feed.title,
+                copy_count,
+                copies_over_limit,
+                newest_first_seen,
+            });
+        }
+
+        records.sort_by(|a, b| copy_record_sort_key(b).cmp(&copy_record_sort_key(a)));
+
+        let start = if let Some(ref cursor_str) = params.cursor {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor format".into(),
+                    www_authenticate: None,
+                });
+            }
+            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor timestamp".into(),
+                www_authenticate: None,
+            })?;
+            let cursor_guid = parts[1];
+            records
+                .iter()
+                .position(|r| copy_record_sort_key(r) < (cursor_ts, cursor_guid))
+                .unwrap_or(records.len())
+        } else {
+            0
+        };
+
+        let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
+        let remaining = &records[start.min(records.len())..];
+        let has_more = remaining.len() > limit_usize;
+        let page: Vec<CopyRecordResponse> = remaining.iter().take(limit_usize).cloned().collect();
+
+        let next_cursor = if has_more {
+            page.last().map(|r| {
+                let (sort_ts, sort_guid) = copy_record_sort_key(r);
+                encode_cursor(&format!("{sort_ts}\0{sort_guid}"))
+            })
+        } else {
+            None
+        };
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: page,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── GET /v1/feeds/recent ────────────────────────────────────────────────────
 
 #[allow(
@@ -2092,6 +2354,8 @@ async fn handle_get_recent_feeds(
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
             let publisher_feed_title = resolve_publisher_feed_title(&conn, &r.feed_guid)?;
+            let (copy_count, _newest_open_copy_first_seen) =
+                db::open_copy_summary(&conn, &r.feed_guid)?;
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
@@ -2116,6 +2380,7 @@ async fn handle_get_recent_feeds(
                 episode_count: r.episode_count,
                 newest_item_at: r.newest_item_at,
                 oldest_item_at: r.oldest_item_at,
+                copy_count,
                 created_at: r.created_at,
                 updated_at: r.updated_at,
                 tracks: None,
@@ -2812,6 +3077,8 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
             "/v1/feeds/{guid}/route-history",
             get(handle_get_route_history),
         )
+        .route("/v1/feeds/{guid}/copies", get(handle_get_feed_copies))
+        .route("/v1/copies", get(handle_list_copy_records))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
@@ -2858,6 +3125,8 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<ArtistTrackItem>(&mut schemas);
     register_schema::<PublisherLinkStatsResponse>(&mut schemas);
     register_schema::<RouteHistoryEntry>(&mut schemas);
+    register_schema::<FeedCopiesResponse>(&mut schemas);
+    register_schema::<CopyRecordResponse>(&mut schemas);
     schemas
 }
 

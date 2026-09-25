@@ -218,6 +218,78 @@ fn spec_value(mode: DocMode) -> Value {
             )
         }),
     );
+    paths.insert(
+        "/v1/feeds/{guid}/copies".into(),
+        json!({
+            "get": operation(
+                "Get feed copies",
+                "Returns each row of the ADR 0058 feed-copy summary of a feed: the URL, the two differences against the current record, guid_origin, and the resolution when one exists.",
+                "Feeds",
+                vec![
+                    path_param("guid", "string", "Feed GUID.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Feed-copy rows, in `first_seen` order.",
+                        json!({
+                            "data": [
+                                {
+                                    "url": "https://mirror.example.com/feed.xml",
+                                    "first_seen": 1710288000,
+                                    "last_seen": 1710300000,
+                                    "title": "Mirror Feed",
+                                    "differs_tracks": false,
+                                    "differs_recipients": true,
+                                    "guid_origin": false,
+                                    "open": true,
+                                    "feed_recipients": [{ "address": "attacker@ln.example", "split": 100 }],
+                                    "track_recipients": {},
+                                    "resolution": null
+                                }
+                            ],
+                            "pagination": { "cursor": null, "has_more": false },
+                            "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" },
+                            "copies_over_limit": 0
+                        })
+                    ),
+                    "404": error_response("Feed not found.")
+                }),
+                None
+            )
+        }),
+    );
+    paths.insert(
+        "/v1/copies".into(),
+        json!({
+            "get": operation(
+                "List records with an open copy",
+                "Returns each record that has at least one open ADR 0058 copy, or a copies_over_limit counter above zero, newest first.",
+                "Feeds",
+                vec![
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return, at most 100.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated list of records with an open copy.",
+                        query_envelope_example(json!([
+                            {
+                                "feed_guid": "feed-guid",
+                                "feed_url": "https://example.com/feed.xml",
+                                "title": "Victim Feed",
+                                "copy_count": 1,
+                                "copies_over_limit": 0,
+                                "newest_first_seen": 1710300000
+                            }
+                        ]))
+                    )
+                }),
+                None
+            )
+        }),
+    );
     paths.insert("/v1/feeds/{guid}".into(), feed_path_item(mode));
     paths.insert("/v1/tracks/{guid}".into(), track_path_item(mode));
     paths.insert(
@@ -626,6 +698,36 @@ fn spec_value(mode: DocMode) -> Value {
                 )
             }),
         );
+        paths.insert(
+            "/v1/feeds/{guid}/copies/resolve".into(),
+            json!({
+                "post": operation(
+                    "Resolve a feed copy",
+                    "The operator keeps the source or relocates the record to the copy's URL (ADR 0058 section 4). `relocate` calls the same relocation as `PATCH /v1/feeds/{guid}`: it clears `last_build_date` and `declared_self_url`, and signs a `FeedUpserted` event before the `FeedCopyResolved` event.",
+                    "Feeds",
+                    vec![path_param("guid", "string", "Feed GUID.")],
+                    Some(json_request_body(
+                        "Resolution payload.",
+                        json!({
+                            "url": "https://mirror.example.com/feed.xml",
+                            "decision": "keep_source",
+                            "reason": "confirmed this is an impersonation; keeping the held record"
+                        })
+                    )),
+                    json!({
+                        "200": json_response(
+                            "Resolution applied. `event_ids` has one entry for `keep_source`, and two — `FeedUpserted` then `FeedCopyResolved` — for `relocate`.",
+                            json!({ "event_ids": ["uuid-1", "uuid-2"] })
+                        ),
+                        "400": error_response("Empty reason, or decision is not \"keep_source\" or \"relocate\"."),
+                        "403": error_response("Missing or invalid admin token."),
+                        "404": error_response("Feed not found, or it has no copy row at that url."),
+                        "409": error_response("decision is \"relocate\" and another record already holds the copy's url as its source URL.")
+                    }),
+                    Some(admin_only_security())
+                )
+            }),
+        );
     }
 
     json!({
@@ -714,7 +816,8 @@ fn feed_path_item(mode: DocMode) -> Value {
                         "title": "My Music Feed",
                         "release_artist": "Artist Name",
                         "release_artist_source": "itunes_author",
-                        "publisher_feed_title": "Publisher Feed Title"
+                        "publisher_feed_title": "Publisher Feed Title",
+                        "copy_count": 0
                     }))
                 ),
                 "404": error_response("Feed not found.")
@@ -728,17 +831,22 @@ fn feed_path_item(mode: DocMode) -> Value {
             "patch".into(),
             operation(
                 "Patch feed",
-                "Updates a feed's mutable fields. Currently supports `feed_url` only.",
+                "Updates a feed's mutable fields. Currently supports `feed_url` only, which relocates the record (ADR 0058 section 5). A relocation needs `reason`, and clears `last_build_date` and `declared_self_url`.",
                 "Feeds",
                 vec![path_param("guid", "string", "Feed GUID.")],
                 Some(json_request_body(
-                    "JSON Merge Patch payload.",
-                    json!({ "feed_url": "https://new-feed-url.example.com/feed.xml" }),
+                    "JSON Merge Patch payload. `reason` is required when `feed_url` is present.",
+                    json!({
+                        "feed_url": "https://new-feed-url.example.com/feed.xml",
+                        "reason": "confirmed move to the new host"
+                    }),
                 )),
                 json!({
                     "204": no_content_response("Feed updated."),
+                    "400": error_response("feed_url is present with no reason, or an empty reason."),
                     "403": error_response("Missing or invalid admin token."),
-                    "404": error_response("Feed not found.")
+                    "404": error_response("Feed not found."),
+                    "409": error_response("Another record already holds feed_url as its source URL.")
                 }),
                 Some(admin_only_security()),
             ),
