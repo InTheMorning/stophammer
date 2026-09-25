@@ -5169,6 +5169,86 @@ pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Fee
     Ok(result)
 }
 
+// ── classify_submission (ADR 0051 §2) ───────────────────────────────────────
+
+/// The case of ADR 0051 section 2 for one submission.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubmissionClass {
+    /// `source_url` or `canonical_url` is the source URL of a record with a
+    /// different GUID, and a record has the declared GUID.
+    RecordConflict,
+    /// `source_url` or `canonical_url` is the source URL of a record with a
+    /// different GUID, and no record has the declared GUID.
+    GuidChange {
+        /// The GUID of the record already holding that source URL.
+        held_guid: String,
+    },
+    /// The record with the declared GUID has `source_url` or `canonical_url`
+    /// as its source URL.
+    Update,
+    /// A record has the declared GUID, and its source URL is a different URL.
+    Mirror {
+        /// The stored `feed_url` of the record with the declared GUID.
+        source_url: String,
+    },
+    /// No record has the declared GUID.
+    NewFeed,
+}
+
+/// Gives the case of ADR 0051 section 2 for one submission.
+///
+/// `feed_guid` is the declared GUID of the submission. `source_url` and
+/// `canonical_url` are the two URLs the crawler reports for it. The function
+/// applies the five cases of ADR 0051 section 2 in order and returns the
+/// first case that matches: `RecordConflict`, `GuidChange`, `Update`,
+/// `Mirror`, then `NewFeed`.
+///
+/// The URL comparison is exact string equality. This function applies no
+/// normalization: it does not trim, lower-case, or reconcile a trailing
+/// slash.
+///
+/// This function only reads. It writes no row and opens no transaction.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a SQL query fails.
+pub fn classify_submission(
+    conn: &Connection,
+    feed_guid: &str,
+    source_url: &str,
+    canonical_url: &str,
+) -> Result<SubmissionClass, DbError> {
+    let held_url: Option<String> = conn
+        .query_row(
+            "SELECT feed_url FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    let conflicting_guid: Option<String> = conn
+        .query_row(
+            "SELECT feed_guid FROM feeds WHERE feed_url IN (?2, ?3) AND feed_guid <> ?1",
+            params![feed_guid, source_url, canonical_url],
+            |row| row.get(0),
+        )
+        .optional()?;
+
+    if let Some(held_guid) = conflicting_guid {
+        return Ok(if held_url.is_some() {
+            SubmissionClass::RecordConflict
+        } else {
+            SubmissionClass::GuidChange { held_guid }
+        });
+    }
+
+    Ok(match held_url {
+        Some(url) if url == source_url || url == canonical_url => SubmissionClass::Update,
+        Some(url) => SubmissionClass::Mirror { source_url: url },
+        None => SubmissionClass::NewFeed,
+    })
+}
+
 // ── ingest_transaction ────────────────────────────────────────────────────────
 
 // NOTE: The feed and track upsert SQL below duplicates the standalone

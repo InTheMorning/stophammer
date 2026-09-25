@@ -6,7 +6,9 @@ This guide explains how the verifier chain works and how to create custom verifi
 
 ## What the Verifier Chain Is
 
-The verifier chain is an ordered pipeline of validation steps that every `POST /ingest/feed` request passes through on the primary node. Each verifier inspects the incoming feed data and decides whether to pass, warn, or reject.
+The verifier chain is an ordered set of quality checks. The primary node runs it on each `POST /ingest/feed` submission, after it checks the crawl token. Each verifier reads the incoming feed data and gives a pass, a warning, or a reject.
+
+The crawl token check comes first. It is not a member of this chain. `VerifierChain::new` holds the token apart from the configurable list. `VerifierChain::authenticate` checks the token before the node reads the database, before the chain runs, and before the content-hash shortcut. No `VERIFIER_CHAIN` value can add, remove or reorder this check ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4).
 
 The chain is the core quality gate: it is the reason Stophammer's index
 primarily contains verified V4V music feeds, while still allowing selected
@@ -117,20 +119,20 @@ Warning messages are formatted as `[verifier_name] message` automatically by the
 
 ## How to Configure via VERIFIER_CHAIN
 
-The `VERIFIER_CHAIN` environment variable controls which verifiers run and in what order. It is a comma-separated list of verifier names:
+The `VERIFIER_CHAIN` environment variable controls which quality verifiers run and in what order. It is a comma-separated list of verifier names. `crawl_token` is not a correct name here ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). The node always checks the crawl token first. `build_chain` panics if the list names it.
 
 ```bash
 # Default (all built-ins in recommended order)
-VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
 
 # Add an exact-match feed blocklist
-VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
 
 # Skip medium_music for feeds that don't set podcast:medium yet
-VERIFIER_CHAIN=crawl_token,content_hash,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,v4v_payment,enclosure_type
 
 # Add the strict payment_route_sum check
-VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
+VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
 ```
 
 When `VERIFIER_CHAIN` is absent, empty, or parses to no verifier names, the
@@ -139,8 +141,7 @@ configuration errors; `build_chain` panics rather than silently running a
 weakened gate.
 
 The chain order matters:
-- `crawl_token` should always be first (rejects unauthenticated requests before any DB access)
-- `content_hash` should be second (short-circuits unchanged feeds with no DB write)
+- `content_hash` should be first (short-circuits unchanged feeds with no DB write)
 - `feed_blocklist` should run early if you use it (rejects known-bad feeds before enrichment work)
 - Remaining verifiers inspect feed content and can be reordered freely
 
@@ -200,7 +201,7 @@ In `src/verify.rs`, add to the `build_chain` function:
 Set the environment variable to include your verifier:
 
 ```bash
-VERIFIER_CHAIN=crawl_token,content_hash,my_verifier,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,my_verifier,medium_music,feed_guid,v4v_payment,enclosure_type
 ```
 
 No other files need to change. The chain order and which verifiers run is controlled entirely by the environment variable -- no redeployment of other nodes is required when adding verifiers to a primary.
@@ -209,13 +210,15 @@ No other files need to change. The chain order and which verifiers run is contro
 
 ## Built-in Verifiers
 
-### crawl_token
+### crawl_token (authentication, not a chain entry)
+
+`crawl_token` is not a name in `VERIFIER_CHAIN`. `build_chain` panics if the list names it ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4).
 
 - **File:** `src/verifiers/crawl_token.rs`
-- **Effect:** Rejects requests with an invalid crawl token
-- **Result:** `Fail("invalid crawl token")` on mismatch
-- **Env vars:** None (uses the `CRAWL_TOKEN` passed to `build_chain` at startup)
-- **Notes:** Uses constant-time comparison (SHA-256 hash via `subtle::ConstantTimeEq`). Should always be first in the chain to gate all other checks.
+- **Effect:** Rejects a submission with an incorrect crawl token
+- **Result:** `Fail("invalid crawl token")` on a mismatch
+- **Env vars:** None (uses the `CRAWL_TOKEN` value passed to `VerifierChain::new` at startup)
+- **Notes:** Uses a constant-time compare (a SHA-256 hash through `subtle::ConstantTimeEq`). `VerifierChain::authenticate` runs this check before the node reads the database, before the configurable chain, and before the content-hash shortcut.
 
 ### content_hash
 
@@ -246,7 +249,7 @@ Example:
 ```bash
 BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
 BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
-VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
 ```
 
 ### feed_guid

@@ -20,11 +20,7 @@ fn test_app_state_with_chain(
     );
     let pubkey = signer.pubkey_hex().to_string();
     let spec = stophammer::verify::ChainSpec {
-        names: vec![
-            "crawl_token".to_string(),
-            "medium_music".to_string(),
-            "v4v_payment".to_string(),
-        ],
+        names: vec!["medium_music".to_string(), "v4v_payment".to_string()],
     };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 

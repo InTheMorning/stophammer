@@ -82,6 +82,8 @@ async fn run_primary(
 ) -> Result<(), StartupError> {
     let crawl_token = std::env::var("CRAWL_TOKEN")
         .map_err(|err| startup_error(format!("CRAWL_TOKEN env var required: {err}")))?;
+    // ADR 0051 section 4: the node must not start with no real crawl token.
+    verify::require_crawl_token(&crawl_token).map_err(startup_error)?;
     let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
     let sync_token = community::load_sync_auth_from_env();
     if sync_token.is_none() {
@@ -225,8 +227,11 @@ async fn run_community(
         sse_for_sync,
     )));
 
-    // Build merged router: readonly events API + push receiver.
-    let dummy_chain = verify::VerifierChain::new(vec![]);
+    // Build merged router: readonly events API + push receiver. A community
+    // node never serves POST /ingest/feed, so this chain is never queried,
+    // but VerifierChain::new still requires a non-empty token (ADR 0051
+    // section 4).
+    let dummy_chain = verify::VerifierChain::new("community-node-unused-token".into(), vec![]);
     let push_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()

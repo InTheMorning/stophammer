@@ -15,7 +15,7 @@ use tower::ServiceExt;
 /// be marked `#[must_use]`. We verify the method returns the expected type.
 #[test]
 fn verifier_chain_run_returns_result() {
-    let chain = stophammer::verify::VerifierChain::new(vec![]);
+    let chain = stophammer::verify::VerifierChain::new("test-token".into(), vec![]);
     let conn = common::test_db();
     let request = dummy_ingest_request();
     let ctx = stophammer::verify::IngestContext {
@@ -198,7 +198,7 @@ fn ingest_context_has_debug() {
 
 #[test]
 fn verifier_chain_has_debug() {
-    let chain = stophammer::verify::VerifierChain::new(vec![]);
+    let chain = stophammer::verify::VerifierChain::new("test-token".into(), vec![]);
     let _ = format!("{chain:?}");
 }
 
@@ -282,7 +282,10 @@ fn skip_ssrf_field_available_in_test_cfg() {
     let pubkey = signer.pubkey_hex().to_string();
     let _state = stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),
@@ -321,7 +324,10 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),

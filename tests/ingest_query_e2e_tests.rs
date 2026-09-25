@@ -13,7 +13,8 @@ use http_body_util::BodyExt;
 use tower::ServiceExt;
 
 // ---------------------------------------------------------------------------
-// Helper: build AppState with a crawl-token-only verifier chain
+// Helper: build AppState with an empty quality-verifier chain. The node
+// still checks the crawl token first (ADR 0051 section 4).
 // ---------------------------------------------------------------------------
 
 fn test_app_state_with_crawl_token(
@@ -23,10 +24,8 @@ fn test_app_state_with_crawl_token(
     let signer = Arc::new(common::temp_signer("test-tc05-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
-    // Build a verifier chain with only crawl_token (skip content_hash, medium_music, etc.)
-    let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string()],
-    };
+    // No quality verifiers (skip content_hash, medium_music, etc.).
+    let spec = stophammer::verify::ChainSpec { names: vec![] };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     Arc::new(stophammer::api::AppState {

@@ -7,7 +7,7 @@
 // `release_artist_source = "itunes_author"` counts.
 //
 // These tests use inline payloads and the short chain
-// (`crawl_token, content_hash, medium_music`), the same pattern
+// (`content_hash, medium_music`), the same pattern
 // `tests/adr0049_resolver_tests.rs` uses for its "listed by" test, because
 // none of these synthetic feeds carries a payment route.
 
@@ -29,7 +29,7 @@ fn app_state_with_chain(
     let pubkey = signer.pubkey_hex().to_string();
 
     let spec = stophammer::verify::ChainSpec {
-        names: ["crawl_token", "content_hash", "medium_music"]
+        names: ["content_hash", "medium_music"]
             .iter()
             .map(ToString::to_string)
             .collect(),

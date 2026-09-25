@@ -108,17 +108,16 @@ publisher link. It gives no permission to change the record.
 The record conflict case writes no observation. An observation for `S` or `C`
 would change how ADR 0049 resolves a link to the other record.
 
-### 3. The writer checks the classification again
+### 3. The writer classifies before its first write
 
 The verifier chain runs on a reader connection (`src/api.rs:1637`). Two
-submissions can pass it at the same time. The writer does the
-classification of section 2 again in the transaction that applies the
-content. The result of the writer is the final result.
+submissions can pass it at the same time. Each ingest write holds the one
+writer lock of the node. The writer does the classification of section 2
+after it gets that lock and before its first write. The result of the writer
+is the final result.
 
-All writes of one accepted submission go in one transaction. These writes
-include the artist-credit rows. Today `get_or_create_feed_scoped_source_text_credit`
-writes before the ingest transaction (`src/api.rs:1798`). A rejected
-submission must leave no row.
+A rejection of section 2 thus leaves no row. The only exception is the URL
+observation of the mirror case.
 
 ### 4. Authentication comes first and cannot be removed
 
@@ -175,6 +174,18 @@ normal signed events, so community nodes get the same repair.
 
 A copied GUID at a mirror URL leaves a true observation. The repair keeps
 it.
+
+## Non-Goals
+
+- Moves and GUID changes. ADR 0052 owns them.
+- The trust in the crawler report. ADR 0055 owns it.
+- The crawler fetch of the `source_url` hint. The field is available, and a
+  later change can use it.
+- One transaction for all writes of an accepted submission. Today the
+  artist-credit rows (`src/api.rs:1798`) and the URL observations commit
+  apart from the ingest transaction. After section 3, only an internal error
+  can stop a submission between those writes. That gap is not a trust defect.
+- URL normalization.
 
 ## Alternatives Considered
 
@@ -238,5 +249,5 @@ configuration probes of 2026-09-24 and the Doerfelverse `500`.
   record. Neither record changes, and no observation changes.
 - A test starts the chain with `crawl_token` in `VERIFIER_CHAIN`. Startup
   fails. A test starts the primary with an empty `CRAWL_TOKEN`. Startup fails.
-- A test rejects a submission after the artist-credit step would run. No
-  artist-credit row remains.
+- A test sends each rejection of section 2 and counts the artist-credit rows
+  before and after. The count does not change.

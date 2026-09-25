@@ -13,9 +13,8 @@ use utoipa::{PartialSchema, ToSchema};
 
 /// Full crawler submission for `POST /ingest/feed`.
 ///
-/// `crawl_token` is verified by `CrawlTokenVerifier` as the first step of the
-/// [`verify::VerifierChain`]; requests with an invalid token are rejected before
-/// any DB access occurs.  `feed_data` is `None` when the crawler could not parse
+/// `crawl_token` is checked by [`verify::VerifierChain::authenticate`] before
+/// any DB access occurs (ADR 0051 section 4).  `feed_data` is `None` when the crawler could not parse
 /// the feed (e.g. HTTP error); the verifier chain still runs so the error can
 /// be recorded.
 #[derive(Debug, Deserialize)]
@@ -257,6 +256,10 @@ pub struct IngestResponse {
     pub no_change: bool,
     /// Non-fatal verifier warnings recorded alongside the events.
     pub warnings: Vec<String>,
+    /// The source URL of the held record, present only with a
+    /// `source_conflict` reason (ADR 0051 section 5).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
 }
 
 // ── OpenAPI schema registration (ADR 0044) ──────────────────────────────────

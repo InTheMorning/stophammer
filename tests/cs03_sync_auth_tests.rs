@@ -23,7 +23,10 @@ fn test_app_state_with_token(
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: admin_token.into(),

@@ -14,7 +14,7 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `DB_PATH` | `stophammer.db` | No | Path to the SQLite database file. Use a persistent volume in Docker. |
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
-| `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). |
+| `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). The node checks it before it reads the database, before `VERIFIER_CHAIN`, and before the content-hash shortcut ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). The value must not be empty or white space only. The primary node does not start when the value fails this check. |
 | `ADMIN_TOKEN` | `""` (empty) | No | Token for write-side admin endpoints (`X-Admin-Token` header). It is not accepted on sync endpoints. |
 | `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. If unset, those sync endpoints return 403. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
@@ -64,7 +64,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PROOF_PRUNE_INTERVAL_SECS` | `300` | How often the background pruner deletes expired proof challenges and tokens (seconds). |
-| `VERIFIER_CHAIN` | `crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of verifiers to run on ingest. Primary only. See the [Verifier Guide](verifier-guide.md). |
+| `VERIFIER_CHAIN` | `content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). See the [Verifier Guide](verifier-guide.md). |
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated exact GUID blocklist used by the `feed_blocklist` verifier. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated exact URL blocklist used by the `feed_blocklist` verifier. |
 
@@ -261,7 +261,7 @@ NODE_MODE=primary  (or omit — primary is the default)
 
 The primary node:
 - Accepts `POST /ingest/feed` from crawlers
-- Runs the verifier chain on each submission
+- Checks the crawl token first, then runs the verifier chain on each submission ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4)
 - Signs accepted events with its ed25519 key
 - Fans out new events to all registered community nodes via `POST /sync/push`
 - Serves the full API (read, write, admin, sync)
@@ -282,7 +282,7 @@ Example blocklist configuration:
 ```bash
 BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
 BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
-VERIFIER_CHAIN=crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
 ```
 
 ### Community Mode

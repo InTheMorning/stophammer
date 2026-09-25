@@ -46,6 +46,9 @@ ADR 0005 and ADR 0015.
 
 Crates: `stophammer`, `stophammer-crawler`.
 
+The [ADR 0051 phase plan](adr-0051-source-url-phase-plan.md) gives the task
+packets.
+
 Tasks:
 
 - The node checks `crawl_token` before any database read. `crawl_token` leaves
@@ -53,7 +56,6 @@ Tasks:
 - The primary does not start with an empty `CRAWL_TOKEN`.
 - The writer classifies each submission with the five cases of ADR 0051
   section 2, in the ingest transaction.
-- The artist-credit writes move into the ingest transaction.
 - `IngestResponse` adds the optional `source_url` field, and the OpenAPI
   document declares it.
 - The crawler does not store `source_conflict`, `record_conflict` or
@@ -68,7 +70,7 @@ Mechanical criteria. Each one is a test in the named crate:
 | A held URL with a new GUID returns `guid_change_pending` and changes no row | `stophammer` |
 | A held URL that declares the GUID of a different held record changes neither record and no observation | `stophammer` |
 | `crawl_token` in `VERIFIER_CHAIN` fails startup. An empty `CRAWL_TOKEN` fails startup | `stophammer` |
-| A rejected submission leaves no artist-credit row | `stophammer` |
+| A rejection of ADR 0051 section 2 does not change the artist-credit row count | `stophammer` |
 | The ingest schema in the OpenAPI document has `source_url` | `stophammer` |
 | A conflict answer is not stored as the node answer, so a `304` sends the kept body again | `stophammer-crawler` |
 

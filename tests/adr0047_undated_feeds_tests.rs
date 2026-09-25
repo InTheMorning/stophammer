@@ -25,9 +25,7 @@ fn state(
 ) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-adr0047-undated-signer"));
     let pubkey = signer.pubkey_hex().to_string();
-    let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string()],
-    };
+    let spec = stophammer::verify::ChainSpec { names: vec![] };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),

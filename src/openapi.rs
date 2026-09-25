@@ -424,13 +424,14 @@ fn spec_value(mode: DocMode) -> Value {
                     )),
                     json!({
                         "200": json_response(
-                            "Ingest result.",
+                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record.",
                             json!({
                                 "accepted": true,
                                 "reason": null,
                                 "events_emitted": ["uuid-1", "uuid-2", "uuid-3"],
                                 "no_change": false,
-                                "warnings": []
+                                "warnings": [],
+                                "source_url": null
                             })
                         )
                     }),

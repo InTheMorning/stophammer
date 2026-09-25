@@ -32,11 +32,19 @@
 //! startup — no redeployment of other nodes is required when adding verifiers
 //! to a primary node.
 //!
+//! # Authentication comes first (ADR 0051 section 4)
+//!
+//! The node checks the crawl token before any database read, before the
+//! verifier chain, and before the content-hash shortcut. [`VerifierChain`]
+//! holds the token apart from the configurable list, in
+//! [`VerifierChain::new`], and [`VerifierChain::authenticate`] checks it.
+//! `crawl_token` is not a valid entry in `VERIFIER_CHAIN`; [`build_chain`]
+//! panics if the list names it.
+//!
 //! # Built-in verifiers
 //!
 //! | Name | Module | Function |
 //! |---|---|---|
-//! | `crawl_token` | [`verifiers::crawl_token`] | Rejects invalid crawl tokens |
 //! | `content_hash` | [`verifiers::content_hash`] | Short-circuits unchanged feeds |
 //! | `feed_blocklist` | [`verifiers::feed_blocklist`] | Rejects exact-match blocked feed GUIDs and URLs |
 //! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or non-music `podcast:medium` |
@@ -159,25 +167,67 @@ pub trait Verifier: Send + Sync {
 // ── Chain ──────────────────────────────────────────────────────────────────
 
 /// An ordered sequence of [`Verifier`]s run against each ingest request.
+///
+/// The crawl token check lives apart from `verifiers` (ADR 0051 section 4).
+/// [`VerifierChain::authenticate`] checks it; [`VerifierChain::run`] never
+/// does.
 // CRIT-03 Debug derive — 2026-03-13
 pub struct VerifierChain {
+    /// The shared secret every ingest request must present. Checked by
+    /// [`VerifierChain::authenticate`], not by `verifiers`.
+    crawl_token: String,
     verifiers: Vec<Box<dyn Verifier>>,
 }
 
 impl std::fmt::Debug for VerifierChain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let names: Vec<&str> = self.verifiers.iter().map(|v| v.name()).collect();
+        // The crawl token is a secret; it never appears in Debug output.
         f.debug_struct("VerifierChain")
             .field("verifiers", &names)
-            .finish()
+            .finish_non_exhaustive()
     }
 }
 
 impl VerifierChain {
-    /// Creates a new chain that will run `verifiers` in order.
+    /// Creates a new chain that checks `crawl_token` first, then runs
+    /// `verifiers` in order.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `crawl_token` is empty or holds only white space. ADR
+    /// 0051 section 4: the node must not run with no real crawl token.
     #[must_use]
-    pub fn new(verifiers: Vec<Box<dyn Verifier>>) -> Self {
-        Self { verifiers }
+    pub fn new(crawl_token: String, verifiers: Vec<Box<dyn Verifier>>) -> Self {
+        assert!(
+            !crawl_token.trim().is_empty(),
+            "FATAL: VerifierChain::new got an empty or white-space crawl token \
+             (ADR 0051 section 4: the node checks the crawl token first and \
+             cannot run without one)."
+        );
+        Self {
+            crawl_token,
+            verifiers,
+        }
+    }
+
+    /// Checks the crawl token of `req` against this chain's token.
+    ///
+    /// ADR 0051 section 4: the node checks the crawl token before any
+    /// database read, before `run`, and before the content-hash shortcut.
+    /// This check is not part of `verifiers` and no `VERIFIER_CHAIN` value
+    /// changes it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VerifierError`] with the text `[crawl_token] invalid crawl
+    /// token` when `req.crawl_token` does not match.
+    pub fn authenticate(&self, req: &IngestFeedRequest) -> Result<(), VerifierError> {
+        if crate::verifiers::crawl_token::token_matches(&req.crawl_token, &self.crawl_token) {
+            Ok(())
+        } else {
+            Err(VerifierError("[crawl_token] invalid crawl token".into()))
+        }
     }
 
     /// Runs all verifiers in order and collects warnings.
@@ -219,19 +269,24 @@ impl VerifierChain {
 /// # Environment variables
 ///
 /// - `VERIFIER_CHAIN` — comma-separated list of verifier names, in run order.
-///   Defaults to the full built-in set in a sensible order.
-///   Example: `"crawl_token,content_hash,medium_music,feed_guid,payment_route_sum,enclosure_type"`
+///   Defaults to the full built-in set in a sensible order. `crawl_token` is
+///   not a valid name here (ADR 0051 section 4); [`build_chain`] panics if
+///   the list names it.
+///   Example: `"content_hash,medium_music,feed_guid,payment_route_sum,enclosure_type"`
 // CRIT-03 Debug derive — 2026-03-13
 #[derive(Debug)]
 pub struct ChainSpec {
-    /// Names of verifiers to run, in order.
+    /// Names of verifiers to run, in order. Quality rules only — the crawl
+    /// token check is not a member (ADR 0051 section 4).
     pub names: Vec<String>,
 }
 
 impl ChainSpec {
-    /// Default chain: all built-ins in the recommended order.
+    /// Default chain: all built-in quality verifiers, in the recommended
+    /// order. The crawl token check runs separately and is not in this list
+    /// (ADR 0051 section 4).
     pub const DEFAULT: &'static str =
-        "crawl_token,content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type";
+        "content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type";
 
     /// Reads `VERIFIER_CHAIN` from the environment.
     ///
@@ -265,12 +320,11 @@ impl ChainSpec {
 
 /// Assembles a [`VerifierChain`] from a [`ChainSpec`].
 ///
-/// Maps each name in `spec.names` to its built-in [`Verifier`] implementation.
-/// Unknown names cause a panic — a misconfigured verifier chain is a startup
-/// configuration error that makes the security pipeline untrustworthy.
-///
-/// `crawl_token` requires the shared secret from `CRAWL_TOKEN`; pass it via
-/// the `crawl_token` argument so this function does not read env vars itself.
+/// Maps each name in `spec.names` to its built-in [`Verifier`] implementation,
+/// then passes `crawl_token` to [`VerifierChain::new`], which holds it apart
+/// from that list (ADR 0051 section 4). Unknown names cause a panic — a
+/// misconfigured verifier chain is a startup configuration error that makes
+/// the security pipeline untrustworthy.
 ///
 /// # Adding a new verifier
 ///
@@ -284,27 +338,34 @@ impl ChainSpec {
 /// intentional per M-PANIC-ON-BUG: a misconfigured verifier chain is a
 /// programming/configuration error that should fail fast at startup rather
 /// than silently running with a broken security gate.
+///
+/// Panics if `spec.names` contains `crawl_token` (ADR 0051 section 4): the
+/// node always checks the crawl token first, outside this list, so the name
+/// is never valid in `VERIFIER_CHAIN`.
+///
+/// Panics if `crawl_token` is empty or holds only white space; see
+/// [`VerifierChain::new`].
 // Finding-7 verifier fails-closed — 2026-03-13
 #[must_use]
-#[expect(
-    clippy::needless_pass_by_value,
-    reason = "takes ownership so callers can move the token into the chain"
-)]
 pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
     use crate::verifiers::{
-        content_hash::ContentHashVerifier, crawl_token::CrawlTokenVerifier,
-        enclosure_type::EnclosureTypeVerifier, feed_blocklist::FeedBlocklistVerifier,
-        feed_guid::FeedGuidVerifier, medium_music::MediumMusicVerifier,
-        payment_route_sum::PaymentRouteSumVerifier, v4v_payment::V4VPaymentVerifier,
+        content_hash::ContentHashVerifier, enclosure_type::EnclosureTypeVerifier,
+        feed_blocklist::FeedBlocklistVerifier, feed_guid::FeedGuidVerifier,
+        medium_music::MediumMusicVerifier, payment_route_sum::PaymentRouteSumVerifier,
+        v4v_payment::V4VPaymentVerifier,
     };
 
     let mut verifiers: Vec<Box<dyn Verifier>> = Vec::new();
 
     for name in &spec.names {
         let v: Box<dyn Verifier> = match name.as_str() {
-            "crawl_token" => Box::new(CrawlTokenVerifier {
-                expected: crawl_token.clone(),
-            }),
+            "crawl_token" => panic!(
+                "FATAL: 'crawl_token' is not a valid entry in VERIFIER_CHAIN \
+                 (ADR 0051 section 4: the node always checks the crawl token \
+                 first, outside this list, and no VERIFIER_CHAIN value can \
+                 add, remove or reorder that check). Remove 'crawl_token' \
+                 from VERIFIER_CHAIN."
+            ),
             "content_hash" => Box::new(ContentHashVerifier),
             "feed_blocklist" => Box::new(FeedBlocklistVerifier::from_env()),
             "medium_music" => Box::new(MediumMusicVerifier),
@@ -315,7 +376,7 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
             unknown => {
                 panic!(
                     "FATAL: unknown verifier '{unknown}' in VERIFIER_CHAIN. \
-                     Valid verifiers are: crawl_token, content_hash, feed_blocklist, \
+                     Valid verifiers are: content_hash, feed_blocklist, \
                      medium_music, feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
                      Check the VERIFIER_CHAIN env var for typos."
                 );
@@ -324,7 +385,29 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
         verifiers.push(v);
     }
 
-    VerifierChain::new(verifiers)
+    VerifierChain::new(crawl_token, verifiers)
+}
+
+/// Validates a `CRAWL_TOKEN` value at startup.
+///
+/// ADR 0051 section 4: the primary node must not start when `CRAWL_TOKEN` is
+/// empty or holds only white space.
+///
+/// # Errors
+///
+/// Returns an error message naming ADR 0051 section 4 when `value` is empty
+/// or holds only white space.
+pub fn require_crawl_token(value: &str) -> Result<(), String> {
+    if value.trim().is_empty() {
+        Err(
+            "CRAWL_TOKEN must not be empty or white space only (ADR 0051 section 4: \
+             the node checks the crawl token before any database read, and cannot \
+             start without one)"
+                .to_string(),
+        )
+    } else {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -389,7 +472,7 @@ mod tests {
 
     #[test]
     fn chain_run_returns_verifier_error_on_fail() {
-        let chain = VerifierChain::new(vec![Box::new(AlwaysFail)]);
+        let chain = VerifierChain::new("test-token".into(), vec![Box::new(AlwaysFail)]);
         let conn = rusqlite::Connection::open_in_memory().expect("open db");
         let req = crate::ingest::IngestFeedRequest {
             crawl_token: String::new(),
@@ -413,7 +496,7 @@ mod tests {
 
     #[test]
     fn chain_run_returns_ok_on_all_pass() {
-        let chain = VerifierChain::new(vec![Box::new(AlwaysPass)]);
+        let chain = VerifierChain::new("test-token".into(), vec![Box::new(AlwaysPass)]);
         let conn = rusqlite::Connection::open_in_memory().expect("open db");
         let req = crate::ingest::IngestFeedRequest {
             crawl_token: String::new(),
@@ -478,5 +561,84 @@ mod tests {
             !spec.names.is_empty(),
             "empty result should fall back to DEFAULT"
         );
+    }
+
+    // ── ADR 0051 section 4: authentication comes first ────────────────────
+
+    #[test]
+    #[should_panic(expected = "ADR 0051")]
+    fn build_chain_panics_on_crawl_token_in_names() {
+        let spec = ChainSpec {
+            names: vec!["crawl_token".to_string()],
+        };
+        let _ = build_chain(&spec, "test-token".to_string());
+    }
+
+    #[test]
+    fn require_crawl_token_rejects_empty_and_whitespace() {
+        assert!(
+            require_crawl_token("").is_err(),
+            "an empty token must be rejected"
+        );
+        assert!(
+            require_crawl_token("   ").is_err(),
+            "a white-space-only token must be rejected"
+        );
+    }
+
+    #[test]
+    fn require_crawl_token_accepts_non_empty() {
+        assert!(
+            require_crawl_token("abc").is_ok(),
+            "a real token must be accepted"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ADR 0051")]
+    fn verifier_chain_new_panics_on_empty_token() {
+        let _ = VerifierChain::new(String::new(), vec![]);
+    }
+
+    #[test]
+    fn chain_spec_default_excludes_crawl_token() {
+        assert!(
+            !ChainSpec::DEFAULT
+                .split(',')
+                .any(|name| name == "crawl_token"),
+            "ChainSpec::DEFAULT must not list crawl_token (ADR 0051 section 4)"
+        );
+    }
+
+    #[test]
+    fn authenticate_accepts_matching_token_and_rejects_mismatch() {
+        let chain = VerifierChain::new("right-token".to_string(), vec![]);
+
+        let good_req = crate::ingest::IngestFeedRequest {
+            crawl_token: "right-token".to_string(),
+            canonical_url: String::new(),
+            source_url: String::new(),
+            http_status: 200,
+            content_hash: String::new(),
+            force_reingest: false,
+            feed_data: None,
+        };
+        chain
+            .authenticate(&good_req)
+            .expect("a matching token must authenticate");
+
+        let bad_req = crate::ingest::IngestFeedRequest {
+            crawl_token: "wrong-token".to_string(),
+            canonical_url: String::new(),
+            source_url: String::new(),
+            http_status: 200,
+            content_hash: String::new(),
+            force_reingest: false,
+            feed_data: None,
+        };
+        let err = chain
+            .authenticate(&bad_req)
+            .expect_err("a mismatched token must be rejected");
+        assert_eq!(err.0, "[crawl_token] invalid crawl token");
     }
 }

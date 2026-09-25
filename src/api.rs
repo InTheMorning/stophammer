@@ -831,6 +831,26 @@ fn record_feed_url_observations_for_ingest(
     Ok(signed_rows)
 }
 
+/// Logs one rejection reason of ADR 0051 section 2.
+///
+/// `source_url` and `canonical_url` are the two URLs the crawler reported
+/// for this submission, unchanged by the classification. `reason` is one of
+/// `source_conflict`, `record_conflict` or `guid_change_pending`.
+fn log_submission_classification(
+    feed_guid: &str,
+    canonical_url: &str,
+    source_url: &str,
+    reason: &str,
+) {
+    tracing::info!(
+        feed_guid,
+        canonical_url,
+        source_url,
+        reason,
+        "ADR 0051 section 2: submission classified"
+    );
+}
+
 fn non_empty_trimmed(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     if value.is_empty() { None } else { Some(value) }
@@ -1630,6 +1650,25 @@ async fn handle_ingest_feed(
     let state2 = Arc::clone(&state);
     // Mutex safety compliant — 2026-03-12
     let result = tokio::task::spawn_blocking(move || -> Result<IngestBlockingOutput, ApiError> {
+        // ADR 0051 section 4: the node checks the crawl token before any
+        // database read, before the verifier chain, and before the
+        // content-hash shortcut. No VERIFIER_CHAIN value can add, remove or
+        // reorder this check.
+        if let Err(e) = state2.chain.authenticate(&req) {
+            return Ok((
+                ingest::IngestResponse {
+                    accepted: false,
+                    no_change: false,
+                    reason: Some(e.0),
+                    events_emitted: vec![],
+                    warnings: vec![],
+                    source_url: None,
+                },
+                vec![],
+                vec![],
+            ));
+        }
+
         // Issue-VERIFY-READER — 2026-03-16
         // Phase 1: verify against a READ-ONLY connection (reader pool).
         // This avoids holding the writer mutex during verification, so
@@ -1668,6 +1707,7 @@ async fn handle_ingest_feed(
                         reason: Some(reason),
                         events_emitted: vec![],
                         warnings: vec![],
+                        source_url: None,
                     },
                     vec![],
                     vec![],
@@ -1687,6 +1727,43 @@ async fn handle_ingest_feed(
                         message: "database mutex poisoned".into(),
                         www_authenticate: None,
                     })?;
+
+                    // ADR 0051 section 2: classify before recording an
+                    // observation. Update, Mirror and NewFeed keep today's
+                    // behavior here; the two conflict cases write nothing.
+                    let conflict_reason = match db::classify_submission(
+                        &conn,
+                        &feed_data.feed_guid,
+                        &req.source_url,
+                        &req.canonical_url,
+                    )? {
+                        db::SubmissionClass::RecordConflict => Some("record_conflict"),
+                        db::SubmissionClass::GuidChange { .. } => Some("guid_change_pending"),
+                        db::SubmissionClass::Update
+                        | db::SubmissionClass::Mirror { .. }
+                        | db::SubmissionClass::NewFeed => None,
+                    };
+                    if let Some(reason) = conflict_reason {
+                        log_submission_classification(
+                            &feed_data.feed_guid,
+                            &req.canonical_url,
+                            &req.source_url,
+                            reason,
+                        );
+                        return Ok((
+                            ingest::IngestResponse {
+                                accepted: false,
+                                no_change: false,
+                                reason: Some(reason.to_string()),
+                                events_emitted: vec![],
+                                warnings: vec![],
+                                source_url: None,
+                            },
+                            vec![],
+                            vec![],
+                        ));
+                    }
+
                     let url_observation_rows = record_feed_url_observations_for_ingest(
                         &mut conn,
                         &req.canonical_url,
@@ -1714,6 +1791,7 @@ async fn handle_ingest_feed(
                         reason: None,
                         events_emitted: event_ids,
                         warnings: vec![],
+                        source_url: None,
                     },
                     fanout_events,
                     vec![],
@@ -1735,6 +1813,97 @@ async fn handle_ingest_feed(
             message: "feed_data is required for successful ingest".into(),
             www_authenticate: None,
         })?;
+
+        // ADR 0051 section 2: classify the submission before the first
+        // write. Only Update and NewFeed may apply content to a record.
+        // Mirror records an observation only; the two conflict cases write
+        // nothing.
+        match db::classify_submission(
+            &conn,
+            &feed_data.feed_guid,
+            &req.source_url,
+            &req.canonical_url,
+        )? {
+            db::SubmissionClass::Update | db::SubmissionClass::NewFeed => {}
+            db::SubmissionClass::Mirror { source_url } => {
+                log_submission_classification(
+                    &feed_data.feed_guid,
+                    &req.canonical_url,
+                    &req.source_url,
+                    "source_conflict",
+                );
+                let now = db::unix_now();
+                let url_observation_rows = record_feed_url_observations_for_ingest(
+                    &mut conn,
+                    &req.canonical_url,
+                    &req.source_url,
+                    &feed_data.feed_guid,
+                    now,
+                    &state2.signer,
+                )?;
+                let event_ids = url_observation_rows
+                    .iter()
+                    .map(|signed| signed.row.event_id.clone())
+                    .collect();
+                let fanout_events = url_observation_rows
+                    .into_iter()
+                    .map(signed_row_to_event)
+                    .collect::<Result<Vec<_>, ApiError>>()?;
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: false,
+                        no_change: false,
+                        reason: Some("source_conflict".to_string()),
+                        events_emitted: event_ids,
+                        warnings: vec![],
+                        source_url: Some(source_url),
+                    },
+                    fanout_events,
+                    vec![],
+                ));
+            }
+            db::SubmissionClass::RecordConflict => {
+                log_submission_classification(
+                    &feed_data.feed_guid,
+                    &req.canonical_url,
+                    &req.source_url,
+                    "record_conflict",
+                );
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: false,
+                        no_change: false,
+                        reason: Some("record_conflict".to_string()),
+                        events_emitted: vec![],
+                        warnings: vec![],
+                        source_url: None,
+                    },
+                    vec![],
+                    vec![],
+                ));
+            }
+            db::SubmissionClass::GuidChange { .. } => {
+                log_submission_classification(
+                    &feed_data.feed_guid,
+                    &req.canonical_url,
+                    &req.source_url,
+                    "guid_change_pending",
+                );
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: false,
+                        no_change: false,
+                        reason: Some("guid_change_pending".to_string()),
+                        events_emitted: vec![],
+                        warnings: vec![],
+                        source_url: None,
+                    },
+                    vec![],
+                    vec![],
+                ));
+            }
+        }
+
         let is_musicl = medium::is_musicl(feed_data.raw_medium.as_deref());
         let tracks: &[ingest::IngestTrackData] = if is_musicl { &[] } else { &feed_data.tracks };
         let live_items: &[ingest::IngestLiveItemData] = if is_musicl {
@@ -2460,6 +2629,7 @@ async fn handle_ingest_feed(
                 reason: None,
                 events_emitted: event_ids,
                 warnings,
+                source_url: None,
             },
             fanout_events,
             live_sse_frames,

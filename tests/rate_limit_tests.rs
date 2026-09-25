@@ -70,7 +70,10 @@ async fn health_endpoint_not_rate_limited_in_router() {
     let pubkey = signer.pubkey_hex().to_string();
     let state = Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: String::new(),

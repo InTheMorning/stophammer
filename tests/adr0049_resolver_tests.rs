@@ -9,7 +9,7 @@
 // `SOURCES.md` for each source) with the default verifier chain, because
 // every fixture used here carries the feed-level `podcast:value` block that
 // chain needs. The "listed by" test uses inline payloads and a short chain
-// (`crawl_token, content_hash, medium_music`) because its synthetic feeds
+// (`content_hash, medium_music`) because its synthetic feeds
 // carry no payment routes at all.
 //
 // Section 3 is the guard: only `db::resolve_listed_feed` may compare a
@@ -532,7 +532,7 @@ async fn no_publisher_album_gives_no_publisher_row() {
 
 /// A "listed by" relationship, named after the Jimmy V case: a publisher
 /// feed lists an album that names a different publisher. Inline payloads,
-/// with a short chain (`crawl_token, content_hash, medium_music`) because
+/// with a short chain (`content_hash, medium_music`) because
 /// neither synthetic feed carries a payment route.
 #[tokio::test]
 async fn publisher_lists_an_album_that_names_a_different_publisher() {
@@ -541,7 +541,7 @@ async fn publisher_lists_an_album_that_names_a_different_publisher() {
     let state = app_state_with_chain(
         Arc::clone(&db),
         crawl_token,
-        &["crawl_token", "content_hash", "medium_music"],
+        &["content_hash", "medium_music"],
     );
     let app = stophammer::api::build_router(state);
 

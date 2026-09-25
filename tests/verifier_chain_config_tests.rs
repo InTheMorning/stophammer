@@ -8,7 +8,18 @@ use stophammer::verify::{ChainSpec, build_chain};
 #[should_panic(expected = "unknown verifier 'bogus_verifier' in VERIFIER_CHAIN")]
 fn build_chain_panics_on_unknown_verifier_name() {
     let spec = ChainSpec {
-        names: vec!["crawl_token".to_string(), "bogus_verifier".to_string()],
+        names: vec!["bogus_verifier".to_string()],
+    };
+    let _ = build_chain(&spec, "test-token".to_string());
+}
+
+#[test]
+#[should_panic(expected = "ADR 0051")]
+fn build_chain_panics_on_crawl_token_in_verifier_chain() {
+    // ADR 0051 section 4: the node checks the crawl token first, outside
+    // VERIFIER_CHAIN. Naming it there is a startup configuration error.
+    let spec = ChainSpec {
+        names: vec!["crawl_token".to_string()],
     };
     let _ = build_chain(&spec, "test-token".to_string());
 }
@@ -26,7 +37,6 @@ fn build_chain_panics_on_typo_verifier_name() {
 fn build_chain_succeeds_with_all_valid_names() {
     let spec = ChainSpec {
         names: vec![
-            "crawl_token".to_string(),
             "content_hash".to_string(),
             "medium_music".to_string(),
             "feed_guid".to_string(),

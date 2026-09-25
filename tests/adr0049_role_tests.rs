@@ -10,7 +10,7 @@
 // fixtures with the default verifier chain, because each of those feeds
 // carries a feed-level `podcast:value` block, or is payment-exempt as a
 // publisher feed. The producer and list cases use inline payloads with a
-// short chain (`crawl_token, content_hash, medium_music`), because those
+// short chain (`content_hash, medium_music`), because those
 // synthetic feeds carry no payment route at all. Helper functions here are
 // copied from `tests/adr0049_resolver_tests.rs` rather than shared with it,
 // per the task's "Do Not Touch" list.
@@ -190,7 +190,7 @@ async fn sirlibre_album_row_reports_label_from_both_sides() {
 
 // ---------------------------------------------------------------------------
 // Producer and list cases: inline payloads with a short chain
-// (`crawl_token, content_hash, medium_music`), because neither synthetic
+// (`content_hash, medium_music`), because neither synthetic
 // feed carries a payment route.
 // ---------------------------------------------------------------------------
 
@@ -232,7 +232,7 @@ async fn publisher_item_with_rel_producer_gives_role_producer() {
     let state = app_state_with_chain(
         Arc::clone(&db),
         crawl_token,
-        &["crawl_token", "content_hash", "medium_music"],
+        &["content_hash", "medium_music"],
     );
     let app = stophammer::api::build_router(state);
 
@@ -284,7 +284,7 @@ async fn publisher_item_with_comma_rel_is_one_value() {
     let state = app_state_with_chain(
         Arc::clone(&db),
         crawl_token,
-        &["crawl_token", "content_hash", "medium_music"],
+        &["content_hash", "medium_music"],
     );
     let app = stophammer::api::build_router(state);
 

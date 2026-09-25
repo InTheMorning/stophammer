@@ -232,9 +232,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
     let signer = Arc::new(common::temp_signer("test-sprint1b-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
-    let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string()],
-    };
+    let spec = stophammer::verify::ChainSpec { names: vec![] };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     let state = Arc::new(stophammer::api::AppState {

@@ -3,8 +3,9 @@
 // the stored feed_url of a known GUID stable across a second URL.
 //
 // The HTTP-level tests here mirror tests/adr0049_rel_tests.rs: a minimal
-// verifier chain (crawl_token, content_hash) so a synthetic or fixture feed
-// ingests without needing the full default chain.
+// verifier chain (content_hash) so a synthetic or fixture feed ingests
+// without needing the full default chain. The node checks the crawl token
+// itself before the chain runs (ADR 0051 section 4).
 
 mod common;
 
@@ -28,7 +29,7 @@ fn test_app_state(
     let pubkey = signer.pubkey_hex().to_string();
 
     let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string(), "content_hash".to_string()],
+        names: vec!["content_hash".to_string()],
     };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
@@ -285,11 +286,18 @@ async fn second_url_keeps_stored_feed_url_and_observes_both_urls() {
 
     let url_b = "https://cdn.example.com/detox-album-b.xml";
     let payload_b = ingest_payload(url_b, url_b, crawl_token, "hash-detox-b", &feed_data);
-    ingest(
+    let resp_b = ingest_response(
         stophammer::api::build_router(Arc::clone(&state)),
         &payload_b,
     )
     .await;
+    // ADR 0051 section 2: a second url for a held guid is a mirror. It does
+    // not apply, but it still gets an observation (checked below).
+    assert_eq!(
+        resp_b["accepted"], false,
+        "a second url for a held guid must not be accepted: {resp_b:?}"
+    );
+    assert_eq!(resp_b["reason"], "source_conflict", "{resp_b:?}");
 
     assert_eq!(
         stored_feed_url(&db, feed_guid),
@@ -484,7 +492,14 @@ async fn feed_url_observations_replicate_identically_from_the_event_log() {
 
     let url_b = "https://cdn.example.com/replicated-b.xml";
     let payload_b = ingest_payload(url_b, url_b, crawl_token, "hash-replicated-b", &feed_data);
-    ingest(stophammer::api::build_router(state), &payload_b).await;
+    // ADR 0051 section 2: a second url for a held guid is a mirror and does
+    // not apply, but it still emits a FeedUrlObserved event (checked below).
+    let resp_b = ingest_response(stophammer::api::build_router(state), &payload_b).await;
+    assert_eq!(
+        resp_b["accepted"], false,
+        "a second url for a held guid must not be accepted: {resp_b:?}"
+    );
+    assert_eq!(resp_b["reason"], "source_conflict", "{resp_b:?}");
 
     let url_events: Vec<stophammer::event::Event> = {
         let conn = db1.lock().expect("lock db1");

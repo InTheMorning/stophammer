@@ -14,10 +14,8 @@ fn test_app_state_with_crawl_token(
     let signer = Arc::new(common::temp_signer("test-adr0038-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
-    // Build a verifier chain with only crawl_token (skip medium_music so we can test the listing filter)
-    let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string()],
-    };
+    // No quality verifiers (skip medium_music so we can test the listing filter).
+    let spec = stophammer::verify::ChainSpec { names: vec![] };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     Arc::new(stophammer::api::AppState {

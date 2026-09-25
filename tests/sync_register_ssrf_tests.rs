@@ -22,7 +22,10 @@ fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophamm
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-token".into(),
@@ -43,7 +46,10 @@ fn state_with_ssrf_disabled(
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-token".into(),

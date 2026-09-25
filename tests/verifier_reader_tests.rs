@@ -150,7 +150,7 @@ fn verifier_chain_runs_on_reader_connection() {
         existing: None,
     };
 
-    let chain = VerifierChain::new(vec![Box::new(ReadingVerifier)]);
+    let chain = VerifierChain::new("test-token".into(), vec![Box::new(ReadingVerifier)]);
     let result = chain.run(&ctx);
     assert!(result.is_ok(), "chain should pass on reader: {result:?}");
 }
@@ -170,7 +170,7 @@ fn verifier_write_attempt_blocked_on_reader() {
         existing: None,
     };
 
-    let chain = VerifierChain::new(vec![Box::new(WritingVerifier)]);
+    let chain = VerifierChain::new("test-token".into(), vec![Box::new(WritingVerifier)]);
     let result = chain.run(&ctx);
     assert!(
         result.is_err(),
@@ -206,7 +206,7 @@ fn verification_failure_does_not_acquire_writer() {
         existing: None,
     };
 
-    let chain = VerifierChain::new(vec![Box::new(AlwaysFailVerifier)]);
+    let chain = VerifierChain::new("test-token".into(), vec![Box::new(AlwaysFailVerifier)]);
     let result = chain.run(&ctx);
 
     assert!(result.is_err(), "chain should return failure");
@@ -244,7 +244,10 @@ fn mixed_chain_reader_queries_succeed() {
     };
 
     // Chain with two read-based verifiers.
-    let chain = VerifierChain::new(vec![Box::new(ReadingVerifier), Box::new(ReadingVerifier)]);
+    let chain = VerifierChain::new(
+        "test-token".into(),
+        vec![Box::new(ReadingVerifier), Box::new(ReadingVerifier)],
+    );
     let result = chain.run(&ctx);
     assert!(result.is_ok(), "all-read chain should pass: {result:?}");
 }
@@ -280,7 +283,7 @@ fn content_hash_verifier_works_on_reader() {
         existing: None,
     };
 
-    let chain = VerifierChain::new(vec![Box::new(ContentHashVerifier)]);
+    let chain = VerifierChain::new("test-token".into(), vec![Box::new(ContentHashVerifier)]);
     let result = chain.run(&ctx);
     assert!(
         result.is_err(),

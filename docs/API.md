@@ -239,7 +239,8 @@ these rules:
     "uuid-2",
     "uuid-3"
   ],
-  "warnings": ["[enclosure_type] track 'xyz' has video enclosure type 'video/mp4'"]
+  "warnings": ["[enclosure_type] track 'xyz' has video enclosure type 'video/mp4'"],
+  "source_url": null
 }
 ```
 
@@ -250,6 +251,7 @@ these rules:
 | `reason` | string? | Rejection reason when `accepted` is `false` |
 | `events_emitted` | string[] | UUIDs of events emitted, in emission order |
 | `warnings` | string[] | Non-fatal verifier warnings stored with the events |
+| `source_url` | string? | The stored source URL of the held record. Given only when `reason` is `source_conflict` (ADR 0051 section 5) |
 
 | Code | Meaning |
 |------|---------|
@@ -257,6 +259,23 @@ these rules:
 | 400  | Missing `feed_data`, or track count exceeds 500 |
 | 429  | Rate limit exceeded |
 | 500  | Internal error |
+
+**Three reasons to reject a submission (ADR 0051 section 2):**
+
+The node checks each submission against the source URL of its record. The
+source URL is the stored `feed_url`. Only content from the source URL can
+change a record.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Not retry this URL. It can fetch the source URL |
+| `record_conflict` | The submission names a GUID held by one record, from a URL held by a different record | Not retry. An operator must select the next step |
+| `guid_change_pending` | A held source URL declares a new GUID | Not retry. ADR 0052 owns the next step |
+
+Each of these three reasons writes no row to the database. `source_conflict`
+is different: the node records the submitted URL as an observation of the
+GUID (ADR 0049 section 1). This observation does not
+change the record.
 
 ---
 

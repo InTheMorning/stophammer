@@ -80,9 +80,17 @@ The work that remains:
 
 4. The feed trust ADRs, 0051 to 0055, are Proposed. A feed at any URL can
    declare the `podcast:guid` of a held feed and replace its tracks and
-   payment routes. This defect is open on the production node. ADR 0051
-   closes it, and a forced corrective pass then repairs the damaged records.
-   The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
+   payment routes. This defect is open on the production node. The
+   [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
+   sequence.
+
+   ADR 0051 tasks 001 to 004 are complete on 2026-09-25 and not deployed.
+   The node checks the crawl token first, and only content from the stored
+   source URL changes a record. Task 005 is the deploy and the forced repair
+   pass. Before the deploy, remove `crawl_token` from `VERIFIER_CHAIN` on the
+   VPS, or the primary does not start. The
+   [phase plan](docs/plans/adr-0051-source-url-phase-plan.md) and the
+   [review checklist](docs/reviews/adr-0051-review-checklist.md) hold the
    sequence.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is

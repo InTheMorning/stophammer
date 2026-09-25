@@ -1,73 +1,58 @@
-// Crawl token verifier behavior tests.
+// Crawl token check behavior tests (ADR 0051 section 4).
 
-mod common;
+use stophammer::verify::VerifierChain;
 
-use stophammer::verifiers::crawl_token::CrawlTokenVerifier;
-use stophammer::verify::{IngestContext, Verifier, VerifyResult};
+const EXPECTED: &str = "secret-crawl-token";
+
+fn chain(expected: &str) -> VerifierChain {
+    VerifierChain::new(expected.into(), vec![])
+}
 
 /// Correct token must pass (basic sanity).
 #[test]
 fn crawl_token_correct_passes() {
-    let conn = common::test_db();
-    let verifier = CrawlTokenVerifier {
-        expected: "secret-crawl-token".into(),
-    };
-    let req = make_req("secret-crawl-token");
-    let ctx = IngestContext {
-        request: &req,
-        db: &conn,
-        existing: None,
-    };
-    assert!(matches!(verifier.verify(&ctx), VerifyResult::Pass));
+    let result = chain(EXPECTED).authenticate(&make_req(EXPECTED));
+    assert!(result.is_ok(), "the correct token must pass: {result:?}");
 }
 
-/// Wrong token must fail.
+/// Wrong token must fail with the historical reason text.
 #[test]
 fn crawl_token_wrong_fails() {
-    let conn = common::test_db();
-    let verifier = CrawlTokenVerifier {
-        expected: "secret-crawl-token".into(),
-    };
-    let req = make_req("wrong-token");
-    let ctx = IngestContext {
-        request: &req,
-        db: &conn,
-        existing: None,
-    };
-    assert!(matches!(verifier.verify(&ctx), VerifyResult::Fail(_)));
+    let err = chain(EXPECTED)
+        .authenticate(&make_req("wrong-token"))
+        .expect_err("a wrong token must fail");
+    assert_eq!(
+        err.0, "[crawl_token] invalid crawl token",
+        "the reason text must stay stable for crawlers"
+    );
 }
 
 /// Empty token must fail.
 #[test]
 fn crawl_token_empty_fails() {
-    let conn = common::test_db();
-    let verifier = CrawlTokenVerifier {
-        expected: "secret-crawl-token".into(),
-    };
-    let req = make_req("");
-    let ctx = IngestContext {
-        request: &req,
-        db: &conn,
-        existing: None,
-    };
-    assert!(matches!(verifier.verify(&ctx), VerifyResult::Fail(_)));
+    assert!(
+        chain(EXPECTED).authenticate(&make_req("")).is_err(),
+        "an empty token must fail"
+    );
 }
 
 /// Two different tokens of the same length must fail — validates that the
 /// comparison is not short-circuiting on length alone.
 #[test]
 fn crawl_token_same_length_different_content_fails() {
-    let conn = common::test_db();
-    let verifier = CrawlTokenVerifier {
-        expected: "aaaa".into(),
-    };
-    let req = make_req("bbbb");
-    let ctx = IngestContext {
-        request: &req,
-        db: &conn,
-        existing: None,
-    };
-    assert!(matches!(verifier.verify(&ctx), VerifyResult::Fail(_)));
+    assert!(
+        chain("aaaa").authenticate(&make_req("bbbb")).is_err(),
+        "a same-length different token must fail"
+    );
+}
+
+/// The shared comparison agrees with the chain check.
+#[test]
+fn token_matches_compares_exactly() {
+    use stophammer::verifiers::crawl_token::token_matches;
+    assert!(token_matches("abc", "abc"), "equal tokens must match");
+    assert!(!token_matches("abc", "abcd"), "a prefix must not match");
+    assert!(!token_matches("", "abc"), "an empty token must not match");
 }
 
 // ---------------------------------------------------------------------------

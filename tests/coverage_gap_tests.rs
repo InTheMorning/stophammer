@@ -291,7 +291,10 @@ fn test_search_app_state() -> Arc<stophammer::api::AppState> {
     let pubkey = signer.pubkey_hex().to_string();
     Arc::new(stophammer::api::AppState {
         db: stophammer::db_pool::DbPool::from_writer_only(db),
-        chain: Arc::new(stophammer::verify::VerifierChain::new(vec![])),
+        chain: Arc::new(stophammer::verify::VerifierChain::new(
+            "test-token".into(),
+            vec![],
+        )),
         signer,
         node_pubkey_hex: pubkey,
         admin_token: "test-admin-token".into(),
@@ -540,54 +543,6 @@ const fn verifier_ctx<'a>(
         db: conn,
         existing: None,
     }
-}
-
-// ---------------------------------------------------------------------------
-// 14. CrawlTokenVerifier pass and fail
-// ---------------------------------------------------------------------------
-
-#[test]
-fn crawl_token_verifier_pass() {
-    use stophammer::verifiers::crawl_token::CrawlTokenVerifier;
-    use stophammer::verify::{Verifier, VerifyResult};
-
-    let conn = common::test_db();
-    let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token: "secret-token".into(),
-        canonical_url: String::new(),
-        source_url: String::new(),
-        http_status: 200,
-        content_hash: String::new(),
-        force_reingest: false,
-        feed_data: None,
-    };
-    let ctx = verifier_ctx(&req, &conn);
-    let v = CrawlTokenVerifier {
-        expected: "secret-token".into(),
-    };
-    assert!(matches!(v.verify(&ctx), VerifyResult::Pass));
-}
-
-#[test]
-fn crawl_token_verifier_fail() {
-    use stophammer::verifiers::crawl_token::CrawlTokenVerifier;
-    use stophammer::verify::{Verifier, VerifyResult};
-
-    let conn = common::test_db();
-    let req = stophammer::ingest::IngestFeedRequest {
-        crawl_token: "wrong-token".into(),
-        canonical_url: String::new(),
-        source_url: String::new(),
-        http_status: 200,
-        content_hash: String::new(),
-        force_reingest: false,
-        feed_data: None,
-    };
-    let ctx = verifier_ctx(&req, &conn);
-    let v = CrawlTokenVerifier {
-        expected: "correct-token".into(),
-    };
-    assert!(matches!(v.verify(&ctx), VerifyResult::Fail(_)));
 }
 
 // ---------------------------------------------------------------------------

@@ -20,9 +20,7 @@ fn test_app_state_with_crawl_token(
     let signer = Arc::new(common::temp_signer("test-adr0043-signer"));
     let pubkey = signer.pubkey_hex().to_string();
 
-    let spec = stophammer::verify::ChainSpec {
-        names: vec!["crawl_token".to_string()],
-    };
+    let spec = stophammer::verify::ChainSpec { names: vec![] };
     let chain = stophammer::verify::build_chain(&spec, crawl_token.to_string());
 
     Arc::new(stophammer::api::AppState {
