@@ -928,6 +928,268 @@ fn record_feed_copy_for_ingest(
     Ok(signed_row.into_iter().collect())
 }
 
+// ── feed_guid_changes (ADR 0052 sections 4 and 5, task 007) ─────────────────
+
+/// Builds one `FeedGuidChangeObserved` event row (ADR 0052 section 4, task
+/// 007). `new_guid` equal to `old_guid` is the delete marker: a return to
+/// the GUID the record already holds, or the pending-row cleanup of the
+/// automatic transition.
+fn guid_change_observed_event_row(
+    source_url: &str,
+    old_guid: &str,
+    new_guid: &str,
+    first_seen: i64,
+    now: i64,
+) -> Result<db::EventRow, ApiError> {
+    let payload = event::FeedGuidChangeObservedPayload {
+        source_url: source_url.to_string(),
+        old_guid: old_guid.to_string(),
+        new_guid: new_guid.to_string(),
+        first_seen,
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedGuidChangeObserved payload: {e}"),
+        www_authenticate: None,
+    })?;
+    Ok(db::EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: event::EventType::FeedGuidChangeObserved,
+        payload_json,
+        subject_guid: old_guid.to_string(),
+        created_at: now,
+        warnings: vec![],
+    })
+}
+
+/// The outcome of [`record_guid_change_pending_for_ingest`].
+enum GuidChangePendingOutcome {
+    /// The row already holds a `reject` decision for this same `new_guid`.
+    /// Nothing was written.
+    Rejected,
+    /// The row was written or confirmed. Carries the signed
+    /// `FeedGuidChangeObserved` event when the row was new or `new_guid`
+    /// changed; empty when the same pending value was seen again.
+    Pending(Vec<SignedEventRow>),
+}
+
+/// Writes or updates the `feed_guid_changes` pending row of `source_url`
+/// (ADR 0052 section 4, task 007 item 2).
+///
+/// Signs one `FeedGuidChangeObserved` event when the row is new or its
+/// `new_guid` changed, and always updates `last_seen`, local to the primary.
+/// When the row already holds a `reject` decision for this same `new_guid`,
+/// the rejection holds: the call writes nothing and answers
+/// [`GuidChangePendingOutcome::Rejected`].
+///
+/// # Errors
+///
+/// Returns [`ApiError`] if a database or signing step fails.
+fn record_guid_change_pending_for_ingest(
+    conn: &mut rusqlite::Connection,
+    source_url: &str,
+    old_guid: &str,
+    new_guid: &str,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<GuidChangePendingOutcome, ApiError> {
+    let existing = db::get_guid_change(conn, source_url).map_err(ApiError::from)?;
+    if let Some(row) = &existing
+        && row.new_guid == new_guid
+        && row.decision.as_deref() == Some("reject")
+    {
+        return Ok(GuidChangePendingOutcome::Rejected);
+    }
+
+    let is_new_or_changed = existing.as_ref().is_none_or(|row| row.new_guid != new_guid);
+    let first_seen = if is_new_or_changed {
+        now
+    } else {
+        existing.as_ref().map_or(now, |row| row.first_seen)
+    };
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+    db::upsert_guid_change(&tx, source_url, old_guid, new_guid, first_seen)
+        .map_err(ApiError::from)?;
+    db::touch_guid_change_last_seen(&tx, source_url, now).map_err(ApiError::from)?;
+    let signed_rows = if is_new_or_changed {
+        vec![sign_event_row(
+            &tx,
+            guid_change_observed_event_row(source_url, old_guid, new_guid, first_seen, now)?,
+            signer,
+        )?]
+    } else {
+        vec![]
+    };
+    tx.commit().map_err(db::DbError::from)?;
+
+    Ok(GuidChangePendingOutcome::Pending(signed_rows))
+}
+
+/// Deletes the pending row of `source_url`, when one exists, and signs one
+/// `FeedGuidChangeObserved` delete-marker event (ADR 0052 section 4, task
+/// 007: "a return"). Returns an empty list when there was no row to delete.
+///
+/// # Errors
+///
+/// Returns [`ApiError`] if a database or signing step fails.
+fn record_guid_change_return_for_ingest(
+    conn: &mut rusqlite::Connection,
+    source_url: &str,
+    guid: &str,
+    now: i64,
+    signer: &signing::NodeSigner,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    if db::get_guid_change(conn, source_url)
+        .map_err(ApiError::from)?
+        .is_none()
+    {
+        return Ok(vec![]);
+    }
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+    db::delete_guid_change(&tx, source_url).map_err(ApiError::from)?;
+    let delete_marker = sign_event_row(
+        &tx,
+        guid_change_observed_event_row(source_url, guid, guid, now, now)?,
+        signer,
+    )?;
+    tx.commit().map_err(db::DbError::from)?;
+    Ok(vec![delete_marker])
+}
+
+/// Runs the ADR 0052 section 5 transition (task 007 items 1 and 3), in one
+/// transaction: retires `old_guid` with reason `guid_superseded` and no
+/// block, signs `FeedRetired` then `FeedGuidSuperseded`, and deletes the
+/// pending row of `source_url` when one exists.
+///
+/// Does not admit the new record at `new_guid`. `handle_ingest_feed` calls
+/// this immediately before step 11 (`db::ingest_transaction`), not from the
+/// `classify_submission` match that decides a transition must run — every
+/// check that can still reject the submission (the track-count limit, and
+/// every step that builds the new record) must run first, so a rejection
+/// there never leaves `old_guid` retired with no replacement and no payment
+/// route. Calling this immediately before step 11, rather than any earlier,
+/// still keeps it strictly before that call: `feeds.feed_url` is UNIQUE, and
+/// `db::ingest_transaction` inserts the new record at the `feed_url` value
+/// `old_guid`'s row holds until this call retires it.
+///
+/// The caller does not return early after this call: it falls through to
+/// the ordinary admission code that already runs below, because deleting
+/// `old_guid` here makes `classify_submission` give `NewFeed` for `new_guid`
+/// on its next call, with no new case needed there (task 007's second
+/// escalation trigger).
+///
+/// A block would stop the source URL from being admitted again under its
+/// new GUID, and a later reversal back to `old_guid` would then be
+/// impossible (task 007's first escalation trigger) — this call never signs
+/// one, so neither trigger fires.
+///
+/// # Errors
+///
+/// Returns [`ApiError`] if a database or signing step fails.
+fn guid_change_transition(
+    conn: &mut rusqlite::Connection,
+    old_guid: &str,
+    new_guid: &str,
+    source_url: &str,
+    signer: &signing::NodeSigner,
+    now: i64,
+) -> Result<Vec<SignedEventRow>, ApiError> {
+    // Reads happen before the transaction, under the caller's writer lock,
+    // mirroring handle_retire_feed.
+    let old_feed = db::get_feed_by_guid(conn, old_guid).map_err(ApiError::from)?;
+    let old_tracks = db::get_tracks_for_feed(conn, old_guid).map_err(ApiError::from)?;
+
+    let tx = conn.transaction().map_err(db::DbError::from)?;
+
+    for track in &old_tracks {
+        let _ = crate::search::delete_from_search_index(
+            &tx,
+            "track",
+            &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
+            "",
+            &track.title,
+            track.description.as_deref().unwrap_or(""),
+            "",
+        );
+    }
+    if let Some(feed) = &old_feed {
+        let _ = crate::search::delete_from_search_index(
+            &tx,
+            "feed",
+            &feed.feed_guid,
+            "",
+            &feed.title,
+            feed.description.as_deref().unwrap_or(""),
+            feed.raw_medium.as_deref().unwrap_or(""),
+        );
+    }
+
+    db::delete_feed_sql(&tx, old_guid).map_err(ApiError::from)?;
+    let retired_payload = event::FeedRetiredPayload {
+        feed_guid: old_guid.to_string(),
+        reason: Some("guid_superseded".to_string()),
+    };
+    let retired_json = serde_json::to_string(&retired_payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedRetired payload: {e}"),
+        www_authenticate: None,
+    })?;
+    let mut signed_rows = vec![sign_event_row(
+        &tx,
+        db::EventRow {
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_type: event::EventType::FeedRetired,
+            payload_json: retired_json,
+            subject_guid: old_guid.to_string(),
+            created_at: now,
+            warnings: vec![],
+        },
+        signer,
+    )?];
+
+    let superseded_payload = event::FeedGuidSupersededPayload {
+        old_guid: old_guid.to_string(),
+        new_guid: new_guid.to_string(),
+        source_url: source_url.to_string(),
+    };
+    let superseded_json = serde_json::to_string(&superseded_payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("failed to serialize FeedGuidSuperseded payload: {e}"),
+        www_authenticate: None,
+    })?;
+    db::insert_guid_supersession(&tx, old_guid, new_guid, source_url, now)
+        .map_err(ApiError::from)?;
+    signed_rows.push(sign_event_row(
+        &tx,
+        db::EventRow {
+            event_id: uuid::Uuid::new_v4().to_string(),
+            event_type: event::EventType::FeedGuidSuperseded,
+            payload_json: superseded_json,
+            subject_guid: old_guid.to_string(),
+            created_at: now,
+            warnings: vec![],
+        },
+        signer,
+    )?);
+
+    if db::get_guid_change(&tx, source_url)
+        .map_err(ApiError::from)?
+        .is_some()
+    {
+        db::delete_guid_change(&tx, source_url).map_err(ApiError::from)?;
+        signed_rows.push(sign_event_row(
+            &tx,
+            guid_change_observed_event_row(source_url, old_guid, old_guid, now, now)?,
+            signer,
+        )?);
+    }
+
+    tx.commit().map_err(db::DbError::from)?;
+    Ok(signed_rows)
+}
+
 /// Logs one rejection reason of ADR 0051 section 2.
 ///
 /// `source_url` and `canonical_url` are the two URLs the crawler reported
@@ -1667,6 +1929,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             patch(handle_patch_feed_track).delete(handle_remove_track),
         )
         .route("/v1/feeds/{guid}/copies/resolve", post(handle_resolve_copy))
+        .route(
+            "/v1/feeds/{guid}/guid-change",
+            post(handle_guid_change_decision),
+        )
         .route("/v1/tracks/{guid}", patch(handle_patch_track))
         .route(
             "/v1/blocks",
@@ -2089,6 +2355,15 @@ async fn handle_ingest_feed(
         // move is under way. Its presence, not the classification above, is
         // what the rest of the handler checks from here on.
         let mut record_move: Option<(String, String, &'static str)> = None;
+        // ADR 0052 sections 4 and 5, task 007: events a GUID-change
+        // transition signed, ahead of the events below that admit the body
+        // as a new record. Empty unless that transition ran.
+        let mut prefix_events: Vec<SignedEventRow> = Vec::new();
+        // ADR 0052 sections 4 and 5, task 007: the old GUID of a transition
+        // the `classify_submission` match below decided must run, held here
+        // rather than run at once. See the comment where this is read,
+        // immediately before step 11, for why the transition itself waits.
+        let mut pending_guid_transition: Option<String> = None;
         match db::classify_submission(
             &conn,
             &feed_data.feed_guid,
@@ -2129,6 +2404,18 @@ async fn handle_ingest_feed(
                         vec![],
                     ));
                 }
+
+                // ADR 0052 section 4, task 007: an ingest in the update case
+                // names the record's own GUID, so a pending row at this
+                // source URL means the source returned to it. Delete the
+                // row, and replicate the delete.
+                prefix_events.extend(record_guid_change_return_for_ingest(
+                    &mut conn,
+                    &req.source_url,
+                    &feed_data.feed_guid,
+                    db::unix_now(),
+                    &state2.signer,
+                )?);
 
                 // ADR 0052 section 2, task 006: a permanent redirect from
                 // the stored source URL moves the record. `move_target` is
@@ -2264,25 +2551,86 @@ async fn handle_ingest_feed(
                     vec![],
                 ));
             }
-            db::SubmissionClass::GuidChange { .. } => {
-                log_submission_classification(
-                    &feed_data.feed_guid,
-                    &req.canonical_url,
-                    &req.source_url,
-                    "guid_change_pending",
-                );
-                return Ok((
-                    ingest::IngestResponse {
-                        accepted: false,
-                        no_change: false,
-                        reason: Some("guid_change_pending".to_string()),
-                        events_emitted: vec![],
-                        warnings: vec![],
-                        source_url: None,
-                    },
-                    vec![],
-                    vec![],
-                ));
+            db::SubmissionClass::GuidChange { held_guid } => {
+                // ADR 0052 section 4: `approve` runs the transition at the
+                // next submission of the same new GUID from the source URL.
+                // The node keeps no other memory of the decision: this reads
+                // the row fresh on every submission.
+                let approved = db::get_guid_change(&conn, &req.source_url)
+                    .map_err(ApiError::from)?
+                    .is_some_and(|row| {
+                        row.new_guid == feed_data.feed_guid
+                            && row.decision.as_deref() == Some("approve")
+                    });
+                let guid_origin = model::guid_origin_matches(&feed_data.feed_guid, &req.source_url);
+                if guid_origin || approved {
+                    // ADR 0052 sections 4 and 5, task 007 items 1 and 3: a
+                    // transition must run, either because the new GUID is
+                    // the UUIDv5 of the source URL, or because the operator
+                    // already approved this same new GUID. It does not run
+                    // here: `pending_guid_transition` records the old GUID,
+                    // and `guid_change_transition` itself runs immediately
+                    // before step 11 below, once the track-count check and
+                    // every build step between here and there has passed.
+                    // Retiring `held_guid` here, before those checks, would
+                    // leave it retired with no replacement and no payment
+                    // route on a later rejection (for example the track
+                    // limit). This handler falls through to admit the body,
+                    // exactly as the NewFeed arm does.
+                    let trigger = if guid_origin { "UUIDv5" } else { "approved" };
+                    warnings.push(format!(
+                        "GUID changed from {held_guid} to {} (ADR 0052 {trigger})",
+                        feed_data.feed_guid
+                    ));
+                    pending_guid_transition = Some(held_guid);
+                } else {
+                    // ADR 0052 section 4, task 007 item 2: otherwise, the
+                    // change needs the operator. Write or update the pending
+                    // row and answer guid_change_pending, or
+                    // guid_change_rejected when the operator already
+                    // rejected this same new GUID.
+                    let now = db::unix_now();
+                    let outcome = record_guid_change_pending_for_ingest(
+                        &mut conn,
+                        &req.source_url,
+                        &held_guid,
+                        &feed_data.feed_guid,
+                        now,
+                        &state2.signer,
+                    )?;
+                    let (reason, events) = match outcome {
+                        GuidChangePendingOutcome::Rejected => ("guid_change_rejected", vec![]),
+                        GuidChangePendingOutcome::Pending(events) => {
+                            ("guid_change_pending", events)
+                        }
+                    };
+                    log_submission_classification(
+                        &feed_data.feed_guid,
+                        &req.canonical_url,
+                        &req.source_url,
+                        reason,
+                    );
+                    let event_ids: Vec<String> = events
+                        .iter()
+                        .map(|signed| signed.row.event_id.clone())
+                        .collect();
+                    let fanout_events = events
+                        .into_iter()
+                        .map(signed_row_to_event)
+                        .collect::<Result<Vec<_>, ApiError>>()?;
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some(reason.to_string()),
+                            events_emitted: event_ids,
+                            warnings: vec![],
+                            source_url: None,
+                        },
+                        fanout_events,
+                        vec![],
+                    ));
+                }
             }
         }
 
@@ -2963,8 +3311,40 @@ async fn handle_ingest_feed(
             www_authenticate: None,
         })?;
 
+        // ADR 0052 sections 4 and 5, task 007: a GUID-change transition runs
+        // here, immediately before step 11 admits the new record, and only
+        // here. Every check that can still reject the submission — the
+        // track-count limit (step 3b), and every build step from here back
+        // to the classify_submission match (4, 5, 7, 7b, 8, 8b, 9, 9b, 10) —
+        // has already passed by this point, because each of them returns
+        // early on failure. Running the transition any earlier would retire
+        // `old_guid` before one of those checks could still reject the
+        // submission, leaving it retired with no replacement and no payment
+        // route. Running it here still keeps it strictly before
+        // `db::ingest_transaction` below: `feeds.feed_url` is UNIQUE, and
+        // that call inserts the new record at the same `feed_url` the old
+        // record still holds until this call frees it.
+        if let Some(old_guid) = &pending_guid_transition {
+            prefix_events.extend(guid_change_transition(
+                &mut conn,
+                old_guid,
+                &feed_data.feed_guid,
+                &req.source_url,
+                &state2.signer,
+                now,
+            )?);
+        }
+
         // Collect event_ids and snapshot event data before moving event_rows.
-        let mut event_ids: Vec<String> = event_rows.iter().map(|r| r.event_id.clone()).collect();
+        // ADR 0052 sections 4 and 5, task 007: `prefix_events` carries the
+        // FeedRetired/FeedGuidSuperseded/FeedGuidChangeObserved events the
+        // GUID-change transition above already signed, ahead of the events
+        // below that admit this body as a new record.
+        let mut event_ids: Vec<String> = prefix_events
+            .iter()
+            .map(|signed| signed.row.event_id.clone())
+            .chain(event_rows.iter().map(|r| r.event_id.clone()))
+            .collect();
 
         // Snapshot events for fan-out (event_rows is consumed by ingest_transaction)
         // Issue-SEQ-INTEGRITY — 2026-03-14: EventRow no longer carries signed_by/signature.
@@ -3068,16 +3448,15 @@ async fn handle_ingest_feed(
 
         // 14. Reconstruct events with assigned seqs + signatures for fan-out
         // Issue-SEQ-INTEGRITY — 2026-03-14: signatures come from ingest_transaction.
-        let mut signed_rows: Vec<SignedEventRow> = events_for_fanout
-            .into_iter()
-            .zip(seqs)
-            .map(|(row, (seq, signed_by, signature))| SignedEventRow {
+        let mut signed_rows: Vec<SignedEventRow> = prefix_events;
+        signed_rows.extend(events_for_fanout.into_iter().zip(seqs).map(
+            |(row, (seq, signed_by, signature))| SignedEventRow {
                 row,
                 seq,
                 signed_by,
                 signature,
-            })
-            .collect();
+            },
+        ));
         signed_rows.extend(url_observation_rows);
         let fanout_events: Vec<event::Event> = signed_rows
             .into_iter()
@@ -4775,6 +5154,146 @@ async fn handle_resolve_copy(
             ));
 
             Ok((StatusCode::OK, Json(ResolveCopyResponse { event_ids })).into_response())
+        }
+    }
+}
+
+// ── POST /v1/feeds/{guid}/guid-change ───────────────────────────────────────
+// ADR 0052 section 4, task 007: the operator decides a pending GUID change.
+// `{guid}` in the path is the old GUID the pending row names, following the
+// admin-route-with-events-and-fan-out pattern of handle_resolve_copy.
+
+/// Request body for `POST /v1/feeds/{guid}/guid-change`.
+#[derive(Deserialize)]
+struct GuidChangeDecisionRequest {
+    decision: String,
+    reason: String,
+}
+
+/// Response body for a decided GUID change.
+#[derive(Serialize)]
+struct GuidChangeDecisionResponse {
+    event_id: String,
+}
+
+/// The result of the decision transaction, decided before any fan-out.
+enum GuidChangeDecisionOutcome {
+    /// No pending row names `{guid}` as its old GUID.
+    NotFound,
+    /// The decision applied. Carries the signed `FeedGuidChangeDecided`
+    /// event for fan-out.
+    Decided(SignedEventRow),
+}
+
+async fn handle_guid_change_decision(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+    Json(req): Json<GuidChangeDecisionRequest>,
+) -> Result<Response, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let reason = req.reason.trim().to_string();
+    if reason.is_empty() {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "reason must not be empty".into(),
+            www_authenticate: None,
+        });
+    }
+    if req.decision != "approve" && req.decision != "reject" {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: format!(
+                "decision must be \"approve\" or \"reject\", got {:?}",
+                req.decision
+            ),
+            www_authenticate: None,
+        });
+    }
+
+    let decision = req.decision.clone();
+    let guid2 = guid.clone();
+    let state2 = Arc::clone(&state);
+    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+        let tx = conn.transaction()?;
+
+        let Some(row) = db::get_guid_change_for_old_guid(&tx, &guid2)? else {
+            return Ok(GuidChangeDecisionOutcome::NotFound);
+        };
+
+        let now = db::unix_now();
+        // The node does not keep the body of the submission that opened the
+        // row: `approve` only sets the decision, and the transition runs at
+        // the next submission of `new_guid` from `source_url` (ADR 0052
+        // section 4).
+        db::set_guid_change_decision(&tx, &row.source_url, &decision, &reason, now)?;
+
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let payload = event::FeedGuidChangeDecidedPayload {
+            source_url: row.source_url.clone(),
+            old_guid: row.old_guid.clone(),
+            new_guid: row.new_guid.clone(),
+            decision: decision.clone(),
+            reason: reason.clone(),
+            decided_at: now,
+        };
+        let payload_json = serde_json::to_string(&payload)?;
+        let (seq, signed_by, signature) = db::insert_event(
+            &tx,
+            &event_id,
+            &event::EventType::FeedGuidChangeDecided,
+            &payload_json,
+            &row.old_guid,
+            &state2.signer,
+            now,
+            &[],
+        )?;
+
+        tx.commit()?;
+
+        Ok(GuidChangeDecisionOutcome::Decided(SignedEventRow {
+            row: db::EventRow {
+                event_id,
+                event_type: event::EventType::FeedGuidChangeDecided,
+                payload_json,
+                subject_guid: row.old_guid,
+                created_at: now,
+                warnings: vec![],
+            },
+            seq,
+            signed_by,
+            signature,
+        }))
+    })
+    .await?;
+
+    match outcome {
+        GuidChangeDecisionOutcome::NotFound => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("no pending GUID change names {guid} as its old GUID"),
+            www_authenticate: None,
+        }),
+        GuidChangeDecisionOutcome::Decided(signed) => {
+            let event_id = signed.row.event_id.clone();
+            let fanout_events = vec![signed_row_to_event(signed)?];
+
+            publish_events_to_sse(&state.sse_registry, &fanout_events);
+            let db_fanout = state.db.clone();
+            let client_fanout = state.push_client.clone();
+            let subscribers_fanout = Arc::clone(&state.push_subscribers);
+            tokio::spawn(fan_out_push(
+                db_fanout,
+                client_fanout,
+                subscribers_fanout,
+                fanout_events,
+            ));
+
+            Ok((
+                StatusCode::OK,
+                Json(GuidChangeDecisionResponse { event_id }),
+            )
+                .into_response())
         }
     }
 }

@@ -236,6 +236,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 41: the new-feed-url and podcast:locked declarations a
     // source body makes for itself (ADR 0052 §2, task 006)
     include_str!("../migrations/0041_feed_move_declarations.sql"),
+    // Migration 42: a pending GUID change at a source URL, and the link from
+    // a superseded GUID to its replacement (ADR 0052 §4, §5, task 007)
+    include_str!("../migrations/0042_feed_guid_changes.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -6959,6 +6962,298 @@ pub fn clear_declared_new_feed_url(conn: &Connection, feed_guid: &str) -> Result
         params![feed_guid],
     )?;
     Ok(())
+}
+
+// ── feed_guid_changes (ADR 0052 sections 4 and 5, task 007) ─────────────────
+
+/// A row of `feed_guid_changes`: the pending GUID change a source URL
+/// declares, and its decision when one has been made.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuidChangeRow {
+    pub source_url: String,
+    pub old_guid: String,
+    pub new_guid: String,
+    pub first_seen: i64,
+    /// Local to the primary ingest path. `None` on a community node.
+    pub last_seen: Option<i64>,
+    pub decision: Option<String>,
+    pub decision_reason: Option<String>,
+    pub decided_at: Option<i64>,
+}
+
+const GUID_CHANGE_COLUMNS: &str = "source_url, old_guid, new_guid, first_seen, last_seen, \
+    decision, decision_reason, decided_at";
+
+fn guid_change_row_from_row(row: &rusqlite::Row) -> rusqlite::Result<GuidChangeRow> {
+    Ok(GuidChangeRow {
+        source_url: row.get(0)?,
+        old_guid: row.get(1)?,
+        new_guid: row.get(2)?,
+        first_seen: row.get(3)?,
+        last_seen: row.get(4)?,
+        decision: row.get(5)?,
+        decision_reason: row.get(6)?,
+        decided_at: row.get(7)?,
+    })
+}
+
+/// Returns the `feed_guid_changes` row of `source_url`, or `None`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_guid_change(
+    conn: &Connection,
+    source_url: &str,
+) -> Result<Option<GuidChangeRow>, DbError> {
+    conn.query_row(
+        &format!("SELECT {GUID_CHANGE_COLUMNS} FROM feed_guid_changes WHERE source_url = ?1"),
+        params![source_url],
+        guid_change_row_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns the `feed_guid_changes` row named by the operator route's
+/// `{guid}` path parameter, the old GUID (ADR 0052 section 4).
+///
+/// A source URL is unique to at most one record, so at most one row names a
+/// given `old_guid` under ordinary operation. This reads the newest row when
+/// more than one somehow does.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_guid_change_for_old_guid(
+    conn: &Connection,
+    old_guid: &str,
+) -> Result<Option<GuidChangeRow>, DbError> {
+    conn.query_row(
+        &format!(
+            "SELECT {GUID_CHANGE_COLUMNS} FROM feed_guid_changes \
+             WHERE old_guid = ?1 ORDER BY first_seen DESC LIMIT 1"
+        ),
+        params![old_guid],
+        guid_change_row_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns the `feed_guid_changes` row of the record `feed_guid` currently
+/// names, joined through its own stored `feed_url` (ADR 0052 section 4).
+///
+/// `GET /v1/feeds/{guid}` calls this for `pending_guid_change`. The join
+/// keeps the answer tied to the record's current source URL, not to a stale
+/// row a past move left behind.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_pending_guid_change_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<GuidChangeRow>, DbError> {
+    conn.query_row(
+        "SELECT c.source_url, c.old_guid, c.new_guid, c.first_seen, c.last_seen, \
+                c.decision, c.decision_reason, c.decided_at \
+         FROM feed_guid_changes c JOIN feeds f ON f.feed_url = c.source_url \
+         WHERE f.feed_guid = ?1",
+        params![feed_guid],
+        guid_change_row_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Lists every `feed_guid_changes` row with no `reject` decision, newest
+/// `first_seen` first (ADR 0052 section 4). `GET /v1/guid-changes` reads
+/// this.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn list_guid_changes(conn: &Connection) -> Result<Vec<GuidChangeRow>, DbError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {GUID_CHANGE_COLUMNS} FROM feed_guid_changes \
+         WHERE decision IS NULL OR decision <> 'reject' \
+         ORDER BY first_seen DESC"
+    ))?;
+    let rows = stmt
+        .query_map([], guid_change_row_from_row)?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+/// Upserts one `feed_guid_changes` row (ADR 0052 section 4, task 007).
+///
+/// A new `source_url` writes a new row with `first_seen`. An existing row
+/// whose `new_guid` is unchanged keeps its own `first_seen` and its decision
+/// columns. An existing row whose `new_guid` changed takes the given
+/// `first_seen` and has its decision columns reset to null: a different
+/// declared GUID is a fresh pending change, so a `reject` of the old value
+/// does not carry over. `last_seen` is not written here; it is local to the
+/// primary ingest path ([`touch_guid_change_last_seen`]).
+///
+/// Idempotent. This is the write both a signed `FeedGuidChangeObserved`
+/// event applies on every node, and the primary's own ingest path calls
+/// before it decides whether to sign a new one.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn upsert_guid_change(
+    conn: &Connection,
+    source_url: &str,
+    old_guid: &str,
+    new_guid: &str,
+    first_seen: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO feed_guid_changes (source_url, old_guid, new_guid, first_seen) \
+         VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(source_url) DO UPDATE SET \
+           old_guid = excluded.old_guid, \
+           new_guid = excluded.new_guid, \
+           first_seen = CASE WHEN new_guid = excluded.new_guid \
+                              THEN first_seen ELSE excluded.first_seen END, \
+           decision = CASE WHEN new_guid = excluded.new_guid \
+                           THEN decision ELSE NULL END, \
+           decision_reason = CASE WHEN new_guid = excluded.new_guid \
+                                  THEN decision_reason ELSE NULL END, \
+           decided_at = CASE WHEN new_guid = excluded.new_guid \
+                             THEN decided_at ELSE NULL END",
+        params![source_url, old_guid, new_guid, first_seen],
+    )?;
+    Ok(())
+}
+
+/// Sets `last_seen` on the `feed_guid_changes` row of `source_url`.
+///
+/// Local to the primary ingest path. A community node never calls this.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn touch_guid_change_last_seen(
+    conn: &Connection,
+    source_url: &str,
+    now: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feed_guid_changes SET last_seen = ?1 WHERE source_url = ?2",
+        params![now, source_url],
+    )?;
+    Ok(())
+}
+
+/// Deletes the `feed_guid_changes` row of `source_url`.
+///
+/// A return to the old GUID at the source URL calls this, and a signed
+/// `FeedGuidChangeObserved` event with `new_guid` equal to `old_guid`
+/// replicates the delete (ADR 0052 section 4). Idempotent: deleting an
+/// already-absent row is a no-op.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn delete_guid_change(conn: &Connection, source_url: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_guid_changes WHERE source_url = ?1",
+        params![source_url],
+    )?;
+    Ok(())
+}
+
+/// Writes the operator's decision on the `feed_guid_changes` row of
+/// `source_url` (ADR 0052 section 4).
+///
+/// Idempotent, and a no-op when the row is missing: a signed
+/// `FeedGuidChangeDecided` event applies the same way on every node, whether
+/// or not that node's own copy of the row still exists.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn set_guid_change_decision(
+    conn: &Connection,
+    source_url: &str,
+    decision: &str,
+    decision_reason: &str,
+    decided_at: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feed_guid_changes SET decision = ?2, decision_reason = ?3, decided_at = ?4 \
+         WHERE source_url = ?1",
+        params![source_url, decision, decision_reason, decided_at],
+    )?;
+    Ok(())
+}
+
+// ── feed_guid_supersessions (ADR 0052 section 5, task 007) ──────────────────
+
+/// A row of `feed_guid_supersessions`: the link from a GUID a transition
+/// retired to the GUID that replaced it. Navigation only.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GuidSupersessionRow {
+    pub old_guid: String,
+    pub new_guid: String,
+    pub source_url: String,
+    pub superseded_at: i64,
+}
+
+/// Writes a `feed_guid_supersessions` row linking `old_guid` to `new_guid`.
+///
+/// Idempotent (`INSERT OR IGNORE`): a signed `FeedGuidSuperseded` event
+/// applies this the same way on every node, and a replayed event writes at
+/// most one row, keeping the first `superseded_at` (ADR 0052 section 5).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the write fails.
+pub fn insert_guid_supersession(
+    conn: &Connection,
+    old_guid: &str,
+    new_guid: &str,
+    source_url: &str,
+    superseded_at: i64,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO feed_guid_supersessions \
+         (old_guid, new_guid, source_url, superseded_at) VALUES (?1, ?2, ?3, ?4)",
+        params![old_guid, new_guid, source_url, superseded_at],
+    )?;
+    Ok(())
+}
+
+/// Returns the `feed_guid_supersessions` row of `old_guid`, or `None`.
+///
+/// `GET /v1/feeds/{old_guid}` calls this to answer `404` with
+/// `superseded_by` (ADR 0052 section 5).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_guid_supersession(
+    conn: &Connection,
+    old_guid: &str,
+) -> Result<Option<GuidSupersessionRow>, DbError> {
+    conn.query_row(
+        "SELECT old_guid, new_guid, source_url, superseded_at \
+         FROM feed_guid_supersessions WHERE old_guid = ?1",
+        params![old_guid],
+        |row| {
+            Ok(GuidSupersessionRow {
+                old_guid: row.get(0)?,
+                new_guid: row.get(1)?,
+                source_url: row.get(2)?,
+                superseded_at: row.get(3)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
 }
 
 /// Returns a source track by GUID, or `None` if it does not exist.

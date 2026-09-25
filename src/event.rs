@@ -68,6 +68,15 @@ pub enum EventType {
     FeedCopyObserved,
     /// The operator resolved an open copy (ADR 0058 §4).
     FeedCopyResolved,
+    /// A source URL's declared GUID is new or changed, or it returned to the
+    /// GUID the record already holds (ADR 0052 §4, task 007).
+    FeedGuidChangeObserved,
+    /// The operator approved or rejected a pending GUID change (ADR 0052 §4,
+    /// task 007).
+    FeedGuidChangeDecided,
+    /// A GUID change transition retired the old record and linked it to the
+    /// new one (ADR 0052 §5, task 007).
+    FeedGuidSuperseded,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -120,6 +129,12 @@ pub enum EventPayload {
     FeedCopyObserved(FeedCopyObservedPayload),
     /// Payload for a copy-resolution event.
     FeedCopyResolved(FeedCopyResolvedPayload),
+    /// Payload for a pending-GUID-change-observed event.
+    FeedGuidChangeObserved(FeedGuidChangeObservedPayload),
+    /// Payload for a GUID-change-decision event.
+    FeedGuidChangeDecided(FeedGuidChangeDecidedPayload),
+    /// Payload for a GUID-change-transition event.
+    FeedGuidSuperseded(FeedGuidSupersededPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -380,4 +395,58 @@ pub struct FeedCopyResolvedPayload {
     pub reason: String,
     pub resolved_at: i64,
     pub resolved_digest: String,
+}
+
+/// Emitted when the `feed_guid_changes` row of `source_url` is new, or its
+/// `new_guid` changes (ADR 0052 section 4, task 007).
+///
+/// `new_guid` equal to `old_guid` is the delete marker: the source URL
+/// returned to the GUID the record already holds, and the apply step
+/// deletes the row instead of upserting it. There is no separate event type
+/// for a delete; task 007 chose to reuse this one, so a community node needs
+/// no new match arm for the return case.
+///
+/// The subject GUID of the [`Event`] carrying this payload is `old_guid`:
+/// the record the pending change concerns.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedGuidChangeObservedPayload {
+    pub source_url: String,
+    pub old_guid: String,
+    pub new_guid: String,
+    pub first_seen: i64,
+}
+
+/// Emitted when the operator decides a pending GUID change (ADR 0052 section
+/// 4, task 007).
+///
+/// The subject GUID of the [`Event`] carrying this payload is `old_guid`.
+/// `decision` is `"approve"` or `"reject"`. The node does not keep the body
+/// of the submission that opened the row: `approve` only sets the decision,
+/// and the transition runs at the next submission of `new_guid` from
+/// `source_url`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedGuidChangeDecidedPayload {
+    pub source_url: String,
+    pub old_guid: String,
+    pub new_guid: String,
+    pub decision: String,
+    pub reason: String,
+    pub decided_at: i64,
+}
+
+/// Emitted when a GUID-change transition retires `old_guid` and links it to
+/// `new_guid` (ADR 0052 section 5, task 007).
+///
+/// The subject GUID of the [`Event`] carrying this payload is `old_guid`.
+/// This event carries no fields of the retired record or the admitted one:
+/// the transition also emits the ordinary `FeedRetired` event for `old_guid`
+/// and the ordinary `FeedUpserted`/`TrackUpserted` events that admit the new
+/// record at `new_guid`, so this payload is the link between the two, for
+/// navigation only. `GET /v1/feeds/{old_guid}` answers `404` with
+/// `superseded_by` from the row this event writes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedGuidSupersededPayload {
+    pub old_guid: String,
+    pub new_guid: String,
+    pub source_url: String,
 }

@@ -118,17 +118,21 @@ The work that remains:
      through `PATCH /v1/feeds/{guid}` now needs a `reason`. Task 005 is the
      deploy. The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md)
      gives the sequence.
-   - A defect of the ADR 0052 self-link move. The move runs only in the write
-     phase of `handle_ingest_feed`. A submission that the node answers with
-     `no_change` does not move the record. A pass with `--force` avoids it.
    - Wavlake does not send podpings for its feeds, and no service sends them
      for Wavlake by automation. Any person can send one by hand. Thus a
      Wavlake record moves to its self link mostly through a crawl of the music
      URL form, or through the cache replay with
      `export-feed-cache-ndjson.py --self-links`.
-   - ADR 0052 section 4, amended on 2026-09-25. A GUID change at the source
-     URL is public and pending. It applies when the new GUID is the UUIDv5 of
-     the source URL, or when the operator approves it. Not built.
+   - [ADR 0052](docs/adr/0052-a-source-moves-its-own-feed.md), Accepted on
+     2026-09-25. Tasks 003 to 007 are complete on 2026-09-25 and not
+     deployed, in the three repositories. A record moves on its self link, on
+     `itunes:new-feed-url`, or on a chain of `301` and `308` redirects from its
+     source URL. The crawler sends each redirect hop. A GUID change at the
+     source URL is pending and public. It applies when the new GUID is the
+     UUIDv5 of the source URL, or after the operator approves it. Task 008 is
+     the deploy, the node first and then the crawler. The
+     [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
+     gives the sequence.
    - ADR 0054 and ADR 0055.
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.

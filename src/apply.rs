@@ -233,6 +233,46 @@ fn apply_single_event_inner(
                 &p.resolved_digest,
             )?;
         }
+        event::EventPayload::FeedGuidChangeObserved(p) => {
+            // ADR 0052 section 4, task 007: `new_guid` equal to `old_guid` is
+            // the delete marker (the return case). Idempotent either way.
+            if p.new_guid == p.old_guid {
+                db::delete_guid_change(conn, &p.source_url)?;
+            } else {
+                db::upsert_guid_change(
+                    conn,
+                    &p.source_url,
+                    &p.old_guid,
+                    &p.new_guid,
+                    p.first_seen,
+                )?;
+            }
+        }
+        event::EventPayload::FeedGuidChangeDecided(p) => {
+            // Idempotent: writing the decision of a missing row is a no-op
+            // (ADR 0052 section 4).
+            db::set_guid_change_decision(
+                conn,
+                &p.source_url,
+                &p.decision,
+                &p.reason,
+                p.decided_at,
+            )?;
+        }
+        event::EventPayload::FeedGuidSuperseded(p) => {
+            // Idempotent (INSERT OR IGNORE). The transition's own
+            // FeedRetired event (for old_guid) and FeedUpserted/TrackUpserted
+            // events (for new_guid) apply through their own existing match
+            // arms above; this arm only writes the navigation link (ADR 0052
+            // section 5).
+            db::insert_guid_supersession(
+                conn,
+                &p.old_guid,
+                &p.new_guid,
+                &p.source_url,
+                ev.created_at,
+            )?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

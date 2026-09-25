@@ -297,12 +297,48 @@ change a record.
 |-------|---------|---------------------|
 | `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Not retry this URL. It can fetch the source URL |
 | `record_conflict` | The submission names a GUID held by one record, from a URL held by a different record | Not retry. An operator must select the next step |
-| `guid_change_pending` | A held source URL declares a new GUID | Not retry. ADR 0052 owns the next step |
+| `guid_change_pending` | A held source URL declares a new GUID. See below | Not retry. ADR 0052 owns the next step |
 
-Each of these three reasons writes no row to the database. `source_conflict`
-is different: the node records the submitted URL as an observation of the
-GUID (ADR 0049 section 1). This observation does not
-change the record.
+`source_conflict` and `record_conflict` write no row to the database.
+`source_conflict` is different from `record_conflict`: the node records the
+submitted URL as an observation of the GUID (ADR 0049 section 1). This
+observation does not change the record. `guid_change_pending` writes a
+pending row. See the next section.
+
+**A source URL can change its declared GUID (ADR 0052 sections 4 and 5):**
+
+A held source URL that declares a GUID other than its record's own GUID does
+not change the record. The node records the change as pending, and the
+change is public:
+
+- `GET /v1/feeds/{guid}` reports it in `pending_guid_change`.
+- `GET /v1/guid-changes` lists it.
+
+The node applies the change only when the new GUID is the `UUIDv5` of the
+source URL (ADR 0058 section 1b). It signs `FeedRetired` for the record,
+with reason `guid_superseded` and no block, then signs `FeedGuidSuperseded`,
+then admits the body as a new record. The response carries
+`accepted: true` and this warning:
+
+```text
+GUID changed from <old GUID> to <new GUID> (ADR 0052 UUIDv5)
+```
+
+If the new GUID is not that `UUIDv5`, the change needs the operator:
+`POST /v1/feeds/{guid}/guid-change` (section 10). Until the operator
+decides, each submission of the same new GUID answers `guid_change_pending`
+again, and signs no new event. `approve` runs the same change at the next
+submission of the same new GUID, with the warning `GUID changed from
+<old GUID> to <new GUID> (ADR 0052 approved)`. A rejected new GUID answers
+`guid_change_rejected`. A different new GUID opens a new pending row.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `guid_change_rejected` | The operator rejected this same new GUID at this source URL | Not retry. ADR 0052 owns the next step |
+
+A submission of the record's own GUID from a source URL with a pending row
+deletes the row: the source corrected itself back. The record keeps its
+content and its track identities.
 
 **A source URL can move a record (ADR 0052 sections 1 and 2):**
 
@@ -619,6 +655,7 @@ Returns a single feed by its `podcast:guid`.
     "copy_count": 0,
     "created_at": 1710288000,
     "updated_at": 1710288000,
+    "pending_guid_change": null,
     "tracks": [
       {
         "track_guid": "uuid", "title": "Track", "pub_date": 1710288000,
@@ -728,7 +765,7 @@ Returns a single feed by its `podcast:guid`.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 404  | Feed not found |
+| 404  | Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID change retired it (ADR 0052 section 5) |
 
 `raw_medium` is the verbatim channel-level `podcast:medium` value from RSS.
 `remote_items` is the stored source-truth snapshot of feed-level
@@ -804,6 +841,13 @@ resolves `publisher_feed_title`. ADR 0049 section 5.
 `copy_count` is derived. It is the number of open copies of this feed.
 `GET /v1/feeds/{guid}/copies` lists each copy, open or not. ADR 0058 owns
 `copy_count` and the two copy routes below.
+
+`pending_guid_change` is null, or gives `new_guid`, `first_seen`, `last_seen`
+and `decision` for the GUID the feed's own source URL declares.
+`last_seen` is local to the primary. A community node answers null.
+`decision` is null until the operator decides, then `approve` or `reject`.
+ADR 0052 section 4 owns this field, and section 2 of this document owns
+`POST /ingest/feed`'s part in it.
 
 ---
 
@@ -987,6 +1031,45 @@ above zero. ADR 0058 owns this route.
 `copy_count` is the number of open copies of the record. `newest_first_seen`
 is null when the record has no open copy, and is listed only because its
 `copies_over_limit` is above zero.
+
+---
+
+### GET /v1/guid-changes
+
+Gives each pending GUID change with no `reject` decision. ADR 0052 section 4
+owns this route.
+
+- **Authentication:** None
+- **Sequence:** newest first, by `first_seen`.
+- **Query parameters:** `cursor`, and `limit`, at most 100.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "source_url": "https://feeds.example.com/my-music-feed",
+      "old_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "new_guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "first_seen": 1710288000,
+      "last_seen": 1710300000,
+      "decision": null
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+`decision` is null until the operator decides, then `approve` or `reject`. A
+row with a `reject` decision drops out of this list.
+`GET /v1/feeds/{old_guid}`'s `pending_guid_change` continues to show it.
+`last_seen` is local to the primary. A community node answers null.
 
 ---
 
@@ -1729,6 +1812,51 @@ no payment route.
 
 ---
 
+### POST /v1/feeds/{guid}/guid-change
+
+The operator decides a pending GUID change (ADR 0052 section 4). `{guid}` in
+the path is the GUID a pending row names as `old_guid`.
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Request body:**
+
+```json
+{
+  "decision": "approve",
+  "reason": "confirmed with the publisher"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `decision` | string | `approve` or `reject` |
+| `reason` | string | Why the operator picked this decision |
+
+The node does not keep the body of the submission that opened the row.
+`approve` sets the decision only. The next submission of the new GUID from
+the source URL then applies the change section 2 describes. `reject` holds
+while the source URL keeps declaring this same new GUID. A different new
+GUID from it opens a new pending row.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "event_id": "uuid"
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Decision applied |
+| 400  | Empty `reason`, or `decision` is not `approve` or `reject` |
+| 403  | Missing or invalid admin token |
+| 404  | No pending GUID change names this GUID as `old_guid` |
+
+---
+
 ## 11. Event Types
 
 Events are the atomic unit of replication. Each event is ed25519-signed by the primary node.
@@ -1759,6 +1887,9 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 | `feed_unblocked` | block_id | A blocked feed GUID or URL was unblocked |
 | `feed_copy_observed` | feed_guid | A new or changed summary of a feed copy at a URL that is not the source (ADR 0058) |
 | `feed_copy_resolved` | feed_guid | The operator resolved a feed copy with `keep_source` or `relocate` (ADR 0058) |
+| `feed_guid_change_observed` | old_guid | A pending GUID change is new or changed, or deleted because the source declared its earlier GUID again (ADR 0052 section 4) |
+| `feed_guid_change_decided` | old_guid | The operator approved or rejected a pending GUID change (ADR 0052 section 4) |
+| `feed_guid_superseded` | old_guid | A GUID change retired old_guid and linked it to new_guid (ADR 0052 section 5) |
 
 ---
 
@@ -1768,7 +1899,7 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/feeds/*/copies/resolve`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/feeds/*/copies/resolve`, `POST /v1/feeds/*/guid-change`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
 
 ADR 0056 took the public proof flow offline. Each write route in this table
 needs the admin token. No route takes a bearer token.

@@ -290,6 +290,37 @@ fn spec_value(mode: DocMode) -> Value {
             )
         }),
     );
+    paths.insert(
+        "/v1/guid-changes".into(),
+        json!({
+            "get": operation(
+                "List pending GUID changes",
+                "Returns each pending GUID change with no `reject` decision, newest `first_seen` first (ADR 0052 section 4).",
+                "Feeds",
+                vec![
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return, at most 100.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated list of pending GUID changes.",
+                        query_envelope_example(json!([
+                            {
+                                "source_url": "https://feeds.example.com/my-music-feed",
+                                "old_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "new_guid": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+                                "first_seen": 1710288000,
+                                "last_seen": 1710300000,
+                                "decision": null
+                            }
+                        ]))
+                    )
+                }),
+                None
+            )
+        }),
+    );
     paths.insert("/v1/feeds/{guid}".into(), feed_path_item(mode));
     paths.insert("/v1/tracks/{guid}".into(), track_path_item(mode));
     paths.insert(
@@ -537,7 +568,7 @@ fn spec_value(mode: DocMode) -> Value {
                     )),
                     json!({
                         "200": json_response(
-                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record.",
+                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A `guid_change_pending` or `guid_change_rejected` reason (ADR 0052 section 4) means the source URL declares a GUID other than the one the record holds. A GUID-change transition (ADR 0052 section 5), run either for the UUIDv5 of the source URL or for an operator approval, names its old and new GUID in `warnings`: `GUID changed from <old> to <new> (ADR 0052 UUIDv5)` or `(ADR 0052 approved)`.",
                             json!({
                                 "accepted": true,
                                 "reason": null,
@@ -728,6 +759,34 @@ fn spec_value(mode: DocMode) -> Value {
                 )
             }),
         );
+        paths.insert(
+            "/v1/feeds/{guid}/guid-change".into(),
+            json!({
+                "post": operation(
+                    "Decide a pending GUID change",
+                    "The operator approves or rejects a pending GUID change (ADR 0052 section 4). `{guid}` is the old GUID the pending row names. The node does not keep the body of the submission that opened the row: `approve` only sets the decision, and the transition runs at the next submission of the new GUID from the source URL.",
+                    "Feeds",
+                    vec![path_param("guid", "string", "The old GUID a pending row names.")],
+                    Some(json_request_body(
+                        "Decision payload.",
+                        json!({
+                            "decision": "approve",
+                            "reason": "confirmed with the publisher"
+                        })
+                    )),
+                    json!({
+                        "200": json_response(
+                            "Decision applied.",
+                            json!({ "event_id": "uuid" })
+                        ),
+                        "400": error_response("Empty reason, or decision is not \"approve\" or \"reject\"."),
+                        "403": error_response("Missing or invalid admin token."),
+                        "404": error_response("No pending GUID change names this GUID as its old GUID.")
+                    }),
+                    Some(admin_only_security())
+                )
+            }),
+        );
     }
 
     json!({
@@ -817,10 +876,14 @@ fn feed_path_item(mode: DocMode) -> Value {
                         "release_artist": "Artist Name",
                         "release_artist_source": "itunes_author",
                         "publisher_feed_title": "Publisher Feed Title",
-                        "copy_count": 0
+                        "copy_count": 0,
+                        "pending_guid_change": null
                     }))
                 ),
-                "404": error_response("Feed not found.")
+                "404": json_response(
+                    "Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID-change transition retired it (ADR 0052 section 5).",
+                    json!({ "error": "feed not found", "superseded_by": "new-feed-guid" })
+                )
             }),
             None,
         ),
@@ -1217,6 +1280,9 @@ fn ingest_request_example() -> Value {
         "crawl_token": "your-crawl-token",
         "http_status": 200,
         "content_hash": "sha256-hex-of-feed-body",
+        "redirects": [
+            { "url": "https://feeds.example.com/my-music-feed", "status": 301 }
+        ],
         "feed_data": {
             "feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
             "title": "My Music Feed",
@@ -1229,6 +1295,9 @@ fn ingest_request_example() -> Value {
             "author_name": "Artist Name",
             "owner_name": "Artist Name",
             "pub_date": 1710288000,
+            "new_feed_url": null,
+            "locked": false,
+            "locked_owner": null,
             "remote_items": [{
                 "position": 0,
                 "medium": "publisher",
