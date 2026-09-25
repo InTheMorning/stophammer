@@ -1,79 +1,12 @@
-#![expect(
-    clippy::significant_drop_tightening,
-    reason = "MutexGuard<Connection> must be held for the full scope in test setup"
-)]
-
 mod common;
 
-use rusqlite::params;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 
 use http::Request;
-use http_body_util::BodyExt;
 use tower::ServiceExt;
-use wiremock::matchers::method;
-use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
-
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .unwrap();
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .unwrap();
-    credit_id
-}
-
-fn insert_feed(
-    conn: &rusqlite::Connection,
-    feed_guid: &str,
-    feed_url: &str,
-    title: &str,
-    credit_id: i64,
-    now: i64,
-) {
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
-         description, explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            feed_guid,
-            feed_url,
-            title,
-            title.to_lowercase(),
-            credit_id,
-            "A test feed",
-            0,
-            0,
-            now,
-            now,
-        ],
-    )
-    .unwrap();
-}
 
 fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
     let signer = Arc::new(common::temp_signer("test-avail-signer"));
@@ -95,15 +28,6 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     })
 }
 
-fn json_request(method: &str, uri: &str, body: &serde_json::Value) -> Request<axum::body::Body> {
-    Request::builder()
-        .method(method)
-        .uri(uri)
-        .header("Content-Type", "application/json")
-        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
-        .unwrap()
-}
-
 // Issue-RECONCILE-AUTH — 2026-03-16: reconcile now requires dedicated sync auth.
 fn json_request_authed(
     method: &str,
@@ -117,230 +41,6 @@ fn json_request_authed(
         .header("X-Sync-Token", "test-sync-token")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap()
-}
-
-async fn body_json(resp: axum::response::Response) -> serde_json::Value {
-    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
-    serde_json::from_slice(&bytes).unwrap()
-}
-
-fn rss_with_podcast_txt(txt_content: &str) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:podcast="https://podcastindex.org/namespace/1.0">
-  <channel>
-    <title>Test Podcast</title>
-    <podcast:txt>{txt_content}</podcast:txt>
-  </channel>
-</rss>"#
-    )
-}
-
-#[allow(dead_code, reason = "helper for future tests")]
-fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
-    let now = common::now();
-    insert_artist(conn, "artist-avail", "Avail Artist", now);
-    let credit_id = insert_artist_credit(conn, "artist-avail", "Avail Artist", now);
-    insert_feed(
-        conn,
-        "feed-avail-1",
-        "https://example.com/avail-feed.xml",
-        "Availability Test Album",
-        credit_id,
-        now,
-    );
-    (credit_id, now)
-}
-
-// ==========================================================================
-// VULN-01: Proof challenge table exhaustion (replacement semantics)
-// ==========================================================================
-
-#[tokio::test]
-async fn proof_challenge_replaces_existing_pending_for_same_feed() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().unwrap();
-        let now = common::now();
-        insert_artist(&conn, "artist-flood", "Flood Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-flood", "Flood Artist", now);
-        insert_feed(
-            &conn,
-            "flood-feed",
-            "https://example.com/flood-feed.xml",
-            "Flood Feed",
-            credit_id,
-            now,
-        );
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let first = app
-        .clone()
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "flood-feed",
-                "scope": "feed:write",
-                "requester_nonce": "rate-limit-nonce-000",
-            }),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(first.status(), 201);
-    let first_body = body_json(first).await;
-    let first_id = first_body["challenge_id"].as_str().unwrap().to_string();
-
-    let second = app
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "flood-feed",
-                "scope": "feed:write",
-                "requester_nonce": "rate-limit-nonce-001",
-            }),
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        second.status(),
-        201,
-        "fresh challenge should replace prior pending one"
-    );
-    let second_body = body_json(second).await;
-    let second_id = second_body["challenge_id"].as_str().unwrap().to_string();
-    assert_ne!(
-        first_id, second_id,
-        "replacement should mint a new challenge"
-    );
-
-    let conn = db.lock().unwrap();
-    let pending_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = 'flood-feed' AND state = 'pending'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(pending_count, 1, "only one pending challenge should remain");
-
-    let first_state: String = conn
-        .query_row(
-            "SELECT state FROM proof_challenges WHERE challenge_id = ?1",
-            params![first_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(
-        first_state, "invalid",
-        "older pending challenge should be invalidated"
-    );
-}
-
-// Challenges for different feed_guids should not interfere with each other.
-#[tokio::test]
-async fn proof_challenge_rate_limit_per_feed() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().unwrap();
-        let now = common::now();
-        insert_artist(&conn, "artist-per-feed", "Per Feed Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-per-feed", "Per Feed Artist", now);
-        insert_feed(
-            &conn,
-            "per-feed-a",
-            "https://example.com/per-feed-a.xml",
-            "Per Feed A",
-            credit_id,
-            now,
-        );
-        insert_feed(
-            &conn,
-            "per-feed-b",
-            "https://example.com/per-feed-b.xml",
-            "Per Feed B",
-            credit_id,
-            now,
-        );
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let resp = app
-        .clone()
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "per-feed-a",
-                "scope": "feed:write",
-                "requester_nonce": "feed-a-nonce-00001",
-            }),
-        ))
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), 201);
-
-    // Creating a challenge for a different feed should still work.
-    let resp = app
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "per-feed-b",
-                "scope": "feed:write",
-                "requester_nonce": "different-feed-nonce",
-            }),
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        resp.status(),
-        201,
-        "challenge for different feed_guid should succeed"
-    );
-}
-
-// ==========================================================================
-// VULN-02: Oversized requester_nonce
-// ==========================================================================
-
-#[tokio::test]
-async fn proof_challenge_rejects_oversized_nonce() {
-    let db = common::test_db_arc();
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    // A nonce longer than MAX_NONCE_BYTES (256) should be rejected.
-    let long_nonce = "a".repeat(300);
-    let resp = app
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "nonce-test-feed",
-                "scope": "feed:write",
-                "requester_nonce": long_nonce,
-            }),
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        resp.status(),
-        400,
-        "oversized nonce should be rejected with 400"
-    );
-    let body = body_json(resp).await;
-    assert!(
-        body["error"].as_str().unwrap().contains("maximum length"),
-        "error message should mention maximum length"
-    );
 }
 
 // ==========================================================================
@@ -476,56 +176,12 @@ fn fts5_truncates_large_field_to_limit() {
 }
 
 // ==========================================================================
-// VULN-05: Proof table cleanup interaction
-// ==========================================================================
-
-#[test]
-fn prune_expired_frees_challenge_slots() {
-    let mut conn = common::test_db();
-    let now = common::now();
-    let past = now - 1; // Already expired.
-
-    // Insert 20 expired pending challenges for the same feed.
-    for i in 0..20 {
-        conn.execute(
-            "INSERT INTO proof_challenges \
-             (challenge_id, feed_guid, scope, token_binding, state, expires_at, created_at) \
-             VALUES (?1, ?2, 'feed:write', 'tok.hash', 'pending', ?3, ?4)",
-            params![format!("slot-ch-{i}"), "slot-feed", past, past - 86400],
-        )
-        .unwrap();
-    }
-
-    // Verify we have 20 pending challenges.
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = 'slot-feed' AND state = 'pending'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 20);
-
-    // Prune should remove all of them.
-    let deleted = stophammer::proof::prune_expired(&mut conn).unwrap();
-    assert!(deleted >= 20, "prune should have deleted at least 20 rows");
-
-    // Now the slots are free.
-    let count_after: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM proof_challenges WHERE feed_guid = 'slot-feed'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count_after, 0, "all expired challenges should be pruned");
-}
-
-// ==========================================================================
 // VULN-06: Body size limit (via DefaultBodyLimit)
 // ==========================================================================
 // Note: Axum's DefaultBodyLimit returns 413 Payload Too Large when exceeded.
-// We test this by sending a body larger than MAX_BODY_BYTES (2 MiB).
+// We test this by sending a body larger than MAX_BODY_BYTES (2 MiB) to
+// POST /v1/blocks (ADR 0056 removed POST /v1/proofs/challenge, the route
+// this pair of tests used before).
 
 #[tokio::test]
 async fn body_size_limit_rejects_oversized_payload() {
@@ -534,17 +190,18 @@ async fn body_size_limit_rejects_oversized_payload() {
     let app = stophammer::api::build_router(state);
 
     // Create a 3 MiB JSON body (exceeds 2 MiB limit).
-    let big_nonce = "x".repeat(3 * 1024 * 1024);
+    let big_value = "x".repeat(3 * 1024 * 1024);
     let body = serde_json::json!({
-        "feed_guid": "oversize-feed",
-        "scope": "feed:write",
-        "requester_nonce": big_nonce,
+        "kind": "url",
+        "value": big_value,
+        "reason": "oversize test",
     });
 
     let req = Request::builder()
         .method("POST")
-        .uri("/v1/proofs/challenge")
+        .uri("/v1/blocks")
         .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
 
@@ -562,35 +219,24 @@ async fn body_size_limit_rejects_oversized_payload() {
 #[tokio::test]
 async fn body_within_limit_accepted() {
     let db = common::test_db_arc();
-    {
-        let conn = db.lock().unwrap();
-        let now = common::now();
-        insert_artist(&conn, "artist-normal", "Normal Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-normal", "Normal Artist", now);
-        insert_feed(
-            &conn,
-            "normal-feed",
-            "https://example.com/normal-feed.xml",
-            "Normal Feed",
-            credit_id,
-            now,
-        );
-    }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
 
-    let resp = app
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "normal-feed",
-                "scope": "feed:write",
-                "requester_nonce": "normal-nonce-okay-a",
-            }),
-        ))
-        .await
+    let body = serde_json::json!({
+        "kind": "url",
+        "value": "https://example.com/normal-feed.xml",
+        "reason": "normal-sized body test",
+    });
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/v1/blocks")
+        .header("Content-Type", "application/json")
+        .header("X-Admin-Token", "test-admin-token")
+        .body(axum::body::Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
 
     assert_eq!(resp.status(), 201, "normal-sized body should be accepted");
 }
@@ -638,152 +284,6 @@ fn fts5_truncation_respects_char_boundaries() {
         "truncation should produce valid UTF-8: {:?}",
         result.err()
     );
-}
-
-// ==========================================================================
-// VULN-09: Resolved challenges don't count towards rate limit
-// ==========================================================================
-
-#[tokio::test]
-async fn resolved_challenges_dont_count_towards_rate_limit() {
-    let mock_server = MockServer::start().await;
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().unwrap();
-        let now = common::now();
-        insert_artist(&conn, "artist-resolve", "Resolve Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-resolve", "Resolve Artist", now);
-        insert_feed(
-            &conn,
-            "resolve-feed",
-            &mock_server.uri(),
-            "Resolve Feed",
-            credit_id,
-            now,
-        );
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    // Create and resolve 20 challenges.
-    for i in 0..20 {
-        let nonce = format!("resolve-nonce-{i:05}");
-        let resp = app
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/v1/proofs/challenge",
-                &serde_json::json!({
-                    "feed_guid": "resolve-feed",
-                    "scope": "feed:write",
-                    "requester_nonce": nonce,
-                }),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(resp.status(), 201);
-
-        let body = body_json(resp).await;
-        let challenge_id = body["challenge_id"].as_str().unwrap();
-        let token_binding = body["token_binding"].as_str().unwrap();
-
-        // Reset and mount RSS with the correct token_binding for this iteration
-        mock_server.reset().await;
-        let rss = rss_with_podcast_txt(&format!("stophammer-proof {token_binding}"));
-        Mock::given(method("GET"))
-            .respond_with(ResponseTemplate::new(200).set_body_string(rss))
-            .mount(&mock_server)
-            .await;
-
-        // Assert it to resolve it.
-        let resp2 = app
-            .clone()
-            .oneshot(json_request(
-                "POST",
-                "/v1/proofs/assert",
-                &serde_json::json!({
-                    "challenge_id": challenge_id,
-                    "requester_nonce": nonce,
-                }),
-            ))
-            .await
-            .unwrap();
-        assert_eq!(resp2.status(), 200, "assert should succeed");
-    }
-
-    // Now create one more -- should succeed because resolved challenges
-    // don't count towards the pending limit.
-    let resp = app
-        .oneshot(json_request(
-            "POST",
-            "/v1/proofs/challenge",
-            &serde_json::json!({
-                "feed_guid": "resolve-feed",
-                "scope": "feed:write",
-                "requester_nonce": "resolve-extra-nonce",
-            }),
-        ))
-        .await
-        .unwrap();
-
-    assert_eq!(
-        resp.status(),
-        201,
-        "challenge should succeed after resolved ones are freed"
-    );
-}
-
-// ==========================================================================
-// AVAIL-08: RSS response body size limit
-// ==========================================================================
-
-/// Verify that `verify_podcast_txt` rejects responses larger than the 5 MiB limit.
-#[tokio::test]
-async fn rss_body_size_limit_rejects_oversized_response() {
-    let mock_server = MockServer::start().await;
-
-    // Serve a response that is 6 MiB (exceeds the 5 MiB limit).
-    let big_body = "x".repeat(6 * 1024 * 1024);
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(big_body))
-        .mount(&mock_server)
-        .await;
-
-    let client = reqwest::Client::new();
-    let result =
-        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "irrelevant-binding")
-            .await;
-
-    assert!(result.is_err(), "oversized RSS response should return Err");
-    let err = result.unwrap_err();
-    assert!(
-        err.contains("too large"),
-        "error should mention body being too large, got: {err}"
-    );
-}
-
-/// Verify that `verify_podcast_txt` accepts responses within the 5 MiB limit.
-#[tokio::test]
-async fn rss_body_within_limit_accepted() {
-    let mock_server = MockServer::start().await;
-
-    // Serve a normal-sized RSS response with the correct podcast:txt.
-    let rss = rss_with_podcast_txt("stophammer-proof test-binding");
-    Mock::given(method("GET"))
-        .respond_with(ResponseTemplate::new(200).set_body_string(rss))
-        .mount(&mock_server)
-        .await;
-
-    let client = reqwest::Client::new();
-    let result =
-        stophammer::proof::verify_podcast_txt(&client, &mock_server.uri(), "test-binding").await;
-
-    assert!(
-        result.is_ok(),
-        "normal RSS response should succeed: {:?}",
-        result.err()
-    );
-    assert!(result.unwrap(), "should find the matching podcast:txt");
 }
 
 // ==========================================================================

@@ -11,7 +11,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 use std::process::ExitCode;
 
-use stophammer::{api, community, db, db_pool, proof, signing, tls, verify};
+use stophammer::{api, blocks, community, db, db_pool, signing, tls, verify};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -62,10 +62,6 @@ async fn run() -> Result<(), StartupError> {
         .map_err(|err| startup_error(format!("failed to load signing key: {err}")))?;
     let pubkey = signer.pubkey_hex().to_string();
 
-    // SP-02 pruner interval — 2026-03-13
-    let prune_interval = proof::prune_interval_from_env();
-    spawn_proof_pruner(pool.clone(), prune_interval);
-
     match node_mode.as_str() {
         "community" => run_community(pool, signer, pubkey, bind_addr).await,
         _ => run_primary(pool, signer, pubkey, bind_addr).await,
@@ -108,6 +104,19 @@ async fn run_primary(
             .collect();
         std::sync::Arc::new(std::sync::RwLock::new(map))
     };
+
+    // ADR 0053 section 2: seed durable block rows from the environment
+    // before the router starts. A community node does not seed.
+    {
+        let mut conn = db
+            .writer()
+            .lock()
+            .map_err(|_poison| startup_error("db mutex poisoned at startup"))?;
+        let entries = blocks::blocks_from_env();
+        let seeded = blocks::seed_blocks(&mut conn, &entries, &signer, db::unix_now())
+            .map_err(|err| startup_error(format!("failed to seed feed blocks: {err}")))?;
+        tracing::info!(seeded, "seeded feed blocks from environment");
+    }
 
     let push_client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -259,28 +268,6 @@ async fn run_community(
     serve_with_optional_tls(router, &bind_addr).await
 }
 
-// ── Proof expiry pruner ──────────────────────────────────────────────────
-
-// SP-02 pruner interval — 2026-03-13
-// Issue-WAL-POOL — 2026-03-14: pruner uses writer (it mutates proof_challenges)
-fn spawn_proof_pruner(db: db_pool::DbPool, interval_secs: u64) {
-    drop(tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
-        loop {
-            interval.tick().await;
-            let Ok(mut conn) = db.writer().lock() else {
-                tracing::error!("proof-pruner: db mutex poisoned, stopping pruner");
-                break;
-            };
-            match proof::prune_expired(&mut conn) {
-                Ok(0) => {}
-                Ok(n) => tracing::debug!(pruned = n, "proof-pruner: pruned expired proof rows"),
-                Err(e) => tracing::error!(error = %e, "proof-pruner: prune error"),
-            }
-        }
-    }));
-}
-
 // ── SP-03 rate limiting middleware — 2026-03-13 ─────────────────────────────
 
 /// Wraps the router with per-IP token-bucket rate limiting.
@@ -416,7 +403,7 @@ async fn serve_with_optional_tls(
     } else {
         // Plain HTTP fallback.
         tracing::warn!(
-            "TLS_DOMAIN not set — node is serving plain HTTP. Bearer tokens and crawl tokens are transmitted unencrypted. Set TLS_DOMAIN and TLS_ACME_EMAIL for production use."
+            "TLS_DOMAIN not set — node is serving plain HTTP. The admin token, the sync token, and the crawl token are transmitted unencrypted. Set TLS_DOMAIN and TLS_ACME_EMAIL for production use."
         );
 
         // Issue-15 expect messages — 2026-03-13

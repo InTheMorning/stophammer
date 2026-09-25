@@ -588,17 +588,19 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
         "migration 0036 must run at the recorded watermark of 29, with no repair"
     );
 
-    // ADR 0049 task 007 added migration 0037 after this fixture was written.
-    // The fixture still stops at 0035, so open_db also runs 0037 (entry 31),
-    // one migration past the 0036 this test names.
+    // ADR 0049 task 007 added migration 0037, ADR 0053 task 001 added
+    // migration 0038, and ADR 0052 task 001 added migration 0039, after this
+    // fixture was written. The fixture still stops at 0035, so open_db also
+    // runs 0037 (entry 31), 0038 (entry 32) and 0039 (entry 33), three
+    // migrations past the 0036 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 31,
-        "the runner must record version 31 after migrations 0036 and 0037 run"
+        recorded_version, 33,
+        "the runner must record version 33 after migrations 0036, 0037, 0038 and 0039 run"
     );
 }
 
@@ -696,13 +698,17 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
         "migration 0037 must run at the recorded watermark of 29, with no repair"
     );
 
+    // ADR 0053 task 001 added migration 0038, and ADR 0052 task 001 added
+    // migration 0039, after this fixture was written. The fixture stops at
+    // 0036, so open_db also runs 0038 (entry 32) and 0039 (entry 33), two
+    // migrations past the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 31,
-        "the runner must record version 31 after migration 0037 runs"
+        recorded_version, 33,
+        "the runner must record version 33 after migrations 0037, 0038 and 0039 run"
     );
 }

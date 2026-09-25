@@ -84,6 +84,15 @@ The work that remains:
    [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
    sequence.
 
+   [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) is Accepted
+   on 2026-09-25. It takes the public proof flow of ADR 0018 offline. The code
+   change is complete on 2026-09-25 and not deployed.
+
+   [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) is Accepted on
+   2026-09-25. A `podcast:block` tag at the source URL retires the feed. The
+   code change is not done. It comes after ADR 0056, and it changes the
+   parser, the ingest contract and the node.
+
    ADR 0051 tasks 001 to 004 are complete on 2026-09-25 and not deployed.
    The node checks the crawl token first, and only content from the stored
    source URL changes a record. Task 005 is the deploy and the forced repair
@@ -92,6 +101,22 @@ The work that remains:
    [phase plan](docs/plans/adr-0051-source-url-phase-plan.md) and the
    [review checklist](docs/reviews/adr-0051-review-checklist.md) hold the
    sequence.
+
+   ADR 0053 tasks 001 to 007 are complete on 2026-09-25 and not deployed. A
+   block is a signed row that each node applies, and a retirement blocks the
+   feed. The environment blocklist is a seed at the first start. A submission
+   with an older `lastBuildDate` changes nothing.
+   `GET /v1/feeds/{guid}/route-history` shows each change of the payment
+   recipients. Task 008 is the deploy, after the ADR 0051 repair.
+
+   The self-link move of ADR 0052, task 001, is complete on 2026-09-25 and not
+   deployed. Task 002 is the deploy. After it, a forced pass fills
+   `declared_self_url`.
+
+   The deploy of ADR 0053, ADR 0052 task 001 and ADR 0056 is one image. Each
+   community node gets it before the primary. The
+   [ADR 0053 plan](docs/plans/adr-0053-durable-corrections-phase-plan.md)
+   gives the sequence.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
@@ -370,15 +395,16 @@ Authoritative list comes from `src/lib.rs`. Keep both in sync.
 |----------------|------------------------------------------------------|
 | `api`          | Axum router, handlers, shared `AppState`             |
 | `apply`        | Idempotent application of signed events to the DB    |
+| `blocks`       | Durable feed blocks: environment seed (ADR 0053)     |
 | `community`    | Community-node sync, push-receive, tracker register  |
 | `db`           | SQLite schema init, core queries, pragmas            |
 | `db_pool`      | WAL connection pool (1 writer, N readers)            |
 | `event`        | Signed event envelope and serialisation              |
+| `fetch_guard`  | SSRF guard: URL validation, DNS-pinned fetches       |
 | `ingest`       | Crawler submission DTOs                              |
 | `medium`       | Podcast `<podcast:medium>` handling                  |
 | `model`        | Core domain types (`Feed`, `Track`, `Artist`, …)     |
 | `openapi`      | OpenAPI schema (utoipa) for the HTTP surface         |
-| `proof`        | Proof-of-possession challenge/token flow             |
 | `quality`      | Feed quality scoring heuristics                      |
 | `query`        | Read-only query routes                               |
 | `search`       | FTS5 full-text search                                |

@@ -643,7 +643,7 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
     let payload_json = r#"{"feed_guid":"feed-n","reason":"bulk test"}"#;
     let now = common::now();
     // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event.
-    let (seq, _signed_by, _signature) = stophammer::db::delete_feed_with_event(
+    let events = stophammer::db::delete_feed_with_event(
         &mut conn,
         "feed-n",
         &event_id,
@@ -652,8 +652,13 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
         &signer,
         now,
         &[],
+        &[],
     )
     .expect("delete_feed_with_event failed");
+    let seq = events
+        .first()
+        .expect("delete_feed_with_event returns the FeedRetired event")
+        .seq;
 
     assert!(seq > 0);
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 0);
@@ -701,6 +706,7 @@ fn delete_feed_with_event_removes_resolver_and_source_dependents() {
         "feed-n",
         &signer,
         now,
+        &[],
         &[],
     )
     .expect("delete_feed_with_event should clean resolver/source dependents");

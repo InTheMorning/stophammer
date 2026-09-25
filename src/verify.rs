@@ -46,12 +46,17 @@
 //! | Name | Module | Function |
 //! |---|---|---|
 //! | `content_hash` | [`verifiers::content_hash`] | Short-circuits unchanged feeds |
-//! | `feed_blocklist` | [`verifiers::feed_blocklist`] | Rejects exact-match blocked feed GUIDs and URLs |
 //! | `medium_music` | [`verifiers::medium_music`] | Rejects absent or non-music `podcast:medium` |
 //! | `feed_guid` | [`verifiers::feed_guid`] | Rejects bad/malformed GUIDs |
 //! | `v4v_payment` | [`verifiers::v4v_payment`] | Rejects feeds with no valid V4V payment routes |
 //! | `enclosure_type` | [`verifiers::enclosure_type`] | Warns on video MIME types |
 //! | `payment_route_sum` | [`verifiers::payment_route_sum`] | Optional: rejects splits ≠ 100 (not in default chain) |
+//!
+//! `feed_blocklist` is not a chain name. ADR 0053 section 2 moves feed
+//! blocking to `feed_blocks` rows, seeded from `BLOCKED_FEED_GUIDS` and
+//! `BLOCKED_FEED_URLS` at primary startup (see [`crate::blocks`]). A
+//! `VERIFIER_CHAIN` value that still names `feed_blocklist` runs; [`build_chain`]
+//! skips the name and logs a warning that names ADR 0053 section 2.
 
 use std::fmt;
 
@@ -286,7 +291,7 @@ impl ChainSpec {
     /// order. The crawl token check runs separately and is not in this list
     /// (ADR 0051 section 4).
     pub const DEFAULT: &'static str =
-        "content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type";
+        "content_hash,medium_music,feed_guid,v4v_payment,enclosure_type";
 
     /// Reads `VERIFIER_CHAIN` from the environment.
     ///
@@ -324,7 +329,9 @@ impl ChainSpec {
 /// then passes `crawl_token` to [`VerifierChain::new`], which holds it apart
 /// from that list (ADR 0051 section 4). Unknown names cause a panic — a
 /// misconfigured verifier chain is a startup configuration error that makes
-/// the security pipeline untrustworthy.
+/// the security pipeline untrustworthy. `feed_blocklist` is the one
+/// exception: it names a verifier that ADR 0053 section 2 removed, so this
+/// function logs a warning and skips it rather than panicking.
 ///
 /// # Adding a new verifier
 ///
@@ -350,9 +357,8 @@ impl ChainSpec {
 pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
     use crate::verifiers::{
         content_hash::ContentHashVerifier, enclosure_type::EnclosureTypeVerifier,
-        feed_blocklist::FeedBlocklistVerifier, feed_guid::FeedGuidVerifier,
-        medium_music::MediumMusicVerifier, payment_route_sum::PaymentRouteSumVerifier,
-        v4v_payment::V4VPaymentVerifier,
+        feed_guid::FeedGuidVerifier, medium_music::MediumMusicVerifier,
+        payment_route_sum::PaymentRouteSumVerifier, v4v_payment::V4VPaymentVerifier,
     };
 
     let mut verifiers: Vec<Box<dyn Verifier>> = Vec::new();
@@ -366,8 +372,22 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
                  add, remove or reorder that check). Remove 'crawl_token' \
                  from VERIFIER_CHAIN."
             ),
+            "feed_blocklist" => {
+                // ADR 0053 section 2: the environment now seeds durable
+                // `feed_blocks` rows at startup instead of running this
+                // check as a verifier. A stop here would break a node still
+                // configured with the ADR 0051 default, so this name is
+                // skipped rather than treated as unknown.
+                tracing::warn!(
+                    "VERIFIER_CHAIN names 'feed_blocklist', which is no \
+                     longer a verifier (ADR 0053 section 2: feed blocking \
+                     is now a durable 'feed_blocks' row seeded from \
+                     BLOCKED_FEED_GUIDS and BLOCKED_FEED_URLS at startup). \
+                     Skipping this name. Remove it from VERIFIER_CHAIN."
+                );
+                continue;
+            }
             "content_hash" => Box::new(ContentHashVerifier),
-            "feed_blocklist" => Box::new(FeedBlocklistVerifier::from_env()),
             "medium_music" => Box::new(MediumMusicVerifier),
             "feed_guid" => Box::new(FeedGuidVerifier),
             "v4v_payment" => Box::new(V4VPaymentVerifier),
@@ -376,8 +396,8 @@ pub fn build_chain(spec: &ChainSpec, crawl_token: String) -> VerifierChain {
             unknown => {
                 panic!(
                     "FATAL: unknown verifier '{unknown}' in VERIFIER_CHAIN. \
-                     Valid verifiers are: content_hash, feed_blocklist, \
-                     medium_music, feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
+                     Valid verifiers are: content_hash, medium_music, \
+                     feed_guid, v4v_payment, payment_route_sum, enclosure_type. \
                      Check the VERIFIER_CHAIN env var for typos."
                 );
             }

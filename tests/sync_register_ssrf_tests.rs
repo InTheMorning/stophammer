@@ -430,74 +430,74 @@ async fn register_node_info_redirect_rejected() {
 
 #[test]
 fn validate_node_url_rejects_loopback() {
-    let result = stophammer::proof::validate_node_url("http://127.0.0.1:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://127.0.0.1:8080/events");
     assert!(result.is_err(), "loopback must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_private_10() {
-    let result = stophammer::proof::validate_node_url("http://10.0.0.1:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://10.0.0.1:8080/events");
     assert!(result.is_err(), "10.x private must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_private_172() {
-    let result = stophammer::proof::validate_node_url("http://172.16.0.1:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://172.16.0.1:8080/events");
     assert!(result.is_err(), "172.16.x private must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_private_192() {
-    let result = stophammer::proof::validate_node_url("http://192.168.1.1:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://192.168.1.1:8080/events");
     assert!(result.is_err(), "192.168.x private must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_link_local() {
-    let result = stophammer::proof::validate_node_url("http://169.254.1.1:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://169.254.1.1:8080/events");
     assert!(result.is_err(), "link-local must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_ipv6_loopback() {
-    let result = stophammer::proof::validate_node_url("http://[::1]:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://[::1]:8080/events");
     assert!(result.is_err(), "IPv6 loopback must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_ftp_scheme() {
-    let result = stophammer::proof::validate_node_url("ftp://example.com/events");
+    let result = stophammer::fetch_guard::validate_node_url("ftp://example.com/events");
     assert!(result.is_err(), "ftp scheme must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_file_scheme() {
-    let result = stophammer::proof::validate_node_url("file:///etc/passwd");
+    let result = stophammer::fetch_guard::validate_node_url("file:///etc/passwd");
     assert!(result.is_err(), "file scheme must be rejected");
 }
 
 #[test]
 fn validate_node_url_rejects_unspecified() {
-    let result = stophammer::proof::validate_node_url("http://0.0.0.0:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://0.0.0.0:8080/events");
     assert!(result.is_err(), "unspecified address must be rejected");
 }
 
 #[test]
 fn validate_node_url_accepts_http_public_ip() {
     // 93.184.216.34 is example.com's IP — a clearly public address.
-    let result = stophammer::proof::validate_node_url("http://93.184.216.34:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("http://93.184.216.34:8080/events");
     assert!(result.is_ok(), "public IP must be accepted");
 }
 
 #[test]
 fn validate_node_url_accepts_https_public_ip() {
-    let result = stophammer::proof::validate_node_url("https://93.184.216.34:8080/events");
+    let result = stophammer::fetch_guard::validate_node_url("https://93.184.216.34:8080/events");
     assert!(result.is_ok(), "public IP over HTTPS must be accepted");
 }
 
 #[test]
 fn validate_node_url_rejects_unresolvable_hostname() {
-    let result = stophammer::proof::validate_node_url("https://nonexistent.invalid/events");
+    let result = stophammer::fetch_guard::validate_node_url("https://nonexistent.invalid/events");
     assert!(
         result.is_err(),
         "unresolvable hostnames must be rejected during SSRF validation"
@@ -509,32 +509,32 @@ fn validate_node_url_rejects_unresolvable_hostname() {
 #[test]
 fn is_url_ssrf_safe_rejects_private_ip() {
     let url = url::Url::parse("http://10.0.0.1:8080/events").expect("parse");
-    assert!(!stophammer::proof::is_url_ssrf_safe(&url));
+    assert!(!stophammer::fetch_guard::is_url_ssrf_safe(&url));
 }
 
 #[test]
 fn is_url_ssrf_safe_rejects_loopback() {
     let url = url::Url::parse("http://127.0.0.1:8080/events").expect("parse");
-    assert!(!stophammer::proof::is_url_ssrf_safe(&url));
+    assert!(!stophammer::fetch_guard::is_url_ssrf_safe(&url));
 }
 
 #[test]
 fn is_url_ssrf_safe_rejects_ftp() {
     let url = url::Url::parse("ftp://example.com/events").expect("parse");
-    assert!(!stophammer::proof::is_url_ssrf_safe(&url));
+    assert!(!stophammer::fetch_guard::is_url_ssrf_safe(&url));
 }
 
 #[test]
 fn is_url_ssrf_safe_accepts_public_ip() {
     let url = url::Url::parse("http://93.184.216.34:8080/events").expect("parse");
-    assert!(stophammer::proof::is_url_ssrf_safe(&url));
+    assert!(stophammer::fetch_guard::is_url_ssrf_safe(&url));
 }
 
 #[test]
 fn is_url_ssrf_safe_rejects_unresolvable_hostname() {
     let url = url::Url::parse("https://nonexistent.invalid/events").expect("parse");
     assert!(
-        !stophammer::proof::is_url_ssrf_safe(&url),
+        !stophammer::fetch_guard::is_url_ssrf_safe(&url),
         "DNS failure must fail closed for peer URL SSRF checks"
     );
 }

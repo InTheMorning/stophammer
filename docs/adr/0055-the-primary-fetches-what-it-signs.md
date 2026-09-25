@@ -55,8 +55,8 @@ ADR 0017.
 
 Each feed is fetched once for each crawl, as today.
 
-The ADR 0018 proof fetch stays in the primary. It reads one small document
-for one publisher request, and it already has the guard of ADR 0054.
+ADR 0056 removed the ADR 0018 proof fetch, so no public request makes the
+primary fetch a URL.
 
 ### 2. The primary owns the queue
 
@@ -152,7 +152,7 @@ that. Rejected as the trust control.
 - The crawler crate changes more than in any earlier ADR. Four modes lose
   their fetch path, and one mode is new.
 - Plain `http` feeds stay open to a change on the network. A compromise of a
-  feed host stays outside this model. ADR 0018 records that limit.
+  feed host stays outside this model.
 
 ## Invariants
 

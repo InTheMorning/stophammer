@@ -46,17 +46,17 @@ The source URL of a record changes only by one of these:
 |---|---|
 | Permanent redirect | A fetch of the source URL follows only `301` or `308` answers to a final URL `F` |
 | New-feed declaration | The body at the source URL declares `itunes:new-feed-url` with the value `F` |
-| Publisher relocation | ADR 0018 proof at the source URL, then `PATCH /v1/feeds/{guid}` |
+| Self link | The body at the source URL declares `atom:link rel="self"` with the value `F` |
 | Operator relocation | `PATCH /v1/feeds/{guid}` with the admin token, and a reason |
 
-For the first two triggers, the node also needs all of these:
+For the first three triggers, the node also needs all of these:
 
 - The body at `F` declares the GUID of the record.
 - `F` is not the source URL of a different record.
 - `F` passes the fetch safety rules of ADR 0054.
 
-A move changes `feeds.feed_url` to `F`, revokes the proof tokens of the
-record, and emits the signed `FeedUpserted` event. These steps go in one
+A move changes `feeds.feed_url` to `F` and emits the signed `FeedUpserted`
+event. These steps go in one
 transaction. The old URL keeps its URL observation under ADR 0049.
 
 After the move, the old URL is a mirror under ADR 0051. Content from it does
@@ -85,7 +85,21 @@ content.
 Thus neither trigger needs a new fetch by the node. The source URL itself
 gave the evidence, in a body that only the source can change.
 
-**Relocation.** ADR 0018 owns the proof. This ADR adds one check to
+**Self link.** The parser already reads `atom:link rel="self"` as the link
+type `self_feed`. The node records the value in `feeds.declared_self_url`, and
+only an ingest in the update case of ADR 0051 writes that column. When a body
+for `F` arrives in the mirror case, and `F` equals the recorded value, the node
+moves the record and applies the content. This is the path of the new-feed
+declaration, with a different element.
+
+The node does not read the self link from `source_entity_links` for this
+trigger. Before ADR 0051, a mirror body could write those rows, so a stored
+link can come from a body that the source did not serve. The column starts
+empty, and each record gets its value from its first source crawl after the
+deploy.
+
+**Relocation.** The operator relocation needs the admin token (ADR 0056).
+This ADR adds one check to
 `PATCH /v1/feeds/{guid}`: the new URL must not be the source URL of a
 different record. The handler answers `409` with `record_conflict`.
 
@@ -98,7 +112,6 @@ different record. The handler answers `409` with `record_conflict`.
   URL, for any time.
 - The same item GUIDs, titles, audio, images or payment addresses at a
   different URL.
-- ADR 0018 proof at the new URL only.
 - A redirect to the source URL from a different URL.
 
 A publisher that lost the source URL uses the operator path. The operator
@@ -118,7 +131,6 @@ The node makes the change when one of these is true:
 
 - The source URL declared the same new GUID in two fetches with 24 hours or
   more between them, and in each fetch between them.
-- The publisher completes ADR 0018 proof at the source URL.
 - The operator approves the change with the admin token.
 
 A tool error that gives a wrong GUID for one fetch does not pass the first
@@ -149,6 +161,18 @@ the other direction. The link of the first change stays in the signed
 history.
 
 ### 6. Rollout
+
+The self-link trigger ships first, as its own phase. On 2026-09-24, 1,429
+Wavlake records had a stored URL of the form `https://wavlake.com/feed/<id>`.
+Each of their bodies names `https://wavlake.com/feed/music/<id>` as its self
+link. A podping or a publisher link for the `music` form is a mirror under ADR
+0051, and `refresh` runs only by hand. Thus those records get no update
+between two manual passes until the trigger exists. The evidence is in
+[the research record](../reviews/feed-removal-and-wavlake-forms-research.md).
+
+The self-link phase needs no new event type and no parser change. It needs one
+migration for `feeds.declared_self_url`. The check of ADR 0054 on `F` applies
+when ADR 0054 exists.
 
 - The parser adds `itunes:new-feed-url`. The ingest request adds
   `new_feed_url` and `redirects`. Both fields are optional, so an older
@@ -189,11 +213,13 @@ Rejected.
 - The Doerfelverse case resolves after 24 hours with no operator action.
 - A GUID change creates new track identities. A client that stored the old
   ones follows `superseded_by`.
-- A compromised source host can move its feed. ADR 0018 records this limit of
+- A compromised source host can move its feed. ADR 0056 keeps this limit of
   RSS control. This ADR does not change it.
 
 ## Invariants
 
+- Only an ingest in the update case of ADR 0051 writes
+  `feeds.declared_self_url`.
 - The source URL changes only by a trigger in section 1.
 - An unavailable source never releases its record.
 - `superseded_by` never selects a payment route.
@@ -210,3 +236,6 @@ protects a payment route:
 - An `itunes:new-feed-url` value in a mirror body moves nothing.
 - A new GUID seen in one fetch only changes nothing.
 - A relocation to the source URL of a different record returns `409`.
+- A self link in a mirror body moves nothing.
+- A self link stored in `source_entity_links` before the deploy moves
+  nothing. Only `feeds.declared_self_url` counts.

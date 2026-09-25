@@ -123,17 +123,17 @@ The `VERIFIER_CHAIN` environment variable controls which quality verifiers run a
 
 ```bash
 # Default (all built-ins in recommended order)
-VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
-
-# Add an exact-match feed blocklist
-VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,medium_music,feed_guid,v4v_payment,enclosure_type
 
 # Skip medium_music for feeds that don't set podcast:medium yet
 VERIFIER_CHAIN=content_hash,v4v_payment,enclosure_type
 
 # Add the strict payment_route_sum check
-VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
+VERIFIER_CHAIN=content_hash,medium_music,feed_guid,v4v_payment,payment_route_sum,enclosure_type
 ```
+
+`feed_blocklist` is not a chain name. See
+[Feed blocking](#feed-blocking-not-a-chain-entry) below.
 
 When `VERIFIER_CHAIN` is absent, empty, or parses to no verifier names, the
 default chain is used. Unknown names in the chain are fatal startup
@@ -142,7 +142,6 @@ weakened gate.
 
 The chain order matters:
 - `content_hash` should be first (short-circuits unchanged feeds with no DB write)
-- `feed_blocklist` should run early if you use it (rejects known-bad feeds before enrichment work)
 - Remaining verifiers inspect feed content and can be reordered freely
 
 ---
@@ -236,20 +235,32 @@ No other files need to change. The chain order and which verifiers run is contro
 - **Env vars:** None
 - **Notes:** `publisher` and `musicL` are accepted as container/source-layer mediums. `publisher` still requires at least one `remoteItem` child with `medium="music"`. When `podcast:medium` is absent, the verifier rejects (`Fail`). Operators who want to accept feeds without the tag should remove this verifier from the chain.
 
-### feed_blocklist
+### Feed blocking (not a chain entry)
 
-- **File:** `src/verifiers/feed_blocklist.rs`
-- **Effect:** Rejects feeds whose exact GUID or URL is operator-blocked
-- **Result:** `Pass` if the feed GUID, canonical URL, and source URL are all absent from the blocklists; `Fail` otherwise
+`feed_blocklist` was a verifier. It is gone. `feed_blocklist` is not a chain
+name today. `build_chain` does not stop on that name. It writes a warning and
+skips it ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2).
+
+Feed blocking is a durable `feed_blocks` row, not a verifier check:
+
 - **Env vars:** `BLOCKED_FEED_GUIDS`, `BLOCKED_FEED_URLS`
-- **Notes:** Exact-match only. `BLOCKED_FEED_GUIDS` is compared case-insensitively against `podcast:guid`. `BLOCKED_FEED_URLS` is compared exactly against both `canonical_url` and `source_url`, so redirects do not bypass the blocklist.
+- **Effect:** At primary startup, the node reads `BLOCKED_FEED_GUIDS` and
+  `BLOCKED_FEED_URLS`. It seeds a `feed_blocks` row for each value that has
+  no row. A `GUID` value is compared case-insensitively. A `URL` value must
+  be the same as `canonical_url` or `source_url`, so a redirect does not
+  bypass a block.
+- **After startup:** A value removed from the environment removes no block.
+  An operator removes a block through `DELETE /v1/blocks/{block_id}`, not by
+  editing the environment.
+- **Module:** `src/blocks.rs`. `src/verifiers/feed_blocklist.rs` no longer
+  exists.
 
 Example:
 
 ```bash
 BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
 BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
-VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,medium_music,feed_guid,v4v_payment,enclosure_type
 ```
 
 ### feed_guid

@@ -221,6 +221,12 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0036_feed_url_observations.sql"),
     // Migration 37: name the source of feeds.release_artist (ADR 0049 §5)
     include_str!("../migrations/0037_feed_release_artist_source.sql"),
+    // Migration 38: a signed, replicated block on one feed GUID or one exact
+    // feed URL (ADR 0053 §1)
+    include_str!("../migrations/0038_feed_blocks.sql"),
+    // Migration 39: the self link a source body declares for its own feed
+    // (ADR 0052 §2)
+    include_str!("../migrations/0039_feed_declared_self_url.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -2697,16 +2703,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
 
-    // 8. proof_tokens & proof_challenges (SG-07)
-    conn.execute(
-        "DELETE FROM proof_tokens WHERE subject_feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM proof_challenges WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-
     conn.execute(
         "DELETE FROM feed_remote_items_raw WHERE feed_guid = ?1",
         params![feed_guid],
@@ -2760,11 +2756,19 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
 
 // ── delete_feed_with_event ───────────────────────────────────────────────────
 
-/// Cascade-deletes a feed and records a `FeedRetired` event in a single atomic
-/// transaction, returning the assigned event `seq`.
+/// Cascade-deletes a feed, records a `FeedRetired` event, and writes each
+/// block of `blocks`, all in a single atomic transaction.
 ///
 /// Uses correlated subqueries for track-level child deletion, matching the
 /// strategy in [`delete_feed`].
+///
+/// After the delete and the `FeedRetired` event, this inserts each block of
+/// `blocks` and signs one `FeedBlocked` event for each block that was
+/// actually written. A block whose kind/value pair already has a row writes
+/// nothing and signs no event. ADR 0053 Section 1.
+///
+/// Returns every event written, `FeedRetired` first, then one `FeedBlocked`
+/// per new block, so the caller can fan out all of them.
 ///
 /// # Errors
 ///
@@ -2785,11 +2789,12 @@ pub fn delete_feed_with_event(
     signer: &NodeSigner,
     created_at: i64,
     warnings: &[String],
-) -> Result<(i64, String, String), DbError> {
+    blocks: &[FeedBlock],
+) -> Result<Vec<Event>, DbError> {
     let tx = conn.transaction()?;
     delete_feed_sql(&tx, feed_guid)?;
 
-    let et_str = event_type_str(&crate::event::EventType::FeedRetired)?;
+    let et_str = event_type_str(&EventType::FeedRetired)?;
     let warnings_json = serde_json::to_string(warnings)?;
     // Issue-SEQ-INTEGRITY — 2026-03-14: insert with placeholder, sign with seq, update.
     let seq = tx.query_row(
@@ -2802,7 +2807,7 @@ pub fn delete_feed_with_event(
     )?;
     let (signed_by, signature) = signer.sign_event(
         event_id,
-        &crate::event::EventType::FeedRetired,
+        &EventType::FeedRetired,
         payload_json,
         subject_guid,
         created_at,
@@ -2810,8 +2815,65 @@ pub fn delete_feed_with_event(
     );
     update_event_signature(&tx, event_id, &signed_by, &signature)?;
 
+    let retired_tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
+    let retired_payload: EventPayload = serde_json::from_str(&retired_tagged)?;
+    let mut events = Vec::with_capacity(1 + blocks.len());
+    events.push(Event {
+        event_id: event_id.to_string(),
+        event_type: EventType::FeedRetired,
+        payload: retired_payload,
+        subject_guid: subject_guid.to_string(),
+        signed_by,
+        signature,
+        seq,
+        created_at,
+        warnings: warnings.to_vec(),
+        payload_json: payload_json.to_string(),
+    });
+
+    // ADR 0053 Section 1: a retirement blocks the GUID and the source URL in
+    // the same transaction, signing one FeedBlocked event per new block.
+    for block in blocks {
+        if !insert_feed_block(&tx, block)? {
+            continue;
+        }
+        let block_event_id = uuid::Uuid::new_v4().to_string();
+        let block_payload = crate::event::FeedBlockedPayload {
+            block_id: block.block_id.clone(),
+            kind: block.kind,
+            value: block.value.clone(),
+            reason: block.reason.clone(),
+            blocked_at: block.blocked_at,
+        };
+        let block_payload_json = serde_json::to_string(&block_payload)?;
+        let (block_seq, block_signed_by, block_signature) = insert_event(
+            &tx,
+            &block_event_id,
+            &EventType::FeedBlocked,
+            &block_payload_json,
+            &block.block_id,
+            signer,
+            created_at,
+            &[],
+        )?;
+        let block_tagged = format!(r#"{{"type":"feed_blocked","data":{block_payload_json}}}"#);
+        let block_ev_payload: EventPayload = serde_json::from_str(&block_tagged)?;
+        events.push(Event {
+            event_id: block_event_id,
+            event_type: EventType::FeedBlocked,
+            payload: block_ev_payload,
+            subject_guid: block.block_id.clone(),
+            signed_by: block_signed_by,
+            signature: block_signature,
+            seq: block_seq,
+            created_at,
+            warnings: vec![],
+            payload_json: block_payload_json,
+        });
+    }
+
     tx.commit()?;
-    Ok((seq, signed_by, signature))
+    Ok(events)
 }
 
 // ── delete_track_with_event ──────────────────────────────────────────────────
@@ -4464,6 +4526,148 @@ pub fn upsert_feed_url_observation(
     Ok(())
 }
 
+// ── feed_blocks ────────────────────────────────────────────────────────────
+
+pub use crate::model::{FeedBlock, FeedBlockKind};
+
+/// Inserts `block` into `feed_blocks`, normalizing its value first.
+///
+/// Returns `true` only when a row was written. A pair of kind and normalized
+/// value that already has a row (under any `block_id`) writes nothing and
+/// returns `false`, because `UNIQUE (kind, value)` makes the insert a no-op.
+///
+/// ADR 0053 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL insert fails.
+pub fn insert_feed_block(conn: &Connection, block: &FeedBlock) -> Result<bool, DbError> {
+    let value = block.kind.normalize(&block.value);
+    let changed = conn.execute(
+        "INSERT OR IGNORE INTO feed_blocks (block_id, kind, value, reason, blocked_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![
+            block.block_id,
+            block.kind.as_str(),
+            value,
+            block.reason,
+            block.blocked_at
+        ],
+    )?;
+    Ok(changed > 0)
+}
+
+/// Deletes the `feed_blocks` row named by `block_id`.
+///
+/// Returns `true` only when a row was removed. Deleting a `block_id` that
+/// does not exist returns `false` and does not fail, so a second
+/// `FeedUnblocked` apply for the same block is a no-op.
+///
+/// ADR 0053 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL delete fails.
+pub fn delete_feed_block(conn: &Connection, block_id: &str) -> Result<bool, DbError> {
+    let changed = conn.execute(
+        "DELETE FROM feed_blocks WHERE block_id = ?1",
+        params![block_id],
+    )?;
+    Ok(changed > 0)
+}
+
+fn feed_block_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<FeedBlock> {
+    let kind_str: String = row.get(1)?;
+    let kind = match kind_str.as_str() {
+        "guid" => FeedBlockKind::Guid,
+        "url" => FeedBlockKind::Url,
+        other => {
+            tracing::warn!(
+                kind = other,
+                "db: invalid feed_blocks.kind in stored row, defaulting to url"
+            );
+            FeedBlockKind::Url
+        }
+    };
+    Ok(FeedBlock {
+        block_id: row.get(0)?,
+        kind,
+        value: row.get(2)?,
+        reason: row.get(3)?,
+        blocked_at: row.get(4)?,
+    })
+}
+
+/// Returns every row of `feed_blocks`, in no particular order.
+///
+/// ADR 0053 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn list_feed_blocks(conn: &Connection) -> Result<Vec<FeedBlock>, DbError> {
+    let mut stmt =
+        conn.prepare("SELECT block_id, kind, value, reason, blocked_at FROM feed_blocks")?;
+    let rows = stmt.query_map([], feed_block_from_row)?;
+    rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+}
+
+/// Returns the `feed_blocks` row for `kind` and `value`, or `None` when no
+/// row matches. `value` is normalized before the lookup.
+///
+/// ADR 0053 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_feed_block_by_pair(
+    conn: &Connection,
+    kind: FeedBlockKind,
+    value: &str,
+) -> Result<Option<FeedBlock>, DbError> {
+    let normalized = kind.normalize(value);
+    conn.query_row(
+        "SELECT block_id, kind, value, reason, blocked_at FROM feed_blocks \
+         WHERE kind = ?1 AND value = ?2",
+        params![kind.as_str(), normalized],
+        feed_block_from_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Returns the first `feed_blocks` row matching `feed_guid` or one of `urls`,
+/// or `None` when none matches.
+///
+/// The GUID is checked first, then each URL in the order given. An empty URL
+/// is not checked. Each value is normalized before the lookup.
+///
+/// ADR 0053 Section 1.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn find_feed_block(
+    conn: &Connection,
+    feed_guid: Option<&str>,
+    urls: &[&str],
+) -> Result<Option<FeedBlock>, DbError> {
+    if let Some(guid) = feed_guid
+        && let Some(block) = get_feed_block_by_pair(conn, FeedBlockKind::Guid, guid)?
+    {
+        return Ok(Some(block));
+    }
+    for url in urls {
+        if url.is_empty() {
+            continue;
+        }
+        if let Some(block) = get_feed_block_by_pair(conn, FeedBlockKind::Url, url)? {
+            return Ok(Some(block));
+        }
+    }
+    Ok(None)
+}
+
 // ── resolve_listed_feed ───────────────────────────────────────────────────────
 
 /// The result of resolving a listed feed reference against the index.
@@ -4861,6 +5065,90 @@ pub fn get_events_since(
             seq,
             created_at,
             warnings,
+        });
+    }
+
+    Ok(events)
+}
+
+// ── get_route_history_events_for_feed ───────────────────────────────────────
+
+/// Returns the events that can carry a route-history entry for `feed_guid`,
+/// in `seq` ascending order (ADR 0053 Section 4).
+///
+/// Reads `feed_routes_replaced` and `routes_replaced` events whose payload
+/// names `feed_guid`, and `track_upserted` events whose track belongs to
+/// `feed_guid`. `feed_routes_replaced` is matched through the indexed
+/// `subject_guid` column, which the event carries as its feed GUID. The
+/// other two are matched with `json_extract` on `payload_json`, because
+/// their `subject_guid` does not name the feed.
+///
+/// Parses each payload the way `apply.rs` does: re-tags `payload_json` with
+/// `event_type` and deserializes the result as `EventPayload`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails or an event payload cannot be
+/// deserialised.
+pub fn get_route_history_events_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<Event>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json \
+         FROM events \
+         WHERE (event_type = 'feed_routes_replaced' AND subject_guid = ?1) \
+            OR (event_type = 'routes_replaced' AND json_extract(payload_json, '$.feed_guid') = ?1) \
+            OR (event_type = 'track_upserted' AND json_extract(payload_json, '$.track.feed_guid') = ?1) \
+         ORDER BY seq ASC",
+    )?;
+
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        Ok((
+            row.get::<_, String>(0)?, // event_id
+            row.get::<_, String>(1)?, // event_type string
+            row.get::<_, String>(2)?, // payload_json
+            row.get::<_, String>(3)?, // subject_guid
+            row.get::<_, String>(4)?, // signed_by
+            row.get::<_, String>(5)?, // signature
+            row.get::<_, i64>(6)?,    // seq
+            row.get::<_, i64>(7)?,    // created_at
+            row.get::<_, String>(8)?, // warnings_json
+        ))
+    })?;
+
+    let mut events = Vec::new();
+    for row in rows {
+        let (
+            event_id,
+            et_str,
+            payload_json,
+            subject_guid,
+            signed_by,
+            signature,
+            seq,
+            created_at,
+            warnings_json,
+        ) = row?;
+
+        let et_quoted = format!("\"{et_str}\"");
+        let event_type: EventType = serde_json::from_str(&et_quoted)?;
+
+        let tagged = format!(r#"{{"type":"{et_str}","data":{payload_json}}}"#);
+        let payload: EventPayload = serde_json::from_str(&tagged)?;
+        let warnings: Vec<String> = serde_json::from_str(&warnings_json)?;
+
+        events.push(Event {
+            event_id,
+            event_type,
+            payload,
+            subject_guid,
+            signed_by,
+            signature,
+            seq,
+            created_at,
+            warnings,
+            payload_json,
         });
     }
 
@@ -6086,6 +6374,48 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
     )
     .optional()
     .map_err(Into::into)
+}
+
+/// Reads the declared self link URL of one feed record (ADR 0052 §2).
+///
+/// Returns `None` when the record does not exist, or when its source body
+/// has never declared a `self_feed` link.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_declared_self_url(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<String>, DbError> {
+    conn.query_row(
+        "SELECT declared_self_url FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(Into::into)
+}
+
+/// Sets the declared self link URL of one feed record (ADR 0052 §2).
+///
+/// Only an ingest in the update or new-feed case of ADR 0051 calls this
+/// function; a mirror submission never writes the column.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the UPDATE statement fails.
+pub fn set_declared_self_url(
+    conn: &Connection,
+    feed_guid: &str,
+    declared_self_url: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feeds SET declared_self_url = ?2 WHERE feed_guid = ?1",
+        params![feed_guid, declared_self_url],
+    )?;
+    Ok(())
 }
 
 /// Returns a source track by GUID, or `None` if it does not exist.

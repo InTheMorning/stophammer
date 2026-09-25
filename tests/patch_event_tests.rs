@@ -1,8 +1,3 @@
-#![expect(
-    clippy::significant_drop_tightening,
-    reason = "MutexGuard<Connection> must be held for the full scope in test assertions"
-)]
-
 // PATCH endpoint event tests.
 
 mod common;
@@ -105,16 +100,6 @@ fn insert_track(
     .expect("insert track");
 }
 
-fn issue_token_for_feed(conn: &rusqlite::Connection, feed_guid: &str) -> String {
-    stophammer::proof::issue_token(
-        conn,
-        "feed:write",
-        feed_guid,
-        &stophammer::proof::ProofLevel::RssOnly,
-    )
-    .expect("issue token")
-}
-
 fn count_events(conn: &rusqlite::Connection, event_type: &str) -> i64 {
     conn.query_row(
         "SELECT COUNT(*) FROM events WHERE event_type = ?1",
@@ -139,11 +124,9 @@ fn get_latest_event_payload(conn: &rusqlite::Connection, event_type: &str) -> St
 #[tokio::test]
 async fn patch_feed_emits_feed_upserted_event() {
     let db = common::test_db_arc();
-    let token;
     {
         let conn = db.lock().expect("lock db");
         seed_feed(&conn);
-        token = issue_token_for_feed(&conn, "feed-1");
 
         // Verify no events exist yet.
         assert_eq!(count_events(&conn, "feed_upserted"), 0);
@@ -155,7 +138,7 @@ async fn patch_feed_emits_feed_upserted_event() {
         .method("PATCH")
         .uri("/v1/feeds/feed-1")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {token}"))
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
                 "feed_url": "https://updated.example.com/feed.xml"
@@ -189,12 +172,10 @@ async fn patch_feed_emits_feed_upserted_event() {
 #[tokio::test]
 async fn patch_track_emits_track_upserted_event() {
     let db = common::test_db_arc();
-    let token;
     {
         let conn = db.lock().expect("lock db");
         let (credit_id, now) = seed_feed(&conn);
         insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
-        token = issue_token_for_feed(&conn, "feed-1");
 
         assert_eq!(count_events(&conn, "track_upserted"), 0);
     }
@@ -205,7 +186,7 @@ async fn patch_track_emits_track_upserted_event() {
         .method("PATCH")
         .uri("/v1/tracks/track-1")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {token}"))
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
                 "enclosure_url": "https://cdn.example.com/updated-song.mp3"
@@ -237,11 +218,9 @@ async fn patch_track_emits_track_upserted_event() {
 #[tokio::test]
 async fn patch_feed_event_has_valid_signature() {
     let db = common::test_db_arc();
-    let token;
     {
         let conn = db.lock().expect("lock db");
         seed_feed(&conn);
-        token = issue_token_for_feed(&conn, "feed-1");
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -250,7 +229,7 @@ async fn patch_feed_event_has_valid_signature() {
         .method("PATCH")
         .uri("/v1/feeds/feed-1")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {token}"))
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({
                 "feed_url": "https://signed.example.com/feed.xml"
@@ -378,11 +357,9 @@ async fn patch_track_unknown_guid_returns_404() {
 #[tokio::test]
 async fn patch_feed_empty_body_does_not_emit_event() {
     let db = common::test_db_arc();
-    let token;
     {
         let conn = db.lock().expect("lock db");
         seed_feed(&conn);
-        token = issue_token_for_feed(&conn, "feed-1");
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);
@@ -391,7 +368,7 @@ async fn patch_feed_empty_body_does_not_emit_event() {
         .method("PATCH")
         .uri("/v1/feeds/feed-1")
         .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {token}"))
+        .header("X-Admin-Token", "test-admin-token")
         .body(axum::body::Body::from(
             serde_json::to_vec(&serde_json::json!({})).expect("serialize JSON"),
         ))

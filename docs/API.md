@@ -260,6 +260,16 @@ these rules:
 | 429  | Rate limit exceeded |
 | 500  | Internal error |
 
+**A block rejects the submission first (ADR 0053 section 1):**
+
+The node checks a block table right after the crawl-token check. The check
+reads the declared GUID and both URLs. A match rejects the submission. The
+node signs no event.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `blocked` | An operator blocked this GUID or this URL | Not retry. An operator must remove the block first |
+
 **Three reasons to reject a submission (ADR 0051 section 2):**
 
 The node checks each submission against the source URL of its record. The
@@ -276,6 +286,41 @@ Each of these three reasons writes no row to the database. `source_conflict`
 is different: the node records the submitted URL as an observation of the
 GUID (ADR 0049 section 1). This observation does not
 change the record.
+
+**A self link can turn a mirror into a move (ADR 0052 section 2):**
+
+A source ingest stores the first `self_feed` link of its body as the
+record's declared self URL. Only an update submission and a new-feed
+submission write this value. A mirror submission does not write it.
+
+A subsequent submission at that declared URL moves the record. The node
+does not answer `source_conflict`:
+
+| Field | Value |
+|-------|-------|
+| `accepted` | `true` |
+| `source_url` | `null` |
+| `warnings` | includes `moved from <old URL> to <new URL> (ADR 0052 self link)` |
+
+The stored `feed_url` becomes the new URL, and the node applies the body
+as an update. ADR 0056 removed the proof flow, so a move no longer
+revokes a token. A submission at the URL before the move then reads as a
+mirror, and gets `source_conflict`.
+
+A self link in a mirror body does not start a move. Only the self link a
+source ingest stored counts.
+
+**An older copy does not replace a newer copy (ADR 0053 section 3):**
+
+The node examines `last_build_date` only for an update submission. It does
+not apply this rule to a new feed, a mirror, or a self-link move.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `stale_submission` | The submission and the stored record have a `last_build_date`. The submitted value is earlier than the stored value | Not retry. Fetch and send the current body |
+
+`force_reingest` does not skip this rule. An equal `last_build_date` passes.
+The node writes no row when it answers `stale_submission`.
 
 ---
 
@@ -762,6 +807,58 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 
 ---
 
+### GET /v1/feeds/{guid}/route-history
+
+Gives each change of the payment recipients of a feed and its tracks. The
+route reads the signed event log. ADR 0053 section 4 owns this route. A
+community node serves it too.
+
+- **Authentication:** None
+- **Sequence:** entries are in `seq` order, the newest last. The response
+  holds at most 1,000 entries.
+- **The recipient set:** the ordered list of `{ address, split }` of the
+  routes. The set excludes the name, the route type and `fee`. A change of
+  one of those alone writes no entry.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "subject": "feed",
+      "track_guid": null,
+      "event_id": "event-id-1",
+      "seq": 10,
+      "changed_at": 1710288000,
+      "old_recipients": null,
+      "new_recipients": [{ "address": "a@ln.example", "split": 100 }]
+    },
+    {
+      "subject": "feed",
+      "track_guid": null,
+      "event_id": "event-id-2",
+      "seq": 15,
+      "changed_at": 1710300000,
+      "old_recipients": [{ "address": "a@ln.example", "split": 100 }],
+      "new_recipients": [{ "address": "b@ln.example", "split": 100 }]
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+`subject` is `feed` or `track`. `track_guid` is null for the feed.
+`old_recipients` is null for the first set an entry ever names.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Route-history entries |
+| 404  | No event names a route set of this feed |
+
+---
+
 ## 6. Queries -- Tracks
 
 ### GET /v1/feeds/{guid}/tracks/{track_guid}
@@ -1184,112 +1281,16 @@ run, so an operator can see the unresolved count change over time.
 
 ---
 
-## 9. Mutations -- Proof-of-Possession
+## 9. Mutations -- PATCH
 
-The proof-of-possession flow allows feed owners to authorize mutations without an account system. It follows an ACME-inspired (RFC 8555) challenge-assert pattern. The feed owner publishes a `<podcast:txt>` element in their RSS feed containing a token binding, proving they control the feed URL.
-
-### POST /v1/proofs/challenge
-
-Creates a new proof-of-possession challenge.
-
-- **Authentication:** None
-- **Available on:** Primary only
-
-**Request body:**
-
-```json
-{
-  "feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "scope": "feed:write",
-  "requester_nonce": "at-least-16-chars-random-string"
-}
-```
-
-| Field | Constraints |
-|-------|-------------|
-| `scope` | Must be `"feed:write"` (only supported scope) |
-| `requester_nonce` | 16--256 characters |
-
-**Response (`201 Created`):**
-
-```json
-{
-  "challenge_id": "uuid",
-  "token_binding": "base64url-token.base64url-sha256-nonce-hash",
-  "state": "pending",
-  "expires_at": 1710374400
-}
-```
-
-The feed owner must add a `<podcast:txt>` element to their RSS feed at channel level containing:
-
-```
-stophammer-proof <token_binding>
-```
-
-Challenges expire after 24 hours. Creating a new challenge for the same
-`feed_guid` + `scope` invalidates any older pending challenge for that pair.
-The server also enforces a global cap of 5,000 pending challenges.
-
-| Code | Meaning |
-|------|---------|
-| 201  | Challenge created |
-| 400  | Unsupported scope, nonce too short or too long |
-| 404  | Feed not found in the database |
-| 429  | Too many pending challenges globally (limit: 5,000) |
-
----
-
-### POST /v1/proofs/assert
-
-Asserts a previously created challenge. Fetches the RSS feed, verifies the `podcast:txt` element contains the token binding, and issues an access token on success.
-
-- **Authentication:** None
-- **Available on:** Primary only
-- **SSRF protection:** Feed URLs targeting private/reserved IP ranges are rejected
-
-**Request body:**
-
-```json
-{
-  "challenge_id": "uuid",
-  "requester_nonce": "the-same-nonce-from-challenge"
-}
-```
-
-**Response (`200 OK`):**
-
-```json
-{
-  "access_token": "base64url-128bit-token",
-  "scope": "feed:write",
-  "subject_feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "expires_at": 1710291600,
-  "proof_level": "rss_only"
-}
-```
-
-Access tokens expire after 1 hour.
-
-| Code | Meaning |
-|------|---------|
-| 200  | Token issued |
-| 400  | Nonce mismatch, feed URL rejected by SSRF validation, challenge already resolved, or `podcast:txt` not found |
-| 404  | Challenge not found or expired |
-| 409  | Feed URL changed during verification; retry the flow |
-| 503  | RSS fetch failed |
-
----
-
-## 10. Mutations -- PATCH
-
-PATCH endpoints use RFC 7396 JSON Merge Patch semantics. They require either an admin token or a bearer token obtained through proof-of-possession.
+PATCH endpoints use RFC 7396 JSON Merge Patch semantics. ADR 0056 removed
+the public proof flow, so each one needs the admin token.
 
 ### PATCH /v1/feeds/{guid}
 
 Updates a feed's mutable fields. Currently supports `feed_url` only.
 
-- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for this feed)
+- **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
 
 **Request body:**
@@ -1305,8 +1306,7 @@ Updates a feed's mutable fields. Currently supports `feed_url` only.
 | Code | Meaning |
 |------|---------|
 | 204  | Updated |
-| 401  | Missing `Authorization` header (with `WWW-Authenticate: Bearer realm="stophammer"`) |
-| 403  | Invalid admin token, or bearer token scoped to a different feed |
+| 403  | Missing or invalid admin token |
 | 404  | Feed not found |
 
 ---
@@ -1316,10 +1316,9 @@ Updates a feed's mutable fields. Currently supports `feed_url` only.
 Compatibility mutation by raw `track_guid`. If exactly one track matches, the
 update proceeds as before. If multiple feeds publish the same `track_guid`, the
 endpoint returns `409 Conflict` with canonical feed-scoped URLs for the caller
-to retry. Bearer token scope is validated against the resolved track's parent
-feed.
+to retry.
 
-- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for the track's parent feed)
+- **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
 
 **Request body:**
@@ -1335,8 +1334,7 @@ feed.
 | Code | Meaning |
 |------|---------|
 | 204  | Updated |
-| 401  | Missing `Authorization` header |
-| 403  | Invalid admin token, or bearer token scoped to a different feed |
+| 403  | Missing or invalid admin token |
 | 404  | Track not found |
 | 409  | `track_guid` is ambiguous across feeds; retry with the canonical feed-scoped route |
 
@@ -1347,7 +1345,7 @@ feed.
 Canonical mutation route for a track scoped by parent `feed_guid` and raw
 source `track_guid`. Currently supports `enclosure_url` only.
 
-- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for the parent feed)
+- **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
 
 **Request body:** same as `PATCH /v1/tracks/{guid}`.
@@ -1357,21 +1355,19 @@ source `track_guid`. Currently supports `enclosure_url` only.
 | Code | Meaning |
 |------|---------|
 | 204  | Updated |
-| 401  | Missing `Authorization` header |
-| 403  | Invalid admin token, or bearer token scoped to a different feed |
+| 403  | Missing or invalid admin token |
 | 404  | Track not found in the specified feed |
 
 ---
 
-## 11. Admin and Diagnostics
+## 10. Admin and Diagnostics
 
 Write-side mutation endpoints accept `X-Admin-Token` where documented. The
 token is compared in constant time (SHA-256 hash comparison via
 `subtle::ConstantTimeEq`).
 
 If `ADMIN_TOKEN` is not configured on the node, `X-Admin-Token` authentication
-returns `403`. Feed-scoped bearer tokens from proof-of-possession can still
-authorize the documented feed/track mutations.
+returns `403`.
 
 ---
 
@@ -1389,16 +1385,23 @@ until there is an explicit artist claim/link model.
 
 Retires a feed, cascade-deleting all its tracks, payment routes, and search index entries. Emits a `FeedRetired` event.
 
-- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope)
+In the same transaction, this also blocks the feed GUID and the stored feed URL (ADR 0053 section 1). Each new block carries the reason `retired`. The route signs one `FeedBlocked` event for each new block. A pair with a block writes nothing more and signs no new event.
+
+- **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
+
+**Query parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `block` | boolean | `true` | When `false`, retires with no block |
 
 **Response:** `204 No Content`
 
 | Code | Meaning |
 |------|---------|
 | 204  | Feed retired |
-| 401  | Missing `Authorization` header |
-| 403  | Invalid admin token or insufficient scope |
+| 403  | Missing or invalid admin token |
 | 404  | Feed not found |
 
 ---
@@ -1407,7 +1410,7 @@ Retires a feed, cascade-deleting all its tracks, payment routes, and search inde
 
 Removes a single track from a feed. Emits a `TrackRemoved` event.
 
-- **Authentication:** Admin token (`X-Admin-Token`) or Bearer token (`Authorization: Bearer <token>` with `feed:write` scope for the parent feed)
+- **Authentication:** Admin token (`X-Admin-Token`)
 - **Available on:** Primary only
 
 **Response:** `204 No Content`
@@ -1415,13 +1418,104 @@ Removes a single track from a feed. Emits a `TrackRemoved` event.
 | Code | Meaning |
 |------|---------|
 | 204  | Track removed |
-| 401  | Missing `Authorization` header |
-| 403  | Invalid admin token or insufficient scope |
+| 403  | Missing or invalid admin token |
 | 404  | Track not found, or track does not belong to the specified feed |
 
 ---
 
-## 12. Event Types
+### POST /v1/blocks
+
+Blocks one feed GUID or one exact feed URL from ingest (ADR 0053 section 1).
+Signs one `FeedBlocked` event.
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Request body:**
+
+```json
+{
+  "kind": "guid",
+  "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "reason": "reported as spam"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `kind` | string | `guid` or `url` |
+| `value` | string | The GUID or the URL to block |
+| `reason` | string | Why the operator blocked this value |
+
+**Response (`201 Created`):** the new row.
+
+```json
+{
+  "block_id": "uuid",
+  "kind": "guid",
+  "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "reason": "reported as spam",
+  "blocked_at": 1710288000
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 201  | Block created |
+| 400  | Empty `value` or empty `reason` after trim |
+| 403  | Missing or invalid admin token |
+| 409  | The `kind` and `value` pair already has a block. The body carries `block_id` |
+
+---
+
+### GET /v1/blocks
+
+Lists every block row, in `blocked_at` order.
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response (`200 OK`):**
+
+```json
+{
+  "blocks": [
+    {
+      "block_id": "uuid",
+      "kind": "guid",
+      "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+      "reason": "reported as spam",
+      "blocked_at": 1710288000
+    }
+  ]
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Block rows |
+| 403  | Missing or invalid admin token |
+
+---
+
+### DELETE /v1/blocks/{block_id}
+
+Removes a block row. Signs one `FeedUnblocked` event.
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response:** `204 No Content`
+
+| Code | Meaning |
+|------|---------|
+| 204  | Block removed |
+| 403  | Missing or invalid admin token |
+| 404  | Block not found |
+
+---
+
+## 11. Event Types
 
 Events are the atomic unit of replication. Each event is ed25519-signed by the primary node.
 The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
@@ -1447,6 +1541,8 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 | `source_item_enclosures_replaced` | feed_guid | Feed-level staged item enclosure snapshot replaced |
 | `source_item_transcripts_replaced` | feed_guid | Feed-level staged item transcript snapshot replaced |
 | `source_platform_claims_replaced` | feed_guid | Feed-level staged platform claims replaced |
+| `feed_blocked` | block_id | A feed GUID or URL was blocked from ingest |
+| `feed_unblocked` | block_id | A blocked feed GUID or URL was unblocked |
 
 ---
 
@@ -1456,11 +1552,7 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 |--------|---------------|---------|
 | Crawl token | `crawl_token` in request body | `POST /ingest/feed` |
 | Sync token | `X-Sync-Token` header | `GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile` |
-| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*` |
-| Bearer token | `Authorization: Bearer <token>` | `DELETE /v1/feeds/{guid}`, `DELETE /v1/feeds/{guid}/tracks/{track_guid}`, `PATCH /v1/feeds/{guid}`, `PATCH /v1/tracks/{guid}`, `PATCH /v1/feeds/{guid}/tracks/{track_guid}` |
+| Admin token | `X-Admin-Token` header | `DELETE /v1/feeds/*`, `DELETE /v1/feeds/*/tracks/*`, `PATCH /v1/feeds/*`, `PATCH /v1/tracks/*`, `PATCH /v1/feeds/*/tracks/*`, `POST /v1/blocks`, `GET /v1/blocks`, `DELETE /v1/blocks/*` |
 
-Bearer tokens are obtained through the proof-of-possession flow (`POST /v1/proofs/challenge` + `POST /v1/proofs/assert`). They are scoped to a specific feed and expire after 1 hour.
-
-When both `X-Admin-Token` and `Authorization: Bearer` are present, the admin token takes precedence.
-
-RFC 6750 compliance: `401 Unauthorized` responses include a `WWW-Authenticate: Bearer realm="stophammer"` header. `403 Forbidden` for scope violations includes `WWW-Authenticate: Bearer realm="stophammer", error="insufficient_scope"`.
+ADR 0056 took the public proof flow offline. Each write route in this table
+needs the admin token. No route takes a bearer token.

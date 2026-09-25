@@ -105,42 +105,42 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Test 4: POST /v1/proofs/challenge with valid data returns 201
+# Test 4: POST /v1/proofs/challenge is gone (ADR 0056)
 # --------------------------------------------------------------------------
-test_name="POST /v1/proofs/challenge with valid data returns 201"
+test_name="POST /v1/proofs/challenge returns 404 (ADR 0056)"
 status=$(curl -s -o /dev/null -w '%{http_code}' \
     -X POST "${PRIMARY_URL}/v1/proofs/challenge" \
     -H "Content-Type: application/json" \
     -d '{"feed_guid":"aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee","scope":"feed:write","requester_nonce":"abcdefghijklmnopqrstuvwxyz"}')
-if [ "$status" = "201" ]; then
+if [ "$status" = "404" ]; then
     pass "$test_name"
 else
     fail "$test_name (got $status)"
 fi
 
 # --------------------------------------------------------------------------
-# Test 5: POST /v1/proofs/challenge with short nonce returns 400 (not 500)
+# Test 5: POST /v1/proofs/assert is gone (ADR 0056)
 # --------------------------------------------------------------------------
-test_name="POST /v1/proofs/challenge with short nonce returns 400"
+test_name="POST /v1/proofs/assert returns 404 (ADR 0056)"
 status=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X POST "${PRIMARY_URL}/v1/proofs/challenge" \
+    -X POST "${PRIMARY_URL}/v1/proofs/assert" \
     -H "Content-Type: application/json" \
-    -d '{"feed_guid":"test-guid","scope":"feed:write","requester_nonce":"short"}')
-if [ "$status" = "400" ]; then
+    -d '{"challenge_id":"test-guid","requester_nonce":"abcdefghijklmnopqrstuvwxyz"}')
+if [ "$status" = "404" ]; then
     pass "$test_name"
 else
     fail "$test_name (got $status)"
 fi
 
 # --------------------------------------------------------------------------
-# Test 6: POST /v1/proofs/challenge with bad scope returns 400
+# Test 6: DELETE /v1/feeds/nonexistent with a bearer header returns 403
+# ADR 0056: a bearer token no longer opens a write route.
 # --------------------------------------------------------------------------
-test_name="POST /v1/proofs/challenge with bad scope returns 400"
+test_name="DELETE /v1/feeds/nonexistent with bearer header returns 403"
 status=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X POST "${PRIMARY_URL}/v1/proofs/challenge" \
-    -H "Content-Type: application/json" \
-    -d '{"feed_guid":"test-guid","scope":"admin:nuke","requester_nonce":"abcdefghijklmnopqrstuvwxyz"}')
-if [ "$status" = "400" ]; then
+    -X DELETE "${PRIMARY_URL}/v1/feeds/nonexistent-guid" \
+    -H "Authorization: Bearer x")
+if [ "$status" = "403" ]; then
     pass "$test_name"
 else
     fail "$test_name (got $status)"
@@ -161,15 +161,16 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Test 8: DELETE /v1/feeds/nonexistent WITHOUT any auth returns 401
-#         with WWW-Authenticate header (RFC 6750)
+# Test 8: DELETE /v1/feeds/nonexistent WITHOUT any auth returns 403, with no
+#         WWW-Authenticate header (ADR 0056: the route needs X-Admin-Token
+#         only, and stops sending the RFC 6750 challenge).
 # --------------------------------------------------------------------------
-test_name="DELETE /v1/feeds/nonexistent without token returns 401 + WWW-Authenticate"
+test_name="DELETE /v1/feeds/nonexistent without token returns 403, no WWW-Authenticate"
 response_headers=$(curl -s -D - -o /dev/null \
     -X DELETE "${PRIMARY_URL}/v1/feeds/nonexistent-guid")
 status=$(echo "$response_headers" | head -1 | grep -o '[0-9]\{3\}')
 has_www_auth=$(echo "$response_headers" | grep -ci 'WWW-Authenticate' || true)
-if [ "$status" = "401" ] && [ "$has_www_auth" -ge 1 ]; then
+if [ "$status" = "403" ] && [ "$has_www_auth" -eq 0 ]; then
     pass "$test_name"
 else
     fail "$test_name (status=$status, WWW-Authenticate present=$has_www_auth)"
@@ -189,15 +190,16 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# Test 10: POST /v1/proofs/challenge with missing fields returns 422 (not 500)
-# Axum returns 422 for JSON deserialization failures.
+# Test 10: PATCH /v1/feeds/nonexistent with a bearer header returns 403
+# ADR 0056: a bearer token no longer opens a write route.
 # --------------------------------------------------------------------------
-test_name="POST /v1/proofs/challenge with missing fields returns 422"
+test_name="PATCH /v1/feeds/nonexistent with bearer header returns 403"
 status=$(curl -s -o /dev/null -w '%{http_code}' \
-    -X POST "${PRIMARY_URL}/v1/proofs/challenge" \
+    -X PATCH "${PRIMARY_URL}/v1/feeds/nonexistent-guid" \
     -H "Content-Type: application/json" \
-    -d '{"feed_guid":"test"}')
-if [ "$status" = "422" ]; then
+    -H "Authorization: Bearer x" \
+    -d '{}')
+if [ "$status" = "403" ]; then
     pass "$test_name"
 else
     fail "$test_name (got $status)"

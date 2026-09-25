@@ -63,10 +63,9 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PROOF_PRUNE_INTERVAL_SECS` | `300` | How often the background pruner deletes expired proof challenges and tokens (seconds). |
-| `VERIFIER_CHAIN` | `content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). See the [Verifier Guide](verifier-guide.md). |
-| `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated exact GUID blocklist used by the `feed_blocklist` verifier. |
-| `BLOCKED_FEED_URLS` | empty | Optional comma-separated exact URL blocklist used by the `feed_blocklist` verifier. |
+| `VERIFIER_CHAIN` | `content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). `feed_blocklist` is not a chain name ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). See the [Verifier Guide](verifier-guide.md). |
+| `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated GUID list. At primary startup, the node seeds a `feed_blocks` row for each value with no existing row ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). Removing a value from this list removes no block. The block stays until an operator deletes it through `DELETE /v1/blocks/{block_id}`. |
+| `BLOCKED_FEED_URLS` | empty | Optional comma-separated URL list. The node seeds this list by the same procedure as `BLOCKED_FEED_GUIDS`. |
 
 ---
 
@@ -265,8 +264,7 @@ The primary node:
 - Signs accepted events with its ed25519 key
 - Fans out new events to all registered community nodes via `POST /sync/push`
 - Serves the full API (read, write, admin, sync)
-- Spawns a background proof pruner
-- Can reject exact blocked feeds early via `feed_blocklist`
+- Rejects a submission at the ingest check when its GUID or URL matches a `feed_blocks` row ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 1)
 
 **Required env vars:** `CRAWL_TOKEN`
 
@@ -282,7 +280,7 @@ Example blocklist configuration:
 ```bash
 BLOCKED_FEED_GUIDS=27293ad7-c199-5047-8135-a864fb546492,27293ad7-c199-5047-8135-a864fb546491
 BLOCKED_FEED_URLS=https://feeds.podcastindex.org/100retro.xml,https://feeds.podcastindex.org/100retro_test.xml
-VERIFIER_CHAIN=content_hash,feed_blocklist,medium_music,feed_guid,v4v_payment,enclosure_type
+VERIFIER_CHAIN=content_hash,medium_music,feed_guid,v4v_payment,enclosure_type
 ```
 
 ### Community Mode
@@ -363,7 +361,8 @@ When `TLS_DOMAIN` is not set, the node starts in plain HTTP with a warning:
 
 ```
 WARN: TLS_DOMAIN not set -- node is serving plain HTTP.
-      Bearer tokens and crawl tokens are transmitted unencrypted.
+      The admin token, the sync token, and the crawl token are
+      transmitted unencrypted.
       Set TLS_DOMAIN and TLS_ACME_EMAIL for production use.
 ```
 
@@ -714,10 +713,6 @@ curl -s -H "X-Sync-Token: $SYNC_TOKEN" http://primary:8008/sync/peers | jq
 ```
 
 Check `last_push_at` timestamps. A peer with a stale `last_push_at` is either down or unreachable.
-
-**Proof pruner**
-
-The background pruner logs `proof-pruner: pruned expired proof rows` at debug level. If it logs `proof-pruner: db mutex poisoned`, the node needs a restart.
 
 ---
 

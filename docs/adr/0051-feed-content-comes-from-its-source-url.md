@@ -73,7 +73,8 @@ true. A feed publisher cannot change that report. A holder of the token can.
 
 The stored `feeds.feed_url` is the **source URL** of the record. Only content
 that the crawler fetched through the source URL can change the record. The
-source URL changes only by ADR 0018 relocation, or by a move under ADR 0052.
+source URL changes only by an operator relocation, or by a move under ADR 0052.
+ADR 0056 removed the publisher relocation of ADR 0018.
 
 A submission reaches the record through its source URL when `source_url` or
 `canonical_url` of the submission is equal to the source URL. This covers a

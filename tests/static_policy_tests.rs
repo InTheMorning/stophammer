@@ -58,15 +58,6 @@ fn crawl_token_verifier_uses_constant_time_hashed_comparison() {
 }
 
 #[test]
-fn feed_url_validation_is_offloaded_from_async_runtime() {
-    let src = include_str!("../src/api.rs");
-    assert!(
-        src.contains("spawn_blocking") && src.contains("validate_feed_url"),
-        "api.rs must call validate_feed_url inside spawn_blocking"
-    );
-}
-
-#[test]
 fn serve_with_optional_tls_does_not_use_unwrap() {
     let src = include_str!("../src/main.rs");
     let fn_start = src

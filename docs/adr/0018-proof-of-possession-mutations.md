@@ -1,7 +1,8 @@
 # ADR 0018: Proof-of-Possession for Authorized Feed and Track Mutations
 
 ## Status
-Accepted (Phase 1 implemented; see Current Implementation Status below)
+Superseded by [ADR 0056](0056-the-public-proof-flow-is-offline.md) on
+2026-09-25. Read this record for history only.
 
 ## Current Implementation Status
 

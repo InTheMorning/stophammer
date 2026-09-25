@@ -9,10 +9,10 @@
 //! the delivery-ordering cursor (Issue-SEQ-INTEGRITY).
 
 use crate::model::{
-    Artist, ArtistCredit, Feed, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent, PaymentRoute,
-    SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure,
-    SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw,
-    ValueTimeSplit,
+    Artist, ArtistCredit, Feed, FeedBlockKind, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
+    PaymentRoute, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
+    SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
+    TrackRemoteItemRaw, ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -58,6 +58,10 @@ pub enum EventType {
     SourcePlatformClaimsReplaced,
     /// A URL was observed to give a `podcast:guid`.
     FeedUrlObserved,
+    /// A feed GUID or URL was blocked from ingest (ADR 0053 Section 1).
+    FeedBlocked,
+    /// A previously blocked feed GUID or URL was unblocked (ADR 0053 Section 1).
+    FeedUnblocked,
 }
 
 /// Typed payload carried inside an [`Event`]; variant mirrors [`EventType`].
@@ -102,6 +106,10 @@ pub enum EventPayload {
     SourcePlatformClaimsReplaced(SourcePlatformClaimsReplacedPayload),
     /// Payload for a URL-observation event.
     FeedUrlObserved(FeedUrlObservedPayload),
+    /// Payload for a feed-block event.
+    FeedBlocked(FeedBlockedPayload),
+    /// Payload for a feed-unblock event.
+    FeedUnblocked(FeedUnblockedPayload),
 }
 
 /// The full signed event — the sync primitive between all nodes.
@@ -298,4 +306,27 @@ pub struct FeedUrlObservedPayload {
     pub url: String,
     pub feed_guid: String,
     pub observed_at: i64,
+}
+
+/// Emitted when a feed GUID or URL is blocked from ingest.
+///
+/// ADR 0053 Section 1. `block_id` is the primary-assigned UUID that names the
+/// row in `feed_blocks`, so every node stores the same row under the same
+/// identity. The subject GUID of the [`Event`] carrying this payload is
+/// `block_id`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedBlockedPayload {
+    pub block_id: String,
+    pub kind: FeedBlockKind,
+    pub value: String,
+    pub reason: String,
+    pub blocked_at: i64,
+}
+
+/// Emitted when a previously blocked feed GUID or URL is unblocked.
+///
+/// ADR 0053 Section 1. `block_id` names the `feed_blocks` row to remove.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedUnblockedPayload {
+    pub block_id: String,
 }

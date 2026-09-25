@@ -182,6 +182,25 @@ fn apply_single_event_inner(
         event::EventPayload::FeedUrlObserved(p) => {
             db::upsert_feed_url_observation(conn, &p.url, &p.feed_guid, p.observed_at)?;
         }
+        event::EventPayload::FeedBlocked(p) => {
+            // Idempotent: INSERT OR IGNORE, so a replayed FeedBlocked writes
+            // at most one row (ADR 0053 Section 1).
+            db::insert_feed_block(
+                conn,
+                &db::FeedBlock {
+                    block_id: p.block_id.clone(),
+                    kind: p.kind,
+                    value: p.value.clone(),
+                    reason: p.reason.clone(),
+                    blocked_at: p.blocked_at,
+                },
+            )?;
+        }
+        event::EventPayload::FeedUnblocked(p) => {
+            // Idempotent: deleting an already-absent block_id is a no-op
+            // (ADR 0053 Section 1).
+            db::delete_feed_block(conn, &p.block_id)?;
+        }
         event::EventPayload::FeedRetired(p) => {
             // Look up the feed to get search-index fields. If already gone, no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;

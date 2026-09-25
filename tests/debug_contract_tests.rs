@@ -162,19 +162,6 @@ fn apply_outcome_has_debug() {
 }
 
 #[test]
-fn challenge_row_has_debug() {
-    let row = stophammer::proof::ChallengeRow {
-        challenge_id: "c1".into(),
-        feed_guid: "fg1".into(),
-        scope: "feed:write".into(),
-        token_binding: "tok.hash".into(),
-        state: "pending".into(),
-        expires_at: 9999,
-    };
-    let _ = format!("{row:?}");
-}
-
-#[test]
 fn node_signer_debug_redacts_key() {
     let signer =
         stophammer::signing::NodeSigner::load_or_create(Path::new("/tmp/test-sprint3b-debug.key"))
@@ -295,21 +282,6 @@ fn skip_ssrf_field_available_in_test_cfg() {
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         skip_ssrf_validation: true,
     };
-}
-
-// ── Issue #19: RSS body streaming with chunked read ──────────────────────────
-
-#[tokio::test]
-async fn rss_body_size_limit_enforced() {
-    let client = reqwest::Client::new();
-    let result = stophammer::proof::verify_podcast_txt(
-        &client,
-        "http://127.0.0.1:1/nonexistent",
-        "dummy-binding",
-    )
-    .await;
-    // Should fail with connection error, not panic
-    assert!(result.is_err());
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

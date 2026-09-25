@@ -27,8 +27,8 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::model::Feed;
-use crate::{api, db, medium};
+use crate::model::{Feed, RouteRecipient};
+use crate::{api, db, event, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
@@ -1809,6 +1809,144 @@ async fn handle_get_feed_track(
     .into_response())
 }
 
+// ── GET /v1/feeds/{guid}/route-history ──────────────────────────────────────
+// ADR 0053 Section 4.
+
+/// Which entity a [`RouteHistoryEntry`] reports a recipient-set change for.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum RouteHistorySubject {
+    Feed,
+    Track,
+}
+
+/// One row of `GET /v1/feeds/{guid}/route-history` (ADR 0053 Section 4).
+///
+/// Written only when the recipient set of `subject` differs from the last
+/// set recorded for it. `track_guid` is `None` for the feed itself.
+/// `old_recipients` is `None` for the first set recorded for that subject.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+struct RouteHistoryEntry {
+    subject: RouteHistorySubject,
+    track_guid: Option<String>,
+    event_id: String,
+    seq: i64,
+    changed_at: i64,
+    old_recipients: Option<Vec<RouteRecipient>>,
+    new_recipients: Vec<RouteRecipient>,
+}
+
+/// At most this many route-history entries are returned, newest last (ADR
+/// 0053 Section 4).
+const ROUTE_HISTORY_MAX_ENTRIES: usize = 1000;
+
+/// Builds the route-history entries from `events`, which must already be
+/// filtered to one feed and ordered by `seq` ascending.
+///
+/// The feed keeps one running recipient set; each track keeps its own,
+/// keyed by `track_guid`. An entry is written only when a payload's
+/// recipient set differs from the last set recorded for its subject.
+fn build_route_history_entries(events: Vec<event::Event>) -> Vec<RouteHistoryEntry> {
+    let mut entries = Vec::new();
+    let mut last_feed_set: Option<Vec<RouteRecipient>> = None;
+    let mut last_track_sets: HashMap<String, Vec<RouteRecipient>> = HashMap::new();
+
+    for ev in events {
+        let (track_guid, new_set) = match &ev.payload {
+            event::EventPayload::FeedRoutesReplaced(p) => {
+                (None, crate::model::feed_recipient_set(&p.routes))
+            }
+            event::EventPayload::RoutesReplaced(p) => (
+                Some(p.track_guid.clone()),
+                crate::model::recipient_set(&p.routes),
+            ),
+            event::EventPayload::TrackUpserted(p) => (
+                Some(p.track.track_guid.clone()),
+                crate::model::recipient_set(&p.routes),
+            ),
+            _ => continue,
+        };
+
+        let last = track_guid.as_ref().map_or_else(
+            || last_feed_set.clone(),
+            |tg| last_track_sets.get(tg).cloned(),
+        );
+
+        if last.as_ref() == Some(&new_set) {
+            continue;
+        }
+
+        let subject = if track_guid.is_none() {
+            RouteHistorySubject::Feed
+        } else {
+            RouteHistorySubject::Track
+        };
+
+        entries.push(RouteHistoryEntry {
+            subject,
+            track_guid: track_guid.clone(),
+            event_id: ev.event_id,
+            seq: ev.seq,
+            changed_at: ev.created_at,
+            old_recipients: last,
+            new_recipients: new_set.clone(),
+        });
+
+        match track_guid {
+            None => last_feed_set = Some(new_set),
+            Some(tg) => {
+                last_track_sets.insert(tg, new_set);
+            }
+        }
+    }
+
+    entries
+}
+
+async fn handle_get_route_history(
+    State(state): State<Arc<api::AppState>>,
+    Path(feed_guid): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+
+        let events = db::get_route_history_events_for_feed(&conn, &feed_guid)?;
+        let mut entries = build_route_history_entries(events);
+        if entries.is_empty() {
+            return Err(api::ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: "no route history for this feed".into(),
+                www_authenticate: None,
+            });
+        }
+        if entries.len() > ROUTE_HISTORY_MAX_ENTRIES {
+            entries = entries.split_off(entries.len() - ROUTE_HISTORY_MAX_ENTRIES);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: entries,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── GET /v1/feeds/recent ────────────────────────────────────────────────────
 
 #[allow(
@@ -2670,6 +2808,10 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
             "/v1/feeds/{guid}/tracks/{track_guid}",
             get(handle_get_feed_track),
         )
+        .route(
+            "/v1/feeds/{guid}/route-history",
+            get(handle_get_route_history),
+        )
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
@@ -2715,6 +2857,7 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<SearchResponseItem>(&mut schemas);
     register_schema::<ArtistTrackItem>(&mut schemas);
     register_schema::<PublisherLinkStatsResponse>(&mut schemas);
+    register_schema::<RouteHistoryEntry>(&mut schemas);
     schemas
 }
 

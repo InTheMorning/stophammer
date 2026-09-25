@@ -167,6 +167,51 @@ pub struct FeedPaymentRoute {
     pub fee: bool,
 }
 
+// ── route-history recipient set (ADR 0053 Section 4) ────────────────────────
+
+/// One recipient of a payment-route set: an address and its split.
+///
+/// The route-history read of ADR 0053 Section 4 compares an ordered list of
+/// these to decide whether a payment change occurred. The set excludes the
+/// name, the route type and `fee`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RouteRecipient {
+    pub address: String,
+    pub split: i64,
+}
+
+impl From<&PaymentRoute> for RouteRecipient {
+    fn from(route: &PaymentRoute) -> Self {
+        Self {
+            address: route.address.clone(),
+            split: route.split,
+        }
+    }
+}
+
+impl From<&FeedPaymentRoute> for RouteRecipient {
+    fn from(route: &FeedPaymentRoute) -> Self {
+        Self {
+            address: route.address.clone(),
+            split: route.split,
+        }
+    }
+}
+
+/// Builds the ordered recipient set of a track's payment routes (ADR 0053
+/// Section 4).
+#[must_use]
+pub fn recipient_set(routes: &[PaymentRoute]) -> Vec<RouteRecipient> {
+    routes.iter().map(RouteRecipient::from).collect()
+}
+
+/// Builds the ordered recipient set of a feed's payment routes (ADR 0053
+/// Section 4).
+#[must_use]
+pub fn feed_recipient_set(routes: &[FeedPaymentRoute]) -> Vec<RouteRecipient> {
+    routes.iter().map(RouteRecipient::from).collect()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValueTimeSplit {
     pub id: Option<i64>,
@@ -347,4 +392,55 @@ pub struct SourcePlatformClaim {
 pub struct ExternalId {
     pub scheme: String,
     pub value: String,
+}
+
+// ── feed_blocks (ADR 0053) ─────────────────────────────────────────────────
+
+/// The kind of value a [`FeedBlock`] names: a `podcast:guid` or an exact URL.
+///
+/// ADR 0053 Section 1. A GUID value is stored and compared in lower case. A
+/// URL value is stored and compared as the exact trimmed string.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FeedBlockKind {
+    /// The value is a `podcast:guid`.
+    Guid,
+    /// The value is an exact feed URL.
+    Url,
+}
+
+impl FeedBlockKind {
+    /// Returns the wire value of this kind: `"guid"` or `"url"`.
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Guid => "guid",
+            Self::Url => "url",
+        }
+    }
+
+    /// Normalizes `value` the way this kind is stored and matched.
+    ///
+    /// A GUID is lower-cased and trimmed. A URL is trimmed only.
+    #[must_use]
+    pub fn normalize(&self, value: &str) -> String {
+        match self {
+            Self::Guid => value.trim().to_lowercase(),
+            Self::Url => value.trim().to_string(),
+        }
+    }
+}
+
+/// A row that blocks one feed GUID or one exact feed URL.
+///
+/// ADR 0053 Section 1. The primary makes `block_id` as a UUID and carries it
+/// in the `FeedBlocked` event, so every node holds the same row under the
+/// same identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, utoipa::ToSchema)]
+pub struct FeedBlock {
+    pub block_id: String,
+    pub kind: FeedBlockKind,
+    pub value: String,
+    pub reason: String,
+    pub blocked_at: i64,
 }

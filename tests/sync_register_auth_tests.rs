@@ -167,8 +167,8 @@ async fn admin_endpoint_with_sync_token_returns_403() {
     let resp = app.oneshot(req).await.expect("call handler");
     assert_eq!(
         resp.status(),
-        401,
-        "Admin endpoint must not treat X-Sync-Token as valid admin or bearer auth"
+        403,
+        "Admin endpoint must not treat X-Sync-Token as a valid admin token"
     );
 }
 

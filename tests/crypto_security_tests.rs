@@ -1,6 +1,5 @@
 mod common;
 
-use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier};
 use rand_core::OsRng;
 use rusqlite::params;
@@ -176,122 +175,6 @@ fn verify_rejects_empty_payload_json() {
     assert!(
         result.is_err(),
         "verify_event_signature must reject events with empty payload_json"
-    );
-}
-
-// ============================================================================
-// Attack Vector 2: Nonce Reuse in Token Binding
-// ============================================================================
-
-/// Verify that reusing the same nonce across two challenges still produces
-/// DIFFERENT `token_bindings` (because the server token is random each time).
-#[test]
-fn same_nonce_different_challenges_produce_different_bindings() {
-    let conn = common::test_db();
-    let nonce = "shared-nonce-value-16ch";
-
-    let (_, binding1) =
-        stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", nonce).unwrap();
-    let (_, binding2) =
-        stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", nonce).unwrap();
-
-    assert_ne!(
-        binding1, binding2,
-        "same nonce must produce different bindings due to random server tokens"
-    );
-}
-
-/// Verify that the nonce minimum length (16 chars) is enforced.
-#[test]
-fn nonce_minimum_length_enforced_at_api_layer() {
-    // The enforcement is in the API handler (api.rs line 1477), not in proof.rs.
-    // proof::create_challenge itself does NOT validate nonce length.
-    // This test documents that proof::create_challenge accepts short nonces --
-    // the validation is in the HTTP layer only.
-    let conn = common::test_db();
-    let result = stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", "short");
-    assert!(
-        result.is_ok(),
-        "proof::create_challenge does not enforce nonce length -- API layer must do it"
-    );
-}
-
-/// Verify that 128-bit server tokens have sufficient entropy.
-/// Generate many tokens and check for collisions.
-#[test]
-fn server_tokens_have_sufficient_entropy() {
-    let conn = common::test_db();
-    let mut bindings = HashSet::new();
-
-    for i in 0..100 {
-        let nonce = format!("entropy-test-nonce-{i:04}");
-        let (_, binding) =
-            stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", &nonce).unwrap();
-
-        // Extract just the token part (before the dot)
-        let token_part = binding.split('.').next().unwrap().to_string();
-        assert!(
-            bindings.insert(token_part),
-            "token collision detected after only {i} generations -- insufficient entropy"
-        );
-    }
-}
-
-// ============================================================================
-// Attack Vector 3: Token Binding Malleability
-// ============================================================================
-
-/// Verify that base64url-encoded tokens never contain '.', so `split_once('.')`
-/// always correctly separates token from hash.
-#[test]
-fn base64url_tokens_never_contain_dot() {
-    let conn = common::test_db();
-
-    for i in 0..50 {
-        let nonce = format!("dot-test-nonce-number-{i:04}");
-        let (_, binding) =
-            stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", &nonce).unwrap();
-
-        let parts: Vec<&str> = binding.split('.').collect();
-        assert_eq!(
-            parts.len(),
-            2,
-            "binding should have exactly one dot separator, got {} parts for binding: {}",
-            parts.len(),
-            binding
-        );
-
-        // Verify each part is valid base64url
-        assert!(
-            URL_SAFE_NO_PAD.decode(parts[0]).is_ok(),
-            "token part should be valid base64url"
-        );
-        assert!(
-            URL_SAFE_NO_PAD.decode(parts[1]).is_ok(),
-            "hash part should be valid base64url"
-        );
-    }
-}
-
-/// Verify that `recompute_binding` correctly handles a binding where the
-/// `base_token` part could be confused with a multi-dot string.
-/// Since base64url never contains dots, this is a defense-in-depth check.
-#[test]
-fn recompute_binding_multi_dot_takes_first_only() {
-    // If somehow the token contained a dot (it shouldn't with base64url),
-    // split_once would take everything after the first dot as hash_part.
-    let result = stophammer::proof::recompute_binding("part1.part2.part3", "nonce-16-chars-ok");
-    // split_once('.') on "part1.part2.part3" gives ("part1", "part2.part3")
-    // base_token = "part1", hash_part = "part2.part3" (both non-empty)
-    // So it returns Some(...) with base_token = "part1"
-    assert!(
-        result.is_some(),
-        "multi-dot input should not return None (split_once takes first dot)"
-    );
-    let binding = result.unwrap();
-    assert!(
-        binding.starts_with("part1."),
-        "recomputed binding should use 'part1' as the base token"
     );
 }
 
@@ -503,143 +386,6 @@ fn content_hash_not_in_signing_payload() {
 }
 
 // ============================================================================
-// Attack Vector 7: Base64 Decoding Attacks
-// ============================================================================
-
-/// Verify that the nonce is used as raw bytes, not base64-decoded.
-/// An attacker sending non-base64 nonce should not crash the server.
-#[test]
-fn nonce_with_non_base64_chars_does_not_crash() {
-    let conn = common::test_db();
-
-    // Various adversarial nonces
-    let adversarial_nonces = [
-        "!!!@@@###$$$%%%%",
-        "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e\x0f",
-        "unicode-test-\u{1F600}\u{1F600}\u{1F600}",
-        "a]b[c}d{e|f\\g/h",
-        &"A".repeat(10_000), // very long nonce
-    ];
-
-    for nonce in &adversarial_nonces {
-        let result = stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", nonce);
-        assert!(
-            result.is_ok(),
-            "create_challenge should not crash on adversarial nonce"
-        );
-    }
-}
-
-/// Verify that `recompute_binding` handles adversarial `stored_binding` inputs.
-#[test]
-fn recompute_binding_adversarial_inputs() {
-    // Various malformed stored_binding strings
-    let cases = [
-        ("", false),       // empty string -- no dot
-        (".", false),      // just a dot -- both parts empty
-        (".hash", false),  // empty base_token
-        ("token.", false), // empty hash_part
-        ("a.b", true),     // minimal valid
-        ("a.b.c.d", true), // extra dots -- split_once takes first
-    ];
-
-    for (input, should_be_some) in &cases {
-        let result = stophammer::proof::recompute_binding(input, "test-nonce-16-chars");
-        assert_eq!(
-            result.is_some(),
-            *should_be_some,
-            "recompute_binding({input:?}) returned {result:?}, expected is_some={should_be_some}",
-        );
-    }
-}
-
-// ============================================================================
-// Attack Vector 8: Proof-of-Possession Bypass (Missing RSS Verification)
-// ============================================================================
-
-/// VULNERABILITY PROOF: The proof-of-possession flow issues tokens WITHOUT
-/// verifying that the requester actually controls the feed via `podcast:txt`.
-///
-/// An attacker who knows a `feed_guid` can obtain a write token for that feed
-/// by simply completing the challenge-assert flow with any nonce.
-///
-/// Evidence: `api.rs` line 1593:
-///   `// TODO: fetch RSS at feed_url and verify podcast:txt token before issuing -- Phase 2`
-#[test]
-fn proof_of_possession_issues_token_without_feed_verification() {
-    let conn = common::test_db();
-
-    // Attacker creates a challenge for a feed they don't own
-    let attacker_nonce = "attacker-nonce-1234";
-    let (challenge_id, token_binding) = stophammer::proof::create_challenge(
-        &conn,
-        "victim-feed-guid",
-        "feed:write",
-        attacker_nonce,
-    )
-    .unwrap();
-
-    // Attacker can recompute the binding (they know the nonce, the binding was returned)
-    let recomputed = stophammer::proof::recompute_binding(&token_binding, attacker_nonce);
-    assert_eq!(
-        recomputed.as_deref(),
-        Some(token_binding.as_str()),
-        "attacker can always produce matching binding since they chose the nonce"
-    );
-
-    // In the real flow, the assert handler would issue a token here.
-    // The challenge is valid and the nonce matches -- there is no RSS verification.
-    stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-    let access_token = stophammer::proof::issue_token(
-        &conn,
-        "feed:write",
-        "victim-feed-guid",
-        &stophammer::proof::ProofLevel::RssOnly,
-    )
-    .unwrap();
-
-    // Attacker now has a valid token for the victim's feed
-    let subject = stophammer::proof::validate_token(&conn, &access_token, "feed:write").unwrap();
-    assert_eq!(
-        subject,
-        Some("victim-feed-guid".to_string()),
-        "VULNERABILITY: attacker obtained write token for victim feed without proving ownership"
-    );
-}
-
-// ============================================================================
-// Attack Vector 9: Replay of Resolved Challenge
-// ============================================================================
-
-/// Verify that a challenge cannot be asserted twice (replay protection).
-#[test]
-fn resolved_challenge_cannot_be_replayed() {
-    let conn = common::test_db();
-    let nonce = "replay-test-nonce-ok";
-
-    let (challenge_id, _) =
-        stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", nonce).unwrap();
-
-    // First resolution succeeds
-    stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-
-    // Verify it's now "valid"
-    let ch = stophammer::proof::get_challenge(&conn, &challenge_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(ch.state, "valid");
-
-    // Second resolve_challenge is a no-op (WHERE state = 'pending' won't match)
-    stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-
-    // The state doesn't change and no error is thrown -- this is correct behavior
-    let ch2 = stophammer::proof::get_challenge(&conn, &challenge_id)
-        .unwrap()
-        .unwrap();
-    assert_eq!(ch2.state, "valid");
-}
-
-// ============================================================================
 // Attack Vector 10: Community Node Signature Verification
 // ============================================================================
 
@@ -788,53 +534,6 @@ fn sha256_equality_implies_input_equality() {
     assert_ne!(h0, h1, "different tokens must produce different hashes");
 }
 
-// ── N3: Token Binding Cross-Challenge Replay ───────────────────────────────
-
-/// Verify that knowing a nonce from challenge A does NOT help resolve challenge B.
-/// Each challenge has a unique `base_token`, so the binding is different even with
-/// the same nonce.
-#[test]
-fn cross_challenge_nonce_replay_fails() {
-    let conn = common::test_db();
-    let shared_nonce = "shared-nonce-for-replay-test";
-
-    // Create two challenges with the same nonce
-    let (id_a, binding_a) =
-        stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", shared_nonce).unwrap();
-    let (_id_b, binding_b) =
-        stophammer::proof::create_challenge(&conn, "feed-1", "feed:write", shared_nonce).unwrap();
-
-    // The bindings are different (different base_tokens)
-    assert_ne!(binding_a, binding_b);
-
-    // Recomputing binding_b with the shared nonce produces binding_b, not binding_a
-    let recomputed_b = stophammer::proof::recompute_binding(&binding_b, shared_nonce).unwrap();
-    assert_eq!(recomputed_b, binding_b);
-    assert_ne!(recomputed_b, binding_a);
-
-    // Attempting to use nonce from challenge B to validate challenge A fails
-    // because recompute_binding(binding_a, nonce) == binding_a (it works for A),
-    // but you cannot use knowledge of B to forge A's binding
-    let recomputed_a = stophammer::proof::recompute_binding(&binding_a, shared_nonce).unwrap();
-    assert_eq!(recomputed_a, binding_a, "nonce validates its own challenge");
-
-    // A wrong nonce will NOT recompute correctly
-    let wrong_nonce = "totally-different-nonce!!";
-    let wrong_recompute = stophammer::proof::recompute_binding(&binding_a, wrong_nonce).unwrap();
-    assert_ne!(
-        wrong_recompute, binding_a,
-        "wrong nonce must NOT produce a matching binding"
-    );
-
-    // Resolve challenge A to prove single-use
-    let rows = stophammer::proof::resolve_challenge(&conn, &id_a, "valid").unwrap();
-    assert_eq!(rows, 1, "first resolution should affect 1 row");
-
-    // Second resolution is a no-op
-    let rows2 = stophammer::proof::resolve_challenge(&conn, &id_a, "valid").unwrap();
-    assert_eq!(rows2, 0, "second resolution should be a no-op");
-}
-
 // ── N5: SSRF Validation ────────────────────────────────────────────────────
 
 /// Verify that `validate_feed_url` rejects private/reserved IP addresses.
@@ -854,7 +553,7 @@ fn ssrf_rejects_private_ips() {
     ];
 
     for url in &rejected {
-        let result = stophammer::proof::validate_feed_url(url);
+        let result = stophammer::fetch_guard::validate_feed_url(url);
         assert!(
             result.is_err(),
             "validate_feed_url should reject private IP URL: {url}"
@@ -873,7 +572,7 @@ fn ssrf_rejects_non_http_schemes() {
     ];
 
     for url in &rejected {
-        let result = stophammer::proof::validate_feed_url(url);
+        let result = stophammer::fetch_guard::validate_feed_url(url);
         assert!(
             result.is_err(),
             "validate_feed_url should reject non-HTTP URL: {url}"
@@ -892,7 +591,7 @@ fn ssrf_accepts_public_urls() {
     ];
 
     for url in &accepted {
-        let result = stophammer::proof::validate_feed_url(url);
+        let result = stophammer::fetch_guard::validate_feed_url(url);
         assert!(
             result.is_ok(),
             "validate_feed_url should accept public URL: {url}, got: {:?}",
@@ -904,14 +603,14 @@ fn ssrf_accepts_public_urls() {
 /// Verify that `validate_feed_url` rejects CGNAT range (100.64.0.0/10).
 #[test]
 fn ssrf_rejects_cgnat_range() {
-    let result = stophammer::proof::validate_feed_url("http://100.64.0.1/feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("http://100.64.0.1/feed.xml");
     assert!(
         result.is_err(),
         "validate_feed_url should reject CGNAT IP 100.64.0.1"
     );
 
     // 100.127.255.254 is also in 100.64.0.0/10
-    let result2 = stophammer::proof::validate_feed_url("http://100.127.255.254/feed.xml");
+    let result2 = stophammer::fetch_guard::validate_feed_url("http://100.127.255.254/feed.xml");
     assert!(
         result2.is_err(),
         "validate_feed_url should reject CGNAT IP 100.127.255.254"
@@ -924,7 +623,7 @@ fn ssrf_rejects_cgnat_range() {
 /// instead of silently deferring to the HTTP client.
 #[test]
 fn ssrf_empty_host_rejected() {
-    let result = stophammer::proof::validate_feed_url("http:///feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("http:///feed.xml");
     assert!(
         result.is_err(),
         "empty-host feed URLs must be rejected instead of falling back to runtime DNS"
@@ -934,7 +633,7 @@ fn ssrf_empty_host_rejected() {
 /// Verify that `validate_feed_url` rejects truly malicious non-URL strings.
 #[test]
 fn ssrf_rejects_garbage_input() {
-    let result = stophammer::proof::validate_feed_url("not-a-url");
+    let result = stophammer::fetch_guard::validate_feed_url("not-a-url");
     assert!(
         result.is_err(),
         "validate_feed_url should reject unparseable input"

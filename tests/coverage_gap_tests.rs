@@ -2,11 +2,13 @@
 //!
 //! Organised by fix / area:
 //! - Fix 1 (monotonic cursor): full `apply_single_event` path + DB read-back
-//! - Fix 2 (proof race): happy-path token issuance regression + feed-deleted 404
 //! - Fix 3 (search keyset): malformed cursor and NaN/Inf rank
-//! - Proof module: `recompute_binding` edge cases, `prune_expired` atomicity
 //! - Verifiers: trait-level pass/fail through `IngestContext`
 //! - Community push: duplicate event, bad-signature event
+//!
+//! ADR 0056 removed the proof flow. The former "Fix 2 (proof race)" and
+//! "Proof module" sections went with it. The `validate_feed_url` SSRF guard
+//! tests stay, moved to `fetch_guard`.
 
 #![expect(
     clippy::significant_drop_tightening,
@@ -168,99 +170,6 @@ fn cursor_survives_simulated_restart() {
     assert_eq!(
         cursor2, 15,
         "cursor must remain 15 after applying out-of-order seq=12"
-    );
-}
-
-// ============================================================================
-// Fix 2: Proof race — happy-path regression: URL unchanged -> token IS issued
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// 3. Happy-path: assert issues token and it validates (regression guard)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn proof_happy_path_token_issued_and_valid() {
-    let conn = common::test_db();
-    let nonce = "happy-nonce-12345";
-
-    // Create challenge.
-    let (challenge_id, _token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-happy", "feed:write", nonce).unwrap();
-
-    // Resolve as valid (simulating successful RSS verification).
-    let rows = stophammer::proof::resolve_challenge(&conn, &challenge_id, "valid").unwrap();
-    assert_eq!(rows, 1, "challenge should transition to valid");
-
-    // Issue token.
-    let token = stophammer::proof::issue_token(
-        &conn,
-        "feed:write",
-        "feed-happy",
-        &stophammer::proof::ProofLevel::RssOnly,
-    )
-    .unwrap();
-    assert!(!token.is_empty(), "token should be non-empty");
-
-    // Validate token — must succeed with correct scope and feed.
-    let result = stophammer::proof::validate_token(&conn, &token, "feed:write").unwrap();
-    assert_eq!(
-        result,
-        Some("feed-happy".to_string()),
-        "token must validate and return the correct feed_guid"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 4. Assert with feed deleted between phases -> 404 (unit-level simulation)
-// ---------------------------------------------------------------------------
-
-#[test]
-fn proof_feed_deleted_between_phases_returns_none() {
-    let conn = common::test_db();
-
-    // Create a feed, then delete it (simulating deletion between phases).
-    let now = common::now();
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES ('art-del', 'Del Artist', 'del artist', ?1, ?2)",
-        params![now, now],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Del Artist', ?1)",
-        params![now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, 'art-del', 0, 'Del Artist', '')",
-        params![credit_id],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
-         explicit, episode_count, created_at, updated_at) \
-         VALUES ('feed-del', 'https://example.com/del.xml', 'Del Feed', 'del feed', ?1, 0, 0, ?2, ?3)",
-        params![credit_id, now, now],
-    )
-    .unwrap();
-
-    // Create challenge for this feed.
-    let (_cid, _binding) =
-        stophammer::proof::create_challenge(&conn, "feed-del", "feed:write", "del-nonce-12345")
-            .unwrap();
-
-    // Simulate feed deletion between phase 1 and phase 3.
-    conn.execute("DELETE FROM feeds WHERE feed_guid = 'feed-del'", [])
-        .unwrap();
-
-    // Phase 3 would call get_feed_by_guid and get None.
-    let feed = stophammer::db::get_feed_by_guid(&conn, "feed-del").unwrap();
-    assert!(
-        feed.is_none(),
-        "feed should be gone after deletion — would produce 404 in the handler"
     );
 }
 
@@ -449,84 +358,6 @@ async fn search_cursor_missing_separator_returns_400() {
         "cursor with no separator should return 400, got {}",
         resp.status()
     );
-}
-
-// ============================================================================
-// Proof module: recompute_binding edge cases
-// ============================================================================
-
-// ---------------------------------------------------------------------------
-// 9. recompute_binding with valid input returns correct binding
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recompute_binding_valid_input() {
-    // Create a challenge to get a real token_binding.
-    let conn = common::test_db();
-    let nonce = "recompute-nonce-1";
-    let (_cid, token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-rc", "feed:write", nonce).unwrap();
-
-    // Recompute with the same nonce should produce the same binding.
-    let recomputed = stophammer::proof::recompute_binding(&token_binding, nonce);
-    assert_eq!(
-        recomputed.as_deref(),
-        Some(token_binding.as_str()),
-        "recomputed binding must match original when nonce is correct"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 10. recompute_binding with wrong nonce produces different binding
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recompute_binding_wrong_nonce_differs() {
-    let conn = common::test_db();
-    let nonce = "recompute-nonce-2";
-    let (_cid, token_binding) =
-        stophammer::proof::create_challenge(&conn, "feed-rc2", "feed:write", nonce).unwrap();
-
-    let recomputed = stophammer::proof::recompute_binding(&token_binding, "wrong-nonce-val");
-    assert!(recomputed.is_some(), "should still produce a binding");
-    assert_ne!(
-        recomputed.unwrap(),
-        token_binding,
-        "wrong nonce must produce different binding"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 11. recompute_binding with malformed input (no dot) returns None
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recompute_binding_malformed_no_dot() {
-    let result = stophammer::proof::recompute_binding("nodothere", "any-nonce");
-    assert!(
-        result.is_none(),
-        "malformed binding with no dot should return None"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 12. recompute_binding with empty token part returns None
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recompute_binding_empty_token_part() {
-    let result = stophammer::proof::recompute_binding(".hashpart", "any-nonce");
-    assert!(result.is_none(), "empty token part should return None");
-}
-
-// ---------------------------------------------------------------------------
-// 13. recompute_binding with empty hash part returns None
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recompute_binding_empty_hash_part() {
-    let result = stophammer::proof::recompute_binding("tokenpart.", "any-nonce");
-    assert!(result.is_none(), "empty hash part should return None");
 }
 
 // ============================================================================
@@ -1473,7 +1304,7 @@ async fn community_push_bad_signature_rejected() {
 
 #[test]
 fn validate_feed_url_rejects_ftp() {
-    let result = stophammer::proof::validate_feed_url("ftp://example.com/feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("ftp://example.com/feed.xml");
     assert!(result.is_err(), "ftp:// should be rejected");
     assert!(
         result.unwrap_err().contains("disallowed URL scheme"),
@@ -1483,7 +1314,7 @@ fn validate_feed_url_rejects_ftp() {
 
 #[test]
 fn validate_feed_url_rejects_file() {
-    let result = stophammer::proof::validate_feed_url("file:///etc/passwd");
+    let result = stophammer::fetch_guard::validate_feed_url("file:///etc/passwd");
     assert!(result.is_err(), "file:// should be rejected");
 }
 
@@ -1493,7 +1324,7 @@ fn validate_feed_url_rejects_file() {
 
 #[test]
 fn validate_feed_url_rejects_localhost() {
-    let result = stophammer::proof::validate_feed_url("http://127.0.0.1/feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("http://127.0.0.1/feed.xml");
     assert!(result.is_err(), "127.0.0.1 should be rejected");
     assert!(
         result.unwrap_err().contains("private/reserved IP"),
@@ -1503,7 +1334,7 @@ fn validate_feed_url_rejects_localhost() {
 
 #[test]
 fn validate_feed_url_rejects_private_10() {
-    let result = stophammer::proof::validate_feed_url("http://10.0.0.1/feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("http://10.0.0.1/feed.xml");
     assert!(result.is_err(), "10.0.0.1 should be rejected");
 }
 
@@ -1515,7 +1346,7 @@ fn validate_feed_url_rejects_private_10() {
 fn validate_feed_url_accepts_public_https() {
     // We can't guarantee DNS resolution in CI, but the scheme+IP check passes.
     // Use a literal public IP so DNS resolution is not needed.
-    let result = stophammer::proof::validate_feed_url("https://8.8.8.8/feed.xml");
+    let result = stophammer::fetch_guard::validate_feed_url("https://8.8.8.8/feed.xml");
     assert!(result.is_ok(), "public IP over HTTPS should be accepted");
 }
 

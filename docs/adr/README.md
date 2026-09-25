@@ -66,15 +66,16 @@ disagree.
 | ADR | Scope | Status |
 |---|---|---|
 | [0004](0004-signed-event-log.md) | Nostr-style ed25519 signed event log. Sequence-number signing superseded by ADR 0036 | Accepted in part |
-| [0018](0018-proof-of-possession-mutations.md) | Proof-of-possession for authorized feed and track mutations. Phase 1 implemented | Accepted |
 | [0026](0026-signed-peer-registration.md) | Signed peer registration | Accepted |
 | [0027](0027-authenticate-sync-read-endpoints.md) | Authenticate sync read endpoints | Accepted |
 | [0028](0028-require-dedicated-sync-token.md) | A dedicated sync token is required | Accepted |
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
 | [0051](0051-feed-content-comes-from-its-source-url.md) | Only content from the stored source URL changes a feed record. Authentication is first and cannot be removed | Proposed |
-| [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect or `itunes:new-feed-url` at its source URL, by proof or by the operator. A GUID change at the source URL links the old record | Proposed |
+| [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL links the old record | Proposed |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Proposed |
 | [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits | Proposed |
+| [0057](0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Accepted |
+| [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
 | [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content | Proposed |
 
 ## Nodes, Replication And Deployment
@@ -101,6 +102,7 @@ research, not for a live rule.
 | [0014](0014-artist-resolution-aliases.md) | Artist resolution, alias table, merge operation, admin endpoints | ADR 0032 and ADR 0034 |
 | [0020](0020-sse-artist-follow-notifications.md) | SSE push notifications for artist follow | ADR 0037 and ADR 0036 |
 | [0029](0029-primary-resolved-replication-authority.md) | Primary resolver authority for replicated read models | ADR 0032 |
+| [0018](0018-proof-of-possession-mutations.md) | Proof-of-possession for feed and track mutations | ADR 0056 |
 | [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
 
 ## Status Needs A Check

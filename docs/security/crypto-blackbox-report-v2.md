@@ -1,5 +1,10 @@
 # Cryptographic Security Black-Box Report v2
 
+> **Note, 2026-09-25.** Parts of this report describe code that no longer
+> exists. ADR 0056 takes the proof flow offline. See
+> [ADR 0056](../adr/0056-the-public-proof-flow-is-offline.md) and
+> [the history research](../reviews/adr-0018-proof-flow-history-research.md).
+
 **Date:** 2026-03-25
 **Scope:** Re-audit of all v1 findings plus follow-up verification against the current tree
 **Files audited:**

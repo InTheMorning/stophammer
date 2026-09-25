@@ -218,7 +218,9 @@ Purpose: known community-node registry for push replication.
 ## Proof-of-Possession
 
 ### `proof_challenges`
-Purpose: feed-scoped proof challenges.
+Purpose: none. No code reads or writes this table (ADR 0056 section 3). It
+stays for one release.
 
 ### `proof_tokens`
-Purpose: short-lived proof tokens issued after successful proof completion.
+Purpose: none. No code reads or writes this table (ADR 0056 section 3). It
+stays for one release.

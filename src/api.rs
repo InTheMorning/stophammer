@@ -36,7 +36,7 @@ use utoipa::ToSchema;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-use crate::{db, db_pool, event, ingest, medium, model, proof, query, signing, sync, verify};
+use crate::{db, db_pool, event, fetch_guard, ingest, medium, model, query, signing, sync, verify};
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
 
@@ -67,12 +67,6 @@ const CORS_MAX_AGE_SECS: u64 = 3600;
 /// default ingest timeout, so operators can correlate crawler-side
 /// `ingest_error` logs with slow handler completions.
 const INGEST_SLOW_WARNING_SECS: u64 = 10;
-
-/// Access token lifetime in seconds (1 hour) for proof-of-possession tokens.
-///
-/// Must match [`crate::proof::TOKEN_TTL_SECS`] so the `expires_at` returned
-/// in the assertion response reflects the actual token expiry.
-const PROOF_TOKEN_TTL_SECS: i64 = 3600;
 
 /// A single SSE frame delivered to subscribers following an artist.
 #[derive(Clone, Debug, Serialize)]
@@ -588,13 +582,6 @@ const MAX_RECONCILE_REFS: i64 = 50_000;
 /// Maximum number of full events returned in a single reconcile response.
 const MAX_RECONCILE_EVENTS: i64 = 10_000;
 
-/// Maximum number of pending proof challenges allowed across the whole node.
-/// Prevents unbounded table growth by cycling through many valid feed GUIDs.
-const MAX_PENDING_CHALLENGES_TOTAL: i64 = 5_000;
-
-/// Maximum length (bytes) for the `requester_nonce` field in proof challenge requests.
-const MAX_NONCE_BYTES: usize = 256;
-
 /// Maximum allowed wall-clock skew for signed sync/register requests.
 ///
 /// Limits replay lifetime for captured registration payloads while tolerating
@@ -629,8 +616,9 @@ pub struct AppState {
     /// FG-02 SSE artist follow — 2026-03-13
     /// Registry for SSE per-artist broadcast channels and replay buffers.
     pub sse_registry: Arc<SseRegistry>,
-    /// When true, skip SSRF validation of feed URLs during proof assertion.
-    /// Only intended for test environments where mock servers use localhost.
+    /// When true, skip SSRF validation of a peer's `node_url` during
+    /// `sync/register`. Only intended for test environments where mock
+    /// servers use localhost.
     // CRIT-02 feature-gate — 2026-03-13
     #[cfg(feature = "test-util")]
     pub skip_ssrf_validation: bool,
@@ -1567,8 +1555,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             patch(handle_patch_feed_track).delete(handle_remove_track),
         )
         .route("/v1/tracks/{guid}", patch(handle_patch_track))
-        .route("/v1/proofs/challenge", post(handle_proofs_challenge))
-        .route("/v1/proofs/assert", post(handle_proofs_assert))
+        .route(
+            "/v1/blocks",
+            post(handle_create_block).get(handle_list_blocks),
+        )
+        .route("/v1/blocks/{block_id}", delete(handle_delete_block))
         .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -1680,6 +1671,34 @@ async fn handle_ingest_feed(
                 www_authenticate: None,
             })?;
 
+            // ADR 0053 section 1: a block on the declared GUID or on either
+            // URL rejects the submission, after the crawl-token check and
+            // before the verifier chain runs.
+            let block_guid = req.feed_data.as_ref().map(|fd| fd.feed_guid.as_str());
+            if let Some(block) =
+                db::find_feed_block(&reader, block_guid, &[&req.source_url, &req.canonical_url])?
+            {
+                tracing::info!(
+                    feed_guid = block_guid.unwrap_or(""),
+                    canonical_url = req.canonical_url.as_str(),
+                    block_id = block.block_id.as_str(),
+                    kind = block.kind.as_str(),
+                    "ADR 0053 section 1: ingest rejected, feed is blocked"
+                );
+                return Ok((
+                    ingest::IngestResponse {
+                        accepted: false,
+                        no_change: false,
+                        reason: Some("blocked".to_string()),
+                        events_emitted: vec![],
+                        warnings: vec![],
+                        source_url: None,
+                    },
+                    vec![],
+                    vec![],
+                ));
+            }
+
             // 1. Get existing feed (read-only)
             let existing = db::get_existing_feed(&reader, &req.canonical_url)?;
 
@@ -1698,7 +1717,7 @@ async fn handle_ingest_feed(
         };
         // reader is dropped here — writer lock is never contested by verification
 
-        let warnings = match read_outcome {
+        let mut warnings = match read_outcome {
             ReadPhaseOutcome::Rejected(reason) => {
                 return Ok((
                     ingest::IngestResponse {
@@ -1816,51 +1835,110 @@ async fn handle_ingest_feed(
 
         // ADR 0051 section 2: classify the submission before the first
         // write. Only Update and NewFeed may apply content to a record.
-        // Mirror records an observation only; the two conflict cases write
+        // Mirror records an observation only, unless the self link of ADR
+        // 0052 section 2 turns it into a move; the two conflict cases write
         // nothing.
+        //
+        // `self_link_move` holds `(old_feed_url, new_feed_url)` once a move
+        // is under way. Its presence, not the classification above, is what
+        // the rest of the handler checks from here on.
+        let mut self_link_move: Option<(String, String)> = None;
         match db::classify_submission(
             &conn,
             &feed_data.feed_guid,
             &req.source_url,
             &req.canonical_url,
         )? {
-            db::SubmissionClass::Update | db::SubmissionClass::NewFeed => {}
+            db::SubmissionClass::Update => {
+                // ADR 0053 section 3: an older copy does not replace a newer
+                // copy. The rule fires only when the stored record and the
+                // submission both carry `last_build_date`, and it does not
+                // read `force_reingest`. A self-link move is classified as
+                // Mirror, not Update, so this arm never sees one.
+                let stored_last_build_date = db::get_feed(&conn, &feed_data.feed_guid)?
+                    .and_then(|stored_feed| stored_feed.last_build_date);
+                if let (Some(stored_last_build_date), Some(submitted_last_build_date)) =
+                    (stored_last_build_date, feed_data.last_build_date)
+                    && submitted_last_build_date < stored_last_build_date
+                {
+                    tracing::info!(
+                        feed_guid = feed_data.feed_guid.as_str(),
+                        canonical_url = req.canonical_url.as_str(),
+                        stored_last_build_date,
+                        submitted_last_build_date,
+                        "ADR 0053 section 3: ingest rejected, submission is stale"
+                    );
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some("stale_submission".to_string()),
+                            events_emitted: vec![],
+                            warnings: vec![],
+                            source_url: None,
+                        },
+                        vec![],
+                        vec![],
+                    ));
+                }
+            }
+            db::SubmissionClass::NewFeed => {}
             db::SubmissionClass::Mirror { source_url } => {
-                log_submission_classification(
-                    &feed_data.feed_guid,
-                    &req.canonical_url,
-                    &req.source_url,
-                    "source_conflict",
-                );
-                let now = db::unix_now();
-                let url_observation_rows = record_feed_url_observations_for_ingest(
-                    &mut conn,
-                    &req.canonical_url,
-                    &req.source_url,
-                    &feed_data.feed_guid,
-                    now,
-                    &state2.signer,
-                )?;
-                let event_ids = url_observation_rows
-                    .iter()
-                    .map(|signed| signed.row.event_id.clone())
-                    .collect();
-                let fanout_events = url_observation_rows
-                    .into_iter()
-                    .map(signed_row_to_event)
-                    .collect::<Result<Vec<_>, ApiError>>()?;
-                return Ok((
-                    ingest::IngestResponse {
-                        accepted: false,
-                        no_change: false,
-                        reason: Some("source_conflict".to_string()),
-                        events_emitted: event_ids,
-                        warnings: vec![],
-                        source_url: Some(source_url),
-                    },
-                    fanout_events,
-                    vec![],
-                ));
+                // ADR 0052 section 2: the record moves when its declared
+                // self link — written only by a source ingest — names
+                // exactly this submission's URL. The node reads
+                // `feeds.declared_self_url` for this decision, and never
+                // `source_entity_links` (ADR 0052 Guards): a mirror body
+                // cannot supply this evidence.
+                let move_target =
+                    db::get_declared_self_url(&conn, &feed_data.feed_guid)?.filter(|self_url| {
+                        *self_url == req.source_url || *self_url == req.canonical_url
+                    });
+
+                if let Some(new_feed_url) = move_target {
+                    warnings.push(format!(
+                        "moved from {source_url} to {new_feed_url} (ADR 0052 self link)"
+                    ));
+                    self_link_move = Some((source_url, new_feed_url));
+                    // Falls through: the rest of the handler applies the
+                    // body as an update, at the new URL (step 7b).
+                } else {
+                    log_submission_classification(
+                        &feed_data.feed_guid,
+                        &req.canonical_url,
+                        &req.source_url,
+                        "source_conflict",
+                    );
+                    let now = db::unix_now();
+                    let url_observation_rows = record_feed_url_observations_for_ingest(
+                        &mut conn,
+                        &req.canonical_url,
+                        &req.source_url,
+                        &feed_data.feed_guid,
+                        now,
+                        &state2.signer,
+                    )?;
+                    let event_ids = url_observation_rows
+                        .iter()
+                        .map(|signed| signed.row.event_id.clone())
+                        .collect();
+                    let fanout_events = url_observation_rows
+                        .into_iter()
+                        .map(signed_row_to_event)
+                        .collect::<Result<Vec<_>, ApiError>>()?;
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some("source_conflict".to_string()),
+                            events_emitted: event_ids,
+                            warnings: vec![],
+                            source_url: Some(source_url),
+                        },
+                        fanout_events,
+                        vec![],
+                    ));
+                }
             }
             db::SubmissionClass::RecordConflict => {
                 log_submission_classification(
@@ -2000,12 +2078,18 @@ async fn handle_ingest_feed(
         let newest_item_at = pub_dates.iter().copied().max();
         let oldest_item_at = pub_dates.iter().copied().min();
 
-        // 7b. ADR 0049 Section 1: a known GUID keeps its stored feed_url. A
-        // GUID that is new to this node takes the URL it arrived through.
-        let feed_url = db::get_feed(&conn, feed_guid_str)?.map_or_else(
-            || req.canonical_url.clone(),
-            |existing_feed| existing_feed.feed_url,
-        );
+        // 7b. ADR 0052 section 2: a self-link move takes the new URL. ADR
+        // 0049 Section 1 otherwise applies: a known GUID keeps its stored
+        // feed_url, and a GUID new to this node takes the URL it arrived
+        // through.
+        let feed_url = if let Some((_, new_feed_url)) = &self_link_move {
+            new_feed_url.clone()
+        } else {
+            db::get_feed(&conn, feed_guid_str)?.map_or_else(
+                || req.canonical_url.clone(),
+                |existing_feed| existing_feed.feed_url,
+            )
+        };
 
         // 8. Build Feed struct
         let feed = model::Feed {
@@ -2502,6 +2586,47 @@ async fn handle_ingest_feed(
         let source_item_enclosures = db::dedupe_source_item_enclosures(&source_item_enclosures);
         let source_item_transcripts = db::dedupe_source_item_transcripts(&source_item_transcripts);
 
+        // 9b. ADR 0053 section 4: log each change of the payment recipients
+        // of the feed and of each track, before the ingest transaction
+        // writes the new state. A new feed or a new track logs nothing,
+        // because there is no stored recipient set to compare it to.
+        if db::get_feed_by_guid(&conn, &feed_data.feed_guid)?.is_some() {
+            let old_feed_set = model::feed_recipient_set(&db::get_feed_payment_routes_for_feed(
+                &conn,
+                &feed_data.feed_guid,
+            )?);
+            let new_feed_set = model::feed_recipient_set(&feed_routes);
+            if old_feed_set != new_feed_set {
+                tracing::warn!(
+                    feed_guid = feed_data.feed_guid.as_str(),
+                    track_guid = "",
+                    old_recipients = %serde_json::to_string(&old_feed_set).unwrap_or_default(),
+                    new_recipients = %serde_json::to_string(&new_feed_set).unwrap_or_default(),
+                    "ADR 0053 section 4: feed payment recipients changed"
+                );
+            }
+        }
+        for (track, routes, _vts, _remote_items) in &track_tuples {
+            if db::get_track_for_feed(&conn, &feed_data.feed_guid, &track.track_guid)?.is_none() {
+                continue;
+            }
+            let old_track_set = model::recipient_set(&db::get_payment_routes_for_feed_track(
+                &conn,
+                &feed_data.feed_guid,
+                &track.track_guid,
+            )?);
+            let new_track_set = model::recipient_set(routes);
+            if old_track_set != new_track_set {
+                tracing::warn!(
+                    feed_guid = feed_data.feed_guid.as_str(),
+                    track_guid = track.track_guid.as_str(),
+                    old_recipients = %serde_json::to_string(&old_track_set).unwrap_or_default(),
+                    new_recipients = %serde_json::to_string(&new_track_set).unwrap_or_default(),
+                    "ADR 0053 section 4: track payment recipients changed"
+                );
+            }
+        }
+
         // 10. Build event rows — Issue-WRITE-AMP — 2026-03-14
         // Only emit events for entities whose fields actually changed
         // compared to what is stored in the DB.
@@ -2573,6 +2698,37 @@ async fn handle_ingest_feed(
             event_rows,
             &state2.signer,
         )?;
+
+        // 11a. ADR 0052 section 2: only an ingest in the update or new-feed
+        // case records the self link a source body declares for itself. A
+        // self-link move starts as a mirror submission, so it never writes
+        // this column; the value already on the record is what decided the
+        // move.
+        //
+        // The write runs right after `ingest_transaction`, under the same
+        // writer lock, rather than through a new parameter on that function.
+        // The lock already serializes every writer, so this UPDATE cannot
+        // interleave with another ingest; adding the write here keeps
+        // `ingest_transaction`'s already-large parameter list unchanged.
+        if self_link_move.is_none() {
+            let declared_self_url = feed_data
+                .links
+                .iter()
+                .find(|link| link.link_type == "self_feed")
+                .map(|link| link.url.as_str());
+            db::set_declared_self_url(&conn, feed_guid_str, declared_self_url)?;
+        }
+
+        // ADR 0052 section 2: a move updates the record to the new URL. ADR
+        // 0056 removed the proof flow, so a move no longer revokes a token.
+        if let Some((old_feed_url, new_feed_url)) = &self_link_move {
+            tracing::info!(
+                feed_guid = feed_guid_str,
+                old_feed_url = old_feed_url.as_str(),
+                new_feed_url = new_feed_url.as_str(),
+                "ADR 0052 section 2: self link moved the record"
+            );
+        }
 
         // 11b. Search index + quality scores are now written inside
         // ingest_transaction (Issue-5 ingest atomic — 2026-03-13).
@@ -2929,7 +3085,7 @@ async fn fan_out_push_inner(
                 #[cfg(not(feature = "test-util"))]
                 {
                     if let Ok(parsed) = url::Url::parse(&push_url) {
-                        if !proof::is_url_ssrf_safe(&parsed) {
+                        if !fetch_guard::is_url_ssrf_safe(&parsed) {
                             tracing::warn!(
                                 peer = %pubkey, url = %push_url,
                                 "fanout: skipping peer with unsafe push URL (SSRF blocked)"
@@ -3149,7 +3305,7 @@ async fn handle_sync_register(
 
     if !skip_ssrf {
         let url_for_check = req.node_url.clone();
-        tokio::task::spawn_blocking(move || proof::validate_node_url(&url_for_check))
+        tokio::task::spawn_blocking(move || fetch_guard::validate_node_url(&url_for_check))
             .await
             .map_err(|e| ApiError {
                 status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -3272,7 +3428,7 @@ async fn verify_sync_register_target(
         let (hostname, resolved_addrs) = tokio::task::spawn_blocking(move || {
             let parsed = url::Url::parse(&node_info_url_for_resolve)
                 .map_err(|e| format!("invalid node/info URL: {e}"))?;
-            proof::resolve_and_validate_url(&parsed)
+            fetch_guard::resolve_and_validate_url(&parsed)
         })
         .await
         .map_err(|e| ApiError {
@@ -3408,6 +3564,15 @@ fn check_sync_token(headers: &HeaderMap, sync_token: Option<&str>) -> Result<(),
 
 // ── DELETE /feeds/{guid} ───────────────────────────────────────────────────
 
+/// Query parameters of `DELETE /v1/feeds/{guid}`.
+///
+/// ADR 0053 Section 1. `block` defaults to `true`: the retirement also blocks
+/// the feed GUID and its stored URL. `block=false` needs the admin token.
+#[derive(Debug, Deserialize)]
+struct RetireParams {
+    block: Option<bool>,
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "event signing, SSE publish, and fan-out all live in one handler"
@@ -3416,7 +3581,9 @@ async fn handle_retire_feed(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(guid): Path<String>,
+    Query(params): Query<RetireParams>,
 ) -> Result<StatusCode, ApiError> {
+    let block = params.block.unwrap_or(true);
     let state2 = Arc::clone(&state);
     let guid2 = guid.clone();
     // Mutex safety compliant — 2026-03-12
@@ -3428,14 +3595,20 @@ async fn handle_retire_feed(
                 www_authenticate: None,
             })?;
 
-            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-            check_admin_or_bearer_with_conn(
-                &conn,
-                &headers,
-                &state2.admin_token,
-                "feed:write",
-                &guid2,
-            )?;
+            // Auth inside lock scope: keeps auth and DB write under one lock.
+            check_admin_token(&headers, &state2.admin_token)?;
+
+            // ADR 0053 Section 1: block=false retires with no block, and only
+            // the admin token may ask for that. A publisher's bearer token
+            // passed the check above but does not pass this one.
+            if !block && !headers.contains_key("X-Admin-Token") {
+                return Err(ApiError {
+                    status: StatusCode::FORBIDDEN,
+                    message: "ADR 0053 Section 1: block=false needs the X-Admin-Token header"
+                        .into(),
+                    www_authenticate: None,
+                });
+            }
 
             // Look up the feed — 404 if not found.
             let feed = db::get_feed_by_guid(&conn, &guid2)?.ok_or_else(|| ApiError {
@@ -3482,9 +3655,34 @@ async fn handle_retire_feed(
                 message: format!("failed to serialize FeedRetired payload: {e}"),
                 www_authenticate: None,
             })?;
+
+            // ADR 0053 Section 1: a retirement blocks the GUID and the stored
+            // URL in the same transaction, unless the caller asked otherwise.
+            let blocks = if block {
+                vec![
+                    db::FeedBlock {
+                        block_id: uuid::Uuid::new_v4().to_string(),
+                        kind: db::FeedBlockKind::Guid,
+                        value: feed.feed_guid.clone(),
+                        reason: "retired".to_string(),
+                        blocked_at: now,
+                    },
+                    db::FeedBlock {
+                        block_id: uuid::Uuid::new_v4().to_string(),
+                        kind: db::FeedBlockKind::Url,
+                        value: feed.feed_url.clone(),
+                        reason: "retired".to_string(),
+                        blocked_at: now,
+                    },
+                ]
+            } else {
+                Vec::new()
+            };
+
             // Issue-SEQ-INTEGRITY — 2026-03-14: signer passed to delete_feed_with_event
-            // which signs after the DB assigns seq.
-            let (seq, signed_by, signature) = db::delete_feed_with_event(
+            // which signs after the DB assigns seq. It returns the FeedRetired
+            // event and one FeedBlocked event per new block, ready to fan out.
+            let events = db::delete_feed_with_event(
                 &mut conn,
                 &guid2,
                 &event_id,
@@ -3493,32 +3691,11 @@ async fn handle_retire_feed(
                 &state2.signer,
                 now,
                 &[],
+                &blocks,
             )
             .map_err(ApiError::from)?;
 
-            // Build event for fan-out.
-            let tagged = format!(r#"{{"type":"feed_retired","data":{payload_json}}}"#);
-            let ev_payload =
-                serde_json::from_str::<event::EventPayload>(&tagged).map_err(|e| ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("failed to deserialize FeedRetired event for fan-out: {e}"),
-                    www_authenticate: None,
-                })?;
-
-            let fanout_event = event::Event {
-                event_id,
-                event_type: event::EventType::FeedRetired,
-                payload: ev_payload,
-                subject_guid: guid2,
-                signed_by,
-                signature,
-                seq,
-                created_at: now,
-                warnings: vec![],
-                payload_json,
-            };
-
-            Ok(Some(vec![fanout_event]))
+            Ok(Some(events))
         })
         .await
         .map_err(|e| ApiError {
@@ -3566,15 +3743,8 @@ async fn handle_remove_track(
                 www_authenticate: None,
             })?;
 
-            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-            // For bearer auth the token must be scoped to the parent feed.
-            check_admin_or_bearer_with_conn(
-                &conn,
-                &headers,
-                &state2.admin_token,
-                "feed:write",
-                &guid2,
-            )?;
+            // Auth inside lock scope: keeps auth and DB write under one lock.
+            check_admin_token(&headers, &state2.admin_token)?;
 
             // Look up the track — 404 if not found.
             let track =
@@ -3674,476 +3844,232 @@ async fn handle_remove_track(
     Ok(StatusCode::NO_CONTENT)
 }
 
-// ── Bearer token extraction ────────────────────────────────────────────────
+// ── POST /v1/blocks, GET /v1/blocks, DELETE /v1/blocks/{block_id} ──────────
+//
+// ADR 0053 section 1: an operator creates, lists and deletes a durable,
+// signed block on a feed GUID or an exact feed URL. Every route needs
+// `X-Admin-Token`. There is no bearer alternative — a publisher does not
+// manage blocks on its own feed, only the operator does.
 
-/// Build a `WWW-Authenticate` header value per RFC 6750 section 3.
-///
-/// When `error` is `None`, emits the minimal challenge:
-///   `Bearer realm="stophammer"`
-///
-/// When `error` is provided (e.g. `"invalid_token"`, `"insufficient_scope"`),
-/// appends the error attribute:
-///   `Bearer realm="stophammer", error="invalid_token"`
-// RFC 6750 compliant — 2026-03-12
-#[must_use]
-pub fn www_authenticate_challenge(error: Option<&str>) -> HeaderValue {
-    let value = error.map_or_else(
-        || r#"Bearer realm="stophammer""#.to_string(),
-        |e| format!(r#"Bearer realm="stophammer", error="{e}""#),
-    );
-    // The constructed string is always valid ASCII header characters.
-    HeaderValue::from_str(&value)
-        .unwrap_or_else(|_err| HeaderValue::from_static(r#"Bearer realm="stophammer""#))
-}
-
-/// Parse `Authorization: Bearer <token>` from headers.
-/// Returns `None` for missing or malformed headers (never panics).
-/// Trims leading/trailing whitespace from the extracted token.
-// RFC 6750 compliant — 2026-03-12
-#[must_use]
-pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
-    let value = headers.get("Authorization")?.to_str().ok()?;
-    let token = value.strip_prefix("Bearer ")?.trim();
-    if token.is_empty() {
-        return None;
-    }
-    Some(token.to_string())
-}
-
-/// Validate admin or bearer auth using an already-held connection
-///
-/// Accepts either `X-Admin-Token` or `Authorization: Bearer <token>`.
-/// Unlike the former `check_admin_or_bearer`, this variant takes a borrowed
-/// `rusqlite::Connection` so that auth validation shares the same lock scope
-/// as the subsequent DB write -- eliminating the TOCTOU race where the token
-/// could be invalidated between auth check and mutation.
-///
-/// # Errors
-///
-/// Returns `StatusCode::FORBIDDEN` for bad admin tokens,
-/// `StatusCode::UNAUTHORIZED` with `WWW-Authenticate` for missing or invalid
-/// bearer tokens (RFC 6750 section 3), and `StatusCode::FORBIDDEN` with
-/// `error="insufficient_scope"` if the bearer token's subject feed does not
-/// match `expected_feed_guid`.
-// RFC 6750 compliant — 2026-03-12
-pub fn check_admin_or_bearer_with_conn(
-    conn: &rusqlite::Connection,
-    headers: &HeaderMap,
-    admin_token: &str,
-    required_scope: &str,
-    expected_feed_guid: &str,
-) -> Result<(), ApiError> {
-    // Prefer admin token if the header is present.
-    if headers.contains_key("X-Admin-Token") {
-        return check_admin_token(headers, admin_token);
-    }
-
-    // Try bearer token.  RFC 6750 compliant — 2026-03-12
-    let token = extract_bearer_token(headers).ok_or_else(|| ApiError {
-        status: StatusCode::UNAUTHORIZED,
-        message: "missing Authorization header".into(),
-        www_authenticate: Some(www_authenticate_challenge(None)),
-    })?;
-
-    let subject = proof::validate_token(conn, &token, required_scope)
-        .map_err(ApiError::from)?
-        .ok_or_else(|| ApiError {
-            status: StatusCode::UNAUTHORIZED,
-            message: "invalid_token".into(),
-            www_authenticate: Some(www_authenticate_challenge(Some("invalid_token"))),
-        })?;
-
-    if subject != expected_feed_guid {
-        return Err(ApiError {
-            status: StatusCode::FORBIDDEN,
-            message: "insufficient_scope".into(),
-            www_authenticate: Some(www_authenticate_challenge(Some("insufficient_scope"))),
-        });
-    }
-
-    Ok(())
-}
-
-// ── POST /proofs/challenge ─────────────────────────────────────────────────
-
+/// Request body for `POST /v1/blocks`.
 #[derive(Deserialize)]
-struct ProofsChallengeRequest {
-    feed_guid: String,
-    scope: String,
-    requester_nonce: String,
+struct CreateBlockRequest {
+    kind: db::FeedBlockKind,
+    value: String,
+    reason: String,
 }
 
-#[derive(Serialize, ToSchema)]
-struct ProofsChallengeResponse {
-    challenge_id: String,
-    token_binding: String,
-    state: String,
-    expires_at: i64,
+/// Response body for a `409 Conflict` from `POST /v1/blocks`: the
+/// `block_id` of the row that already blocks this pair.
+#[derive(Serialize)]
+struct BlockConflictBody {
+    block_id: String,
 }
 
-async fn handle_proofs_challenge(
+/// Response body for `GET /v1/blocks`.
+#[derive(Serialize)]
+struct ListBlocksResponse {
+    blocks: Vec<db::FeedBlock>,
+}
+
+/// Outcome of the write phase of `handle_create_block`.
+enum CreateBlockOutcome {
+    /// The kind/value pair already had a row; carries its `block_id`.
+    Conflict(String),
+    /// A new row was inserted and its `FeedBlocked` event signed.
+    Created(db::FeedBlock, Box<event::Event>),
+}
+
+async fn handle_create_block(
     State(state): State<Arc<AppState>>,
-    Json(req): Json<ProofsChallengeRequest>,
-) -> Result<(StatusCode, Json<ProofsChallengeResponse>), ApiError> {
-    // Validate scope.
-    if req.scope != "feed:write" {
+    headers: HeaderMap,
+    Json(req): Json<CreateBlockRequest>,
+) -> Result<Response, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let kind = req.kind;
+    // The signed event carries the value that the row stores.
+    let value = kind.normalize(&req.value);
+    let reason = req.reason.trim().to_string();
+    if value.is_empty() || reason.is_empty() {
         return Err(ApiError {
             status: StatusCode::BAD_REQUEST,
-            message: format!("unsupported scope: {}", req.scope),
+            message: "value and reason must not be empty".into(),
             www_authenticate: None,
         });
     }
 
-    if req.requester_nonce.len() < 16 {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "requester_nonce must be at least 16 characters".into(),
-            www_authenticate: None,
-        });
-    }
-
-    // Availability: cap nonce length to prevent oversized token_binding storage.
-    if req.requester_nonce.len() > MAX_NONCE_BYTES {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: format!("requester_nonce exceeds maximum length of {MAX_NONCE_BYTES} bytes"),
-            www_authenticate: None,
-        });
-    }
-
-    // Mutex safety compliant — 2026-03-12
     let state2 = Arc::clone(&state);
-    let result = tokio::task::spawn_blocking(move || -> Result<ProofsChallengeResponse, ApiError> {
-        let mut conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-            status:  StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
+    let outcome = spawn_db_mut(state.db.clone(), move |conn| {
+        // Issue-CHECKED-TX — 2026-03-16: conn is freshly acquired from the
+        // writer lock, no nesting.
+        let tx = conn.transaction()?;
 
-        // Reclaim expired slots eagerly so stale rows do not block legitimate
-        // challenge creation until the background pruner runs.
-        proof::prune_expired(&mut conn).map_err(ApiError::from)?;
-
-        if db::get_feed_by_guid(&conn, &req.feed_guid)
-            .map_err(ApiError::from)?
-            .is_none()
-        {
-            return Err(ApiError {
-                status:  StatusCode::NOT_FOUND,
-                message: "feed not found in database".into(),
-                www_authenticate: None,
-            });
+        if let Some(existing) = db::get_feed_block_by_pair(&tx, kind, &value)? {
+            return Ok(CreateBlockOutcome::Conflict(existing.block_id));
         }
 
-        // A fresh challenge for the same feed should replace any existing
-        // pending challenge rather than being blocked by it.
-        let superseded =
-            proof::invalidate_pending_challenges_for_feed(&conn, &req.feed_guid, &req.scope)
-                .map_err(ApiError::from)?;
-        if superseded > 0 {
-            tracing::debug!(
-                feed_guid = %req.feed_guid,
-                superseded,
-                "proof-challenge: invalidated prior pending challenges for feed"
-            );
-        }
-
-        let total_pending_count: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM proof_challenges WHERE state = 'pending'",
-                [],
-                |row| row.get(0),
-            )
-            .map_err(ApiError::from)?;
-
-        if total_pending_count >= MAX_PENDING_CHALLENGES_TOTAL {
-            return Err(ApiError {
-                status:  StatusCode::TOO_MANY_REQUESTS,
-                message: format!(
-                    "too many pending challenges globally (limit: {MAX_PENDING_CHALLENGES_TOTAL})"
-                ),
-                www_authenticate: None,
-            });
-        }
-
-        let (challenge_id, token_binding) =
-            proof::create_challenge(&conn, &req.feed_guid, &req.scope, &req.requester_nonce)
-                .map_err(ApiError::from)?;
-
-        // Read back the challenge to get expires_at.
-        let challenge = proof::get_challenge(&conn, &challenge_id)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status:  StatusCode::INTERNAL_SERVER_ERROR,
-                message: "challenge not found after creation".into(),
-                www_authenticate: None,
-            })?;
-
-        Ok(ProofsChallengeResponse {
-            challenge_id,
-            token_binding,
-            state:      "pending".into(),
-            expires_at: challenge.expires_at,
-        })
-    })
-    .await
-    .map_err(|e| ApiError {
-        status:  StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
-
-    result.map(|r| (StatusCode::CREATED, Json(r)))
-}
-
-// ── POST /proofs/assert ────────────────────────────────────────────────────
-
-#[derive(Deserialize)]
-struct ProofsAssertRequest {
-    challenge_id: String,
-    requester_nonce: String,
-}
-
-// Issue-PROOF-LEVEL — 2026-03-14
-#[derive(Serialize, ToSchema)]
-struct ProofsAssertResponse {
-    access_token: String,
-    scope: String,
-    subject_feed_guid: String,
-    expires_at: i64,
-    proof_level: proof::ProofLevel,
-}
-
-// CS-01 pod:txt verification — 2026-03-12
-#[expect(
-    clippy::too_many_lines,
-    reason = "three-phase spawn_blocking pattern for RSS verification requires sequential structure"
-)]
-async fn handle_proofs_assert(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<ProofsAssertRequest>,
-) -> Result<Json<ProofsAssertResponse>, ApiError> {
-    if req.requester_nonce.len() < 16 {
-        return Err(ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "requester_nonce must be at least 16 characters".into(),
-            www_authenticate: None,
-        });
-    }
-
-    // ── Phase 1 (blocking): validate nonce, load challenge, look up feed_url ──
-    let state2 = Arc::clone(&state);
-    let req_challenge_id = req.challenge_id.clone();
-    let req_nonce = req.requester_nonce.clone();
-
-    let phase1 = tokio::task::spawn_blocking(
-        move || -> Result<(String, String, String, String), ApiError> {
-            // Mutex safety compliant — 2026-03-12
-            let conn = state2.db.writer().lock().map_err(|_poison| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: "database mutex poisoned".into(),
-                www_authenticate: None,
-            })?;
-
-            // Load the challenge (404 if not found or expired).
-            let challenge = proof::get_challenge(&conn, &req_challenge_id)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::NOT_FOUND,
-                    message: "challenge not found or expired".into(),
-                    www_authenticate: None,
-                })?;
-
-            // Check challenge is still pending (400 if already resolved).
-            if challenge.state != "pending" {
-                return Err(ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: format!("challenge already resolved as '{}'", challenge.state),
-                    www_authenticate: None,
-                });
-            }
-
-            // Recompute token_binding from stored token + requester_nonce.
-            let expected = proof::recompute_binding(&challenge.token_binding, &req_nonce);
-            let nonce_ok = expected.as_deref() == Some(&challenge.token_binding);
-
-            if !nonce_ok {
-                // Nonce mismatch: mark invalid and return 400.
-                proof::resolve_challenge(&conn, &req_challenge_id, "invalid")
-                    .map_err(ApiError::from)?;
-                return Err(ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "requester_nonce does not match token binding".into(),
-                    www_authenticate: None,
-                });
-            }
-
-            // Look up feed_url from the feeds table using challenge's feed_guid.
-            let feed = db::get_feed_by_guid(&conn, &challenge.feed_guid)
-                .map_err(ApiError::from)?
-                .ok_or_else(|| ApiError {
-                    status: StatusCode::NOT_FOUND,
-                    message: "feed not found in database".into(),
-                    www_authenticate: None,
-                })?;
-
-            Ok((
-                challenge.feed_guid,
-                challenge.scope,
-                challenge.token_binding,
-                feed.feed_url,
-            ))
-        },
-    )
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })??;
-
-    let (feed_guid, scope, token_binding, feed_url) = phase1;
-
-    // ── Phase 2 (async): fetch RSS and verify podcast:txt ─────────────────────
-
-    // Issue-22 async DNS — 2026-03-13
-    // SSRF guard: reject feed URLs targeting private/reserved IPs before fetching.
-    // validate_feed_url uses std::net::ToSocketAddrs (blocking DNS), so we run
-    // it inside spawn_blocking to avoid stalling the tokio worker thread.
-    // CRIT-02 feature-gate — 2026-03-13
-    #[cfg(feature = "test-util")]
-    let skip_ssrf = state.skip_ssrf_validation;
-    #[cfg(not(feature = "test-util"))]
-    let skip_ssrf = false;
-
-    // Issue-DNS-REBIND — 2026-03-16: capture resolved addresses for DNS pinning.
-    // validate_feed_url uses std::net::ToSocketAddrs (blocking DNS), so we run
-    // it inside spawn_blocking to avoid stalling the tokio worker thread.
-    let resolved_addrs: Vec<std::net::SocketAddr> = if skip_ssrf {
-        vec![]
-    } else {
-        let url_clone = feed_url.clone();
-        tokio::task::spawn_blocking(move || proof::validate_feed_url(&url_clone))
-            .await
-            .map_err(|e| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("SSRF validation task failed: {e}"),
-                www_authenticate: None,
-            })?
-            .map_err(|e| ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: format!("feed URL rejected: {e}"),
-                www_authenticate: None,
-            })?
-    };
-
-    // Issue-DNS-REBIND — 2026-03-16: use manual redirect following with DNS
-    // pinning at every hop to eliminate TOCTOU rebinding attacks.
-    let rss_verified = if skip_ssrf {
-        let proof_client = proof::build_ssrf_safe_client();
-        proof::verify_podcast_txt(&proof_client, &feed_url, &token_binding)
-            .await
-            .map_err(|e| ApiError {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                message: format!("RSS verification failed: {e}"),
-                www_authenticate: None,
-            })?
-    } else {
-        let hostname = url::Url::parse(&feed_url)
-            .ok()
-            .and_then(|u| u.host_str().map(String::from))
-            .unwrap_or_default();
-        proof::verify_podcast_txt_pinned(&feed_url, &token_binding, &hostname, &resolved_addrs)
-            .await
-            .map_err(|e| ApiError {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                message: format!("RSS verification failed: {e}"),
-                www_authenticate: None,
-            })?
-    };
-
-    // ── Phase 3 (blocking): resolve challenge and issue token ─────────────────
-    let state3 = Arc::clone(&state);
-    let challenge_id = req.challenge_id.clone();
-    let feed_guid2 = feed_guid.clone();
-    let scope2 = scope.clone();
-    let phase1_feed_url = feed_url;
-
-    let result = tokio::task::spawn_blocking(move || -> Result<ProofsAssertResponse, ApiError> {
-        // Mutex safety compliant — 2026-03-12
-        let conn = state3.db.writer().lock().map_err(|_poison| ApiError {
-            status: StatusCode::INTERNAL_SERVER_ERROR,
-            message: "database mutex poisoned".into(),
-            www_authenticate: None,
-        })?;
-
-        if !rss_verified {
-            proof::resolve_challenge(&conn, &challenge_id, "invalid").map_err(ApiError::from)?;
-            return Err(ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "token_binding not found in RSS podcast:txt".into(),
-                www_authenticate: None,
-            });
-        }
-
-        // Issue-PROOF-RACE — 2026-03-14
-        // Re-read the feed URL and reject if it changed since phase 1.
-        // A concurrent PATCH could have changed the URL between phase 1
-        // (which read it) and now, meaning the RSS verification in phase 2
-        // was performed against a URL that is no longer current.
-        let current_feed = db::get_feed_by_guid(&conn, &feed_guid2)
-            .map_err(ApiError::from)?
-            .ok_or_else(|| ApiError {
-                status: StatusCode::NOT_FOUND,
-                message: "feed not found in database".into(),
-                www_authenticate: None,
-            })?;
-        if current_feed.feed_url != phase1_feed_url {
-            return Err(ApiError {
-                status: StatusCode::CONFLICT,
-                message: "feed URL changed during verification; retry".into(),
-                www_authenticate: None,
-            });
-        }
-
-        // Mark the challenge as valid. If rows == 0 the challenge was already
-        // resolved by a concurrent request (TOCTOU between Phase 1 and Phase 3).
-        let rows =
-            proof::resolve_challenge(&conn, &challenge_id, "valid").map_err(ApiError::from)?;
-        if rows == 0 {
-            return Err(ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "challenge already resolved (concurrent request)".into(),
-                www_authenticate: None,
-            });
-        }
-
-        // Issue an access token.
-        // Issue-PROOF-LEVEL — 2026-03-14
-        let proof_level = proof::ProofLevel::RssOnly;
-        let access_token = proof::issue_token(&conn, &scope2, &feed_guid2, &proof_level)
-            .map_err(ApiError::from)?;
-
-        // Compute expires_at for the response.
         let now = db::unix_now();
-        let expires_at = now + PROOF_TOKEN_TTL_SECS;
+        let block = db::FeedBlock {
+            block_id: uuid::Uuid::new_v4().to_string(),
+            kind,
+            value,
+            reason,
+            blocked_at: now,
+        };
+        db::insert_feed_block(&tx, &block)?;
 
-        Ok(ProofsAssertResponse {
-            access_token,
-            scope: scope2,
-            subject_feed_guid: feed_guid2,
-            expires_at,
-            proof_level,
-        })
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let payload = event::FeedBlockedPayload {
+            block_id: block.block_id.clone(),
+            kind: block.kind,
+            value: block.value.clone(),
+            reason: block.reason.clone(),
+            blocked_at: block.blocked_at,
+        };
+        let payload_json = serde_json::to_string(&payload)?;
+        // Issue-SEQ-INTEGRITY — 2026-03-14: sign after insert to include seq.
+        let (seq, signed_by, signature) = db::insert_event(
+            &tx,
+            &event_id,
+            &event::EventType::FeedBlocked,
+            &payload_json,
+            &block.block_id,
+            &state2.signer,
+            now,
+            &[],
+        )?;
+
+        tx.commit()?;
+
+        // Build event for fan-out AFTER commit.
+        let tagged = format!(r#"{{"type":"feed_blocked","data":{payload_json}}}"#);
+        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)?;
+        let fanout_event = event::Event {
+            event_id,
+            event_type: event::EventType::FeedBlocked,
+            payload: ev_payload,
+            subject_guid: block.block_id.clone(),
+            signed_by,
+            signature,
+            seq,
+            created_at: now,
+            warnings: vec![],
+            payload_json,
+        };
+
+        Ok(CreateBlockOutcome::Created(block, Box::new(fanout_event)))
     })
-    .await
-    .map_err(|e| ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: format!("internal task panic: {e}"),
-        www_authenticate: None,
-    })?;
+    .await?;
 
-    result.map(Json)
+    match outcome {
+        CreateBlockOutcome::Conflict(block_id) => {
+            Ok((StatusCode::CONFLICT, Json(BlockConflictBody { block_id })).into_response())
+        }
+        CreateBlockOutcome::Created(block, fanout_event) => {
+            // Fire-and-forget fan-out, as handle_remove_track does.
+            let db_fanout = state.db.clone();
+            let client_fanout = state.push_client.clone();
+            let subscribers_fanout = Arc::clone(&state.push_subscribers);
+            tokio::spawn(fan_out_push(
+                db_fanout,
+                client_fanout,
+                subscribers_fanout,
+                vec![*fanout_event],
+            ));
+            Ok((StatusCode::CREATED, Json(block)).into_response())
+        }
+    }
+}
+
+async fn handle_list_blocks(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<ListBlocksResponse>, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let mut blocks = spawn_db(state.db.clone(), db::list_feed_blocks).await?;
+    blocks.sort_by_key(|b| b.blocked_at);
+
+    Ok(Json(ListBlocksResponse { blocks }))
+}
+
+async fn handle_delete_block(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(block_id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let state2 = Arc::clone(&state);
+    let block_id2 = block_id.clone();
+    let fanout_event = spawn_db_mut(state.db.clone(), move |conn| {
+        let tx = conn.transaction()?;
+
+        if !db::delete_feed_block(&tx, &block_id2)? {
+            // No row to remove: drop the transaction (a no-op rollback) and
+            // sign nothing.
+            return Ok(None);
+        }
+
+        let now = db::unix_now();
+        let event_id = uuid::Uuid::new_v4().to_string();
+        let payload = event::FeedUnblockedPayload {
+            block_id: block_id2.clone(),
+        };
+        let payload_json = serde_json::to_string(&payload)?;
+        let (seq, signed_by, signature) = db::insert_event(
+            &tx,
+            &event_id,
+            &event::EventType::FeedUnblocked,
+            &payload_json,
+            &block_id2,
+            &state2.signer,
+            now,
+            &[],
+        )?;
+
+        tx.commit()?;
+
+        let tagged = format!(r#"{{"type":"feed_unblocked","data":{payload_json}}}"#);
+        let ev_payload = serde_json::from_str::<event::EventPayload>(&tagged)?;
+        let fanout_event = event::Event {
+            event_id,
+            event_type: event::EventType::FeedUnblocked,
+            payload: ev_payload,
+            subject_guid: block_id2,
+            signed_by,
+            signature,
+            seq,
+            created_at: now,
+            warnings: vec![],
+            payload_json,
+        };
+
+        Ok(Some(fanout_event))
+    })
+    .await?;
+
+    let Some(fanout_event) = fanout_event else {
+        return Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: format!("block {block_id} not found"),
+            www_authenticate: None,
+        });
+    };
+
+    // Fire-and-forget fan-out, as handle_remove_track does.
+    let db_fanout = state.db.clone();
+    let client_fanout = state.push_client.clone();
+    let subscribers_fanout = Arc::clone(&state.push_subscribers);
+    tokio::spawn(fan_out_push(
+        db_fanout,
+        client_fanout,
+        subscribers_fanout,
+        vec![fanout_event],
+    ));
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 // ── PATCH /feeds/{guid} ────────────────────────────────────────────────────
@@ -4178,14 +4104,8 @@ async fn handle_patch_feed(
                 www_authenticate: None,
             })?;
 
-            // Auth inside lock scope: eliminates TOCTOU between auth check and DB write.
-            check_admin_or_bearer_with_conn(
-                &conn,
-                &headers,
-                &state2.admin_token,
-                "feed:write",
-                &guid2,
-            )?;
+            // Auth inside lock scope: keeps auth and DB write under one lock.
+            check_admin_token(&headers, &state2.admin_token)?;
 
             // Issue-13 PATCH 404 check — 2026-03-13
             // Look up the feed — 404 if not found.
@@ -4212,11 +4132,6 @@ async fn handle_patch_feed(
                 params![new_url, guid2],
             )
             .map_err(|e| ApiError::from(db::DbError::from(e)))?;
-
-            // Finding-6 token revocation on URL change — 2026-03-13
-            // Existing tokens were proved against the OLD feed URL's podcast:txt.
-            // After a URL change, the artist must re-prove ownership.
-            crate::proof::revoke_tokens_for_feed(&tx, &guid2).map_err(ApiError::from)?;
 
             // Issue-12 PATCH emits events — 2026-03-13
             // Re-read the feed after the update to capture current state.
@@ -4343,13 +4258,7 @@ fn patch_resolved_track(
     track_guid: &str,
     req: &PatchTrackRequest,
 ) -> Result<PatchTrackOutcome, ApiError> {
-    check_admin_or_bearer_with_conn(
-        conn,
-        headers,
-        &state.admin_token,
-        "feed:write",
-        &track.feed_guid,
-    )?;
+    check_admin_token(headers, &state.admin_token)?;
 
     let Some(new_url) = &req.enclosure_url else {
         return Ok(PatchTrackOutcome::NoContent);
@@ -4580,7 +4489,6 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<AmbiguousTrackGuidBody>(&mut schemas);
     register_schema::<ErrorBody>(&mut schemas);
     register_schema::<NodeInfoResponse>(&mut schemas);
-    register_schema::<ProofsChallengeResponse>(&mut schemas);
-    register_schema::<ProofsAssertResponse>(&mut schemas);
+    register_schema::<db::FeedBlock>(&mut schemas);
     schemas
 }

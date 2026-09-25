@@ -43,30 +43,45 @@ The primary keeps a `feed_blocks` table. A row blocks one GUID or one exact
 URL, with a reason and a time. Two new signed events change the table:
 `FeedBlocked` and `FeedUnblocked`. Community nodes apply them.
 
+A row has a `block_id`, a kind (`guid` or `url`), a value, a reason and a
+time. The primary makes the `block_id` as a UUID, and the events carry it, so
+each node holds the same rows. A GUID value is stored in lower case. A URL
+value is stored as the exact trimmed string. One kind and value pair has at
+most one row.
+
 The primary checks the table after authentication and before the verifier
-chain. A block rejects a submission when the declared GUID, `source_url`,
-`canonical_url` or a redirect hop (ADR 0052) matches a row. The reason is
-`blocked`. The crawler does not retry it.
+chain. A block rejects a submission when the declared GUID, `source_url` or
+`canonical_url` matches a row. When ADR 0052 adds the redirect hops, each hop
+is also checked. The reason is `blocked`.
 
-Admin routes create and delete a block:
+The crawler does not store `blocked` or `stale_submission` as the node answer
+of ADR 0050, as ADR 0051 section 5 does for a conflict. Thus an unblock takes
+effect on the next crawl, with no changed body.
 
-- `POST /v1/blocks` with the admin token.
-- `DELETE /v1/blocks/{id}` with the admin token.
+Admin routes create, list and delete a block. Each one needs the admin token:
+
+- `POST /v1/blocks` with `kind`, `value` and `reason`. A pair that the table
+  holds gives `409` with the existing `block_id`.
+- `GET /v1/blocks` gives each row.
+- `DELETE /v1/blocks/{block_id}` emits `FeedUnblocked`.
 
 `DELETE /v1/feeds/{guid}` blocks the GUID and the source URL in the same
 transaction as the retirement. The query `?block=false` retires with no
-block. That serves an operator who wants the next crawl to admit the feed
-again.
+block, and it needs the admin token. That serves an operator who wants the
+next crawl to admit the feed again.
 
-A publisher with ADR 0018 proof can retire its own feed. That retirement
-also blocks. Only the operator removes a block.
+Only the operator retires a feed and removes a block. ADR 0056 removed the
+publisher retirement of ADR 0018.
 
 ### 2. The environment blocklist becomes a seed
 
 At startup, the primary reads `BLOCKED_FEED_GUIDS` and `BLOCKED_FEED_URLS`.
 It adds a block for each value that the table does not hold, and it emits
 `FeedBlocked` for each one. The primary never removes a block because a value
-left the environment. `feed_blocklist` leaves the configurable chain.
+left the environment. `feed_blocklist` leaves the configurable chain. A
+`VERIFIER_CHAIN` value that names it starts, and the primary logs a warning
+that names this ADR. A stop at startup would break a node that the ADR 0051
+default configured.
 
 ### 3. An older copy does not replace a newer copy
 
@@ -84,6 +99,10 @@ A feed without `lastBuildDate` gets no protection from this rule. The node
 does not use `pubDate` or the newest item date. A publisher can remove an
 item or change a date for a correct reason.
 
+[The research record](../reviews/last-build-date-behavior-research.md) gives
+the evidence for this rule, and two conditions for its deploy. The operator
+kept the rule as written on 2026-09-25.
+
 A publisher whose tool clock went back gets a rejection until its date passes
 the stored date. The operator can clear the stored date with a retire and
 `?block=false`.
@@ -95,8 +114,12 @@ recipient set is the list of pairs of address and split, in order. A change
 of name or of `fee` only is not a change of recipients.
 
 - `GET /v1/feeds/{guid}/route-history` returns the changes for the feed and
-  its tracks: the time, the old set, the new set and the event ID. Each entry
-  comes from the signed events, so a community node gives the same answer.
+  its tracks, in event order. Each entry gives the subject (the feed, or one
+  track), the time, the event ID, the old set and the new set. The first set
+  of a subject has no old set. Each entry comes from the signed
+  `FeedRoutesReplaced`, `RoutesReplaced` and `TrackUpserted` events, so a
+  community node gives the same answer. The route answers `404` when no event
+  names a route set of the feed.
 - The primary logs each change at `warn` level with the feed GUID.
 - The node does not hold or delay a change. A hold needs rules for size and
   time that no evidence supports yet.

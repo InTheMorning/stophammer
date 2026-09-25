@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     updated_at       INTEGER NOT NULL,
     raw_medium       TEXT,
     last_build_date  INTEGER,
-    release_artist_source TEXT
+    release_artist_source TEXT,
+    declared_self_url TEXT
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feeds_credit ON feeds(artist_credit_id);
@@ -416,6 +417,18 @@ CREATE TABLE IF NOT EXISTS feed_url_observations (
 CREATE INDEX IF NOT EXISTS idx_feed_url_observations_guid
     ON feed_url_observations(feed_guid);
 
+-- A block on one feed GUID or one exact feed URL (ADR 0053 Section 1). A
+-- signed FeedBlocked event writes a row here; a signed FeedUnblocked event
+-- removes one.
+CREATE TABLE IF NOT EXISTS feed_blocks (
+    block_id   TEXT PRIMARY KEY,
+    kind       TEXT NOT NULL CHECK (kind IN ('guid','url')),
+    value      TEXT NOT NULL,
+    reason     TEXT NOT NULL,
+    blocked_at INTEGER NOT NULL,
+    UNIQUE (kind, value)
+) STRICT;
+
 CREATE TABLE IF NOT EXISTS node_sync_state (
     node_pubkey  TEXT PRIMARY KEY,
     last_seq     INTEGER NOT NULL DEFAULT 0,
@@ -555,6 +568,11 @@ INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (35, 
 
 -- ---------------------------------------------------------------------------
 -- PROOF-OF-POSSESSION (Sprint 3)
+--
+-- ADR 0056 section 3: the public proof flow is gone. No code reads or writes
+-- these two tables. They stay for one release so a rollback to the prior
+-- binary still finds them; a later migration drops them once the deploy is
+-- stable.
 -- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS proof_challenges (

@@ -116,7 +116,6 @@ async fn readonly_router_serves_readonly_openapi_json_without_primary_mutations(
     let json: serde_json::Value = serde_json::from_str(&body).expect("parse openapi json");
 
     assert!(json["paths"]["/sync/register"].is_null());
-    assert!(json["paths"]["/v1/proofs/challenge"].is_null());
     assert!(json["paths"]["/v1/feeds/{guid}"]["patch"].is_null());
     assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["get"].is_object());
     assert!(json["paths"]["/v1/feeds/{guid}/tracks/{track_guid}"]["patch"].is_null());

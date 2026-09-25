@@ -15,9 +15,9 @@
 //! | [`community`] | Community (replica) node sync, push-receive, and tracker registration |
 //! | [`db`] | `SQLite` schema, queries, and connection helpers |
 //! | [`event`] | Signed event envelope and serialisation |
+//! | [`fetch_guard`] | SSRF guard: URL validation and DNS-pinned fetches |
 //! | [`ingest`] | Crawler submission types (`IngestFeedRequest` / `IngestResponse`) |
 //! | [`model`] | Core domain types: `Artist`, `Feed`, `Track`, `PaymentRoute`, etc. |
-//! | [`proof`] | Proof-of-possession challenge/token flow (RFC 8555-inspired) |
 //! | [`quality`] | Feed quality scoring heuristics |
 //! | [`query`] | Read-only query routes (`/v1/feeds`, `/v1/tracks`, etc.) |
 //! | [`search`] | Full-text search via `SQLite` FTS5 |
@@ -36,15 +36,16 @@
 
 pub mod api;
 pub mod apply;
+pub mod blocks;
 pub mod community;
 pub mod db;
 pub mod db_pool;
 pub mod event;
+pub mod fetch_guard;
 pub mod ingest;
 pub mod medium;
 pub mod model;
 pub mod openapi;
-pub mod proof;
 pub mod quality;
 pub mod query;
 pub mod search;

@@ -177,6 +177,47 @@ fn spec_value(mode: DocMode) -> Value {
             )
         }),
     );
+    paths.insert(
+        "/v1/feeds/{guid}/route-history".into(),
+        json!({
+            "get": operation(
+                "Get feed route history",
+                "Returns each change of the payment recipients of a feed and its tracks, read from the signed event log (ADR 0053 section 4).",
+                "Feeds",
+                vec![
+                    path_param("guid", "string", "Feed GUID.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Route-history entries, in `seq` order, the newest last.",
+                        query_envelope_example(json!([
+                            {
+                                "subject": "feed",
+                                "track_guid": null,
+                                "event_id": "event-id-1",
+                                "seq": 10,
+                                "changed_at": 1710288000,
+                                "old_recipients": null,
+                                "new_recipients": [{ "address": "a@ln.example", "split": 100 }]
+                            },
+                            {
+                                "subject": "feed",
+                                "track_guid": null,
+                                "event_id": "event-id-2",
+                                "seq": 15,
+                                "changed_at": 1710300000,
+                                "old_recipients": [{ "address": "a@ln.example", "split": 100 }],
+                                "new_recipients": [{ "address": "b@ln.example", "split": 100 }]
+                            }
+                        ]))
+                    ),
+                    "404": error_response("No event names a route set of this feed.")
+                }),
+                None
+            )
+        }),
+    );
     paths.insert("/v1/feeds/{guid}".into(), feed_path_item(mode));
     paths.insert("/v1/tracks/{guid}".into(), track_path_item(mode));
     paths.insert(
@@ -507,71 +548,81 @@ fn spec_value(mode: DocMode) -> Value {
             feed_track_path_item(mode),
         );
         paths.insert(
-            "/v1/proofs/challenge".into(),
+            "/v1/blocks".into(),
             json!({
                 "post": operation(
-                    "Create proof challenge",
-                    "Creates a new proof-of-possession challenge for `feed:write`.",
-                    "Proofs",
+                    "Create a block",
+                    "Blocks a feed GUID or an exact feed URL from ingest (ADR 0053 section 1). A pair the table already holds changes nothing and answers `409` with the existing `block_id`.",
+                    "Blocks",
                     vec![],
                     Some(json_request_body(
-                        "Challenge request.",
+                        "Block creation payload.",
                         json!({
-                            "feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                            "scope": "feed:write",
-                            "requester_nonce": "at-least-16-chars-random-string"
+                            "kind": "guid",
+                            "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                            "reason": "reported as spam"
                         })
                     )),
                     json!({
                         "201": json_response(
-                            "Challenge created.",
+                            "Block created.",
                             json!({
-                                "challenge_id": "uuid",
-                                "token_binding": "base64url-token.base64url-sha256-nonce-hash",
-                                "state": "pending",
-                                "expires_at": 1710374400
+                                "block_id": "uuid",
+                                "kind": "guid",
+                                "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                                "reason": "reported as spam",
+                                "blocked_at": 1710288000
                             })
                         ),
-                        "400": error_response("Unsupported scope or invalid nonce."),
-                        "404": error_response("Feed not found."),
-                        "429": error_response("Too many pending challenges.")
+                        "400": error_response("Empty `value` or `reason` after trim."),
+                        "403": error_response("Missing or invalid admin token."),
+                        "409": json_response(
+                            "The kind/value pair already has a block.",
+                            json!({ "block_id": "uuid" })
+                        )
                     }),
-                    None
+                    Some(admin_only_security())
+                ),
+                "get": operation(
+                    "List blocks",
+                    "Lists every feed-block row, in `blocked_at` order.",
+                    "Blocks",
+                    vec![],
+                    None,
+                    json!({
+                        "200": json_response(
+                            "Block rows.",
+                            json!({
+                                "blocks": [{
+                                    "block_id": "uuid",
+                                    "kind": "guid",
+                                    "value": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+                                    "reason": "reported as spam",
+                                    "blocked_at": 1710288000
+                                }]
+                            })
+                        ),
+                        "403": error_response("Missing or invalid admin token.")
+                    }),
+                    Some(admin_only_security())
                 )
             }),
         );
         paths.insert(
-            "/v1/proofs/assert".into(),
+            "/v1/blocks/{block_id}".into(),
             json!({
-                "post": operation(
-                    "Assert proof challenge",
-                    "Fetches the RSS feed, verifies the published `podcast:txt` token binding, and issues an access token on success.",
-                    "Proofs",
-                    vec![],
-                    Some(json_request_body(
-                        "Proof assertion request.",
-                        json!({
-                            "challenge_id": "uuid",
-                            "requester_nonce": "the-same-nonce-from-challenge"
-                        })
-                    )),
+                "delete": operation(
+                    "Delete a block",
+                    "Removes a `feed_blocks` row and signs a `FeedUnblocked` event (ADR 0053 section 1). A missing row signs nothing.",
+                    "Blocks",
+                    vec![path_param("block_id", "string", "Block ID (UUID).")],
+                    None,
                     json!({
-                        "200": json_response(
-                            "Access token issued.",
-                            json!({
-                                "access_token": "base64url-128bit-token",
-                                "scope": "feed:write",
-                                "subject_feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-                                "expires_at": 1710291600,
-                                "proof_level": "rss_only"
-                            })
-                        ),
-                        "400": error_response("Assertion failed."),
-                        "404": error_response("Challenge not found or expired."),
-                        "409": error_response("Feed URL changed during verification."),
-                        "503": error_response("RSS fetch failed.")
+                        "204": no_content_response("Block removed."),
+                        "403": error_response("Missing or invalid admin token."),
+                        "404": error_response("Block not found.")
                     }),
-                    None
+                    Some(admin_only_security())
                 )
             }),
         );
@@ -593,15 +644,10 @@ fn spec_value(mode: DocMode) -> Value {
             { "name": "Search", "description": "Full-text search endpoints." },
             { "name": "Node", "description": "Node capability and public metadata endpoints." },
             { "name": "Publishers", "description": "Publisher facet search and detail endpoints." },
-            { "name": "Proofs", "description": "Proof-of-possession challenge/assert flow." }
+            { "name": "Blocks", "description": "Feed and URL block administration (ADR 0053 section 1)." }
         ],
         "components": {
             "securitySchemes": {
-                "BearerAuth": {
-                    "type": "http",
-                    "scheme": "bearer",
-                    "bearerFormat": "Opaque access token"
-                },
                 "AdminToken": {
                     "type": "apiKey",
                     "in": "header",
@@ -691,28 +737,29 @@ fn feed_path_item(mode: DocMode) -> Value {
                 )),
                 json!({
                     "204": no_content_response("Feed updated."),
-                    "401": error_response("Missing bearer token."),
-                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "403": error_response("Missing or invalid admin token."),
                     "404": error_response("Feed not found.")
                 }),
-                Some(bearer_or_admin_security()),
+                Some(admin_only_security()),
             ),
         );
         item.insert(
             "delete".into(),
             operation(
                 "Retire feed",
-                "Retires a feed and cascade-deletes its dependent data.",
+                "Retires a feed and cascade-deletes its dependent data. In the same transaction, this also blocks the feed GUID and the stored feed URL (ADR 0053 section 1), unless `block=false` asks for no block.",
                 "Feeds",
-                vec![path_param("guid", "string", "Feed GUID.")],
+                vec![
+                    path_param("guid", "string", "Feed GUID."),
+                    query_param("block", "boolean", None, false, "Defaults to `true`. When `false`, retires with no block. Only the admin token may send `block=false`.")
+                ],
                 None,
                 json!({
                     "204": no_content_response("Feed retired."),
-                    "401": error_response("Missing bearer token."),
-                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "403": error_response("Missing or invalid admin token."),
                     "404": error_response("Feed not found.")
                 }),
-                Some(bearer_or_admin_security()),
+                Some(admin_only_security()),
             ),
         );
     }
@@ -778,8 +825,7 @@ fn track_path_item(mode: DocMode) -> Value {
                 )),
                 json!({
                     "204": no_content_response("Track updated."),
-                    "401": error_response("Missing bearer token."),
-                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "403": error_response("Missing or invalid admin token."),
                     "404": error_response("Track not found."),
                     "409": json_response(
                         "Track GUID is ambiguous across feeds.",
@@ -794,7 +840,7 @@ fn track_path_item(mode: DocMode) -> Value {
                         })
                     )
                 }),
-                Some(bearer_or_admin_security()),
+                Some(admin_only_security()),
             ),
         );
     }
@@ -852,11 +898,10 @@ fn feed_track_path_item(mode: DocMode) -> Value {
                 )),
                 json!({
                     "204": no_content_response("Track updated."),
-                    "401": error_response("Missing bearer token."),
-                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "403": error_response("Missing or invalid admin token."),
                     "404": error_response("Track not found in the specified feed.")
                 }),
-                Some(bearer_or_admin_security()),
+                Some(admin_only_security()),
             ),
         );
         item.insert(
@@ -872,11 +917,10 @@ fn feed_track_path_item(mode: DocMode) -> Value {
                 None,
                 json!({
                     "204": no_content_response("Track removed."),
-                    "401": error_response("Missing bearer token."),
-                    "403": error_response("Invalid admin token or insufficient bearer scope."),
+                    "403": error_response("Missing or invalid admin token."),
                     "404": error_response("Track not found or does not belong to the feed.")
                 }),
-                Some(bearer_or_admin_security()),
+                Some(admin_only_security()),
             ),
         );
     }
@@ -1008,8 +1052,8 @@ fn sync_security() -> Value {
     json!([{ "SyncToken": [] }])
 }
 
-fn bearer_or_admin_security() -> Value {
-    json!([{ "BearerAuth": [] }, { "AdminToken": [] }])
+fn admin_only_security() -> Value {
+    json!([{ "AdminToken": [] }])
 }
 
 #[expect(

@@ -1,5 +1,10 @@
 # Security Findings Validation Report
 
+> **Note, 2026-09-25.** Parts of this report describe code that no longer
+> exists. ADR 0056 takes the proof flow offline. See
+> [ADR 0056](../adr/0056-the-public-proof-flow-is-offline.md) and
+> [the history research](../reviews/adr-0018-proof-flow-history-research.md).
+
 **Updated:** 2026-03-25
 
 This document supersedes the earlier 2026-03-13 point-in-time validation notes.

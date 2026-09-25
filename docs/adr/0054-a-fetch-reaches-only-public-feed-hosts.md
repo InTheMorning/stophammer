@@ -27,8 +27,8 @@ has no hardening:
 - A feed can hold any number of `podcast:remoteItem` elements. The follow
   waves have no limit for each source feed.
 
-The node already has a correct guard for the proof fetch
-(`src/proof.rs:883`). It rejects each private and reserved range, resolves
+The node already has a correct guard for the fetch of sync registration
+(`src/proof.rs:883`, which ADR 0056 moves to `src/fetch_guard.rs`). It rejects each private and reserved range, resolves
 DNS and examines each address, pins the address for the connection, and
 examines each redirect hop. The crawler does not depend on the `stophammer`
 crate, so it cannot call that guard.
@@ -42,7 +42,7 @@ render it.
 ### 1. The rule for a fetch target
 
 This ADR owns one rule for each process that fetches a URL from RSS or from
-a podping. Today these are the crawler, the proof fetch and the relocation
+a podping. Today these are the crawler, sync registration and the relocation
 check. ADR 0055 adds the verification worker.
 
 A fetch is permitted only when all of these are true:
@@ -135,6 +135,6 @@ list of cases gives the same result. Rejected.
 
 ## Guards
 
-The rule has no incident. The code has the gap, and the proof fetch had the
-same class of defect before `src/proof.rs:883`. Each crate runs the cases of
+The rule has no incident. The code has the gap, and the node fetch had the
+same class of defect before the guard of `src/proof.rs:883`. Each crate runs the cases of
 section 5 as a test. A failure message names ADR 0054 section 1.
