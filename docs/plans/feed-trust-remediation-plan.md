@@ -86,7 +86,9 @@ This phase runs on the VPS after phase 1 is deployed.
 2. List the candidate records. A candidate has an observation at a URL that
    is not its source URL. On 2026-09-24, 1,619 feeds had more than one
    observed URL. Most of them are true mirrors.
-3. Run one corrective pass: `refresh --force --no-revalidate`.
+3. Apply each source URL body again with `force_reingest`. Replay the fetch
+   cache of a recent `refresh` pass (ADR 0051 task 006), or run
+   `refresh --force`.
 4. For each candidate, compare the title and the payment routes before and
    after the pass. Record each changed record in a review record.
 5. Make sure that each community node has the same routes as the primary for

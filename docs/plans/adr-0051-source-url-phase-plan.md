@@ -95,6 +95,7 @@ finds a point not in this list stops and reports it.
 | [003](../tasks/adr-0051-task-003-handler-uses-classification.md) The handler uses the classification | `stophammer` | 002 |
 | [004](../tasks/adr-0051-task-004-crawler-keeps-conflicts-open.md) The crawler keeps a conflict open | `stophammer-crawler` | Nothing |
 | [005](../tasks/adr-0051-task-005-deploy-and-repair.md) Deploy and repair | VPS | 001 to 004 |
+| [006](../tasks/adr-0051-task-006-replay-fetch-cache.md) Repair from the fetch cache | `stophammer-crawler`, VPS | 005 step 6 |
 
 Tasks 001 and 004 can run at the same time. They change different
 repositories. Tasks 001, 002 and 003 change the same files in sequence.

@@ -159,18 +159,25 @@ crawl without a changed body.
 
 ### 6. The repair of damaged records
 
-The corrective pass of ADR 0047 reads the stored source URLs. After this ADR
-is deployed, one pass with `--force --no-revalidate` fetches each source URL
-and applies its body again. Only the source can write, so the pass restores
-the content and the payment routes of each damaged record.
+After this ADR is deployed, the node applies each source URL body again with
+`force_reingest`. Only the source can write, so this restores the content and
+the payment routes of each damaged record. `force_reingest` is necessary. An
+unchanged source body otherwise gives `NO_CHANGE`, and the damaged content
+stays.
 
-- `--no-revalidate` gets a fresh body. Without it, a `304` can give a kept
-  body from before the repair.
-- `--force` skips the hash shortcut. Without it, an unchanged source body
-  gives `NO_CHANGE`, and the damaged content stays.
+Two ways give the source URL bodies:
 
-The operator keeps a backup of the database before the pass. The pass emits
-normal signed events, so community nodes get the same repair.
+- **A corrective pass.** The `refresh` mode of ADR 0047 reads the stored
+  source URLs. Run it with `--force`. A `304` from a source URL proves that
+  the body in the fetch cache of ADR 0050 is current. Thus the kept body is a
+  correct repair. `--no-revalidate` is not necessary.
+- **A replay of the fetch cache.** The fetch cache of a completed `refresh`
+  pass holds the body of each source URL. An export of those rows goes to the
+  `ndjson` mode with `--force`. This sends no request to a feed host. A body
+  shows the feed at its fetch time, so replay soon after the pass.
+
+The operator keeps a backup of the database before the repair. The repair
+emits normal signed events, so community nodes get the same repair.
 
 A copied GUID at a mirror URL leaves a true observation. The repair keeps
 it.

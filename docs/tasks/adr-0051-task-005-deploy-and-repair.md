@@ -33,7 +33,10 @@ the payment routes of each damaged record from its source URL.
    ```
 
    Also record the title and the payment routes of each candidate.
-8. Run one pass: `refresh --force --no-revalidate`.
+8. Apply each source URL body again with `force_reingest`. When a recent
+   `refresh` pass kept its bodies, replay its fetch cache with
+   [task 006](adr-0051-task-006-replay-fetch-cache.md). That sends no request
+   to a feed host. Otherwise run `refresh --force`.
 9. Record the title and the payment routes of each candidate again. Write
    each changed record in a review record in `docs/reviews/`.
 10. For a sample of the changed records, compare the routes on each community
