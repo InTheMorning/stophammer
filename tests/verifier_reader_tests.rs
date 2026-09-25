@@ -21,6 +21,7 @@ fn sample_request() -> IngestFeedRequest {
         http_status: 200,
         content_hash: "hash-abc".into(),
         force_reingest: false,
+        redirects: vec![],
         feed_data: Some(IngestFeedData {
             feed_guid: "917393e3-1b1e-5f2c-a927-9e29e2d26b32".into(),
             title: "Test Feed".into(),
@@ -33,6 +34,9 @@ fn sample_request() -> IngestFeedRequest {
             itunes_type: None,
             raw_medium: Some("music".into()),
             last_build_date: None,
+            new_feed_url: None,
+            locked: None,
+            locked_owner: None,
             pub_date: None,
             remote_items: vec![],
             persons: vec![],

@@ -70,6 +70,9 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
   "crawl_token": "your-crawl-token",
   "http_status": 200,
   "content_hash": "sha256-hex-of-feed-body",
+  "redirects": [
+    { "url": "https://feeds.example.com/my-music-feed", "status": 301 }
+  ],
   "feed_data": {
     "feed_guid": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     "title": "My Music Feed",
@@ -82,6 +85,9 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
     "author_name": "Artist Name",
     "owner_name": "Artist Name",
     "pub_date": 1710288000,
+    "new_feed_url": null,
+    "locked": false,
+    "locked_owner": null,
     "remote_items": [
       {
         "position": 0,
@@ -201,6 +207,17 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
 
 `feed_data` is `null` when the crawler could not parse the feed (e.g. HTTP error). The verifier chain still runs to record the rejection.
 
+`redirects` lists each redirect hop the crawler followed, from `source_url`
+to `canonical_url`. Each hop has a `url` and an HTTP `status`. The list is
+empty when the crawler followed no redirect. An older crawler sends no
+`redirects` field. The node treats a missing field as an empty list (ADR
+0052 sections 1 and 2).
+
+`new_feed_url` is the channel `itunes:new-feed-url` value. `locked` and
+`locked_owner` come from `podcast:locked` and its `owner` attribute. The
+node stores `locked` and `locked_owner` as facts only. These two fields do
+not move a record (ADR 0052 section 3).
+
 `remote_items` carries feed-level or track-level `podcast:remoteItem`
 references exactly as seen in RSS. For a music feed or track that points to a
 publisher feed, the relation hint is typically `medium="publisher"`. `persons`,
@@ -287,33 +304,42 @@ is different: the node records the submitted URL as an observation of the
 GUID (ADR 0049 section 1). This observation does not
 change the record.
 
-**A self link can turn a mirror into a move (ADR 0052 section 2):**
+**A source URL can move a record (ADR 0052 sections 1 and 2):**
 
-A source ingest stores the first `self_feed` link of its body as the
-record's declared self URL. Only an update submission and a new-feed
-submission write this value. A mirror submission does not write it.
+Three triggers move a record. Each move answers with `accepted: true` and
+`source_url: null`, and each move names its trigger in `warnings`:
+`moved from <old URL> to <new URL> (ADR 0052 <trigger>)`.
 
-A subsequent submission at that declared URL moves the record. The node
-does not answer `source_conflict`:
+| Trigger | Sign the node needs |
+|---|---|
+| `self link` | A source ingest stored the first `self_feed` link of its body as the record's declared self URL. The next submission arrives at that URL |
+| `new-feed-url` | A source ingest stored the body's `itunes:new-feed-url` value. The next submission arrives at that URL |
+| `permanent redirect` | A submission arrives from the stored source URL, with one or more `redirects` hops, and each hop is `301` or `308`. `canonical_url` is not the stored source URL |
 
-| Field | Value |
-|-------|-------|
-| `accepted` | `true` |
-| `source_url` | `null` |
-| `warnings` | includes `moved from <old URL> to <new URL> (ADR 0052 self link)` |
+A source ingest stores the declared self URL and the declared
+`new_feed_url`. Only an update submission and a new-feed submission write
+these two values. A mirror submission does not write them.
 
-The stored `feed_url` becomes the new URL, and the node applies the body
-as an update. ADR 0056 removed the proof flow, so a move no longer
-revokes a token. A submission at the URL before the move then reads as a
-mirror, and gets `source_conflict`.
+The stored `feed_url` becomes the new URL, and the node applies the body as
+an update, in the same transaction as the move. ADR 0056 removed the proof
+flow, so a move no longer revokes a token. A submission at the URL before
+the move then reads as a mirror, and gets `source_conflict`.
 
-A self link in a mirror body does not start a move. Only the self link a
-source ingest stored counts.
+A self link or a `new_feed_url` value in a mirror body does not start a
+move. Only a value a source ingest stored counts.
+
+A redirect hop with status `302` or `307` does not start a move. The node
+applies the body and keeps the source URL.
+
+When the move target is the stored source URL of a different record, the
+node answers `record_conflict`. It writes nothing.
 
 **An older copy does not replace a newer copy (ADR 0053 section 3):**
 
 The node examines `last_build_date` only for an update submission. It does
-not apply this rule to a new feed, a mirror, or a self-link move.
+not apply this rule to a new feed, a mirror, or a self-link move, or a
+new-feed-url move. A permanent-redirect move is an update submission, so
+this rule applies to it too.
 
 | Value | Meaning | The crawler should |
 |-------|---------|---------------------|

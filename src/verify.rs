@@ -501,6 +501,7 @@ mod tests {
             http_status: 200,
             content_hash: String::new(),
             force_reingest: false,
+            redirects: vec![],
             feed_data: None,
         };
         let ctx = IngestContext {
@@ -525,6 +526,7 @@ mod tests {
             http_status: 200,
             content_hash: String::new(),
             force_reingest: false,
+            redirects: vec![],
             feed_data: None,
         };
         let ctx = IngestContext {
@@ -641,6 +643,7 @@ mod tests {
             http_status: 200,
             content_hash: String::new(),
             force_reingest: false,
+            redirects: vec![],
             feed_data: None,
         };
         chain
@@ -654,6 +657,7 @@ mod tests {
             http_status: 200,
             content_hash: String::new(),
             force_reingest: false,
+            redirects: vec![],
             feed_data: None,
         };
         let err = chain

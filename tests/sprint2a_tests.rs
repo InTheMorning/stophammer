@@ -191,6 +191,7 @@ fn content_hash_skip_returns_no_change_when_cached_hash_matches() {
         http_status: 304,
         content_hash: hash.to_string(),
         force_reingest: false,
+        redirects: vec![],
         feed_data: None,
     };
 
@@ -235,6 +236,7 @@ fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
         http_status: 200,
         content_hash: hash.to_string(),
         force_reingest: false,
+        redirects: vec![],
         feed_data: Some(IngestFeedData {
             feed_guid: "publisher-feed-guid".to_string(),
             title: "Publisher Feed".to_string(),
@@ -245,6 +247,9 @@ fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
             itunes_type: None,
             raw_medium: Some("publisher".to_string()),
             last_build_date: None,
+            new_feed_url: None,
+            locked: None,
+            locked_owner: None,
             author_name: None,
             owner_name: None,
             pub_date: None,
@@ -303,6 +308,7 @@ fn content_hash_passes_when_hash_differs() {
         http_status: 200,
         content_hash: "new-hash-value".to_string(),
         force_reingest: false,
+        redirects: vec![],
         feed_data: None,
     };
 
@@ -335,6 +341,7 @@ fn content_hash_passes_on_first_crawl() {
         http_status: 200,
         content_hash: "first-hash".to_string(),
         force_reingest: false,
+        redirects: vec![],
         feed_data: None,
     };
 

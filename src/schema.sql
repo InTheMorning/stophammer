@@ -101,7 +101,10 @@ CREATE TABLE IF NOT EXISTS feeds (
     raw_medium       TEXT,
     last_build_date  INTEGER,
     release_artist_source TEXT,
-    declared_self_url TEXT
+    declared_self_url TEXT,
+    declared_new_feed_url TEXT,
+    podcast_locked INTEGER,
+    locked_owner TEXT
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feeds_credit ON feeds(artist_credit_id);

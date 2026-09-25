@@ -233,6 +233,9 @@ const MIGRATIONS: &[&str] = &[
     // a feed, and the overflow counter of a GUID at its row limit
     // (ADR 0058 §1, §1a)
     include_str!("../migrations/0040_feed_copies.sql"),
+    // Migration 41: the new-feed-url and podcast:locked declarations a
+    // source body makes for itself (ADR 0052 §2, task 006)
+    include_str!("../migrations/0041_feed_move_declarations.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -6888,6 +6891,72 @@ pub fn set_declared_self_url(
     conn.execute(
         "UPDATE feeds SET declared_self_url = ?2 WHERE feed_guid = ?1",
         params![feed_guid, declared_self_url],
+    )?;
+    Ok(())
+}
+
+/// Reads the `itunes:new-feed-url` value one feed record's source body has
+/// declared (ADR 0052 §2, task 006).
+///
+/// Returns `None` when the record does not exist, or when its source body
+/// has never declared the element.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_declared_new_feed_url(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<String>, DbError> {
+    conn.query_row(
+        "SELECT declared_new_feed_url FROM feeds WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(Option::flatten)
+    .map_err(Into::into)
+}
+
+/// Sets the declared `itunes:new-feed-url` value of one feed record, and its
+/// `podcast:locked` facts (ADR 0052 §2, task 006).
+///
+/// Only an ingest in the update or new-feed case of ADR 0051 calls this
+/// function; a mirror submission never writes these columns. `locked` and
+/// `locked_owner` are stored only as source facts (ADR 0052 section 3): they
+/// grant nothing in this index.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the UPDATE statement fails.
+pub fn set_feed_move_declarations(
+    conn: &Connection,
+    feed_guid: &str,
+    declared_new_feed_url: Option<&str>,
+    locked: Option<bool>,
+    locked_owner: Option<&str>,
+) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feeds SET declared_new_feed_url = ?2, podcast_locked = ?3, locked_owner = ?4 \
+         WHERE feed_guid = ?1",
+        params![feed_guid, declared_new_feed_url, locked, locked_owner],
+    )?;
+    Ok(())
+}
+
+/// Clears the declared `itunes:new-feed-url` value of one feed record (ADR
+/// 0052 §2, task 006).
+///
+/// `relocate_feed` calls this beside [`set_declared_self_url`] so a
+/// relocation clears both fields in the same transaction.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the UPDATE statement fails.
+pub fn clear_declared_new_feed_url(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE feeds SET declared_new_feed_url = NULL WHERE feed_guid = ?1",
+        params![feed_guid],
     )?;
     Ok(())
 }

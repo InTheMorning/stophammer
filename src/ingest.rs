@@ -30,6 +30,24 @@ pub struct IngestFeedRequest {
     /// When true, skip the content-hash dedup check and re-ingest unconditionally.
     #[serde(default)]
     pub force_reingest: bool,
+    /// Each hop the crawler followed from `source_url` to `canonical_url`, in
+    /// order (ADR 0052 section 2). Empty when the crawler followed no
+    /// redirect, or when it predates this field. `#[serde(default)]` lets an
+    /// older crawler send none.
+    #[serde(default)]
+    pub redirects: Vec<RedirectHop>,
+}
+
+/// One redirect hop the crawler followed while fetching a feed (ADR 0052
+/// section 2).
+///
+/// `status` is the HTTP status of the hop: `301` and `308` are permanent, so
+/// a chain of only those hops can move the record's source URL. A `302` or
+/// `307` hop is delivery only.
+#[derive(Debug, Deserialize)]
+pub struct RedirectHop {
+    pub url: String,
+    pub status: u16,
 }
 
 /// Parsed feed content supplied by the crawler when the fetch succeeded.
@@ -52,6 +70,19 @@ pub struct IngestFeedData {
     /// This is not a release date. ADR 0043 owns that distinction.
     #[serde(default)]
     pub last_build_date: Option<i64>,
+    /// Channel `itunes:new-feed-url`: the URL the source body names as its
+    /// successor (ADR 0052 section 2). Only an ingest in the update or
+    /// new-feed case stores this value.
+    #[serde(default)]
+    pub new_feed_url: Option<String>,
+    /// Channel `podcast:locked`. A source fact only; it grants nothing in
+    /// this index (ADR 0052 section 3).
+    #[serde(default)]
+    pub locked: Option<bool>,
+    /// The `owner` attribute of `podcast:locked`. A source fact only (ADR
+    /// 0052 section 3).
+    #[serde(default)]
+    pub locked_owner: Option<String>,
     /// Feed-level `podcast:remoteItem` references to artist/publisher feeds.
     #[serde(default)]
     pub remote_items: Vec<IngestRemoteFeedRef>,
