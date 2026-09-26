@@ -17,7 +17,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 2 | The contract guards, and the correction of `AGENTS.md` | ADR 0044 task 003 | Code | `stophammer` | Same |
 | 3 | A feed can block this index with `podcast:block` | ADR 0057 | Code | Parser, node, crawler | [ADR 0057 phase plan](adr-0057-podcast-block-phase-plan.md) |
 | 4 | A migration drops the two proof tables and changes the delete trigger | ADR 0056 §3 | Code | `stophammer` | [Task 002](../tasks/adr-0056-task-002-drop-proof-tables.md) |
-| 5 | Read the gossip log for rejected hosts | ADR 0054 task 004 step 3 | Operator check | None | [ADR 0054 phase plan](adr-0054-fetch-rule-phase-plan.md) |
+| 5 | Read the gossip log for rejected hosts. Complete on 2026-09-26 | ADR 0054 task 004 step 3 | Operator check | None | [ADR 0054 phase plan](adr-0054-fetch-rule-phase-plan.md) |
 | 6 | The second `refresh` pass: `304` and the Wavlake `429` limit | ADR 0050 plan decision 10 | Operator pass | None | [ADR 0050 phase plan](adr-0050-feed-revalidation-phase-plan.md) |
 | 7 | After that pass, count the `feed_copy_observed` events | ADR 0058 task 005 step 7 | Operator check | None | [ADR 0058 phase plan](adr-0058-feed-copies-phase-plan.md) |
 | 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §5 | Operator decision | None | Below |
@@ -25,8 +25,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 
 ## Sequence
 
-1. **Now, operator:** item 5. It needs no code. The gossip mode has run for
-   more than a day since the ADR 0054 deploy.
+1. Item 5 is complete on 2026-09-26. No music host was rejected.
 2. **Now, agents:** item 1, then item 2. At the same time, item 3 task 001,
    the parser. The two change different repositories.
 3. **Item 3 tasks 002 and 003** after item 2. Item 2 adds a guard that each

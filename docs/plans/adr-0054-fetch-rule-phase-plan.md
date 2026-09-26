@@ -102,6 +102,19 @@ repositories.
 - A feed with 201 follow URLs.
 - A read route test for each URL field with a `javascript:` value.
 
+## Result Of The Gossip Check Of 2026-09-26
+
+Step 3 of task 004 is complete. In 48 hours of the `gossip` log, the fetch
+rule rejected 6 URLs:
+
+- 5 with `body_too_large`: 3 on `feeds.redcircle.com` and 2 on
+  `rss.buzzsprout.com`. Each is a podcast of 21 MB to 50 MB with no
+  `podcast:medium`.
+- 1 with `fetch_target_not_public`:
+  `http://localhost:8000/feed/podcast/automated-test-show/`.
+
+No music feed host is in the list.
+
 ## Rollback
 
 Deploy the previous images. No stored data changes.

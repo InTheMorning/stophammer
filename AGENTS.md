@@ -91,9 +91,9 @@ which gives the sequence of each open item of an Accepted ADR:
    against the Wavlake `429` limit, stays open until the second pass.
 
 4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
-   ADR 0054 is Accepted, and tasks 001 to 003 are complete and deployed on
-   2026-09-25. ADR 0055 is Proposed
-   and waits. The operator runs the only crawler, on the same host as the
+   ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
+   and the gossip check of task 004 found no music host on 2026-09-26.
+   ADR 0055 is Proposed and waits. The operator runs the only crawler, on the same host as the
    primary, so a leak of `CRAWL_TOKEN` is close to a compromise of that host.
    [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
    [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
@@ -153,11 +153,6 @@ which gives the sequence of each open item of an Accepted ADR:
      a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
-   - ADR 0054 task 004, step 3. After a day of podpings, read the hosts that
-     the gossip log rejects with `fetch_target_not_public` or
-     `body_too_large`. A music feed host in that list is a defect. The
-     [phase plan](docs/plans/adr-0054-fetch-rule-phase-plan.md) gives the
-     sequence.
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
 
