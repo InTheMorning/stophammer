@@ -66,7 +66,9 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
-The work that remains:
+The work that remains follows
+[the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
+which gives the sequence of each open item of an Accepted ADR:
 
 1. Task 002 of ADR 0044. Each documented response must point at its schema. No
    response points at one today, and all 54 carry an inline shape or none.
