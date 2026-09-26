@@ -52,7 +52,7 @@ a defect. No change renames or removes a field.
 | 5 | An entry that names a feed gives the summary of that feed | v4vmm 1, musicindex 1 | New ADR | Medium |
 | 6 | ADR 0049 states that a publisher resolution is not kept | v4vmm open question | ADR 0049 | Document |
 | 7 | The operator decides if a route removal needs a version | v4vmm 4 | ADR 0044 | Decided |
-| 8 | A list feed keeps its items, and each entry gives its track | musicindex 2 | ADR 0060, Proposed | Large |
+| 8 | A list feed keeps its items, and each entry gives its track | musicindex 2 | ADR 0060 | Large |
 
 Items 1 to 3 correct a condition that a client measured on the live API.
 Items 4 and 5 add a feature. Item 5 is last of these because it needs a new
@@ -253,7 +253,9 @@ request 4. The operator examined these answers:
 
 ## 8. A List Feed Keeps Its Items
 
-Owner: [ADR 0060](../adr/0060-a-list-feed-keeps-its-items.md), Proposed.
+Owner: [ADR 0060](../adr/0060-a-list-feed-keeps-its-items.md), Accepted on
+2026-09-26. The [phase plan](adr-0060-list-feeds-phase-plan.md) gives the
+sequence.
 
 **Current state.** On 2026-09-25, Podcast Index holds 6 `musicL` track
 playlists that the index does not hold. The node accepts a playlist. It drops

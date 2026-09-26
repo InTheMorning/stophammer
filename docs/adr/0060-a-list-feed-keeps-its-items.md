@@ -1,7 +1,7 @@
 # ADR 0060: A List Feed Keeps Its Items
 
 ## Status
-Proposed
+Accepted on 2026-09-26
 
 ## Date
 2026-09-25
@@ -78,14 +78,23 @@ stores no resolution.
 
 The ADR 0059 summary fields give the feed of the entry, not the track.
 
-### 4. A list feed keeps its value block
+### 4. A list feed keeps its value block as source data
 
-The node stores the channel payment routes of a `musicL` feed as the feed
-payment routes of that feed. `include=payment_routes` on the list feed gives
-them. The route history of ADR 0053 records their changes.
+The node stores the channel payment routes of a `musicL` feed in a new table,
+`feed_list_value_raw`. The same migration as section 2 adds it. Each row
+holds the recipient values of one `podcast:valueRecipient`, as
+`feed_payment_routes` does.
 
-These routes pay the author of the list. They are not a payment route of a
-track that the list names. A track read never gives them.
+- No read route gives these rows. `include=payment_routes` on a list feed
+  continues to give an empty list.
+- The rows are not a payment route of the list feed or of a track that the
+  list names. `feed_payment_routes` holds no row for a `musicL` feed.
+- The route history of ADR 0053 does not record them.
+- The signed ingest event carries the rows, so a community node stores the
+  same rows.
+
+A later decision can serve the rows. This ADR only stops the loss of the
+source data.
 
 The ADR 0048 exemption for `musicL` does not change. The node
 continues to accept a list feed with no value block.
@@ -97,7 +106,8 @@ This section amends ADR 0049 section 2.
 1. When a `musicL` feed gives a `feedUrl` on a channel `remoteItem`, the
    crawler fetches and submits that feed. The `medium` attribute of the
    element is not necessary. The node medium check decides if the feed is
-   music.
+   music. An element with a `medium` other than `music` gives no fetch, so a
+   list cannot lead to the album list of a publisher.
 2. The crawler does not follow a link from a feed that it fetched only because
    of step 1. The walk stops at one level, as in ADR 0049 section 2 step 3.
 3. An element with no `feedUrl` gives no fetch. The crawler reports the count
@@ -120,14 +130,34 @@ not follow.
 A client shows the albums of a playlist, not its tracks. The index keeps the
 declared values only in part. Mandate 3 rejects the loss. Rejected.
 
-### Store the value block apart from the feed routes
-A new table for the routes of a list feed makes one more read path and one
-more route history. The routes are the routes of the list feed itself, so
-the feed route table has the correct meaning. Rejected.
+### Serve the value block as the routes of the list feed
+`include=payment_routes` on the list feed would give the routes, and the route
+history would record their changes. A client could then pay the author of the
+list. The operator decided on 2026-09-26 to keep the data and not serve it
+yet. No client asked for it. Rejected for now.
+
+### Drop the value block, as before
+The node loses source data at each ingest. Mandate 3 of `AGENTS.md` rejects
+that loss. Rejected.
 
 ### `remote_track_guid` as a stored value
 A stored value becomes stale when the album changes or is deleted. ADR 0049
 section 3 rejects a stored resolution for the same reason. Rejected.
+
+### A track summary on each entry
+The entry could also give the title, the artist and the duration of the
+indexed track. The playlist with 383 tracks would then cost 383 more point
+reads. A client reads a track when a user opens it. Rejected on 2026-09-26.
+
+### Follow the publisher of an album found through a list
+One more level makes a publisher view complete sooner. A list of 1,000
+albums from 1,000 publishers could then cause 2,000 fetches in one wave. The
+next `refresh` pass follows the publisher link. Rejected on 2026-09-26.
+
+### Find the URL of a GUID-only entry in the snapshot
+The crawler could find the `feedUrl` by GUID in the Podcast Index snapshot
+that `import` reads. That needs a snapshot on the host and more crawler code.
+Rejected on 2026-09-26.
 
 ### Keep the follow limit of 200 for a list
 The crawler follows the first 200 entries of the playlist with 383 tracks. An
@@ -143,8 +173,8 @@ use all of the limit of a pass. Rejected.
 - A playlist page needs one request for its track list. With ADR 0059, it also
   gets the title, the image and the artist of each album.
 - A playlist leads the crawler to the albums that it names.
-- The list feed shows its own payment routes. A client can pay the author of
-  the list.
+- The node keeps the value block of a list feed, but no route gives it. A
+  client cannot pay the author of the list through this index yet.
 - The crawler, the parser and the node change together. The ingest fields are
   optional, so the deploys can occur in any sequence. A playlist ingested
   before the parser deploy keeps null values until its next crawl.
@@ -158,7 +188,8 @@ use all of the limit of a pass. Rejected.
 
 - The node stores `itemGuid` and `title` of a channel `remoteItem` unchanged.
 - `remote_track_guid` is the `track_guid` of an indexed track, or null.
-- A payment route of a list feed is never given as a route of a track.
+- No read route gives a row of `feed_list_value_raw`.
+- `feed_payment_routes` holds no row for a `musicL` feed.
 - The crawler follows at most 1,000 URLs from one `musicL` feed in one wave.
 - The crawler does not follow a link from a feed that it fetched because of a
   list.
@@ -172,8 +203,9 @@ use all of the limit of a pass. Rejected.
   entry for a track that is not indexed gives null in `remote_track_guid`.
 - Node: an entry that resolves its feed by URL gives the track of the feed at
   that URL.
-- Node: a `musicL` feed with a value block gives its routes on
-  `include=payment_routes`. A track that the list names does not get them.
+- Node: a `musicL` feed with a value block stores its rows in
+  `feed_list_value_raw`. `include=payment_routes` on that feed gives an empty
+  list. A community node that applies the event stores the same rows.
 - Crawler: a `musicL` feed with a `feedUrl` gives a follow URL. The fetched
   feed gives no follow URL of its own.
 - Crawler: a `musicL` feed with 1,200 different URLs gives 1,000 follow URLs
