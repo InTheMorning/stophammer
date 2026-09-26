@@ -53,18 +53,18 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`264706e` makes. `GET /node/info` gives the revision of the running node.
+`9b6dc21` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
-[the client requests work plan](docs/plans/client-requests-work-plan.md). Wave
-1 is complete and deployed on 2026-09-26: plan items 1 to 4 and item 6. Item
-7 is decided. Item 5,
-[ADR 0059](docs/adr/0059-an-entry-that-names-a-feed-gives-its-summary.md), is
-complete and deployed on 2026-09-26. Next is item 8, which is
-[ADR 0060](docs/adr/0060-a-list-feed-keeps-its-items.md), Accepted on
-2026-09-26. Tasks 001 to 003 are complete and not deployed. The
-[phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) gives the deploy
-sequence.
+[the client requests work plan](docs/plans/client-requests-work-plan.md). Each
+item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
+
+- Item 5 is
+  [ADR 0059](docs/adr/0059-an-entry-that-names-a-feed-gives-its-summary.md).
+- Item 8 is [ADR 0060](docs/adr/0060-a-list-feed-keeps-its-items.md),
+  Accepted on 2026-09-26. The
+  [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
+  measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
 The work that remains:
 

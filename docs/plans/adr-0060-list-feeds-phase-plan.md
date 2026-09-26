@@ -54,6 +54,34 @@ Operator check on the VPS, because no route gives the rows:
 - `feed_list_value_raw` holds rows for the playlists that have a value block.
   The research found 4 of the 6 playlists with a value block.
 
+## Result Of The Deploy Of 2026-09-26
+
+Commit `9b6dc21` of the node and the crawler with the new parser are
+deployed. A `feed` crawl of the 11 `musicL` feeds followed 85 URLs in wave 2.
+
+| Playlist | Entries | With `itemGuid` | Track found | Albums missing |
+|---|---|---|---|---|
+| Best of Lightning Thrashes | 48 | 48 | 48 | 0 |
+| Lightning Thrashes 1 - 60 | 383 | 383 | 367 | 10 |
+| Boostagram Ball 1 to 25 | 278 | 278 | 268 | 8 |
+| The College Years | 10 | 10 | 10 | 0 |
+| Death of the Close Minded | 8 | 8 | 8 | 0 |
+| Kolomona's Test Playlist | 21 | 21 | 21 | 0 |
+
+- The two large Kolomona playlists give no `feedUrl`. The crawler counted
+  278 and 383 entries that it cannot follow.
+- 17 album GUIDs were missing. 5 are in the Podcast Index snapshot of
+  2026-09-19, and 12 are not.
+- A `feed` crawl of the 5 URLs indexed 1. The node rejected 3 by the medium
+  check: 2 are `podcast` feeds, and 1 gives no medium. Wavlake answered `404`
+  for the last one.
+- Thus 16 GUIDs stay missing, and their entries give null. This is correct,
+  because the index holds only music feeds.
+- The Prismind album `05b75483-9f5b-5236-bd66-69e9d3e1b995` is indexed.
+- `include=payment_routes` on a playlist gives an empty list.
+- The count of rows in `feed_list_value_raw` is not measured. It needs the
+  operator check above.
+
 ## Risks
 
 - A playlist names more than 1,000 feeds. The crawler follows the first 1,000

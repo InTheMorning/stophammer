@@ -169,6 +169,16 @@ null when the index holds no feed for the entry.
 
 This closes request 1. The names are the names of this request.
 
+### Deploy Of 2026-09-26, ADR 0060
+
+Deploy of commit `9b6dc21` on 2026-09-26 at 04:59 UTC. Each `remote_items`
+entry gives `remote_item_guid`, `remote_item_title` and `remote_track_guid`.
+`remote_track_guid` is null when the index holds no such track. This closes
+request 2. Stophammer then indexed 10 more `musicL` feeds. For example,
+"Lightning Thrashes Playlist episodes 1 - 60"
+(`287e27fa-adc5-4762-956f-0282bba5ed77`) gives a track for 367 of its 383
+entries.
+
 ## Requests That v4vmm Also Makes
 
 musicindex.org is a second client for these v4vmm requests. This may matter
