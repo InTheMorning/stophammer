@@ -79,6 +79,18 @@ fn meta(state: &api::AppState) -> ResponseMeta {
     }
 }
 
+// ── Limit maximums ──────────────────────────────────────────────────────────
+// musicindex request 4: the contract states the maximum of each `limit`, and
+// the code and `openapi::spec_value()` read the same constant.
+
+/// The maximum `limit` for a route that reads [`ListQuery`],
+/// [`PublisherDetailQuery`] or [`ArtistTracksQuery`].
+pub(crate) const LIST_LIMIT_MAX: i64 = 200;
+
+/// The maximum `limit` for `/v1/search`, `/v1/publishers`, `/v1/copies` and
+/// `/v1/guid-changes`.
+pub(crate) const SEARCH_LIMIT_MAX: i64 = 100;
+
 // ── Query params ────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -91,7 +103,7 @@ pub struct ListQuery {
 
 impl ListQuery {
     fn capped_limit(&self) -> i64 {
-        self.limit.unwrap_or(50).clamp(1, 200)
+        self.limit.unwrap_or(50).clamp(1, LIST_LIMIT_MAX)
     }
 
     fn includes(&self, field: &str) -> bool {
@@ -131,7 +143,7 @@ pub struct PublisherDetailQuery {
 
 impl PublisherDetailQuery {
     fn capped_limit(&self) -> i64 {
-        self.limit.unwrap_or(50).clamp(1, 200)
+        self.limit.unwrap_or(50).clamp(1, LIST_LIMIT_MAX)
     }
 
     fn case_sensitive(&self) -> bool {
@@ -148,7 +160,7 @@ pub struct ArtistTracksQuery {
 
 impl ArtistTracksQuery {
     fn capped_limit(&self) -> i64 {
-        self.limit.unwrap_or(50).clamp(1, 200)
+        self.limit.unwrap_or(50).clamp(1, LIST_LIMIT_MAX)
     }
 }
 
@@ -161,6 +173,37 @@ fn like_contains_pattern(value: &str) -> String {
             .replace('_', "\\_")
     )
 }
+
+// ── Include lists ───────────────────────────────────────────────────────────
+// v4vmm request 3: `GET /v1/node/capabilities` and the include parsing of
+// each route read the same list, so the two cannot drift apart again.
+
+/// The include names `GET /v1/feeds/{guid}` accepts.
+pub(crate) const FEED_INCLUDES: &[&str] = &[
+    "tracks",
+    "payment_routes",
+    "source_links",
+    "source_ids",
+    "source_contributors",
+    "source_platforms",
+    "source_release_claims",
+    "remote_items",
+    "publisher",
+];
+
+/// The include names `GET /v1/tracks/{guid}` accepts.
+pub(crate) const TRACK_INCLUDES: &[&str] = &[
+    "payment_routes",
+    "value_time_splits",
+    "source_links",
+    "source_ids",
+    "source_contributors",
+    "source_release_claims",
+    "source_enclosures",
+    "source_transcripts",
+    "remote_items",
+    "publisher",
+];
 
 // ── Serializable types ──────────────────────────────────────────────────────
 
@@ -1113,115 +1156,119 @@ fn build_feed_response(
         resp.distinct_release_artists = Some(artists);
     }
 
-    if params.includes("tracks") {
-        // ADR 0042: this route read the track column alone, so `image_url` meant
-        // something different here than on every other track route. The feed
-        // artwork is already in hand, so no join is needed to resolve it.
-        let feed_artwork = resp.image_url.clone();
-        let mut stmt = conn.prepare(
-            "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number, publisher \
-             FROM tracks WHERE feed_guid = ?1 ORDER BY track_number ASC, pub_date DESC",
-        )?;
-        let tracks: Vec<TrackSummary> = stmt
-            .query_map(params![feed_guid], |row| {
-                // ADR 0054 §4: sanitize once, since this value feeds both
-                // `image_url` (with the feed-artwork fallback) and
-                // `track_image_url` below.
-                let track_image_url: Option<String> =
-                    web_url_or_none(row.get::<_, Option<String>>(4)?.as_deref());
-                Ok(TrackSummary {
-                    track_guid: row.get(0)?,
-                    title: row.get(1)?,
-                    pub_date: row.get(2)?,
-                    duration_secs: row.get(3)?,
-                    image_url: track_image_url.clone().or_else(|| feed_artwork.clone()),
-                    track_image_url,
-                    feed_image_url: feed_artwork.clone(),
-                    track_number: row.get(5)?,
-                    publisher_text: row.get(6)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?;
-        resp.tracks = Some(tracks);
-    }
-
-    if params.includes("payment_routes") {
-        let mut stmt = conn.prepare(
-            "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
-             FROM feed_payment_routes WHERE feed_guid = ?1",
-        )?;
-        let routes: Vec<RouteResponse> = stmt
-            .query_map(params![feed_guid], |row| {
-                Ok(RouteResponse {
-                    recipient_name: row.get(0)?,
-                    route_type: row.get(1)?,
-                    address: row.get(2)?,
-                    custom_key: row.get(3)?,
-                    custom_value: row.get(4)?,
-                    split: row.get(5)?,
-                    fee: row.get::<_, i64>(6)? != 0,
-                })
-            })?
-            .collect::<Result<_, _>>()?;
-        resp.payment_routes = Some(routes);
-    }
-
-    if params.includes("source_links") {
-        resp.source_links = Some(
-            db::get_source_entity_links_for_entity(conn, "feed", &feed_guid)?
-                .into_iter()
-                .map(entity_link_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_ids") {
-        resp.source_ids = Some(
-            db::get_source_entity_ids_for_entity(conn, "feed", &feed_guid)?
-                .into_iter()
-                .map(entity_id_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_contributors") {
-        resp.source_contributors = Some(
-            db::get_source_contributor_claims_for_entity(conn, "feed", &feed_guid)?
-                .into_iter()
-                .map(contributor_claim_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_platforms") {
-        resp.source_platforms = Some(
-            db::get_source_platform_claims_for_feed(conn, &feed_guid)?
-                .into_iter()
-                .map(platform_claim_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_release_claims") {
-        resp.source_release_claims = Some(
-            db::get_source_release_claims_for_entity(conn, "feed", &feed_guid)?
-                .into_iter()
-                .map(release_claim_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("remote_items") {
-        resp.remote_items = Some(
-            db::get_feed_remote_items_for_feed(conn, &feed_guid)?
-                .into_iter()
-                .map(feed_remote_item_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("publisher") {
-        resp.publisher = Some(load_publisher(conn, &feed_guid)?);
+    // v4vmm request 3: this loop reads `FEED_INCLUDES`, the same list
+    // `handle_capabilities` reports, so the two cannot drift apart again.
+    for &name in FEED_INCLUDES {
+        if !params.includes(name) {
+            continue;
+        }
+        match name {
+            "tracks" => {
+                // ADR 0042: this route read the track column alone, so
+                // `image_url` meant something different here than on every
+                // other track route. The feed artwork is already in hand, so
+                // no join is needed to resolve it.
+                let feed_artwork = resp.image_url.clone();
+                let mut stmt = conn.prepare(
+                    "SELECT track_guid, title, pub_date, duration_secs, image_url, track_number, publisher \
+                     FROM tracks WHERE feed_guid = ?1 ORDER BY track_number ASC, pub_date DESC",
+                )?;
+                let tracks: Vec<TrackSummary> = stmt
+                    .query_map(params![feed_guid], |row| {
+                        // ADR 0054 §4: sanitize once, since this value feeds
+                        // both `image_url` (with the feed-artwork fallback)
+                        // and `track_image_url` below.
+                        let track_image_url: Option<String> =
+                            web_url_or_none(row.get::<_, Option<String>>(4)?.as_deref());
+                        Ok(TrackSummary {
+                            track_guid: row.get(0)?,
+                            title: row.get(1)?,
+                            pub_date: row.get(2)?,
+                            duration_secs: row.get(3)?,
+                            image_url: track_image_url.clone().or_else(|| feed_artwork.clone()),
+                            track_image_url,
+                            feed_image_url: feed_artwork.clone(),
+                            track_number: row.get(5)?,
+                            publisher_text: row.get(6)?,
+                        })
+                    })?
+                    .collect::<Result<_, _>>()?;
+                resp.tracks = Some(tracks);
+            }
+            "payment_routes" => {
+                let mut stmt = conn.prepare(
+                    "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+                     FROM feed_payment_routes WHERE feed_guid = ?1",
+                )?;
+                let routes: Vec<RouteResponse> = stmt
+                    .query_map(params![feed_guid], |row| {
+                        Ok(RouteResponse {
+                            recipient_name: row.get(0)?,
+                            route_type: row.get(1)?,
+                            address: row.get(2)?,
+                            custom_key: row.get(3)?,
+                            custom_value: row.get(4)?,
+                            split: row.get(5)?,
+                            fee: row.get::<_, i64>(6)? != 0,
+                        })
+                    })?
+                    .collect::<Result<_, _>>()?;
+                resp.payment_routes = Some(routes);
+            }
+            "source_links" => {
+                resp.source_links = Some(
+                    db::get_source_entity_links_for_entity(conn, "feed", &feed_guid)?
+                        .into_iter()
+                        .map(entity_link_response)
+                        .collect(),
+                );
+            }
+            "source_ids" => {
+                resp.source_ids = Some(
+                    db::get_source_entity_ids_for_entity(conn, "feed", &feed_guid)?
+                        .into_iter()
+                        .map(entity_id_response)
+                        .collect(),
+                );
+            }
+            "source_contributors" => {
+                resp.source_contributors = Some(
+                    db::get_source_contributor_claims_for_entity(conn, "feed", &feed_guid)?
+                        .into_iter()
+                        .map(contributor_claim_response)
+                        .collect(),
+                );
+            }
+            "source_platforms" => {
+                resp.source_platforms = Some(
+                    db::get_source_platform_claims_for_feed(conn, &feed_guid)?
+                        .into_iter()
+                        .map(platform_claim_response)
+                        .collect(),
+                );
+            }
+            "source_release_claims" => {
+                resp.source_release_claims = Some(
+                    db::get_source_release_claims_for_entity(conn, "feed", &feed_guid)?
+                        .into_iter()
+                        .map(release_claim_response)
+                        .collect(),
+                );
+            }
+            "remote_items" => {
+                resp.remote_items = Some(
+                    db::get_feed_remote_items_for_feed(conn, &feed_guid)?
+                        .into_iter()
+                        .map(feed_remote_item_response)
+                        .collect(),
+                );
+            }
+            "publisher" => {
+                resp.publisher = Some(load_publisher(conn, &feed_guid)?);
+            }
+            // FEED_INCLUDES lists only the names matched above.
+            _ => unreachable!("FEED_INCLUDES and this match must list the same names"),
+        }
     }
 
     Ok(resp)
@@ -1273,130 +1320,152 @@ fn build_track_response(
         publisher: None,
     };
 
-    if params.includes("payment_routes") {
-        let routes: Vec<RouteResponse> =
-            db::get_payment_routes_for_feed_track(conn, &feed_guid, &track_guid)?
-                .into_iter()
-                .map(|route| RouteResponse {
-                    recipient_name: route.recipient_name,
-                    route_type: serde_json::to_string(&route.route_type)
-                        .expect("serializing RouteType cannot fail")
-                        .trim_matches('"')
-                        .to_string(),
-                    address: route.address,
-                    custom_key: route.custom_key,
-                    custom_value: route.custom_value,
-                    split: route.split,
-                    fee: route.fee,
-                })
-                .collect();
-        // Feed→track inheritance: fall back to parent feed routes when the
-        // track has none of its own.
-        let routes = if routes.is_empty() {
-            let mut fstmt = conn.prepare(
-                "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
-                 FROM feed_payment_routes WHERE feed_guid = ?1",
-            )?;
-            fstmt
-                .query_map(params![resp.feed_guid], |row| {
-                    Ok(RouteResponse {
-                        recipient_name: row.get(0)?,
-                        route_type: row.get(1)?,
-                        address: row.get(2)?,
-                        custom_key: row.get(3)?,
-                        custom_value: row.get(4)?,
-                        split: row.get(5)?,
-                        fee: row.get::<_, i64>(6)? != 0,
-                    })
-                })?
-                .collect::<Result<_, _>>()?
-        } else {
-            routes
-        };
-        resp.payment_routes = Some(routes);
-    }
-
-    if params.includes("value_time_splits") {
-        let vts: Vec<VtsResponse> =
-            db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
-                .into_iter()
-                .map(|split| VtsResponse {
-                    start_time_secs: split.start_time_secs,
-                    duration_secs: split.duration_secs,
-                    remote_feed_guid: split.remote_feed_guid,
-                    remote_item_guid: split.remote_item_guid,
-                    split: split.split,
-                })
-                .collect();
-        resp.value_time_splits = Some(vts);
-    }
-
-    if params.includes("source_links") {
-        resp.source_links = Some(
-            db::get_source_entity_links_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
-                .into_iter()
-                .map(entity_link_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_ids") {
-        resp.source_ids = Some(
-            db::get_source_entity_ids_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
-                .into_iter()
-                .map(entity_id_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_contributors") {
-        let claims = db::get_effective_source_contributor_claims_for_track(
-            conn,
-            &resp.feed_guid,
-            &track_guid,
-        )?;
-        resp.source_contributors =
-            Some(claims.into_iter().map(contributor_claim_response).collect());
-    }
-
-    if params.includes("source_release_claims") {
-        resp.source_release_claims = Some(
-            db::get_source_release_claims_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
-                .into_iter()
-                .map(release_claim_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_enclosures") {
-        resp.source_enclosures = Some(
-            db::get_source_item_enclosures_for_feed_entity(conn, &feed_guid, "track", &track_guid)?
-                .into_iter()
-                .map(enclosure_response)
-                .collect(),
-        );
-    }
-
-    if params.includes("source_transcripts") {
-        resp.source_transcripts = Some(
-            db::get_source_item_transcripts_for_feed_entity(
-                conn,
-                &feed_guid,
-                "track",
-                &track_guid,
-            )?
-            .into_iter()
-            .map(transcript_response)
-            .collect(),
-        );
-    }
-
-    if params.includes("remote_items") {
-        resp.remote_items = Some(load_track_remote_items(conn, &feed_guid, &track_guid)?);
-    }
-
-    if params.includes("publisher") {
-        resp.publisher = Some(load_track_publisher(conn, &feed_guid, &track_guid)?);
+    // v4vmm request 3: this loop reads `TRACK_INCLUDES`, the same list
+    // `handle_capabilities` reports, so the two cannot drift apart again.
+    for &name in TRACK_INCLUDES {
+        if !params.includes(name) {
+            continue;
+        }
+        match name {
+            "payment_routes" => {
+                let routes: Vec<RouteResponse> =
+                    db::get_payment_routes_for_feed_track(conn, &feed_guid, &track_guid)?
+                        .into_iter()
+                        .map(|route| RouteResponse {
+                            recipient_name: route.recipient_name,
+                            route_type: serde_json::to_string(&route.route_type)
+                                .expect("serializing RouteType cannot fail")
+                                .trim_matches('"')
+                                .to_string(),
+                            address: route.address,
+                            custom_key: route.custom_key,
+                            custom_value: route.custom_value,
+                            split: route.split,
+                            fee: route.fee,
+                        })
+                        .collect();
+                // Feed→track inheritance: fall back to parent feed routes
+                // when the track has none of its own.
+                let routes = if routes.is_empty() {
+                    let mut fstmt = conn.prepare(
+                        "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee \
+                         FROM feed_payment_routes WHERE feed_guid = ?1",
+                    )?;
+                    fstmt
+                        .query_map(params![resp.feed_guid], |row| {
+                            Ok(RouteResponse {
+                                recipient_name: row.get(0)?,
+                                route_type: row.get(1)?,
+                                address: row.get(2)?,
+                                custom_key: row.get(3)?,
+                                custom_value: row.get(4)?,
+                                split: row.get(5)?,
+                                fee: row.get::<_, i64>(6)? != 0,
+                            })
+                        })?
+                        .collect::<Result<_, _>>()?
+                } else {
+                    routes
+                };
+                resp.payment_routes = Some(routes);
+            }
+            "value_time_splits" => {
+                let vts: Vec<VtsResponse> =
+                    db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
+                        .into_iter()
+                        .map(|split| VtsResponse {
+                            start_time_secs: split.start_time_secs,
+                            duration_secs: split.duration_secs,
+                            remote_feed_guid: split.remote_feed_guid,
+                            remote_item_guid: split.remote_item_guid,
+                            split: split.split,
+                        })
+                        .collect();
+                resp.value_time_splits = Some(vts);
+            }
+            "source_links" => {
+                resp.source_links = Some(
+                    db::get_source_entity_links_for_feed_entity(
+                        conn,
+                        &feed_guid,
+                        "track",
+                        &track_guid,
+                    )?
+                    .into_iter()
+                    .map(entity_link_response)
+                    .collect(),
+                );
+            }
+            "source_ids" => {
+                resp.source_ids = Some(
+                    db::get_source_entity_ids_for_feed_entity(
+                        conn,
+                        &feed_guid,
+                        "track",
+                        &track_guid,
+                    )?
+                    .into_iter()
+                    .map(entity_id_response)
+                    .collect(),
+                );
+            }
+            "source_contributors" => {
+                let claims = db::get_effective_source_contributor_claims_for_track(
+                    conn,
+                    &resp.feed_guid,
+                    &track_guid,
+                )?;
+                resp.source_contributors =
+                    Some(claims.into_iter().map(contributor_claim_response).collect());
+            }
+            "source_release_claims" => {
+                resp.source_release_claims = Some(
+                    db::get_source_release_claims_for_feed_entity(
+                        conn,
+                        &feed_guid,
+                        "track",
+                        &track_guid,
+                    )?
+                    .into_iter()
+                    .map(release_claim_response)
+                    .collect(),
+                );
+            }
+            "source_enclosures" => {
+                resp.source_enclosures = Some(
+                    db::get_source_item_enclosures_for_feed_entity(
+                        conn,
+                        &feed_guid,
+                        "track",
+                        &track_guid,
+                    )?
+                    .into_iter()
+                    .map(enclosure_response)
+                    .collect(),
+                );
+            }
+            "source_transcripts" => {
+                resp.source_transcripts = Some(
+                    db::get_source_item_transcripts_for_feed_entity(
+                        conn,
+                        &feed_guid,
+                        "track",
+                        &track_guid,
+                    )?
+                    .into_iter()
+                    .map(transcript_response)
+                    .collect(),
+                );
+            }
+            "remote_items" => {
+                resp.remote_items = Some(load_track_remote_items(conn, &feed_guid, &track_guid)?);
+            }
+            "publisher" => {
+                resp.publisher = Some(load_track_publisher(conn, &feed_guid, &track_guid)?);
+            }
+            // TRACK_INCLUDES lists only the names matched above.
+            _ => unreachable!("TRACK_INCLUDES and this match must list the same names"),
+        }
     }
 
     Ok(resp)
@@ -2265,7 +2334,7 @@ async fn handle_list_copy_records(
             message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
-        let limit = params.capped_limit().min(100);
+        let limit = params.capped_limit().min(SEARCH_LIMIT_MAX);
 
         let mut records = Vec::new();
         for feed_guid in db::list_feed_copy_guids(&conn)? {
@@ -2367,7 +2436,7 @@ async fn handle_list_guid_changes(
             message: format!("database reader pool error: {e}"),
             www_authenticate: None,
         })?;
-        let limit = params.capped_limit().min(100);
+        let limit = params.capped_limit().min(SEARCH_LIMIT_MAX);
 
         let mut records: Vec<GuidChangeResponse> = db::list_guid_changes(&conn)?
             .into_iter()
@@ -2653,7 +2722,7 @@ async fn handle_search(
     let kind = params.kind.clone();
     tracing::info!(q = ?q, kind = ?kind, "search query received");
     // Issue-NEGATIVE-LIMIT — 2026-03-15
-    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Parse keyset cursor: base64(f64_bits_as_decimal \0 rowid_as_decimal).
@@ -2862,34 +2931,11 @@ struct CapabilitiesResponse {
 }
 
 async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl IntoResponse {
+    // v4vmm request 3: this reads `FEED_INCLUDES` and `TRACK_INCLUDES`, the
+    // same lists the include parsing of each route reads.
     let mut include_params = HashMap::new();
-    include_params.insert(
-        "feed",
-        vec![
-            "tracks",
-            "payment_routes",
-            "source_links",
-            "source_ids",
-            "source_contributors",
-            "source_platforms",
-            "source_release_claims",
-            "remote_items",
-            "publisher",
-        ],
-    );
-    include_params.insert(
-        "track",
-        vec![
-            "payment_routes",
-            "value_time_splits",
-            "source_links",
-            "source_ids",
-            "source_contributors",
-            "source_release_claims",
-            "source_enclosures",
-            "source_transcripts",
-        ],
-    );
+    include_params.insert("feed", FEED_INCLUDES.to_vec());
+    include_params.insert("track", TRACK_INCLUDES.to_vec());
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
@@ -2943,7 +2989,7 @@ async fn handle_publisher_search(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let case_sensitive = params.case_sensitive();
     let q = params.q.unwrap_or_default();
-    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
     let state2 = Arc::clone(&state);
     let result = tokio::task::spawn_blocking(move || {
         let conn = state2.db.reader().map_err(|e| api::ApiError {
@@ -2971,13 +3017,18 @@ async fn handle_publisher_search(
              ORDER BY feed_count DESC, publisher ASC \
              LIMIT ?2"
         ))?;
-        let items: Vec<PublisherSearchItem> = stmt
-            .query_map(params![match_arg, limit], |row| {
+        // musicindex request 4: read one row past `limit`, so `has_more`
+        // states the truth. This route gives no cursor.
+        let mut rows: Vec<(String, i64)> = stmt
+            .query_map(params![match_arg, limit + 1], |row| {
                 let publisher_text: String = row.get(0)?;
                 let feed_count: i64 = row.get(1)?;
                 Ok((publisher_text, feed_count))
             })?
-            .collect::<Result<Vec<_>, _>>()?
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(0);
+        rows.truncate(usize::try_from(limit).unwrap_or(0));
+        let items: Vec<PublisherSearchItem> = rows
             .into_iter()
             .map(|(publisher_text, feed_count)| {
                 // Count tracks for this publisher
@@ -2999,7 +3050,7 @@ async fn handle_publisher_search(
             data: items,
             pagination: Pagination {
                 cursor: None,
-                has_more: false,
+                has_more,
             },
             meta: meta(&state2),
         })

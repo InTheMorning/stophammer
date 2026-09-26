@@ -155,7 +155,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Feeds",
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
                     query_param("include", "string", None, false, "Comma-separated include list. Supports `tracks`."),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium.")
                 ],
@@ -268,7 +268,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Feeds",
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return, at most 100.")
+                    limit_query_param("Maximum rows to return, at most 100.", query::SEARCH_LIMIT_MAX)
                 ],
                 None,
                 json!({
@@ -299,7 +299,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Feeds",
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return, at most 100.")
+                    limit_query_param("Maximum rows to return, at most 100.", query::SEARCH_LIMIT_MAX)
                 ],
                 None,
                 json!({
@@ -332,7 +332,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Tracks",
                 vec![
                     query_param("artist", "string", None, true, "Artist name to filter by (case-insensitive exact match)."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum rows to return."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque pagination cursor.")
                 ],
                 None,
@@ -375,7 +375,7 @@ fn spec_value(mode: DocMode) -> Value {
                 vec![
                     query_param("q", "string", None, true, "Search query (FTS5 syntax)."),
                     query_param("type", "string", None, false, "Filter by entity type: `feed` or `track`."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum results to return."),
+                    limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor.")
                 ],
                 None,
@@ -422,8 +422,8 @@ fn spec_value(mode: DocMode) -> Value {
                             "capabilities": ["query", "search", "sync", "push"],
                             "entity_types": ["feed", "track"],
                             "include_params": {
-                                "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-                                "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts"]
+                                "feed": query::FEED_INCLUDES,
+                                "track": query::TRACK_INCLUDES
                             }
                         })
                     )
@@ -466,7 +466,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Publishers",
                 vec![
                     query_param("q", "string", None, false, "Optional substring filter."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum publishers returned."),
+                    limit_query_param("Maximum publishers returned.", query::SEARCH_LIMIT_MAX),
                     query_param("case_sensitive", "boolean", None, false, "Set to `true` for case-sensitive matching. Defaults to `false`.")
                 ],
                 None,
@@ -495,7 +495,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Publishers",
                 vec![
                     path_param("publisher", "string", "Publisher text to match (substring)."),
-                    query_param("limit", "integer", Some("int64"), false, "Maximum feeds and tracks returned."),
+                    limit_query_param("Maximum feeds and tracks returned.", query::LIST_LIMIT_MAX),
                     query_param("case_sensitive", "boolean", None, false, "Set to `true` for case-sensitive matching. Defaults to `false`.")
                 ],
                 None,
@@ -861,7 +861,7 @@ fn feed_path_item(mode: DocMode) -> Value {
             vec![
                 path_param("guid", "string", "Feed GUID."),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections."),
-                query_param("limit", "integer", Some("int64"), false, "Maximum nested rows to return."),
+                limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
                 query_param("include", "string", None, false, "Comma-separated include list. Supports `tracks`, `payment_routes`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`."),
                 query_param("medium", "string", None, false, "Optional medium override used by shared query parsing.")
             ],
@@ -949,7 +949,7 @@ fn track_path_item(mode: DocMode) -> Value {
             vec![
                 path_param("guid", "string", "Track GUID."),
                 query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
-                query_param("limit", "integer", Some("int64"), false, "Maximum nested rows to return."),
+                limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
             ],
             None,
@@ -1031,7 +1031,7 @@ fn feed_track_path_item(mode: DocMode) -> Value {
                 path_param("guid", "string", "Parent feed GUID."),
                 path_param("track_guid", "string", "Track GUID."),
                 query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
-                query_param("limit", "integer", Some("int64"), false, "Maximum nested rows to return."),
+                limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
             ],
             None,
@@ -1153,6 +1153,26 @@ fn query_param(
         "required": required,
         "description": description,
         "schema": Value::Object(schema)
+    })
+}
+
+/// A `limit` query parameter with `minimum: 1` and the given `maximum`.
+///
+/// musicindex request 4: the contract states the maximum of each `limit`.
+/// `maximum` is `query::LIST_LIMIT_MAX` or `query::SEARCH_LIMIT_MAX`, the
+/// same constant the code reads.
+fn limit_query_param(description: &str, maximum: i64) -> Value {
+    json!({
+        "name": "limit",
+        "in": "query",
+        "required": false,
+        "description": description,
+        "schema": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 1,
+            "maximum": maximum
+        }
     })
 }
 

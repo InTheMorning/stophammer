@@ -642,6 +642,9 @@ owns this rule. The raw value stays in the database.
 | `limit` | i64 | 50 | Results per page (clamped to 1--200) |
 | `include` | string | none | Comma-separated list of nested data to include |
 
+A route ignores an include name it does not know. It gives no error. It also
+ignores a `limit` above the stated maximum, and returns the maximum instead.
+
 ---
 
 ## 5. Queries -- Feeds
@@ -1373,7 +1376,7 @@ capabilities payload.
   "entity_types": ["feed", "track"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts"]
+    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"]
   }
 }
 ```
@@ -1441,6 +1444,9 @@ Lists non-empty publisher text values with feed and track counts.
   "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
 }
 ```
+
+`has_more` is `true` when more publishers pass the filter than `limit`. This
+route gives no cursor.
 
 ### GET /v1/publishers/{publisher}
 
