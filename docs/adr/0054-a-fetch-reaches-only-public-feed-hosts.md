@@ -1,7 +1,7 @@
 # ADR 0054: A Fetch Reaches Only Public Feed Hosts
 
 ## Status
-Proposed
+Accepted on 2026-09-25
 
 ## Date
 2026-09-24
@@ -22,8 +22,8 @@ has no hardening:
 - `resp.bytes()` reads the full body with no size limit
   (`stophammer-crawler/src/crawl.rs:701` and `:872`). `fetch_timeout` limits
   the time, not the size.
-- The client uses the reqwest default of 10 redirects, and it examines no
-  hop.
+- The crawler follows at most 10 redirects and records each hop (ADR 0052
+  task 005). It examines no hop against a rule of address.
 - A feed can hold any number of `podcast:remoteItem` elements. The follow
   waves have no limit for each source feed.
 
@@ -58,14 +58,14 @@ A fetch is permitted only when all of these are true:
   the resolved address, so a second DNS answer cannot change the target.
 
 The fetch applies the rule to the first URL and to each redirect hop. The
-fetch follows at most 5 redirects.
+fetch follows at most 10 redirects.
 
 ### 2. Limits for one fetch
 
 | Limit | Value |
 |---|---|
 | Decoded body | 16 MiB. The fetch reads the body as a stream and stops at the limit |
-| Redirects | 5 |
+| Redirects | 10 |
 | Total time | `fetch_timeout`, as today |
 
 A body over the limit is a final fetch error with the reason `body_too_large`.
@@ -81,11 +81,17 @@ expand past it.
 - The per-host delay and the podping cooldowns of `stophammer-crawler`
   continue to apply.
 
-### 4. The node accepts only web URLs in URL fields
+### 4. The node serves only web URLs in URL fields
 
 The node examines each URL field from RSS at ingest: feed and track images,
-enclosures, links and `podcast:remoteItem` URLs. A value with a scheme other than `http` or `https` is removed. The node adds a
-warning to the ingest response. The rest of the submission applies.
+enclosures, links and `podcast:remoteItem` URLs. It keeps the raw value, as
+mandate 3 of `AGENTS.md` requires for source data. It adds a warning to the
+ingest response for a value with a scheme other than `http` or `https`. The
+rest of the submission applies.
+
+Each read route returns `null` for such a value. No client gets a
+`javascript:`, `data:` or other non-web URL from the index. The raw value
+stays in the database for the operator.
 
 ### 5. One rule, two implementations, one list of cases
 
@@ -114,6 +120,15 @@ ADR 0006 asks for it, and the operator should also do it. A firewall rule on
 one VPS is not in the code, and no test finds its loss. Both are necessary.
 Rejected as the only control.
 
+### Remove a non-web URL at ingest
+This loses the raw value, against mandate 3. The read routes give the same
+protection to a client. Rejected on 2026-09-25.
+
+### Five redirects
+The crawler follows 10, the reqwest default, with no known loop. A lower
+limit can break a working feed and gives no additional protection, because
+the rule of section 1 examines each hop. Rejected on 2026-09-25.
+
 ### A shared crate for the guard
 It adds a fourth crate and a release sequence for one function. The shared
 list of cases gives the same result. Rejected.
@@ -125,7 +140,8 @@ list of cases gives the same result. Rejected.
 - One feed cannot cause an unlimited number of fetches.
 - A feed with a body over 16 MiB fails. The largest feed in the index is to
   be measured before the value is final.
-- A client gets no `javascript:` or `data:` URL from the index.
+- A client gets no `javascript:` or `data:` URL from the index. The raw value
+  stays in the database.
 
 ## Invariants
 

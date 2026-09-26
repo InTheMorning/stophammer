@@ -78,7 +78,9 @@ The work that remains:
    against the Wavlake `429` limit, stays open until the second pass.
 
 4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
-   ADR 0054 and ADR 0055 are Proposed.
+   ADR 0054 is Accepted on 2026-09-25 and not built. ADR 0055 is Proposed
+   and waits. The operator runs the only crawler, on the same host as the
+   primary, so a leak of `CRAWL_TOKEN` is close to a compromise of that host.
    [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
    [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
    The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
@@ -137,7 +139,9 @@ The work that remains:
      a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
-   - ADR 0054 and ADR 0055.
+   - ADR 0054. The crawler and the node get the fetch rule. The crawler gets
+     the limits of one fetch and of the follow waves. The read routes stop
+     serving a non-web URL field.
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
 
