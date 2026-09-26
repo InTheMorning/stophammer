@@ -114,6 +114,15 @@ This closes request 1. The names use the prefix `remote_`, not `music_`,
 because the same fields are on a `music_to_publisher` row, where the named
 feed is the publisher.
 
+## Verification By v4vmm - 2026-09-26
+
+v4vmm read the live API with read-only GET requests on 2026-09-26.
+
+- Request 1: the publisher feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gave 30 `publisher_to_music` entries.
+  Each sampled entry gave `remote_feed_title`, `remote_feed_image_url`, `remote_release_artist` and `remote_release_artist_source`.
+- Request 2: `GET /node/info` gave `git_revision` `264706e` and `built_at` `2026-09-26T04:05:34Z`.
+- Request 3: `/v1/node/capabilities` listed `remote_items` and `publisher` for tracks.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
