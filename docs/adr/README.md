@@ -60,7 +60,7 @@ disagree.
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
-| [0061](0061-a-publisher-kind-is-derived-and-says-so.md) | A publisher read gives the artists of its listed albums, and a derived `publisher_kind` (`artist`, `label` or `unknown`) with its source. A stated `rel` wins | Proposed |
+| [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives the artists of the albums it lists, also when an album does not name it. The index derives no artist or label kind | Proposed |
 
 ## Identity, Signing And Security
 
