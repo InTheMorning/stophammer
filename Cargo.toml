@@ -4,7 +4,7 @@ version     = "0.1.0"
 edition     = "2024"
 license     = "AGPL-3.0-only"
 description = "Decentralised music feed index with value-for-value verification"
-repository  = "https://github.com/v4v-tools/stophammer"
+repository  = "https://github.com/InTheMorning/stophammer"
 keywords    = ["podcast", "v4v", "music", "rss"]
 categories  = ["web-programming"]
 

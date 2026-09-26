@@ -6,7 +6,7 @@
 @ROOT@/packaging/systemd/stophammer-crawl.timer|systemd/stophammer-crawl.timer
 @ROOT@/packaging/env/crawler-gossip.env.example|env/crawler-gossip.env.example
 @ROOT@/packaging/env/crawler-import.env.example|env/crawler-import.env.example
-@ROOT@/packaging/env/crawler-crawl.env.example|env/crawler-crawl.env.example
+@ROOT@/packaging/env/crawler-feed.env.example|env/crawler-feed.env.example
 @ROOT@/packaging/sysusers.d/stophammer-crawler.conf|sysusers.d/stophammer-crawler.conf
 @ROOT@/packaging/tmpfiles.d/stophammer-crawler.conf|tmpfiles.d/stophammer-crawler.conf
 @ROOT@/packaging/releases/stophammer-crawler.README.md|README.md

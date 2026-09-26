@@ -16,6 +16,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The crawler and the parser are separate repositories. A release needs
+      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-crawler
+          ref: ${{ github.ref_name }}
+          path: stophammer-crawler
+
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-parser
+          ref: ${{ github.ref_name }}
+          path: stophammer-parser
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
@@ -81,6 +95,20 @@ jobs:
         run: pacman -Syu --noconfirm base-devel cargo git
 
       - uses: actions/checkout@v5
+
+      # The crawler and the parser are separate repositories. A release needs
+      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-crawler
+          ref: ${{ github.ref_name }}
+          path: stophammer-crawler
+
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-parser
+          ref: ${{ github.ref_name }}
+          path: stophammer-parser
 
       - name: Create build user
         run: |
@@ -161,6 +189,20 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The crawler and the parser are separate repositories. A release needs
+      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-crawler
+          ref: ${{ github.ref_name }}
+          path: stophammer-crawler
+
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-parser
+          ref: ${{ github.ref_name }}
+          path: stophammer-parser
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
@@ -195,3 +237,5 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.image_name }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}
+          build-args: |
+            STOPHAMMER_PARSER_REF=${{ github.ref_name }}

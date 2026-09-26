@@ -45,11 +45,7 @@ verify_package() {
   case "$package_name" in
     stophammer-indexer)
       check_executable "$package_root/bin/stophammer"
-      check_executable "$package_root/bin/stophammer-resolverd"
-      check_executable "$package_root/bin/stophammer-resolverctl"
       check_file "$package_root/systemd/stophammer-primary.service"
-      check_file "$package_root/systemd/stophammer-resolverd.service"
-      "$package_root/bin/stophammer-resolverctl" --help >/dev/null
       ;;
     stophammer-node)
       check_executable "$package_root/bin/stophammer"

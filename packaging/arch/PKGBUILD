@@ -8,7 +8,7 @@ pkgver=0.1.0
 pkgrel=1
 pkgdesc='Role-based Arch packages for the Stophammer music index stack'
 arch=('x86_64')
-url='https://github.com/v4v-tools/stophammer'
+url='https://github.com/InTheMorning/stophammer'
 license=('AGPL-3.0-only')
 makedepends=('cargo' 'git')
 options=('!debug')
@@ -120,7 +120,7 @@ package_stophammer-crawler() {
   backup=(
     'etc/stophammer/crawler-gossip.env'
     'etc/stophammer/crawler-import.env'
-    'etc/stophammer/crawler-crawl.env'
+    'etc/stophammer/crawler-feed.env'
   )
   install='stophammer-crawler.install'
 

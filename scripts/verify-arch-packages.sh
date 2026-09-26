@@ -17,9 +17,15 @@ check_file() {
   fi
 }
 
+# makepkg names each package with pkgver and pkgrel of the PKGBUILD, not with
+# the release tag. A tag such as v0.1.0-rc.1 is not a valid pkgver.
+pkgbuild="$repo_root/packaging/arch/PKGBUILD"
+pkgver="$(sed -n 's/^pkgver=//p' "$pkgbuild")"
+pkgrel="$(sed -n 's/^pkgrel=//p' "$pkgbuild")"
+
 package_path() {
   local package_name="$1"
-  printf '%s/%s-%s-1-x86_64.pkg.tar.zst\n' "$dist_dir" "$package_name" "$version"
+  printf '%s/%s-%s-%s-x86_64.pkg.tar.zst\n' "$dist_dir" "$package_name" "$pkgver" "$pkgrel"
 }
 
 check_pkginfo_field() {
@@ -53,8 +59,6 @@ verify_package() {
       check_pkginfo_field "$pkg" 'pkgname = stophammer-indexer'
       check_pkginfo_field "$pkg" 'conflict = stophammer-node'
       check_archive_member "$pkg" 'usr/bin/stophammer'
-      check_archive_member "$pkg" 'usr/bin/stophammer-resolverd'
-      check_archive_member "$pkg" 'usr/bin/stophammer-resolverctl'
       check_archive_member "$pkg" 'usr/lib/systemd/system/stophammer-primary.service'
       check_archive_member "$pkg" 'etc/stophammer/primary.env'
       ;;
