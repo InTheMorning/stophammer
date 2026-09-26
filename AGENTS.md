@@ -70,16 +70,15 @@ The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
 
-1. Task 002 of ADR 0044 is complete and not deployed. Each documented JSON
-   response points at the schema of its type. A read route gives an envelope
-   object from `envelope_schema` in `src/openapi.rs`. `GET /sync/events` and
-   `POST /sync/reconcile` keep a plain object, because `Event` has no schema.
-   The visual check of both explorers is open.
-2. Task 003 of ADR 0044. The guards, and the correction of this file where it
-   describes the document. The
-   [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the
-   [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
-   sequence.
+1. ADR 0044 tasks 002 and 003 are complete and not deployed. Each documented
+   JSON response points at the schema of its type. A read route gives an
+   envelope object from `envelope_schema` in `src/openapi.rs`.
+   `GET /sync/events` and `POST /sync/reconcile` keep a plain object, because
+   `Event` has no schema. The guards in `tests/adr0044_schema_refs_tests.rs`
+   and `tests/adr0044_contract_guard_tests.rs` enforce the rules. The visual
+   check of both explorers is open until the deploy.
+2. Release 0.1.0 waits for ADR 0044 and ADR 0057. The
+   [release plan](docs/plans/release-0.1.0-plan.md) gives the sequence.
 3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
    2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
    a conditional GET and keeps the last body, so a corrective pass transfers
@@ -490,14 +489,17 @@ Binaries live in `src/bin/`. Current binaries:
 
 1. Add the handler to `src/api.rs` (or `src/query.rs` for read-only).
 2. Register the route in `build_router()`.
-3. Add the path to `spec_value()` in `src/openapi.rs`. That function holds
-   the whole OpenAPI document as a literal. A handler annotation does not
-   reach the document.
-4. Check the document with `cargo run --bin gen_openapi`, which prints it to
-   standard output. `api.html` is a hand-written explorer page that reads
-   `/openapi.json` at run time, so it needs no regeneration.
-5. Add an integration test in `tests/`.
-6. Document in `docs/API.md`.
+3. If the response is a JSON type:
+   - Add `#[derive(ToSchema)]` to the response struct.
+   - Register the type in `response_schemas()` in `src/query.rs` or the
+     module that owns the response struct.
+4. Add the path and response to `spec_value()` in `src/openapi.rs`. Point the
+   response schema at the registered type with `$ref`.
+5. Check the document with `cargo run --bin gen_openapi`. Then run
+   `cargo test`. The guards of ADR 0044 fail when the path or the schema is
+   missing.
+6. Add an integration test in `tests/`.
+7. Document in `docs/API.md`.
 
 ### New Crate-Level Dependency
 

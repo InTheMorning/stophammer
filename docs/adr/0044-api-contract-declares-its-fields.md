@@ -99,5 +99,10 @@ A silent rename cost a client months of missing data. This rule earns a
 test.
 
 - A response that needs no credential holds a schema with properties.
+  Enforced by `each_json_response_names_its_fields` in
+  `tests/adr0044_schema_refs_tests.rs`.
 - Each route in `build_router` and in `query_routes` appears in the document.
+  Enforced by `each_router_route_is_in_primary_document` and
+  `each_readonly_router_route_is_in_readonly_document` in
+  `tests/adr0044_contract_guard_tests.rs`.
 - The document that `gen_openapi` prints parses as a correct OpenAPI document.
