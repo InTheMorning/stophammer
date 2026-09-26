@@ -113,7 +113,10 @@ time, in this order:
 3. Otherwise the resolution is `unresolved`.
 
 The node stores the declared values unchanged. It does not store a resolution.
-Thus a resolution cannot become stale when an album feed changes.
+Thus a resolution cannot become stale when an album feed changes. When an album
+feed is deleted or retired, the next read gives `unresolved`.
+`publisher_link_observed_at` is the time of the URL observation that the read
+uses, so it also comes from the read, not from a stored resolution.
 
 ### 4. The API reports each relationship fact
 The `publisher` view on a feed read adds these fields to each row:
