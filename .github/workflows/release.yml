@@ -78,6 +78,10 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          # A tag with a hyphen, such as v0.1.0-rc.1, is a candidate. It is a
+          # pre-release, and it does not become the latest release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS-*.txt
@@ -139,6 +143,11 @@ jobs:
           name: stophammer-arch-package-bundle
           path: dist/arch
 
+      # The check reads each package with bsdtar. The Ubuntu runner does not
+      # have it, and it needs zstd to read a .pkg.tar.zst file.
+      - name: Install bsdtar
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools zstd
+
       - name: Smoke-check Arch packages
         run: bash ./scripts/verify-arch-packages.sh "${GITHUB_REF_NAME}"
 
@@ -159,6 +168,8 @@ jobs:
       - name: Attach Arch packages to release
         uses: softprops/action-gh-release@v2
         with:
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: ${{ !contains(github.ref_name, '-') }}
           files: |
             dist/arch/*.pkg.tar.zst
             dist/arch/SHA256SUMS-arch-*.txt
