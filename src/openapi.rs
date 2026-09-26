@@ -85,7 +85,9 @@ fn spec_value(mode: DocMode) -> Value {
                     "200": json_response(
                         "Node information.",
                         json!({
-                            "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2"
+                            "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2",
+                            "git_revision": "a1b2c3d-dirty",
+                            "built_at": "2026-09-25T10:30:45Z"
                         })
                     )
                 }),
@@ -384,6 +386,17 @@ fn spec_value(mode: DocMode) -> Value {
                         "Search results.",
                         query_envelope_example(json!([
                             {
+                                "entity_type": "feed",
+                                "entity_id": "feed-guid",
+                                "rank": -1.2,
+                                "quality_score": 10,
+                                "title": "Album Title",
+                                "feed_image_url": "https://example.com/cover.jpg",
+                                "release_artist": "Artist Name",
+                                "release_artist_source": "itunes_author",
+                                "episode_count": 12
+                            },
+                            {
                                 "entity_type": "track",
                                 "entity_id": "track-guid",
                                 "feed_guid": "feed-guid",
@@ -394,7 +407,9 @@ fn spec_value(mode: DocMode) -> Value {
                                 "feed_title": "Album Title",
                                 "track_image_url": null,
                                 "feed_image_url": "https://example.com/cover.jpg",
-                                "pub_date": 1710288000
+                                "pub_date": 1710288000,
+                                "track_artist": "Artist Name",
+                                "duration_secs": 240
                             }
                         ]))
                     ),

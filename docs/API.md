@@ -33,16 +33,24 @@ Liveness probe. Returns plain text `ok`.
 
 ### GET /node/info
 
-Returns this node's ed25519 public key.
+Returns this node's ed25519 public key, git revision, and assembly time.
 
 - **Authentication:** None
 - **Response:**
 
 ```json
 {
-  "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2"
+  "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2",
+  "git_revision": "a1b2c3d-dirty",
+  "built_at": "2026-09-25T10:30:45Z"
 }
 ```
+
+| Field | Type | Meaning |
+|-------|------|---------|
+| `node_pubkey` | string | Hex-encoded ed25519 public key of this node |
+| `git_revision` | string \| null | Short git commit hash, with `-dirty` suffix if the working tree has changes. Null if the node was not assembled by `deploy.sh`. |
+| `built_at` | string \| null | ISO-8601 UTC timestamp of assembly. Null if the node was not assembled by `deploy.sh`. |
 
 | Code | Meaning |
 |------|---------|
@@ -1307,12 +1315,14 @@ Track search hits also include canonical disambiguators:
 - `href` pointing at `GET /v1/feeds/{feed_guid}/tracks/{track_guid}`
 
 A result also carries the values a client needs to show a row, so a list view
-needs no request for each hit. ADR 0042 owns these fields.
+needs no call for each hit. ADR 0042 owns these fields.
 
-- `title` is always present. It is null only when the indexed row is gone.
-- `feed_title`, `track_image_url`, `feed_image_url` and `pub_date` are present
-  when the row holds them.
-- A summary field that is absent is not evidence that the value is absent in
+- `title` is always given. It is null only when the indexed row is gone.
+- Feed results give `feed_image_url`, `release_artist`,
+  `release_artist_source` and `episode_count`.
+- Track results give `feed_title`, `track_image_url`, `feed_image_url`,
+  `pub_date`, `track_artist` and `duration_secs`.
+- A summary field that is missing does not show if the value is missing in
   the full record.
 
 - **Authentication:** None
@@ -1332,6 +1342,17 @@ needs no request for each hit. ADR 0042 owns these fields.
 {
   "data": [
     {
+      "entity_type": "feed",
+      "entity_id": "feed-guid",
+      "rank": -1.2,
+      "quality_score": 10,
+      "title": "Album Title",
+      "feed_image_url": "https://example.com/cover.jpg",
+      "release_artist": "Artist Name",
+      "release_artist_source": "itunes_author",
+      "episode_count": 12
+    },
+    {
       "entity_type": "track",
       "entity_id": "track-guid",
       "feed_guid": "feed-guid",
@@ -1342,7 +1363,9 @@ needs no request for each hit. ADR 0042 owns these fields.
       "feed_title": "Album Title",
       "track_image_url": null,
       "feed_image_url": "https://example.com/cover.jpg",
-      "pub_date": 1710288000
+      "pub_date": 1710288000,
+      "track_artist": "Artist Name",
+      "duration_secs": 240
     }
   ],
   "pagination": { "cursor": "cursor-token", "has_more": true },

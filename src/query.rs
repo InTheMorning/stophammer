@@ -533,6 +533,16 @@ struct SearchResponseItem {
     feed_image_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub_date: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_artist_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    episode_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    track_artist: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_secs: Option<i64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -818,6 +828,11 @@ struct SearchSummary {
     track_image_url: Option<String>,
     feed_image_url: Option<String>,
     pub_date: Option<i64>,
+    release_artist: Option<String>,
+    release_artist_source: Option<String>,
+    episode_count: Option<i64>,
+    track_artist: Option<String>,
+    duration_secs: Option<i64>,
 }
 
 /// Reads the summary values for a feed hit.
@@ -828,12 +843,15 @@ fn feed_search_summary(
     feed_guid: &str,
 ) -> Result<SearchSummary, api::ApiError> {
     conn.query_row(
-        "SELECT title, image_url FROM feeds WHERE feed_guid = ?1",
+        "SELECT title, image_url, release_artist, release_artist_source, episode_count FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
             Ok(SearchSummary {
                 title: row.get(0)?,
                 feed_image_url: row.get(1)?,
+                release_artist: row.get(2)?,
+                release_artist_source: row.get(3)?,
+                episode_count: row.get(4)?,
                 ..SearchSummary::default()
             })
         },
@@ -2879,6 +2897,8 @@ async fn handle_search(
                             summary.track_image_url = row.track_image_url;
                             summary.feed_image_url = row.feed_image_url;
                             summary.pub_date = row.pub_date;
+                            summary.track_artist = row.track_artist;
+                            summary.duration_secs = row.duration_secs;
                         }
                     } else {
                         summary = feed_search_summary(&conn, &entity_id)?;
@@ -2898,6 +2918,11 @@ async fn handle_search(
                         track_image_url: web_url_or_none(summary.track_image_url.as_deref()),
                         feed_image_url: web_url_or_none(summary.feed_image_url.as_deref()),
                         pub_date: summary.pub_date,
+                        release_artist: summary.release_artist,
+                        release_artist_source: summary.release_artist_source,
+                        episode_count: summary.episode_count,
+                        track_artist: summary.track_artist,
+                        duration_secs: summary.duration_secs,
                     })
                 })
                 .collect()

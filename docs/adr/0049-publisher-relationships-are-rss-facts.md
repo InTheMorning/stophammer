@@ -117,6 +117,8 @@ Thus a resolution cannot become stale when an album feed changes. When an album
 feed is deleted or retired, the next read gives `unresolved`.
 `publisher_link_observed_at` is the time of the URL observation that the read
 uses, so it also comes from the read, not from a stored resolution.
+The test `a_deleted_album_feed_gives_unresolved_on_publisher_read` in
+`tests/client_requests_search_fields_tests.rs` proves the deletion case.
 
 ### 4. The API reports each relationship fact
 The `publisher` view on a feed read adds these fields to each row:

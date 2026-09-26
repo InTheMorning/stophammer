@@ -4172,11 +4172,21 @@ async fn handle_sync_peers(
 #[derive(Deserialize, Serialize, ToSchema)]
 struct NodeInfoResponse {
     node_pubkey: String,
+    git_revision: Option<String>,
+    built_at: Option<String>,
+}
+
+/// A value that `deploy.sh` sets at compile time. An unset or empty value is
+/// null.
+fn build_value(value: Option<&'static str>) -> Option<String> {
+    value.filter(|v| !v.is_empty()).map(str::to_string)
 }
 
 async fn handle_node_info(State(state): State<Arc<AppState>>) -> Json<NodeInfoResponse> {
     Json(NodeInfoResponse {
         node_pubkey: state.node_pubkey_hex.clone(),
+        git_revision: build_value(option_env!("STOPHAMMER_GIT_REVISION")),
+        built_at: build_value(option_env!("STOPHAMMER_BUILT_AT")),
     })
 }
 

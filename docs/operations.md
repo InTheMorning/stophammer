@@ -80,6 +80,8 @@ cargo build --release
 ./target/release/stophammer
 ```
 
+The `/node/info` endpoint gives two optional fields: `git_revision` and `built_at`. When you assemble the binary with `cargo build` directly, these fields are null. The `deploy.sh` script sets these fields by exporting `STOPHAMMER_GIT_REVISION` and `STOPHAMMER_BUILT_AT` as environment variables before assembly.
+
 ### Install the published Linux binary
 
 ```bash
