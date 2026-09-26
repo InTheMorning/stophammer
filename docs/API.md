@@ -763,7 +763,11 @@ Returns a single feed by its `podcast:guid`.
         "remote_feed_guid": "publisher-feed-guid",
         "remote_feed_url": "https://example.com/publisher.xml",
         "rel": null,
-        "source": "podcast_remote_item"
+        "source": "podcast_remote_item",
+        "remote_feed_title": "Label Name",
+        "remote_feed_image_url": "https://example.com/label.jpg",
+        "remote_release_artist": "Label Name",
+        "remote_release_artist_source": "itunes_author"
       }
     ],
     "publisher": [
@@ -786,7 +790,11 @@ Returns a single feed by its `podcast:guid`.
         "publisher_rel": "label",
         "music_rel": null,
         "role": "label",
-        "role_source": "publisher_rel"
+        "role_source": "publisher_rel",
+        "remote_feed_title": "Label Name",
+        "remote_feed_image_url": "https://example.com/label.jpg",
+        "remote_release_artist": "Label Name",
+        "remote_release_artist_source": "itunes_author"
       }
     ]
   },
@@ -814,6 +822,22 @@ comma separates two or more roles in that value. `role` reads each side as
 a set of roles and compares the two sets. The value of `role` is the set,
 sorted and joined by `", "`. `role_source` is `"conflict"` when the two
 sets differ. ADR 0049 §6.
+
+Each `remote_items` entry and each `publisher` entry gives four values of the
+feed that it names. ADR 0059 owns them. A track read gives them too.
+
+| Field | Value |
+|---|---|
+| `remote_feed_title` | The `title` of the named feed |
+| `remote_feed_image_url` | The channel image of the named feed. Null when it is not a web URL (ADR 0054 §4) |
+| `remote_release_artist` | The `release_artist` of the named feed |
+| `remote_release_artist_source` | The source of that `release_artist` |
+
+The named feed of a `publisher` entry is the album on a `publisher_to_music`
+row, and the publisher on a `music_to_publisher` row. The node resolves the
+named feed at each read: by GUID, then by URL (ADR 0049 §3). When the node
+holds no feed for the entry, each of the four values is null. Each key is
+always in the entry.
 
 Each response that carries a track reports artwork with three fields. ADR 0042
 owns them.

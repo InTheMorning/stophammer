@@ -698,6 +698,18 @@ struct FeedRemoteItemResponse {
     /// `podcast:remoteItem`, so this value is non-standard.
     rel: Option<String>,
     source: String,
+    /// The title of the named feed, or null when the node holds no feed for
+    /// this entry. ADR 0059 §1.
+    remote_feed_title: Option<String>,
+    /// The image URL of the named feed, or null when the node holds no feed
+    /// for this entry. Passed through `web_url_or_none`. ADR 0059 §3.
+    remote_feed_image_url: Option<String>,
+    /// The release artist of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1.
+    remote_release_artist: Option<String>,
+    /// The release artist source of the named feed, or null when the node
+    /// holds no feed for this entry. ADR 0059 §1.
+    remote_release_artist_source: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -710,6 +722,18 @@ struct TrackRemoteItemResponse {
     /// `podcast:remoteItem`, so this value is non-standard.
     rel: Option<String>,
     source: String,
+    /// The title of the named feed, or null when the node holds no feed for
+    /// this entry. ADR 0059 §1.
+    remote_feed_title: Option<String>,
+    /// The image URL of the named feed, or null when the node holds no feed
+    /// for this entry. Passed through `web_url_or_none`. ADR 0059 §3.
+    remote_feed_image_url: Option<String>,
+    /// The release artist of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1.
+    remote_release_artist: Option<String>,
+    /// The release artist source of the named feed, or null when the node
+    /// holds no feed for this entry. ADR 0059 §1.
+    remote_release_artist_source: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -763,6 +787,18 @@ struct PublisherResponse {
     /// The source of `role`: `"publisher_rel"`, `"music_rel"`, `"default"`
     /// or `"conflict"`. ADR 0049 §6.
     role_source: String,
+    /// The title of the named feed, or null when the node holds no feed for
+    /// this entry. ADR 0059 §1.
+    remote_feed_title: Option<String>,
+    /// The image URL of the named feed, or null when the node holds no feed
+    /// for this entry. Passed through `web_url_or_none`. ADR 0059 §3.
+    remote_feed_image_url: Option<String>,
+    /// The release artist of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1.
+    remote_release_artist: Option<String>,
+    /// The release artist source of the named feed, or null when the node
+    /// holds no feed for this entry. ADR 0059 §1.
+    remote_release_artist_source: Option<String>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -1274,12 +1310,11 @@ fn build_feed_response(
                 );
             }
             "remote_items" => {
-                resp.remote_items = Some(
-                    db::get_feed_remote_items_for_feed(conn, &feed_guid)?
-                        .into_iter()
-                        .map(feed_remote_item_response)
-                        .collect(),
-                );
+                let mut items = Vec::new();
+                for item in db::get_feed_remote_items_for_feed(conn, &feed_guid)? {
+                    items.push(feed_remote_item_response(conn, item)?);
+                }
+                resp.remote_items = Some(items);
             }
             "publisher" => {
                 resp.publisher = Some(load_publisher(conn, &feed_guid)?);
@@ -1603,8 +1638,65 @@ fn transcript_response(t: crate::model::SourceItemTranscript) -> SourceItemTrans
     }
 }
 
-fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemoteItemResponse {
-    FeedRemoteItemResponse {
+/// The summary of the feed that an entry names. ADR 0059 §1.
+#[derive(Debug, Default)]
+struct NamedFeedSummary {
+    title: Option<String>,
+    image_url: Option<String>,
+    release_artist: Option<String>,
+    release_artist_source: Option<String>,
+}
+
+/// Reads the summary of `feed_guid` with one point read. Each field is null
+/// when the feed is not indexed. ADR 0059 §1, §3 and §4.
+fn named_feed_summary(
+    conn: &rusqlite::Connection,
+    feed_guid: Option<&str>,
+) -> Result<NamedFeedSummary, api::ApiError> {
+    let Some(feed_guid) = feed_guid else {
+        return Ok(NamedFeedSummary::default());
+    };
+    let summary = conn
+        .query_row(
+            "SELECT title, image_url, release_artist, release_artist_source \
+             FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| {
+                Ok(NamedFeedSummary {
+                    title: row.get(0)?,
+                    // ADR 0059 §3: the channel image, through the ADR 0054 §4
+                    // web URL check.
+                    image_url: web_url_or_none(row.get::<_, Option<String>>(1)?.as_deref()),
+                    release_artist: row.get(2)?,
+                    release_artist_source: row.get(3)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(summary.unwrap_or_default())
+}
+
+/// Resolves the feed of a `remote_items` entry from its raw stored values,
+/// as ADR 0049 §3 does, and reads its summary. ADR 0059 §2.
+fn remote_item_summary(
+    conn: &rusqlite::Connection,
+    remote_feed_guid: &str,
+    remote_feed_url: Option<&str>,
+) -> Result<NamedFeedSummary, api::ApiError> {
+    let resolution = db::resolve_listed_feed(conn, remote_feed_guid, remote_feed_url)?;
+    named_feed_summary(conn, resolution.feed_guid())
+}
+
+fn feed_remote_item_response(
+    conn: &rusqlite::Connection,
+    item: crate::model::FeedRemoteItemRaw,
+) -> Result<FeedRemoteItemResponse, api::ApiError> {
+    let summary = remote_item_summary(
+        conn,
+        &item.remote_feed_guid,
+        item.remote_feed_url.as_deref(),
+    )?;
+    Ok(FeedRemoteItemResponse {
         position: item.position,
         medium: item.medium,
         remote_feed_guid: item.remote_feed_guid,
@@ -1613,7 +1705,11 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
         remote_feed_url: web_url_or_none(item.remote_feed_url.as_deref()),
         rel: item.rel,
         source: item.source,
-    }
+        remote_feed_title: summary.title,
+        remote_feed_image_url: summary.image_url,
+        remote_release_artist: summary.release_artist,
+        remote_release_artist_source: summary.release_artist_source,
+    })
 }
 
 /// The resolver-derived facts shared by both directions of a `publisher`
@@ -1631,6 +1727,10 @@ struct PublisherLinkFacts {
     /// The raw `rel` of the matched item on the other side, when the loop
     /// found one. `None` when no candidate matched. ADR 0049 §6.
     matched_item_rel: Option<String>,
+    /// The indexed feed that this row names: the album of a
+    /// `publisher_to_music` row, or the publisher of a `music_to_publisher`
+    /// row. `None` when the named feed does not resolve. ADR 0059 §2.
+    named_feed_guid: Option<String>,
 }
 
 /// Returns the resolved feed's GUID and stored URL, or the declared GUID and
@@ -1705,6 +1805,7 @@ fn music_to_publisher_facts(
         music_feed_guid: current_feed.feed_guid.clone(),
         music_feed_url: Some(current_feed.feed_url.clone()),
         matched_item_rel,
+        named_feed_guid: publisher_resolution.feed_guid().map(str::to_string),
     })
 }
 
@@ -1759,6 +1860,7 @@ fn publisher_to_music_facts(
         music_feed_guid,
         music_feed_url,
         matched_item_rel,
+        named_feed_guid: music_resolution.feed_guid().map(str::to_string),
     })
 }
 
@@ -1868,6 +1970,10 @@ fn build_publisher_row(
     };
     let (role, role_source) = resolve_role(publisher_rel.as_deref(), music_rel.as_deref());
 
+    // ADR 0059 §2: the summary of the feed on the other side, from the
+    // resolution that the facts already made.
+    let summary = named_feed_summary(conn, facts.named_feed_guid.as_deref())?;
+
     // ADR 0054 §4: `remote_feed_url` is the raw `podcast:remoteItem` URL.
     // `publisher_feed_url` and `music_feed_url` fall back to that same raw
     // value when the resolver could not resolve the item to a stored feed
@@ -1892,6 +1998,10 @@ fn build_publisher_row(
         music_rel,
         role,
         role_source: role_source.to_string(),
+        remote_feed_title: summary.title,
+        remote_feed_image_url: summary.image_url,
+        remote_release_artist: summary.release_artist,
+        remote_release_artist_source: summary.release_artist_source,
     }))
 }
 
@@ -1927,9 +2037,15 @@ fn load_track_remote_items(
     track_guid: &str,
 ) -> Result<Vec<TrackRemoteItemResponse>, api::ApiError> {
     let items = db::get_track_remote_items_for_feed_track(conn, feed_guid, track_guid)?;
-    Ok(items
-        .into_iter()
-        .map(|item| TrackRemoteItemResponse {
+    let mut responses = Vec::new();
+    for item in items {
+        let summary = remote_item_summary(
+            conn,
+            &item.remote_feed_guid,
+            item.remote_feed_url.as_deref(),
+        )?;
+
+        responses.push(TrackRemoteItemResponse {
             position: item.position,
             medium: item.medium,
             remote_feed_guid: item.remote_feed_guid,
@@ -1938,8 +2054,13 @@ fn load_track_remote_items(
             remote_feed_url: web_url_or_none(item.remote_feed_url.as_deref()),
             rel: item.rel,
             source: item.source,
-        })
-        .collect())
+            remote_feed_title: summary.title,
+            remote_feed_image_url: summary.image_url,
+            remote_release_artist: summary.release_artist,
+            remote_release_artist_source: summary.release_artist_source,
+        });
+    }
+    Ok(responses)
 }
 
 fn load_track_publisher(
