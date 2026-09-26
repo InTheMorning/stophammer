@@ -13,9 +13,9 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 
 | # | Item | Owner | Kind | Repositories | Plan |
 |---|---|---|---|---|---|
-| 1 | Each documented response points at its schema | ADR 0044 task 002 | Code | `stophammer` | [ADR 0044 phase plan](adr-0044-contract-schema-phase-plan.md) |
-| 2 | The contract guards, and the correction of `AGENTS.md` | ADR 0044 task 003 | Code | `stophammer` | Same |
-| 3 | A feed can block this index with `podcast:block` | ADR 0057 | Code | Parser, node, crawler | [ADR 0057 phase plan](adr-0057-podcast-block-phase-plan.md) |
+| 1 | Each documented response points at its schema. Deployed on 2026-09-26 | ADR 0044 task 002 | Code | `stophammer` | [ADR 0044 phase plan](adr-0044-contract-schema-phase-plan.md) |
+| 2 | The contract guards, and the correction of `AGENTS.md`. Deployed on 2026-09-26 | ADR 0044 task 003 | Code | `stophammer` | Same |
+| 3 | A feed can block this index with `podcast:block`. Deployed on 2026-09-26 | ADR 0057 | Code | Parser, node, crawler | [ADR 0057 phase plan](adr-0057-podcast-block-phase-plan.md) |
 | 4 | A migration drops the two proof tables and changes the delete trigger | ADR 0056 §3 | Code | `stophammer` | [Task 002](../tasks/adr-0056-task-002-drop-proof-tables.md) |
 | 5 | Read the gossip log for rejected hosts. Complete on 2026-09-26 | ADR 0054 task 004 step 3 | Operator check | None | [ADR 0054 phase plan](adr-0054-fetch-rule-phase-plan.md) |
 | 6 | The second `refresh` pass: `304` and the Wavlake `429` limit | ADR 0050 plan decision 10 | Operator pass | None | [ADR 0050 phase plan](adr-0050-feed-revalidation-phase-plan.md) |

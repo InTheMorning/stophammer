@@ -13,6 +13,9 @@ checksums and the Arch packages, and GHCR holds the three images.
 
 ## Preconditions
 
+On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is next.
+
+
 The operator decided on 2026-09-26 that 0.1.0 waits until ADR 0044 and ADR
 0057 are complete. Complete means that each task is merged, deployed and
 checked on production:

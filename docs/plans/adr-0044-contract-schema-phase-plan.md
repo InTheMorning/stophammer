@@ -100,3 +100,11 @@ running `getapi.sh && pushsite.sh` from the previous commit.
 
 - Does any response type hold a field whose type has no `ToSchema`? Task 001
   reports the list rather than inventing a mapping.
+
+## Result Of The Deploy Of 2026-09-26
+
+Tasks 001 to 003 are deployed with the node commit `76487f7`. The live
+`/openapi.json` gives 64 JSON responses with named fields. `GET /sync/events`
+and `POST /sync/reconcile` keep a plain object, because `Event` has no schema.
+The operator did the visual check of both explorers, and each endpoint shows
+its example.

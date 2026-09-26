@@ -45,6 +45,17 @@ ignores it. No feed is blocked until both are deployed.
   removed, and the next crawl admits the feed again. No test can do this
   check, because it needs the deployed node and a public feed.
 
+## Result Of The Deploy Of 2026-09-26
+
+The node commit `76487f7` and the crawler are deployed. `/openapi.json` gives
+the reason `source_blocked`. The operator test passed on a feed on a host of
+the operator:
+
+1. The index admitted the feed.
+2. A `yes` block removed it. The answer was `source_blocked`, and a read gave
+   `404`.
+3. The removal of the tag admitted it again.
+
 ## Risks
 
 - A wrong direction of a rule removes a feed or keeps one that asked to leave.

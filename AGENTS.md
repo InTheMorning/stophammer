@@ -30,9 +30,17 @@ Complete and deployed:
   The pass has run. Task 002 corrected `GET /v1/feeds/recent`: a feed with a
   null `newest_item_at` now sorts after each dated feed, at cursor `-1`.
   Verified on production on 2026-09-24.
-- Task 001 of [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md).
-  The response types derive `utoipa::ToSchema`, and the document declares 36
-  schemas under `components.schemas`.
+- [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md), deployed on
+  2026-09-26. Each documented JSON response points at the schema of its type,
+  and a read route gives an envelope object from `envelope_schema` in
+  `src/openapi.rs`. `GET /sync/events` and `POST /sync/reconcile` keep a plain
+  object, because `Event` has no schema. The guards in
+  `tests/adr0044_schema_refs_tests.rs` and
+  `tests/adr0044_contract_guard_tests.rs` enforce the rules.
+- [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md), deployed on
+  2026-09-26. A `podcast:block` at the source URL retires the record, with the
+  reason `source_blocked`. `id="musicindex"` with `no` admits the feed. The
+  operator test with a feed on a host of the operator passed.
 - [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md), tasks 001
   to 013, with 004b, 006b and 010b. The publisher view reports each
   relationship fact by an RSS fact, never by a host rule. `resolve_listed_feed`
@@ -53,7 +61,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`9b6dc21` makes. `GET /node/info` gives the revision of the running node.
+`76487f7` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
 [the client requests work plan](docs/plans/client-requests-work-plan.md). Each
@@ -70,16 +78,10 @@ The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
 
-1. ADR 0044 tasks 002 and 003 are complete and not deployed. Each documented
-   JSON response points at the schema of its type. A read route gives an
-   envelope object from `envelope_schema` in `src/openapi.rs`.
-   `GET /sync/events` and `POST /sync/reconcile` keep a plain object, because
-   `Event` has no schema. The guards in `tests/adr0044_schema_refs_tests.rs`
-   and `tests/adr0044_contract_guard_tests.rs` enforce the rules. The visual
-   check of both explorers is open until the deploy.
-2. Release 0.1.0 waits for ADR 0044 and ADR 0057. The
-   [release plan](docs/plans/release-0.1.0-plan.md) gives the sequence.
-3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
+1. Release 0.1.0. ADR 0044 and ADR 0057 are complete. The release candidate
+   comes next. The [release plan](docs/plans/release-0.1.0-plan.md) gives the
+   sequence.
+2. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
    2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
    a conditional GET and keeps the last body, so a corrective pass transfers
    almost no feed body.
@@ -90,7 +92,7 @@ which gives the sequence of each open item of an Accepted ADR:
    measures, and it has not run. The open question, whether a `304` counts
    against the Wavlake `429` limit, stays open until the second pass.
 
-4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
+3. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
    and the gossip check of task 004 found no music host on 2026-09-26.
    ADR 0055 is Proposed and waits. The operator runs the only crawler, on the same host as the
@@ -124,11 +126,6 @@ which gives the sequence of each open item of an Accepted ADR:
 
    The work that remains:
 
-   - [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md). Tasks 001 to
-     003 are complete and not deployed. A `podcast:block` at the source URL
-     retires the record, with the reason `source_blocked`. The operator test
-     of the [phase plan](docs/plans/adr-0057-podcast-block-phase-plan.md) is
-     open until the deploy.
    - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Accepted on
      2026-09-25. The API shows each copy of a feed at a URL that is not its
      source. The operator keeps the source or relocates the record. Tasks
