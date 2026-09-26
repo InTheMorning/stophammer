@@ -17,7 +17,7 @@ names one track, and the feed is a track playlist.
 on 2026-09-25:
 
 - Podcast Index holds 11 `musicL` feeds. 6 are track playlists of 8 to 383
-  tracks. Each element of a playlist gives `itemGuid`, or all but one. 4 of
+  tracks. Each element of a playlist gives `itemGuid`, or all but one. 3 of
   the 6 have a channel `podcast:value` block.
 - The index holds 1 of the 11. The node accepts a playlist. No crawl reached
   the other 10.

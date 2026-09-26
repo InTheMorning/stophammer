@@ -46,7 +46,7 @@ the generator of Local Theory: 291 feeds. Each was fetched one time with
 
 | Kind | Feeds | `remoteItem` elements | With `itemGuid` | Value block |
 |---|---|---|---|---|
-| Track playlist | 6 | 8 to 383 each | All, or all but one | 4 of 6 |
+| Track playlist | 6 | 8 to 383 each | All, or all but one | 3 of 6 |
 | Album catalog | 1 | 13 | 0 | Yes |
 | Empty | 4 | 0 | 0 | 2 of 4 |
 

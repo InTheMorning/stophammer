@@ -52,7 +52,8 @@ Mechanical, with the live API:
 Operator check on the VPS, because no route gives the rows:
 
 - `feed_list_value_raw` holds rows for the playlists that have a value block.
-  The research found 4 of the 6 playlists with a value block.
+  The research found a value block on 6 `musicL` feeds: 3 playlists, the
+  catalog and 2 empty lists.
 
 ## Result Of The Deploy Of 2026-09-26
 
@@ -79,8 +80,8 @@ deployed. A `feed` crawl of the 11 `musicL` feeds followed 85 URLs in wave 2.
   because the index holds only music feeds.
 - The Prismind album `05b75483-9f5b-5236-bd66-69e9d3e1b995` is indexed.
 - `include=payment_routes` on a playlist gives an empty list.
-- The count of rows in `feed_list_value_raw` is not measured. It needs the
-  operator check above.
+- On the VPS, `feed_list_value_raw` holds rows for 6 feeds, 15 rows in
+  total. These are the 6 feeds that the research found with a value block.
 
 ## Risks
 
