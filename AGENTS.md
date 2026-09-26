@@ -53,7 +53,15 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`90a0c76` makes.
+`607bb3a` makes. `GET /node/info` gives the revision of the running node.
+
+The client requests of v4vmm and musicindex.org follow
+[the client requests work plan](docs/plans/client-requests-work-plan.md). Wave
+1 is complete and deployed on 2026-09-26: plan items 1 to 4 and item 6. Item
+7 is decided. Next are item 5, which is
+[ADR 0059](docs/adr/0059-an-entry-that-names-a-feed-gives-its-summary.md), and
+item 8, which is
+[ADR 0060](docs/adr/0060-a-list-feed-keeps-its-items.md), Proposed.
 
 The work that remains:
 

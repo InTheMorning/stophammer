@@ -145,6 +145,20 @@ Stophammer operator approved the recommended work on 2026-09-25.
 | 3 | Confirmed and recommended. ADR 0042 states: "A search result holds the fields that a client needs to show a row." The response does not obey that rule, so the work needs no new ADR. Each field is stored: `feeds.episode_count`, `tracks.track_artist` and `tracks.duration_secs` | 3 |
 | 4 | Confirmed and recommended. The list routes give at most 200 rows. `/v1/search`, `/v1/publishers`, `/v1/copies` and `/v1/guid-changes` give at most 100, and the contract states only the last two. Also, `/v1/publishers` has no paging, and `has_more` is always `false`, also when rows are cut. Stophammer recommends `maximum` in the parameter schema, not a `400` above the maximum. A `400` can break a client that works today | 2 |
 
+### Deploy Of 2026-09-26
+
+Stophammer deployed commit `607bb3a` on 2026-09-26 at 03:29 UTC.
+`GET /node/info` gives the revision of each deploy from now on.
+
+- Request 3 is complete. A feed result gives `release_artist`,
+  `release_artist_source` and `episode_count`. A track result gives
+  `track_artist` and `duration_secs`.
+- Request 4 is complete. Each `limit` parameter in `/openapi.json` gives
+  `minimum: 1` and its `maximum`: 200 for the list routes, and 100 for
+  `/v1/search`, `/v1/publishers`, `/v1/copies` and `/v1/guid-changes`.
+  `/v1/publishers` now gives a correct `has_more`. It still gives no cursor.
+- The capabilities route now lists each include of the track routes.
+
 ## Requests That v4vmm Also Makes
 
 musicindex.org is a second client for these v4vmm requests. This may matter

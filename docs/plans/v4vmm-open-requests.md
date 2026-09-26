@@ -90,6 +90,18 @@ These answers are advisory. The ADR that each answer names is the owner of the r
 
 **The open question.** Stophammer keeps no publisher resolution. `music_to_publisher_facts` in `src/query.rs` calculates `publisher_link_resolution` and `publisher_link_observed_at` again at each read. When an album feed is deleted, the next read gives the link as `unresolved`. When an album feed changes, the next read gives the resolution of the changed feed. Work plan item 6 adds this statement to ADR 0049.
 
+## Deploy Of 2026-09-26
+
+Stophammer deployed commit `607bb3a` on 2026-09-26 at 03:29 UTC.
+
+- Request 2 is complete. `GET /node/info` gives `git_revision` and
+  `built_at`. A node that is not built with `deploy.sh` gives null in each.
+- Request 3 is complete. `/v1/node/capabilities` lists `remote_items` and
+  `publisher` for tracks. The route and the include handling now read one
+  list.
+- The open question is answered in ADR 0049 section 3. A test proves that the
+  publisher read gives `unresolved` after an album feed is deleted.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
