@@ -70,10 +70,11 @@ The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
 
-1. Task 002 of ADR 0044. Each documented response must point at its schema. No
-   response points at one today, and all 54 carry an inline shape or none.
-   `QueryResponse<T>` needs one utoipa alias for each instantiation, because
-   the derive removes the type parameter.
+1. Task 002 of ADR 0044 is complete and not deployed. Each documented JSON
+   response points at the schema of its type. A read route gives an envelope
+   object from `envelope_schema` in `src/openapi.rs`. `GET /sync/events` and
+   `POST /sync/reconcile` keep a plain object, because `Event` has no schema.
+   The visual check of both explorers is open.
 2. Task 003 of ADR 0044. The guards, and the correction of this file where it
    describes the document. The
    [phase plan](docs/plans/adr-0044-contract-schema-phase-plan.md) and the

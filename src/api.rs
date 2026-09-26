@@ -4697,13 +4697,13 @@ struct CreateBlockRequest {
 
 /// Response body for a `409 Conflict` from `POST /v1/blocks`: the
 /// `block_id` of the row that already blocks this pair.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct BlockConflictBody {
     block_id: String,
 }
 
 /// Response body for `GET /v1/blocks`.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct ListBlocksResponse {
     blocks: Vec<db::FeedBlock>,
 }
@@ -5132,7 +5132,7 @@ struct ResolveCopyRequest {
 /// Response body for a resolved copy: the IDs of every event the resolution
 /// signed, in the order they were signed. `relocate` signs a `FeedUpserted`
 /// and a `FeedCopyResolved`; `keep_source` signs only the latter.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct ResolveCopyResponse {
     event_ids: Vec<String>,
 }
@@ -5313,7 +5313,7 @@ struct GuidChangeDecisionRequest {
 }
 
 /// Response body for a decided GUID change.
-#[derive(Serialize)]
+#[derive(Serialize, utoipa::ToSchema)]
 struct GuidChangeDecisionResponse {
     event_id: String,
 }
@@ -5705,8 +5705,12 @@ fn register_schema<T: ToSchema>(schemas: &mut Vec<SchemaEntry>) {
 pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     let mut schemas = Vec::new();
     register_schema::<AmbiguousTrackGuidBody>(&mut schemas);
+    register_schema::<BlockConflictBody>(&mut schemas);
     register_schema::<ErrorBody>(&mut schemas);
+    register_schema::<GuidChangeDecisionResponse>(&mut schemas);
     register_schema::<NodeInfoResponse>(&mut schemas);
+    register_schema::<ListBlocksResponse>(&mut schemas);
+    register_schema::<ResolveCopyResponse>(&mut schemas);
     register_schema::<db::FeedBlock>(&mut schemas);
     schemas
 }

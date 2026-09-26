@@ -84,6 +84,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Node information.",
+                        json!({ "$ref": "#/components/schemas/NodeInfoResponse" }),
                         json!({
                             "node_pubkey": "0805c402f021e6e0dfbb6b2f5d34628f7b166b075a0170e6e5e293c50b3b55e2",
                             "git_revision": "a1b2c3d-dirty",
@@ -110,6 +111,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Incremental events page.",
+                        json!({ "type": "object" }),
                         json!({
                             "events": [event_example()],
                             "has_more": false,
@@ -134,6 +136,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Known sync peers.",
+                        json!({ "$ref": "#/components/schemas/PeersResponse" }),
                         json!({
                             "nodes": [{
                                 "node_pubkey": "hex-ed25519-pubkey",
@@ -165,6 +168,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Paginated recent feeds.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/FeedResponse" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "feed_guid": "feed-guid",
@@ -193,6 +200,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Route-history entries, in `seq` order, the newest last.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/RouteHistoryEntry" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "subject": "feed",
@@ -234,6 +245,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Feed-copy rows, in `first_seen` order.",
+                        json!({ "$ref": "#/components/schemas/FeedCopiesResponse" }),
                         json!({
                             "data": [
                                 {
@@ -276,6 +288,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Paginated list of records with an open copy.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/CopyRecordResponse" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "feed_guid": "feed-guid",
@@ -307,6 +323,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Paginated list of pending GUID changes.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/GuidChangeResponse" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "source_url": "https://feeds.example.com/my-music-feed",
@@ -341,6 +361,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Paginated artist tracks.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/ArtistTrackItem" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "track_guid": "track-guid",
@@ -384,6 +408,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Search results.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/SearchResponseItem" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "entity_type": "feed",
@@ -431,6 +459,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Node capability document.",
+                        json!({ "$ref": "#/components/schemas/CapabilitiesResponse" }),
                         json!({
                             "api_version": "v1",
                             "node_pubkey": "hex-pubkey",
@@ -459,6 +488,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Public peers.",
+                        json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/PeerResponse" }
+                        }),
                         json!([
                             {
                                 "node_pubkey": "hex-pubkey",
@@ -488,6 +521,10 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Publisher facet results.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/PublisherSearchItem" }
+                        })),
                         query_envelope_example(json!([
                             {
                                 "publisher_text": "Wavlake",
@@ -517,6 +554,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Publisher detail response.",
+                        envelope_schema(json!({ "$ref": "#/components/schemas/PublisherDetailResponse" })),
                         query_envelope_example(json!({
                             "publisher_text": "Wavlake",
                             "feeds": [{
@@ -556,6 +594,7 @@ fn spec_value(mode: DocMode) -> Value {
                 json!({
                     "200": json_response(
                         "Publisher link statistics.",
+                        envelope_schema(json!({ "$ref": "#/components/schemas/PublisherLinkStatsResponse" })),
                         query_envelope_example(json!({
                             "listed_links": 40,
                             "resolved_by_guid": 10,
@@ -584,6 +623,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "200": json_response(
                             "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A `guid_change_pending` or `guid_change_rejected` reason (ADR 0052 section 4) means the source URL declares a GUID other than the one the record holds. A GUID-change transition (ADR 0052 section 5), run either for the UUIDv5 of the source URL or for an operator approval, names its old and new GUID in `warnings`: `GUID changed from <old> to <new> (ADR 0052 UUIDv5)` or `(ADR 0052 approved)`.",
+                            json!({ "$ref": "#/components/schemas/IngestResponse" }),
                             json!({
                                 "accepted": true,
                                 "reason": null,
@@ -616,7 +656,7 @@ fn spec_value(mode: DocMode) -> Value {
                         })
                     )),
                     json!({
-                        "200": json_response("Peer registered.", json!({ "ok": true })),
+                        "200": json_response("Peer registered.", json!({ "$ref": "#/components/schemas/RegisterResponse" }), json!({ "ok": true })),
                         "400": error_response("Invalid signed payload or timestamp."),
                         "403": error_response("Missing or invalid sync token."),
                         "422": error_response("Rejected node URL or ownership verification failed.")
@@ -647,6 +687,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "200": json_response(
                             "Reconcile result.",
+                            json!({ "type": "object" }),
                             json!({
                                 "send_to_node": [event_example()],
                                 "unknown_to_us": [{ "event_id": "uuid-x", "seq": 99 }],
@@ -684,6 +725,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "201": json_response(
                             "Block created.",
+                            json!({ "$ref": "#/components/schemas/FeedBlock" }),
                             json!({
                                 "block_id": "uuid",
                                 "kind": "guid",
@@ -696,6 +738,7 @@ fn spec_value(mode: DocMode) -> Value {
                         "403": error_response("Missing or invalid admin token."),
                         "409": json_response(
                             "The kind/value pair already has a block.",
+                            json!({ "$ref": "#/components/schemas/BlockConflictBody" }),
                             json!({ "block_id": "uuid" })
                         )
                     }),
@@ -710,6 +753,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "200": json_response(
                             "Block rows.",
+                            json!({ "$ref": "#/components/schemas/ListBlocksResponse" }),
                             json!({
                                 "blocks": [{
                                     "block_id": "uuid",
@@ -763,6 +807,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "200": json_response(
                             "Resolution applied. `event_ids` has one entry for `keep_source`, and two — `FeedUpserted` then `FeedCopyResolved` — for `relocate`.",
+                            json!({ "$ref": "#/components/schemas/ResolveCopyResponse" }),
                             json!({ "event_ids": ["uuid-1", "uuid-2"] })
                         ),
                         "400": error_response("Empty reason, or decision is not \"keep_source\" or \"relocate\"."),
@@ -792,6 +837,7 @@ fn spec_value(mode: DocMode) -> Value {
                     json!({
                         "200": json_response(
                             "Decision applied.",
+                            json!({ "$ref": "#/components/schemas/GuidChangeDecisionResponse" }),
                             json!({ "event_id": "uuid" })
                         ),
                         "400": error_response("Empty reason, or decision is not \"approve\" or \"reject\"."),
@@ -884,6 +930,7 @@ fn feed_path_item(mode: DocMode) -> Value {
             json!({
                 "200": json_response(
                     "Feed detail response.",
+                    envelope_schema(json!({ "$ref": "#/components/schemas/FeedResponse" })),
                     query_envelope_example(json!({
                         "feed_guid": "feed-guid",
                         "feed_url": "https://example.com/feed.xml",
@@ -897,6 +944,7 @@ fn feed_path_item(mode: DocMode) -> Value {
                 ),
                 "404": json_response(
                     "Feed not found. Carries `superseded_by`, the GUID that replaced this one, when a GUID-change transition retired it (ADR 0052 section 5).",
+                    json!({ "$ref": "#/components/schemas/FeedSupersededBody" }),
                     json!({ "error": "feed not found", "superseded_by": "new-feed-guid" })
                 )
             }),
@@ -971,6 +1019,7 @@ fn track_path_item(mode: DocMode) -> Value {
             json!({
                 "200": json_response(
                     "Track detail response.",
+                    envelope_schema(json!({ "$ref": "#/components/schemas/TrackResponse" })),
                     query_envelope_example(json!({
                         "track_guid": "track-guid",
                         "feed_guid": "feed-guid",
@@ -982,6 +1031,7 @@ fn track_path_item(mode: DocMode) -> Value {
                 "404": error_response("Track not found."),
                 "409": json_response(
                     "Track GUID is ambiguous across feeds.",
+                    json!({ "$ref": "#/components/schemas/AmbiguousTrackGuidBody" }),
                     json!({
                         "error": "track_guid track-guid is ambiguous; retry with the canonical feed-scoped route",
                         "code": "ambiguous_track_guid",
@@ -1015,6 +1065,7 @@ fn track_path_item(mode: DocMode) -> Value {
                     "404": error_response("Track not found."),
                     "409": json_response(
                         "Track GUID is ambiguous across feeds.",
+                        json!({ "$ref": "#/components/schemas/AmbiguousTrackGuidBody" }),
                         json!({
                             "error": "track_guid track-guid is ambiguous; retry with the canonical feed-scoped route",
                             "code": "ambiguous_track_guid",
@@ -1053,6 +1104,7 @@ fn feed_track_path_item(mode: DocMode) -> Value {
             json!({
                 "200": json_response(
                     "Track detail response.",
+                    envelope_schema(json!({ "$ref": "#/components/schemas/TrackResponse" })),
                     query_envelope_example(json!({
                         "track_guid": "track-guid",
                         "feed_guid": "feed-guid",
@@ -1212,12 +1264,12 @@ fn json_request_body(description: &str, example: Value) -> Value {
     clippy::needless_pass_by_value,
     reason = "OpenAPI helper calls mostly pass temporary JSON values built inline"
 )]
-fn json_response(description: &str, example: Value) -> Value {
+fn json_response(description: &str, schema: Value, example: Value) -> Value {
     json!({
         "description": description,
         "content": {
             "application/json": {
-                "schema": { "type": "object" },
+                "schema": schema,
                 "example": &example
             }
         }
@@ -1247,9 +1299,27 @@ fn error_response(description: &str) -> Value {
         "description": description,
         "content": {
             "application/json": {
-                "schema": { "type": "object" },
+                "schema": { "$ref": "#/components/schemas/ErrorBody" },
                 "example": { "error": description }
             }
+        }
+    })
+}
+
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the callers build the data schema inline with json!, as json_response does"
+)]
+/// Creates an envelope schema for a `QueryResponse<T>` with the given data schema.
+/// The envelope has three properties: `data` (the provided schema),
+/// `pagination` (reference to `Pagination` schema), and `meta` (reference to `ResponseMeta` schema).
+fn envelope_schema(data_schema: Value) -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "data": data_schema,
+            "pagination": { "$ref": "#/components/schemas/Pagination" },
+            "meta": { "$ref": "#/components/schemas/ResponseMeta" }
         }
     })
 }

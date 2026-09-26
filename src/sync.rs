@@ -34,7 +34,7 @@ pub struct ReconcileRequest {
     pub since_seq: i64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct EventRef {
     pub event_id: String,
     pub seq: i64,
