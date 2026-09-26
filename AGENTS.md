@@ -53,7 +53,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`6ded342` makes.
+`90a0c76` makes.
 
 The work that remains:
 
@@ -67,16 +67,15 @@ The work that remains:
    [review checklist](docs/reviews/adr-0044-review-checklist.md) hold the
    sequence.
 3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
-   2026-09-24. Tasks 001 to 005 are complete on 2026-09-24 and not deployed.
-   The crawler sends a conditional GET and keeps the last body, so a
-   corrective pass transfers almost no feed body. The crawler deploy waits
-   until no pass runs on the VPS.
+   2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
+   a conditional GET and keeps the last body, so a corrective pass transfers
+   almost no feed body.
 
    The [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives
-   five tasks. Two passes of plan decision 10 remain after the deploy. The
-   first pass fills the cache, and the second pass measures. The open
-   question, whether a `304` counts against the Wavlake `429` limit, stays
-   open until the second pass.
+   two passes of plan decision 10. The first pass filled the cache: the
+   `refresh` pass that started on 2026-09-24 at 23:52 UTC. The second pass
+   measures, and it has not run. The open question, whether a `304` counts
+   against the Wavlake `429` limit, stays open until the second pass.
 
 4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 and ADR 0055 are Proposed.
@@ -114,9 +113,12 @@ The work that remains:
    - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Accepted on
      2026-09-25. The API shows each copy of a feed at a URL that is not its
      source. The operator keeps the source or relocates the record. Tasks
-     001 to 004 are complete on 2026-09-25 and not deployed. A relocation
-     through `PATCH /v1/feeds/{guid}` now needs a `reason`. Task 005 is the
-     deploy. The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md)
+     001 to 004 are complete and deployed on 2026-09-25. The two copies of
+     Strange Love albums are resolved with `keep_source`. A relocation
+     through `PATCH /v1/feeds/{guid}` now needs a `reason`. Step 7 of task 005
+     stays open: after the next `refresh` pass, the count of
+     `feed_copy_observed` events must grow only by the summaries that
+     changed. The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md)
      gives the sequence.
    - Wavlake does not send podpings for its feeds, and no service sends them
      for Wavlake by automation. Any person can send one by hand. Thus a
@@ -124,13 +126,15 @@ The work that remains:
      URL form, or through the cache replay with
      `export-feed-cache-ndjson.py --self-links`.
    - [ADR 0052](docs/adr/0052-a-source-moves-its-own-feed.md), Accepted on
-     2026-09-25. Tasks 003 to 007 are complete on 2026-09-25 and not
-     deployed, in the three repositories. A record moves on its self link, on
+     2026-09-25. Tasks 003 to 007 are complete and deployed on 2026-09-25,
+     the node and then the crawler. A record moves on its self link, on
      `itunes:new-feed-url`, or on a chain of `301` and `308` redirects from its
      source URL. The crawler sends each redirect hop. A GUID change at the
      source URL is pending and public. It applies when the new GUID is the
-     UUIDv5 of the source URL, or after the operator approves it. Task 008 is
-     the deploy, the node first and then the crawler. The
+     UUIDv5 of the source URL, or after the operator approves it. After the
+     deploy, the four Doerfelverse releases of Elijah Lied are pending in
+     `GET /v1/guid-changes`. The publisher confirmed that their new GUIDs are
+     a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
    - ADR 0054 and ADR 0055.
