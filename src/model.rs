@@ -569,3 +569,19 @@ pub fn guid_origin_matches(feed_guid: &str, url: &str) -> bool {
     let derived = uuid::Uuid::new_v5(&GUID_ORIGIN_NAMESPACE, name.as_bytes());
     derived.to_string().eq_ignore_ascii_case(feed_guid)
 }
+
+/// Returns `value` when it parses as a URL with the scheme `http` or
+/// `https`, and `None` otherwise.
+///
+/// ADR 0054 section 4: a read route passes each URL field from RSS through
+/// this function, so a client never receives a `javascript:`, `data:` or
+/// other non-web URL from the index. The raw value stays in the database
+/// either way; this function only shapes the response.
+#[must_use]
+pub fn web_url_or_none(value: Option<&str>) -> Option<String> {
+    let raw = value?;
+    match url::Url::parse(raw) {
+        Ok(parsed) if matches!(parsed.scheme(), "http" | "https") => Some(raw.to_string()),
+        _ => None,
+    }
+}

@@ -384,6 +384,22 @@ this rule applies to it too.
 `force_reingest` does not skip this rule. An equal `last_build_date` passes.
 The node writes no row when it answers `stale_submission`.
 
+**A non-web URL field warns (ADR 0054 section 4):**
+
+The node checks each URL field of `feed_data` and of each track. These
+fields are the feed image, the track image, the track enclosure, each
+link, and each `podcast:remoteItem` URL. They are also each
+`podcast:person` `href` and `img`, and each `podcast:transcript` URL. A
+value with a scheme other than `http` or `https` adds a warning. Ten bad
+values in the same field name give one warning, not ten:
+
+```text
+non-web URL in <field>
+```
+
+The submission applies as before. The raw value stays in the database. Only
+a read route hides the value from a client (section 4 above).
+
 ---
 
 ## 3. Sync Protocol
@@ -611,6 +627,12 @@ All query endpoints are read-only and available on both primary and community no
   }
 }
 ```
+
+A query response does not carry a `javascript:`, `data:`, or other non-web
+URL. The node checks each URL field it read from RSS. A value with a scheme
+other than `http` or `https` becomes `null`.
+[ADR 0054](adr/0054-a-fetch-reaches-only-public-feed-hosts.md) section 4
+owns this rule. The raw value stays in the database.
 
 ### Common query parameters
 

@@ -6,6 +6,9 @@
 //! guard itself stays: sync registration uses it to reject a private or
 //! reserved peer URL, and ADR 0054 uses it for the crawler's conditional
 //! fetch. Every function here keeps the body it had in `proof.rs`.
+//!
+//! [`is_public_ip`] is the ADR 0054 §1 address test. `stophammer-crawler`
+//! implements the same ranges in its own crate (ADR 0054 §5).
 
 use std::net::ToSocketAddrs;
 
@@ -95,6 +98,11 @@ pub fn is_url_ssrf_safe(url: &url::Url) -> bool {
     match url.scheme() {
         "http" | "https" => {}
         _ => return false,
+    }
+
+    // ADR 0054 section 1: the URL has no user name and no password.
+    if !url.username().is_empty() || url.password().is_some() {
+        return false;
     }
 
     let Some(host) = url.host_str() else {
@@ -443,25 +451,88 @@ pub fn validate_node_url(node_url: &str) -> Result<(), String> {
 
 /// Returns `true` if the IP address is in a private or reserved range
 /// that should not be reachable via SSRF.
-const fn is_private_ip(ip: std::net::IpAddr) -> bool {
+// ADR 0054 §1: the negation of `is_public_ip`, the one address test this
+// crate shares with `stophammer-crawler` (ADR 0054 §5, plan decision 7).
+fn is_private_ip(ip: std::net::IpAddr) -> bool {
+    !is_public_ip(ip)
+}
+
+/// Returns `true` only for a public unicast address (ADR 0054 §1, plan
+/// decision 1).
+///
+/// Rejects the IPv4 loopback, private, link-local, CGNAT (`100.64.0.0/10`),
+/// multicast, broadcast, unspecified, documentation (`192.0.2.0/24`,
+/// `198.51.100.0/24`, `203.0.113.0/24`) and benchmark (`198.18.0.0/15`)
+/// ranges. Rejects the IPv6 loopback, unspecified, ULA (`fc00::/7`),
+/// link-local (`fe80::/10`), multicast (`ff00::/8`) and documentation
+/// (`2001:db8::/32`) ranges. An IPv4-mapped (`::ffff:0:0/96`),
+/// IPv4-compatible (`::/96`) or NAT64 (`64:ff9b::/96`) address takes the
+/// result of the IPv4 address inside it.
+#[must_use]
+pub fn is_public_ip(ip: std::net::IpAddr) -> bool {
     match ip {
-        std::net::IpAddr::V4(v4) => {
-            v4.is_loopback()           // 127.0.0.0/8
-                || v4.is_private()     // 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-                || v4.is_link_local()  // 169.254.0.0/16
-                || v4.is_broadcast()   // 255.255.255.255
-                || v4.is_unspecified() // 0.0.0.0
-                || v4.octets()[0] == 100 && (v4.octets()[1] & 0xC0) == 64 // 100.64.0.0/10 (CGNAT)
-        }
-        std::net::IpAddr::V6(v6) => {
-            v6.is_loopback()           // ::1
-                || v6.is_unspecified() // ::
-                // fc00::/7 (unique local addresses)
-                || (v6.segments()[0] & 0xFE00) == 0xFC00
-                // fe80::/10 (link-local)
-                || (v6.segments()[0] & 0xFFC0) == 0xFE80
-        }
+        std::net::IpAddr::V4(v4) => is_public_ipv4(v4),
+        std::net::IpAddr::V6(v6) => is_public_ipv6(v6),
     }
+}
+
+/// The IPv4 half of [`is_public_ip`].
+fn is_public_ipv4(v4: std::net::Ipv4Addr) -> bool {
+    let o = v4.octets();
+    // 192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24 (documentation, RFC 5737)
+    let documentation = (o[0] == 192 && o[1] == 0 && o[2] == 2)
+        || (o[0] == 198 && o[1] == 51 && o[2] == 100)
+        || (o[0] == 203 && o[1] == 0 && o[2] == 113);
+    // 198.18.0.0/15 (benchmarking, RFC 2544)
+    let benchmark = o[0] == 198 && (o[1] & 0xFE) == 18;
+    // 100.64.0.0/10 (CGNAT, RFC 6598)
+    let cgnat = o[0] == 100 && (o[1] & 0xC0) == 64;
+
+    !(v4.is_loopback()
+        || v4.is_private()
+        || v4.is_link_local()
+        || v4.is_broadcast()
+        || v4.is_unspecified()
+        || v4.is_multicast()
+        || documentation
+        || benchmark
+        || cgnat)
+}
+
+/// The IPv4 address embedded in the last 32 bits of an IPv6 address whose
+/// leading segments matched an IPv4-mapped, IPv4-compatible or NAT64 form.
+fn embedded_ipv4(segments: &[u16; 8]) -> std::net::Ipv4Addr {
+    let hi = segments[6].to_be_bytes();
+    let lo = segments[7].to_be_bytes();
+    std::net::Ipv4Addr::new(hi[0], hi[1], lo[0], lo[1])
+}
+
+/// The IPv6 half of [`is_public_ip`]. An IPv4-mapped, IPv4-compatible or
+/// NAT64 address defers to [`is_public_ipv4`] for the address it embeds.
+fn is_public_ipv6(v6: std::net::Ipv6Addr) -> bool {
+    // `::` and `::1` also match the IPv4-compatible shape checked below, so
+    // this rejects them first on their own terms.
+    if v6.is_unspecified() || v6.is_loopback() {
+        return false;
+    }
+
+    let s = v6.segments();
+    let is_v4_mapped =
+        s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0xffff; // ::ffff:0:0/96
+    let is_v4_compatible =
+        s[0] == 0 && s[1] == 0 && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0; // ::/96
+    let is_nat64 =
+        s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0; // 64:ff9b::/96
+    if is_v4_mapped || is_v4_compatible || is_nat64 {
+        return is_public_ipv4(embedded_ipv4(&s));
+    }
+
+    let ula = (s[0] & 0xFE00) == 0xFC00; // fc00::/7
+    let link_local = (s[0] & 0xFFC0) == 0xFE80; // fe80::/10
+    let multicast = (s[0] & 0xFF00) == 0xFF00; // ff00::/8
+    let documentation = s[0] == 0x2001 && s[1] == 0x0db8; // 2001:db8::/32
+
+    !(ula || link_local || multicast || documentation)
 }
 
 // fetch_guard.rs security compliant — 2026-03-13

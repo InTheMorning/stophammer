@@ -2072,6 +2072,102 @@ fn move_target(
     }
 }
 
+/// `true` when `value` is present and its scheme is not `http` or `https`.
+/// `None` gives `false`: an absent field is not a policy violation.
+fn is_non_web(value: Option<&str>) -> bool {
+    value.is_some() && model::web_url_or_none(value).is_none()
+}
+
+/// ADR 0054 section 4: the warnings for the URL fields of one ingest
+/// submission.
+///
+/// One warning per field name, not per value, so ten bad enclosures still
+/// give one `"non-web URL in enclosure_url"` warning. `links[].url`,
+/// `tracks[].alternate_enclosures[].url` and `tracks[].transcripts[].url`
+/// share the Rust field name `url`, so a non-web value in any of them gives
+/// the same warning. `feed_data.persons[].href` and `tracks[].persons[].href`
+/// share `href`; the `img` field of the same claims shares `img`.
+///
+/// `SourcePlatformClaimResponse.url` (also sanitized on read) is not a
+/// distinct ingest field: the node derives it from `feed_data.links[].url`
+/// and from `canonical_url`, the record's own fetch address, so a non-web
+/// value in it is already covered by the `url` warning here, or cannot
+/// occur (`canonical_url` is validated as a fetch target before it reaches
+/// this handler).
+fn non_web_url_warnings(
+    feed_data: &ingest::IngestFeedData,
+    tracks: &[ingest::IngestTrackData],
+) -> Vec<String> {
+    let mut bad_image_url = is_non_web(feed_data.image_url.as_deref());
+    let mut bad_enclosure_url = false;
+    let mut bad_url = feed_data
+        .links
+        .iter()
+        .any(|link| is_non_web(Some(link.url.as_str())));
+    let mut bad_remote_feed_url = feed_data
+        .remote_items
+        .iter()
+        .any(|item| is_non_web(item.remote_feed_url.as_deref()));
+    let mut bad_href = feed_data
+        .persons
+        .iter()
+        .any(|person| is_non_web(person.href.as_deref()));
+    let mut bad_img = feed_data
+        .persons
+        .iter()
+        .any(|person| is_non_web(person.img.as_deref()));
+
+    for track in tracks {
+        bad_image_url |= is_non_web(track.image_url.as_deref());
+        bad_enclosure_url |= is_non_web(track.enclosure_url.as_deref());
+        bad_url |= track
+            .links
+            .iter()
+            .any(|link| is_non_web(Some(link.url.as_str())));
+        bad_url |= track
+            .alternate_enclosures
+            .iter()
+            .any(|alt| is_non_web(Some(alt.url.as_str())));
+        bad_url |= track
+            .transcripts
+            .iter()
+            .any(|t| is_non_web(Some(t.url.as_str())));
+        bad_remote_feed_url |= track
+            .remote_items
+            .iter()
+            .any(|item| is_non_web(item.remote_feed_url.as_deref()));
+        bad_href |= track
+            .persons
+            .iter()
+            .any(|person| is_non_web(person.href.as_deref()));
+        bad_img |= track
+            .persons
+            .iter()
+            .any(|person| is_non_web(person.img.as_deref()));
+    }
+
+    let mut warnings = Vec::new();
+    if bad_image_url {
+        warnings.push("non-web URL in image_url".to_string());
+    }
+    if bad_enclosure_url {
+        warnings.push("non-web URL in enclosure_url".to_string());
+    }
+    if bad_url {
+        warnings.push("non-web URL in url".to_string());
+    }
+    if bad_remote_feed_url {
+        warnings.push("non-web URL in remote_feed_url".to_string());
+    }
+    if bad_href {
+        warnings.push("non-web URL in href".to_string());
+    }
+    if bad_img {
+        warnings.push("non-web URL in img".to_string());
+    }
+    warnings
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "single ingest flow — splitting would obscure the sequential validation steps"
@@ -2653,6 +2749,11 @@ async fn handle_ingest_feed(
                 www_authenticate: None,
             });
         }
+
+        // ADR 0054 section 4: warn on a non-web URL field from RSS. The
+        // submission still applies; the raw value still lands in the
+        // database. Only the read routes hide the value from a client.
+        warnings.extend(non_web_url_warnings(feed_data, tracks));
 
         // 4. Build feed-scoped source claims needed for identity resolution.
         let now = db::unix_now();

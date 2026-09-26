@@ -27,7 +27,7 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::model::{Feed, RouteRecipient, guid_origin_matches};
+use crate::model::{Feed, RouteRecipient, guid_origin_matches, web_url_or_none};
 use crate::{api, db, event, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
@@ -539,7 +539,11 @@ struct SourceContributorClaimResponse {
     role: Option<String>,
     role_norm: Option<String>,
     group_name: Option<String>,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
     href: Option<String>,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
     img: Option<String>,
     npub: Option<String>,
     source: String,
@@ -565,7 +569,9 @@ struct SourceEntityLinkResponse {
     entity_id: String,
     position: i64,
     link_type: String,
-    url: String,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
+    url: Option<String>,
     source: String,
     extraction_path: String,
     observed_at: i64,
@@ -586,6 +592,8 @@ struct SourceReleaseClaimResponse {
 #[derive(Debug, Serialize, ToSchema)]
 struct SourcePlatformClaimResponse {
     platform_key: String,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
     url: Option<String>,
     owner_name: Option<String>,
     source: String,
@@ -598,7 +606,9 @@ struct SourceItemTranscriptResponse {
     entity_type: String,
     entity_id: String,
     position: i64,
-    url: String,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
+    url: Option<String>,
     mime_type: Option<String>,
     language: Option<String>,
     rel: Option<String>,
@@ -612,7 +622,9 @@ struct SourceItemEnclosureResponse {
     entity_type: String,
     entity_id: String,
     position: i64,
-    url: String,
+    /// Null when the raw source value's scheme is not `http` or `https`
+    /// (ADR 0054 section 4).
+    url: Option<String>,
     mime_type: Option<String>,
     bytes: Option<i64>,
     rel: Option<String>,
@@ -1067,7 +1079,9 @@ fn build_feed_response(
         last_build_date: row.last_build_date,
         release_kind: row.release_kind,
         description: row.description,
-        image_url: row.image_url,
+        // ADR 0054 §4: a feed image from RSS reaches the client only when it
+        // is a web URL.
+        image_url: web_url_or_none(row.image_url.as_deref()),
         publisher_text: row.publisher_text,
         publisher_feed_title,
         distinct_release_artist_count: None,
@@ -1110,7 +1124,11 @@ fn build_feed_response(
         )?;
         let tracks: Vec<TrackSummary> = stmt
             .query_map(params![feed_guid], |row| {
-                let track_image_url: Option<String> = row.get(4)?;
+                // ADR 0054 §4: sanitize once, since this value feeds both
+                // `image_url` (with the feed-artwork fallback) and
+                // `track_image_url` below.
+                let track_image_url: Option<String> =
+                    web_url_or_none(row.get::<_, Option<String>>(4)?.as_deref());
                 Ok(TrackSummary {
                     track_guid: row.get(0)?,
                     title: row.get(1)?,
@@ -1226,11 +1244,13 @@ fn build_track_response(
         track_artist_sort: row.track_artist_sort,
         pub_date: row.pub_date,
         duration_secs: row.duration_secs,
-        image_url: row.image_url,
-        track_image_url: row.track_image_url,
-        feed_image_url: row.feed_image_url,
+        // ADR 0054 §4: a track image or enclosure from RSS reaches the
+        // client only when it is a web URL.
+        image_url: web_url_or_none(row.image_url.as_deref()),
+        track_image_url: web_url_or_none(row.track_image_url.as_deref()),
+        feed_image_url: web_url_or_none(row.feed_image_url.as_deref()),
         language: row.language,
-        enclosure_url: row.enclosure_url,
+        enclosure_url: web_url_or_none(row.enclosure_url.as_deref()),
         enclosure_type: row.enclosure_type,
         enclosure_bytes: row.enclosure_bytes,
         track_number: row.track_number,
@@ -1393,8 +1413,10 @@ fn contributor_claim_response(
         role: claim.role,
         role_norm: claim.role_norm,
         group_name: claim.group_name,
-        href: claim.href,
-        img: claim.img,
+        // ADR 0054 §4: a `podcast:person` href or img from RSS reaches the
+        // client only when it is a web URL.
+        href: web_url_or_none(claim.href.as_deref()),
+        img: web_url_or_none(claim.img.as_deref()),
         npub: claim.npub,
         source: claim.source,
         extraction_path: claim.extraction_path,
@@ -1421,7 +1443,9 @@ fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLin
         entity_id: link.entity_id,
         position: link.position,
         link_type: link.link_type,
-        url: link.url,
+        // ADR 0054 §4: a link from RSS reaches the client only when it is a
+        // web URL.
+        url: web_url_or_none(Some(&link.url)),
         source: link.source,
         extraction_path: link.extraction_path,
         observed_at: link.observed_at,
@@ -1446,7 +1470,9 @@ fn platform_claim_response(
 ) -> SourcePlatformClaimResponse {
     SourcePlatformClaimResponse {
         platform_key: claim.platform_key,
-        url: claim.url,
+        // ADR 0054 §4: a platform URL derived from RSS reaches the client
+        // only when it is a web URL.
+        url: web_url_or_none(claim.url.as_deref()),
         owner_name: claim.owner_name,
         source: claim.source,
         extraction_path: claim.extraction_path,
@@ -1459,7 +1485,9 @@ fn enclosure_response(enclosure: crate::model::SourceItemEnclosure) -> SourceIte
         entity_type: enclosure.entity_type,
         entity_id: enclosure.entity_id,
         position: enclosure.position,
-        url: enclosure.url,
+        // ADR 0054 §4: an alternate enclosure from RSS reaches the client
+        // only when it is a web URL.
+        url: web_url_or_none(Some(&enclosure.url)),
         mime_type: enclosure.mime_type,
         bytes: enclosure.bytes,
         rel: enclosure.rel,
@@ -1476,7 +1504,9 @@ fn transcript_response(t: crate::model::SourceItemTranscript) -> SourceItemTrans
         entity_type: t.entity_type,
         entity_id: t.entity_id,
         position: t.position,
-        url: t.url,
+        // ADR 0054 §4: a `podcast:transcript` URL from RSS reaches the
+        // client only when it is a web URL.
+        url: web_url_or_none(Some(&t.url)),
         mime_type: t.mime_type,
         language: t.language,
         rel: t.rel,
@@ -1491,7 +1521,9 @@ fn feed_remote_item_response(item: crate::model::FeedRemoteItemRaw) -> FeedRemot
         position: item.position,
         medium: item.medium,
         remote_feed_guid: item.remote_feed_guid,
-        remote_feed_url: item.remote_feed_url,
+        // ADR 0054 §4: a `podcast:remoteItem` URL from RSS reaches the
+        // client only when it is a web URL.
+        remote_feed_url: web_url_or_none(item.remote_feed_url.as_deref()),
         rel: item.rel,
         source: item.source,
     }
@@ -1749,15 +1781,19 @@ fn build_publisher_row(
     };
     let (role, role_source) = resolve_role(publisher_rel.as_deref(), music_rel.as_deref());
 
+    // ADR 0054 §4: `remote_feed_url` is the raw `podcast:remoteItem` URL.
+    // `publisher_feed_url` and `music_feed_url` fall back to that same raw
+    // value when the resolver could not resolve the item to a stored feed
+    // (`resolved_or_declared`), so all three go through the helper.
     Ok(Some(PublisherResponse {
         direction: direction.to_string(),
         remote_feed_guid: item_remote_feed_guid.to_string(),
-        remote_feed_url: item_remote_feed_url.map(str::to_string),
+        remote_feed_url: web_url_or_none(item_remote_feed_url),
         remote_feed_medium,
         publisher_feed_guid: facts.publisher_feed_guid,
-        publisher_feed_url: facts.publisher_feed_url,
+        publisher_feed_url: web_url_or_none(facts.publisher_feed_url.as_deref()),
         music_feed_guid: facts.music_feed_guid,
-        music_feed_url: facts.music_feed_url,
+        music_feed_url: web_url_or_none(facts.music_feed_url.as_deref()),
         music_names_publisher: facts.music_names_publisher,
         publisher_lists_music: facts.publisher_lists_music,
         publisher_link_resolution: facts.publisher_link_resolution.to_string(),
@@ -1810,7 +1846,9 @@ fn load_track_remote_items(
             position: item.position,
             medium: item.medium,
             remote_feed_guid: item.remote_feed_guid,
-            remote_feed_url: item.remote_feed_url,
+            // ADR 0054 §4: a `podcast:remoteItem` URL from RSS reaches the
+            // client only when it is a web URL.
+            remote_feed_url: web_url_or_none(item.remote_feed_url.as_deref()),
             rel: item.rel,
             source: item.source,
         })
@@ -2555,7 +2593,9 @@ async fn handle_get_recent_feeds(
                 last_build_date: r.last_build_date,
                 release_kind: r.release_kind,
                 description: r.description,
-                image_url: r.image_url,
+                // ADR 0054 §4: a feed image from RSS reaches the client only
+                // when it is a web URL.
+                image_url: web_url_or_none(r.image_url.as_deref()),
                 publisher_text: r.publisher_text,
                 publisher_feed_title,
                 // The list route does not compute this per-row aggregate.
@@ -2784,8 +2824,10 @@ async fn handle_search(
                         href,
                         title: summary.title,
                         feed_title: summary.feed_title,
-                        track_image_url: summary.track_image_url,
-                        feed_image_url: summary.feed_image_url,
+                        // ADR 0054 §4: a search summary image from RSS
+                        // reaches the client only when it is a web URL.
+                        track_image_url: web_url_or_none(summary.track_image_url.as_deref()),
+                        feed_image_url: web_url_or_none(summary.feed_image_url.as_deref()),
                         pub_date: summary.pub_date,
                     })
                 })
@@ -3009,11 +3051,14 @@ async fn handle_publisher_detail(
         ))?;
         let feeds: Vec<PublisherFeedSummary> = fstmt
             .query_map(params![match_arg, limit], |row| {
+                // ADR 0054 §4: a feed image from RSS reaches the client only
+                // when it is a web URL.
+                let image_url: Option<String> = row.get(3)?;
                 Ok(PublisherFeedSummary {
                     feed_guid: row.get(0)?,
                     feed_url: row.get(1)?,
                     title: row.get(2)?,
-                    image_url: row.get(3)?,
+                    image_url: web_url_or_none(image_url.as_deref()),
                     episode_count: row.get(4)?,
                     raw_medium: row.get(5)?,
                 })
@@ -3030,15 +3075,20 @@ async fn handle_publisher_detail(
         ))?;
         let tracks: Vec<PublisherTrackSummary> = tstmt
             .query_map(params![match_arg, limit], |row| {
+                // ADR 0054 §4: a track or feed image from RSS reaches the
+                // client only when it is a web URL.
+                let image_url: Option<String> = row.get(3)?;
+                let track_image_url: Option<String> = row.get(6)?;
+                let feed_image_url: Option<String> = row.get(7)?;
                 Ok(PublisherTrackSummary {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,
                     title: row.get(2)?,
-                    image_url: row.get(3)?,
+                    image_url: web_url_or_none(image_url.as_deref()),
                     duration_secs: row.get(4)?,
                     track_number: row.get(5)?,
-                    track_image_url: row.get(6)?,
-                    feed_image_url: row.get(7)?,
+                    track_image_url: web_url_or_none(track_image_url.as_deref()),
+                    feed_image_url: web_url_or_none(feed_image_url.as_deref()),
                 })
             })?
             .collect::<Result<_, _>>()?;
@@ -3164,6 +3214,11 @@ async fn handle_artist_tracks(
             stmt.query_map(
                 params![artist_lower, cursor_ts, cursor_guid, limit + 1],
                 |row| {
+                    // ADR 0054 §4: a track or feed image from RSS reaches
+                    // the client only when it is a web URL.
+                    let image_url: Option<String> = row.get(7)?;
+                    let track_image_url: Option<String> = row.get(12)?;
+                    let feed_image_url: Option<String> = row.get(13)?;
                     Ok(ArtistTrackItem {
                         track_guid: row.get(0)?,
                         feed_guid: row.get(1)?,
@@ -3172,13 +3227,13 @@ async fn handle_artist_tracks(
                         track_artist_sort: row.get(4)?,
                         pub_date: row.get(5)?,
                         duration_secs: row.get(6)?,
-                        image_url: row.get(7)?,
+                        image_url: web_url_or_none(image_url.as_deref()),
                         track_number: row.get(8)?,
                         feed_title: row.get(9)?,
                         release_artist: row.get(10)?,
                         created_at: row.get(11)?,
-                        track_image_url: row.get(12)?,
-                        feed_image_url: row.get(13)?,
+                        track_image_url: web_url_or_none(track_image_url.as_deref()),
+                        feed_image_url: web_url_or_none(feed_image_url.as_deref()),
                         release_artist_source: row.get(14)?,
                     })
                 },
@@ -3196,6 +3251,11 @@ async fn handle_artist_tracks(
                  LIMIT ?2",
             )?;
             stmt.query_map(params![artist_lower, limit + 1], |row| {
+                // ADR 0054 §4: a track or feed image from RSS reaches the
+                // client only when it is a web URL.
+                let image_url: Option<String> = row.get(7)?;
+                let track_image_url: Option<String> = row.get(12)?;
+                let feed_image_url: Option<String> = row.get(13)?;
                 Ok(ArtistTrackItem {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,
@@ -3204,13 +3264,13 @@ async fn handle_artist_tracks(
                     track_artist_sort: row.get(4)?,
                     pub_date: row.get(5)?,
                     duration_secs: row.get(6)?,
-                    image_url: row.get(7)?,
+                    image_url: web_url_or_none(image_url.as_deref()),
                     track_number: row.get(8)?,
                     feed_title: row.get(9)?,
                     release_artist: row.get(10)?,
                     created_at: row.get(11)?,
-                    track_image_url: row.get(12)?,
-                    feed_image_url: row.get(13)?,
+                    track_image_url: web_url_or_none(track_image_url.as_deref()),
+                    feed_image_url: web_url_or_none(feed_image_url.as_deref()),
                     release_artist_source: row.get(14)?,
                 })
             })?
