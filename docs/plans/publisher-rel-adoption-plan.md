@@ -86,6 +86,9 @@ Index with no known failure.
 
 ## Step 2: The MSP-2.0 Change
 
+This is item 1 of [the MSP-2.0 todo list](msp-2.0-todo.md), which holds each
+change for MSP-2.0.
+
 The operator opens this issue in `ChadFarrow/MSP-2.0`, and can offer a pull
 request. The facts are from commit `183e424` of 2026-08-30.
 

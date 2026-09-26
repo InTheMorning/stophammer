@@ -120,7 +120,19 @@ The publisher could not reverse the removal through the feed. Only the
 operator could. Rejected.
 
 ### Honor `itunes:block`
-A publisher can set it to leave Apple only. Rejected.
+`itunes:block` addresses Apple Podcasts and the podcast directories. A music
+feed can set it to leave the podcast apps only, and still expect to stay in a
+music index. So the tag gives no statement about this index. Rejected, and
+examined again on 2026-09-26 with this evidence:
+
+- The operator tested Podcast Index with a feed on a host of the operator.
+  Podcast Index acts on `itunes:block` `yes`, and not on `podcast:block`.
+- The fetch cache of the crawler held 11,821 feeds that this index holds. Only
+  the test feed of the operator had a channel `itunes:block` `yes`.
+- `podcast:block` is the tag of the Podcasting 2.0 namespace, which the V4V
+  music tools use. The tool Sovereign Feeds writes it.
+
+A publisher who wants to leave every place writes both tags.
 
 ### Honor the `podcastindex` slug
 This index is not Podcast Index. A publisher who blocks Podcast Index gives no

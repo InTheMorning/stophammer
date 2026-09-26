@@ -316,6 +316,17 @@ No block rule applies to mirrors, record conflicts, or GUID changes.
 The publisher can remove this restriction. Remove the tag, or change it to
 `id="musicindex"` with value `no`.
 
+`itunes:block` has no effect on this index. It addresses Apple Podcasts and the
+podcast directories. A `podcast:block` `no` with no `id` also has no effect. It
+names no service. These are the tags for each wish of a publisher:
+
+| The publisher wants | The channel holds |
+|---|---|
+| Leave the podcast apps, and stay on this index | `<itunes:block>Yes</itunes:block>` |
+| Leave this index only | `<podcast:block id="musicindex">yes</podcast:block>` |
+| Leave every place | `<itunes:block>Yes</itunes:block>` and `<podcast:block>yes</podcast:block>` |
+| Leave every place except this index | The two tags above, and `<podcast:block id="musicindex">no</podcast:block>` |
+
 | Value | Meaning | The crawler should |
 |-------|---------|---------------------|
 | `source_blocked` | The source URL matches a block tag | Do not retry. The publisher must remove the block |
