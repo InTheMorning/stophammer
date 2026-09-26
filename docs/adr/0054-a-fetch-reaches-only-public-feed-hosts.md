@@ -138,8 +138,9 @@ list of cases gives the same result. Rejected.
 - A podping or a feed cannot make the crawler fetch an internal service.
 - One hostile body cannot use all the memory of the crawler.
 - One feed cannot cause an unlimited number of fetches.
-- A feed with a body over 16 MiB fails. The largest feed in the index is to
-  be measured before the value is final.
+- A feed with a body over 16 MiB fails. On 2026-09-25 the largest body of the
+  10,202 held feeds in the fetch cache was 0.25 MiB. The large bodies in the
+  cache were podcast feeds of 21 to 47 MiB, which the node does not hold.
 - A client gets no `javascript:` or `data:` URL from the index. The raw value
   stays in the database.
 
