@@ -102,8 +102,28 @@ pub struct IngestFeedData {
     /// Parsed live items that should be staged in `live_events` until promoted.
     #[serde(default)]
     pub live_items: Vec<IngestLiveItemData>,
+    /// Channel-level `podcast:block` tags. The node applies ADR 0057 rules to
+    /// these tags. An older crawler sends no field, and the node applies no rule.
+    #[serde(default)]
+    pub blocks: Vec<IngestBlockTag>,
     #[serde(default)]
     pub tracks: Vec<IngestTrackData>,
+}
+
+/// One `podcast:block` tag parsed from the feed channel.
+///
+/// The `id` attribute is optional and names a platform slug. The `value` is
+/// `"yes"` or `"no"` (or other text that the parser preserves). The node
+/// compares both fields with no case sensitivity after trimming, per ADR 0057
+/// section 2.
+#[derive(Debug, Clone, Deserialize)]
+pub struct IngestBlockTag {
+    /// The `id` attribute of the tag, trimmed. An empty attribute gives `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// The text content of the tag, trimmed. The case is preserved on read,
+    /// but comparisons use lowercase.
+    pub value: String,
 }
 
 /// Per-episode data within an [`IngestFeedData`] submission.
@@ -308,6 +328,58 @@ type SchemaEntry = (
     String,
     utoipa::openapi::RefOr<utoipa::openapi::schema::Schema>,
 );
+
+/// The slug of this index in the Podcasting 2.0 `podcast:block` namespace.
+///
+/// ADR 0057 section 1: The index answers to this slug. The operator asks the
+/// namespace repository to add it to the service slug list. Until the list has
+/// it, the index still honors the slug, because a tag with that `id` can only
+/// mean this index. The index does not answer to `podcastindex`.
+const INDEX_SLUG: &str = "musicindex";
+
+/// Evaluates ADR 0057 §2: whether the source URL (through these block tags)
+/// has blocked this index.
+///
+/// The node examines the channel-level `podcast:block` tags in this sequence:
+///
+/// 1. A tag with `id="musicindex"` and the value `no`: the feed is not blocked.
+///    The next steps do not run.
+/// 2. A tag with `id="musicindex"` and the value `yes`: the feed is blocked.
+/// 3. A tag with no `id` and the value `yes`: the feed is blocked.
+/// 4. Otherwise the feed is not blocked.
+///
+/// Comparison is case-insensitive after trim. A value other than `yes` or `no`
+/// has no effect. A tag with a different slug has no effect. An unbounded `no`
+/// has no effect.
+///
+/// Returns `true` if a block applies to this index; `false` otherwise.
+#[must_use]
+pub fn source_blocks_this_index(blocks: &[IngestBlockTag]) -> bool {
+    // Each step reads every tag, so the source order of the tags does not
+    // change the result. An unbounded `yes` before `id="musicindex"` `no` still
+    // admits the feed.
+    let normalized = |text: &str| text.trim().to_lowercase();
+    let is_this_index = |tag: &IngestBlockTag| {
+        tag.id
+            .as_deref()
+            .is_some_and(|id| normalized(id) == INDEX_SLUG)
+    };
+    let has = |this_index: bool, value: &str| {
+        blocks.iter().any(|tag| {
+            let bounded_here = if this_index {
+                is_this_index(tag)
+            } else {
+                tag.id.as_deref().is_none_or(|id| id.trim().is_empty())
+            };
+            bounded_here && normalized(&tag.value) == value
+        })
+    };
+
+    if has(true, "no") {
+        return false;
+    }
+    has(true, "yes") || has(false, "yes")
+}
 
 /// Schemas for every documented JSON response this module returns.
 ///

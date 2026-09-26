@@ -295,6 +295,31 @@ node signs no event.
 |-------|---------|---------------------|
 | `blocked` | An operator blocked this GUID or this URL | Not retry. An operator must remove the block first |
 
+**A source URL can apply a `podcast:block` tag to this index (ADR 0057 sections 2 and 3):**
+
+The node evaluates the channel-level `podcast:block` tags from the Podcasting 2.0
+specification, in this sequence, over all the tags:
+
+1. A tag with `id="musicindex"` and the value `no` admits the feed. This is
+   true also when an unbounded `yes` is in the same feed.
+2. A tag with `id="musicindex"` and the value `yes` blocks the feed.
+3. A tag with no `id` and the value `yes` blocks the feed.
+
+A tag with a different `id`, such as `podcastindex`, has no effect. The node
+compares each value after trim, with no case sensitivity.
+
+When an update submission has a matching tag, the node retires the record.
+The node signs `FeedRetired` with `podcast_block`. No row is added to `feed_blocks`.
+When a new feed submission has a matching tag, the node makes no feed record.
+No block rule applies to mirrors, record conflicts, or GUID changes.
+
+The publisher can remove this restriction. Remove the tag, or change it to
+`id="musicindex"` with value `no`.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `source_blocked` | The source URL matches a block tag | Do not retry. The publisher must remove the block |
+
 **Three reasons to reject a submission (ADR 0051 section 2):**
 
 The node checks each submission against the source URL of its record. The

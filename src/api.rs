@@ -1307,6 +1307,7 @@ mod tests {
             entity_ids: vec![],
             links: vec![],
             feed_payment_routes: vec![],
+            blocks: vec![],
             live_items: vec![],
             tracks: vec![],
         }
@@ -2501,6 +2502,58 @@ async fn handle_ingest_feed(
                     ));
                 }
 
+                // ADR 0057 section 3: the node applies the block rule after the
+                // classification of ADR 0051, so only the source URL decides.
+                // An Update case with a matching block retires the record.
+                if ingest::source_blocks_this_index(&feed_data.blocks) {
+                    tracing::info!(
+                        feed_guid = feed_data.feed_guid.as_str(),
+                        canonical_url = req.canonical_url.as_str(),
+                        "ADR 0057 section 3: Update case, feed is blocked by source"
+                    );
+                    let now = db::unix_now();
+                    let event_id = uuid::Uuid::new_v4().to_string();
+                    let payload = crate::event::FeedRetiredPayload {
+                        feed_guid: feed_data.feed_guid.clone(),
+                        reason: Some("podcast_block".to_string()),
+                    };
+                    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: format!("payload json serialization: {e}"),
+                        www_authenticate: None,
+                    })?;
+                    let retirement_events = db::delete_feed_with_event(
+                        &mut conn,
+                        &feed_data.feed_guid,
+                        &event_id,
+                        &payload_json,
+                        &feed_data.feed_guid,
+                        &state2.signer,
+                        now,
+                        &warnings,
+                        &[],
+                    )?;
+
+                    let event_ids: Vec<String> = retirement_events
+                        .iter()
+                        .map(|ev| ev.event_id.clone())
+                        .collect();
+                    let fanout_events = retirement_events;
+
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some("source_blocked".to_string()),
+                            events_emitted: event_ids,
+                            warnings: vec![],
+                            source_url: None,
+                        },
+                        fanout_events,
+                        vec![],
+                    ));
+                }
+
                 // ADR 0052 section 4, task 007: an ingest in the update case
                 // names the record's own GUID, so a pending row at this
                 // source URL means the source returned to it. Delete the
@@ -2532,7 +2585,30 @@ async fn handle_ingest_feed(
                         Some((req.source_url.clone(), target.new_feed_url, target.trigger));
                 }
             }
-            db::SubmissionClass::NewFeed => {}
+            db::SubmissionClass::NewFeed => {
+                // ADR 0057 section 3: a new feed with a matching block writes
+                // nothing. The answer is `accepted: false`, `reason:
+                // "source_blocked"`, with an empty `events_emitted`.
+                if ingest::source_blocks_this_index(&feed_data.blocks) {
+                    tracing::info!(
+                        feed_guid = feed_data.feed_guid.as_str(),
+                        canonical_url = req.canonical_url.as_str(),
+                        "ADR 0057 section 3: NewFeed case, feed is blocked by source"
+                    );
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some("source_blocked".to_string()),
+                            events_emitted: vec![],
+                            warnings: vec![],
+                            source_url: None,
+                        },
+                        vec![],
+                        vec![],
+                    ));
+                }
+            }
             db::SubmissionClass::Mirror { source_url } => {
                 // ADR 0052 sections 1 and 2: the record moves when its
                 // declared self link or its declared new-feed-url — each

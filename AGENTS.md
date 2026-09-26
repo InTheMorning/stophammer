@@ -124,8 +124,11 @@ which gives the sequence of each open item of an Accepted ADR:
 
    The work that remains:
 
-   - The ADR 0057 code. It changes the parser, the ingest contract and the
-     node.
+   - [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md). Tasks 001 to
+     003 are complete and not deployed. A `podcast:block` at the source URL
+     retires the record, with the reason `source_blocked`. The operator test
+     of the [phase plan](docs/plans/adr-0057-podcast-block-phase-plan.md) is
+     open until the deploy.
    - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Accepted on
      2026-09-25. The API shows each copy of a feed at a URL that is not its
      source. The operator keeps the source or relocates the record. Tasks

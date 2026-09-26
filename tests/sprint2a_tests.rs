@@ -266,6 +266,7 @@ fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
             entity_ids: vec![],
             links: vec![],
             feed_payment_routes: vec![],
+            blocks: vec![],
             tracks: vec![],
             live_items: vec![],
         }),

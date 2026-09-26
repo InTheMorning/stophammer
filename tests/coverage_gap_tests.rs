@@ -478,6 +478,7 @@ fn medium_music_verifier_pass() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -522,6 +523,7 @@ fn medium_music_verifier_fail_podcast() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -566,6 +568,7 @@ fn medium_music_verifier_fail_absent() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -614,6 +617,7 @@ fn feed_guid_verifier_pass() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -658,6 +662,7 @@ fn feed_guid_verifier_fail_bad_guid() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -702,6 +707,7 @@ fn feed_guid_verifier_fail_invalid_uuid() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -759,6 +765,7 @@ fn v4v_payment_verifier_pass() {
                 fee: false,
             }],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -803,6 +810,7 @@ fn v4v_payment_verifier_fail_no_routes() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -851,6 +859,7 @@ fn enclosure_type_verifier_pass_audio() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t1".into(),
                 title: "Song".into(),
@@ -918,6 +927,7 @@ fn enclosure_type_verifier_warn_video() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-vid".into(),
                 title: "Video Song".into(),
@@ -990,6 +1000,7 @@ fn payment_route_sum_verifier_pass() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-prs".into(),
                 title: "Song".into(),
@@ -1077,6 +1088,7 @@ fn payment_route_sum_verifier_fail_not_100() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![stophammer::ingest::IngestTrackData {
                 track_guid: "t-prs-fail".into(),
                 title: "Song".into(),
@@ -1448,6 +1460,7 @@ fn medium_music_verifier_pass_publisher_with_music_children() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -1496,6 +1509,7 @@ fn medium_music_verifier_rejects_publisher_no_music_children() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -1544,6 +1558,7 @@ fn medium_music_verifier_accepts_musicl() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -1592,6 +1607,7 @@ fn v4v_payment_verifier_pass_publisher_no_routes() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };
@@ -1639,6 +1655,7 @@ fn v4v_payment_verifier_pass_musicl_no_routes() {
             links: vec![],
             feed_payment_routes: vec![],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![],
         }),
     };

@@ -53,6 +53,7 @@ fn sample_request() -> IngestFeedRequest {
                 fee: false,
             }],
             live_items: vec![],
+            blocks: vec![],
             tracks: vec![IngestTrackData {
                 track_guid: "t-guid-1".into(),
                 title: "Track One".into(),
