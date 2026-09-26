@@ -159,6 +159,16 @@ Stophammer deployed commit `607bb3a` on 2026-09-26 at 03:29 UTC.
   `/v1/publishers` now gives a correct `has_more`. It still gives no cursor.
 - The capabilities route now lists each include of the track routes.
 
+### Deploy Of 2026-09-26, ADR 0059
+
+Deploy of commit `264706e` on 2026-09-26 at 04:05 UTC: ADR 0059 is
+complete. Each `publisher` and `remote_items` entry gives
+`remote_feed_title`, `remote_feed_image_url`, `remote_release_artist` and
+`remote_release_artist_source`. A track read gives them too. Each value is
+null when the index holds no feed for the entry.
+
+This closes request 1. The names are the names of this request.
+
 ## Requests That v4vmm Also Makes
 
 musicindex.org is a second client for these v4vmm requests. This may matter

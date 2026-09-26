@@ -4,7 +4,8 @@ Status: Approved - 2026-09-25. The operator approved this sequence: wave 1 is
 items 1 to 4 and item 6. Item 5 follows, after its ADR. Then ADR 0044 tasks 002
 and 003, then ADR 0057.
 
-Wave 1 is complete and deployed on 2026-09-26, commit `607bb3a`. On 2026-09-25 the operator decided item 7: ADR 0044
+Wave 1 is complete and deployed on 2026-09-26, commit `607bb3a`. Item 5 is
+complete and deployed on 2026-09-26, commit `264706e`. On 2026-09-25 the operator decided item 7: ADR 0044
 stays as it is. The operator also put ADR 0060 after item 5 and before ADR
 0044 task 002. ADR 0060 answers musicindex request 2.
 

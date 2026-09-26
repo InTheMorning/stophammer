@@ -102,6 +102,18 @@ Stophammer deployed commit `607bb3a` on 2026-09-26 at 03:29 UTC.
 - The open question is answered in ADR 0049 section 3. A test proves that the
   publisher read gives `unresolved` after an album feed is deleted.
 
+## Deploy Of 2026-09-26, ADR 0059
+
+Deploy of commit `264706e` on 2026-09-26 at 04:05 UTC: ADR 0059 is
+complete. Each `publisher` and `remote_items` entry gives
+`remote_feed_title`, `remote_feed_image_url`, `remote_release_artist` and
+`remote_release_artist_source`. A track read gives them too. Each value is
+null when the index holds no feed for the entry.
+
+This closes request 1. The names use the prefix `remote_`, not `music_`,
+because the same fields are on a `music_to_publisher` row, where the named
+feed is the publisher.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
