@@ -19,8 +19,8 @@
 
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
-    Artist, ArtistCredit, ArtistCreditName, CopySummary, Feed, FeedPaymentRoute, FeedRemoteItemRaw,
-    LiveEvent, PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim,
+    Artist, ArtistCredit, ArtistCreditName, CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute,
+    FeedRemoteItemRaw, LiveEvent, PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim,
     SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
     SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
     feed_recipient_set, recipient_set,
@@ -239,6 +239,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 42: a pending GUID change at a source URL, and the link from
     // a superseded GUID to its replacement (ADR 0052 §4, §5, task 007)
     include_str!("../migrations/0042_feed_guid_changes.sql"),
+    // Migration 43: itemGuid and title of channel remote items, and
+    // feed_list_value_raw for musicL value blocks (ADR 0060 §2, §4)
+    include_str!("../migrations/0043_list_feed_items.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -1646,6 +1649,43 @@ pub fn replace_feed_payment_routes(
     Ok(())
 }
 
+/// Replaces all value blocks of a `musicL` feed (ADR 0060 §4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete or insert fails.
+pub fn replace_feed_list_value_raw(
+    conn: &Connection,
+    feed_guid: &str,
+    list_values: &[FeedListValueRaw],
+) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_list_value_raw WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    for v in list_values {
+        let route_type = serde_json::to_string(&v.route_type)?;
+        let route_type = route_type.trim_matches('"');
+        conn.execute(
+            "INSERT INTO feed_list_value_raw (feed_guid, recipient_name, route_type, address, \
+             custom_key, custom_value, split, fee, position) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                &v.feed_guid,
+                &v.recipient_name,
+                route_type,
+                &v.address,
+                v.custom_key.as_deref().unwrap_or(""),
+                v.custom_value.as_deref().unwrap_or(""),
+                v.split,
+                i64::from(v.fee),
+                v.position,
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 // ── replace_value_time_splits ─────────────────────────────────────────────────
 
 /// Deletes all value-time splits for `source_track_guid` and inserts `splits`.
@@ -1723,7 +1763,8 @@ pub fn get_feed_remote_items_for_feed(
     feed_guid: &str,
 ) -> Result<Vec<FeedRemoteItemRaw>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source \
+        "SELECT id, feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source, \
+         remote_item_guid, remote_item_title \
          FROM feed_remote_items_raw WHERE feed_guid = ?1 ORDER BY position",
     )?;
 
@@ -1737,6 +1778,8 @@ pub fn get_feed_remote_items_for_feed(
             remote_feed_url: row.get(5)?,
             rel: row.get(6)?,
             source: row.get(7)?,
+            remote_item_guid: row.get(8)?,
+            remote_item_title: row.get(9)?,
         })
     })?;
 
@@ -1816,8 +1859,9 @@ pub fn replace_feed_remote_items_raw(
     for item in remote_items {
         conn.execute(
             "INSERT INTO feed_remote_items_raw \
-             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source, \
+             remote_item_guid, remote_item_title) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 &item.feed_guid,
                 item.position,
@@ -1826,6 +1870,8 @@ pub fn replace_feed_remote_items_raw(
                 &item.remote_feed_url,
                 &item.rel,
                 &item.source,
+                &item.remote_item_guid,
+                &item.remote_item_title,
             ],
         )?;
     }
@@ -3332,6 +3378,43 @@ pub fn get_feed_payment_routes_for_feed(
     Ok(result)
 }
 
+/// Returns the list value block for a `musicL` feed (ADR 0060 §4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+fn get_feed_list_value_raw_for_feed(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Vec<FeedListValueRaw>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT id, feed_guid, recipient_name, route_type, address, \
+         NULLIF(custom_key, ''), NULLIF(custom_value, ''), split, fee, position \
+         FROM feed_list_value_raw WHERE feed_guid = ?1 ORDER BY position",
+    )?;
+    let rows = stmt.query_map(params![feed_guid], |row| {
+        let rt_str: String = row.get(3)?;
+        let fee_i: i64 = row.get(8)?;
+        Ok(FeedListValueRaw {
+            id: row.get(0)?,
+            feed_guid: row.get(1)?,
+            recipient_name: row.get(2)?,
+            route_type: route_type_from_db(&rt_str, "feed_list_value_raw"),
+            address: row.get(4)?,
+            custom_key: row.get(5)?,
+            custom_value: row.get(6)?,
+            split: row.get(7)?,
+            fee: fee_i != 0,
+            position: row.get(9)?,
+        })
+    })?;
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row?);
+    }
+    Ok(result)
+}
+
 // ── diff helpers ────────────────────────────────────────────────────────────
 // Issue-WRITE-AMP — 2026-03-14
 
@@ -3409,8 +3492,28 @@ fn feed_remote_items_changed(existing: &[FeedRemoteItemRaw], new: &[FeedRemoteIt
                 || a.medium != b.medium
                 || a.remote_feed_guid != b.remote_feed_guid
                 || a.remote_feed_url != b.remote_feed_url
+                || a.rel != b.rel
                 || a.source != b.source
+                || a.remote_item_guid != b.remote_item_guid
+                || a.remote_item_title != b.remote_item_title
         })
+}
+
+fn feed_list_values_changed(existing: &[FeedListValueRaw], new: &[FeedListValueRaw]) -> bool {
+    if existing.len() != new.len() {
+        return true;
+    }
+    // Compare value-by-value; order matters.
+    existing.iter().zip(new.iter()).any(|(a, b)| {
+        a.recipient_name != b.recipient_name
+            || a.route_type != b.route_type
+            || a.address != b.address
+            || a.custom_key != b.custom_key
+            || a.custom_value != b.custom_value
+            || a.split != b.split
+            || a.fee != b.fee
+            || a.position != b.position
+    })
 }
 
 fn track_remote_items_changed(existing: &[TrackRemoteItemRaw], new: &[TrackRemoteItemRaw]) -> bool {
@@ -3597,6 +3700,7 @@ pub fn build_diff_events(
     source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
+    feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
@@ -3624,6 +3728,7 @@ pub fn build_diff_events(
                 source_item_transcripts,
                 source_platform_claims,
                 feed_routes,
+                feed_list_values,
                 live_events,
                 tracks,
                 track_credits,
@@ -3646,6 +3751,7 @@ pub fn build_diff_events(
                 source_item_transcripts,
                 source_platform_claims,
                 feed_routes,
+                feed_list_values,
                 live_events,
                 tracks,
                 track_credits,
@@ -3675,6 +3781,7 @@ fn build_all_events(
     source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
+    feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
@@ -3701,6 +3808,14 @@ fn build_all_events(
 
     if !feed_routes.is_empty() {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+    if !feed_list_values.is_empty() {
+        event_rows.push(build_feed_list_value_event(
+            feed,
+            feed_list_values,
+            now,
+            &warn_vec,
+        )?);
     }
     if !remote_items.is_empty() {
         event_rows.push(build_feed_remote_items_event(
@@ -3812,6 +3927,7 @@ fn build_changed_events(
     source_item_transcripts: &[SourceItemTranscript],
     source_platform_claims: &[SourcePlatformClaim],
     feed_routes: &[FeedPaymentRoute],
+    feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
     track_credits: &[ArtistCredit],
@@ -3849,6 +3965,19 @@ fn build_changed_events(
     let existing_routes = get_feed_payment_routes_for_feed(conn, &feed.feed_guid)?;
     if !feed_routes.is_empty() && feed_routes_changed(&existing_routes, feed_routes) {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
+    }
+
+    // --- Feed list value diff ---
+    let existing_list_values = get_feed_list_value_raw_for_feed(conn, &feed.feed_guid)?;
+    // ADR 0060 §4: a change to an empty block also needs an event, so a
+    // community node deletes the same rows.
+    if feed_list_values_changed(&existing_list_values, feed_list_values) {
+        event_rows.push(build_feed_list_value_event(
+            feed,
+            feed_list_values,
+            now,
+            &warn_vec,
+        )?);
     }
 
     // --- Feed remote-item diff ---
@@ -4084,6 +4213,27 @@ fn build_feed_routes_event(
     Ok(EventRow {
         event_id: uuid::Uuid::new_v4().to_string(),
         event_type: EventType::FeedRoutesReplaced,
+        payload_json,
+        subject_guid: feed.feed_guid.clone(),
+        created_at: now,
+        warnings: warnings.to_vec(),
+    })
+}
+
+fn build_feed_list_value_event(
+    feed: &Feed,
+    list_values: &[FeedListValueRaw],
+    now: i64,
+    warnings: &[String],
+) -> Result<EventRow, DbError> {
+    let payload = crate::event::FeedListValueReplacedPayload {
+        feed_guid: feed.feed_guid.clone(),
+        list_values: list_values.to_vec(),
+    };
+    let payload_json = serde_json::to_string(&payload)?;
+    Ok(EventRow {
+        event_id: uuid::Uuid::new_v4().to_string(),
+        event_type: EventType::FeedListValueReplaced,
         payload_json,
         subject_guid: feed.feed_guid.clone(),
         created_at: now,
@@ -6066,6 +6216,7 @@ pub fn ingest_transaction(
     source_item_transcripts: Vec<SourceItemTranscript>,
     source_platform_claims: Vec<SourcePlatformClaim>,
     feed_routes: Vec<FeedPaymentRoute>,
+    feed_list_values: Vec<FeedListValueRaw>,
     live_events: Vec<LiveEvent>,
     tracks: Vec<TrackIngestBundle>,
     event_rows: Vec<EventRow>,
@@ -6223,8 +6374,9 @@ pub fn ingest_transaction(
     for item in &remote_items {
         tx.execute(
             "INSERT INTO feed_remote_items_raw \
-             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+             (feed_guid, position, medium, remote_feed_guid, remote_feed_url, rel, source, \
+             remote_item_guid, remote_item_title) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 &item.feed_guid,
                 item.position,
@@ -6233,9 +6385,14 @@ pub fn ingest_transaction(
                 &item.remote_feed_url,
                 &item.rel,
                 &item.source,
+                &item.remote_item_guid,
+                &item.remote_item_title,
             ],
         )?;
     }
+
+    // 3c2. Replace feed list value block for musicL feeds (ADR 0060 §4)
+    replace_feed_list_value_raw(&tx, &feed.feed_guid, &feed_list_values)?;
 
     // 3d. Replace live-event snapshot rows for this feed
     tx.execute(

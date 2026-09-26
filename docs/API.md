@@ -865,6 +865,20 @@ For `musicL` container feeds, `raw_medium` is still stored and `remote_items`
 remain visible, but local tracks are intentionally not materialized into the
 `tracks` table.
 
+A `remote_items` entry of a feed read also gives three values of the item that
+it names. ADR 0060 owns them. A track playlist gives them.
+
+| Field | Value |
+|---|---|
+| `remote_item_guid` | The `itemGuid` of the element. Null when it gives none |
+| `remote_item_title` | The `title` of the element. Null when it gives none |
+| `remote_track_guid` | The `track_guid` of the indexed track in the named feed with this `itemGuid`. Null when the index holds no such track |
+
+The node finds the track at each read, in the feed that the entry resolves to
+(ADR 0049 §3). Each key is always in the entry. The value block of a `musicL`
+feed is kept as source data. `include=payment_routes` on a `musicL` feed gives
+an empty list.
+
 `publisher` is a derived read-only view over those declarations. It reports
 direction and reciprocal validation exactly from RSS and does not add any
 canonical artist-confirmation layer in v1.

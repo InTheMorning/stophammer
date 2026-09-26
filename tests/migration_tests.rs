@@ -602,9 +602,9 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 36,
-        "the runner must record version 36 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041 and 0042 run"
+        recorded_version, 37,
+        "the runner must record version 37 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042 and 0043 run"
     );
 }
 
@@ -715,8 +715,8 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 36,
-        "the runner must record version 36 after migrations 0037, 0038, 0039, 0040, 0041 and \
-         0042 run"
+        recorded_version, 37,
+        "the runner must record version 37 after migrations 0037, 0038, 0039, 0040, 0041, 0042 \
+         and 0043 run"
     );
 }

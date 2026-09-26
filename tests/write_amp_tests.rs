@@ -170,6 +170,7 @@ fn ingest_and_count_track_events(
         &[], // no source item transcripts
         &[], // no source platform claims
         &[], // no feed routes
+        &[], // no list value block
         &[], // no live events
         &track_tuples,
         &[], // no track credits override — use the same one
@@ -192,6 +193,7 @@ fn ingest_and_count_track_events(
         vec![],
         vec![],
         vec![],
+        Vec::new(),
         vec![],
         track_tuples,
         event_rows,

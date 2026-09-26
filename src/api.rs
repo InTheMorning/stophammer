@@ -2770,6 +2770,8 @@ async fn handle_ingest_feed(
                 remote_feed_url: item.remote_feed_url.clone(),
                 rel: item.rel.clone(),
                 source: "podcast_remote_item".to_string(),
+                remote_item_guid: item.item_guid.clone(),
+                remote_item_title: item.item_title.clone(),
             })
             .collect();
         let mut source_entity_ids = build_source_entity_id_claims(
@@ -2895,6 +2897,33 @@ async fn handle_ingest_feed(
                     fee: r.fee,
                 })
                 .collect()
+        };
+
+        // 8c. Build list value block for musicL feeds (ADR 0060 §4)
+        let feed_list_values: Vec<model::FeedListValueRaw> = if is_musicl {
+            feed_data
+                .feed_payment_routes
+                .iter()
+                .enumerate()
+                .map(|(idx, r)| model::FeedListValueRaw {
+                    id: None,
+                    feed_guid: feed_data.feed_guid.clone(),
+                    recipient_name: r.recipient_name.clone(),
+                    route_type: r.route_type.clone(),
+                    address: r.address.clone(),
+                    custom_key: r.custom_key.clone(),
+                    custom_value: r.custom_value.clone(),
+                    split: r.split,
+                    fee: r.fee,
+                    #[expect(
+                        clippy::cast_possible_wrap,
+                        reason = "payment routes per feed are bounded by practical limits"
+                    )]
+                    position: idx as i64,
+                })
+                .collect()
+        } else {
+            Vec::new()
         };
 
         let live_events: Vec<model::LiveEvent> = live_items
@@ -3400,6 +3429,7 @@ async fn handle_ingest_feed(
             &source_item_transcripts,
             &source_platform_claims,
             &feed_routes,
+            &feed_list_values,
             &live_events,
             &track_tuples,
             &track_credits,
@@ -3478,6 +3508,7 @@ async fn handle_ingest_feed(
             source_item_transcripts,
             source_platform_claims,
             feed_routes,
+            feed_list_values,
             live_events,
             track_tuples,
             event_rows,

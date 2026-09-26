@@ -710,6 +710,15 @@ struct FeedRemoteItemResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// The `itemGuid` of the track this entry names, or null when the entry
+    /// has no `itemGuid`. Always present. ADR 0060 §3.
+    remote_item_guid: Option<String>,
+    /// The `title` of the track this entry names, or null when the entry
+    /// has no `title`. Always present. ADR 0060 §3.
+    remote_item_title: Option<String>,
+    /// The `track_guid` of the indexed track that this entry names, or null
+    /// when no such track is indexed. Always present. ADR 0060 §3.
+    remote_track_guid: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1691,11 +1700,25 @@ fn feed_remote_item_response(
     conn: &rusqlite::Connection,
     item: crate::model::FeedRemoteItemRaw,
 ) -> Result<FeedRemoteItemResponse, api::ApiError> {
-    let summary = remote_item_summary(
+    // ADR 0059 §2 and ADR 0060 §3: resolve the feed of the entry one time,
+    // from the raw stored values. The summary and the track read it.
+    let resolution = db::resolve_listed_feed(
         conn,
         &item.remote_feed_guid,
         item.remote_feed_url.as_deref(),
     )?;
+    let summary = named_feed_summary(conn, resolution.feed_guid())?;
+    let remote_track_guid = match (resolution.feed_guid(), item.remote_item_guid.as_deref()) {
+        (Some(feed_guid), Some(item_guid)) => conn
+            .query_row(
+                "SELECT track_guid FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+                params![feed_guid, item_guid],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?,
+        _ => None,
+    };
+
     Ok(FeedRemoteItemResponse {
         position: item.position,
         medium: item.medium,
@@ -1709,6 +1732,9 @@ fn feed_remote_item_response(
         remote_feed_image_url: summary.image_url,
         remote_release_artist: summary.release_artist,
         remote_release_artist_source: summary.release_artist_source,
+        remote_item_guid: item.remote_item_guid,
+        remote_item_title: item.remote_item_title,
+        remote_track_guid,
     })
 }
 

@@ -88,7 +88,20 @@ Notes:
   optional except position, medium, and target GUID
 - `rel` is nullable. The Podcast Namespace does not define `rel` on
   `podcast:remoteItem`, so the value is non-standard. Migration 0035.
+- `remote_item_guid` and `remote_item_title` hold the `itemGuid` and `title`
+  attributes. Each is nullable. A track playlist gives them. Migration 0043,
+  ADR 0060.
 - powers the derived `publisher` include in the read API
+
+### `feed_list_value_raw`
+Purpose: the channel `podcast:value` routes of a `musicL` feed, kept as
+source data. Migration 0043, ADR 0060 §4.
+Notes:
+- has the columns of `feed_payment_routes`, plus `position`
+- no read route gives these rows. They are not a payment route of the list
+  feed or of a track that the list names
+- the `FeedListValueReplaced` event carries each change, so a community node
+  holds the same rows
 
 ### `track_remote_items_raw`
 Purpose: raw track-level `podcast:remoteItem` declarations.

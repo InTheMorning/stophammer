@@ -873,6 +873,8 @@ fn apply_feed_remote_items_replaced() {
             remote_feed_url: Some("https://example.com/artist.xml".into()),
             rel: None,
             source: "podcast_remote_item".into(),
+            remote_item_guid: None,
+            remote_item_title: None,
         }],
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");

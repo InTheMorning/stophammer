@@ -155,6 +155,14 @@ pub struct IngestRemoteFeedRef {
     /// so this value is non-standard.
     #[serde(default)]
     pub rel: Option<String>,
+    /// The `itemGuid` of the track this entry names, if the entry is a
+    /// track entry. ADR 0060 §1. A crawler that does not send it sends null.
+    #[serde(default)]
+    pub item_guid: Option<String>,
+    /// The `title` of the track this entry names, if the entry is a
+    /// track entry. ADR 0060 §1. A crawler that does not send it sends null.
+    #[serde(default)]
+    pub item_title: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

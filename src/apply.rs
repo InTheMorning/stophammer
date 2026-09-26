@@ -143,6 +143,9 @@ fn apply_single_event_inner(
         event::EventPayload::FeedRemoteItemsReplaced(p) => {
             db::replace_feed_remote_items_raw(conn, &p.feed_guid, &p.remote_items)?;
         }
+        event::EventPayload::FeedListValueReplaced(p) => {
+            db::replace_feed_list_value_raw(conn, &p.feed_guid, &p.list_values)?;
+        }
         event::EventPayload::TrackRemoteItemsReplaced(p) => {
             if let Some(feed_guid) = p.feed_guid.as_deref() {
                 db::replace_track_remote_items_raw_for_feed_track(

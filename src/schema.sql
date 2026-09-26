@@ -182,6 +182,21 @@ CREATE TABLE IF NOT EXISTS feed_payment_routes (
 
 CREATE INDEX IF NOT EXISTS idx_feed_routes_guid ON feed_payment_routes(feed_guid);
 
+CREATE TABLE IF NOT EXISTS feed_list_value_raw (
+    id              INTEGER PRIMARY KEY,
+    feed_guid       TEXT NOT NULL REFERENCES feeds(feed_guid),
+    recipient_name  TEXT,
+    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    address         TEXT NOT NULL,
+    custom_key      TEXT NOT NULL DEFAULT '',
+    custom_value    TEXT NOT NULL DEFAULT '',
+    split           INTEGER NOT NULL CHECK(split >= 0),
+    fee             INTEGER NOT NULL DEFAULT 0,
+    position        INTEGER NOT NULL
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_feed_list_value_guid ON feed_list_value_raw(feed_guid);
+
 CREATE TABLE IF NOT EXISTS value_time_splits (
     id                  INTEGER PRIMARY KEY,
     source_feed_guid    TEXT,
@@ -207,6 +222,8 @@ CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
     remote_feed_url  TEXT,
     rel              TEXT,
     source           TEXT NOT NULL DEFAULT 'podcast_remote_item',
+    remote_item_guid TEXT,
+    remote_item_title TEXT,
     UNIQUE(feed_guid, position)
 ) STRICT;
 

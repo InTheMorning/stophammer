@@ -62,8 +62,9 @@ The client requests of v4vmm and musicindex.org follow
 [ADR 0059](docs/adr/0059-an-entry-that-names-a-feed-gives-its-summary.md), is
 complete and deployed on 2026-09-26. Next is item 8, which is
 [ADR 0060](docs/adr/0060-a-list-feed-keeps-its-items.md), Accepted on
-2026-09-26. The
-[phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) gives the sequence.
+2026-09-26. Tasks 001 to 003 are complete and not deployed. The
+[phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) gives the deploy
+sequence.
 
 The work that remains:
 
@@ -282,8 +283,9 @@ notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
 The `feed`, `refresh`, `gossip` and `import` modes keep a fetch cache (ADR
 0050).
 
-`feed`, `refresh` and `gossip` follow a publisher link. ADR 0049 section 2
-owns the rule. `feed` and `refresh` follow in three waves: the input feeds,
+`feed`, `refresh` and `gossip` follow a publisher link, and the albums of a
+`musicL` list. ADR 0049 section 2 owns the publisher rule. ADR 0060 sections
+5 and 6 own the list rule. `feed` and `refresh` follow in three waves: the input feeds,
 the feeds they name, and the album list of a publisher found through an
 album. `gossip` follows in two levels, with its own throttle.
 

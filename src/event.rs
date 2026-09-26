@@ -11,10 +11,10 @@
 use std::collections::BTreeMap;
 
 use crate::model::{
-    Artist, ArtistCredit, Feed, FeedBlockKind, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
-    PaymentRoute, RouteRecipient, SourceContributorClaim, SourceEntityIdClaim, SourceEntityLink,
-    SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim, SourceReleaseClaim, Track,
-    TrackRemoteItemRaw, ValueTimeSplit,
+    Artist, ArtistCredit, Feed, FeedBlockKind, FeedListValueRaw, FeedPaymentRoute,
+    FeedRemoteItemRaw, LiveEvent, PaymentRoute, RouteRecipient, SourceContributorClaim,
+    SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
+    SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
 };
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +42,8 @@ pub enum EventType {
     FeedRemoteItemsReplaced,
     /// Per-track remote-item references were replaced.
     TrackRemoteItemsReplaced,
+    /// Value block of a `musicL` feed was replaced (ADR 0060 §4).
+    FeedListValueReplaced,
     /// The ephemeral live-event snapshot for a feed was replaced.
     LiveEventsReplaced,
     /// The staged contributor-claim snapshot for a feed was replaced.
@@ -103,6 +105,8 @@ pub enum EventPayload {
     FeedRemoteItemsReplaced(FeedRemoteItemsReplacedPayload),
     /// Payload for replacing per-track `podcast:remoteItem` references.
     TrackRemoteItemsReplaced(TrackRemoteItemsReplacedPayload),
+    /// Payload for replacing the value block of a `musicL` feed (ADR 0060 §4).
+    FeedListValueReplaced(FeedListValueReplacedPayload),
     /// Payload for replacing ephemeral live-event rows for a feed.
     LiveEventsReplaced(LiveEventsReplacedPayload),
     /// Payload for replacing staged contributor claims for a feed.
@@ -267,6 +271,13 @@ pub struct TrackRemoteItemsReplacedPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feed_guid: Option<String>,
     pub remote_items: Vec<TrackRemoteItemRaw>,
+}
+
+/// Emitted when the value block of a `musicL` feed is replaced (ADR 0060 §4).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeedListValueReplacedPayload {
+    pub feed_guid: String,
+    pub list_values: Vec<FeedListValueRaw>,
 }
 
 /// Emitted when the current in-progress live items for a feed are replaced.

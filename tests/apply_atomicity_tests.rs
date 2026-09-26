@@ -543,6 +543,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         vec![],
         vec![],
         vec![],
+        Vec::new(),
         vec![],
         vec![(track, vec![route], vec![], vec![])],
         vec![
@@ -772,6 +773,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
         vec![],
         vec![],
         vec![],
+        Vec::new(),
         vec![],
         vec![],
         vec![stophammer::db::EventRow {

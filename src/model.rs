@@ -172,6 +172,22 @@ pub struct FeedPaymentRoute {
     pub fee: bool,
 }
 
+/// Value block of a `musicL` feed, stored as source data (ADR 0060 §4).
+/// Same as [`FeedPaymentRoute`] with a position field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FeedListValueRaw {
+    pub id: Option<i64>,
+    pub feed_guid: String,
+    pub recipient_name: Option<String>,
+    pub route_type: RouteType,
+    pub address: String,
+    pub custom_key: Option<String>,
+    pub custom_value: Option<String>,
+    pub split: i64,
+    pub fee: bool,
+    pub position: i64,
+}
+
 // ── route-history recipient set (ADR 0053 Section 4) ────────────────────────
 
 /// One recipient of a payment-route set: an address, its keysend custom
@@ -259,6 +275,16 @@ pub struct FeedRemoteItemRaw {
     #[serde(default)]
     pub rel: Option<String>,
     pub source: String,
+    /// The `itemGuid` of the track this entry names, if the entry is a
+    /// track entry. Stored only for channel remote items (feed-level), not for
+    /// track-level items. ADR 0060 §2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_item_guid: Option<String>,
+    /// The `title` of the track this entry names, if the entry is a
+    /// track entry. Stored only for channel remote items (feed-level), not for
+    /// track-level items. ADR 0060 §2.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_item_title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -401,6 +401,8 @@ fn feed_remote_items_replaced_event_with_rel_applies_identically_on_second_datab
             remote_feed_url: Some("https://example.com/sirlibre-album-1.xml".into()),
             rel: Some("label".into()),
             source: "podcast_remote_item".into(),
+            remote_item_guid: None,
+            remote_item_title: None,
         }],
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");
