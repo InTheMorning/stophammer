@@ -89,8 +89,8 @@ disagree.
 |---|---|---|
 | [0008](0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation. Supersedes ADR 0007 | Accepted |
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036 | Accepted in part |
-| [0010](0010-distribution-and-deployment.md) | Distribution and deployment | Accepted |
 | [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination | Accepted |
+| [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
 | [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Proposed |
 
@@ -108,6 +108,7 @@ research, not for a live rule.
 | [0020](0020-sse-artist-follow-notifications.md) | SSE push notifications for artist follow | ADR 0037 and ADR 0036 |
 | [0029](0029-primary-resolved-replication-authority.md) | Primary resolver authority for replicated read models | ADR 0032 |
 | [0018](0018-proof-of-possession-mutations.md) | Proof-of-possession for feed and track mutations | ADR 0056 |
+| [0010](0010-distribution-and-deployment.md) | Distribution and deployment | ADR 0063 |
 | [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
 
 ## Status Needs A Check

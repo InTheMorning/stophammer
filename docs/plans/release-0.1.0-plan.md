@@ -1,7 +1,7 @@
 # Release 0.1.0 Plan
 
 Date: 2026-09-26. Owner of the release mechanism:
-[ADR 0010](../adr/0010-distribution-and-deployment.md). This plan states no
+[ADR 0063](../adr/0063-a-release-publishes-role-packages.md). This plan states no
 rule.
 
 ## Goal
@@ -13,7 +13,8 @@ checksums and the Arch packages, and GHCR holds the three images.
 
 ## Preconditions
 
-On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is next.
+On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is open. The
+candidate `v0.1.0-rc.1` failed, and `v0.1.0-rc.2` is next.
 
 
 The operator decided on 2026-09-26 that 0.1.0 waits until ADR 0044 and ADR
@@ -34,8 +35,9 @@ checked on production:
 
 - Each `Cargo.toml` gives `version = "0.1.0"`. The OpenAPI document gives
   `info.version` from `CARGO_PKG_VERSION`, so it gives `0.1.0` today.
-- No repository has a tag. `stophammer` has no GitHub release. The release
-  workflow has never run.
+- Each repository has the tag `v0.1.0-rc.1`. The candidate failed its Arch
+  check, because the runner had no `bsdtar`. It also became the latest
+  release. Commit `ce60026` corrects the two defects.
 - The three repositories are public. `stophammer` ignores the directories
   `stophammer-crawler/` and `stophammer-parser/` in `.gitignore`.
 - The CI workflow of `stophammer` passes. The two crate repositories have no
@@ -77,17 +79,11 @@ After the corrections, `publish-release.sh` and `verify-release.sh` pass for
 the three tarballs. The Arch build did not run on this machine, because it
 has no `/etc/makepkg.conf`. The release candidate is its first real run.
 
-## A Decision Before The Release
+## The Install Script
 
-`install.sh` downloads `stophammer-linux-x86_64` from the repository
-`stophammer/stophammer`. Neither exists. The workflow publishes role tarballs,
-Arch packages and images. `docs/operations.md` calls the script "the legacy
-direct-binary path". ADR 0010 §2 and §3 still describe these assets and this
-script. The operator decides one of these:
-
-- Delete `install.sh`, and supersede ADR 0010 §2 and §3 with a record of the
-  present assets.
-- Correct `install.sh` to download a role tarball, and amend ADR 0010.
+On 2026-09-26 the operator decided to remove `install.sh`.
+[ADR 0063](../adr/0063-a-release-publishes-role-packages.md) supersedes ADR
+0010 and records the present release assets.
 
 ## Tasks
 

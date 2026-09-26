@@ -1,7 +1,7 @@
 # ADR 0010: Distribution and Deployment
 
 ## Status
-Accepted
+Superseded by [ADR 0063](0063-a-release-publishes-role-packages.md).
 
 ## Context
 Stophammer must be straightforward to deploy on any Linux server without requiring operators to install a language runtime, Docker, or a package manager. The target operator audience ranges from self-hosters on a Raspberry Pi to cloud VMs running arbitrary Linux distributions. The binary already compiles to a fully static musl executable (see ADR-0002); this ADR records the decisions around how those binaries are built, distributed, and run as a system service.

@@ -82,15 +82,16 @@ cargo build --release
 
 The `/node/info` endpoint gives two optional fields: `git_revision` and `built_at`. When you assemble the binary with `cargo build` directly, these fields are null. The `deploy.sh` script sets these fields by exporting `STOPHAMMER_GIT_REVISION` and `STOPHAMMER_BUILT_AT` as environment variables before assembly.
 
-### Install the published Linux binary
+### Install a release
 
-```bash
-sh install.sh
-stophammer
-```
+Each release gives three roles: `stophammer-indexer`, `stophammer-node` and
+`stophammer-crawler`. The
+[releases page](https://github.com/InTheMorning/stophammer/releases) holds a
+tarball and an Arch package for each role, for x86_64. GHCR holds an image for
+each role, for `linux/amd64` and `linux/arm64`.
+[ADR 0063](adr/0063-a-release-publishes-role-packages.md) owns this list.
 
-`install.sh` is now the legacy direct-binary path. The preferred deployment
-assets live in:
+These files describe the deployment assets:
 
 - [docker-compose.yml](../docker-compose.yml)
 - [packaging/README.md](../packaging/README.md)
