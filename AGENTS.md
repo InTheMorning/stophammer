@@ -81,7 +81,11 @@ which gives the sequence of each open item of an Accepted ADR:
 1. Release 0.1.0. ADR 0044 and ADR 0057 are complete. The release candidate
    comes next. The [release plan](docs/plans/release-0.1.0-plan.md) gives the
    sequence.
-2. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
+2. [ADR 0062](docs/adr/0062-a-podping-is-never-dropped.md), Accepted on
+   2026-09-26, is built in the crawler and not deployed. The `gossip` mode
+   merges a podping inside the window of its URL, and never drops it. It
+   joins the next release candidate.
+3. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
    2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
    a conditional GET and keeps the last body, so a corrective pass transfers
    almost no feed body.
@@ -92,7 +96,7 @@ which gives the sequence of each open item of an Accepted ADR:
    measures, and it has not run. The open question, whether a `304` counts
    against the Wavlake `429` limit, stays open until the second pass.
 
-3. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
+4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
    and the gossip check of task 004 found no music host on 2026-09-26.
    ADR 0055 is Proposed and waits. The operator runs the only crawler, on the same host as the

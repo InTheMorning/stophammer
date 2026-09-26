@@ -1,7 +1,7 @@
 # ADR 0062: A Podping Is Never Dropped
 
 ## Status
-Proposed
+Accepted on 2026-09-26
 
 ## Date
 2026-09-26
@@ -91,10 +91,13 @@ A podping with the reason `live` or `liveEnd` is crawled at once, also inside a
 window. It does not change the window. A crawl of the URL that runs at that
 time takes the place of a new one.
 
-### 5. A follow URL uses the same state
+### 5. A follow URL has its own cooldown
 
-A crawl for a follow URL of ADR 0049 §2 counts as a crawl of that URL, and
-opens its window. A podping for that URL inside the window is merged by §1.
+The crawler makes a follow URL of ADR 0049 §2 itself. It is not a signal of a
+publisher, and many albums can name one publisher. So a follow URL keeps a
+cooldown of 5 minutes, and a follow URL inside it is not fetched again. This
+cooldown is apart from the podping window. A follow fetch does not open or
+change a window, so a follow never delays or drops a podping.
 
 ### 6. The state is in memory
 
@@ -162,5 +165,5 @@ and its window never grows. Rejected.
 - A `live` podping inside a window gives a crawl at once.
 - A podping for a URL that the skip list stops gives no crawl, and it does not
   change the window.
-- A podping for a URL in the window of a follow crawl gives a crawl when the
-  window closes.
+- A podping for a URL just after a follow fetch of that URL gives a crawl at
+  once.
