@@ -3,6 +3,15 @@ name: CI
 on:
   push:
     branches: [main]
+    # A push that changes only documents starts no run. The ADR index and
+    # AGENTS.md stay in, because tests/adr0045_governance_guards_tests.rs
+    # reads them. A later pattern overrides an earlier one.
+    paths:
+      - '**'
+      - '!docs/**'
+      - '!**/*.md'
+      - 'docs/adr/**'
+      - 'AGENTS.md'
   pull_request:
 
 env:
