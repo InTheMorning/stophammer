@@ -3,7 +3,8 @@
 ## Status
 Accepted on 2026-09-27, with two changes of the operator. A publisher earns
 credit only for the albums that confirm it. An album read shows only the
-publisher links that the album states. Section 5 amends ADR 0049 §4.
+publisher links that the album states. Section 5 makes that a rule of ADR 0049
+§4.
 
 ## Date
 2026-09-26
@@ -86,11 +87,14 @@ The node derives no artist or label kind. `role` and `role_source` of ADR
 
 ### 5. An album shows only the publishers that it names
 
-This section amends ADR 0049 §4 for the read of an album feed. The `publisher`
-view of an album gives only the rows where `music_names_publisher` is true. A
-publisher feed that lists the album, when the album does not name it, is not
-in the album read. The read of the publisher feed still gives that link, in
-`unconfirmed_release_artists` and in its own `publisher` view.
+The `publisher` view of an album gives only the publishers that the album
+names. A publisher feed that lists the album, when the album does not name it,
+is not in the album read. The read of the publisher feed still gives that
+link, in `unconfirmed_release_artists` and in its own `publisher` view.
+
+On 2026-09-27 the code already does this: `load_publisher` in `src/query.rs`
+builds the rows of a read only from the feed's own `remoteItem` elements. This
+section makes the behavior a rule, and a test guards it.
 
 ## Alternatives Considered
 
@@ -117,13 +121,10 @@ label. Rejected.
 ## Consequences
 
 - "Master's Scroll" shows 0 confirmed artists and 33 unconfirmed artists. Its
-  81 albums no longer show it as their publisher.
+  81 albums do not show it as their publisher, as before.
 - A publisher gains credit when its albums name it. A publisher fixes its
   standing in its own feeds and in the feeds of its albums.
 - The index shows the role only when a feed states `rel`.
-- The `publisher` view of an album gives fewer rows. The form of the field does
-  not change. v4vmm and musicindex.org get a note in their request files at
-  the deploy.
 
 ## Invariants
 

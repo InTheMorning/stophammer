@@ -6,7 +6,7 @@ Accepted
 Date: 2026-03-27
 
 Supersedes the SSE-only gossip design described in
-[ADR 0012: Podping Listener](0012-podping-listener.md) (already marked
+[ADR 0012: Podping Listener](archive/0012-podping-listener.md) (already marked
 superseded by gossip-listener).
 
 ## Context

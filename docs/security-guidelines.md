@@ -7,7 +7,7 @@ It complements, but does not replace:
 
 - [ADR 0006](adr/0006-crawlers-as-untrusted-clients.md) for crawler trust
   boundaries
-- [ADR 0018](adr/0018-proof-of-possession-mutations.md) for
+- [ADR 0018](adr/archive/0018-proof-of-possession-mutations.md) for
   proof-of-possession design
 - [operations.md](operations.md) for deployment and operator requirements
 - [schema-reference.md](schema-reference.md) for the current schema, and

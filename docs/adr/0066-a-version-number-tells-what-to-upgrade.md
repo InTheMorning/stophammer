@@ -1,7 +1,7 @@
 # ADR 0066: A Version Number Tells What To Upgrade
 
 ## Status
-Proposed
+Accepted on 2026-09-27
 
 ## Date
 2026-09-27

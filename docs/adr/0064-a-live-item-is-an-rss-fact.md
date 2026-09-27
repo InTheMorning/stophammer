@@ -3,7 +3,7 @@
 ## Status
 Accepted on 2026-09-26
 
-Supersedes [ADR 0021](0021-live-events.md).
+Supersedes [ADR 0021](archive/0021-live-events.md).
 
 Amended on 2026-09-26: the sections "Invariants", "Non-Goals" and
 "Alternatives Considered" are added for the implementation plan. They change

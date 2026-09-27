@@ -1,7 +1,7 @@
 # ADR 0020: SSE Push Notifications for Artist Follow
 
 ## Status
-Superseded by [ADR 0037](0037-defer-public-sse-route.md) for the public HTTP route; `seq` signature treatment superseded by [ADR 0036](0036-sign-event-sequence-numbers.md)
+Superseded by [ADR 0037](../0037-defer-public-sse-route.md) for the public HTTP route; `seq` signature treatment superseded by [ADR 0036](../0036-sign-event-sequence-numbers.md)
 
 Historical note: the current runtime retains the in-memory `SseRegistry` and
 post-commit publish wiring, but does not register `GET /v1/events` in the Axum

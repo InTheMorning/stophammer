@@ -5,7 +5,7 @@ Accepted
 
 Date: 2026-03-25
 
-Supersedes [ADR 0013: PodcastIndex Bulk Importer](0013-bulk-importer.md)
+Supersedes [ADR 0013: PodcastIndex Bulk Importer](archive/0013-bulk-importer.md)
 
 ## Context
 ADR 0013 established the PodcastIndex bulk importer, but two parts of that

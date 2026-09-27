@@ -143,7 +143,7 @@ notes name the ADRs that the release holds.
 ## Open Decisions
 
 1. **The next version.** [ADR 0066](../adr/0066-a-version-number-tells-what-to-upgrade.md),
-   Proposed on 2026-09-27, gives the rule. Under it the next release is 0.2.0.
+   Accepted on 2026-09-27, gives the rule. Under it the next release is 0.2.0.
 2. **A workflow for the crate repositories.** They have no CI. A crate commit
    is checked only on the machine of the operator.
 

@@ -60,7 +60,7 @@ disagree.
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
-| [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. Amends ADR 0049 §4. The index derives no artist or label kind | Accepted |
+| [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
 
 ## Identity, Signing And Security
 
@@ -90,7 +90,7 @@ disagree.
 | [0008](0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation. Supersedes ADR 0007 | Accepted |
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036 | Accepted in part |
 | [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination | Accepted |
-| [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Proposed |
+| [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Accepted |
 | [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds. A release tag publishes the files and images of its candidate on the same commits | Accepted |
 | [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
@@ -98,21 +98,21 @@ disagree.
 
 ## Superseded
 
-These stay in this directory until ADR 0045 creates `archive/`. Read them for
-research, not for a live rule.
+These files are in `docs/adr/archive/`. Read them for research, not for a live
+rule.
 
 | ADR | Scope | Superseded by |
 |---|---|---|
-| [0007](0007-cloudflare-tracker-bootstrap.md) | Cloudflare Workers as tracker and bootstrap layer | ADR 0008 |
-| [0012](0012-podping-listener.md) | Podping listener for real-time music feed discovery | The gossip mode in `stophammer-crawler` |
-| [0013](0013-bulk-importer.md) | PodcastIndex bulk importer | ADR 0030 |
-| [0014](0014-artist-resolution-aliases.md) | Artist resolution, alias table, merge operation, admin endpoints | ADR 0032 and ADR 0034 |
-| [0020](0020-sse-artist-follow-notifications.md) | SSE push notifications for artist follow | ADR 0037 and ADR 0036 |
-| [0029](0029-primary-resolved-replication-authority.md) | Primary resolver authority for replicated read models | ADR 0032 |
-| [0018](0018-proof-of-possession-mutations.md) | Proof-of-possession for feed and track mutations | ADR 0056 |
-| [0010](0010-distribution-and-deployment.md) | Distribution and deployment | ADR 0063 |
-| [0021](0021-live-events.md) | Live event support | ADR 0064 |
-| [0035](0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
+| [0007](archive/0007-cloudflare-tracker-bootstrap.md) | Cloudflare Workers as tracker and bootstrap layer | ADR 0008 |
+| [0012](archive/0012-podping-listener.md) | Podping listener for real-time music feed discovery | The gossip mode in `stophammer-crawler` |
+| [0013](archive/0013-bulk-importer.md) | PodcastIndex bulk importer | ADR 0030 |
+| [0014](archive/0014-artist-resolution-aliases.md) | Artist resolution, alias table, merge operation, admin endpoints | ADR 0032 and ADR 0034 |
+| [0020](archive/0020-sse-artist-follow-notifications.md) | SSE push notifications for artist follow | ADR 0037 and ADR 0036 |
+| [0029](archive/0029-primary-resolved-replication-authority.md) | Primary resolver authority for replicated read models | ADR 0032 |
+| [0018](archive/0018-proof-of-possession-mutations.md) | Proof-of-possession for feed and track mutations | ADR 0056 |
+| [0010](archive/0010-distribution-and-deployment.md) | Distribution and deployment | ADR 0063 |
+| [0021](archive/0021-live-events.md) | Live event support | ADR 0064 |
+| [0035](archive/0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
 
 ## Status Needs A Check
 

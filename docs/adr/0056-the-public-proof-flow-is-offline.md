@@ -3,7 +3,7 @@
 ## Status
 Accepted
 
-Supersedes [ADR 0018](0018-proof-of-possession-mutations.md).
+Supersedes [ADR 0018](archive/0018-proof-of-possession-mutations.md).
 
 ## Date
 2026-09-25

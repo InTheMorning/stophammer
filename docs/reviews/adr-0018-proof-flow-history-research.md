@@ -3,7 +3,7 @@
 Date: 2026-09-25.
 
 Status: advisory. This record gives evidence for a decision about the proof
-flow of [ADR 0018](../adr/0018-proof-of-possession-mutations.md). It states no
+flow of [ADR 0018](../adr/archive/0018-proof-of-possession-mutations.md). It states no
 rule.
 
 ## The Question

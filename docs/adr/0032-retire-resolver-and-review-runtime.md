@@ -6,7 +6,7 @@ no resolver or review table, and no resolver or review route.
 
 Date: 2026-04-08
 
-Supersedes [ADR 0029: Primary Resolver Authority for Replicated Read Models](0029-primary-resolved-replication-authority.md)
+Supersedes [ADR 0029: Primary Resolver Authority for Replicated Read Models](archive/0029-primary-resolved-replication-authority.md)
 
 ## Context
 The current codebase still carries a large resolver-era runtime surface:

@@ -121,7 +121,7 @@ The `locked` tag instead controls import permission for hosting platforms.
 and [locked specification](https://github.com/Podcastindex-org/podcast-namespace/blob/c0ff5caa3729610362ee93f8034454fa41f3c493/docs/tags/locked.md).
 
 **Implication:** Stophammer's
-[ADR 0018](../adr/0018-proof-of-possession-mutations.md) specifies an established
+[ADR 0018](../adr/archive/0018-proof-of-possession-mutations.md) specifies an established
 mechanism. Its current extractor also accepts item-level text, contrary to its
 channel-level requirement. The [local analysis](feed-identity-conflict-analysis.md#expanded-audit-codified-behavior-and-proof-paths)
 records that reproduced defect and other proof findings.

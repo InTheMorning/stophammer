@@ -3,7 +3,7 @@
 ## Status
 Accepted
 
-Supersedes [ADR 0010](0010-distribution-and-deployment.md).
+Supersedes [ADR 0010](archive/0010-distribution-and-deployment.md).
 
 ## Date
 2026-09-26

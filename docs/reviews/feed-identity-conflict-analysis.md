@@ -130,7 +130,7 @@ after that control is stolen. Previously registered credentials could provide
 an additional authority, with registration and recovery costs.
 Thus these attacks exceed an RSS-only model, not every possible identity model.
 
-[ADR 0018](../adr/0018-proof-of-possession-mutations.md) currently proves RSS
+[ADR 0018](../adr/archive/0018-proof-of-possession-mutations.md) currently proves RSS
 control. Its audio proof and dual-location relocation proof are not implemented.
 Proof at a new claimant URL alone cannot recover a record bound to another URL.
 

@@ -1,7 +1,7 @@
 # ADR 0029: Primary Resolver Authority for Replicated Read Models
 
 ## Status
-Superseded by [ADR 0032](0032-retire-resolver-and-review-runtime.md)
+Superseded by [ADR 0032](../0032-retire-resolver-and-review-runtime.md)
 
 Date: 2026-03-19
 
