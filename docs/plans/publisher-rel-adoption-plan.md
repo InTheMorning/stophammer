@@ -28,7 +28,9 @@ matthewruzzi replied that HTML `rel` uses spaces. ChadFarrow, the author of
 MSP-2.0, supports the work on the tag.
 
 The proposal thus exists. The operator does not open a new discussion. The
-operator posts this text as a comment in #579.
+operator posted this text as
+[a comment in #579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-18626492)
+on 2026-09-27.
 
 ---
 
@@ -61,8 +63,9 @@ Three points from our implementation:
 This is item 1 of [the MSP-2.0 todo list](msp-2.0-todo.md), which holds each
 change for MSP-2.0.
 
-The operator opens this issue in `ChadFarrow/MSP-2.0`, and can offer a pull
-request. The facts are from commit `66f0d53` of 2026-09-27.
+The operator opened this issue as
+[#148](https://github.com/ChadFarrow/MSP-2.0/issues/148) in
+`ChadFarrow/MSP-2.0` on 2026-09-27, and can offer a pull request. The facts are from commit `66f0d53` of 2026-09-27.
 
 ---
 
