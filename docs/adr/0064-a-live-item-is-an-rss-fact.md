@@ -5,6 +5,10 @@ Accepted on 2026-09-26
 
 Supersedes [ADR 0021](0021-live-events.md).
 
+Amended on 2026-09-26: the sections "Invariants", "Non-Goals" and
+"Alternatives Considered" are added for the implementation plan. They change
+no decision.
+
 ## Date
 2026-09-26
 
@@ -173,6 +177,43 @@ rows and their fields stay as the feed gives them.
 The index does not label a live item as a stream that runs 24 hours a day or
 as a concert. When a feed gives a tag for the type, a new decision reads it as
 a fact.
+
+## Invariants
+
+- A read gives each stored field as the feed gave it. Only `confirming_relay`
+  and the views are derived, and section 6 defines each one.
+- The index never makes a track, a payment route or a value time split from a
+  live item.
+- `src/live.rs` holds each rule of sections 4 and 6. The ingest and the reads
+  call the same functions.
+- An unchanged set of live items emits no `LiveEventsReplaced`.
+- The index never calls a relay.
+- The list order does not depend on a value that the feed controls.
+
+## Non-Goals
+
+- The real-time state of a stream. The relay owns it.
+- A recording of a live show. The artist publishes it as a normal item.
+- A station on a feed with `medium` `podcast`. Item 10 of the remaining work
+  plan holds it.
+- A second crawl after a `live` or `liveEnd` podping. Item 11 holds it.
+- A public SSE route. ADR 0037 still applies.
+
+## Alternatives Considered
+
+- **A poll of 60 seconds for a `pending` item, as ADR 0021 says.** Rejected. A
+  podping already starts a crawl at once, and a poll gives only the RSS, not
+  the stream.
+- **A time of the last confirming crawl (`confirmed_at`).** Rejected. It
+  measures the crawl schedule of the index, not the stream. A station with no
+  change sends no podping, so the value would hide it.
+- **An assumed end of `start` plus 6 hours for an item with no `end`.**
+  Rejected for the ban of section 4. The ban removes the only row that needed
+  it.
+- **A call from the node to the relay.** Rejected. The index keeps the RSS
+  truth, and a community node cannot call the relay of the primary.
+- **A promotion of an `ended` item to a track.** Rejected. A recording is
+  outside the index.
 
 ## Consequences
 
