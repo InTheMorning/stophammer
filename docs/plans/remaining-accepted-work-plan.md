@@ -24,7 +24,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 9 | Fast polling of a feed with a pending live event | ADR 0021 | Closed: ADR 0064 supersedes ADR 0021 | None | Below |
 | 10 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 11 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
-| 12 | A snapshot refresh of the import can fill the disk | None yet | Code | Crawler | Below |
+| 12 | A snapshot refresh of the import can fill the disk | None yet | Built, not deployed | Crawler, `docker-compose.yml` | Below |
 
 ## Sequence
 
@@ -112,6 +112,11 @@ The work:
 2. Check the free space before the download. When it is less than the size
    of the snapshot plus a margin, stop the run with a clear error.
 3. Give each container log a size limit in `docker-compose.yml`.
+
+On 2026-09-27 the three steps are built and not deployed. A refresh that
+lacks the space for a second copy of the snapshot now gives a warning and
+keeps the existing snapshot. Before this change, a failed refresh stopped the
+whole run. Each container log keeps at most 3 files of 20 MB.
 
 ## Not In This Plan
 

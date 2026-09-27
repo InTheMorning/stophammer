@@ -1,7 +1,16 @@
 name: stophammer
 
+# Each container log is limited to 3 files of 20 MB. Without a limit, the log
+# of a long-running service grows until the disk is full.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "3"
+
 services:
   podping-listener-init:
+    logging: *default-logging
     image: alpine:3.20
     user: "0:0"
     command: ["sh", "-lc", "mkdir -p /data && chown -R 1000:1000 /data"]
@@ -10,6 +19,7 @@ services:
       - podping-listener-data:/data
 
   primary:
+    logging: *default-logging
     image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
     build:
       context: .
@@ -29,6 +39,7 @@ services:
       start_period: 10s
 
   live-relay:
+    logging: *default-logging
     # MusicIndex live metadata relay.
     # Upstream: https://github.com/InTheMorning/Live-Metadata-Relay
     # Deployed by ./deploy-live-relay.sh, which builds a static musl binary
@@ -57,6 +68,7 @@ services:
       start_period: 5s
 
   podping-listener:
+    logging: *default-logging
     hostname: podping
     image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
     restart: unless-stopped
@@ -71,6 +83,7 @@ services:
       - "8089:8089"
 
   crawler-init:
+    logging: *default-logging
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     build:
       context: ./stophammer-crawler
@@ -82,6 +95,7 @@ services:
       - crawler-data:/data
 
   stophammer-crawler:
+    logging: *default-logging
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     entrypoint: ["stophammer-crawler"]
@@ -97,6 +111,7 @@ services:
         condition: service_healthy
 
   gossip:
+    logging: *default-logging
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
       - /bin/sh
@@ -132,6 +147,7 @@ services:
         condition: service_started
 
   import-wavlake:
+    logging: *default-logging
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
@@ -170,6 +186,7 @@ services:
         condition: service_healthy
 
   import:
+    logging: *default-logging
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
