@@ -963,6 +963,37 @@ They count only an album with a `release_artist` from `itunes:author`.
 A "feat." credit can count as a different artist. A music feed read does not
 have these two fields. ADR 0049 §7.
 
+A publisher feed read also has four more derived fields:
+
+```json
+{
+  "data": {
+    "feed_guid": "publisher-feed-guid",
+    "title": "Publisher Feed",
+    "raw_medium": "publisher",
+    "confirmed_release_artist_count": 1,
+    "confirmed_release_artists": ["Jimmy V"],
+    "unconfirmed_release_artist_count": 1,
+    "unconfirmed_release_artists": ["Sir Libre"]
+  }
+}
+```
+
+`distinct_release_artist_count` and `distinct_release_artists` count the
+albums that **name** this feed as their publisher. The count is the same when
+this feed lists the album and when it does not.
+
+`confirmed_release_artist_count` and `confirmed_release_artists` count only
+the albums that this feed **lists**, and that also name it: a two-way link.
+`unconfirmed_release_artist_count` and `unconfirmed_release_artists` give the
+same count for a listed album that does not name this feed: a one-way link
+from the publisher's side.
+
+A listed album that does not resolve to an indexed feed is in no list. An
+album that has `release_artist_source` set to `placeholder` gives no value to
+the two lists. A music feed read does not have these four fields. ADR 0061
+§1.
+
 `publisher_feed_title` is derived. It is the title of the feed that this feed
 names as its publisher. The node resolves the named link with
 `resolve_listed_feed` and reads the title of the resolved feed. The field is

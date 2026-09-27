@@ -167,12 +167,18 @@ which gives the sequence of each open item of an Accepted ADR:
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
 
-[ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
-Proposed. The shared `project-baseline` skill and the two crate `AGENTS.md`
-files follow it.
+3. [ADR 0061](docs/adr/0061-a-publisher-read-counts-its-listed-artists.md),
+   Accepted on 2026-09-27, is built and not deployed. A publisher feed read
+   gives its confirmed and unconfirmed release artists. It joins the next
+   release.
+4. The next release is 0.2.0, by
+   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md).
 
-The recorded status of ADR 0032, ADR 0033 and ADR 0034 disagrees with the code.
-[The index](docs/adr/README.md) lists each one under "Status Needs A Check".
+[ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
+Accepted. Each superseded ADR is in `docs/adr/archive/`, and
+`tests/adr0045_governance_guards_tests.rs` checks that the ADR files agree with
+[the index](docs/adr/README.md). The shared `project-baseline` skill and the
+two crate `AGENTS.md` files follow it.
 
 ---
 
@@ -612,6 +618,7 @@ ADR.
 
 - `docs/adr/` — architecture decision records (numbered).
   `docs/adr/README.md` is the index of current decisions.
+  `docs/adr/archive/` holds each superseded ADR, for research only.
 - `docs/plans/` — in-flight plans, and requests received from a client
   repository.
 - `docs/reviews/` — verification records and design reviews.

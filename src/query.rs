@@ -249,6 +249,36 @@ struct FeedResponse {
     /// publisher feed. ADR 0049 §7.
     #[serde(skip_serializing_if = "Option::is_none")]
     distinct_release_artists: Option<Vec<String>>,
+    /// The count of `confirmed_release_artists`.
+    ///
+    /// The value is derived, not stored. It counts only a listed album that
+    /// also names this feed as its publisher. Present only when this feed is
+    /// a publisher feed. ADR 0061 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed_release_artist_count: Option<i64>,
+    /// One raw `remote_release_artist` value for each count in
+    /// `confirmed_release_artist_count`, in the order of first listing.
+    ///
+    /// The value is derived, not stored. It counts only a listed album that
+    /// also names this feed as its publisher. Present only when this feed is
+    /// a publisher feed. ADR 0061 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed_release_artists: Option<Vec<String>>,
+    /// The count of `unconfirmed_release_artists`.
+    ///
+    /// The value is derived, not stored. It counts only a listed album that
+    /// does not name this feed as its publisher. Present only when this feed
+    /// is a publisher feed. ADR 0061 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unconfirmed_release_artist_count: Option<i64>,
+    /// One raw `remote_release_artist` value for each count in
+    /// `unconfirmed_release_artist_count`, in the order of first listing.
+    ///
+    /// The value is derived, not stored. It counts only a listed album that
+    /// does not name this feed as its publisher. Present only when this feed
+    /// is a publisher feed. ADR 0061 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unconfirmed_release_artists: Option<Vec<String>>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -1190,6 +1220,55 @@ fn publisher_artist_count(
     Ok((count, artists))
 }
 
+/// Splits a publisher feed's `publisher` view rows into confirmed and
+/// unconfirmed release-artist lists, ADR 0061 §1.
+///
+/// A row counts only when its `direction` is `publisher_to_music` and its
+/// `publisher_link_resolution` is not `unresolved` (a listed album). A row
+/// counts as confirmed when `music_names_publisher` is true, else as
+/// unconfirmed. A row gives no artist, and is skipped, when
+/// `remote_release_artist` is null or `remote_release_artist_source` is
+/// `placeholder`. Two artists are the same value when
+/// [`normalize_release_artist`] gives the same result; the raw value kept is
+/// the first row's, in row order. An artist counted as confirmed is removed
+/// from the unconfirmed list.
+fn confirmed_and_unconfirmed_release_artists(
+    rows: &[PublisherResponse],
+) -> (Vec<String>, Vec<String>) {
+    let mut confirmed_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut confirmed: Vec<String> = Vec::new();
+    let mut unconfirmed_seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut unconfirmed: Vec<String> = Vec::new();
+
+    for row in rows {
+        if row.direction != "publisher_to_music" || row.publisher_link_resolution == "unresolved" {
+            continue;
+        }
+        if row.remote_release_artist_source.as_deref() == Some("placeholder") {
+            continue;
+        }
+        let Some(artist) = row.remote_release_artist.as_deref() else {
+            continue;
+        };
+        let normalized = normalize_release_artist(artist);
+
+        if row.music_names_publisher {
+            if confirmed_seen.insert(normalized) {
+                confirmed.push(artist.to_string());
+            }
+        } else if unconfirmed_seen.insert(normalized) {
+            unconfirmed.push(artist.to_string());
+        }
+    }
+
+    // ADR 0061 §1: an artist of a confirmed album is not in the unconfirmed
+    // list, even when an earlier row listed it there before a later row
+    // confirmed the same normalized artist.
+    unconfirmed.retain(|artist| !confirmed_seen.contains(&normalize_release_artist(artist)));
+
+    (confirmed, unconfirmed)
+}
+
 /// Builds `live_items` for `GET /v1/feeds/{guid}` (ADR 0064 section 6).
 ///
 /// Reads every stored live-event row of `feed_guid` and gives them as
@@ -1270,6 +1349,10 @@ fn build_feed_response(
         publisher_feed_title,
         distinct_release_artist_count: None,
         distinct_release_artists: None,
+        confirmed_release_artist_count: None,
+        confirmed_release_artists: None,
+        unconfirmed_release_artist_count: None,
+        unconfirmed_release_artists: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -1292,10 +1375,24 @@ fn build_feed_response(
     };
 
     // ADR 0049 §7: only a publisher feed carries the derived artist count.
+    // ADR 0061 §1: the same guard also carries the confirmed and
+    // unconfirmed artist lists. `publisher_rows` is kept so the `publisher`
+    // include below can reuse it instead of calling `load_publisher` again.
+    let mut publisher_rows: Option<Vec<PublisherResponse>> = None;
     if medium::is_publisher(resp.raw_medium.as_deref()) {
         let (count, artists) = publisher_artist_count(conn, &feed_guid)?;
         resp.distinct_release_artist_count = Some(count);
         resp.distinct_release_artists = Some(artists);
+
+        let rows = load_publisher(conn, &feed_guid)?;
+        let (confirmed, unconfirmed) = confirmed_and_unconfirmed_release_artists(&rows);
+        resp.confirmed_release_artist_count =
+            Some(i64::try_from(confirmed.len()).unwrap_or(i64::MAX));
+        resp.confirmed_release_artists = Some(confirmed);
+        resp.unconfirmed_release_artist_count =
+            Some(i64::try_from(unconfirmed.len()).unwrap_or(i64::MAX));
+        resp.unconfirmed_release_artists = Some(unconfirmed);
+        publisher_rows = Some(rows);
     }
 
     // v4vmm request 3: this loop reads `FEED_INCLUDES`, the same list
@@ -1405,7 +1502,12 @@ fn build_feed_response(
                 resp.remote_items = Some(items);
             }
             "publisher" => {
-                resp.publisher = Some(load_publisher(conn, &feed_guid)?);
+                // ADR 0061 §1: reuse the rows the publisher-feed guard above
+                // already loaded, rather than call `load_publisher` again.
+                resp.publisher = Some(match publisher_rows.take() {
+                    Some(rows) => rows,
+                    None => load_publisher(conn, &feed_guid)?,
+                });
             }
             // FEED_INCLUDES lists only the names matched above.
             _ => unreachable!("FEED_INCLUDES and this match must list the same names"),
@@ -3213,10 +3315,15 @@ async fn handle_get_recent_feeds(
                 image_url: web_url_or_none(r.image_url.as_deref()),
                 publisher_text: r.publisher_text,
                 publisher_feed_title,
-                // The list route does not compute this per-row aggregate.
-                // ADR 0049 §7 scopes it to a single feed read.
+                // The list route does not compute these per-row aggregates.
+                // ADR 0049 §7 and ADR 0061 §1 scope them to a single feed
+                // read.
                 distinct_release_artist_count: None,
                 distinct_release_artists: None,
+                confirmed_release_artist_count: None,
+                confirmed_release_artists: None,
+                unconfirmed_release_artist_count: None,
+                unconfirmed_release_artists: None,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,

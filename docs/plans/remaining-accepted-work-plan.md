@@ -26,8 +26,8 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 11 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
 | 12 | A snapshot refresh of the import can fill the disk. Deployed on 2026-09-27 | ADR 0033, amended | Code | Crawler, `docker-compose.yml` | Below |
 | 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 | Tasks first | `stophammer` | Below |
-| 14 | The ADR archive and the two governance guards | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
-| 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name | ADR 0061 | Code | `stophammer` | Below |
+| 14 | The ADR archive and the two governance guards. Complete on 2026-09-27 | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
+| 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name. Built on 2026-09-27, not deployed | ADR 0061 | Code | `stophammer` | Below |
 
 ## Sequence
 
@@ -148,13 +148,23 @@ section "Guards" name the work:
 3. A test compares the ADR files with the rows of `docs/adr/README.md`. It
    fails when a file has no row, or when a row names no file.
 
+On 2026-09-27 the work is complete, by
+[task 001](../tasks/adr-0045-task-001-archive-and-guards.md). The ten
+superseded ADRs are in `docs/adr/archive/`, and
+`tests/adr0045_governance_guards_tests.rs` holds the two tests.
+
 ## Item 15: The Confirmed Artists Of A Publisher
 
 [ADR 0061](../adr/0061-a-publisher-read-counts-its-listed-artists.md) needs
-one node task: the four fields of §1, the filter of §5 on the album read, the
-OpenAPI schema, `docs/API.md`, and the tests of its section "Guards". At the
-deploy, the request files of v4vmm and musicindex.org get a note, because the
-`publisher` view of an album gives fewer rows.
+one node task: the four fields of §1, the OpenAPI schema, `docs/API.md`, and
+the tests of its section "Guards". The album read already follows §5, so a
+test guards it and no code changes there. At the deploy, the request files of
+v4vmm and musicindex.org get a note about the four new fields.
+
+On 2026-09-27 the task is built, by
+[task 001](../tasks/adr-0061-task-001-confirmed-artists.md), and
+`tests/adr0061_confirmed_artists_tests.rs` holds the tests. The deploy comes
+with the next release.
 
 ## Not In This Plan
 
