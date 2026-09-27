@@ -367,7 +367,10 @@ fn artist_ids_for_feed(
     let Some(feed) = db::get_feed_by_guid(conn, feed_guid)? else {
         return Ok(vec![]);
     };
-    let Some(credit) = db::get_artist_credit(conn, feed.artist_credit_id)? else {
+    let Some(credit_id) = feed.artist_credit_id else {
+        return Ok(vec![]);
+    };
+    let Some(credit) = db::get_artist_credit(conn, credit_id)? else {
         return Ok(vec![]);
     };
     let mut artist_ids: Vec<String> = Vec::new();
@@ -2954,7 +2957,7 @@ async fn handle_ingest_feed(
             feed_url,
             title: feed_data.title.clone(),
             title_lower: feed_data.title.to_lowercase(),
-            artist_credit_id: feed_artist_credit.id,
+            artist_credit_id: Some(feed_artist_credit.id),
             description: feed_data.description.clone(),
             image_url: feed_data.image_url.clone(),
             publisher: derive_publisher_name(feed_data),
@@ -3225,7 +3228,7 @@ async fn handle_ingest_feed(
             let track = model::Track {
                 track_guid: track_data.track_guid.clone(),
                 feed_guid: feed_data.feed_guid.clone(),
-                artist_credit_id: track_credit_id,
+                artist_credit_id: Some(track_credit_id),
                 title: track_data.title.clone(),
                 title_lower: track_data.title.to_lowercase(),
                 pub_date: track_data.pub_date,

@@ -619,6 +619,47 @@ pub fn get_or_create_feed_scoped_source_text_credit(
     create_single_artist_credit(conn, &artist, Some(feed_guid))
 }
 
+/// Resolves `artist_credit_id` for a `Feed` or a `Track` applied from a
+/// signed event, making the feed-scoped credit when the payload carries none.
+///
+/// ADR 0034 §11 (Release A): a node accepts a `FeedUpserted` or a
+/// `TrackUpserted` event whose payload has no `artist_credit_id`, and makes
+/// the feed-scoped credit itself, the way ingest does. A primary on release A
+/// sets `artist_credit_id` to `Some` on every event it signs. The field is
+/// absent only in an event from a primary on release B. Ingest does not call
+/// this function.
+///
+/// `existing` is the payload's own `artist_credit_id`; when `Some`, it wins
+/// and no lookup runs. `text` is the payload field that names the credit
+/// directly — the feed's `release_artist`, or the track's `track_artist`.
+/// When `text` is absent or empty (after a trim), `fallback` supplies the
+/// credit id to use instead: the literal placeholder credit for a feed, or
+/// the feed's own stored credit for a track.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the credit lookup or insert fails, or if
+/// `fallback` fails.
+pub fn resolve_optional_artist_credit_id(
+    conn: &Connection,
+    existing: Option<i64>,
+    text: Option<&str>,
+    feed_guid: &str,
+    fallback: impl FnOnce(&Connection) -> Result<i64, DbError>,
+) -> Result<i64, DbError> {
+    if let Some(id) = existing {
+        return Ok(id);
+    }
+
+    match text.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => {
+            let credit = get_or_create_feed_scoped_source_text_credit(conn, name, feed_guid)?;
+            Ok(credit.id)
+        }
+        None => fallback(conn),
+    }
+}
+
 // ── get_artist_by_id ─────────────────────────────────────────────────────────
 // Issue-12 PATCH emits events — 2026-03-13
 

@@ -74,7 +74,12 @@ pub struct Feed {
     pub feed_url: String,
     pub title: String,
     pub title_lower: String,
-    pub artist_credit_id: i64,
+    /// The feed's artist credit. ADR 0034 §11 (Release A): a `FeedUpserted`
+    /// payload may carry no credit, and a node that applies it makes the
+    /// feed-scoped credit itself. On release A the primary still sets this to
+    /// `Some` on every event it signs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_credit_id: Option<i64>,
     pub description: Option<String>,
     pub image_url: Option<String>,
     pub publisher: Option<String>,
@@ -111,7 +116,12 @@ pub struct Feed {
 pub struct Track {
     pub track_guid: String,
     pub feed_guid: String,
-    pub artist_credit_id: i64,
+    /// The track's artist credit. ADR 0034 §11 (Release A): a `TrackUpserted`
+    /// payload may carry no credit, and a node that applies it makes the
+    /// feed-scoped credit itself. On release A the primary still sets this to
+    /// `Some` on every event it signs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artist_credit_id: Option<i64>,
     pub title: String,
     /// Pre-lowercased copy of `title` used for case-insensitive search queries.
     pub title_lower: String,

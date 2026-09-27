@@ -102,7 +102,7 @@ fn ingest_and_count_track_events(
         feed_url: format!("https://example.com/{}.xml", feed.feed_guid),
         title: feed.title.into(),
         title_lower: feed.title.to_lowercase(),
-        artist_credit_id: 0,
+        artist_credit_id: Some(0),
         description: feed.description.map(String::from),
         image_url: None,
         publisher: None,
@@ -130,7 +130,7 @@ fn ingest_and_count_track_events(
             let track = stophammer::model::Track {
                 track_guid: t.guid.into(),
                 feed_guid: feed.feed_guid.into(),
-                artist_credit_id: 0,
+                artist_credit_id: Some(0),
                 title: t.title.into(),
                 title_lower: t.title.to_lowercase(),
                 pub_date: Some(fixed_pub_date),

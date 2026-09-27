@@ -64,7 +64,7 @@ fn ingest_feed_with_tracks(
         feed_url: format!("https://example.com/{feed_guid}.xml"),
         title: "Test Feed".into(),
         title_lower: "test feed".into(),
-        artist_credit_id: 0,
+        artist_credit_id: Some(0),
         description: Some("Test feed description".into()),
         image_url: None,
         publisher: None,
@@ -92,7 +92,7 @@ fn ingest_feed_with_tracks(
             let track = stophammer::model::Track {
                 track_guid: (*tg).into(),
                 feed_guid: feed_guid.into(),
-                artist_credit_id: 0,
+                artist_credit_id: Some(0),
                 title: format!("Track {i}"),
                 title_lower: format!("track {i}"),
                 pub_date: Some(now),

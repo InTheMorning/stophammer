@@ -1486,7 +1486,7 @@ fn make_feed_upserted_event(
         feed_url: format!("https://example.com/{feed_guid}.xml"),
         title: feed_title.into(),
         title_lower: feed_title.to_lowercase(),
-        artist_credit_id: 1,
+        artist_credit_id: Some(1),
         description: None,
         image_url: None,
         publisher: None,
@@ -1538,7 +1538,7 @@ fn make_track_upserted_event(
     let track = Track {
         track_guid: track_guid.into(),
         feed_guid: feed_guid.into(),
-        artist_credit_id: 1,
+        artist_credit_id: Some(1),
         title: track_title.into(),
         title_lower: track_title.to_lowercase(),
         pub_date: Some(now),
@@ -1613,7 +1613,7 @@ fn apply_track_upserted_requires_existing_credit_rows() {
         now,
     );
     if let EventPayload::TrackUpserted(payload) = &mut event.payload {
-        payload.track.artist_credit_id = 999;
+        payload.track.artist_credit_id = Some(999);
         event.payload_json = serde_json::to_string(payload).expect("reserialize payload");
     }
 

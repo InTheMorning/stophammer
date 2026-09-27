@@ -97,14 +97,56 @@ fn apply_single_event_inner(
             db::upsert_artist_if_absent(conn, &p.artist)?;
         }
         event::EventPayload::FeedUpserted(p) => {
-            db::upsert_feed(conn, &p.feed)?;
+            // ADR 0034 §11 (release A): a primary on release B signs a
+            // `FeedUpserted` event with no `artist_credit_id`. Make the
+            // feed-scoped credit from `release_artist` before the upsert, so
+            // the stored column (declared NOT NULL) always gets a value.
+            let credit_id = db::resolve_optional_artist_credit_id(
+                conn,
+                p.feed.artist_credit_id,
+                p.feed.release_artist.as_deref(),
+                &p.feed.feed_guid,
+                |conn| {
+                    db::get_or_create_feed_scoped_source_text_credit(
+                        conn,
+                        "Unknown Artist",
+                        &p.feed.feed_guid,
+                    )
+                    .map(|credit| credit.id)
+                },
+            )?;
+            let mut feed = p.feed.clone();
+            feed.artist_credit_id = Some(credit_id);
+            db::upsert_feed(conn, &feed)?;
             // Rebuild search index and quality scores for the feed and all its tracks.
             // Replicas must populate read models immediately on event apply, just like
             // the primary node does at ingest time (see ingest_transaction).
             db::sync_source_read_models_for_feed(conn, &p.feed.feed_guid)?;
         }
         event::EventPayload::TrackUpserted(p) => {
-            db::upsert_track(conn, &p.track)?;
+            // ADR 0034 §11 (release A): a primary on release B signs a
+            // `TrackUpserted` event with no `artist_credit_id`. Make the
+            // feed-scoped credit from `track_artist`, or use the credit
+            // already stored for the track's feed.
+            let credit_id = db::resolve_optional_artist_credit_id(
+                conn,
+                p.track.artist_credit_id,
+                p.track.track_artist.as_deref(),
+                &p.track.feed_guid,
+                |conn| {
+                    db::get_feed_by_guid(conn, &p.track.feed_guid)?
+                        .and_then(|feed| feed.artist_credit_id)
+                        .ok_or_else(|| {
+                            db::DbError::Other(format!(
+                                "track {} references feed {} with no stored artist_credit_id",
+                                p.track.track_guid, p.track.feed_guid
+                            ))
+                        })
+                },
+            )?;
+            let mut track = p.track.clone();
+            track.artist_credit_id = Some(credit_id);
+            db::upsert_track(conn, &track)?;
             db::replace_payment_routes_for_feed_track(
                 conn,
                 &p.track.feed_guid,

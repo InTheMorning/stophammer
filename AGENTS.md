@@ -175,7 +175,7 @@ which gives the sequence of each open item of an Accepted ADR:
    [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md).
 5. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written, and no task is built. Task 001 joins 0.2.0.
+   written. Task 001 is built and not deployed, and joins 0.2.0.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and
