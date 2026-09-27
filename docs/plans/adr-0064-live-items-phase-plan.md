@@ -130,8 +130,8 @@ Each value agrees with the expected value. The 6 recordings are now `ended`
 rows. The two "100% Retro" feeds emitted no event, so the compare of task 002
 works in production.
 
-The mechanical checks of task 004 are thus met. The visual check of `/api`
-stays open until the operator does it.
+The mechanical checks of task 004 are thus met. On the same day the operator
+did the visual check of `/api`, and it passed. ADR 0064 is complete.
 
 ## Outside This Plan
 

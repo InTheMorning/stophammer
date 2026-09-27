@@ -57,6 +57,10 @@ Complete and deployed:
 - [ADR 0062](docs/adr/0062-a-podping-is-never-dropped.md), deployed on
   2026-09-26. The `gossip` mode merges a podping inside the window of its URL,
   and never drops it.
+- [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
+  2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
+  `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
+  `all`. `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
   gate is track coverage. A feed needs a channel-level `podcast:value` block
   only when a track declares none. Deployed on 2026-09-24.
@@ -100,17 +104,7 @@ which gives the sequence of each open item of an Accepted ADR:
    measures, and it has not run. The open question, whether a `304` counts
    against the Wavlake `429` limit, stays open until the second pass.
 
-3. [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), Accepted on
-   2026-09-26, supersedes ADR 0021. A live item is an RSS fact, and the index
-   gives its relay link. Tasks 001 to 003b are deployed on 2026-09-27.
-   `GET /v1/live-items` and `live_items` on the feed are new, and
-   `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease. The
-   production checks of task 004 passed on 2026-09-27. Only the visual check
-   of `/api` stays open. The
-   [phase plan](docs/plans/adr-0064-live-items-phase-plan.md) gives the
-   checks.
-
-4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
+3. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
    and the gossip check of task 004 found no music host on 2026-09-26.
    ADR 0055 is Proposed and waits. The operator runs the only crawler, on the same host as the
