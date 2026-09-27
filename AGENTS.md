@@ -97,10 +97,11 @@ which gives the sequence of each open item of an Accepted ADR:
    almost no feed body.
 
    The [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives
-   two passes of plan decision 10. The first pass filled the cache: the
-   `refresh` pass that started on 2026-09-24 at 23:52 UTC. The second pass
-   measures, and it has not run. The open question, whether a `304` counts
-   against the Wavlake `429` limit, stays open until the second pass.
+   two passes of plan decision 10. Both passes have run. The second pass,
+   which ended on 2026-09-27, got `304` from almost each feed outside Wavlake,
+   and `200` from almost each Wavlake feed. Wavlake builds each feed body again
+   at least each 12 hours with a new `lastBuildDate`, so its `ETag` changes.
+   The pass got 2 `429` answers. The phase plan records the measurement.
 
 2. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
@@ -143,10 +144,10 @@ which gives the sequence of each open item of an Accepted ADR:
      001 to 004 are complete and deployed on 2026-09-25. The two copies of
      Strange Love albums are resolved with `keep_source`. A relocation
      through `PATCH /v1/feeds/{guid}` now needs a `reason`. Step 7 of task 005
-     stays open: after the next `refresh` pass, the count of
-     `feed_copy_observed` events must grow only by the summaries that
-     changed. The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md)
-     gives the sequence.
+     passed on 2026-09-27: after the second `refresh` pass, 80 copy rows have
+     80 `feed_copy_observed` events, one for each copy. ADR 0058 is complete.
+     The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md) records
+     the check.
    - Wavlake does not send podpings for its feeds, and no service sends them
      for Wavlake by automation. Any person can send one by hand. Thus a
      Wavlake record moves to its self link mostly through a crawl of the music

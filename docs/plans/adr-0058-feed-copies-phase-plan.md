@@ -112,6 +112,21 @@ The tasks run one after another, because 002, 003 and 004 each change
   compare the answers of each public route.
 - The full gate and the migration tests.
 
+## The Check Of Task 005 Step 7
+
+On 2026-09-27, after the second `refresh` pass, the primary gave:
+
+| Count | Before, 2026-09-26 | After, 2026-09-27 |
+|---|---|---|
+| `feed_copies` rows | 28 | 80 |
+| `feed_copy_observed` events | 28 | 80 |
+| Pairs of a GUID and a URL with more than one event | 0 | 0 |
+
+Each row has one event. The 52 new events are 52 new copies that the pass
+found. No old pair made an event again, so the summary digest is stable. This
+is true also for Wavlake, whose body gets a new `lastBuildDate` at each build.
+Step 7 passed.
+
 ## Rollback
 
 Deploy the previous image. The two tables and the events stay, and that binary

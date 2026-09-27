@@ -18,8 +18,8 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 3 | A feed can block this index with `podcast:block`. Deployed on 2026-09-26 | ADR 0057 | Code | Parser, node, crawler | [ADR 0057 phase plan](adr-0057-podcast-block-phase-plan.md) |
 | 4 | A migration drops the two proof tables and changes the delete trigger | ADR 0056 §3 | Code | `stophammer` | [Task 002](../tasks/adr-0056-task-002-drop-proof-tables.md) |
 | 5 | Read the gossip log for rejected hosts. Complete on 2026-09-26 | ADR 0054 task 004 step 3 | Operator check | None | [ADR 0054 phase plan](adr-0054-fetch-rule-phase-plan.md) |
-| 6 | The second `refresh` pass: `304` and the Wavlake `429` limit | ADR 0050 plan decision 10 | Operator pass | None | [ADR 0050 phase plan](adr-0050-feed-revalidation-phase-plan.md) |
-| 7 | After that pass, count the `feed_copy_observed` events | ADR 0058 task 005 step 7 | Operator check | None | [ADR 0058 phase plan](adr-0058-feed-copies-phase-plan.md) |
+| 6 | The second `refresh` pass: `304` and the Wavlake `429` limit. Ran on 2026-09-27, recorded in the phase plan | ADR 0050 plan decision 10 | Operator pass | None | [ADR 0050 phase plan](adr-0050-feed-revalidation-phase-plan.md) |
+| 7 | After that pass, count the `feed_copy_observed` events. Passed on 2026-09-27 | ADR 0058 task 005 step 7 | Operator check | None | [ADR 0058 phase plan](adr-0058-feed-copies-phase-plan.md) |
 | 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §5 | Decided: wait for Doerfelverse | None | Below |
 | 9 | Fast polling of a feed with a pending live event | ADR 0021 | Closed: ADR 0064 supersedes ADR 0021 | None | Below |
 | 10 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
