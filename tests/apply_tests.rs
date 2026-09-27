@@ -951,6 +951,8 @@ fn apply_live_events_replaced() {
             scheduled_end: Some(now + 7200),
             created_at: now,
             updated_at: now,
+            live_value_uri: None,
+            live_value_protocol: None,
         }],
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");

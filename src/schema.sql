@@ -258,6 +258,8 @@ CREATE TABLE IF NOT EXISTS live_events (
     scheduled_end   INTEGER,
     created_at      INTEGER NOT NULL,
     updated_at      INTEGER NOT NULL,
+    live_value_uri      TEXT,
+    live_value_protocol TEXT,
     PRIMARY KEY (feed_guid, live_item_guid)
 ) STRICT;
 

@@ -242,6 +242,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 43: itemGuid and title of channel remote items, and
     // feed_list_value_raw for musicL value blocks (ADR 0060 §2, §4)
     include_str!("../migrations/0043_list_feed_items.sql"),
+    // Migration 44: the relay link (uri and protocol) of a live item
+    // (ADR 0064 §3)
+    include_str!("../migrations/0044_live_item_relay_link.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -1949,7 +1952,7 @@ pub fn get_live_events_for_feed(
 ) -> Result<Vec<LiveEvent>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT live_item_guid, feed_guid, title, content_link, status, scheduled_start, \
-         scheduled_end, created_at, updated_at \
+         scheduled_end, created_at, updated_at, live_value_uri, live_value_protocol \
          FROM live_events WHERE feed_guid = ?1 ORDER BY COALESCE(scheduled_start, created_at), live_item_guid",
     )?;
 
@@ -1964,6 +1967,8 @@ pub fn get_live_events_for_feed(
             scheduled_end: row.get(6)?,
             created_at: row.get(7)?,
             updated_at: row.get(8)?,
+            live_value_uri: row.get(9)?,
+            live_value_protocol: row.get(10)?,
         })
     })?;
 
@@ -1983,6 +1988,15 @@ fn dedupe_live_events(live_events: &[LiveEvent]) -> Vec<LiveEvent> {
             deduped.push(live_event.clone());
         }
     }
+    deduped
+}
+
+/// Keeps the first row of each `live_item_guid`, then sorts the result by
+/// `live_item_guid`. ADR 0064 §4: the node compares stored and new live rows
+/// in this order, so a change of RSS order alone changes nothing.
+fn dedupe_and_sort_live_events(live_events: &[LiveEvent]) -> Vec<LiveEvent> {
+    let mut deduped = dedupe_live_events(live_events);
+    deduped.sort_by(|a, b| a.live_item_guid.cmp(&b.live_item_guid));
     deduped
 }
 
@@ -2097,8 +2111,8 @@ pub fn replace_live_events_for_feed(
     for live_event in dedupe_live_events(live_events) {
         conn.execute(
             "INSERT INTO live_events \
-             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at, live_value_uri, live_value_protocol) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 &live_event.live_item_guid,
                 &live_event.feed_guid,
@@ -2109,6 +2123,8 @@ pub fn replace_live_events_for_feed(
                 live_event.scheduled_end,
                 live_event.created_at,
                 live_event.updated_at,
+                &live_event.live_value_uri,
+                &live_event.live_value_protocol,
             ],
         )?;
     }
@@ -3527,6 +3543,9 @@ fn track_remote_items_changed(existing: &[TrackRemoteItemRaw], new: &[TrackRemot
         })
 }
 
+/// Compares stored and new live rows. ADR 0064 §4: the caller sorts both
+/// lists by `live_item_guid` first, so a matching index pair names the same
+/// row.
 fn live_events_changed(existing: &[LiveEvent], new: &[LiveEvent]) -> bool {
     existing.len() != new.len()
         || existing.iter().zip(new.iter()).any(|(a, b)| {
@@ -3536,6 +3555,8 @@ fn live_events_changed(existing: &[LiveEvent], new: &[LiveEvent]) -> bool {
                 || a.status != b.status
                 || a.scheduled_start != b.scheduled_start
                 || a.scheduled_end != b.scheduled_end
+                || a.live_value_uri != b.live_value_uri
+                || a.live_value_protocol != b.live_value_protocol
         })
 }
 
@@ -3881,8 +3902,14 @@ fn build_all_events(
             &warn_vec,
         )?);
     }
-    if !live_events.is_empty() {
-        event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
+    let sorted_live_events = dedupe_and_sort_live_events(live_events);
+    if !sorted_live_events.is_empty() {
+        event_rows.push(build_live_events_event(
+            feed,
+            &sorted_live_events,
+            now,
+            &warn_vec,
+        )?);
     }
 
     for (i, (track, routes, vts, track_remote_items)) in tracks.iter().enumerate() {
@@ -4076,9 +4103,16 @@ fn build_changed_events(
     }
 
     // --- Live-event snapshot diff ---
-    let existing_live_events = get_live_events_for_feed(conn, &feed.feed_guid)?;
-    if live_events_changed(&existing_live_events, live_events) {
-        event_rows.push(build_live_events_event(feed, live_events, now, &warn_vec)?);
+    let mut existing_live_events = get_live_events_for_feed(conn, &feed.feed_guid)?;
+    existing_live_events.sort_by(|a, b| a.live_item_guid.cmp(&b.live_item_guid));
+    let sorted_live_events = dedupe_and_sort_live_events(live_events);
+    if live_events_changed(&existing_live_events, &sorted_live_events) {
+        event_rows.push(build_live_events_event(
+            feed,
+            &sorted_live_events,
+            now,
+            &warn_vec,
+        )?);
     }
 
     // --- Track diff ---
@@ -6402,8 +6436,8 @@ pub fn ingest_transaction(
     for live_event in dedupe_live_events(&live_events) {
         tx.execute(
             "INSERT INTO live_events \
-             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (live_item_guid, feed_guid, title, content_link, status, scheduled_start, scheduled_end, created_at, updated_at, live_value_uri, live_value_protocol) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 &live_event.live_item_guid,
                 &live_event.feed_guid,
@@ -6414,6 +6448,8 @@ pub fn ingest_transaction(
                 live_event.scheduled_end,
                 live_event.created_at,
                 live_event.updated_at,
+                &live_event.live_value_uri,
+                &live_event.live_value_protocol,
             ],
         )?;
     }

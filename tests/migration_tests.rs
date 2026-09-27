@@ -590,21 +590,22 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
 
     // ADR 0049 task 007 added migration 0037, ADR 0053 task 001 added
     // migration 0038, ADR 0052 task 001 added migration 0039, ADR 0058 task
-    // 001 added migration 0040, ADR 0052 task 006 added migration 0041, and
-    // ADR 0052 task 007 added migration 0042, after this fixture was
+    // 001 added migration 0040, ADR 0052 task 006 added migration 0041, ADR
+    // 0052 task 007 added migration 0042, ADR 0060 added migration 0043, and
+    // ADR 0064 task 002 added migration 0044, after this fixture was
     // written. The fixture still stops at 0035, so open_db also runs 0037
     // (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041
-    // (entry 35) and 0042 (entry 36), six migrations past the 0036 this test
-    // names.
+    // (entry 35), 0042 (entry 36), 0043 (entry 37) and 0044 (entry 38), eight
+    // migrations past the 0036 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 37,
-        "the runner must record version 37 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042 and 0043 run"
+        recorded_version, 38,
+        "the runner must record version 38 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043 and 0044 run"
     );
 }
 
@@ -704,19 +705,20 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
 
     // ADR 0053 task 001 added migration 0038, ADR 0052 task 001 added
     // migration 0039, ADR 0058 task 001 added migration 0040, ADR 0052 task
-    // 006 added migration 0041, and ADR 0052 task 007 added migration 0042,
+    // 006 added migration 0041, ADR 0052 task 007 added migration 0042, ADR
+    // 0060 added migration 0043, and ADR 0064 task 002 added migration 0044,
     // after this fixture was written. The fixture stops at 0036, so open_db
     // also runs 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041
-    // (entry 35) and 0042 (entry 36), five migrations past the 0037 this
-    // test names.
+    // (entry 35), 0042 (entry 36), 0043 (entry 37) and 0044 (entry 38), seven
+    // migrations past the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 37,
-        "the runner must record version 37 after migrations 0037, 0038, 0039, 0040, 0041, 0042 \
-         and 0043 run"
+        recorded_version, 38,
+        "the runner must record version 38 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043 and 0044 run"
     );
 }

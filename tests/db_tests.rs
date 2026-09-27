@@ -1117,6 +1117,8 @@ fn replace_live_events_allows_same_live_item_guid_in_multiple_feeds() {
             scheduled_end: None,
             created_at: now,
             updated_at: now,
+            live_value_uri: None,
+            live_value_protocol: None,
         }],
     )
     .expect("replace live events a");
@@ -1133,6 +1135,8 @@ fn replace_live_events_allows_same_live_item_guid_in_multiple_feeds() {
             scheduled_end: None,
             created_at: now,
             updated_at: now + 1,
+            live_value_uri: None,
+            live_value_protocol: None,
         }],
     )
     .expect("replace live events b");

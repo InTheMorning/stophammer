@@ -17,6 +17,7 @@
 //! | [`event`] | Signed event envelope and serialisation |
 //! | [`fetch_guard`] | SSRF guard: URL validation and DNS-pinned fetches |
 //! | [`ingest`] | Crawler submission types (`IngestFeedRequest` / `IngestResponse`) |
+//! | [`live`] | Pure ingest rules for a live item (ADR 0064 section 4) |
 //! | [`model`] | Core domain types: `Artist`, `Feed`, `Track`, `PaymentRoute`, etc. |
 //! | [`quality`] | Feed quality scoring heuristics |
 //! | [`query`] | Read-only query routes (`/v1/feeds`, `/v1/tracks`, etc.) |
@@ -43,6 +44,7 @@ pub mod db_pool;
 pub mod event;
 pub mod fetch_guard;
 pub mod ingest;
+pub mod live;
 pub mod medium;
 pub mod model;
 pub mod openapi;

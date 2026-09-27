@@ -115,6 +115,9 @@ Purpose: current `pending` and `live` `podcast:liveItem` rows.
 Notes:
 - replaced on each ingest
 - ended live items with enclosures are promoted into normal tracks
+- `live_value_uri` and `live_value_protocol` hold the `uri` and `protocol` of
+  the item's `podcast:liveValue` element: the relay link (ADR 0064 §3). Each
+  is nullable. Migration 0044.
 
 ### `source_contributor_claims`
 Purpose: preserved contributor evidence such as `podcast:person` and other contributor claims.

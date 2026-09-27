@@ -207,6 +207,16 @@ pub struct IngestLiveItemData {
     pub explicit: bool,
     pub description: Option<String>,
     pub author_name: Option<String>,
+    /// The relay `uri` of the `podcast:liveValue` element (ADR 0064 §3). A
+    /// crawler that predates this field sends no such field, so an old
+    /// payload still decodes.
+    #[serde(default)]
+    pub live_value_uri: Option<String>,
+    /// The relay `protocol` of the `podcast:liveValue` element (ADR 0064 §3).
+    /// A crawler that predates this field sends no such field, so an old
+    /// payload still decodes.
+    #[serde(default)]
+    pub live_value_protocol: Option<String>,
     /// Per-track remote item references (e.g. publisher).
     #[serde(default)]
     pub remote_items: Vec<IngestRemoteFeedRef>,

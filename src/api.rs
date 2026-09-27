@@ -36,7 +36,9 @@ use utoipa::ToSchema;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 
-use crate::{db, db_pool, event, fetch_guard, ingest, medium, model, query, signing, sync, verify};
+use crate::{
+    db, db_pool, event, fetch_guard, ingest, live, medium, model, query, signing, sync, verify,
+};
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
 
@@ -396,13 +398,15 @@ fn live_sse_payload(
 
 /// Build SSE frames describing live-event start/end transitions for a feed.
 ///
-/// This diffs the old and new live-event snapshots and associates ended live
-/// events with their promoted `TrackUpserted` events when possible.
+/// This diffs the old and new live-event snapshots. ADR 0064 section 1: the
+/// index makes no track from a live item, so `live_event_ended` no longer
+/// needs a promoted `TrackUpserted` event. It fires when a row that was
+/// `pending` or `live` is now `ended`, or when it leaves the snapshot.
 ///
 /// # Errors
 ///
-/// Returns `DbError` if the helper queries needed to resolve artist channels
-/// or promoted-track mappings fail.
+/// Returns `DbError` if the helper query needed to resolve artist channels
+/// fails.
 pub fn build_live_sse_frames_for_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
@@ -422,16 +426,6 @@ pub fn build_live_sse_frames_for_feed(
             _ => None,
         })
         .max();
-
-    let ended_track_seqs: HashMap<String, i64> = events
-        .iter()
-        .filter_map(|ev| match &ev.payload {
-            event::EventPayload::TrackUpserted(p) if p.track.feed_guid == feed_guid => {
-                Some((p.track.track_guid.clone(), ev.seq))
-            }
-            _ => None,
-        })
-        .collect();
 
     let old_by_guid: HashMap<&str, &model::LiveEvent> = old_live_events
         .iter()
@@ -467,13 +461,19 @@ pub fn build_live_sse_frames_for_feed(
         }
     }
 
+    let Some(seq) = live_snapshot_seq else {
+        return Ok(frames);
+    };
     for old_live_event in old_live_events {
-        if new_by_guid.contains_key(old_live_event.live_item_guid.as_str()) {
+        if !matches!(old_live_event.status.as_str(), "pending" | "live") {
             continue;
         }
-        let Some(&seq) = ended_track_seqs.get(&old_live_event.live_item_guid) else {
+        let now_ended = new_by_guid
+            .get(old_live_event.live_item_guid.as_str())
+            .is_none_or(|new_live_event| new_live_event.status == "ended");
+        if !now_ended {
             continue;
-        };
+        }
         let frame = SseFrame {
             event_type: "live_event_ended".to_string(),
             subject_guid: old_live_event.live_item_guid.clone(),
@@ -2079,6 +2079,15 @@ fn is_non_web(value: Option<&str>) -> bool {
     value.is_some() && model::web_url_or_none(value).is_none()
 }
 
+/// `true` when `value` parses as an absolute URI and its scheme is not
+/// `http` or `https`. ADR 0064 section 4: a `live_value_uri` that names no
+/// scheme is an identifier, not a URL, so it gives `false`.
+fn is_non_web_scheme(value: Option<&str>) -> bool {
+    value.is_some_and(|v| {
+        url::Url::parse(v).is_ok_and(|parsed| !matches!(parsed.scheme(), "http" | "https"))
+    })
+}
+
 /// ADR 0054 section 4: the warnings for the URL fields of one ingest
 /// submission.
 ///
@@ -2095,9 +2104,15 @@ fn is_non_web(value: Option<&str>) -> bool {
 /// value in it is already covered by the `url` warning here, or cannot
 /// occur (`canonical_url` is validated as a fetch target before it reaches
 /// this handler).
+///
+/// ADR 0064 section 4: a live item adds two more fields. `content_link`
+/// follows the same web-URL rule as the fields above. `live_value_uri` is
+/// checked only when it has a scheme; an identifier-only value gives no
+/// warning.
 fn non_web_url_warnings(
     feed_data: &ingest::IngestFeedData,
     tracks: &[ingest::IngestTrackData],
+    live_items: &[&ingest::IngestLiveItemData],
 ) -> Vec<String> {
     let mut bad_image_url = is_non_web(feed_data.image_url.as_deref());
     let mut bad_enclosure_url = false;
@@ -2147,6 +2162,13 @@ fn non_web_url_warnings(
             .any(|person| is_non_web(person.img.as_deref()));
     }
 
+    let bad_content_link = live_items
+        .iter()
+        .any(|item| is_non_web(item.content_link.as_deref()));
+    let bad_live_value_uri = live_items
+        .iter()
+        .any(|item| is_non_web_scheme(item.live_value_uri.as_deref()));
+
     let mut warnings = Vec::new();
     if bad_image_url {
         warnings.push("non-web URL in image_url".to_string());
@@ -2165,6 +2187,12 @@ fn non_web_url_warnings(
     }
     if bad_img {
         warnings.push("non-web URL in img".to_string());
+    }
+    if bad_content_link {
+        warnings.push("non-web URL in content_link".to_string());
+    }
+    if bad_live_value_uri {
+        warnings.push("non-web URL in live_value_uri".to_string());
     }
     warnings
 }
@@ -2808,11 +2836,15 @@ async fn handle_ingest_feed(
 
         let is_musicl = medium::is_musicl(feed_data.raw_medium.as_deref());
         let tracks: &[ingest::IngestTrackData] = if is_musicl { &[] } else { &feed_data.tracks };
-        let live_items: &[ingest::IngestLiveItemData] = if is_musicl {
+        let raw_live_items: &[ingest::IngestLiveItemData] = if is_musicl {
             &[]
         } else {
             &feed_data.live_items
         };
+        // ADR 0064 section 4: keep the first item of each GUID, drop a
+        // banned live item, and apply the two row caps.
+        let (live_items, live_selection_warnings) = live::select_live_items(raw_live_items);
+        warnings.extend(live_selection_warnings);
 
         // 3b. Enforce track count limit to prevent DB growth attacks.
         if tracks.len() > MAX_TRACKS_PER_INGEST {
@@ -2829,7 +2861,7 @@ async fn handle_ingest_feed(
         // ADR 0054 section 4: warn on a non-web URL field from RSS. The
         // submission still applies; the raw value still lands in the
         // database. Only the read routes hide the value from a client.
-        warnings.extend(non_web_url_warnings(feed_data, tracks));
+        warnings.extend(non_web_url_warnings(feed_data, tracks, &live_items));
 
         // 4. Build feed-scoped source claims needed for identity resolution.
         let now = db::unix_now();
@@ -2895,16 +2927,10 @@ async fn handle_ingest_feed(
         let existing_live_events =
             db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
 
-        // 7. Compute newest_item_at and oldest_item_at from track pub_dates
-        let pub_dates: Vec<i64> = tracks
-            .iter()
-            .filter_map(|t| t.pub_date)
-            .chain(live_items.iter().filter_map(|li| {
-                (li.status.eq_ignore_ascii_case("ended") && li.enclosure_url.is_some())
-                    .then_some(li.pub_date)
-                    .flatten()
-            }))
-            .collect();
+        // 7. Compute newest_item_at and oldest_item_at from track pub_dates.
+        // ADR 0064 section 4: a live item makes no track, so it gives no
+        // pub_date here.
+        let pub_dates: Vec<i64> = tracks.iter().filter_map(|t| t.pub_date).collect();
 
         let newest_item_at = pub_dates.iter().copied().max();
         let oldest_item_at = pub_dates.iter().copied().min();
@@ -3002,9 +3028,11 @@ async fn handle_ingest_feed(
             Vec::new()
         };
 
+        // ADR 0064 section 1: the index keeps a pending, live and ended row
+        // alike. select_live_items already applied the section 4 caps and
+        // the ban above.
         let live_events: Vec<model::LiveEvent> = live_items
             .iter()
-            .filter(|item| matches!(item.status.as_str(), "pending" | "live"))
             .map(|item| model::LiveEvent {
                 live_item_guid: item.live_item_guid.clone(),
                 feed_guid: feed_data.feed_guid.clone(),
@@ -3015,6 +3043,8 @@ async fn handle_ingest_feed(
                 scheduled_end: item.end_at,
                 created_at: now,
                 updated_at: now,
+                live_value_uri: item.live_value_uri.clone(),
+                live_value_protocol: item.live_value_protocol.clone(),
             })
             .collect();
         let live_events_for_sse = live_events.clone();
@@ -3336,104 +3366,8 @@ async fn handle_ingest_feed(
                 "live_item.description",
                 now,
             );
-
-            if !(live_item.status.eq_ignore_ascii_case("ended")
-                && live_item.enclosure_url.is_some())
-            {
-                continue;
-            }
-
-            let (track_credit_id, track_credit) = if let Some(author) = &live_item.author_name {
-                let credit =
-                    db::get_or_create_feed_scoped_source_text_credit(&conn, author, feed_guid_str)?;
-                (credit.id, credit)
-            } else {
-                (feed_artist_credit.id, feed_artist_credit.clone())
-            };
-
-            let track = model::Track {
-                track_guid: live_item.live_item_guid.clone(),
-                feed_guid: feed_data.feed_guid.clone(),
-                artist_credit_id: track_credit_id,
-                title: live_item.title.clone(),
-                title_lower: live_item.title.to_lowercase(),
-                pub_date: live_item.pub_date,
-                duration_secs: live_item.duration_secs,
-                image_url: live_item.image_url.clone(),
-                publisher: track_publisher.clone(),
-                language: live_item
-                    .language
-                    .clone()
-                    .or_else(|| feed_data.language.clone()),
-                enclosure_url: live_item.enclosure_url.clone(),
-                enclosure_type: live_item.enclosure_type.clone(),
-                enclosure_bytes: live_item.enclosure_bytes,
-                track_number: live_item.track_number,
-                season: live_item.season,
-                explicit: live_item.explicit,
-                description: live_item.description.clone(),
-                track_artist: Some(
-                    live_item
-                        .author_name
-                        .clone()
-                        .unwrap_or_else(|| artist_name.clone()),
-                ),
-                track_artist_sort: None,
-                created_at: now,
-                updated_at: now,
-            };
-
-            let routes: Vec<model::PaymentRoute> = live_item
-                .payment_routes
-                .iter()
-                .map(|r| model::PaymentRoute {
-                    id: None,
-                    track_guid: live_item.live_item_guid.clone(),
-                    feed_guid: feed_data.feed_guid.clone(),
-                    recipient_name: r.recipient_name.clone(),
-                    route_type: r.route_type.clone(),
-                    address: r.address.clone(),
-                    custom_key: r.custom_key.clone(),
-                    custom_value: r.custom_value.clone(),
-                    split: r.split,
-                    fee: r.fee,
-                })
-                .collect();
-
-            let vts: Vec<model::ValueTimeSplit> = live_item
-                .value_time_splits
-                .iter()
-                .map(|v| model::ValueTimeSplit {
-                    id: None,
-                    source_feed_guid: feed_data.feed_guid.clone(),
-                    source_track_guid: live_item.live_item_guid.clone(),
-                    start_time_secs: v.start_time_secs,
-                    duration_secs: v.duration_secs,
-                    remote_feed_guid: v.remote_feed_guid.clone(),
-                    remote_item_guid: v.remote_item_guid.clone(),
-                    split: v.split,
-                    created_at: now,
-                })
-                .collect();
-
-            let track_remote_items: Vec<model::TrackRemoteItemRaw> = live_item
-                .remote_items
-                .iter()
-                .map(|r| model::TrackRemoteItemRaw {
-                    id: None,
-                    feed_guid: feed_data.feed_guid.clone(),
-                    track_guid: live_item.live_item_guid.clone(),
-                    position: r.position,
-                    medium: r.medium.clone(),
-                    remote_feed_guid: r.remote_feed_guid.clone(),
-                    remote_feed_url: r.remote_feed_url.clone(),
-                    rel: r.rel.clone(),
-                    source: "podcast_remote_item".into(),
-                })
-                .collect();
-
-            track_tuples.push((track, routes, vts, track_remote_items));
-            track_credits.push(track_credit);
+            // ADR 0064 section 1: the index makes no track, payment route or
+            // value time split from a live item, even an ended one.
         }
 
         let source_contributor_claims =

@@ -9,6 +9,10 @@ Amended on 2026-09-26: the sections "Invariants", "Non-Goals" and
 "Alternatives Considered" are added for the implementation plan. They change
 no decision.
 
+Amended on 2026-09-27: section 4 also drops an item with an unknown status.
+The review of task 002b found that such an item made the whole ingest of its
+feed fail.
+
 ## Date
 2026-09-26
 
@@ -105,6 +109,8 @@ confirming relay. Each read gives `confirming_relay: true` or `false`.
 
 ### 4. The limits of the ingest
 
+- The ingest does not keep an item whose `status` is not `pending`, `live`
+  or `ended`, and gives a warning for it.
 - The ingest does not keep a `live` item with no relay link in these
   conditions, and gives a warning for it:
   - It has no `start` or no `end`.

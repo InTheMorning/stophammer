@@ -318,6 +318,14 @@ pub struct LiveEvent {
     pub scheduled_end: Option<i64>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// The relay `uri` of the `podcast:liveValue` element (ADR 0064 §3). An
+    /// event signed before this field existed decodes with `None` here.
+    #[serde(default)]
+    pub live_value_uri: Option<String>,
+    /// The relay `protocol` of the `podcast:liveValue` element (ADR 0064 §3).
+    /// An event signed before this field existed decodes with `None` here.
+    #[serde(default)]
+    pub live_value_protocol: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
