@@ -7,6 +7,9 @@ Amended on 2026-09-27: section 10 keeps the search and quality tables, and
 names the parts of section 4 that are not yet done. The amendment reverses no
 other decision.
 
+Amended on 2026-09-27: section 11 gives the sequence that removes the
+compatibility artist credit in two releases.
+
 Date: 2026-04-08
 
 Supersedes [ADR 0025: Source Claims and Canonical Music Layers](0025-source-claims-and-canonical-music-layers.md) for the v1 schema direction.
@@ -258,6 +261,43 @@ changed or open:
 
 Item 13 of the remaining accepted work plan holds the open work.
 
+### 11. The removal of the artist credit takes two releases
+
+Amendment of 2026-09-27. The operator decided the sequence.
+
+`Feed` and `Track` carry `artist_credit_id` in the payloads of
+`FeedUpserted` and `TrackUpserted`. The field is required today, so a node
+rejects an event without it. If the primary stops the field in one release,
+each community node must upgrade first. Two releases remove that order:
+
+1. **Release A.** A node accepts a `Feed` or a `Track` with no
+   `artist_credit_id`. When the field is absent, the node makes the
+   feed-scoped credit from the text of the payload, as the ingest does:
+   `release_artist` for a feed, and `track_artist`, else the feed credit, for
+   a track. The primary still writes the field and still signs
+   `ArtistCreditCreated` and `ArtistUpserted`. Release A changes nothing that
+   an older node reads.
+2. **Release B.** The primary makes no artist, no credit and no
+   `artist_credit_id`, and signs no `ArtistCreditCreated` and no
+   `ArtistUpserted`. A migration rebuilds `feeds` and `tracks` with no
+   `artist_credit_id`, and drops the tables of section 10. The release notes
+   state that each community node must run release A or later before the
+   primary runs release B.
+
+After release B, these rules hold:
+
+- The event log keeps each old `ArtistCreditCreated` and `ArtistUpserted`
+  event. A node that reads the log from the start accepts each one, verifies
+  its signature, and applies nothing. The wire types of the two payloads stay
+  for this purpose only.
+- A node ignores `artist_credit_id` in an old `FeedUpserted` or
+  `TrackUpserted` event.
+- The internal SSE registry of ADR 0037 keys its channels by feed GUID, not
+  by artist ID.
+- The feed quality score gives its 10 points for a stated `release_artist`,
+  in place of a present `artist_credit_id`. Each feed has both today, so no
+  score changes.
+
 ## Consequences
 - Stophammer gets a smaller, more explicit v1 schema that matches current
   product scope.
@@ -267,3 +307,14 @@ Item 13 of the remaining accepted work plan holds the open work.
   inertia before there is an approved artist-ownership model.
 - A future cross-source canonical layer would require a new ADR; it is not
   implied by this decision.
+
+## Guards
+
+Section 11 has these tests:
+
+- A node applies a `FeedUpserted` and a `TrackUpserted` event with no
+  `artist_credit_id` (release A).
+- After release B, a node applies a log with old `ArtistCreditCreated` and
+  `ArtistUpserted` events, and its database has no artist table.
+- After release B, the quality score of a feed is the same as before the
+  change.

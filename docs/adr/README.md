@@ -27,7 +27,7 @@ disagree.
 | [0023](0023-schema-migrations.md) | Versioned schema migrations | Accepted |
 | [0024](0024-sqlite-wal-connection-pool.md) | SQLite WAL connection pool | Accepted |
 | [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers. The canonical layers are superseded by ADR 0034 | Accepted in part |
-| [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema. Search and quality stay. The compatibility artist credit is open work | Accepted |
+| [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema. Search and quality stay. The compatibility artist credit leaves in two releases, §11 | Accepted |
 | [0040](0040-store-track-identity-as-feed-scoped.md) | Track identity stored as feed-scoped | Accepted |
 | [0041](0041-contributor-npub-source-evidence.md) | Contributor npub kept as source evidence | Accepted |
 

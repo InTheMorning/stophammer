@@ -25,7 +25,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 10 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 11 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
 | 12 | A snapshot refresh of the import can fill the disk. Deployed on 2026-09-27 | ADR 0033, amended | Code | Crawler, `docker-compose.yml` | Below |
-| 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 | Tasks first | `stophammer` | Below |
+| 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 and §11 | Code, in two releases | `stophammer` | [Phase plan](adr-0034-artist-credit-removal-phase-plan.md) |
 | 14 | The ADR archive and the two governance guards. Complete on 2026-09-27 | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
 | 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name. Built on 2026-09-27, not deployed | ADR 0061 | Code | `stophammer` | Below |
 
@@ -134,8 +134,12 @@ whole run. Each container log keeps at most 3 files of 20 MB.
 4. Move the internal SSE code off the artist IDs, or remove the parts that
    only they serve.
 
-The work needs a phase plan and tasks before code, because it changes the
-event protocol and rebuilds the two largest tables.
+The work changes the event protocol and rebuilds `feeds` and `tracks`. ADR
+0034 §11 splits it into two releases, so that a community node can upgrade
+before or after the primary. The
+[phase plan](adr-0034-artist-credit-removal-phase-plan.md) gives four tasks.
+Task 001 joins release 0.2.0. Tasks 002 and 003 are release 0.3.0, after ADR
+0056 task 002.
 
 ## Item 14: The ADR Archive And The Guards
 
