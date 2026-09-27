@@ -1,7 +1,7 @@
 # ADR 0021: Live Event Support
 
 ## Status
-Accepted (parser/storage replication and SSE delivery implemented; scheduler follow-up remains)
+Superseded by [ADR 0064](0064-a-live-item-is-an-rss-fact.md) on 2026-09-26.
 
 ## Context
 
