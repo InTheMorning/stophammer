@@ -23,7 +23,7 @@ trigger of a feed does not name them.
 
 ## Files Likely To Change
 
-- `migrations/0045_drop_proof_tables.sql`, new
+- `migrations/0046_drop_proof_tables.sql`, new
 - `src/schema.sql`, `src/db.rs`, `docs/schema-reference.md`
 - `tests/migration_tests.rs`
 
@@ -44,17 +44,17 @@ trigger of a feed does not name them.
   `MIGRATIONS` as the next position.
 - Remove the two tables and their comment from `src/schema.sql`. Remove each
   reference from the code and from `docs/schema-reference.md`.
-- Migration 0044 (ADR 0064) is the last file today. This migration is file
-  0045, and array position 39 in `MIGRATIONS`. The trigger still has its last
+- Migration 0045 (ADR 0067) comes before this one. This migration is file
+  0046, and array position 40 in `MIGRATIONS`. The trigger still has its last
   form from migration 0043.
-- ADR 0046: when a test shows that a database can record version 39 with no
+- ADR 0046: when a test shows that a database can record version 40 with no
   change, add an `ensure_` repair. Else, no repair is needed.
 
 ## Acceptance Criteria
 
 Mechanical:
 
-- A migration test opens a database at the version of migration 0044 and
+- A migration test opens a database at the version of migration 0045 and
   runs the migrations. The two tables are then gone, and the trigger does not name
   them.
 - A test deletes a feed after the migration, and the delete succeeds.

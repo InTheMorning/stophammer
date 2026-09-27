@@ -80,6 +80,7 @@ disagree.
 | [0062](0062-a-podping-is-never-dropped.md) | The gossip mode merges a podping inside the window of its URL, and never drops it. The window is 30 seconds, and doubles to at most 1 hour for a URL whose crawl changes nothing. `live` and `liveEnd` are not delayed | Accepted |
 | [0058](0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID | Accepted |
 | [0057](0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Accepted |
+| [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host | Accepted |
 | [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
 | [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content. Waits for a crawler outside the primary host, or a suspected token leak | Proposed |
 

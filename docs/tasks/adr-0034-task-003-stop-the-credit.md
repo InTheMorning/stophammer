@@ -31,7 +31,7 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
 - `src/event.rs`: `ArtistUpsertedPayload`, `ArtistCreditCreatedPayload`
 - `src/schema.sql`
 - `migrations/0032_feed_scoped_track_identity.sql`: an earlier rebuild
-- `migrations/0045_drop_proof_tables.sql`: the last form of
+- `migrations/0046_drop_proof_tables.sql`: the last form of
   `trg_feeds_cleanup_before_delete`
 - `tests/migration_tests.rs`
 - `docs/API.md`: the event type table
@@ -40,7 +40,7 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
 
 - `src/api.rs`, `src/db.rs`, `src/apply.rs`, `src/model.rs`, `src/event.rs`,
   `src/quality.rs`, `src/schema.sql`
-- `migrations/0046_drop_artist_credit.sql`, new
+- `migrations/0047_drop_artist_credit.sql`, new
 - `docs/API.md`
 - `tests/artist_credit_tests.rs` and `tests/external_id_tests.rs`, deleted
 - Each other test that builds a credit or reads an artist table
@@ -81,8 +81,8 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
 
 ### Migration
 
-- File `migrations/0046_drop_artist_credit.sql`, at the next array position
-  of `MIGRATIONS` after migration 0045.
+- File `migrations/0047_drop_artist_credit.sql`, at the next array position
+  of `MIGRATIONS` after migration 0046.
 - `PRAGMA foreign_keys = OFF` at the start, as in migration 0032.
 - For `feeds` and then `tracks`: `CREATE TABLE feeds_new` with each column
   except `artist_credit_id`, `INSERT INTO feeds_new SELECT` the same columns,
@@ -93,7 +93,7 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
   `schema.sql` form of the table. Make each index of the table again, except
   `idx_feeds_credit` and `idx_tracks_credit`.
 - Make `trg_feeds_cleanup_before_delete` again, in its form of migration
-  0045, and `trg_tracks_cleanup_before_delete` in its last form.
+  0046, and `trg_tracks_cleanup_before_delete` in its last form.
 - Drop `artist_credit_name`, `artist_credit`, `artist_aliases`, `artists`,
   `artist_type`, `rel_type` and `external_ids`, children first.
 - `src/schema.sql` gives the same final schema. `tests/migration_tests.rs`
@@ -122,7 +122,7 @@ Mechanical, each an integration test in
   `ArtistCreditCreated`, then a `FeedUpserted` and a `TrackUpserted` whose
   JSON has `artist_credit_id`. Each event counts as applied, and the feed and
   the track are stored.
-- A database at the array position of migration 0045, with artist rows and
+- A database at the array position of migration 0046, with artist rows and
   credits, migrates. After it:
   - `feeds` and `tracks` have no `artist_credit_id`.
   - The seven tables are gone.
@@ -153,7 +153,7 @@ cargo run --bin gen_openapi > target/openapi-after.json
 
 Stop and report without a workaround when:
 
-- Migration 0045 does not exist yet.
+- Migration 0046 does not exist yet.
 - A public route, a verifier or the crawler reads an artist table.
 - A table other than the seven has a foreign key to an artist table.
 - A model type has `deny_unknown_fields`.
@@ -172,7 +172,7 @@ Read:
 - Only the parts of src/api.rs and src/db.rs named in the task file. Use grep. The files are long.
 
 Goal:
-- The node makes no artist and no credit, applies old artist events as no-ops, and migration 0046 rebuilds feeds and tracks with no artist_credit_id and drops the seven artist tables.
+- The node makes no artist and no credit, applies old artist events as no-ops, and migration 0047 rebuilds feeds and tracks with no artist_credit_id and drops the seven artist tables.
 
 Constraints:
 - The rules under "Constraints" in the task file.

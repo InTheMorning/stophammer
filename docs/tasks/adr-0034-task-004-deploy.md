@@ -23,7 +23,7 @@ migration of release B runs with a backup and a measured time.
 4. List each known community node. For each one, `GET /node/info` gives a
    revision of 0.2.0 or later. A node that gives an older revision, or no
    answer, blocks the deploy of release B. Record the list in the phase plan.
-5. Run migration 0046 on a copy of the newest production backup, with the
+5. Run migration 0047 on a copy of the newest production backup, with the
    0.3.0 candidate image, and with no network. Record the time of the
    migration and the counts of step 7 in the phase plan.
 

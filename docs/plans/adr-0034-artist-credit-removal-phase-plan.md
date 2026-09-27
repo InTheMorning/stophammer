@@ -67,7 +67,7 @@ In the code on 2026-09-27:
 1. **Release A joins 0.2.0.** Task 001 changes only what a node accepts, so
    it is a compatible change (ADR 0066 §1). 0.2.0 also carries ADR 0061.
 2. **Release B is 0.3.0,** after ADR 0056 task 002. Its migration comes after
-   migration 0045 of that task, because both make the feed delete trigger.
+   migration 0046 of that task, because both make the feed delete trigger.
 3. **The migration uses the SQLite rebuild steps:** make `feeds_new`, copy,
    drop `feeds`, rename `feeds_new` to `feeds`. It does not rename the old
    table first. A rename of the old table also changes each foreign key in
@@ -102,8 +102,8 @@ known community node runs release A.
 ## Schema And API
 
 - Release A: no schema change. The OpenAPI document does not change.
-- Release B: migration 0046, at array position 40, if ADR 0056 task 002 is
-  migration 0045. `src/schema.sql` loses the artist tables and the two
+- Release B: migration 0047, at array position 41. ADR 0067 is migration
+  0045, and ADR 0056 task 002 is migration 0046. `src/schema.sql` loses the artist tables and the two
   columns. `docs/API.md` states that `artist_upserted` and
   `artist_credit_created` appear only in the log before 0.3.0.
 - No read route changes in either release.
@@ -130,7 +130,7 @@ known community node runs release A.
   `artist_credit_id`, on the current schema.
 - Task 002: the quality test, and an SSE test keyed by feed GUID.
 - Task 003: a log replay test with old artist events. A migration test on a
-  database at position 39 with artist rows. A fresh bootstrap from
+  database at position 40 with artist rows. A fresh bootstrap from
   `schema.sql`. Delete the tests of the removed code.
 - The full gate of the `stophammer` crate after each task.
 
