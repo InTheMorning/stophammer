@@ -123,6 +123,24 @@ v4vmm read the live API with read-only GET requests on 2026-09-26.
 - Request 2: `GET /node/info` gave `git_revision` `264706e` and `built_at` `2026-09-26T04:05:34Z`.
 - Request 3: `/v1/node/capabilities` listed `remote_items` and `publisher` for tracks.
 
+## Release 0.1.0 - 2026-09-27
+
+Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`
+gives the version of the running node. `GET /node/info` gives the commit in
+`git_revision`. The
+[GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
+holds the role tarballs, the Arch packages and the images.
+
+The deploy of 2026-09-27 also adds live items (Stophammer ADR 0064):
+
+- `GET /v1/feeds/{guid}` gives `live_items`.
+- `GET /v1/live-items` gives the live items of all feeds, with the views
+  `now`, `upcoming` and `all`.
+
+A client that shows a live stream reads `confirming_relay`. When it is `true`,
+the client asks the relay of the row if the stream is on air. `docs/API.md`
+gives the details.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).
@@ -140,8 +158,8 @@ These items were open in earlier v4vmm documents. The Stophammer source or the l
 | Is the `publisher` collection complete in one response? | Yes. The query has no limit and no paging | `load_publisher`, `get_feed_remote_items_for_feed` in `src/db.rs` |
 | Why is `include=publisher` on a track empty? | The track view reads the item's own remote items. It is empty when the item states no publisher | `load_track_publisher`, ADR 0038 |
 | The normalization rule of the artist count | Trim, collapse white space, Unicode lowercase. "feat." is not split | ADR 0049 §7 |
-| `Feed.name`, `Track.name`, `Track.feed_url` | No longer in the responses. v4vmm deletes its readers | Live responses, 2026-09-25 |
+| `Feed.name`, `Track.name`, `Track.feed_url` | No longer in the responses. v4vmm packet 046 removed its readers on 2026-09-26. No Stophammer action | Live responses, 2026-09-25. v4vmm source, 2026-09-26 |
 | `Track.artist_credit` | Removed on purpose on 2026-04-08 | Commit `a16a720` |
 | Search summary fields, separate track artwork, the publication-date label | Live since 2026-09-23 | v4vmm API change request, changes 1 to 3 |
-| The `last_build_date` claim | No Stophammer action. v4vmm writes its own field rule | v4vmm |
+| The `last_build_date` claim | No Stophammer action. v4vmm ignores the field. v4vmm ADR 0076, amended on 2026-09-26 | v4vmm |
 | The publisher relationship fields | Live since 2026-09-24 | ADR 0049 |

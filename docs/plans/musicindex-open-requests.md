@@ -190,6 +190,24 @@ for their priority.
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
 
+## Release 0.1.0 - 2026-09-27
+
+Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`
+gives the version of the running node. `GET /node/info` gives the commit in
+`git_revision`. The
+[GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
+holds the role tarballs, the Arch packages and the images.
+
+The deploy of 2026-09-27 also adds live items (Stophammer ADR 0064):
+
+- `GET /v1/feeds/{guid}` gives `live_items`.
+- `GET /v1/live-items` gives the live items of all feeds, with the views
+  `now`, `upcoming` and `all`.
+
+A client that shows a live stream reads `confirming_relay`. When it is `true`,
+the client asks the relay of the row if the stream is on air. `docs/API.md`
+gives the details.
+
 ## Deferred, Not Requested Now
 
 **A reverse playlist list.** A query that gives the `musicL` feeds that name a
