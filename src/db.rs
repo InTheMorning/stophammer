@@ -1979,6 +1979,81 @@ pub fn get_live_events_for_feed(
     Ok(events)
 }
 
+/// Reads live-event rows across every public feed, after a cursor, ordered
+/// by `feed_guid`, then `live_item_guid` (ADR 0064 section 6).
+///
+/// Joins `feeds`, so a feed the index no longer holds — after a delete or a
+/// block (ADR 0053, ADR 0057) — gives no row. `cursor` is the `(feed_guid,
+/// live_item_guid)` of the last row a caller already read; `None` starts at
+/// the first row. Gives every matching row with no `LIMIT`: ADR 0064 section
+/// 6 puts the view and the raw filters after this read, in Rust, because SQL
+/// cannot call the pure rules of `src/live.rs`. The caller takes its own page
+/// from the rows this gives.
+///
+/// The `(feed_guid, live_item_guid)` primary key of `live_events` already
+/// orders and indexes this read; no migration adds an index for it.
+pub fn get_live_events_after_cursor(
+    conn: &Connection,
+    cursor: Option<(&str, &str)>,
+) -> Result<Vec<LiveEvent>, DbError> {
+    let mut events = Vec::new();
+    if let Some((feed_guid, live_item_guid)) = cursor {
+        let mut stmt = conn.prepare(
+            "SELECT le.live_item_guid, le.feed_guid, le.title, le.content_link, le.status, \
+             le.scheduled_start, le.scheduled_end, le.created_at, le.updated_at, \
+             le.live_value_uri, le.live_value_protocol \
+             FROM live_events le JOIN feeds f ON f.feed_guid = le.feed_guid \
+             WHERE (le.feed_guid, le.live_item_guid) > (?1, ?2) \
+             ORDER BY le.feed_guid, le.live_item_guid",
+        )?;
+        let rows = stmt.query_map(params![feed_guid, live_item_guid], |row| {
+            Ok(LiveEvent {
+                live_item_guid: row.get(0)?,
+                feed_guid: row.get(1)?,
+                title: row.get(2)?,
+                content_link: row.get(3)?,
+                status: row.get(4)?,
+                scheduled_start: row.get(5)?,
+                scheduled_end: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                live_value_uri: row.get(9)?,
+                live_value_protocol: row.get(10)?,
+            })
+        })?;
+        for row in rows {
+            events.push(row?);
+        }
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT le.live_item_guid, le.feed_guid, le.title, le.content_link, le.status, \
+             le.scheduled_start, le.scheduled_end, le.created_at, le.updated_at, \
+             le.live_value_uri, le.live_value_protocol \
+             FROM live_events le JOIN feeds f ON f.feed_guid = le.feed_guid \
+             ORDER BY le.feed_guid, le.live_item_guid",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(LiveEvent {
+                live_item_guid: row.get(0)?,
+                feed_guid: row.get(1)?,
+                title: row.get(2)?,
+                content_link: row.get(3)?,
+                status: row.get(4)?,
+                scheduled_start: row.get(5)?,
+                scheduled_end: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+                live_value_uri: row.get(9)?,
+                live_value_protocol: row.get(10)?,
+            })
+        })?;
+        for row in rows {
+            events.push(row?);
+        }
+    }
+    Ok(events)
+}
+
 /// Replaces the current ephemeral live-event rows for a feed.
 fn dedupe_live_events(live_events: &[LiveEvent]) -> Vec<LiveEvent> {
     let mut seen = std::collections::BTreeSet::new();

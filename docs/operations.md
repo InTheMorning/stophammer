@@ -66,6 +66,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `VERIFIER_CHAIN` | `content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). `feed_blocklist` is not a chain name ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). See the [Verifier Guide](verifier-guide.md). |
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated GUID list. At primary startup, the node seeds a `feed_blocks` row for each value with no existing row ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). Removing a value from this list removes no block. The block stays until an operator deletes it through `DELETE /v1/blocks/{block_id}`. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated URL list. The node seeds this list by the same procedure as `BLOCKED_FEED_GUIDS`. |
+| `CONFIRMING_RELAY_HOSTS` | empty | Optional comma-separated host list. A live item's `podcast:liveValue` link is a confirming relay when its `uri` is an `https` URL on one of these hosts. The host compare does not see a difference between capital and small letters ([ADR 0064](adr/0064-a-live-item-is-an-rss-fact.md) section 3). The node reads this list one time, at start. A primary node and a community node each read it. |
 
 ---
 
@@ -443,6 +444,7 @@ value splits to.
 | --- | --- |
 | `POST /v1/liveitems` | provision a live item; returns a one-time broadcaster token |
 | `POST /v1/liveitems/{event_id}/metadata` | publish a live value payload |
+| `GET /v1/liveitems/{event_id}/metadata` | the latest payload with its `seq` and `updated_at`; `404` when the event is dead |
 | `GET /v1/liveitems/{event_id}/remoteValue` | latest payload for listening apps |
 | `GET /v1/liveitems/{event_id}/events` | SSE stream |
 | `GET /socket.io/*` | Socket.IO transport |

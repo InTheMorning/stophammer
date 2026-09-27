@@ -343,6 +343,51 @@ fn spec_value(mode: DocMode) -> Value {
             )
         }),
     );
+    paths.insert(
+        "/v1/live-items".into(),
+        json!({
+            "get": operation(
+                "List live items",
+                "Returns the live-event rows of every public feed, with feed_guid, paged by feed_guid then live_item_guid (ADR 0064 section 6). `view` picks `now` (the default), `upcoming` or `all`; the raw filters status, live_value, ends_after and starts_after apply only with view=all.",
+                "Live Items",
+                vec![
+                    query_param("view", "string", None, false, "`now` (the default), `upcoming` or `all`."),
+                    query_param("status", "string", None, false, "With view=all only: pending, live or ended."),
+                    query_param("live_value", "string", None, false, "With view=all only: set or none."),
+                    query_param("ends_after", "integer", Some("int64"), false, "With view=all only: Unix seconds. Selects rows whose scheduled_end is after this time."),
+                    query_param("starts_after", "integer", Some("int64"), false, "With view=all only: Unix seconds. Selects rows whose scheduled_start is after this time."),
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX)
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated list of live-event rows.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/LiveItemListResponse" }
+                        })),
+                        query_envelope_example(json!([
+                            {
+                                "feed_guid": "feed-guid",
+                                "live_item_guid": "live-item-guid",
+                                "title": "Tonight's Listening Party",
+                                "status": "live",
+                                "content_link": "https://example.com/stream",
+                                "scheduled_start": 1710291600,
+                                "scheduled_end": 1710298800,
+                                "live_value_uri": "https://relay.example.com/events/abc",
+                                "live_value_protocol": "socket.io",
+                                "confirming_relay": true
+                            }
+                        ]))
+                    ),
+                    "400": error_response("Unknown view, unknown filter value, a raw filter with a view other than all, or an invalid cursor.")
+                }),
+                None
+            )
+        }),
+    );
     paths.insert("/v1/feeds/{guid}".into(), feed_path_item(mode));
     paths.insert("/v1/tracks/{guid}".into(), track_path_item(mode));
     paths.insert(
@@ -866,7 +911,8 @@ fn spec_value(mode: DocMode) -> Value {
             { "name": "Search", "description": "Full-text search endpoints." },
             { "name": "Node", "description": "Node capability and public metadata endpoints." },
             { "name": "Publishers", "description": "Publisher facet search and detail endpoints." },
-            { "name": "Blocks", "description": "Feed and URL block administration (ADR 0053 section 1)." }
+            { "name": "Blocks", "description": "Feed and URL block administration (ADR 0053 section 1)." },
+            { "name": "Live Items", "description": "Live-event rows across every public feed (ADR 0064 section 6)." }
         ],
         "components": {
             "securitySchemes": {

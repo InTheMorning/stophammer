@@ -29,6 +29,7 @@ default, `upcoming`, `all`), the raw filters for `all`, and paging in the order
 - `src/query.rs`, `src/openapi.rs`, `src/db.rs` (one list query)
 - `docs/API.md`, `api.html`
 - `tests/adr0064_live_list_tests.rs`, new
+- `tests/adr0064_live_confirming_relay_tests.rs`, new: a separate test binary that sets the host list one time
 
 ## Do Not Touch
 
@@ -79,6 +80,10 @@ one:
 - Two pages with `limit=1` give each row one time, in the order `feed_guid`,
   `live_item_guid`.
 - A deleted feed gives no row.
+- In `tests/adr0064_live_confirming_relay_tests.rs`, the host list is set one
+  time at the start of the binary. A `live` row with a listed `https` host
+  gives `confirming_relay: true`, and `now` gives it after its `end`. The feed
+  read gives the same value.
 - The guards of ADR 0044 pass.
 - The gate is green.
 
@@ -92,6 +97,7 @@ Visual, for the operator:
 cd /home/citizen/build/stophammer
 cargo build
 cargo test --test adr0064_live_list_tests
+cargo test --test adr0064_live_confirming_relay_tests
 cargo test --test adr0044_schema_refs_tests
 cargo test --test adr0044_contract_guard_tests
 cargo test
@@ -144,6 +150,7 @@ Acceptance criteria:
 Test commands:
 - cargo build
 - cargo test --test adr0064_live_list_tests
+- cargo test --test adr0064_live_confirming_relay_tests
 - cargo test --test adr0044_schema_refs_tests
 - cargo test --test adr0044_contract_guard_tests
 - cargo test

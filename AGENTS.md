@@ -102,9 +102,12 @@ which gives the sequence of each open item of an Accepted ADR:
 
 3. [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), Accepted on
    2026-09-26, supersedes ADR 0021. A live item is an RSS fact, and the index
-   gives its relay link. No task has started. The
-   [phase plan](docs/plans/adr-0064-live-items-phase-plan.md) gives four
-   tasks.
+   gives its relay link. Tasks 001 to 003b are complete and not deployed.
+   `GET /v1/live-items` and `live_items` on the feed are new, and
+   `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease. Task
+   004, the deploy and its checks, is next. The
+   [phase plan](docs/plans/adr-0064-live-items-phase-plan.md) gives the
+   checks.
 
 4. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
@@ -455,6 +458,7 @@ Authoritative list comes from `src/lib.rs`. Keep both in sync.
 | `event`        | Signed event envelope and serialisation              |
 | `fetch_guard`  | SSRF guard: URL validation, DNS-pinned fetches       |
 | `ingest`       | Crawler submission DTOs                              |
+| `live`         | Pure ingest rules for a live item (ADR 0064)         |
 | `medium`       | Podcast `<podcast:medium>` handling                  |
 | `model`        | Core domain types (`Feed`, `Track`, `Artist`, …)     |
 | `openapi`      | OpenAPI schema (utoipa) for the HTTP surface         |

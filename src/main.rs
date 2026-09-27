@@ -11,7 +11,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 use std::process::ExitCode;
 
-use stophammer::{api, blocks, community, db, db_pool, signing, tls, verify};
+use stophammer::{api, blocks, community, db, db_pool, live, signing, tls, verify};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -29,6 +29,20 @@ type StartupError = Box<dyn std::error::Error + Send + Sync>;
 
 fn startup_error(msg: impl Into<String>) -> StartupError {
     Box::new(std::io::Error::other(msg.into()))
+}
+
+/// Reads `CONFIRMING_RELAY_HOSTS` for ADR 0064 section 3.
+///
+/// Splits the value on commas, trims each part, and drops an empty part.
+/// Gives an empty list when the variable is not set.
+fn confirming_relay_hosts_from_env() -> Vec<String> {
+    std::env::var("CONFIRMING_RELAY_HOSTS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 fn init_tracing() {
@@ -53,6 +67,10 @@ async fn run() -> Result<(), StartupError> {
     let key_path = std::env::var("KEY_PATH").unwrap_or_else(|_| "signing.key".into());
     let bind_addr = std::env::var("BIND").unwrap_or_else(|_| "0.0.0.0:8008".into());
     let node_mode = std::env::var("NODE_MODE").unwrap_or_else(|_| "primary".into());
+
+    // ADR 0064 section 3: read the confirming relay hosts before either
+    // start path runs, so a primary and a community node agree on the list.
+    live::set_confirming_relay_hosts(confirming_relay_hosts_from_env());
 
     // Issue-WAL-POOL — 2026-03-14: use DbPool (writer + reader pool) instead of
     // single Arc<Mutex<Connection>>.

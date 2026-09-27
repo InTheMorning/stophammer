@@ -27,8 +27,8 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::model::{Feed, RouteRecipient, guid_origin_matches, web_url_or_none};
-use crate::{api, db, event, medium};
+use crate::model::{Feed, LiveEvent, RouteRecipient, guid_origin_matches, web_url_or_none};
+use crate::{api, db, event, live, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
 
@@ -281,6 +281,34 @@ struct FeedResponse {
     /// declares (ADR 0052 section 4). `decision` is null until the operator
     /// decides, then `approve` or `reject`.
     pending_guid_change: Option<PendingGuidChangeResponse>,
+    /// Every stored live-item row of this feed, sorted by `live_item_guid`
+    /// (ADR 0064 section 6).
+    ///
+    /// Present on `GET /v1/feeds/{guid}`: always `Some`, possibly an empty
+    /// list. Absent on `GET /v1/feeds/recent`, since ADR 0064 section 6
+    /// scopes this field to the single-feed read; an empty list there would
+    /// wrongly state that the feed has no live item.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    live_items: Option<Vec<LiveItemResponse>>,
+}
+
+/// One row of `FeedResponse.live_items` (ADR 0064 section 6).
+#[derive(Debug, Serialize, ToSchema)]
+struct LiveItemResponse {
+    live_item_guid: String,
+    title: String,
+    status: String,
+    content_link: Option<String>,
+    scheduled_start: Option<i64>,
+    scheduled_end: Option<i64>,
+    /// The relay `uri` of the `podcast:liveValue` element. A `uri` with a
+    /// scheme goes through the web URL rule (ADR 0054 section 4); a bare
+    /// identifier, with no scheme, is given as it is.
+    live_value_uri: Option<String>,
+    live_value_protocol: Option<String>,
+    /// `true` when `live_value_uri` names a relay on a host of
+    /// `CONFIRMING_RELAY_HOSTS` (ADR 0064 section 3).
+    confirming_relay: bool,
 }
 
 /// The pending GUID change of `FeedResponse.pending_guid_change` (ADR 0052
@@ -1162,6 +1190,55 @@ fn publisher_artist_count(
     Ok((count, artists))
 }
 
+/// Builds `live_items` for `GET /v1/feeds/{guid}` (ADR 0064 section 6).
+///
+/// Reads every stored live-event row of `feed_guid` and gives them as
+/// [`LiveItemResponse`] values, sorted by `live_item_guid`.
+fn build_live_items_response(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<Vec<LiveItemResponse>, api::ApiError> {
+    let mut events = db::get_live_events_for_feed(conn, feed_guid)?;
+    events.sort_by(|a, b| a.live_item_guid.cmp(&b.live_item_guid));
+    let hosts = live::confirming_relay_hosts();
+    Ok(events
+        .iter()
+        .map(|event| live_item_response(event, hosts))
+        .collect())
+}
+
+/// Builds one row of `live_items` from a stored [`LiveEvent`] (ADR 0064
+/// section 6).
+fn live_item_response(event: &LiveEvent, hosts: &[String]) -> LiveItemResponse {
+    LiveItemResponse {
+        live_item_guid: event.live_item_guid.clone(),
+        title: event.title.clone(),
+        status: event.status.clone(),
+        // ADR 0064 section 4: content_link goes through the web URL rule,
+        // the same as any other RSS link field.
+        content_link: web_url_or_none(event.content_link.as_deref()),
+        scheduled_start: event.scheduled_start,
+        scheduled_end: event.scheduled_end,
+        live_value_uri: live_value_uri_response(event.live_value_uri.as_deref()),
+        live_value_protocol: event.live_value_protocol.clone(),
+        confirming_relay: live::is_confirming_relay(event.live_value_uri.as_deref(), hosts),
+    }
+}
+
+/// Shapes `live_value_uri` for a read (ADR 0064 sections 3 and 4).
+///
+/// A `uri` that parses with a scheme goes through [`web_url_or_none`], so a
+/// value that is not `http` or `https` gives no value. A `uri` with no
+/// scheme, such as a bare event identifier, is given as it is.
+fn live_value_uri_response(uri: Option<&str>) -> Option<String> {
+    let raw = uri?;
+    if url::Url::parse(raw).is_ok() {
+        web_url_or_none(Some(raw))
+    } else {
+        Some(raw.to_string())
+    }
+}
+
 fn build_feed_response(
     conn: &rusqlite::Connection,
     row: FeedRow,
@@ -1172,6 +1249,7 @@ fn build_feed_response(
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &feed_guid)?;
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &feed_guid)?.map(pending_guid_change_response);
+    let live_items = Some(build_live_items_response(conn, &feed_guid)?);
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
@@ -1210,6 +1288,7 @@ fn build_feed_response(
         remote_items: None,
         publisher: None,
         pending_guid_change,
+        live_items,
     };
 
     // ADR 0049 §7: only a publisher feed carries the derived artist count.
@@ -2666,6 +2745,308 @@ async fn handle_list_guid_changes(
     Ok(Json(result))
 }
 
+// ── GET /v1/live-items ──────────────────────────────────────────────────────
+// ADR 0064 section 6.
+
+/// Query parameters for `GET /v1/live-items` (ADR 0064 section 6).
+///
+/// `view` picks the view: `now`, the default, `upcoming` or `all`. The raw
+/// filters `status`, `live_value`, `ends_after` and `starts_after` apply only
+/// with `view=all`. The fields are public so a test can build one directly
+/// and call [`list_live_items`] with a fixed clock.
+#[derive(Debug, Default, Deserialize)]
+pub struct LiveItemsQuery {
+    pub view: Option<String>,
+    pub status: Option<String>,
+    pub live_value: Option<String>,
+    pub ends_after: Option<i64>,
+    pub starts_after: Option<i64>,
+    pub cursor: Option<String>,
+    pub limit: Option<i64>,
+}
+
+impl LiveItemsQuery {
+    fn capped_limit(&self) -> i64 {
+        self.limit.unwrap_or(50).clamp(1, LIST_LIMIT_MAX)
+    }
+}
+
+/// The view of `GET /v1/live-items` (ADR 0064 section 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveItemView {
+    Now,
+    Upcoming,
+    All,
+}
+
+/// The checked query of `GET /v1/live-items`.
+#[derive(Debug)]
+struct LiveItemFilters<'a> {
+    view: LiveItemView,
+    status: Option<&'a str>,
+    live_value: Option<&'a str>,
+    ends_after: Option<i64>,
+    starts_after: Option<i64>,
+}
+
+fn invalid_live_items_query(message: impl Into<String>) -> api::ApiError {
+    api::ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: message.into(),
+        www_authenticate: None,
+    }
+}
+
+/// Checks `params` against ADR 0064 section 6: a known `view`, a known raw
+/// filter value, and a raw filter only with `view=all`.
+fn validate_live_items_query(
+    params: &LiveItemsQuery,
+) -> Result<LiveItemFilters<'_>, api::ApiError> {
+    let view = match params.view.as_deref().unwrap_or("now") {
+        "now" => LiveItemView::Now,
+        "upcoming" => LiveItemView::Upcoming,
+        "all" => LiveItemView::All,
+        other => return Err(invalid_live_items_query(format!("unknown view: {other}"))),
+    };
+
+    let has_raw_filter = params.status.is_some()
+        || params.live_value.is_some()
+        || params.ends_after.is_some()
+        || params.starts_after.is_some();
+    if has_raw_filter && view != LiveItemView::All {
+        return Err(invalid_live_items_query(
+            "status, live_value, ends_after and starts_after apply only with view=all",
+        ));
+    }
+
+    if let Some(status) = params.status.as_deref()
+        && !matches!(status, "pending" | "live" | "ended")
+    {
+        return Err(invalid_live_items_query(format!(
+            "unknown status: {status}"
+        )));
+    }
+    if let Some(live_value) = params.live_value.as_deref()
+        && !matches!(live_value, "set" | "none")
+    {
+        return Err(invalid_live_items_query(format!(
+            "unknown live_value: {live_value}"
+        )));
+    }
+
+    Ok(LiveItemFilters {
+        view,
+        status: params.status.as_deref(),
+        live_value: params.live_value.as_deref(),
+        ends_after: params.ends_after,
+        starts_after: params.starts_after,
+    })
+}
+
+/// `true` when `event` matches the `all`-view raw filters (ADR 0064 section
+/// 6). A filter that is `None` matches every row.
+fn matches_raw_filters(
+    event: &LiveEvent,
+    status: Option<&str>,
+    live_value: Option<&str>,
+    ends_after: Option<i64>,
+    starts_after: Option<i64>,
+) -> bool {
+    let status_ok = status.is_none_or(|want| event.status.eq_ignore_ascii_case(want));
+    let live_value_ok = live_value.is_none_or(|want| {
+        let has_link = event
+            .live_value_uri
+            .as_deref()
+            .is_some_and(|uri| !uri.is_empty());
+        has_link == (want == "set")
+    });
+    let ends_after_ok =
+        ends_after.is_none_or(|after| event.scheduled_end.is_some_and(|end| end > after));
+    let starts_after_ok =
+        starts_after.is_none_or(|after| event.scheduled_start.is_some_and(|start| start > after));
+    status_ok && live_value_ok && ends_after_ok && starts_after_ok
+}
+
+/// `true` when `event` belongs in `filters.view` at `now` (ADR 0064 section
+/// 6). `now` and `upcoming` call the pure view rules of `src/live.rs`; `all`
+/// applies the raw filters instead.
+fn live_event_matches(
+    event: &LiveEvent,
+    filters: &LiveItemFilters<'_>,
+    now: i64,
+    hosts: &[String],
+) -> bool {
+    match filters.view {
+        LiveItemView::Now => {
+            let confirming = live::is_confirming_relay(event.live_value_uri.as_deref(), hosts);
+            live::in_now_view(event, now, confirming)
+        }
+        LiveItemView::Upcoming => live::in_upcoming_view(event, now),
+        LiveItemView::All => matches_raw_filters(
+            event,
+            filters.status,
+            filters.live_value,
+            filters.ends_after,
+            filters.starts_after,
+        ),
+    }
+}
+
+/// One row of `GET /v1/live-items`: the same shape as a `live_items` row of
+/// `GET /v1/feeds/{guid}`, plus `feed_guid` (ADR 0064 section 6).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LiveItemListResponse {
+    feed_guid: String,
+    live_item_guid: String,
+    title: String,
+    status: String,
+    content_link: Option<String>,
+    scheduled_start: Option<i64>,
+    scheduled_end: Option<i64>,
+    live_value_uri: Option<String>,
+    live_value_protocol: Option<String>,
+    confirming_relay: bool,
+}
+
+/// Builds one row of `GET /v1/live-items` from a stored [`LiveEvent`].
+///
+/// Reuses [`live_item_response`], the row builder of the single-feed read,
+/// and adds `feed_guid` (ADR 0064 section 6).
+fn live_item_list_response(event: &LiveEvent, hosts: &[String]) -> LiveItemListResponse {
+    let row = live_item_response(event, hosts);
+    LiveItemListResponse {
+        feed_guid: event.feed_guid.clone(),
+        live_item_guid: row.live_item_guid,
+        title: row.title,
+        status: row.status,
+        content_link: row.content_link,
+        scheduled_start: row.scheduled_start,
+        scheduled_end: row.scheduled_end,
+        live_value_uri: row.live_value_uri,
+        live_value_protocol: row.live_value_protocol,
+        confirming_relay: row.confirming_relay,
+    }
+}
+
+/// The page [`list_live_items`] gives.
+///
+/// Kept apart from [`QueryResponse`], which needs an `AppState` for its
+/// `meta`. The handler puts `data`, `next_cursor` and `has_more` in the
+/// envelope; a test that calls [`list_live_items`] directly reads them here.
+#[derive(Debug)]
+pub struct LiveItemsPage {
+    pub data: Vec<LiveItemListResponse>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// Builds one page of `GET /v1/live-items` (ADR 0064 section 6).
+///
+/// Reads every live-event row of a public feed after `params.cursor`
+/// (`db::get_live_events_after_cursor`), applies `params.view` at `now` —
+/// and, with `view=all`, the raw filters — then takes up to `params`'s
+/// `limit` matching rows. The next cursor names the last matching row of
+/// this page, so the next call skips no matching row and repeats none.
+///
+/// The handler reads the clock one time and passes it as `now`, and passes
+/// `live::confirming_relay_hosts()` as `hosts`. A test calls this function
+/// directly with a fixed `now`, with no HTTP round trip and no `AppState`.
+///
+/// # Errors
+///
+/// Gives `400` for an unknown `view`, an unknown raw filter value, a raw
+/// filter with a `view` other than `all`, or a malformed `cursor`. Gives a
+/// database error as `500`.
+pub fn list_live_items(
+    conn: &rusqlite::Connection,
+    params: &LiveItemsQuery,
+    now: i64,
+    hosts: &[String],
+) -> Result<LiveItemsPage, api::ApiError> {
+    let filters = validate_live_items_query(params)?;
+    let limit = params.capped_limit();
+    let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
+
+    let cursor_pair = match params.cursor.as_deref() {
+        Some(cursor_str) => {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 {
+                return Err(invalid_live_items_query("invalid cursor format"));
+            }
+            Some((parts[0].to_string(), parts[1].to_string()))
+        }
+        None => None,
+    };
+
+    let events = db::get_live_events_after_cursor(
+        conn,
+        cursor_pair
+            .as_ref()
+            .map(|(feed_guid, live_item_guid)| (feed_guid.as_str(), live_item_guid.as_str())),
+    )?;
+
+    let matching_events: Vec<&LiveEvent> = events
+        .iter()
+        .filter(|event| live_event_matches(event, &filters, now, hosts))
+        .collect();
+
+    let has_more = matching_events.len() > limit_usize;
+    let page: Vec<&LiveEvent> = matching_events.into_iter().take(limit_usize).collect();
+    let next_cursor = if has_more {
+        page.last()
+            .map(|event| encode_cursor(&format!("{}\0{}", event.feed_guid, event.live_item_guid)))
+    } else {
+        None
+    };
+    let data = page
+        .iter()
+        .map(|event| live_item_list_response(event, hosts))
+        .collect();
+
+    Ok(LiveItemsPage {
+        data,
+        next_cursor,
+        has_more,
+    })
+}
+
+async fn handle_list_live_items(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<LiveItemsQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        // ADR 0064 section 6: the handler reads the clock one time, and
+        // list_live_items passes it to the pure view rules of src/live.rs.
+        let now = db::unix_now();
+        let hosts = live::confirming_relay_hosts().to_vec();
+        let page = list_live_items(&conn, &params, now, &hosts)?;
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: page.data,
+            pagination: Pagination {
+                cursor: page.next_cursor,
+                has_more: page.has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
 // ── GET /v1/feeds/recent ────────────────────────────────────────────────────
 
 #[allow(
@@ -2854,6 +3235,7 @@ async fn handle_get_recent_feeds(
                 remote_items: None,
                 publisher: None,
                 pending_guid_change,
+                live_items: None,
             });
         }
 
@@ -3551,6 +3933,7 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/feeds/{guid}/copies", get(handle_get_feed_copies))
         .route("/v1/copies", get(handle_list_copy_records))
         .route("/v1/guid-changes", get(handle_list_guid_changes))
+        .route("/v1/live-items", get(handle_list_live_items))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
@@ -3601,6 +3984,8 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<CopyRecordResponse>(&mut schemas);
     register_schema::<GuidChangeResponse>(&mut schemas);
     register_schema::<FeedSupersededBody>(&mut schemas);
+    register_schema::<LiveItemResponse>(&mut schemas);
+    register_schema::<LiveItemListResponse>(&mut schemas);
     schemas
 }
 

@@ -832,6 +832,19 @@ Returns a single feed by its `podcast:guid`.
         "remote_release_artist": "Label Name",
         "remote_release_artist_source": "itunes_author"
       }
+    ],
+    "live_items": [
+      {
+        "live_item_guid": "live-item-guid",
+        "title": "Tonight's Listening Party",
+        "status": "pending",
+        "content_link": "https://example.com/stream",
+        "scheduled_start": 1710291600,
+        "scheduled_end": 1710298800,
+        "live_value_uri": "https://relay.example.com/events/abc",
+        "live_value_protocol": "socket.io",
+        "confirming_relay": true
+      }
     ]
   },
   "pagination": { "cursor": null, "has_more": false },
@@ -861,6 +874,18 @@ sets differ. ADR 0049 §6.
 
 Each `remote_items` entry and each `publisher` entry gives four values of the
 feed that it names. ADR 0059 owns them. A track read gives them too.
+
+`live_items` lists each stored live-item row of the feed. It lists a
+`pending` row, a `live` row and an `ended` row alike, sorted by
+`live_item_guid`. `GET /v1/feeds/{guid}` always gives the key, also when the
+list is empty. `GET /v1/feeds/recent` gives no `live_items` key. ADR 0064
+section 6 scopes the field to this single-feed read.
+
+`confirming_relay` is `true` when `live_value_uri` is an `https` URL on a
+host of `CONFIRMING_RELAY_HOSTS`. A `live_value_uri` with no scheme is a bare
+identifier, and the read gives it with no change. A `live_value_uri` with a
+scheme goes through the same web URL rule as `content_link`. ADR 0064
+section 6 owns this field.
 
 | Field | Value |
 |---|---|
@@ -1177,6 +1202,72 @@ owns this route.
 row with a `reject` decision drops out of this list.
 `GET /v1/feeds/{old_guid}`'s `pending_guid_change` continues to show it.
 `last_seen` is local to the primary. A community node answers null.
+
+---
+
+### GET /v1/live-items
+
+Gives the live-event rows of every public feed. Each row also names its
+`feed_guid`. ADR 0064 section 6 owns this route.
+
+- **Authentication:** None
+- **Sequence:** By `feed_guid`, then `live_item_guid`, ascending. The order does
+  not depend on a value the feed controls.
+- **Query parameters:**
+  - `view`: `now` (the default), `upcoming`, or `all`.
+  - `status`, `live_value`, `ends_after`, `starts_after`: raw filters. These
+    apply only with `view=all`. A raw filter with another `view` gives `400`.
+  - `cursor`, and `limit`, at most 200.
+
+| View | Gives |
+|---|---|
+| `now` | Each `live` row with a confirming relay, or with no `scheduled_end`. Each other `live` row until one hour after its `scheduled_end`. |
+| `upcoming` | Each `pending` row until its `scheduled_end`. A `pending` row with no `scheduled_end`, until one hour after its `scheduled_start`. |
+| `all` | Each row. The raw filters below apply. |
+
+| Filter | Values | Selects |
+|---|---|---|
+| `status` | `pending`, `live`, `ended` | Rows with that status |
+| `live_value` | `set`, `none` | Rows with, or with no, a relay link |
+| `ends_after` | Unix seconds | Rows whose `scheduled_end` is after the time |
+| `starts_after` | Unix seconds | Rows whose `scheduled_start` is after the time |
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "feed_guid": "feed-guid",
+      "live_item_guid": "live-item-guid",
+      "title": "Tonight's Listening Party",
+      "status": "live",
+      "content_link": "https://example.com/stream",
+      "scheduled_start": 1710291600,
+      "scheduled_end": 1710298800,
+      "live_value_uri": "https://relay.example.com/events/abc",
+      "live_value_protocol": "socket.io",
+      "confirming_relay": true
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+| 400  | An unknown `view`, an unknown filter value, a raw filter with a `view` other than `all`, or an invalid `cursor` |
+
+Each row has the shape of a `live_items` entry of `GET /v1/feeds/{guid}`
+(section 4), plus `feed_guid`. `confirming_relay` is `true` when
+`live_value_uri` names an `https` URL on a host of `CONFIRMING_RELAY_HOSTS`
+(ADR 0064 section 3).
+
+A client can ask the relay about a row with `confirming_relay: true`. It
+sends `GET /v1/liveitems/{event_id}/metadata` to the relay. A `404` from the
+relay means the event is dead: the stream ended, or the relay never held it.
 
 ---
 
