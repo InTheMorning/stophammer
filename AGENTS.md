@@ -83,7 +83,8 @@ which gives the sequence of each open item of an Accepted ADR:
 
 1. Release 0.1.0. The candidate `v0.1.0-rc.2` passed on 2026-09-26. The
    operator waits for the release workflow of
-   [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md), Proposed.
+   [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md), Accepted on
+   2026-09-26.
    Then `v0.1.0-rc.3` builds, and `v0.1.0` promotes it. The
    [release plan](docs/plans/release-0.1.0-plan.md) gives the sequence.
    [ADR 0063](docs/adr/0063-a-release-publishes-role-packages.md) owns the

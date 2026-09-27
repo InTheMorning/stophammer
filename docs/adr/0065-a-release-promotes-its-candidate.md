@@ -1,7 +1,7 @@
 # ADR 0065: A Release Promotes Its Candidate
 
 ## Status
-Proposed
+Accepted on 2026-09-26
 
 ## Date
 2026-09-26
