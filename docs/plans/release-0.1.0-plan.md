@@ -14,8 +14,9 @@ checksums and the Arch packages, and GHCR holds the three images.
 ## Preconditions
 
 On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is open. The
-candidate `v0.1.0-rc.1` failed. `v0.1.0-rc.2` passed, but the operator
-waits for the release workflow of ADR 0065. Thus `v0.1.0-rc.3` is next.
+candidate `v0.1.0-rc.1` failed. `v0.1.0-rc.2` passed with the old workflow.
+`v0.1.0-rc.3` passed on 2026-09-27 with the workflow of ADR 0065, in 22
+minutes. `v0.1.0` promotes it.
 
 
 The operator decided on 2026-09-26 that 0.1.0 waits until ADR 0044 and ADR
