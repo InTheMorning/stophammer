@@ -102,10 +102,10 @@ which gives the sequence of each open item of an Accepted ADR:
 
 3. [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), Accepted on
    2026-09-26, supersedes ADR 0021. A live item is an RSS fact, and the index
-   gives its relay link. Tasks 001 to 003b are complete and not deployed.
+   gives its relay link. Tasks 001 to 003b are deployed on 2026-09-27.
    `GET /v1/live-items` and `live_items` on the feed are new, and
-   `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease. Task
-   004, the deploy and its checks, is next. The
+   `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease. The
+   checks of task 004 wait for a crawl of the feeds with live items. The
    [phase plan](docs/plans/adr-0064-live-items-phase-plan.md) gives the
    checks.
 

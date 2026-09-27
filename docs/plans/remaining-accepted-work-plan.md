@@ -24,6 +24,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 9 | Fast polling of a feed with a pending live event | ADR 0021 | Closed: ADR 0064 supersedes ADR 0021 | None | Below |
 | 10 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 11 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
+| 12 | A snapshot refresh of the import can fill the disk | None yet | Code | Crawler | Below |
 
 ## Sequence
 
@@ -94,6 +95,23 @@ A publisher can send a `live` or `liveEnd` podping before its host serves the
 new feed. The crawler then reads the old feed, and no second podping comes.
 First measure how often the crawl after such a podping gives `no_change`. Then
 decide on a second read some minutes later, as an amendment of ADR 0062 §4.
+
+## Item 12: The Snapshot Refresh And The Disk
+
+On 2026-09-27 a snapshot refresh of the `import` mode filled the disk of the
+host, and the node could not write its database. The mode writes the new
+PodcastIndex snapshot to `podcastindex_feeds.download`. The old file stays
+until the new one is complete, so a refresh needs the size of the snapshot a
+second time. When the write fails, `refresh_snapshot` in
+`stophammer-crawler/src/modes/import.rs` keeps the partial file. Only the next
+run deletes it.
+
+The work:
+
+1. Delete the `.download` file when the write fails.
+2. Check the free space before the download. When it is less than the size
+   of the snapshot plus a margin, stop the run with a clear error.
+3. Give each container log a size limit in `docker-compose.yml`.
 
 ## Not In This Plan
 

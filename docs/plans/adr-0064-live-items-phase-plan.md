@@ -94,6 +94,26 @@ repositories.
 [The review checklist](../reviews/adr-0064-review-checklist.md) applies to each
 task.
 
+## Measurement Before The Deploy
+
+On 2026-09-27, before the deploy of tasks 002 to 003b, the primary gave these
+counts:
+
+| Count | Value |
+|---|---|
+| `live_events` rows | 10 |
+| `track_removed` events | 410 |
+| `live_events_replaced` events | 14 |
+| Tracks that came from a live item | 6 |
+
+After the next crawl of the feeds with live items, the expected values are:
+
+- `track_removed`: 416. The 6 tracks from live items leave.
+- Tracks that came from a live item: 0.
+- `live_events_replaced`: 14, plus one event for each feed that gains `ended`
+  rows. The three feeds of the 6 tracks are such feeds. The two "100% Retro"
+  feeds emit no event, because their rows do not change.
+
 ## Outside This Plan
 
 - `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives its lease
