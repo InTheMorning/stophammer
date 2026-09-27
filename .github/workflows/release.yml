@@ -10,14 +10,18 @@ env:
   RUST_TOOLCHAIN: 1.93.1
 
 jobs:
+  # A tag with a hyphen, such as v0.1.0-rc.1, is a candidate. Only a candidate
+  # builds. A tag with no hyphen promotes its candidate (ADR 0065). Each job
+  # below needs assemble-tarballs, so each one skips for a release tag.
   assemble-tarballs:
     name: Assemble role tarballs
+    if: contains(github.ref_name, '-')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       # The crawler and the parser are separate repositories. A release needs
-      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      # the same tag in each one (ADR 0063 section 1).
       - uses: actions/checkout@v5
         with:
           repository: InTheMorning/stophammer-crawler
@@ -78,10 +82,10 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          # A tag with a hyphen, such as v0.1.0-rc.1, is a candidate. It is a
-          # pre-release, and it does not become the latest release.
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          # A candidate is a pre-release, and it does not become the latest
+          # release.
+          prerelease: true
+          make_latest: false
           files: |
             dist/*.tar.gz
             dist/SHA256SUMS-*.txt
@@ -101,7 +105,7 @@ jobs:
       - uses: actions/checkout@v5
 
       # The crawler and the parser are separate repositories. A release needs
-      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      # the same tag in each one (ADR 0063 section 1).
       - uses: actions/checkout@v5
         with:
           repository: InTheMorning/stophammer-crawler
@@ -168,17 +172,21 @@ jobs:
       - name: Attach Arch packages to release
         uses: softprops/action-gh-release@v2
         with:
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          make_latest: ${{ !contains(github.ref_name, '-') }}
+          prerelease: true
+          make_latest: false
           files: |
             dist/arch/*.pkg.tar.zst
             dist/arch/SHA256SUMS-arch-*.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  publish-oci-images:
-    name: Publish OCI images
-    runs-on: ubuntu-latest
+  # Each platform builds on a native runner, so no job emulates a CPU. The
+  # indexer and node images share one builder stage, so one job builds both,
+  # and the second target reuses the compile of the first. Each job pushes
+  # its images by digest only. merge-images gives them their tags.
+  build-images:
+    name: Build images (${{ matrix.group }}, ${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
     needs: verify-tarballs
     permissions:
       contents: read
@@ -187,34 +195,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - image_name: stophammer-indexer
-            dockerfile: ./Dockerfile
-            target: stophammer-indexer
-          - image_name: stophammer-node
-            dockerfile: ./Dockerfile
-            target: stophammer-node
-          - image_name: stophammer-crawler
-            context: ./stophammer-crawler
-            dockerfile: ./stophammer-crawler/Dockerfile
-            target: stophammer-crawler
+          - group: stophammer
+            arch: amd64
+            runner: ubuntu-latest
+          - group: stophammer
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - group: crawler
+            arch: amd64
+            runner: ubuntu-latest
+          - group: crawler
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v5
 
       # The crawler and the parser are separate repositories. A release needs
-      # the same tag in each one (docs/plans/release-0.1.0-plan.md, R1).
+      # the same tag in each one (ADR 0063 section 1).
       - uses: actions/checkout@v5
         with:
           repository: InTheMorning/stophammer-crawler
           ref: ${{ github.ref_name }}
           path: stophammer-crawler
-
-      - uses: actions/checkout@v5
-        with:
-          repository: InTheMorning/stophammer-parser
-          ref: ${{ github.ref_name }}
-          path: stophammer-parser
-
-      - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
 
@@ -224,29 +226,226 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image_name }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - name: Name the registry
+        id: registry
+        run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Build and push ${{ matrix.image_name }}
+      - name: Build stophammer-indexer
+        id: indexer
+        if: matrix.group == 'stophammer'
         uses: docker/build-push-action@v6
         with:
-          context: ${{ matrix.context || '.' }}
-          file: ${{ matrix.dockerfile }}
-          target: ${{ matrix.target }}
-          platforms: linux/amd64,linux/arm64
-          push: true
+          context: .
+          file: ./Dockerfile
+          target: stophammer-indexer
+          platforms: linux/${{ matrix.arch }}
           provenance: false
           sbom: false
-          labels: ${{ steps.meta.outputs.labels }}
-          tags: ${{ steps.meta.outputs.tags }}
-          cache-from: type=gha,scope=${{ matrix.image_name }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image_name }}
+          outputs: type=image,name=${{ steps.registry.outputs.prefix }}/stophammer-indexer,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=stophammer-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=stophammer-${{ matrix.arch }}
+
+      - name: Build stophammer-node
+        id: node
+        if: matrix.group == 'stophammer'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: stophammer-node
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ steps.registry.outputs.prefix }}/stophammer-node,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=stophammer-${{ matrix.arch }}
+
+      - name: Build stophammer-crawler
+        id: crawler
+        if: matrix.group == 'crawler'
+        uses: docker/build-push-action@v6
+        with:
+          context: ./stophammer-crawler
+          file: ./stophammer-crawler/Dockerfile
+          target: stophammer-crawler
+          platforms: linux/${{ matrix.arch }}
+          provenance: false
+          sbom: false
+          outputs: type=image,name=${{ steps.registry.outputs.prefix }}/stophammer-crawler,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=crawler-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=crawler-${{ matrix.arch }}
           build-args: |
             STOPHAMMER_PARSER_REF=${{ github.ref_name }}
+
+      - name: Record the digests
+        env:
+          INDEXER: ${{ steps.indexer.outputs.digest }}
+          NODE: ${{ steps.node.outputs.digest }}
+          CRAWLER: ${{ steps.crawler.outputs.digest }}
+        run: |
+          mkdir -p digests
+          for pair in "stophammer-indexer=$INDEXER" "stophammer-node=$NODE" "stophammer-crawler=$CRAWLER"; do
+            image="${pair%%=*}"
+            digest="${pair#*=}"
+            [[ -z "$digest" ]] && continue
+            mkdir -p "digests/$image"
+            touch "digests/$image/${digest#sha256:}"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.group }}-${{ matrix.arch }}
+          path: digests
+          if-no-files-found: error
+
+  merge-images:
+    name: Tag image ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: build-images
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - stophammer-indexer
+          - stophammer-node
+          - stophammer-crawler
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # A candidate image gets only its own version tag, for example
+      # 0.1.0-rc.2. It never gets latest.
+      - name: Join the platforms under the candidate tag
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${IMAGE}"
+          version="${GITHUB_REF_NAME#v}"
+          cd "digests/${IMAGE}"
+          digests=(*)
+          if [[ "${#digests[@]}" -ne 2 ]]; then
+            echo "expected 2 platform digests for ${IMAGE}, found ${#digests[@]}" >&2
+            exit 1
+          fi
+          refs=()
+          for digest in "${digests[@]}"; do
+            refs+=("${image}@sha256:${digest}")
+          done
+          docker buildx imagetools create -t "${image}:${version}" "${refs[@]}"
+          docker buildx imagetools inspect "${image}:${version}"
+
+  # A tag with no hyphen builds nothing. It takes the assets and the images of
+  # the newest candidate on the same commits, and publishes them under the
+  # release tag (ADR 0065). When no passed candidate exists, the job stops
+  # before it publishes anything.
+  promote:
+    name: Promote the candidate
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-crawler
+          ref: ${{ github.ref_name }}
+          path: stophammer-crawler
+          fetch-depth: 0
+
+      - uses: actions/checkout@v5
+        with:
+          repository: InTheMorning/stophammer-parser
+          ref: ${{ github.ref_name }}
+          path: stophammer-parser
+          fetch-depth: 0
+
+      - name: Find the candidate
+        id: candidate
+        run: |
+          commit="$(git rev-parse "${GITHUB_REF_NAME}^{commit}")"
+          candidate="$(git tag --points-at "$commit" --list "${GITHUB_REF_NAME}-rc.*" | sort -V | tail -n 1)"
+          if [[ -z "$candidate" ]]; then
+            echo "ADR 0065: no candidate ${GITHUB_REF_NAME}-rc.N is on commit ${commit}. Tag and pass a candidate on this commit first." >&2
+            exit 1
+          fi
+          for repo in stophammer-crawler stophammer-parser; do
+            release_commit="$(git -C "$repo" rev-parse "${GITHUB_REF_NAME}^{commit}")"
+            candidate_commit="$(git -C "$repo" rev-parse "${candidate}^{commit}" 2>/dev/null || true)"
+            if [[ "$release_commit" != "$candidate_commit" ]]; then
+              echo "ADR 0065: in ${repo}, ${GITHUB_REF_NAME} is not on the commit of ${candidate}. Move no tag. Tag a new candidate." >&2
+              exit 1
+            fi
+          done
+          echo "tag=${candidate}" >> "$GITHUB_OUTPUT"
+          echo "promoting ${candidate} to ${GITHUB_REF_NAME}"
+
+      - name: Download the candidate assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CANDIDATE: ${{ steps.candidate.outputs.tag }}
+        run: gh release download "$CANDIDATE" --dir candidate
+
+      - name: Install bsdtar
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools zstd
+
+      - name: Make the release assets
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.tag }}
+        run: bash ./scripts/promote-release.sh "$CANDIDATE" "$GITHUB_REF_NAME" candidate dist
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the candidate images
+        env:
+          CANDIDATE: ${{ steps.candidate.outputs.tag }}
+        run: |
+          prefix="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          from="${CANDIDATE#v}"
+          version="${GITHUB_REF_NAME#v}"
+          minor="${version%.*}"
+          major="${version%%.*}"
+          for image in stophammer-indexer stophammer-node stophammer-crawler; do
+            docker buildx imagetools create \
+              -t "${prefix}/${image}:${version}" \
+              -t "${prefix}/${image}:${minor}" \
+              -t "${prefix}/${image}:${major}" \
+              -t "${prefix}/${image}:latest" \
+              "${prefix}/${image}:${from}"
+          done
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          prerelease: false
+          make_latest: true
+          body: Promoted from ${{ steps.candidate.outputs.tag }}. The binaries and the images are the bytes of that candidate.
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS-*.txt
+            dist/*.pkg.tar.zst
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

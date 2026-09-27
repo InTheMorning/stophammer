@@ -14,7 +14,8 @@ checksums and the Arch packages, and GHCR holds the three images.
 ## Preconditions
 
 On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is open. The
-candidate `v0.1.0-rc.1` failed, and `v0.1.0-rc.2` is next.
+candidate `v0.1.0-rc.1` failed. `v0.1.0-rc.2` passed, but the operator
+waits for the release workflow of ADR 0065. Thus `v0.1.0-rc.3` is next.
 
 
 The operator decided on 2026-09-26 that 0.1.0 waits until ADR 0044 and ADR
@@ -123,8 +124,10 @@ never moved.
 ### R3: The release
 
 The operator gives the tag `v0.1.0` in the parser, then the crawler, then
-`stophammer`, at the commits of the candidate that passed. The release notes
-name the ADRs that the release holds.
+`stophammer`, at the commits of the candidate that passed. The workflow
+promotes that candidate and builds nothing
+([ADR 0065](../adr/0065-a-release-promotes-its-candidate.md)). The release
+notes name the ADRs that the release holds.
 
 ### R4: After the release
 

@@ -40,7 +40,8 @@ disagree.
 | [0011](0011-rss-crawler.md) | RSS crawler implementation | Accepted |
 | [0015](0015-verifier-plugin-architecture.md) | Verifier plugin architecture | Accepted |
 | [0017](0017-canonical-rss-parser-crate.md) | Canonical RSS parser crate | Accepted |
-| [0021](0021-live-events.md) | Live event support. Scheduler follow-up remains | Accepted |
+| [0021](0021-live-events.md) | Live event support. Scheduler follow-up remains. ADR 0064 supersedes it when Accepted | Accepted |
+| [0064](0064-a-live-item-is-an-rss-fact.md) | A live item is an RSS fact. The relay owns the real-time path. No poll, no age limit. A client reads live items per feed and across feeds | Proposed |
 | [0030](0030-podcastindex-importer-durable-attempt-memory.md) | PodcastIndex importer durable attempt memory | Accepted |
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh | Proposed |
@@ -90,6 +91,7 @@ disagree.
 | [0008](0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation. Supersedes ADR 0007 | Accepted |
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036 | Accepted in part |
 | [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination | Accepted |
+| [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds. A release tag publishes the files and images of its candidate on the same commits | Proposed |
 | [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
 | [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Proposed |
