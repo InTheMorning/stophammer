@@ -17,70 +17,42 @@ or of a label. No standard attribute says which. On 2026-09-26:
   ADR 0049 §6.
 - No report was found of a client that fails on the attribute.
 
-## Step 1: The Namespace Proposal
+## Step 1: A Comment In The Namespace Discussion
 
-The operator posts this text as a new discussion in
-`Podcastindex-org/podcast-namespace`.
+Kolomona proposed `rel` on `<podcast:remoteItem>` on 2026-05-21, in the
+namespace discussion on publisher feeds:
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145).
+On 2026-05-25 Kolomona gave a list of values, and on 2026-05-26 proposed
+[a comma-separated list](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17063987).
+matthewruzzi replied that HTML `rel` uses spaces. ChadFarrow, the author of
+MSP-2.0, supports the work on the tag.
+
+The proposal thus exists. The operator does not open a new discussion. The
+operator posts this text as a comment in #579.
 
 ---
 
-**Proposal: an optional `rel` attribute on `<podcast:remoteItem>` for the role
-of a publisher**
+musicindex.org reads `rel` on both sides of a publisher link since
+2026-09-24. Some facts from the index, on 2026-09-26:
 
-**Problem.** A feed with `<podcast:medium>publisher</podcast:medium>` lists the
-feeds of a "parent publishing entity". That entity can be the artist, a
-label, a network or a producer. The specification gives no way to state
-which. An app that shows a publisher page must guess. Two music indexes
-already read a non-standard `rel` attribute for this purpose, and some feeds
-already write it.
+- It holds 1,772 publisher feeds and 8,249 listed album links.
+- In a sample of 249 links, no side of any link stated a role. Most publisher
+  feeds are Wavlake artist feeds, with no `rel`.
+- Two feeds write `rel`: Sir Libre Records (`rel="label"`) and Jimmy V
+  (`rel="artist"`, and `rel="producer"` on an album of another artist).
+- No report was found of a client that fails on the attribute.
 
-**Proposal.** Add one optional attribute to `<podcast:remoteItem>`:
+Three points from our implementation:
 
-- `rel` (optional): the role of the publishing entity for the feed that the
-  link joins. The values are `artist`, `label`, `network` and `producer`. More
-  than one role is a comma-separated list, for example `rel="artist,label"`.
-
-The attribute has a meaning only on a link between a publisher feed and a
-feed that it publishes:
-
-- In a publisher feed, on each `<podcast:remoteItem>` that lists a feed.
-- In a published feed, on the `<podcast:remoteItem medium="publisher">` inside
-  `<podcast:publisher>`.
-
-Each side states the role of the publisher. When the two sides give different
-values, an app shows the difference. It does not select one.
-
-**When the attribute is absent, the role is not stated.** An app must not
-show "artist" as a fact when no side states it.
-
-**Example, a label:**
-
-```xml
-<!-- In the publisher feed -->
-<podcast:medium>publisher</podcast:medium>
-<podcast:remoteItem medium="music" rel="label"
-    feedGuid="917393e3-1b1e-5cef-ace4-edaa54e1f810"
-    feedUrl="https://example.com/album.xml" />
-
-<!-- In the album feed -->
-<podcast:publisher>
-    <podcast:remoteItem medium="publisher" rel="label"
-        feedGuid="003af0a0-6a45-55cf-b765-68e3d349551a"
-        feedUrl="https://example.com/label.xml" />
-</podcast:publisher>
-```
-
-**Compatibility.** The attribute is optional. An XML parser ignores an
-attribute that it does not know. Feeds that write `rel` today are in Podcast
-Index with no known failure.
-
-**Questions for the community.**
-
-1. Is a comma the correct separator, or a space, as in HTML `rel`?
-2. Is the list of values complete? `distributor` is one more candidate.
-3. Is `rel` the correct name? The namespace uses `rel` on
-   `<podcast:location>` proposals and on `<podcast:alternateEnclosure>` with
-   other meanings.
+1. **When the attribute is absent, the role is not stated.** Our API marks
+   such a role as a default, and does not show "artist" as a fact. We ask
+   that the specification say the same.
+2. **Each side states the role.** When the publisher feed and the album give
+   different values, we show the difference and do not select one.
+3. **We separate roles with a comma.** A role of two words, such as "sound
+   engineer", needs no special spelling with a comma. The one feed with more
+   than one role uses commas. Each role is trimmed and lowercased. We
+   can change this if the discussion selects spaces.
 
 ---
 
@@ -90,7 +62,7 @@ This is item 1 of [the MSP-2.0 todo list](msp-2.0-todo.md), which holds each
 change for MSP-2.0.
 
 The operator opens this issue in `ChadFarrow/MSP-2.0`, and can offer a pull
-request. The facts are from commit `183e424` of 2026-08-30.
+request. The facts are from commit `66f0d53` of 2026-09-27.
 
 ---
 
@@ -99,34 +71,71 @@ request. The facts are from commit `183e424` of 2026-08-30.
 MSP-2.0 writes both sides of a publisher link. `generateRemoteItemXml` writes
 each listed feed of a publisher feed, and `generatePublisherXml` writes the
 `<podcast:publisher>` reference of an album. The publish flow in
-`publisherPublish.ts` adds that reference to each catalog feed. This is the
-best case: each MSP publisher link is two-way.
+`src/utils/publisherPublish.ts` adds that reference to each catalog feed, and
+`PublishSection.tsx` turns this option on by default. Thus each MSP publisher
+link is two-way. That is the best case for an index, because both feeds agree
+on the link.
 
-No field holds the role of the publisher, so no MSP feed can state if the
-publisher is the artist or a label. Indexes then show every publisher as an
-artist.
+No field holds the role of the publisher. An MSP feed cannot say if the
+publisher is the artist, a label, a network or a producer. An app that shows a
+publisher page must guess, and most apps show each publisher as an artist.
 
-**Change.**
+**Change**
 
 1. Add `rel?: string` to `RemoteItem` and to `PublisherReference` in
    `src/types/feed.ts`.
-2. `xmlParser.ts` reads the `rel` attribute of each `podcast:remoteItem`, so
-   an imported feed keeps its value.
-3. `xmlGenerator.ts` writes `rel="…"` when the field has a value, in
-   `generateRemoteItemXml` and in `generatePublisherXml`. It writes nothing
+2. `src/utils/xmlParser.ts` reads the `rel` attribute of each
+   `<podcast:remoteItem>`, and of the `remoteItem` inside
+   `<podcast:publisher>`. An imported feed then keeps its value.
+3. `src/utils/xmlGenerator.ts` writes `rel="…"` in `generateRemoteItemXml` and
+   in `generatePublisherXml` when the field has a value. It writes no attribute
    when the field is empty.
 4. The publisher editor gets one control: "This publisher is: Not stated,
    Artist, Label, Network, Producer". The default is "Not stated". The value
-   applies to each catalog feed, and one catalog feed can change it.
+   applies to each catalog feed, and a user can change it for one catalog
+   feed.
 5. The publish flow writes the same value into the `PublisherReference` of
-   each catalog feed that it updates, so the two sides agree.
-6. Tests: a round-trip test for each value, and a test that an empty value
-   writes no attribute.
+   each catalog feed that it updates, so that the two sides agree.
+6. Tests: a round trip for each value, and a test that an empty value writes
+   no attribute.
 
-The attribute is not in the specification yet. A namespace proposal is open:
-[link to the discussion]. MSP already writes the non-standard `feedImg`
-attribute for its own editor, with the same reason: a parser ignores an
-attribute that it does not know.
+**Example, a label**
+
+```xml
+<!-- In the publisher feed -->
+<podcast:remoteItem feedGuid="917393e3-1b1e-5cef-ace4-edaa54e1f810"
+    feedUrl="https://example.com/album.xml" medium="music" rel="label" />
+
+<!-- In the album feed -->
+<podcast:publisher>
+    <podcast:remoteItem medium="publisher" rel="label"
+        feedGuid="003af0a0-6a45-55cf-b765-68e3d349551a"
+        feedUrl="https://example.com/label.xml" />
+</podcast:publisher>
+```
+
+More than one role is a comma-separated list, for example
+`rel="artist,label"`.
+
+**Status of the attribute**
+
+`rel` on `<podcast:remoteItem>` is not in the specification yet. Kolomona
+proposed it in the namespace discussion on publisher feeds:
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145),
+with the list of values in
+[a later comment](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17063987).
+The separator is still open there: a comma or a space.
+
+Two music indexes read it
+now: v4vmusic.com and musicindex.org. Two feeds write it now: Sir Libre Records
+(`rel="label"`) and Jimmy V (`rel="artist"` and `rel="producer"`). No client
+failure is known. MSP already writes the non-standard `feedImg` attribute for
+the same reason: a parser ignores an attribute that it does not know.
+
+When the attribute is absent, the role is not stated. MSP writes no default
+value, so that an index does not show a guess as a fact.
+
+I can send a pull request for this change.
 
 ---
 

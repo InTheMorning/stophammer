@@ -6,13 +6,13 @@ changes that the operator brings to MSP-2.0
 feeds that MSP writes give this index the facts it needs. Each item names its
 evidence and the Stophammer decision that reads the fact.
 
-The facts about MSP come from commit `183e424` of 2026-08-30.
+The facts about MSP come from commit `183e424` of 2026-08-30. On 2026-09-27 the facts of item 1 were checked again at commit `66f0d53`.
 
 ## Status
 
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
-| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The namespace proposal of `rel` | No |
+| 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing | No |
 | 2 | A visibility control for the block tags | ADR 0057 | Nothing | No |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Nothing | No |
 | 4 | A warning before a GUID change of a published feed | ADR 0052 §5 | Nothing | No |
@@ -34,8 +34,10 @@ the role, so no MSP feed can say if the publisher is the artist or a label.
   Artist, Label, Network, Producer". The default is "Not stated".
 - The publish flow writes the same value into each catalog feed.
 
-**Waits for** the namespace discussion of step 1 of the adoption plan. The
-issue links to it.
+**Waits for** nothing. Kolomona proposed `rel` in the namespace discussion
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145),
+and the issue links to it. Step 1 of the adoption plan is a comment in that
+discussion.
 
 ## 2. A Visibility Control For The Block Tags
 

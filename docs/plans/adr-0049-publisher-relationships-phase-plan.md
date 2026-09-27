@@ -104,7 +104,9 @@ The ADR leaves these points to the plan. A task packet does not change them.
     its internal white space becomes one space, and it is ASCII-lowercased.
     Empty roles and duplicates are removed. A value with no comma is one role,
     even when it holds a space, so `"sound engineer, mastering engineer"` gives
-    two roles. The Podcast Namespace discussion #579 has two proposals: a comma
+    two roles. The Podcast Namespace discussion
+    [#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579)
+    has two proposals: a comma
     list (Kolomona, 2026-05-26) and space-separated keywords as in HTML
     (matthewruzzi, 2026-05-26). Spaces cannot express a role of two words
     without a special spelling, and the one real feed with more than one role
