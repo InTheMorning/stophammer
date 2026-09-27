@@ -114,6 +114,25 @@ After the next crawl of the feeds with live items, the expected values are:
   rows. The three feeds of the 6 tracks are such feeds. The two "100% Retro"
   feeds emit no event, because their rows do not change.
 
+## Measurement After The Deploy
+
+On 2026-09-27 a forced `feed` crawl of the three feeds with recordings and the
+two "100% Retro" feeds gave these counts:
+
+| Count | Before | After |
+|---|---|---|
+| `live_events` rows | 10 | 16 |
+| `track_removed` events | 410 | 416 |
+| `live_events_replaced` events | 14 | 17 |
+| Tracks that came from a live item | 6 | 0 |
+
+Each value agrees with the expected value. The 6 recordings are now `ended`
+rows. The two "100% Retro" feeds emitted no event, so the compare of task 002
+works in production.
+
+The mechanical checks of task 004 are thus met. The visual check of `/api`
+stays open until the operator does it.
+
 ## Outside This Plan
 
 - `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives its lease

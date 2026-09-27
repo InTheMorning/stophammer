@@ -105,7 +105,8 @@ which gives the sequence of each open item of an Accepted ADR:
    gives its relay link. Tasks 001 to 003b are deployed on 2026-09-27.
    `GET /v1/live-items` and `live_items` on the feed are new, and
    `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease. The
-   checks of task 004 wait for a crawl of the feeds with live items. The
+   production checks of task 004 passed on 2026-09-27. Only the visual check
+   of `/api` stays open. The
    [phase plan](docs/plans/adr-0064-live-items-phase-plan.md) gives the
    checks.
 
