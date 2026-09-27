@@ -12,7 +12,7 @@ The facts about MSP come from commit `183e424` of 2026-08-30. On 2026-09-27 the 
 
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
-| 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing | No |
+| 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27 |
 | 2 | A visibility control for the block tags | ADR 0057 | Nothing | No |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Nothing | No |
 | 4 | A warning before a GUID change of a published feed | ADR 0052 §5 | Nothing | No |
