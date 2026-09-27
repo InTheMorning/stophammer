@@ -13,10 +13,14 @@ checksums and the Arch packages, and GHCR holds the three images.
 
 ## Preconditions
 
-On 2026-09-26 preconditions 1 to 4 are met. Precondition 5 is open. The
+On 2026-09-26 preconditions 1 to 4 are met, and on 2026-09-27 precondition 5. The
 candidate `v0.1.0-rc.1` failed. `v0.1.0-rc.2` passed with the old workflow.
 `v0.1.0-rc.3` passed on 2026-09-27 with the workflow of ADR 0065, in 22
-minutes. `v0.1.0` promotes it.
+minutes.
+
+On the same day `v0.1.0` promoted it in 39 seconds. The binaries, the
+Arch packages and the image digests of `v0.1.0` are the same as those of
+`v0.1.0-rc.3`. Steps R3 and R4 are complete, and this plan is complete.
 
 
 The operator decided on 2026-09-26 that 0.1.0 waits until ADR 0044 and ADR
@@ -138,19 +142,16 @@ notes name the ADRs that the release holds.
 
 ## Open Decisions
 
-1. **The next version.** Each `Cargo.toml` stays `0.1.0` until the next
-   release. The operator decides when a deploy is a release. A rule for the
-   version number needs an ADR, because it binds each later release. ADR 0044
-   already makes a breaking change of `v1` need a new path version.
+1. **The next version.** [ADR 0066](../adr/0066-a-version-number-tells-what-to-upgrade.md),
+   Proposed on 2026-09-27, gives the rule. Under it the next release is 0.2.0.
 2. **A workflow for the crate repositories.** They have no CI. A crate commit
    is checked only on the machine of the operator.
 
 ## ADR 0061
 
-ADR 0061 is not in this release. It stays Proposed. The operator takes the
-publisher role to the namespace, to MSP-2.0 and to Wavlake, and the index
-collects the evidence at each step. The
-[adoption plan](publisher-rel-adoption-plan.md) gives the steps.
+ADR 0061 is not in this release. The operator accepted it on 2026-09-27,
+after the release. The publisher role goes to the namespace, to MSP-2.0 and to
+Wavlake as the [adoption plan](publisher-rel-adoption-plan.md) gives.
 
 ## Commands For The Operator
 

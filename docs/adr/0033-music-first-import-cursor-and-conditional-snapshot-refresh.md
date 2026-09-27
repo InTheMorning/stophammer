@@ -1,7 +1,12 @@
 # ADR 0033: Music-First Import Cursor and Conditional Snapshot Refresh
 
 ## Status
-Proposed
+Accepted on 2026-09-27. The code in `stophammer-crawler/src/modes/import.rs`
+already follows it.
+
+Amended on 2026-09-27: the section "A Refresh Keeps Its Disk" is added. It
+records item 12 of the remaining accepted work plan, and it reverses no
+decision.
 
 Date: 2026-04-08
 
@@ -79,6 +84,17 @@ mode behavior is now scoped to:
 - fetch / parse / ingest execution
 
 This aligns the importer with ADR 0032's resolver retirement.
+
+### A Refresh Keeps Its Disk
+
+A refresh writes the new snapshot beside the old one, so it needs the size of
+the snapshot a second time.
+
+- Before the download, the importer compares the free space with the size of
+  the current snapshot, plus 10 %, plus 512 MiB. When the space is smaller, it
+  skips the refresh with a warning and keeps the current snapshot.
+- When the write of the new snapshot fails, the importer deletes the partial
+  file.
 
 ## Consequences
 - Fresh `all_feeds` imports skip directly to the approved music-first window

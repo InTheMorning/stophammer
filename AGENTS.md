@@ -57,6 +57,12 @@ Complete and deployed:
 - [ADR 0062](docs/adr/0062-a-podping-is-never-dropped.md), deployed on
   2026-09-26. The `gossip` mode merges a podping inside the window of its URL,
   and never drops it.
+- Release 0.1.0, on 2026-09-27. `v0.1.0` promotes the candidate
+  `v0.1.0-rc.3`, as [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md)
+  gives. The three repositories have the tag. The
+  [GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
+  holds the assets of [ADR 0063](docs/adr/0063-a-release-publishes-role-packages.md),
+  and GHCR holds the images with the tags `0.1.0`, `0.1`, `0` and `latest`.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -85,14 +91,7 @@ The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
 
-1. Release 0.1.0. The candidate `v0.1.0-rc.3` passed on 2026-09-27 with the
-   workflow of [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md).
-   The operator gives the tag `v0.1.0` at its commits, and the workflow
-   promotes the candidate. The
-   [release plan](docs/plans/release-0.1.0-plan.md) gives the sequence.
-   [ADR 0063](docs/adr/0063-a-release-publishes-role-packages.md) owns the
-   release assets.
-2. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
+1. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
    2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
    a conditional GET and keeps the last body, so a corrective pass transfers
    almost no feed body.
@@ -103,11 +102,12 @@ which gives the sequence of each open item of an Accepted ADR:
    measures, and it has not run. The open question, whether a `304` counts
    against the Wavlake `429` limit, stays open until the second pass.
 
-3. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
+2. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
    ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
    and the gossip check of task 004 found no music host on 2026-09-26.
-   ADR 0055 is Proposed and waits. The operator runs the only crawler, on the same host as the
-   primary, so a leak of `CRAWL_TOKEN` is close to a compromise of that host.
+   [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
+   Proposed until a crawler or a nominator runs outside the host of the
+   primary, or a leak of `CRAWL_TOKEN` is suspected.
    [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
    [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
    The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the

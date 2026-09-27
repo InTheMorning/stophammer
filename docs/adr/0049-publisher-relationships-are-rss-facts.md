@@ -3,6 +3,10 @@
 ## Status
 Accepted
 
+Amended on 2026-09-27 by [ADR 0061](0061-a-publisher-read-counts-its-listed-artists.md)
+§5: the `publisher` view of an album gives only the rows where
+`music_names_publisher` is true.
+
 ## Date
 2026-09-23
 

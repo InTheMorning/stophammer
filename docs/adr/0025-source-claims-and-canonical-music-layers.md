@@ -1,7 +1,9 @@
 # ADR 0025: Source Claims and Canonical Music Layers
 
 ## Status
-Accepted
+Accepted in part. [ADR 0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md)
+supersedes the canonical music layers for the v1 schema. The source claims
+stay.
 
 Date: 2026-03-18
 

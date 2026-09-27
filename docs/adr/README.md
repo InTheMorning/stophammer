@@ -15,7 +15,7 @@ disagree.
 | ADR | Scope | Status |
 |---|---|---|
 | [0001](0001-record-architecture-decisions.md) | ADRs record decisions. Sequential numbering, Nygard structure | Accepted |
-| [0045](0045-governance-model-and-contract-ownership.md) | Adopts v4vmm ADR 0061. Names the MusicIndex API owner. Covers the three repositories | Proposed |
+| [0045](0045-governance-model-and-contract-ownership.md) | Adopts v4vmm ADR 0061. Names the MusicIndex API owner. Covers the three repositories | Accepted |
 | [0046](0046-migration-versions-are-array-positions.md) | A migration version is its array position. A skipped migration needs a repair, and the runner reports the condition | Accepted |
 
 ## Foundation And Storage
@@ -26,8 +26,8 @@ disagree.
 | [0003](0003-sqlite-wal-primary-store.md) | SQLite with WAL mode as the primary store | Accepted |
 | [0023](0023-schema-migrations.md) | Versioned schema migrations | Accepted |
 | [0024](0024-sqlite-wal-connection-pool.md) | SQLite WAL connection pool | Accepted |
-| [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers | Accepted |
-| [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema | Proposed |
+| [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers. The canonical layers are superseded by ADR 0034 | Accepted in part |
+| [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema. Search and quality stay. The compatibility artist credit is open work | Accepted |
 | [0040](0040-store-track-identity-as-feed-scoped.md) | Track identity stored as feed-scoped | Accepted |
 | [0041](0041-contributor-npub-source-evidence.md) | Contributor npub kept as source evidence | Accepted |
 
@@ -43,9 +43,9 @@ disagree.
 | [0064](0064-a-live-item-is-an-rss-fact.md) | A live item is an RSS fact. The relay owns the real-time path, and the index gives the relay link. No poll, no recording. A client reads live items per feed and across feeds. Supersedes ADR 0021 | Accepted |
 | [0030](0030-podcastindex-importer-durable-attempt-memory.md) | PodcastIndex importer durable attempt memory | Accepted |
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
-| [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh | Proposed |
+| [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh. A refresh keeps its disk | Accepted |
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
-| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. Wavlake caveat superseded by ADR 0049 | Proposed |
+| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Wavlake caveat superseded by ADR 0049 | Accepted |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
 | [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304` | Accepted |
@@ -60,7 +60,7 @@ disagree.
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
-| [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives the artists of the albums it lists, also when an album does not name it. The index derives no artist or label kind | Proposed |
+| [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. Amends ADR 0049 §4. The index derives no artist or label kind | Accepted |
 
 ## Identity, Signing And Security
 
@@ -81,7 +81,7 @@ disagree.
 | [0058](0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID | Accepted |
 | [0057](0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Accepted |
 | [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
-| [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content | Proposed |
+| [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content. Waits for a crawler outside the primary host, or a suspected token leak | Proposed |
 
 ## Nodes, Replication And Deployment
 
@@ -90,10 +90,11 @@ disagree.
 | [0008](0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation. Supersedes ADR 0007 | Accepted |
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036 | Accepted in part |
 | [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination | Accepted |
+| [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Proposed |
 | [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds. A release tag publishes the files and images of its candidate on the same commits | Accepted |
 | [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
-| [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Proposed |
+| [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Accepted |
 
 ## Superseded
 
@@ -115,17 +116,11 @@ research, not for a live rule.
 
 ## Status Needs A Check
 
-A recorded status below disagrees with the code at commit `a220f44`. This index
-records what each file states. Correcting a file is a separate change.
+On 2026-09-27 the operator decided ADR 0032, ADR 0033 and ADR 0034. No
+recorded status disagrees with the code now.
 
-| ADR | File says | The code shows |
-|---|---|---|
-| [0032](0032-retire-resolver-and-review-runtime.md) | Proposed | No resolver module in `src/`, and no `stophammer-resolver` directory. ADR 0029 already names ADR 0032 as its successor |
-| [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Proposed | `migrations/0025` and `migrations/0032` are merged, and the seven `source_*` tables exist |
-| [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Proposed | Both halves are in `stophammer-crawler`. `music_first_lower_bound` in `src/modes/import.rs` gives the cursor, and `format_if_modified_since_value` gives the conditional refresh |
-
-Four files also use a different status format. ADR 0035, ADR 0038, ADR 0039 and
-ADR 0040 give `- Status:` in a list, and the rest use a `## Status` heading.
+Three files also use a different status format. ADR 0035, ADR 0039 and ADR 0040
+give `- Status:` in a list, and the rest use a `## Status` heading.
 
 ## ADR Workflow
 

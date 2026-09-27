@@ -1,7 +1,14 @@
 # 0038: Publisher-Feed Handling — Item-Level `remoteItem` Extraction and Non-Music Listing Filter
 
-- Status: Proposed
-- Date: 2026-04-18
+## Status
+Accepted on 2026-09-27.
+
+Amended on 2026-09-27: `GET /v1/feeds/recent` keeps its `medium` parameter.
+See "Amendment Of 2026-09-27". ADR 0049 replaces the Wavlake caveat of
+Decision A.
+
+## Date
+2026-04-18
 
 ## Context
 
@@ -216,6 +223,17 @@ index stays coherent if a feed's medium changes between ingests. Reuse
   defaults to the same whitelist.
 - Regenerate static OpenAPI previews via `cargo run --bin gen_openapi` if
   they are checked in.
+
+## Amendment Of 2026-09-27
+
+`GET /v1/feeds/recent` keeps the `medium` parameter, and the Read-layer change
+of Decision B for this route does not apply. With no parameter, the route gives
+only `music` feeds. Another medium is an explicit request of the client, so a
+container never enters the default list. A removal of the parameter would be a
+breaking change of `v1` under
+[ADR 0044](0044-api-contract-declares-its-fields.md).
+
+The other parts of Decision A and Decision B are implemented on this date.
 
 ## Consequences
 

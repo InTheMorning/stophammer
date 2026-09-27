@@ -1,7 +1,11 @@
 # ADR 0034: Adopt Rebuild-First Source-First v1 Music Schema
 
 ## Status
-Proposed
+Accepted on 2026-09-27, as narrowed by the amendment below.
+
+Amended on 2026-09-27: section 10 keeps the search and quality tables, and
+names the parts of section 4 that are not yet done. The amendment reverses no
+other decision.
 
 Date: 2026-04-08
 
@@ -229,6 +233,30 @@ The v1 schema decision implies a source-first API direction:
   schema and should be removed or deferred with the corresponding code/docs
 - search should be reconsidered only after the v1 source-first schema is
   implemented
+
+### 10. The state on 2026-09-27
+
+The resolver, review, release, recording, tag and relationship tables are
+gone, and the seven `source_*` tables exist. These parts of section 4 are
+changed or open:
+
+- **Search and quality stay.** `search_index`, `search_entities` and
+  `entity_quality` now hold only feeds and tracks, the source objects of
+  section 2. They back `GET /v1/search`, and
+  [ADR 0042](0042-query-responses-name-the-field-owner.md) sets rules for its
+  results. So section 4 no longer drops them, and section 9 no longer defers
+  search.
+- **The compatibility artist credit is open work.** The ingest still makes one
+  feed-scoped `artists` and `artist_credit` row for each release artist text
+  and each track author, because `feeds.artist_credit_id` and
+  `tracks.artist_credit_id` are required. It also signs
+  `ArtistCreditCreated`. No public read route uses these rows. The removal
+  needs a rebuild of `feeds` and `tracks`, and the end of
+  `ArtistCreditCreated`. A node still applies the old events of the log.
+- **The unused tables are open work.** `artist_type` and `rel_type` have no
+  use, and `external_ids` is empty.
+
+Item 13 of the remaining accepted work plan holds the open work.
 
 ## Consequences
 - Stophammer gets a smaller, more explicit v1 schema that matches current

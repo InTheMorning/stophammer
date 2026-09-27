@@ -24,7 +24,10 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 9 | Fast polling of a feed with a pending live event | ADR 0021 | Closed: ADR 0064 supersedes ADR 0021 | None | Below |
 | 10 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 11 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
-| 12 | A snapshot refresh of the import can fill the disk. Deployed on 2026-09-27 | None yet | Code | Crawler, `docker-compose.yml` | Below |
+| 12 | A snapshot refresh of the import can fill the disk. Deployed on 2026-09-27 | ADR 0033, amended | Code | Crawler, `docker-compose.yml` | Below |
+| 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 | Tasks first | `stophammer` | Below |
+| 14 | The ADR archive and the two governance guards | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
+| 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name | ADR 0061 | Code | `stophammer` | Below |
 
 ## Sequence
 
@@ -117,6 +120,41 @@ On 2026-09-27 the three steps are built and deployed. A refresh that
 lacks the space for a second copy of the snapshot now gives a warning and
 keeps the existing snapshot. Before this change, a failed refresh stopped the
 whole run. Each container log keeps at most 3 files of 20 MB.
+
+## Item 13: The Compatibility Artist Credit
+
+[ADR 0034](../adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
+§10 names the work:
+
+1. Stop the ingest from making `artists` and `artist_credit` rows, and stop
+   `ArtistCreditCreated`. A node still applies the old events of the log.
+2. Rebuild `feeds` and `tracks` with no `artist_credit_id`, in a migration.
+3. Drop `artists`, `artist_aliases`, `artist_credit`, `artist_credit_name`,
+   `artist_type`, `rel_type` and `external_ids`.
+4. Move the internal SSE code off the artist IDs, or remove the parts that
+   only they serve.
+
+The work needs a phase plan and tasks before code, because it changes the
+event protocol and rebuilds the two largest tables.
+
+## Item 14: The ADR Archive And The Guards
+
+[ADR 0045](../adr/0045-governance-model-and-contract-ownership.md) §6 and its
+section "Guards" name the work:
+
+1. Move each superseded ADR to `docs/adr/archive/`, and correct each link to
+   it.
+2. A test fails when `AGENTS.md` is not in the output of `git ls-files`.
+3. A test compares the ADR files with the rows of `docs/adr/README.md`. It
+   fails when a file has no row, or when a row names no file.
+
+## Item 15: The Confirmed Artists Of A Publisher
+
+[ADR 0061](../adr/0061-a-publisher-read-counts-its-listed-artists.md) needs
+one node task: the four fields of §1, the filter of §5 on the album read, the
+OpenAPI schema, `docs/API.md`, and the tests of its section "Guards". At the
+deploy, the request files of v4vmm and musicindex.org get a note, because the
+`publisher` view of an album gives fewer rows.
 
 ## Not In This Plan
 

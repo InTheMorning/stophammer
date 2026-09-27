@@ -1,7 +1,16 @@
 # ADR 0055: The Primary Fetches What It Signs
 
 ## Status
-Proposed
+Proposed. On 2026-09-27 the operator decided that it stays Proposed until one
+of these conditions is true:
+
+- A crawler or a nominator runs outside the host of the primary.
+- A leak of `CRAWL_TOKEN` is suspected.
+
+This ADR completes ADR 0006. ADR 0006 treats a crawler as untrusted, and it
+names the shared `CRAWL_TOKEN` as enough only for a trusted internal network.
+Until a condition is true, the operator runs the only crawler on the host of
+the primary, and that network is the design.
 
 ## Date
 2026-09-24

@@ -1,7 +1,8 @@
 # ADR 0032: Retire Resolver and Review Runtime
 
 ## Status
-Proposed
+Accepted on 2026-09-27. The code already follows it: no resolver binary,
+no resolver or review table, and no resolver or review route.
 
 Date: 2026-04-08
 
