@@ -72,7 +72,16 @@ In the code on 2026-09-27:
    drop `feeds`, rename `feeds_new` to `feeds`. It does not rename the old
    table first. A rename of the old table also changes each foreign key in
    other tables that names it.
-4. **The SSE registry keys by feed GUID.** ADR 0037 keeps the registry, and
+4. **The runner turns off foreign keys for the rebuild.** The steps need
+   foreign keys off, and SQLite ignores that setting inside a transaction.
+   A marker line, `-- stophammer: foreign_keys=off`, turns them off before
+   the transaction of that migration, and the runner checks them before its
+   commit.
+
+   A test on 2026-09-28 showed two failures without it. With foreign keys
+   on, the drop fails. With `defer_foreign_keys`, the drop deletes the rows
+   of `source_gone_answers` through its `ON DELETE CASCADE`.
+5. **The SSE registry keys by feed GUID.** ADR 0037 keeps the registry, and
    ADR 0064 publishes live frames to it. A feed GUID is the key that each
    event already has.
 

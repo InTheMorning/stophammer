@@ -83,7 +83,26 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
 
 - File `migrations/0047_drop_artist_credit.sql`, at the next array position
   of `MIGRATIONS` after migration 0046.
-- `PRAGMA foreign_keys = OFF` at the start, as in migration 0032.
+- **The runner must turn off foreign keys for this migration.** `try_open_db`
+  sets `PRAGMA foreign_keys = ON`, and `run_migrations` runs each migration
+  inside a transaction. SQLite ignores `PRAGMA foreign_keys` inside a
+  transaction. With foreign keys on, `DROP TABLE feeds` is refused, because
+  `tracks` refers to `feeds`.
+- `PRAGMA defer_foreign_keys` is not a solution:
+  the implicit delete of the drop runs the `ON DELETE CASCADE` of
+  `source_gone_answers` (migration 0045) and deletes its rows. A test on
+  2026-09-28 showed both results.
+- Change `run_migrations`: a migration whose first line is
+  `-- stophammer: foreign_keys=off` runs with `PRAGMA foreign_keys = OFF`
+  set before its transaction. Inside the transaction, after the SQL, run
+  `PRAGMA foreign_key_check`. When it gives a row, roll back and return an
+  error that names the migration version.
+- After the transaction, set
+  `PRAGMA foreign_keys = ON` again, also after an error. Each other migration
+  runs as before. Put a doc comment on the marker that names ADR 0034 §11
+  and this reason.
+- Migration 0047 starts with that marker line. It has no `PRAGMA` line of
+  its own.
 - For `feeds` and then `tracks`: `CREATE TABLE feeds_new` with each column
   except `artist_credit_id`, `INSERT INTO feeds_new SELECT` the same columns,
   `DROP TABLE feeds`, `ALTER TABLE feeds_new RENAME TO feeds`. Do not rename
@@ -122,13 +141,17 @@ Mechanical, each an integration test in
   `ArtistCreditCreated`, then a `FeedUpserted` and a `TrackUpserted` whose
   JSON has `artist_credit_id`. Each event counts as applied, and the feed and
   the track are stored.
-- A database at the array position of migration 0046, with artist rows and
-  credits, migrates. After it:
+- A database at the array position of migration 0046, with artist rows,
+  credits, and one `source_gone_answers` row, migrates. After it:
   - `feeds` and `tracks` have no `artist_credit_id`.
   - The seven tables are gone.
   - The row counts of `feeds` and `tracks` are the same.
   - `PRAGMA foreign_key_check` gives no row.
+  - The `source_gone_answers` row is still there.
+  - `PRAGMA foreign_keys` gives 1 again.
   - The delete of a feed still deletes its tracks.
+- A migration with the marker whose SQL leaves a foreign key violation
+  fails with the version in the error, and changes nothing.
 - A fresh database from `schema.sql` has no artist table and no
   `artist_credit_id` column.
 - The quality score of a feed is the same as before the change.
