@@ -280,6 +280,7 @@ fn skip_ssrf_field_available_in_test_cfg() {
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
     };
 }
@@ -307,6 +308,7 @@ fn test_app_state() -> Arc<stophammer::api::AppState> {
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
     })
 }

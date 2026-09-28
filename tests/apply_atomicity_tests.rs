@@ -245,6 +245,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
     });
     let app = stophammer::api::build_router(state);

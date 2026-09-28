@@ -439,6 +439,18 @@ CREATE TABLE IF NOT EXISTS feed_url_observations (
 CREATE INDEX IF NOT EXISTS idx_feed_url_observations_guid
     ON feed_url_observations(feed_guid);
 
+-- The count of a gone answer from the stored source URL of a record (ADR
+-- 0067 section 2). Local to the primary ingest path and makes no event, so a
+-- community node holds no row. `ON DELETE CASCADE` deletes the row with its
+-- feed, so the feed delete trigger does not change.
+CREATE TABLE IF NOT EXISTS source_gone_answers (
+    feed_guid     TEXT PRIMARY KEY REFERENCES feeds(feed_guid) ON DELETE CASCADE,
+    source_url    TEXT NOT NULL,
+    first_gone_at INTEGER NOT NULL,
+    last_gone_at  INTEGER NOT NULL,
+    last_status   INTEGER NOT NULL
+) STRICT;
+
 -- A block on one feed GUID or one exact feed URL (ADR 0053 Section 1). A
 -- signed FeedBlocked event writes a row here; a signed FeedUnblocked event
 -- removes one.

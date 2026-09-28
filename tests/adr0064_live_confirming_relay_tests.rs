@@ -48,6 +48,7 @@ fn state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState>
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
     })
 }

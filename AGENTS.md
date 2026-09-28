@@ -180,7 +180,8 @@ which gives the sequence of each open item of an Accepted ADR:
 6. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)
-   is written, and no task is built. It joins release 0.3.0. Migration 0045
+   is written. Tasks 001 and 002 are built on 2026-09-27 and not deployed.
+   They join release 0.3.0. Migration 0045
    is its table, so ADR 0056 task 002 is migration 0046, and ADR 0034 task
    003 is migration 0047.
 

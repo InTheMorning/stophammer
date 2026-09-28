@@ -169,6 +169,22 @@ Notes:
   `feeds.feed_url` directly, so a node without the seed still resolves the
   same link. Task 004b.
 
+### `source_gone_answers`
+Purpose: the count of a gone answer (`404` or `410`) from the stored source
+URL of a record (ADR 0067 section 2).
+Key columns:
+- `feed_guid` (primary key)
+- `source_url`
+- `first_gone_at`
+- `last_gone_at`
+- `last_status`
+
+Notes:
+- local to the primary ingest path
+- makes no event
+- `ON DELETE CASCADE` removes the row when the feed is deleted or retired
+- an ingest that writes a body for the record deletes the row
+
 ## Internal Compatibility and Search Tables
 
 ### `artists`

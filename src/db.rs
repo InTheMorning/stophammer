@@ -245,6 +245,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 44: the relay link (uri and protocol) of a live item
     // (ADR 0064 §3)
     include_str!("../migrations/0044_live_item_relay_link.sql"),
+    // Migration 45: the count of a gone answer from the stored source URL of
+    // a feed (ADR 0067 §2)
+    include_str!("../migrations/0045_source_gone_answers.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.
@@ -5535,6 +5538,92 @@ fn feed_indexed_by_stored_url(
     .map_err(Into::into)
 }
 
+// ── source_gone_answers (ADR 0067 §2) ───────────────────────────────────────
+
+/// A row of `source_gone_answers`: the count of a gone answer from the
+/// stored source URL of `feed_guid` (ADR 0067 section 2).
+#[derive(Debug, Clone)]
+pub struct SourceGoneAnswer {
+    pub feed_guid: String,
+    pub source_url: String,
+    pub first_gone_at: i64,
+    pub last_gone_at: i64,
+    pub last_status: i64,
+}
+
+/// Returns the `feed_guid` of the indexed feed whose stored `feed_url`
+/// equals `source_url`, or `None` when no feed is stored at that URL.
+///
+/// Only the exact stored source URL counts toward a gone-answer report (ADR
+/// 0067 section 2, invariant 1).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn feed_guid_for_source_url(
+    conn: &Connection,
+    source_url: &str,
+) -> Result<Option<String>, DbError> {
+    Ok(feed_indexed_by_stored_url(conn, source_url)?.map(|(feed_guid, _created_at)| feed_guid))
+}
+
+/// Returns the `source_gone_answers` row of `feed_guid`, or `None` when the
+/// primary has not yet counted a gone answer for it.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_source_gone_answer(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<SourceGoneAnswer>, DbError> {
+    conn.query_row(
+        "SELECT feed_guid, source_url, first_gone_at, last_gone_at, last_status \
+         FROM source_gone_answers WHERE feed_guid = ?1",
+        params![feed_guid],
+        |row| {
+            Ok(SourceGoneAnswer {
+                feed_guid: row.get(0)?,
+                source_url: row.get(1)?,
+                first_gone_at: row.get(2)?,
+                last_gone_at: row.get(3)?,
+                last_status: row.get(4)?,
+            })
+        },
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+/// Records a counted gone answer for `feed_guid` (ADR 0067 section 2).
+///
+/// Writes a new row with `first_gone_at` and `last_gone_at` both set to
+/// `now` when the record has no row yet. Otherwise updates `last_gone_at`
+/// and `last_status` of the existing row; `first_gone_at` never changes once
+/// written.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the statement fails.
+pub fn record_source_gone_answer(
+    conn: &Connection,
+    feed_guid: &str,
+    source_url: &str,
+    now: i64,
+    status: u16,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO source_gone_answers \
+         (feed_guid, source_url, first_gone_at, last_gone_at, last_status) \
+         VALUES (?1, ?2, ?3, ?3, ?4) \
+         ON CONFLICT(feed_guid) DO UPDATE SET \
+           last_gone_at = excluded.last_gone_at, \
+           last_status  = excluded.last_status",
+        params![feed_guid, source_url, now, i64::from(status)],
+    )?;
+    Ok(())
+}
+
 /// Resolves a listed feed reference to an indexed `feed_guid`, in the order
 /// ADR 0049 §3 gives:
 ///
@@ -6489,6 +6578,14 @@ pub fn ingest_transaction(
             feed.last_build_date,
             feed.release_artist_source,
         ],
+    )?;
+
+    // 3a2. ADR 0067 section 2: an ingest that writes a body for the record
+    // clears its gone-answer count. The row is local to the primary and
+    // makes no event, so this delete need not fan out.
+    tx.execute(
+        "DELETE FROM source_gone_answers WHERE feed_guid = ?1",
+        params![feed.feed_guid],
     )?;
 
     // 3b. Replace feed-level payment routes

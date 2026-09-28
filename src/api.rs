@@ -619,6 +619,12 @@ pub struct AppState {
     /// FG-02 SSE artist follow — 2026-03-13
     /// Registry for SSE per-artist broadcast channels and replay buffers.
     pub sse_registry: Arc<SseRegistry>,
+    /// Lowercased host names from `SOURCE_GONE_HOSTS`. A `404` gone-source
+    /// report (ADR 0067 section 2) counts only when the host of its URL is
+    /// in this list; a `410` counts from any host. Read once at start, from
+    /// the same env var on the primary; empty on a community node, which
+    /// never serves `POST /ingest/feed`.
+    pub source_gone_hosts: Vec<String>,
     /// When true, skip SSRF validation of a peer's `node_url` during
     /// `sync/register`. Only intended for test environments where mock
     /// servers use localhost.
@@ -1996,6 +2002,174 @@ fn is_no_change_reason(reason: &str) -> bool {
         )
 }
 
+// ── ADR 0067: a gone source retires its feed ────────────────────────────────
+
+/// The number of seconds between the first and second counted gone answer of
+/// a record that retires it (ADR 0067 section 3). Compared against the same
+/// clock the rest of ingest uses, [`db::unix_now`], so a test can set the
+/// gap by writing `first_gone_at` directly.
+const SOURCE_GONE_RETIRE_AFTER_SECS: i64 = 24 * 60 * 60;
+
+/// Returns the lowercased host of `url`, or `None` when `url` does not parse.
+fn source_gone_url_host(url: &str) -> Option<String> {
+    let parsed = reqwest::Url::parse(url).ok()?;
+    parsed.host_str().map(str::to_ascii_lowercase)
+}
+
+/// Reports whether a gone-source report counts toward retirement (ADR 0067
+/// section 2, invariant 1): the source URL and the canonical URL are equal,
+/// no redirect carried it, and the status is a `410` (any host) or a `404`
+/// from a host in `hosts`.
+fn source_gone_report_counts(req: &ingest::IngestFeedRequest, hosts: &[String]) -> bool {
+    req.source_url == req.canonical_url
+        && req.redirects.is_empty()
+        && match req.http_status {
+            410 => true,
+            404 => source_gone_url_host(&req.source_url).is_some_and(|host| hosts.contains(&host)),
+            _ => false,
+        }
+}
+
+/// Retires `feed_guid` for a gone source (ADR 0067 section 3): the same
+/// delete-with-event transition as the ADR 0057 retirement, with the reason
+/// `source_gone` and no block row.
+fn retire_for_source_gone(
+    conn: &mut rusqlite::Connection,
+    state: &AppState,
+    feed_guid: &str,
+    now: i64,
+) -> Result<Vec<event::Event>, ApiError> {
+    let event_id = uuid::Uuid::new_v4().to_string();
+    let payload = crate::event::FeedRetiredPayload {
+        feed_guid: feed_guid.to_string(),
+        reason: Some("source_gone".to_string()),
+    };
+    let payload_json = serde_json::to_string(&payload).map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("payload json serialization: {e}"),
+        www_authenticate: None,
+    })?;
+    db::delete_feed_with_event(
+        conn,
+        feed_guid,
+        &event_id,
+        &payload_json,
+        feed_guid,
+        &state.signer,
+        now,
+        &[],
+        &[],
+    )
+    .map_err(ApiError::from)
+}
+
+/// Handles a crawler report of a gone source URL: `http_status` `404` or
+/// `410`, with no `feed_data` (ADR 0067).
+///
+/// Runs after the crawl-token check and after the ADR 0053 block check it
+/// repeats here, and before the verifier chain: a gone report carries no
+/// body for a verifier to read.
+fn handle_source_gone_report(
+    state: &AppState,
+    req: &ingest::IngestFeedRequest,
+) -> Result<IngestBlockingOutput, ApiError> {
+    let mut conn = state.db.writer().lock().map_err(|_poison| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: "database mutex poisoned".into(),
+        www_authenticate: None,
+    })?;
+
+    // ADR 0067 Invariants: an operator block of ADR 0053 is checked before
+    // this rule. A gone report names no GUID, so only the URL block can
+    // match.
+    if let Some(block) = db::find_feed_block(&conn, None, &[&req.source_url, &req.canonical_url])? {
+        tracing::info!(
+            canonical_url = req.canonical_url.as_str(),
+            source_url = req.source_url.as_str(),
+            http_status = req.http_status,
+            block_id = block.block_id.as_str(),
+            kind = block.kind.as_str(),
+            "ADR 0053 section 1: gone report rejected, feed is blocked"
+        );
+        return Ok(source_gone_response("blocked", vec![], vec![]));
+    }
+
+    let feed_guid = if source_gone_report_counts(req, &state.source_gone_hosts) {
+        db::feed_guid_for_source_url(&conn, &req.source_url)?
+    } else {
+        None
+    };
+
+    let Some(feed_guid) = feed_guid else {
+        tracing::info!(
+            canonical_url = req.canonical_url.as_str(),
+            source_url = req.source_url.as_str(),
+            http_status = req.http_status,
+            reason = "source_gone_ignored",
+            "ADR 0067: gone report ignored"
+        );
+        return Ok(source_gone_response("source_gone_ignored", vec![], vec![]));
+    };
+
+    let now = db::unix_now();
+    let existing = db::get_source_gone_answer(&conn, &feed_guid)?;
+    let retire = existing
+        .as_ref()
+        .is_some_and(|row| now - row.first_gone_at >= SOURCE_GONE_RETIRE_AFTER_SECS);
+
+    if retire {
+        let retirement_events = retire_for_source_gone(&mut conn, state, &feed_guid, now)?;
+        let event_ids: Vec<String> = retirement_events
+            .iter()
+            .map(|ev| ev.event_id.clone())
+            .collect();
+        tracing::info!(
+            feed_guid = feed_guid.as_str(),
+            source_url = req.source_url.as_str(),
+            http_status = req.http_status,
+            reason = "source_gone",
+            "ADR 0067 section 3: gone source retired the record"
+        );
+        return Ok(source_gone_response(
+            "source_gone",
+            event_ids,
+            retirement_events,
+        ));
+    }
+
+    db::record_source_gone_answer(&conn, &feed_guid, &req.source_url, now, req.http_status)?;
+    tracing::info!(
+        feed_guid = feed_guid.as_str(),
+        source_url = req.source_url.as_str(),
+        http_status = req.http_status,
+        reason = "source_gone_observed",
+        "ADR 0067 section 2: gone source answer recorded"
+    );
+    Ok(source_gone_response("source_gone_observed", vec![], vec![]))
+}
+
+/// Builds the unaccepted [`IngestBlockingOutput`] a gone-report outcome
+/// answers with: `reason`, the event IDs of `fanout_events`, and
+/// `fanout_events` itself for the caller to fan out.
+fn source_gone_response(
+    reason: &str,
+    event_ids: Vec<String>,
+    fanout_events: Vec<event::Event>,
+) -> IngestBlockingOutput {
+    (
+        ingest::IngestResponse {
+            accepted: false,
+            no_change: false,
+            reason: Some(reason.to_string()),
+            events_emitted: event_ids,
+            warnings: vec![],
+            source_url: None,
+        },
+        fanout_events,
+        vec![],
+    )
+}
+
 /// The destination and the name of the ADR 0052 trigger that moved a record
 /// (task 006). `trigger` is one of `"self link"`, `"new-feed-url"` or
 /// `"permanent redirect"`, and appears verbatim in the move warning and log:
@@ -2247,6 +2421,15 @@ async fn handle_ingest_feed(
                 vec![],
                 vec![],
             ));
+        }
+
+        // ADR 0067 section 2: a gone-source report carries no `feed_data`,
+        // so no verifier has a body to check. Handle it here, after the
+        // crawl-token check and before the verifier chain. Each other
+        // request, including one with no `feed_data` and another status,
+        // keeps its present behavior below.
+        if req.feed_data.is_none() && matches!(req.http_status, 404 | 410) {
+            return handle_source_gone_report(&state2, &req);
         }
 
         // Issue-VERIFY-READER — 2026-03-16

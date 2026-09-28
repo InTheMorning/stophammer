@@ -591,21 +591,22 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // ADR 0049 task 007 added migration 0037, ADR 0053 task 001 added
     // migration 0038, ADR 0052 task 001 added migration 0039, ADR 0058 task
     // 001 added migration 0040, ADR 0052 task 006 added migration 0041, ADR
-    // 0052 task 007 added migration 0042, ADR 0060 added migration 0043, and
-    // ADR 0064 task 002 added migration 0044, after this fixture was
-    // written. The fixture still stops at 0035, so open_db also runs 0037
-    // (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041
-    // (entry 35), 0042 (entry 36), 0043 (entry 37) and 0044 (entry 38), eight
-    // migrations past the 0036 this test names.
+    // 0052 task 007 added migration 0042, ADR 0060 added migration 0043, ADR
+    // 0064 task 002 added migration 0044, and ADR 0067 task 001 added
+    // migration 0045, after this fixture was written. The fixture still stops
+    // at 0035, so open_db also runs 0037 (entry 31), 0038 (entry 32), 0039
+    // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
+    // (entry 37), 0044 (entry 38) and 0045 (entry 39), nine migrations past
+    // the 0036 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 38,
-        "the runner must record version 38 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043 and 0044 run"
+        recorded_version, 39,
+        "the runner must record version 39 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044 and 0045 run"
     );
 }
 
@@ -706,19 +707,68 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // ADR 0053 task 001 added migration 0038, ADR 0052 task 001 added
     // migration 0039, ADR 0058 task 001 added migration 0040, ADR 0052 task
     // 006 added migration 0041, ADR 0052 task 007 added migration 0042, ADR
-    // 0060 added migration 0043, and ADR 0064 task 002 added migration 0044,
-    // after this fixture was written. The fixture stops at 0036, so open_db
-    // also runs 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041
-    // (entry 35), 0042 (entry 36), 0043 (entry 37) and 0044 (entry 38), seven
-    // migrations past the 0037 this test names.
+    // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, and
+    // ADR 0067 task 001 added migration 0045, after this fixture was written.
+    // The fixture stops at 0036, so open_db also runs 0038 (entry 32), 0039
+    // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
+    // (entry 37), 0044 (entry 38) and 0045 (entry 39), eight migrations past
+    // the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 38,
-        "the runner must record version 38 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043 and 0044 run"
+        recorded_version, 39,
+        "the runner must record version 39 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044 and 0045 run"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0067 task 001: migration 0045 is the 39th entry in MIGRATIONS. It adds
+// source_gone_answers, the local table that counts a gone answer from a
+// stored source URL.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_runs_source_gone_answers_migration_at_position_39() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("source-gone-answers-migration.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0044_live_item_relay_link.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (38, 1);",
+        )
+        .expect("mark the database at position 38");
+
+        assert!(
+            !table_names(&conn).contains(&"source_gone_answers".to_string()),
+            "a database at position 38 must start without source_gone_answers"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    assert!(
+        table_names(&conn).contains(&"source_gone_answers".to_string()),
+        "migration 0045 must run at position 39 and create source_gone_answers"
+    );
+
+    let recorded_version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+            r.get(0)
+        })
+        .expect("read recorded migration version");
+    assert_eq!(
+        recorded_version, 39,
+        "the runner must record version 39 after migration 0045 runs"
     );
 }

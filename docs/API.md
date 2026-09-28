@@ -331,6 +331,31 @@ names no service. These are the tags for each wish of a publisher:
 |-------|---------|---------------------|
 | `source_blocked` | The source URL matches a block tag | Do not retry. The publisher must remove the block |
 
+**A gone source URL retires the record on its second answer (ADR 0067):**
+
+A crawler that gets `404` or `410` from a URL, with no redirect before it,
+sends an ingest submission with that status and no `feed_data`. The node
+accepts the submission only when the URL is the stored source URL of a
+record, and:
+
+- the status is `410`. This status counts from each host.
+- the status is `404`, and the host of the URL is in `SOURCE_GONE_HOSTS`.
+
+`SOURCE_GONE_HOSTS` is empty by default. So a `404` retires nothing until the
+operator names a host. The node keeps the time of the first accepted
+submission of a record. A second accepted submission, 24 hours or more after
+the first, retires the record.
+
+The node signs `FeedRetired` with `reason` set to `source_gone`. It writes no
+row to `feed_blocks`. An ingest of a body for the record clears the count. So
+the feed can come back on a crawl after that.
+
+| Value | Meaning | The crawler should |
+|-------|---------|---------------------|
+| `source_gone_observed` | The first accepted report of a gone source. Or a second report less than 24 hours after the first | Keep crawling. Report again on the next gone answer |
+| `source_gone` | A second accepted report, 24 hours or more after the first. The record is retired | Stop crawling this URL |
+| `source_gone_ignored` | The node did not accept the report. The URL is not a stored source URL. Or a redirect carried it. Or the report is a `404` from a host that is not listed | Nothing to do |
+
 **Three reasons to reject a submission (ADR 0051 section 2):**
 
 The node checks each submission against the source URL of its record. The

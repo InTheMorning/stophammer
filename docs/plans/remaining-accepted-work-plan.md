@@ -28,7 +28,8 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 and §11 | Code, in two releases | `stophammer` | [Phase plan](adr-0034-artist-credit-removal-phase-plan.md) |
 | 14 | The ADR archive and the two governance guards. Complete on 2026-09-27 | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
 | 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name. Built on 2026-09-27, not deployed | ADR 0061 | Code | `stophammer` | Below |
-| 16 | A gone source retires its feed: two `404` answers from a listed host, or two `410` answers, 24 hours apart | ADR 0067 | Code, in release 0.3.0 | Node, crawler | [Phase plan](adr-0067-gone-source-phase-plan.md) |
+| 16 | A gone source retires its feed: two `404` answers from a listed host, or two `410` answers, 24 hours apart | ADR 0067 | Code, in release 0.3.0. Built on 2026-09-27, not deployed | Node, crawler | [Phase plan](adr-0067-gone-source-phase-plan.md) |
+| 17 | `refetch_unconditional` in the crawler never runs | ADR 0050 §3 | Research, then a decision | Crawler | Below |
 
 ## Sequence
 
@@ -170,6 +171,20 @@ On 2026-09-27 the task is built, by
 [task 001](../tasks/adr-0061-task-001-confirmed-artists.md), and
 `tests/adr0061_confirmed_artists_tests.rs` holds the tests. The deploy comes
 with the next release.
+
+## Item 17: The Unconditional Refetch Never Runs
+
+On 2026-09-27 the review of ADR 0067 task 002 found dead code in
+`stophammer-crawler/src/crawl.rs`. In `crawl_feed_report`, the arm
+`FetchAction::RefetchUnconditional if send_conditional` never matches.
+`plan_after_response` gives `RefetchUnconditional` only when the cached row is
+`None`, but `send_conditional` is true only when the same row exists. So
+`refetch_unconditional` never runs, and a `304` with no cached row becomes a
+fetch error.
+
+A host sends `304` only for a conditional request, so the case is rare. The
+work is to find what ADR 0050 §3 intended for this case, and then correct the
+condition or delete the function.
 
 ## Not In This Plan
 

@@ -45,6 +45,22 @@ fn confirming_relay_hosts_from_env() -> Vec<String> {
         .collect()
 }
 
+/// Reads `SOURCE_GONE_HOSTS` for ADR 0067 section 2.
+///
+/// Splits the value on commas, trims each part, drops an empty part, and
+/// lowercases what remains. Gives an empty list when the variable is not
+/// set, so a `404` gone-source report counts nowhere until the operator
+/// names a host.
+fn source_gone_hosts_from_env() -> Vec<String> {
+    std::env::var("SOURCE_GONE_HOSTS")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase)
+        .collect()
+}
+
 fn init_tracing() {
     // FG-01 structured logging — 2026-03-13
     let (env_filter, invalid_filter_error) =
@@ -153,6 +169,7 @@ async fn run_primary(
         push_client,
         push_subscribers,
         sse_registry: std::sync::Arc::new(api::SseRegistry::new()),
+        source_gone_hosts: source_gone_hosts_from_env(),
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });
@@ -276,6 +293,9 @@ async fn run_community(
             std::collections::HashMap::new(),
         )),
         sse_registry: shared_sse_registry,
+        // A community node never serves POST /ingest/feed, so this list is
+        // never read.
+        source_gone_hosts: Vec::new(),
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });

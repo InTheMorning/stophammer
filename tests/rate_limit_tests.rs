@@ -81,6 +81,7 @@ async fn health_endpoint_not_rate_limited_in_router() {
         push_client: reqwest::Client::new(),
         push_subscribers: Arc::new(RwLock::new(HashMap::new())),
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
+        source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
     });
 

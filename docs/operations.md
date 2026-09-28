@@ -67,6 +67,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated GUID list. At primary startup, the node seeds a `feed_blocks` row for each value with no existing row ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). Removing a value from this list removes no block. The block stays until an operator deletes it through `DELETE /v1/blocks/{block_id}`. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated URL list. The node seeds this list by the same procedure as `BLOCKED_FEED_GUIDS`. |
 | `CONFIRMING_RELAY_HOSTS` | empty | Optional comma-separated host list. A live item's `podcast:liveValue` link is a confirming relay when its `uri` is an `https` URL on one of these hosts. The host compare does not see a difference between capital and small letters ([ADR 0064](adr/0064-a-live-item-is-an-rss-fact.md) section 3). The node reads this list one time, at start. A primary node and a community node each read it. |
+| `SOURCE_GONE_HOSTS` | empty | Optional comma-separated host list, primary only. A `404` from a stored source URL counts only when the host of the URL is in this list. A `410` counts from each host ([ADR 0067](adr/0067-a-gone-source-retires-its-feed.md) section 2). The node reads this list one time, at start. Empty by default, so a `404` retires nothing until the operator names a host. The operator of `api.musicindex.org` sets `SOURCE_GONE_HOSTS=wavlake.com`. |
 
 ---
 
