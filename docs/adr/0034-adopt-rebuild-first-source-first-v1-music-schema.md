@@ -295,8 +295,10 @@ After release B, these rules hold:
 - The internal SSE registry of ADR 0037 keys its channels by feed GUID, not
   by artist ID.
 - The feed quality score gives its 10 points for a stated `release_artist`,
-  in place of a present `artist_credit_id`. Each feed has both today, so no
-  score changes.
+  in place of a present `artist_credit_id`. The track quality score gives its
+  5 points for a stated `track_artist`, or for a stated `release_artist` of
+  its feed. Each feed and each track has a credit today, and the ingest makes
+  it from the same text, so no score changes.
 
 ## Consequences
 - Stophammer gets a smaller, more explicit v1 schema that matches current

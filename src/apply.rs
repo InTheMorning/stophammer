@@ -613,12 +613,11 @@ pub async fn apply_events(
             let mut live_sse_frames: Vec<(String, api::SseFrame)> = Vec::new();
             for diff in &pending_live_sse_diffs {
                 live_sse_frames.extend(api::build_live_sse_frames_for_feed(
-                    &tx,
                     &diff.feed_guid,
                     &diff.old_live_events,
                     &diff.new_live_events,
                     &local_events,
-                )?);
+                ));
             }
 
             tx.commit()?;

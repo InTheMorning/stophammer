@@ -9,6 +9,11 @@ use stophammer::quality;
 
 /// Insert prerequisite entities (artist, credit, `credit_name`, feed) and
 /// return the `feed_guid`.
+///
+/// The feed's `release_artist` is left `NULL`. ADR 0034 §11: the feed and
+/// track quality scores read `release_artist`/`track_artist`, not the
+/// artist-credit columns, so a caller that wants the feed-level bonus or the
+/// track's feed-level fallback sets `release_artist` itself.
 fn setup_feed(conn: &rusqlite::Connection) -> String {
     let now = common::now();
 
@@ -19,8 +24,8 @@ fn setup_feed(conn: &rusqlite::Connection) -> String {
     )
     .unwrap();
 
-    // A "null" credit with id=0 so tracks that should not earn the author
-    // credit score can reference a valid FK while having artist_credit_id = 0.
+    // A "null" credit with id=0 so tracks reference a valid
+    // artist_credit_id FK while carrying no author identity.
     conn.execute(
         "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) VALUES (?1, ?2, ?3)",
         params![0, "", now],
@@ -62,10 +67,10 @@ fn test_compute_track_quality_all_fields() {
 
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, duration_secs, \
-         enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, track_artist, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params!["track-1", "feed-1", 1, "Test Track", "test track", now, 180,
-                "https://example.com/track.mp3", "audio/mpeg", 5_000_000, 1, 1, 0, "A great track", now, now],
+                "https://example.com/track.mp3", "audio/mpeg", 5_000_000, 1, 1, 0, "A great track", "Test Artist", now, now],
     )
     .unwrap();
 
@@ -99,8 +104,9 @@ fn test_compute_track_quality_minimal() {
     let now = common::now();
     setup_feed(&conn);
 
-    // Insert track with only title and enclosure_url; artist_credit_id = 0
-    // so the author credit check does not fire.
+    // Insert track with only title and enclosure_url. `track_artist` is left
+    // `NULL` and the feed's `release_artist` is left `NULL` by `setup_feed`,
+    // so the author-name check (ADR 0034 §11) does not fire.
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
          enclosure_url, explicit, created_at, updated_at) \
@@ -140,10 +146,10 @@ fn test_compute_track_quality_with_routes_no_vts() {
 
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, duration_secs, \
-         enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+         enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, track_artist, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
         params!["track-routes", "feed-1", 1, "Routes Track", "routes track", now, 240,
-                "https://example.com/routes.mp3", "audio/mpeg", 6_000_000, 2, 1, 0, "Track with routes", now, now],
+                "https://example.com/routes.mp3", "audio/mpeg", 6_000_000, 2, 1, 0, "Track with routes", "Test Artist", now, now],
     )
     .unwrap();
 
@@ -155,7 +161,7 @@ fn test_compute_track_quality_with_routes_no_vts() {
 
     let score = quality::compute_track_quality(&conn, "track-routes").unwrap();
     // title(10) + enclosure_url(15) + enclosure_type(5) + duration(10) + pub_date(5) +
-    // description(10) + artist_credit(5) + track_number(5) + season(5) + routes(20) = 90
+    // description(10) + track_artist(5) + track_number(5) + season(5) + routes(20) = 90
     assert_eq!(
         score, 90,
         "track with all fields and routes but no VTS should score 90"
@@ -187,8 +193,9 @@ fn test_compute_feed_quality() {
     // Update the feed to have richer metadata for a higher score.
     conn.execute(
         "UPDATE feeds SET description = ?1, image_url = ?2, language = ?3, \
-         episode_count = ?4, newest_item_at = ?5, explicit = ?6, itunes_type = ?7 \
-         WHERE feed_guid = ?8",
+         episode_count = ?4, newest_item_at = ?5, explicit = ?6, itunes_type = ?7, \
+         release_artist = ?8 \
+         WHERE feed_guid = ?9",
         params![
             "A test feed",
             "https://example.com/img.jpg",
@@ -197,6 +204,7 @@ fn test_compute_feed_quality() {
             now,
             1,
             "music",
+            "Test Artist",
             "feed-1"
         ],
     )
@@ -219,7 +227,7 @@ fn test_compute_feed_quality() {
 
     let score = quality::compute_feed_quality(&conn, "feed-1").unwrap();
     // title(10) + description(15) + image_url(15) + language(5) + episode_count(5) +
-    // artist_credit(10) + newest_item_at(5) + explicit(5) + itunes_type(5) +
+    // release_artist(10) + newest_item_at(5) + explicit(5) + itunes_type(5) +
     // has_tracks(10) + has_routes(15) = 100
     assert_eq!(score, 100, "fully populated feed should score 100");
 }

@@ -15,16 +15,6 @@ fn unix_now() -> i64 {
     crate::db::unix_now()
 }
 
-/// Fields fetched from the `artists` table for quality computation.
-struct ArtistFields {
-    name: Option<String>,
-    sort_name: Option<String>,
-    area: Option<String>,
-    img_url: Option<String>,
-    url: Option<String>,
-    begin_year: Option<i64>,
-}
-
 /// Fields fetched from the `feeds` table for quality computation.
 struct FeedFields {
     title: Option<String>,
@@ -32,90 +22,10 @@ struct FeedFields {
     image_url: Option<String>,
     language: Option<String>,
     episode_count: i64,
-    artist_credit_id: i64,
+    release_artist: Option<String>,
     newest_item_at: Option<i64>,
     explicit: i64,
     itunes_type: Option<String>,
-}
-
-/// Computes a quality score (0–100) for an artist based on field completeness.
-///
-/// Scoring breakdown:
-/// - `name` present: 10
-/// - `sort_name` present: 10
-/// - `area` present: 10
-/// - `img_url` present: 15
-/// - `url` present: 10
-/// - `begin_year` present: 5
-/// - aliases count: min(count * 5, 15)
-/// - feeds count (via `artist_credit_name` + `feeds`): min(count * 5, 25)
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL query fails.
-pub fn compute_artist_quality(conn: &Connection, artist_id: &str) -> Result<i64, DbError> {
-    let mut score: i64 = 0;
-
-    // Single query for the artist row fields.
-    let row: Option<ArtistFields> = conn
-        .query_row(
-            "SELECT name, sort_name, area, img_url, url, begin_year \
-         FROM artists WHERE artist_id = ?1",
-            params![artist_id],
-            |row| {
-                Ok(ArtistFields {
-                    name: row.get(0)?,
-                    sort_name: row.get(1)?,
-                    area: row.get(2)?,
-                    img_url: row.get(3)?,
-                    url: row.get(4)?,
-                    begin_year: row.get(5)?,
-                })
-            },
-        )
-        .optional()?;
-
-    if let Some(a) = row {
-        if a.name.is_some() {
-            score += 10;
-        }
-        if a.sort_name.is_some() {
-            score += 10;
-        }
-        if a.area.is_some() {
-            score += 10;
-        }
-        if a.img_url.is_some() {
-            score += 15;
-        }
-        if a.url.is_some() {
-            score += 10;
-        }
-        if a.begin_year.is_some() {
-            score += 5;
-        }
-    }
-
-    // Aliases count.
-    let alias_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM artist_aliases WHERE artist_id = ?1",
-        params![artist_id],
-        |row| row.get(0),
-    )?;
-    score += (alias_count * 5).min(15);
-
-    // Feeds count — number of distinct feeds this artist is credited on.
-    let feed_count: i64 = conn.query_row(
-        "SELECT COUNT(DISTINCT f.feed_guid) \
-         FROM artist_credit_name acn \
-         JOIN feeds f ON f.artist_credit_id = acn.artist_credit_id \
-         WHERE acn.artist_id = ?1",
-        params![artist_id],
-        |row| row.get(0),
-    )?;
-    score += (feed_count * 5).min(25);
-
-    Ok(score)
 }
 
 /// Computes a quality score (0–100) for a feed based on field completeness.
@@ -128,7 +38,7 @@ pub fn compute_artist_quality(conn: &Connection, artist_id: &str) -> Result<i64,
 /// - `episode_count` > 0: 5
 /// - has tracks: 10
 /// - has payment routes (feed-level or track-level): 15
-/// - `artist_credit_id` present: 10
+/// - a non-empty `release_artist` (ADR 0034 §11): 10
 /// - `newest_item_at` present: 5
 /// - `explicit` explicitly set (non-zero): 5
 /// - `itunes_type` present: 5
@@ -142,7 +52,7 @@ pub fn compute_feed_quality(conn: &Connection, feed_guid: &str) -> Result<i64, D
     let row: Option<FeedFields> = conn
         .query_row(
             "SELECT title, description, image_url, language, episode_count, \
-                artist_credit_id, newest_item_at, explicit, itunes_type \
+                release_artist, newest_item_at, explicit, itunes_type \
          FROM feeds WHERE feed_guid = ?1",
             params![feed_guid],
             |row| {
@@ -152,7 +62,7 @@ pub fn compute_feed_quality(conn: &Connection, feed_guid: &str) -> Result<i64, D
                     image_url: row.get(2)?,
                     language: row.get(3)?,
                     episode_count: row.get(4)?,
-                    artist_credit_id: row.get(5)?,
+                    release_artist: row.get(5)?,
                     newest_item_at: row.get(6)?,
                     explicit: row.get(7)?,
                     itunes_type: row.get(8)?,
@@ -177,7 +87,7 @@ pub fn compute_feed_quality(conn: &Connection, feed_guid: &str) -> Result<i64, D
         if f.episode_count > 0 {
             score += 5;
         }
-        if f.artist_credit_id > 0 {
+        if f.release_artist.as_ref().is_some_and(|a| !a.is_empty()) {
             score += 10;
         }
         if f.newest_item_at.is_some() {
@@ -229,7 +139,7 @@ struct TrackFields {
     description: Option<String>,
     track_number: Option<i64>,
     season: Option<i64>,
-    artist_credit_id: i64,
+    track_artist: Option<String>,
 }
 
 /// Computes a quality score (0–100) for a track based on field completeness.
@@ -241,7 +151,8 @@ struct TrackFields {
 /// - `duration_secs` > 0: 10
 /// - `pub_date` present: 5
 /// - `description` present and non-empty: 10
-/// - `artist_credit_id` > 0 (author present via credit): 5
+/// - a non-empty `track_artist`, or else a non-empty `release_artist` on the
+///   track's feed (ADR 0034 §11): 5
 /// - `track_number` present: 5
 /// - `season` present: 5
 /// - has payment routes: 20
@@ -260,7 +171,7 @@ pub fn compute_track_quality_for_feed_track(
     let row: Option<TrackFields> = conn
         .query_row(
             "SELECT title, enclosure_url, enclosure_type, duration_secs, pub_date, \
-                description, track_number, season, artist_credit_id \
+                description, track_number, season, track_artist \
          FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
             params![feed_guid, track_guid],
             |row| {
@@ -273,7 +184,7 @@ pub fn compute_track_quality_for_feed_track(
                     description: row.get(5)?,
                     track_number: row.get(6)?,
                     season: row.get(7)?,
-                    artist_credit_id: row.get(8)?,
+                    track_artist: row.get(8)?,
                 })
             },
         )
@@ -298,7 +209,21 @@ pub fn compute_track_quality_for_feed_track(
         if t.description.as_ref().is_some_and(|s| !s.is_empty()) {
             score += 10;
         }
-        if t.artist_credit_id > 0 {
+        let has_track_artist = t.track_artist.as_ref().is_some_and(|a| !a.is_empty());
+        let has_feed_release_artist = if has_track_artist {
+            false
+        } else {
+            let feed_release_artist: Option<String> = conn
+                .query_row(
+                    "SELECT release_artist FROM feeds WHERE feed_guid = ?1",
+                    params![feed_guid],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .flatten();
+            feed_release_artist.as_ref().is_some_and(|a| !a.is_empty())
+        };
+        if has_track_artist || has_feed_release_artist {
             score += 5;
         }
         if t.track_number.is_some() {

@@ -41,17 +41,18 @@ use crate::{
 };
 
 // ── FG-02 SSE artist follow — 2026-03-13 ─────────────────────────────────
+// ADR 0034 §11: the registry keys each channel by feed GUID, not by artist.
 
-/// Broadcast channel capacity per artist.
+/// Broadcast channel capacity per feed channel.
 const SSE_CHANNEL_CAPACITY: usize = 256;
 
-/// Maximum number of recent events kept per artist for Last-Event-ID replay.
+/// Maximum number of recent events kept per feed for Last-Event-ID replay.
 const SSE_RING_BUFFER_SIZE: usize = 100;
 
-/// Maximum number of unique artist entries in the SSE registry.
+/// Maximum number of unique feed entries in the SSE registry.
 /// Prevents unbounded memory growth from attackers creating channels for
-/// fabricated artist IDs. 10,000 is generous for any legitimate deployment.
-const MAX_SSE_REGISTRY_ARTISTS: usize = 10_000;
+/// fabricated feed GUIDs. 10,000 is generous for any legitimate deployment.
+const MAX_SSE_REGISTRY_FEEDS: usize = 10_000;
 
 /// Maximum number of concurrent SSE connections across the server.
 /// Each SSE connection holds a long-lived tokio task polling at 100ms intervals.
@@ -70,7 +71,8 @@ const CORS_MAX_AGE_SECS: u64 = 3600;
 /// `ingest_error` logs with slow handler completions.
 const INGEST_SLOW_WARNING_SECS: u64 = 10;
 
-/// A single SSE frame delivered to subscribers following an artist.
+/// A single SSE frame delivered to subscribers following a feed (ADR 0034
+/// §11).
 #[derive(Clone, Debug, Serialize)]
 pub struct SseFrame {
     /// Event type, e.g. `"track_upserted"`, `"feed_upserted"`.
@@ -158,12 +160,14 @@ enum ReadPhaseOutcome {
     Rejected(String),
 }
 
-/// Registry managing per-artist broadcast channels and ring buffers for SSE.
+/// Registry managing per-feed broadcast channels and ring buffers for SSE.
+///
+/// ADR 0034 §11: the registry keys each channel by feed GUID, not by artist.
 // CRIT-03 Debug — 2026-03-13
 pub struct SseRegistry {
-    /// `artist_id` -> broadcast sender for that artist's events.
+    /// `feed_guid` -> broadcast sender for that feed's events.
     senders: std::sync::RwLock<HashMap<String, tokio::sync::broadcast::Sender<SseFrame>>>,
-    /// `artist_id` -> ring buffer of recent events for `Last-Event-ID` replay.
+    /// `feed_guid` -> ring buffer of recent events for `Last-Event-ID` replay.
     ring_buffers: std::sync::RwLock<HashMap<String, std::collections::VecDeque<SseFrame>>>,
     /// Current number of active SSE connections (for connection cap enforcement).
     active_connections: std::sync::atomic::AtomicUsize,
@@ -172,7 +176,7 @@ pub struct SseRegistry {
 impl std::fmt::Debug for SseRegistry {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SseRegistry")
-            .field("artist_count", &self.artist_count())
+            .field("feed_count", &self.feed_count())
             .field(
                 "active_connections",
                 &self
@@ -220,20 +224,20 @@ impl SseRegistry {
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
 
-    /// Returns the number of unique artist entries in the registry.
+    /// Returns the number of unique feed entries in the registry.
     #[must_use]
-    pub fn artist_count(&self) -> usize {
+    pub fn feed_count(&self) -> usize {
         self.senders.read().map_or(0, |g| g.len())
     }
 
-    /// Returns a broadcast receiver for the given artist. Creates the channel
+    /// Returns a broadcast receiver for the given feed. Creates the channel
     /// lazily if it does not yet exist. Returns `None` if the registry is full
-    /// and the artist is not already tracked.
-    pub fn subscribe(&self, artist_id: &str) -> Option<tokio::sync::broadcast::Receiver<SseFrame>> {
+    /// and the feed is not already tracked.
+    pub fn subscribe(&self, feed_guid: &str) -> Option<tokio::sync::broadcast::Receiver<SseFrame>> {
         // Try read-lock first (fast path for existing channels).
         {
             if let Ok(guard) = self.senders.read()
-                && let Some(tx) = guard.get(artist_id)
+                && let Some(tx) = guard.get(feed_guid)
             {
                 return Some(tx.subscribe());
             }
@@ -244,26 +248,26 @@ impl SseRegistry {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Check if another thread created it while we waited for the write lock.
-        if let Some(tx) = guard.get(artist_id) {
+        if let Some(tx) = guard.get(feed_guid) {
             return Some(tx.subscribe());
         }
         // Enforce registry size limit before creating a new entry.
-        if guard.len() >= MAX_SSE_REGISTRY_ARTISTS {
+        if guard.len() >= MAX_SSE_REGISTRY_FEEDS {
             return None;
         }
         let (tx, _) = tokio::sync::broadcast::channel(SSE_CHANNEL_CAPACITY);
         let rx = tx.subscribe();
-        guard.insert(artist_id.to_string(), tx);
+        guard.insert(feed_guid.to_string(), tx);
         Some(rx)
     }
 
-    /// Publishes a frame to the broadcast channel for `artist_id` and appends
+    /// Publishes a frame to the broadcast channel for `feed_guid` and appends
     /// it to the ring buffer.
-    pub fn publish(&self, artist_id: &str, frame: SseFrame) {
+    pub fn publish(&self, feed_guid: &str, frame: SseFrame) {
         // Try read-lock first (fast path for existing channels).
         let sent = {
             if let Ok(guard) = self.senders.read()
-                && let Some(tx) = guard.get(artist_id)
+                && let Some(tx) = guard.get(feed_guid)
             {
                 let _ = tx.send(frame.clone());
                 true
@@ -274,22 +278,22 @@ impl SseRegistry {
 
         // Slow path: create channel if it did not exist and send.
         // Publish always creates channels (these are real events from ingest),
-        // but is also bounded by MAX_SSE_REGISTRY_ARTISTS.
+        // but is also bounded by MAX_SSE_REGISTRY_FEEDS.
         if !sent {
             let mut guard = self
                 .senders
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(tx) = guard.get(artist_id) {
+            if let Some(tx) = guard.get(feed_guid) {
                 let _ = tx.send(frame.clone());
-            } else if guard.len() < MAX_SSE_REGISTRY_ARTISTS {
+            } else if guard.len() < MAX_SSE_REGISTRY_FEEDS {
                 let (tx, _) = tokio::sync::broadcast::channel(SSE_CHANNEL_CAPACITY);
                 let _ = tx.send(frame.clone());
-                guard.insert(artist_id.to_string(), tx);
+                guard.insert(feed_guid.to_string(), tx);
             } else {
                 tracing::warn!(
-                    artist_id,
-                    "SSE registry full ({MAX_SSE_REGISTRY_ARTISTS} artists); dropping event"
+                    feed_guid,
+                    "SSE registry full ({MAX_SSE_REGISTRY_FEEDS} feeds); dropping event"
                 );
                 return;
             }
@@ -301,11 +305,11 @@ impl SseRegistry {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         // Also enforce the same limit on ring buffers.
-        if !rb_guard.contains_key(artist_id) && rb_guard.len() >= MAX_SSE_REGISTRY_ARTISTS {
+        if !rb_guard.contains_key(feed_guid) && rb_guard.len() >= MAX_SSE_REGISTRY_FEEDS {
             return;
         }
         let buf = rb_guard
-            .entry(artist_id.to_string())
+            .entry(feed_guid.to_string())
             .or_insert_with(|| std::collections::VecDeque::with_capacity(SSE_RING_BUFFER_SIZE));
         if buf.len() >= SSE_RING_BUFFER_SIZE {
             buf.pop_front();
@@ -315,13 +319,13 @@ impl SseRegistry {
 
     /// Returns cloned recent events for replay (bounded by `SSE_RING_BUFFER_SIZE`).
     #[must_use]
-    pub fn recent_events(&self, artist_id: &str) -> Vec<SseFrame> {
+    pub fn recent_events(&self, feed_guid: &str) -> Vec<SseFrame> {
         let guard = self
             .ring_buffers
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         guard
-            .get(artist_id)
+            .get(feed_guid)
             .map(|buf| buf.iter().cloned().collect())
             .unwrap_or_default()
     }
@@ -335,52 +339,49 @@ impl Default for SseRegistry {
 
 // ── Issue-SSE-PUBLISH helpers — 2026-03-14 ────────────────────────────────
 
-/// Extracts the artist ID(s) relevant to an event for SSE channel routing.
+/// Returns the feed GUID that names the SSE channel for `ev`, or `None` if
+/// the event names no feed GUID.
 ///
-/// Returns an empty vec for event types that do not map to a specific artist
-/// (e.g. `FeedRetired`, `TrackRemoved`) since those payloads only carry GUIDs
-/// and the entity may already be deleted. The caller should fall back to the
-/// `subject_guid` if needed, but in practice these events are less relevant
-/// to live SSE followers.
-fn extract_artist_ids(ev: &event::Event) -> Vec<String> {
+/// ADR 0034 §11: the registry keys each channel by feed GUID. `FeedUpserted`
+/// and `TrackUpserted` name their feed through the nested `feed` or `track`;
+/// every other payload names it, if at all, through its own `feed_guid`
+/// field. An event that names no feed GUID (`ArtistUpserted`,
+/// `ArtistCreditCreated`, a feed block or unblock, or a GUID-change record)
+/// goes to no channel.
+fn feed_guid_for_event(ev: &event::Event) -> Option<String> {
     match &ev.payload {
-        event::EventPayload::ArtistUpserted(p) => {
-            vec![p.artist.artist_id.clone()]
-        }
-        event::EventPayload::ArtistCreditCreated(p) => p
-            .artist_credit
-            .names
-            .iter()
-            .map(|n| n.artist_id.clone())
-            .collect(),
-        // FeedRetired, TrackRemoved, RoutesReplaced, FeedRoutesReplaced:
-        // These payloads do not embed artist info. We skip SSE publish for
-        // these rather than doing a DB lookup that may fail (entity deleted).
-        _ => vec![],
+        event::EventPayload::FeedUpserted(p) => Some(p.feed.feed_guid.clone()),
+        event::EventPayload::TrackUpserted(p) => Some(p.track.feed_guid.clone()),
+        event::EventPayload::FeedRetired(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::TrackRemoved(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::RoutesReplaced(p) => p.feed_guid.clone(),
+        event::EventPayload::FeedRoutesReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::FeedRemoteItemsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::TrackRemoteItemsReplaced(p) => p.feed_guid.clone(),
+        event::EventPayload::FeedListValueReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::LiveEventsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceContributorClaimsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceEntityIdsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceEntityLinksReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceReleaseClaimsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceItemEnclosuresReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourceItemTranscriptsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::SourcePlatformClaimsReplaced(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::FeedUrlObserved(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::FeedCopyObserved(p) => Some(p.feed_guid.clone()),
+        event::EventPayload::FeedCopyResolved(p) => Some(p.feed_guid.clone()),
+        // ArtistUpserted, ArtistCreditCreated: no feed in the payload.
+        // FeedBlocked, FeedUnblocked: keyed by block_id, not a feed GUID.
+        // FeedGuidChangeObserved, FeedGuidChangeDecided, FeedGuidSuperseded:
+        // keyed by old_guid/new_guid/source_url, not a feed_guid field.
+        event::EventPayload::ArtistUpserted(_)
+        | event::EventPayload::ArtistCreditCreated(_)
+        | event::EventPayload::FeedBlocked(_)
+        | event::EventPayload::FeedUnblocked(_)
+        | event::EventPayload::FeedGuidChangeObserved(_)
+        | event::EventPayload::FeedGuidChangeDecided(_)
+        | event::EventPayload::FeedGuidSuperseded(_) => None,
     }
-}
-
-fn artist_ids_for_feed(
-    conn: &rusqlite::Connection,
-    feed_guid: &str,
-) -> Result<Vec<String>, db::DbError> {
-    let Some(feed) = db::get_feed_by_guid(conn, feed_guid)? else {
-        return Ok(vec![]);
-    };
-    let Some(credit_id) = feed.artist_credit_id else {
-        return Ok(vec![]);
-    };
-    let Some(credit) = db::get_artist_credit(conn, credit_id)? else {
-        return Ok(vec![]);
-    };
-    let mut artist_ids: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    for name in credit.names {
-        if seen.insert(name.artist_id.clone()) {
-            artist_ids.push(name.artist_id);
-        }
-    }
-    Ok(artist_ids)
 }
 
 fn live_sse_payload(
@@ -406,22 +407,15 @@ fn live_sse_payload(
 /// needs a promoted `TrackUpserted` event. It fires when a row that was
 /// `pending` or `live` is now `ended`, or when it leaves the snapshot.
 ///
-/// # Errors
-///
-/// Returns `DbError` if the helper query needed to resolve artist channels
-/// fails.
+/// ADR 0034 §11: each frame is keyed by `feed_guid`, the feed the live item
+/// belongs to. The function reads no artist.
+#[must_use]
 pub fn build_live_sse_frames_for_feed(
-    conn: &rusqlite::Connection,
     feed_guid: &str,
     old_live_events: &[model::LiveEvent],
     new_live_events: &[model::LiveEvent],
     events: &[event::Event],
-) -> Result<Vec<(String, SseFrame)>, db::DbError> {
-    let artist_ids = artist_ids_for_feed(conn, feed_guid)?;
-    if artist_ids.is_empty() {
-        return Ok(vec![]);
-    }
-
+) -> Vec<(String, SseFrame)> {
     let live_snapshot_seq = events
         .iter()
         .filter_map(|ev| match &ev.payload {
@@ -458,14 +452,12 @@ pub fn build_live_sse_frames_for_feed(
                 payload: live_sse_payload(feed_guid, live_event, "live"),
                 seq,
             };
-            for artist_id in &artist_ids {
-                frames.push((artist_id.clone(), frame.clone()));
-            }
+            frames.push((feed_guid.to_string(), frame));
         }
     }
 
     let Some(seq) = live_snapshot_seq else {
-        return Ok(frames);
+        return frames;
     };
     for old_live_event in old_live_events {
         if !matches!(old_live_event.status.as_str(), "pending" | "live") {
@@ -483,32 +475,30 @@ pub fn build_live_sse_frames_for_feed(
             payload: live_sse_payload(feed_guid, old_live_event, "ended"),
             seq,
         };
-        for artist_id in &artist_ids {
-            frames.push((artist_id.clone(), frame.clone()));
-        }
+        frames.push((feed_guid.to_string(), frame));
     }
 
-    Ok(frames)
+    frames
 }
 
 pub fn publish_sse_frames(registry: &SseRegistry, frames: &[(String, SseFrame)]) {
-    for (artist_id, frame) in frames {
-        registry.publish(artist_id, frame.clone());
+    for (feed_guid, frame) in frames {
+        registry.publish(feed_guid, frame.clone());
     }
 }
 
 /// Fire-and-forget SSE publish for a batch of events.
 ///
-/// For each event, extracts the relevant artist ID(s) and publishes an
-/// `SseFrame` to each artist's broadcast channel. Errors are logged but
-/// never propagated — SSE is best-effort and must not fail the mutation.
+/// For each event, resolves the feed GUID that names its channel (ADR 0034
+/// §11) and publishes an `SseFrame` there. An event that names no feed GUID
+/// is not published. Errors are logged but never propagated — SSE is
+/// best-effort and must not fail the mutation.
 // Issue-SSE-PUBLISH — 2026-03-14
 pub fn publish_events_to_sse(registry: &SseRegistry, events: &[event::Event]) {
     for ev in events {
-        let artist_ids = extract_artist_ids(ev);
-        if artist_ids.is_empty() {
+        let Some(feed_guid) = feed_guid_for_event(ev) else {
             continue;
-        }
+        };
         let frame = SseFrame {
             event_type: serde_json::to_string(&ev.event_type)
                 .unwrap_or_default()
@@ -518,9 +508,7 @@ pub fn publish_events_to_sse(registry: &SseRegistry, events: &[event::Event]) {
             payload: serde_json::to_value(&ev.payload).unwrap_or(serde_json::Value::Null),
             seq: ev.seq,
         };
-        for artist_id in &artist_ids {
-            registry.publish(artist_id, frame.clone());
-        }
+        registry.publish(&feed_guid, frame);
     }
 }
 
@@ -3792,13 +3780,11 @@ async fn handle_ingest_feed(
             .collect::<Result<Vec<_>, ApiError>>()?;
 
         let live_sse_frames = build_live_sse_frames_for_feed(
-            &conn,
             &feed_data.feed_guid,
             &existing_live_events,
             &live_events_for_sse,
             &fanout_events,
-        )
-        .map_err(ApiError::from)?;
+        );
 
         Ok((
             ingest::IngestResponse {

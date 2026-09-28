@@ -302,7 +302,7 @@ fn sse_registry_limits_artist_entries() {
         assert!(result.is_some(), "subscribe to artist {i} should succeed");
     }
 
-    assert_eq!(registry.artist_count(), 10_000);
+    assert_eq!(registry.feed_count(), 10_000);
 
     // The 10,001st unique artist should be rejected.
     let result = registry.subscribe("artist-overflow");

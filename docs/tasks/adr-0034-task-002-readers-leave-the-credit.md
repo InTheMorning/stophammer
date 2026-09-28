@@ -8,7 +8,7 @@ Repository: `stophammer`. The operator commits. Task 001 comes first.
 ## Goal
 
 Two readers use the artist credit today: the internal SSE registry and the
-feed quality score. After this task, neither reads an artist ID, a credit or
+quality scores of a feed and a track. After this task, neither reads an artist ID, a credit or
 `artist_credit_id`. No write and no event changes.
 
 ## Files To Inspect
@@ -16,8 +16,9 @@ feed quality score. After this task, neither reads an artist ID, a credit or
 - `src/api.rs`: `SseRegistry` and its methods, `extract_artist_ids`,
   `artist_ids_for_feed`, `build_live_sse_frames_for_feed`,
   `publish_sse_frames`, `publish_events_to_sse`
-- `src/quality.rs`: `compute_feed_quality`, `compute_artist_quality`, the
-  struct with `artist_credit_id`
+- `src/quality.rs`: `compute_feed_quality`,
+  `compute_track_quality_for_feed_track`, `compute_artist_quality`, and the
+  two structs with `artist_credit_id`
 - `src/event.rs`: the payload types, to find the feed GUID of each event
 - `tests/sse_publish_tests.rs`, `tests/quality_tests.rs`, and each test that
   calls `SseRegistry` (use grep)
@@ -49,8 +50,10 @@ feed quality score. After this task, neither reads an artist ID, a credit or
   - Delete `extract_artist_ids` and `artist_ids_for_feed`.
 - **Quality.** `compute_feed_quality` gives the 10 points when the stored
   `release_artist` is not null and not empty, in place of
-  `artist_credit_id > 0`. Delete `compute_artist_quality` and each test that
-  tests only it. `compute_feed_quality` reads no `artist_credit_id`.
+  `artist_credit_id > 0`. The track score gives its 5 points for a stored
+  `track_artist` that is not empty. With no such value, it gives them for a
+  `release_artist` of its feed that is not empty. Delete `compute_artist_quality` and each
+  test that tests only it. No quality function reads `artist_credit_id`.
 - Each doc comment that you change names ADR 0034 §11.
 
 ## Steps
@@ -72,6 +75,8 @@ Mechanical, each an integration test in `tests/adr0034_readers_tests.rs`:
 - For a feed built by the ingest test helpers, `compute_feed_quality` gives
   the same score before and after the change. Compute the expected value from
   the scoring rules, not from the new code.
+- The same for a track with a `track_artist`, and for a track without one in
+  a feed with a `release_artist`.
 - The gate is green.
 
 ## Test Commands

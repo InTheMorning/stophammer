@@ -179,7 +179,8 @@ which gives the sequence of each open item of an Accepted ADR:
    tasks 002 and 003.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are not built.
+   written. Task 001 is deployed in 0.2.0. Task 002 is built on 2026-09-28
+   and not deployed. Task 003 is not built.
 5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)

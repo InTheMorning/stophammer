@@ -79,14 +79,8 @@ async fn ingest_feed_publishes_to_sse() {
     let db = common::test_db_arc();
     let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token);
 
-    // Subscribe to the SSE registry for the artist that will be created.
-    // The artist name will be derived from owner_name="SSE Test Artist" and
-    // resolved via resolve_artist. We need the artist_id, which is deterministic
-    // from the name. Let's subscribe to a wildcard and then check.
-    //
-    // Actually: resolve_artist creates artist_id as a UUID, so we cannot predict
-    // it before ingest. Instead, we'll ingest first, then check the ring buffer.
-
+    // ADR 0034 §11: the registry keys each channel by feed GUID, so the
+    // channel to check is known up front — no DB lookup needed.
     let feed_guid = "feed-sse-pub-001";
     let track_guid = "track-sse-pub-001";
 
@@ -137,38 +131,28 @@ async fn ingest_feed_publishes_to_sse() {
         "ingest should be accepted"
     );
 
-    // Now find the artist_id that was created. We look it up via the DB.
-    let artist_id = {
-        let conn = db.lock().unwrap();
-        conn.query_row(
-            "SELECT a.artist_id FROM artists a
-             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
-             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-             JOIN feeds f ON f.artist_credit_id = ac.id
-             WHERE f.feed_guid = ?1",
-            rusqlite::params![feed_guid],
-            |row| row.get::<_, String>(0),
-        )
-        .expect("find artist_id for feed")
-    };
-
-    // Check the SSE registry has events for this artist.
-    let recent = state.sse_registry.recent_events(&artist_id);
+    // Check the SSE registry has events for this feed's own channel.
+    let recent = state.sse_registry.recent_events(feed_guid);
     assert!(
         !recent.is_empty(),
-        "SSE registry should have events for artist {artist_id} after ingest, got 0"
+        "SSE registry should have events for feed {feed_guid} after ingest, got 0"
     );
 
-    // We should still see artist-scoped events even after feed/track events
-    // stop carrying embedded artist identity.
+    // ADR 0034 §11: the feed's own upsert and its track's upsert both name
+    // this feed GUID, so both reach its channel. `ArtistUpserted` and
+    // `ArtistCreditCreated` name no feed GUID, so neither does.
     let event_types: Vec<&str> = recent.iter().map(|f| f.event_type.as_str()).collect();
     assert!(
-        event_types.contains(&"artist_upserted"),
-        "should contain artist_upserted event, got: {event_types:?}"
+        event_types.contains(&"feed_upserted"),
+        "should contain feed_upserted event, got: {event_types:?}"
     );
     assert!(
-        event_types.contains(&"artist_credit_created"),
-        "should contain artist_credit_created event, got: {event_types:?}"
+        event_types.contains(&"track_upserted"),
+        "should contain track_upserted event, got: {event_types:?}"
+    );
+    assert!(
+        !event_types.contains(&"artist_upserted"),
+        "artist_upserted names no feed GUID and must not reach a feed channel, got: {event_types:?}"
     );
 
     // All frames should have seq > 0.
@@ -182,15 +166,16 @@ async fn ingest_feed_publishes_to_sse() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: SSE broadcast delivers live events to subscriber
+// Test: a feed/track update notifies a subscriber of the feed's own channel
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscriber() {
+async fn ingest_feed_update_notifies_feed_guid_subscriber() {
     let crawl_token = "sse-live-token";
     let db = common::test_db_arc();
     let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token);
+    let feed_guid = "feed-sse-live-001";
 
-    // First ingest to get the artist_id.
+    // First ingest to create the feed.
     let ingest_body = serde_json::json!({
         "canonical_url": "https://example.com/sse-live-feed.xml",
         "source_url": "https://example.com/sse-live-feed.xml",
@@ -198,7 +183,7 @@ async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscri
         "content_hash": "abc123sselive",
         "crawl_token": crawl_token,
         "feed_data": {
-            "feed_guid": "feed-sse-live-001",
+            "feed_guid": feed_guid,
             "title": "SSE Live Test Feed",
             "owner_name": "Live Test Artist",
             "explicit": false,
@@ -231,26 +216,11 @@ async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscri
     let resp = app.oneshot(req).await.expect("ingest");
     assert_eq!(resp.status(), 200);
 
-    // Get artist_id from DB.
-    let artist_id = {
-        let conn = db.lock().unwrap();
-        conn.query_row(
-            "SELECT a.artist_id FROM artists a
-             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
-             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-             JOIN feeds f ON f.artist_credit_id = ac.id
-             WHERE f.feed_guid = ?1",
-            rusqlite::params!["feed-sse-live-001"],
-            |row| row.get::<_, String>(0),
-        )
-        .expect("find artist_id")
-    };
-
-    // Now subscribe and do a second ingest. Source-first feed/track upserts no
-    // longer route through the artist-scoped SSE channel on their own.
+    // Subscribe to the feed's own channel (ADR 0034 §11: the registry keys
+    // each channel by feed GUID) before the update that should notify it.
     let mut rx = state
         .sse_registry
-        .subscribe(&artist_id)
+        .subscribe(feed_guid)
         .expect("subscribe should succeed");
 
     // Do a second ingest (different content_hash so it's not rejected as no-change).
@@ -261,7 +231,7 @@ async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscri
         "content_hash": "def456sselive",
         "crawl_token": crawl_token,
         "feed_data": {
-            "feed_guid": "feed-sse-live-001",
+            "feed_guid": feed_guid,
             "title": "SSE Live Test Feed Updated",
             "owner_name": "Live Test Artist",
             "explicit": false,
@@ -298,11 +268,11 @@ async fn ingest_feed_update_without_artist_events_does_not_notify_artist_subscri
         panic!("second ingest should succeed, got {status} with body {body}");
     }
 
-    // Feed/track updates alone should not produce new artist-scoped frames.
+    // A feed/track update reaches its own feed-GUID channel now.
     let received = rx.try_recv();
     assert!(
-        received.is_err(),
-        "feed/track-only reingest should not notify artist subscriber, got: {received:?}"
+        received.is_ok(),
+        "feed/track update should notify the feed's own SSE channel, got: {received:?}"
     );
 }
 
@@ -315,6 +285,7 @@ async fn live_item_transitions_publish_live_sse_frames() {
     let db = common::test_db_arc();
     let state = test_app_state_with_crawl_token(Arc::clone(&db), crawl_token);
     let app = stophammer::api::build_router(Arc::clone(&state));
+    let feed_guid = "feed-live-transition-001";
 
     let ingest = |content_hash: &str, live_item: serde_json::Value| {
         json_request(
@@ -327,7 +298,7 @@ async fn live_item_transitions_publish_live_sse_frames() {
                 "content_hash": content_hash,
                 "crawl_token": crawl_token,
                 "feed_data": {
-                    "feed_guid": "feed-live-transition-001",
+                    "feed_guid": feed_guid,
                     "title": "Live Transition Feed",
                     "owner_name": "Live Transition Artist",
                     "explicit": false,
@@ -361,21 +332,9 @@ async fn live_item_transitions_publish_live_sse_frames() {
         .expect("pending ingest");
     assert_eq!(pending_resp.status(), 200);
 
-    let artist_id = {
-        let conn = db.lock().unwrap();
-        conn.query_row(
-            "SELECT a.artist_id FROM artists a
-             JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
-             JOIN artist_credit ac ON ac.id = acn.artist_credit_id
-             JOIN feeds f ON f.artist_credit_id = ac.id
-             WHERE f.feed_guid = ?1",
-            rusqlite::params!["feed-live-transition-001"],
-            |row| row.get::<_, String>(0),
-        )
-        .expect("find artist_id")
-    };
-
-    let after_pending = state.sse_registry.recent_events(&artist_id);
+    // ADR 0034 §11: live frames are keyed by feed GUID, so the channel to
+    // check is the feed itself — no DB lookup needed.
+    let after_pending = state.sse_registry.recent_events(feed_guid);
     assert!(
         after_pending.iter().all(|frame| {
             frame.event_type != "live_event_started" && frame.event_type != "live_event_ended"
@@ -407,7 +366,7 @@ async fn live_item_transitions_publish_live_sse_frames() {
         panic!("live ingest should succeed, got {status} with body {body}");
     }
 
-    let recent_after_live = state.sse_registry.recent_events(&artist_id);
+    let recent_after_live = state.sse_registry.recent_events(feed_guid);
     let started = recent_after_live
         .iter()
         .find(|frame| frame.event_type == "live_event_started")
@@ -440,7 +399,7 @@ async fn live_item_transitions_publish_live_sse_frames() {
         .expect("ended ingest");
     assert_eq!(ended_resp.status(), 200);
 
-    let recent_after_ended = state.sse_registry.recent_events(&artist_id);
+    let recent_after_ended = state.sse_registry.recent_events(feed_guid);
     let ended = recent_after_ended
         .iter()
         .find(|frame| frame.event_type == "live_event_ended")
@@ -465,11 +424,11 @@ async fn last_event_id_seq_replay() {
             payload: serde_json::json!({"n": i}),
             seq: i,
         };
-        registry.publish("artist-replay-seq", frame);
+        registry.publish("feed-replay-seq", frame);
     }
 
     // Get recent events and filter by seq > 3 (simulating Last-Event-ID: 3).
-    let recent = registry.recent_events("artist-replay-seq");
+    let recent = registry.recent_events("feed-replay-seq");
     let replayed: Vec<&stophammer::api::SseFrame> = recent.iter().filter(|f| f.seq > 3).collect();
 
     assert_eq!(
@@ -495,28 +454,25 @@ async fn last_event_id_zero_replays_all() {
             payload: serde_json::json!({}),
             seq: i,
         };
-        registry.publish("artist-zero", frame);
+        registry.publish("feed-zero", frame);
     }
 
-    let recent = registry.recent_events("artist-zero");
+    let recent = registry.recent_events("feed-zero");
     let replayed_count = recent.iter().filter(|f| f.seq > 0).count();
 
     assert_eq!(replayed_count, 3, "seq > 0 should replay all 3 events");
 }
 
 // ---------------------------------------------------------------------------
-// Test: publish_events_to_sse still routes artist-scoped events
+// Test: publish_events_to_sse drops an event that names no feed GUID
 // ---------------------------------------------------------------------------
 #[tokio::test]
-async fn publish_events_to_sse_routes_to_artist() {
+async fn publish_events_to_sse_ignores_event_with_no_feed_guid() {
     let registry = stophammer::api::SseRegistry::new();
 
-    // Subscribe to the target artist.
-    let mut rx = registry
-        .subscribe("artist-pub-test")
-        .expect("subscribe should succeed");
-
-    // Build an ArtistUpserted event that references artist-pub-test.
+    // ArtistUpserted names an artist, not a feed. ADR 0034 §11: an event
+    // that names no feed GUID goes to no channel, so this must not create
+    // one keyed by the artist_id either.
     let ev = stophammer::event::Event {
         event_id: "ev-pub-test-1".to_string(),
         event_type: stophammer::event::EventType::ArtistUpserted,
@@ -549,13 +505,11 @@ async fn publish_events_to_sse_routes_to_artist() {
 
     stophammer::api::publish_events_to_sse(&registry, &[ev]);
 
-    // The subscriber for artist-pub-test should receive the event.
-    let received = rx.try_recv();
-    assert!(received.is_ok(), "subscriber should receive SSE frame");
-    let frame = received.unwrap();
-    assert_eq!(frame.seq, 42, "SSE frame should carry seq=42");
-    assert_eq!(frame.event_type, "artist_upserted");
-    assert_eq!(frame.subject_guid, "artist-pub-test");
+    assert_eq!(
+        registry.feed_count(),
+        0,
+        "an event with no feed GUID must create no channel"
+    );
 }
 
 // ---------------------------------------------------------------------------
