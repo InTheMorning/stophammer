@@ -190,6 +190,21 @@ for their priority.
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
 
+## Release 0.2.0 - 2026-09-27
+
+`info.version` of `/openapi.json` gives `0.2.0`. A read of a publisher feed,
+`GET /v1/feeds/{guid}`, gives four new fields (Stophammer ADR 0061):
+
+- `confirmed_release_artists` and `confirmed_release_artist_count`: the
+  artists of the albums that the publisher lists, and that also name the
+  publisher.
+- `unconfirmed_release_artists` and `unconfirmed_release_artist_count`: the
+  artists of the albums that the publisher lists, but that do not name it.
+
+`distinct_release_artists` and `distinct_release_artist_count` do not change.
+A music feed read has none of the four fields. A publisher page can show the
+unconfirmed artists apart, for example as "listed only".
+
 ## Release 0.1.0 - 2026-09-27
 
 Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`

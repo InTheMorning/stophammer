@@ -27,7 +27,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 12 | A snapshot refresh of the import can fill the disk. Deployed on 2026-09-27 | ADR 0033, amended | Code | Crawler, `docker-compose.yml` | Below |
 | 13 | Remove the compatibility artist credit and the unused tables | ADR 0034 §10 and §11 | Code, in two releases | `stophammer` | [Phase plan](adr-0034-artist-credit-removal-phase-plan.md) |
 | 14 | The ADR archive and the two governance guards. Complete on 2026-09-27 | ADR 0045 §6 and "Guards" | Code and a file move | `stophammer` | Below |
-| 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name. Built on 2026-09-27, not deployed | ADR 0061 | Code | `stophammer` | Below |
+| 15 | Confirmed and unconfirmed artists of a publisher, and album reads with only the publishers they name. Deployed in release 0.2.0 on 2026-09-27 | ADR 0061 | Code | `stophammer` | Below |
 | 16 | A gone source retires its feed: two `404` answers from a listed host, or two `410` answers, 24 hours apart | ADR 0067 | Code, in release 0.3.0. Built on 2026-09-27, not deployed | Node, crawler | [Phase plan](adr-0067-gone-source-phase-plan.md) |
 | 17 | `refetch_unconditional` in the crawler never runs | ADR 0050 §3 | Research, then a decision | Crawler | Below |
 

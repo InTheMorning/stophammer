@@ -63,6 +63,11 @@ Complete and deployed:
   [GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
   holds the assets of [ADR 0063](docs/adr/0063-a-release-publishes-role-packages.md),
   and GHCR holds the images with the tags `0.1.0`, `0.1`, `0` and `latest`.
+- Release 0.2.0, on 2026-09-27. It promotes `v0.2.0-rc.1`. It holds
+  [ADR 0061](docs/adr/0061-a-publisher-read-counts-its-listed-artists.md):
+  a publisher feed read gives its confirmed and unconfirmed release artists.
+  It also holds ADR 0034 task 001: a node accepts a feed or track event with
+  no `artist_credit_id`. The primary runs the GHCR images of the release.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -168,16 +173,14 @@ which gives the sequence of each open item of an Accepted ADR:
    - A migration that drops the two proof tables and changes the trigger
      `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
 
-3. [ADR 0061](docs/adr/0061-a-publisher-read-counts-its-listed-artists.md),
-   Accepted on 2026-09-27, is built and not deployed. A publisher feed read
-   gives its confirmed and unconfirmed release artists. It joins the next
-   release.
-4. The next release is 0.2.0, by
-   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md).
-5. ADR 0034 §11 removes the artist credit in two releases. The
+3. The next release is 0.3.0, by
+   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). It
+   waits for ADR 0056 task 002, on 2026-10-02 or after, and for ADR 0034
+   tasks 002 and 003.
+4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written. Task 001 is built and not deployed, and joins 0.2.0.
-6. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
+   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are not built.
+5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)
    is written. Tasks 001 and 002 are built on 2026-09-27 and not deployed.

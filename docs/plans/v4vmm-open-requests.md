@@ -123,6 +123,21 @@ v4vmm read the live API with read-only GET requests on 2026-09-26.
 - Request 2: `GET /node/info` gave `git_revision` `264706e` and `built_at` `2026-09-26T04:05:34Z`.
 - Request 3: `/v1/node/capabilities` listed `remote_items` and `publisher` for tracks.
 
+## Release 0.2.0 - 2026-09-27
+
+`info.version` of `/openapi.json` gives `0.2.0`. A read of a publisher feed,
+`GET /v1/feeds/{guid}`, gives four new fields (Stophammer ADR 0061):
+
+- `confirmed_release_artists` and `confirmed_release_artist_count`: the
+  artists of the albums that the publisher lists, and that also name the
+  publisher.
+- `unconfirmed_release_artists` and `unconfirmed_release_artist_count`: the
+  artists of the albums that the publisher lists, but that do not name it.
+
+`distinct_release_artists` and `distinct_release_artist_count` do not change.
+A music feed read has none of the four fields. A publisher page can show the
+unconfirmed artists apart, for example as "listed only".
+
 ## Release 0.1.0 - 2026-09-27
 
 Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`
