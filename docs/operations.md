@@ -101,6 +101,24 @@ These files describe the deployment assets:
 - [packaging/systemd](../packaging/systemd)
 - [packaging/env](../packaging/env)
 
+### Deploy a release with Compose
+
+Pin the GHCR images in `.env` adjacent to `docker-compose.yml`, then pull and
+restart. This runs the bytes that the release workflow built:
+
+```bash
+STOPHAMMER_INDEXER_IMAGE=ghcr.io/inthemorning/stophammer-indexer:0.2.0
+STOPHAMMER_CRAWLER_IMAGE=ghcr.io/inthemorning/stophammer-crawler:0.2.0
+```
+
+```bash
+docker compose pull primary gossip
+docker compose up -d --no-build primary gossip
+```
+
+An image from GHCR gives `git_revision: null` in `/node/info`. The
+`info.version` of `/openapi.json` gives its version.
+
 ### Container image
 
 ```bash
