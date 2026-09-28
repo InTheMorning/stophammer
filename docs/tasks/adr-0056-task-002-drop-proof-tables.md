@@ -4,8 +4,10 @@ Owner: [ADR 0056](../adr/0056-the-public-proof-flow-is-offline.md) §3. Plan:
 [ADR 0056 phase plan](../plans/adr-0056-proof-flow-removal-phase-plan.md),
 step 4.
 
-Repository: `stophammer`. Start on 2026-10-02 or after, one week after the
-ADR 0056 deploy of 2026-09-25.
+Repository: `stophammer`. The build can start at any time. The deploy comes
+on 2026-10-02 or after, one week after the ADR 0056 deploy of 2026-09-25. On
+2026-09-28 the operator decided to build it before that date, so that release
+0.3.0 is ready on that date.
 
 ## Goal
 
@@ -29,8 +31,9 @@ trigger of a feed does not name them.
 
 ## Constraints
 
-- **Before the task.** The operator confirms on the VPS that each table has
-  no row:
+- **Before the deploy.** The production copy of 2026-09-26 has no row in
+  either table. Before the deploy, the operator confirms on the VPS that each
+  table still has no row:
 
   ```bash
   docker run --rm -v stophammer_primary-data:/node alpine:3.20 sh -c \

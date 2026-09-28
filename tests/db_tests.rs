@@ -106,8 +106,6 @@ fn schema_creates_all_tables() {
         "node_sync_state",
         "payment_routes",
         "peer_nodes",
-        "proof_challenges",
-        "proof_tokens",
         "rel_type",
         "schema_migrations",
         "search_index",

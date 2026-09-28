@@ -650,35 +650,3 @@ INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (32, 
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (33, 'marketing', 'artist-feed', 'Marketing');
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (34, 'a_and_r', 'artist-feed', 'A&R representative');
 INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (35, 'other', 'artist-track', 'Other role');
-
--- ---------------------------------------------------------------------------
--- PROOF-OF-POSSESSION (Sprint 3)
---
--- ADR 0056 section 3: the public proof flow is gone. No code reads or writes
--- these two tables. They stay for one release so a rollback to the prior
--- binary still finds them; a later migration drops them once the deploy is
--- stable.
--- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS proof_challenges (
-    challenge_id     TEXT PRIMARY KEY,
-    feed_guid        TEXT NOT NULL,
-    scope            TEXT NOT NULL,
-    token_binding    TEXT NOT NULL,
-    state            TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','valid','invalid')),
-    expires_at       INTEGER NOT NULL,
-    created_at       INTEGER NOT NULL
-) STRICT;
--- Issue-7 missing indexes — 2026-03-13
-DROP INDEX IF EXISTS idx_proof_challenges_feed;
-CREATE INDEX IF NOT EXISTS idx_proof_challenges_feed_state ON proof_challenges(feed_guid, state);
-CREATE INDEX IF NOT EXISTS idx_proof_challenges_expires ON proof_challenges(expires_at);
-
-CREATE TABLE IF NOT EXISTS proof_tokens (
-    access_token      TEXT PRIMARY KEY,
-    scope             TEXT NOT NULL,
-    subject_feed_guid TEXT NOT NULL,
-    expires_at        INTEGER NOT NULL,
-    created_at        INTEGER NOT NULL
-) STRICT;
-CREATE INDEX IF NOT EXISTS idx_proof_tokens_expires ON proof_tokens(expires_at);

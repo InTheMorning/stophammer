@@ -24,37 +24,8 @@ fn test_issue7_idx_ac_display_lower_exists() {
     );
 }
 
-#[test]
-fn test_issue7_idx_proof_challenges_feed_state_exists() {
-    let conn = common::test_db();
-    let exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_proof_challenges_feed_state'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("query sqlite_master");
-    assert!(
-        exists,
-        "missing composite index idx_proof_challenges_feed_state on proof_challenges(feed_guid, state)"
-    );
-}
-
-#[test]
-fn test_issue7_old_idx_proof_challenges_feed_dropped() {
-    let conn = common::test_db();
-    let exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_proof_challenges_feed'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("query sqlite_master");
-    assert!(
-        !exists,
-        "old index idx_proof_challenges_feed should have been dropped"
-    );
-}
+// ADR 0056 task 002 dropped proof_challenges. Its index tests are dropped
+// with it (AGENTS.md "Delete Dead Things").
 
 // ===========================================================================
 // Issue #11: RouteType enum mismatches schema

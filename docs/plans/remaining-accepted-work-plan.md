@@ -16,7 +16,7 @@ ADR 0033 and ADR 0034 under "Status Needs A Check".
 | 1 | Each documented response points at its schema. Deployed on 2026-09-26 | ADR 0044 task 002 | Code | `stophammer` | [ADR 0044 phase plan](adr-0044-contract-schema-phase-plan.md) |
 | 2 | The contract guards, and the correction of `AGENTS.md`. Deployed on 2026-09-26 | ADR 0044 task 003 | Code | `stophammer` | Same |
 | 3 | A feed can block this index with `podcast:block`. Deployed on 2026-09-26 | ADR 0057 | Code | Parser, node, crawler | [ADR 0057 phase plan](adr-0057-podcast-block-phase-plan.md) |
-| 4 | A migration drops the two proof tables and changes the delete trigger | ADR 0056 §3 | Code | `stophammer` | [Task 002](../tasks/adr-0056-task-002-drop-proof-tables.md) |
+| 4 | A migration drops the two proof tables and changes the delete trigger. Built on 2026-09-28 as migration 0046, not deployed | ADR 0056 §3 | Code | `stophammer` | [Task 002](../tasks/adr-0056-task-002-drop-proof-tables.md) |
 | 5 | Read the gossip log for rejected hosts. Complete on 2026-09-26 | ADR 0054 task 004 step 3 | Operator check | None | [ADR 0054 phase plan](adr-0054-fetch-rule-phase-plan.md) |
 | 6 | The second `refresh` pass: `304` and the Wavlake `429` limit. Ran on 2026-09-27, recorded in the phase plan | ADR 0050 plan decision 10 | Operator pass | None | [ADR 0050 phase plan](adr-0050-feed-revalidation-phase-plan.md) |
 | 7 | After that pass, count the `feed_copy_observed` events. Passed on 2026-09-27 | ADR 0058 task 005 step 7 | Operator check | None | [ADR 0058 phase plan](adr-0058-feed-copies-phase-plan.md) |

@@ -248,6 +248,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 45: the count of a gone answer from the stored source URL of
     // a feed (ADR 0067 §2)
     include_str!("../migrations/0045_source_gone_answers.sql"),
+    // Migration 46: drop proof_challenges and proof_tokens, and rebuild the
+    // feed delete trigger without them (ADR 0056 §3, task 002)
+    include_str!("../migrations/0046_drop_proof_tables.sql"),
 ];
 
 /// Reports whether a newly appended migration can still run.

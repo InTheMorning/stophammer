@@ -2,6 +2,9 @@
 //!
 //! These tests are the acceptance criteria of
 //! `docs/tasks/adr-0056-task-001-remove-proof-flow.md`, through the router.
+//! Task 002 (`docs/tasks/adr-0056-task-002-drop-proof-tables.md`) later
+//! dropped `proof_challenges` and `proof_tokens`. The two static checks below
+//! that name these tables reflect that later state.
 
 mod common;
 
@@ -369,54 +372,10 @@ async fn remove_track_with_admin_token_still_succeeds() {
     assert_eq!(tracks_row_count(&conn, "adr0056-track"), 0);
 }
 
-// ---------------------------------------------------------------------------
-// A retire with the admin token writes no row to proof_challenges or
-// proof_tokens (ADR 0056 decision 4: no application code reads or writes
-// these tables any more).
-//
-// NOTE: a pre-existing SQL trigger, `trg_feeds_cleanup_before_delete`
-// (migration 0032, and its predecessors 0019/0026/0030), still runs
-// `DELETE FROM proof_tokens` / `DELETE FROM proof_challenges` scoped to the
-// retired feed_guid. That trigger is schema, not the Rust-level delete this
-// task changed, and decision 4 rules out a migration in this task, so it is
-// left as is. In production the tables are empty, so the trigger deletes
-// zero rows either way. This test asserts the part decision 4 promises
-// through Rust code: retiring a feed inserts no row into either table.
-// ---------------------------------------------------------------------------
-
-#[tokio::test]
-async fn retire_feed_with_admin_token_writes_no_proof_rows() {
-    let db = common::test_db_arc();
-    {
-        let conn = db.lock().expect("lock db");
-        seed_feed_with_track(&conn);
-    }
-    let state = test_app_state(Arc::clone(&db));
-    let app = stophammer::api::build_router(state);
-
-    let req = Request::builder()
-        .method("DELETE")
-        .uri("/v1/feeds/adr0056-feed")
-        .header("X-Admin-Token", ADMIN_TOKEN)
-        .body(axum::body::Body::empty())
-        .expect("build request");
-
-    let resp = app.oneshot(req).await.expect("call handler");
-    assert_eq!(resp.status(), 204, "admin token must still retire a feed");
-
-    let conn = db.lock().expect("lock db");
-    let challenges: i64 = conn
-        .query_row("SELECT COUNT(*) FROM proof_challenges", [], |r| r.get(0))
-        .expect("count proof_challenges");
-    let tokens: i64 = conn
-        .query_row("SELECT COUNT(*) FROM proof_tokens", [], |r| r.get(0))
-        .expect("count proof_tokens");
-    assert_eq!(
-        challenges, 0,
-        "retire must write no row to proof_challenges"
-    );
-    assert_eq!(tokens, 0, "retire must write no row to proof_tokens");
-}
+// ADR 0056 task 002 dropped proof_challenges and proof_tokens. The retire
+// path cannot write a row to a table that no longer exists. The test that
+// checked this through Rust code is dropped with the tables (AGENTS.md
+// "Delete Dead Things").
 
 // ---------------------------------------------------------------------------
 // Static checks
@@ -447,11 +406,12 @@ fn src_rust_files() -> Vec<(String, String)> {
     out
 }
 
-/// The proof tables stay in `src/schema.sql` and in the historical migration
-/// entry named in `src/db.rs`'s `MIGRATIONS` array. No other source file
-/// under `src/` names either table (ADR 0056 decision 4).
+/// ADR 0056 task 002 dropped both proof tables. `src/schema.sql` names
+/// neither table any more. The only place either name still appears is the
+/// historical migration text in `src/db.rs`'s `MIGRATIONS` array (ADR 0056
+/// decision 4, task 002).
 #[test]
-fn proof_tables_are_named_only_in_schema_and_the_migration_array() {
+fn proof_tables_are_gone_from_schema_and_named_only_in_historical_migrations() {
     for (path, contents) in src_rust_files() {
         if contents.contains("proof_challenges") || contents.contains("proof_tokens") {
             assert_eq!(
@@ -462,8 +422,8 @@ fn proof_tables_are_named_only_in_schema_and_the_migration_array() {
     }
     let schema = std::fs::read_to_string("src/schema.sql").expect("read schema.sql");
     assert!(
-        schema.contains("proof_challenges") && schema.contains("proof_tokens"),
-        "src/schema.sql must still declare both proof tables"
+        !schema.contains("proof_challenges") && !schema.contains("proof_tokens"),
+        "src/schema.sql must no longer declare either proof table"
     );
 }
 

@@ -24,6 +24,8 @@ const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
     "DROP TABLE IF EXISTS wallet_aliases;",
     "DROP TABLE IF EXISTS wallet_endpoints;",
     "DROP TABLE IF EXISTS wallets;",
+    "DROP TABLE IF EXISTS proof_challenges;",
+    "DROP TABLE IF EXISTS proof_tokens;",
 ];
 
 // ---------------------------------------------------------------------------
@@ -227,6 +229,8 @@ fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
         "wallet_identity_override",
         "wallet_merge_apply_batch",
         "wallet_merge_apply_entry",
+        "proof_challenges",
+        "proof_tokens",
     ] {
         let exists: bool = conn
             .query_row(
@@ -592,21 +596,22 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // migration 0038, ADR 0052 task 001 added migration 0039, ADR 0058 task
     // 001 added migration 0040, ADR 0052 task 006 added migration 0041, ADR
     // 0052 task 007 added migration 0042, ADR 0060 added migration 0043, ADR
-    // 0064 task 002 added migration 0044, and ADR 0067 task 001 added
-    // migration 0045, after this fixture was written. The fixture still stops
-    // at 0035, so open_db also runs 0037 (entry 31), 0038 (entry 32), 0039
-    // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
-    // (entry 37), 0044 (entry 38) and 0045 (entry 39), nine migrations past
-    // the 0036 this test names.
+    // 0064 task 002 added migration 0044, ADR 0067 task 001 added migration
+    // 0045, and ADR 0056 task 002 added migration 0046, after this fixture
+    // was written. The fixture still stops at 0035, so open_db also runs
+    // 0037 (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34),
+    // 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044 (entry 38),
+    // 0045 (entry 39) and 0046 (entry 40), ten migrations past the 0036 this
+    // test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 39,
-        "the runner must record version 39 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044 and 0045 run"
+        recorded_version, 40,
+        "the runner must record version 40 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045 and 0046 run"
     );
 }
 
@@ -707,11 +712,12 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // ADR 0053 task 001 added migration 0038, ADR 0052 task 001 added
     // migration 0039, ADR 0058 task 001 added migration 0040, ADR 0052 task
     // 006 added migration 0041, ADR 0052 task 007 added migration 0042, ADR
-    // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, and
-    // ADR 0067 task 001 added migration 0045, after this fixture was written.
-    // The fixture stops at 0036, so open_db also runs 0038 (entry 32), 0039
-    // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
-    // (entry 37), 0044 (entry 38) and 0045 (entry 39), eight migrations past
+    // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, ADR
+    // 0067 task 001 added migration 0045, and ADR 0056 task 002 added
+    // migration 0046, after this fixture was written. The fixture stops at
+    // 0036, so open_db also runs 0038 (entry 32), 0039 (entry 33), 0040
+    // (entry 34), 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044
+    // (entry 38), 0045 (entry 39) and 0046 (entry 40), nine migrations past
     // the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
@@ -719,9 +725,9 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 39,
-        "the runner must record version 39 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044 and 0045 run"
+        recorded_version, 40,
+        "the runner must record version 40 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045 and 0046 run"
     );
 }
 
@@ -762,13 +768,127 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
         "migration 0045 must run at position 39 and create source_gone_answers"
     );
 
+    // ADR 0056 task 002 added migration 0046, after this fixture was
+    // written. The fixture stops at 0044, so open_db also runs 0046 (entry
+    // 40) right after 0045 (entry 39).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 39,
-        "the runner must record version 39 after migration 0045 runs"
+        recorded_version, 40,
+        "the runner must record version 40 after migrations 0045 and 0046 run"
     );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0056 task 002: migration 0046 is the 40th entry in MIGRATIONS. It
+// drops proof_challenges and proof_tokens, and rebuilds
+// trg_feeds_cleanup_before_delete without their two DELETE statements.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_db_runs_drop_proof_tables_migration_at_position_40() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("drop-proof-tables-migration.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0045_source_gone_answers.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (39, 1);",
+        )
+        .expect("mark the database at position 39");
+
+        assert!(
+            table_names(&conn).contains(&"proof_challenges".to_string()),
+            "a database at position 39 must start with proof_challenges"
+        );
+        assert!(
+            table_names(&conn).contains(&"proof_tokens".to_string()),
+            "a database at position 39 must start with proof_tokens"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    let tables = table_names(&conn);
+    assert!(
+        !tables.contains(&"proof_challenges".to_string()),
+        "migration 0046 must run at position 40 and drop proof_challenges"
+    );
+    assert!(
+        !tables.contains(&"proof_tokens".to_string()),
+        "migration 0046 must run at position 40 and drop proof_tokens"
+    );
+
+    let recorded_version: i64 = conn
+        .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
+            r.get(0)
+        })
+        .expect("read recorded migration version");
+    assert_eq!(
+        recorded_version, 40,
+        "the runner must record version 40 after migration 0046 runs"
+    );
+
+    let trigger_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' \
+             AND name = 'trg_feeds_cleanup_before_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("read trg_feeds_cleanup_before_delete definition");
+    assert!(
+        !trigger_sql.contains("proof_tokens"),
+        "trg_feeds_cleanup_before_delete must not name proof_tokens"
+    );
+    assert!(
+        !trigger_sql.contains("proof_challenges"),
+        "trg_feeds_cleanup_before_delete must not name proof_challenges"
+    );
+}
+
+#[test]
+fn feed_delete_succeeds_after_proof_tables_are_dropped() {
+    let conn = common::test_db();
+    let now = common::now();
+
+    conn.execute(
+        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Drop Proof Tables Artist', ?1)",
+        rusqlite::params![now],
+    )
+    .expect("insert artist_credit");
+    let credit_id = conn.last_insert_rowid();
+
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+         created_at, updated_at) \
+         VALUES ('drop-proof-tables-feed', 'https://example.com/drop-proof-tables.xml', \
+         'Drop Proof Tables Feed', 'drop proof tables feed', ?1, ?2, ?3)",
+        rusqlite::params![credit_id, now, now],
+    )
+    .expect("insert feed");
+
+    conn.execute(
+        "DELETE FROM feeds WHERE feed_guid = 'drop-proof-tables-feed'",
+        [],
+    )
+    .expect("delete feed after proof tables are dropped");
+
+    let remaining: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'drop-proof-tables-feed'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count remaining feed rows");
+    assert_eq!(remaining, 0, "feed row must be gone after delete");
 }

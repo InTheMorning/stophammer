@@ -170,13 +170,15 @@ which gives the sequence of each open item of an Accepted ADR:
      a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
-   - A migration that drops the two proof tables and changes the trigger
-     `trg_feeds_cleanup_before_delete`, after the ADR 0056 deploy is stable.
+   - ADR 0056 task 002 is built on 2026-09-28 and not deployed. Migration
+     0046 drops the two proof tables and changes the trigger
+     `trg_feeds_cleanup_before_delete`. It deploys on 2026-10-02 or after,
+     with release 0.3.0.
 
 3. The next release is 0.3.0, by
    [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). It
-   waits for ADR 0056 task 002, on 2026-10-02 or after, and for ADR 0034
-   tasks 002 and 003.
+   waits for 2026-10-02, the first day that ADR 0056 task 002 can deploy,
+   and for ADR 0034 task 003.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
    written. Task 001 is deployed in 0.2.0. Task 002 is built on 2026-09-28
