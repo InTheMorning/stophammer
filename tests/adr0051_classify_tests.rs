@@ -18,37 +18,14 @@ const UB: &str = "https://example.com/b.xml";
 const GN: &str = "feed-n-guid";
 const UX: &str = "https://example.com/x.xml";
 
-/// Inserts a feed row with a valid artist credit, matching the pattern in
-/// `tests/db_tests.rs`.
+/// Inserts a feed row. ADR 0034 §11: `feeds` carries no artist credit.
 fn insert_feed(conn: &Connection, feed_guid: &str, feed_url: &str) {
     let now = common::now();
-    let artist = stophammer::model::Artist {
-        artist_id: format!("artist-{feed_guid}"),
-        name: format!("Artist {feed_guid}"),
-        name_lower: format!("artist {feed_guid}"),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-    db::upsert_artist_if_absent(conn, &artist).expect("upsert artist");
-    let credit = db::get_or_create_artist_credit(
-        conn,
-        &artist.name,
-        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
-        Some(feed_guid),
-    )
-    .expect("artist credit");
     let title = format!("Feed {feed_guid}");
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![feed_guid, feed_url, title, title.to_lowercase(), credit.id, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![feed_guid, feed_url, title, title.to_lowercase(), now],
     )
     .expect("insert feed");
 }

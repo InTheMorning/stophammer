@@ -34,52 +34,32 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     })
 }
 
+/// Seeds a feed and a track. ADR 0034 §11: `feeds` and `tracks` carry no
+/// artist credit.
 fn seed_feed_and_track(conn: &rusqlite::Connection) -> i64 {
     let now = common::now();
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params!["artist-inh", "Inherit Artist", "inherit artist", now, now],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params!["Inherit Artist", now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, 0, ?3, '')",
-        params![credit_id, "artist-inh", "Inherit Artist"],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, 0, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, 0, 0, ?5, ?5)",
         params![
             "feed-inh",
             "https://example.com/feed.xml",
             "Inherit Feed",
             "inherit feed",
-            credit_id,
-            now,
             now,
         ],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?7)",
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)",
         params![
             "track-inh",
             "feed-inh",
-            credit_id,
             "Inherit Track",
             "inherit track",
-            now,
             now,
         ],
     )

@@ -111,10 +111,23 @@ event of the log and applies nothing. A migration rebuilds `feeds` and
 - Take each column, each constraint and each `STRICT` from the current
   `schema.sql` form of the table. Make each index of the table again, except
   `idx_feeds_credit` and `idx_tracks_credit`.
-- Make `trg_feeds_cleanup_before_delete` again, in its form of migration
-  0046, and `trg_tracks_cleanup_before_delete` in its last form.
-- Drop `artist_credit_name`, `artist_credit`, `artist_aliases`, `artists`,
-  `artist_type`, `rel_type` and `external_ids`, children first.
+- Make `trg_feeds_cleanup_before_delete` again, from its form of migration
+  0046, and `trg_tracks_cleanup_before_delete`, from its last form. Remove
+  each statement that names a table of the drop list below. Keep each other
+  statement as it is.
+- Drop each table that ADR 0034 §11 lists, children first, with
+  `DROP TABLE IF EXISTS`. On 2026-09-28 the operator decided to drop all of
+  them, not only the seven artist tables. The first build of this task
+  stopped for a reason. `feed_rel`, `track_rel` and five more tables have a
+  foreign key to `rel_type` or `artists`, and the triggers delete from two of
+  them.
+  Take the list of tables from a query of the schema, and compare it with the
+  ADR. The wallet tables and the `_legacy_0032` tables are each named in the
+  migration, not matched by a pattern.
+- Delete each code use of a dropped table. On 2026-09-28 these existed:
+  `record_entity_source` and `get_entity_sources` in `src/db.rs`, which no
+  code calls, and a `DELETE FROM live_events_legacy` in `src/db.rs`.
+- `src/schema.sql` names none of the dropped tables.
 - `src/schema.sql` gives the same final schema. `tests/migration_tests.rs`
   compares them, if it has such a test.
 
@@ -144,7 +157,8 @@ Mechanical, each an integration test in
 - A database at the array position of migration 0046, with artist rows,
   credits, and one `source_gone_answers` row, migrates. After it:
   - `feeds` and `tracks` have no `artist_credit_id`.
-  - The seven tables are gone.
+  - Each table of the ADR 0034 §11 list is gone.
+  - A delete of a feed and a delete of a track succeed with foreign keys on.
   - The row counts of `feeds` and `tracks` are the same.
   - `PRAGMA foreign_key_check` gives no row.
   - The `source_gone_answers` row is still there.
@@ -178,7 +192,8 @@ Stop and report without a workaround when:
 
 - Migration 0046 does not exist yet.
 - A public route, a verifier or the crawler reads an artist table.
-- A table other than the seven has a foreign key to an artist table.
+- A table that is not in the ADR 0034 §11 list has a foreign key to a table
+  in the list.
 - A model type has `deny_unknown_fields`.
 - An old event of the log fails to apply.
 

@@ -32,56 +32,23 @@ use stophammer::db::ListedFeedResolution;
 // Section 1: db::resolve_listed_feed, direct against the database.
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .expect("insert artist");
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .expect("insert artist_credit_name");
-
-    credit_id
-}
-
+/// Inserts a feed. ADR 0034 §11: `feeds` carries no artist credit.
 fn insert_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     feed_url: &str,
     title: &str,
-    credit_id: i64,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             feed_guid,
             feed_url,
             title,
             title.to_lowercase(),
-            credit_id,
             0,
             0,
             now,
@@ -91,12 +58,9 @@ fn insert_feed(
     .expect("insert feed");
 }
 
-/// Inserts a minimal indexed feed, with its own artist and artist-credit row.
+/// Inserts a minimal indexed feed.
 fn seed_indexed_feed(conn: &rusqlite::Connection, feed_guid: &str, feed_url: &str, now: i64) {
-    let artist_id = format!("{feed_guid}-artist");
-    insert_artist(conn, &artist_id, "Seed Artist", now);
-    let credit_id = insert_artist_credit(conn, &artist_id, "Seed Artist", now);
-    insert_feed(conn, feed_guid, feed_url, "Seed Feed", credit_id, now);
+    insert_feed(conn, feed_guid, feed_url, "Seed Feed", now);
 }
 
 #[test]

@@ -8,67 +8,41 @@ use rusqlite::params;
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
+/// Seeds a feed. ADR 0034 §11: `feeds` carries no artist credit.
+fn seed_feed(conn: &rusqlite::Connection) -> i64 {
     let now = stophammer::db::unix_now();
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params!["artist-sg", "SG Artist", "sg artist", now, now],
-    )
-    .expect("insert artist");
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params!["SG Artist", now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, "artist-sg", 0, "SG Artist", ""],
-    )
-    .expect("insert artist_credit_name");
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          description, explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             "feed-sg",
             "https://example.com/sg-feed.xml",
             "SG Album",
             "sg album",
-            credit_id,
             "Schema gap test feed",
             0,
             0,
             now,
-            now,
         ],
     )
     .expect("insert feed");
-    (credit_id, now)
+    now
 }
 
-fn insert_track(
-    conn: &rusqlite::Connection,
-    track_guid: &str,
-    feed_guid: &str,
-    credit_id: i64,
-    now: i64,
-) {
+/// Inserts a track. ADR 0034 §11: `tracks` carries no artist credit.
+fn insert_track(conn: &rusqlite::Connection, track_guid: &str, feed_guid: &str, now: i64) {
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          description, explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         params![
             track_guid,
             feed_guid,
-            credit_id,
             "SG Track",
             "sg track",
             "test track",
             0,
-            now,
             now,
         ],
     )
@@ -76,25 +50,9 @@ fn insert_track(
 }
 
 // ===========================================================================
-// SG-01/02/03: FK indexes on relationship tables
-// ===========================================================================
-
-#[test]
-fn test_tag_fk_indexes_exist() {
-    let conn = common::test_db();
-    let expected = ["idx_aar_rel"];
-    for name in &expected {
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name=?1",
-                params![name],
-                |row| row.get(0),
-            )
-            .expect("query sqlite_master");
-        assert!(exists, "missing index: {name}");
-    }
-}
-
+// ADR 0034 §11 — 2026-09-28: `artist_artist_rel` and its indexes, including
+// `idx_aar_rel`, are dropped. `test_tag_fk_indexes_exist` is removed with
+// the table.
 // ===========================================================================
 // SG-04: CHECK constraint on route_type columns
 // ===========================================================================
@@ -104,7 +62,7 @@ fn test_route_type_check_constraint_payment_routes() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
     seed_feed(&conn);
-    insert_track(&conn, "track-sg-rt", "feed-sg", 1, now);
+    insert_track(&conn, "track-sg-rt", "feed-sg", now);
 
     let result = conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, route_type, address, split) \
@@ -137,8 +95,8 @@ fn test_route_type_check_constraint_feed_payment_routes() {
 fn test_route_type_check_accepts_valid_values() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
-    let (credit_id, _) = seed_feed(&conn);
-    insert_track(&conn, "track-sg-valid", "feed-sg", credit_id, now);
+    seed_feed(&conn);
+    insert_track(&conn, "track-sg-valid", "feed-sg", now);
 
     for rt in &["node", "wallet", "keysend", "lnaddress"] {
         conn.execute(
@@ -167,8 +125,8 @@ fn test_route_type_check_accepts_valid_values() {
 fn test_split_check_constraint_payment_routes() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
-    let (credit_id, _) = seed_feed(&conn);
-    insert_track(&conn, "track-sg-sp", "feed-sg", credit_id, now);
+    seed_feed(&conn);
+    insert_track(&conn, "track-sg-sp", "feed-sg", now);
 
     let result = conn.execute(
         "INSERT INTO payment_routes (track_guid, feed_guid, route_type, address, split) \
@@ -201,8 +159,8 @@ fn test_split_check_constraint_feed_payment_routes() {
 fn test_split_check_constraint_value_time_splits() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
-    let (credit_id, _) = seed_feed(&conn);
-    insert_track(&conn, "track-sg-vts", "feed-sg", credit_id, now);
+    seed_feed(&conn);
+    insert_track(&conn, "track-sg-vts", "feed-sg", now);
 
     let result = conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, \

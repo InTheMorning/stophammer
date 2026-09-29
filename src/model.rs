@@ -19,6 +19,9 @@ use crate::ingest::{IngestFeedData, IngestPaymentRoute};
 // Field names intentionally repeat the struct prefix (e.g. artist_id, feed_guid)
 // because these are canonical Podcast Namespace identifiers used verbatim in
 // SQLite columns, JSON payloads, and the RSS/Podcast Index spec.
+/// A wire type only. ADR 0034 §11: only an `ArtistUpserted` event signed
+/// before release 0.3.0 carries an `Artist`. The node makes no new artist and
+/// applies each old event as a no-op.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Artist {
     pub artist_id: String,
@@ -43,6 +46,10 @@ pub struct Artist {
 }
 
 /// MusicBrainz-style artist credit: a display name for multi-artist attribution.
+///
+/// A wire type only. ADR 0034 §11: only an `ArtistCreditCreated` event signed
+/// before release 0.3.0 carries an `ArtistCredit`. The node makes no new
+/// credit and applies each old event as a no-op.
 // Issue-ARTIST-IDENTITY — 2026-03-14
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCredit {
@@ -57,6 +64,9 @@ pub struct ArtistCredit {
 }
 
 /// Individual entry within an [`ArtistCredit`], linking to the underlying [`Artist`].
+///
+/// A wire type only. ADR 0034 §11: it appears only inside an [`ArtistCredit`]
+/// carried by an event signed before release 0.3.0.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ArtistCreditName {
     pub id: i64,
@@ -74,12 +84,6 @@ pub struct Feed {
     pub feed_url: String,
     pub title: String,
     pub title_lower: String,
-    /// The feed's artist credit. ADR 0034 §11 (Release A): a `FeedUpserted`
-    /// payload may carry no credit, and a node that applies it makes the
-    /// feed-scoped credit itself. On release A the primary still sets this to
-    /// `Some` on every event it signs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub artist_credit_id: Option<i64>,
     pub description: Option<String>,
     pub image_url: Option<String>,
     pub publisher: Option<String>,
@@ -116,12 +120,6 @@ pub struct Feed {
 pub struct Track {
     pub track_guid: String,
     pub feed_guid: String,
-    /// The track's artist credit. ADR 0034 §11 (Release A): a `TrackUpserted`
-    /// payload may carry no credit, and a node that applies it makes the
-    /// feed-scoped credit itself. On release A the primary still sets this to
-    /// `Some` on every event it signs.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub artist_credit_id: Option<i64>,
     pub title: String,
     /// Pre-lowercased copy of `title` used for case-insensitive search queries.
     pub title_lower: String,

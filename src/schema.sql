@@ -9,80 +9,14 @@ DROP TABLE IF EXISTS artist_location;
 DROP TABLE IF EXISTS manifest_source;
 
 -- ---------------------------------------------------------------------------
--- LOOKUP TABLES
--- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS artist_type (
-    id   INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS rel_type (
-    id          INTEGER PRIMARY KEY,
-    name        TEXT NOT NULL UNIQUE,
-    entity_pair TEXT NOT NULL,
-    description TEXT
-) STRICT;
-
--- ---------------------------------------------------------------------------
 -- CORE ENTITY TABLES
 -- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS artists (
-    artist_id   TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    name_lower  TEXT NOT NULL,
-    sort_name   TEXT,
-    type_id     INTEGER REFERENCES artist_type(id),
-    area        TEXT,
-    img_url     TEXT,
-    url         TEXT,
-    begin_year  INTEGER,
-    end_year    INTEGER,
-    created_at  INTEGER NOT NULL,
-    updated_at  INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_artists_name_lower ON artists(name_lower);
-
-CREATE TABLE IF NOT EXISTS artist_aliases (
-    alias_lower  TEXT NOT NULL,
-    artist_id    TEXT NOT NULL REFERENCES artists(artist_id),
-    created_at   INTEGER NOT NULL,
-    PRIMARY KEY (alias_lower, artist_id)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_aliases_lower ON artist_aliases(alias_lower);
-
--- MusicBrainz-style artist credits
-CREATE TABLE IF NOT EXISTS artist_credit (
-    id           INTEGER PRIMARY KEY,
-    display_name TEXT NOT NULL,
-    created_at   INTEGER NOT NULL
-) STRICT;
-
-CREATE TABLE IF NOT EXISTS artist_credit_name (
-    id               INTEGER PRIMARY KEY,
-    artist_credit_id INTEGER NOT NULL REFERENCES artist_credit(id),
-    artist_id        TEXT NOT NULL REFERENCES artists(artist_id),
-    position         INTEGER NOT NULL,
-    name             TEXT NOT NULL,
-    join_phrase      TEXT NOT NULL DEFAULT '',
-    UNIQUE(artist_credit_id, position)
-) STRICT;
-
--- Issue-7 missing indexes — 2026-03-13
-CREATE INDEX IF NOT EXISTS idx_ac_display_lower ON artist_credit(LOWER(display_name));
-
-CREATE INDEX IF NOT EXISTS idx_acn_credit ON artist_credit_name(artist_credit_id);
-CREATE INDEX IF NOT EXISTS idx_acn_artist ON artist_credit_name(artist_id);
 
 CREATE TABLE IF NOT EXISTS feeds (
     feed_guid        TEXT PRIMARY KEY,
     feed_url         TEXT NOT NULL UNIQUE,
     title            TEXT NOT NULL,
     title_lower      TEXT NOT NULL,
-    artist_credit_id INTEGER NOT NULL REFERENCES artist_credit(id),
     description      TEXT,
     image_url        TEXT,
     publisher        TEXT,
@@ -107,7 +41,6 @@ CREATE TABLE IF NOT EXISTS feeds (
     locked_owner TEXT
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_feeds_credit ON feeds(artist_credit_id);
 CREATE INDEX IF NOT EXISTS idx_feeds_newest ON feeds(newest_item_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feeds_title  ON feeds(title_lower);
 CREATE INDEX IF NOT EXISTS idx_feeds_title_guid ON feeds(title_lower, feed_guid);
@@ -115,7 +48,6 @@ CREATE INDEX IF NOT EXISTS idx_feeds_title_guid ON feeds(title_lower, feed_guid)
 CREATE TABLE IF NOT EXISTS tracks (
     track_guid       TEXT NOT NULL,
     feed_guid        TEXT NOT NULL REFERENCES feeds(feed_guid),
-    artist_credit_id INTEGER NOT NULL REFERENCES artist_credit(id),
     title            TEXT NOT NULL,
     title_lower      TEXT NOT NULL,
     pub_date         INTEGER,
@@ -138,7 +70,6 @@ CREATE TABLE IF NOT EXISTS tracks (
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_tracks_feed     ON tracks(feed_guid);
-CREATE INDEX IF NOT EXISTS idx_tracks_credit   ON tracks(artist_credit_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_pub_date ON tracks(pub_date DESC);
 CREATE INDEX IF NOT EXISTS idx_tracks_title    ON tracks(title_lower);
 CREATE INDEX IF NOT EXISTS idx_tracks_guid     ON tracks(track_guid);
@@ -533,21 +464,8 @@ CREATE TABLE IF NOT EXISTS peer_nodes (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- EXTERNAL IDS & PROVENANCE
+-- PROVENANCE
 -- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS external_ids (
-    id          INTEGER PRIMARY KEY,
-    entity_type TEXT NOT NULL,
-    entity_id   TEXT NOT NULL,
-    scheme      TEXT NOT NULL,
-    value       TEXT NOT NULL,
-    created_at  INTEGER NOT NULL,
-    UNIQUE(entity_type, entity_id, scheme)
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_extid_entity ON external_ids(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_extid_scheme ON external_ids(scheme, value);
 
 CREATE TABLE IF NOT EXISTS entity_source (
     id          INTEGER PRIMARY KEY,
@@ -601,52 +519,3 @@ CREATE TABLE IF NOT EXISTS search_entities (
 
 CREATE INDEX IF NOT EXISTS idx_search_entities_entity
     ON search_entities(entity_type, entity_id);
-
--- ---------------------------------------------------------------------------
--- SEED DATA
--- ---------------------------------------------------------------------------
-
--- Seed artist_type
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (1, 'person');
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (2, 'group');
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (3, 'orchestra');
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (4, 'choir');
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (5, 'character');
-INSERT OR IGNORE INTO artist_type (id, name) VALUES (6, 'other');
-
--- Seed rel_type
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (1, 'performer', 'artist-track', 'Primary performing artist');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (2, 'songwriter', 'artist-track', 'Writer of the song');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (3, 'producer', 'artist-track', 'Music producer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (4, 'engineer', 'artist-track', 'Sound/recording engineer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (5, 'mixer', 'artist-track', 'Mixing engineer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (6, 'mastering', 'artist-track', 'Mastering engineer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (7, 'composer', 'artist-track', 'Composer of the music');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (8, 'lyricist', 'artist-track', 'Writer of the lyrics');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (9, 'arranger', 'artist-track', 'Musical arranger');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (10, 'conductor', 'artist-track', 'Orchestra/ensemble conductor');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (11, 'dj', 'artist-track', 'DJ / selector');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (12, 'remixer', 'artist-track', 'Created a remix');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (13, 'featuring', 'artist-track', 'Featured artist');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (14, 'vocal', 'artist-track', 'Vocal performance');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (15, 'instrument', 'artist-track', 'Instrument performance');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (16, 'programming', 'artist-track', 'Electronic programming');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (17, 'recording', 'artist-track', 'Recording engineer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (18, 'mixing', 'artist-track', 'Mixing');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (19, 'live_sound', 'artist-track', 'Live sound engineer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (20, 'member_of', 'artist-artist', 'Member of a group');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (21, 'collaboration', 'artist-artist', 'Collaborative project');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (22, 'cover_art', 'artist-feed', 'Cover art creator');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (23, 'photographer', 'artist-feed', 'Photographer');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (24, 'liner_notes', 'artist-feed', 'Liner notes author');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (25, 'translator', 'artist-feed', 'Translator');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (26, 'promoter', 'artist-feed', 'Promoter');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (27, 'booking', 'artist-artist', 'Booking agent');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (28, 'management', 'artist-artist', 'Artist management');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (29, 'label', 'artist-feed', 'Record label');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (30, 'publisher', 'artist-feed', 'Music publisher');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (31, 'distributor', 'artist-feed', 'Distributor');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (32, 'legal', 'artist-feed', 'Legal representation');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (33, 'marketing', 'artist-feed', 'Marketing');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (34, 'a_and_r', 'artist-feed', 'A&R representative');
-INSERT OR IGNORE INTO rel_type (id, name, entity_pair, description) VALUES (35, 'other', 'artist-track', 'Other role');

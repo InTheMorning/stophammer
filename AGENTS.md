@@ -177,12 +177,13 @@ which gives the sequence of each open item of an Accepted ADR:
 
 3. The next release is 0.3.0, by
    [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). It
-   waits for 2026-10-02, the first day that ADR 0056 task 002 can deploy,
-   and for ADR 0034 task 003.
+   waits for 2026-10-02, the first day that ADR 0056 task 002 can deploy.
+   Each task of it is built.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written. Task 001 is deployed in 0.2.0. Task 002 is built on 2026-09-28
-   and not deployed. Task 003 is not built.
+   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are built on
+   2026-09-28 and not deployed. Migration 0047 drops the 43 tables that §11
+   lists, and it ran on a copy of the production data in 0.5 seconds.
 5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)

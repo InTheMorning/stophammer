@@ -33,68 +33,47 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     })
 }
 
-fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
+/// Seeds a feed. ADR 0034 §11: `feeds` carries no artist credit.
+fn seed_feed(conn: &rusqlite::Connection) -> i64 {
     let now = common::now();
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params!["artist-1", "Test Artist", "test artist", now, now],
-    )
-    .expect("insert artist");
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        rusqlite::params!["Test Artist", now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params![credit_id, "artist-1", 0, "Test Artist", ""],
-    )
-    .expect("insert artist_credit_name");
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          description, explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         rusqlite::params![
             "feed-1",
             "https://example.com/feed.xml",
             "Test Album",
             "test album",
-            credit_id,
             "A test feed",
             0,
             0,
             now,
-            now,
         ],
     )
     .expect("insert feed");
-    (credit_id, now)
+    now
 }
 
+/// Inserts a track. ADR 0034 §11: `tracks` carries no artist credit.
 fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,
     feed_guid: &str,
-    credit_id: i64,
     title: &str,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          description, explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         rusqlite::params![
             track_guid,
             feed_guid,
-            credit_id,
             title,
             title.to_lowercase(),
             "A test track",
             0,
-            now,
             now,
         ],
     )
@@ -141,8 +120,8 @@ async fn delete_track_at_v1_prefix_returns_204() {
     let db = common::test_db_arc();
     {
         let conn = db.lock().expect("lock db");
-        let (credit_id, now) = seed_feed(&conn);
-        insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
+        let now = seed_feed(&conn);
+        insert_track(&conn, "track-1", "feed-1", "Song One", now);
     }
     let state = test_app_state(Arc::clone(&db));
     let app = stophammer::api::build_router(state);

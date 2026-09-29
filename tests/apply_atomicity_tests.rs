@@ -73,20 +73,13 @@ fn apply_single_event_writes_entity_and_event_without_artist_search_side_effects
     let result = stophammer::apply::apply_single_event(&pool, &ev);
     assert!(result.is_ok(), "apply should succeed");
 
-    // Only the entity and event should exist; artist search/quality are retired
+    // ADR 0034 §11: the node signs no new ArtistUpserted event, and applies
+    // an old one as a no-op. There is no artist table left to write, so the
+    // event still counts as applied (the sync cursor moves past it), and
+    // nothing else happens.
     let conn = db.lock().expect("lock");
 
-    // 1. Artist row
-    let artist_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM artists WHERE artist_id = 'atom-artist-1'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("artist query");
-    assert!(artist_exists, "artist row must exist after atomic apply");
-
-    // 2. Event row
+    // 1. Event row
     let event_exists: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM events WHERE event_id = 'evt-atom-artist-1'",
@@ -96,7 +89,7 @@ fn apply_single_event_writes_entity_and_event_without_artist_search_side_effects
         .expect("event query");
     assert!(event_exists, "event row must exist after atomic apply");
 
-    // 3. Search index entry remains absent
+    // 2. Search index entry remains absent
     let rowid = stophammer::search::rowid_for("artist", "atom-artist-1");
     let search_exists: bool = conn
         .query_row(
@@ -110,7 +103,7 @@ fn apply_single_event_writes_entity_and_event_without_artist_search_side_effects
         "artist search index entry must remain absent after atomic apply"
     );
 
-    // 4. Quality score remains absent
+    // 3. Quality score remains absent
     let quality_exists: bool = conn
         .query_row(
             "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'artist' AND entity_id = 'atom-artist-1'",
@@ -166,19 +159,10 @@ fn apply_single_event_rolls_back_entity_on_event_insert_failure() {
             .expect("restore events table");
     }
 
-    // Verify the artist was NOT inserted (transaction rolled back)
+    // ADR 0034 §11: there is no artist table left, so there is nothing an
+    // ArtistUpserted event could have written. The remaining checks confirm
+    // the event-insert failure still leaves no other trace.
     let conn = db.lock().expect("lock");
-    let artist_exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM artists WHERE artist_id = 'rollback-artist-1'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("artist query");
-    assert!(
-        !artist_exists,
-        "artist should NOT exist when event insert failed — transaction must roll back"
-    );
 
     // Verify the search index was NOT populated
     let rowid = stophammer::search::rowid_for("artist", "rollback-artist-1");
@@ -435,42 +419,11 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     let mut conn = common::test_db();
     let now = common::now();
 
-    let artist = stophammer::model::Artist {
-        artist_id: "art-atomic-s1b".into(),
-        name: "Atomic S1B Artist".into(),
-        name_lower: "atomic s1b artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    let artist_credit = stophammer::model::ArtistCredit {
-        id: 0,
-        display_name: "Atomic S1B Artist".into(),
-        feed_guid: None,
-        created_at: now,
-        names: vec![stophammer::model::ArtistCreditName {
-            id: 0,
-            artist_credit_id: 0,
-            artist_id: "art-atomic-s1b".into(),
-            position: 0,
-            name: "Atomic S1B Artist".into(),
-            join_phrase: String::new(),
-        }],
-    };
-
     let feed = stophammer::model::Feed {
         feed_guid: "feed-atomic-s1b".into(),
         feed_url: "https://example.com/atomic.xml".into(),
         title: "Atomic S1B Album".into(),
         title_lower: "atomic s1b album".into(),
-        artist_credit_id: Some(0),
         description: Some("Test atomicity".into()),
         image_url: Some("https://img.example.com/at.jpg".into()),
         publisher: Some("Atomic Publisher".into()),
@@ -494,7 +447,6 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     let track = stophammer::model::Track {
         track_guid: "track-atomic-s1b-01".into(),
         feed_guid: "feed-atomic-s1b".into(),
-        artist_credit_id: Some(0),
         title: "Atomic Track One".into(),
         title_lower: "atomic track one".into(),
         pub_date: Some(now),
@@ -532,8 +484,6 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     let signer = common::temp_signer("sprint1b-atom-test");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
-        artist,
-        artist_credit,
         feed,
         vec![],
         vec![],
@@ -570,7 +520,6 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     assert!(result.is_ok(), "ingest_transaction should succeed");
 
     // Feed and track search/quality are now written inline by ingest_transaction.
-    // Artist search/quality remain absent (sync only covers feed-scoped entities).
 
     // Feed search index must be present
     let feed_rowid = stophammer::search::rowid_for("feed", "feed-atomic-s1b");
@@ -597,33 +546,6 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
     assert!(
         feed_quality,
         "feed quality score must be written inline by ingest_transaction"
-    );
-
-    // Artist search index must still be absent
-    let artist_rowid = stophammer::search::rowid_for("artist", "art-atomic-s1b");
-    let artist_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![artist_rowid],
-            |r| r.get(0),
-        )
-        .expect("artist search query");
-    assert!(
-        !artist_search,
-        "artist search index must not be written inline by ingest_transaction"
-    );
-
-    // Artist quality score must still be absent
-    let artist_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'artist' AND entity_id = 'art-atomic-s1b'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("artist quality query");
-    assert!(
-        !artist_quality,
-        "artist quality score must not be written inline by ingest_transaction"
     );
 
     // Track search index must be present
@@ -654,31 +576,6 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
         track_quality,
         "track quality score must be written inline by ingest_transaction"
     );
-
-    // Artist search/quality must remain absent — sync only covers feed-scoped entities
-    let artist_search: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM search_index WHERE rowid = ?1",
-            params![artist_rowid],
-            |r| r.get(0),
-        )
-        .expect("artist search query");
-    assert!(
-        !artist_search,
-        "artist search index must not be written by ingest_transaction"
-    );
-
-    let artist_quality: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM entity_quality WHERE entity_type = 'artist' AND entity_id = 'art-atomic-s1b'",
-            [],
-            |r| r.get(0),
-        )
-        .expect("artist quality query");
-    assert!(
-        !artist_quality,
-        "artist quality score must not be written by ingest_transaction"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -690,50 +587,15 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "integration test sets up full ingest data and verifies rollback of all artifacts"
-)]
 fn ingest_transaction_rolls_back_search_quality_on_failure() {
     let mut conn = common::test_db();
     let now = common::now();
-
-    let artist = stophammer::model::Artist {
-        artist_id: "art-rollback-s1b".into(),
-        name: "Rollback S1B Artist".into(),
-        name_lower: "rollback s1b artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    let artist_credit = stophammer::model::ArtistCredit {
-        id: 0,
-        display_name: "Rollback S1B Artist".into(),
-        feed_guid: None,
-        created_at: now,
-        names: vec![stophammer::model::ArtistCreditName {
-            id: 0,
-            artist_credit_id: 0,
-            artist_id: "art-rollback-s1b".into(),
-            position: 0,
-            name: "Rollback S1B Artist".into(),
-            join_phrase: String::new(),
-        }],
-    };
 
     let feed = stophammer::model::Feed {
         feed_guid: "feed-rollback-s1b".into(),
         feed_url: "https://example.com/rollback.xml".into(),
         title: "Rollback S1B Album".into(),
         title_lower: "rollback s1b album".into(),
-        artist_credit_id: Some(0),
         description: Some("Test rollback".into()),
         image_url: Some("https://img.example.com/rb.jpg".into()),
         publisher: Some("Rollback Publisher".into()),
@@ -762,8 +624,6 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
     let signer2 = common::temp_signer("sprint1b-atom-test2");
     let result = stophammer::db::ingest_transaction(
         &mut conn,
-        artist,
-        artist_credit,
         feed,
         vec![],
         vec![],

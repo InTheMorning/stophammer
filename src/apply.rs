@@ -93,60 +93,21 @@ fn apply_single_event_inner(
     let verified_payload = deserialize_verified_payload(ev)?;
 
     match &verified_payload {
-        event::EventPayload::ArtistUpserted(p) => {
-            db::upsert_artist_if_absent(conn, &p.artist)?;
-        }
+        // ADR 0034 §11: the node signs no new `ArtistUpserted` and no new
+        // `ArtistCreditCreated` event. Only an event signed before release
+        // 0.3.0 carries either payload. The event still counts as applied
+        // above, so the sync cursor moves past it; there is nothing left to
+        // write.
+        event::EventPayload::ArtistUpserted(_) | event::EventPayload::ArtistCreditCreated(_) => {}
         event::EventPayload::FeedUpserted(p) => {
-            // ADR 0034 §11 (release A): a primary on release B signs a
-            // `FeedUpserted` event with no `artist_credit_id`. Make the
-            // feed-scoped credit from `release_artist` before the upsert, so
-            // the stored column (declared NOT NULL) always gets a value.
-            let credit_id = db::resolve_optional_artist_credit_id(
-                conn,
-                p.feed.artist_credit_id,
-                p.feed.release_artist.as_deref(),
-                &p.feed.feed_guid,
-                |conn| {
-                    db::get_or_create_feed_scoped_source_text_credit(
-                        conn,
-                        "Unknown Artist",
-                        &p.feed.feed_guid,
-                    )
-                    .map(|credit| credit.id)
-                },
-            )?;
-            let mut feed = p.feed.clone();
-            feed.artist_credit_id = Some(credit_id);
-            db::upsert_feed(conn, &feed)?;
+            db::upsert_feed(conn, &p.feed)?;
             // Rebuild search index and quality scores for the feed and all its tracks.
             // Replicas must populate read models immediately on event apply, just like
             // the primary node does at ingest time (see ingest_transaction).
             db::sync_source_read_models_for_feed(conn, &p.feed.feed_guid)?;
         }
         event::EventPayload::TrackUpserted(p) => {
-            // ADR 0034 §11 (release A): a primary on release B signs a
-            // `TrackUpserted` event with no `artist_credit_id`. Make the
-            // feed-scoped credit from `track_artist`, or use the credit
-            // already stored for the track's feed.
-            let credit_id = db::resolve_optional_artist_credit_id(
-                conn,
-                p.track.artist_credit_id,
-                p.track.track_artist.as_deref(),
-                &p.track.feed_guid,
-                |conn| {
-                    db::get_feed_by_guid(conn, &p.track.feed_guid)?
-                        .and_then(|feed| feed.artist_credit_id)
-                        .ok_or_else(|| {
-                            db::DbError::Other(format!(
-                                "track {} references feed {} with no stored artist_credit_id",
-                                p.track.track_guid, p.track.feed_guid
-                            ))
-                        })
-                },
-            )?;
-            let mut track = p.track.clone();
-            track.artist_credit_id = Some(credit_id);
-            db::upsert_track(conn, &track)?;
+            db::upsert_track(conn, &p.track)?;
             db::replace_payment_routes_for_feed_track(
                 conn,
                 &p.track.feed_guid,
@@ -175,9 +136,6 @@ fn apply_single_event_inner(
             } else {
                 db::replace_payment_routes(conn, &p.track_guid, &p.routes)?;
             }
-        }
-        event::EventPayload::ArtistCreditCreated(p) => {
-            upsert_artist_credit_if_absent(conn, &p.artist_credit)?;
         }
         event::EventPayload::FeedRoutesReplaced(p) => {
             db::replace_feed_payment_routes(conn, &p.feed_guid, &p.routes)?;
@@ -433,15 +391,6 @@ pub fn apply_single_event(
 
     tx.commit()?;
     Ok(outcome)
-}
-
-/// Helper: insert an artist credit and its names if they don't already exist.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-fn upsert_artist_credit_if_absent(
-    conn: &rusqlite::Connection,
-    credit: &crate::model::ArtistCredit,
-) -> Result<(), db::DbError> {
-    db::upsert_artist_credit_sql(conn, credit)
 }
 
 // ── Batched outcome (internal) ──────────────────────────────────────────────

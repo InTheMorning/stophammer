@@ -8,49 +8,61 @@ mod common;
 
 use stophammer::apply::{self, ApplyOutcome, SYNC_CURSOR_KEY};
 use stophammer::db;
-use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
-use stophammer::model::Artist;
+use stophammer::event::{Event, EventPayload, EventType, FeedUpsertedPayload};
+use stophammer::model::Feed;
 use stophammer::signing::NodeSigner;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Build a properly signed `ArtistUpserted` event with a unique artist per
-/// `artist_suffix` so events don't collide on `subject_guid`.
-fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, artist_suffix: &str) -> Event {
-    let artist_id = format!("batch-artist-{artist_suffix}");
-    let artist = Artist {
-        artist_id: artist_id.clone(),
-        name: format!("Batch Artist {artist_suffix}"),
-        name_lower: format!("batch artist {artist_suffix}"),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
+/// Build a properly signed `FeedUpserted` event with a unique feed per
+/// `feed_suffix` so events don't collide on `subject_guid`. ADR 0034 §11:
+/// `ArtistUpserted` is a no-op, so `FeedUpserted` is the vehicle for these
+/// batch-apply properties instead.
+fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, feed_suffix: &str) -> Event {
+    let feed_guid = format!("batch-feed-{feed_suffix}");
+    let feed = Feed {
+        feed_guid: feed_guid.clone(),
+        feed_url: format!("https://example.com/{feed_guid}.xml"),
+        title: format!("Batch Feed {feed_suffix}"),
+        title_lower: format!("batch feed {feed_suffix}"),
+        description: None,
+        image_url: None,
+        publisher: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        release_artist: None,
+        release_artist_sort: None,
+        release_date: None,
+        release_kind: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
         created_at: 1_000_000,
         updated_at: 1_000_000,
+        raw_medium: None,
+        last_build_date: None,
+        release_artist_source: None,
     };
 
-    let inner = ArtistUpsertedPayload { artist };
+    let inner = FeedUpsertedPayload { feed, reason: None };
     let payload_json = serde_json::to_string(&inner).unwrap();
 
     let (signed_by, signature) = signer.sign_event(
         event_id,
-        &EventType::ArtistUpserted,
+        &EventType::FeedUpserted,
         &payload_json,
-        &artist_id,
+        &feed_guid,
         1_000_000,
         seq,
     );
 
     Event {
         event_id: event_id.into(),
-        event_type: EventType::ArtistUpserted,
-        payload: EventPayload::ArtistUpserted(inner),
+        event_type: EventType::FeedUpserted,
+        payload: EventPayload::FeedUpserted(inner),
         payload_json,
-        subject_guid: artist_id,
+        subject_guid: feed_guid,
         signed_by,
         signature,
         seq,
@@ -62,7 +74,7 @@ fn make_signed_event(signer: &NodeSigner, event_id: &str, seq: i64, artist_suffi
 // ── Test 1: batch is atomic (all-or-nothing) ────────────────────────────────
 
 /// A batch of 10 events is applied in a single transaction. If the batch
-/// succeeds, all 10 events must be present. We verify that all 10 artist
+/// succeeds, all 10 events must be present. We verify that all 10 feed
 /// rows exist and all 10 event rows exist after a single `apply_events` call.
 // Issue-BATCH-APPLY — 2026-03-16
 #[tokio::test]
@@ -86,17 +98,17 @@ async fn batch_of_10_events_applied_atomically() {
     assert_eq!(summary.duplicate, 0);
     assert_eq!(summary.rejected, 0);
 
-    // Verify all 10 artist rows exist.
+    // Verify all 10 feed rows exist.
     let conn = pool.reader().unwrap();
     for i in 1..=10 {
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM artists WHERE artist_id = ?1",
-                rusqlite::params![format!("batch-artist-{i}")],
+                "SELECT COUNT(*) FROM feeds WHERE feed_guid = ?1",
+                rusqlite::params![format!("batch-feed-{i}")],
                 |r| r.get(0),
             )
             .unwrap();
-        assert_eq!(count, 1, "artist batch-artist-{i} must exist");
+        assert_eq!(count, 1, "feed batch-feed-{i} must exist");
     }
 
     // Verify all 10 event rows exist.

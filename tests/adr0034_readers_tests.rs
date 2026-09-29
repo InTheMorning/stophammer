@@ -38,7 +38,6 @@ fn sample_feed(feed_guid: &str) -> Feed {
         feed_url: format!("https://example.com/{feed_guid}.xml"),
         title: "ADR 0034 Sample Feed".to_string(),
         title_lower: "adr 0034 sample feed".to_string(),
-        artist_credit_id: Some(0),
         description: None,
         image_url: None,
         publisher: None,
@@ -65,7 +64,6 @@ fn sample_track(feed_guid: &str, track_guid: &str) -> Track {
     Track {
         track_guid: track_guid.to_string(),
         feed_guid: feed_guid.to_string(),
-        artist_credit_id: Some(0),
         title: "ADR 0034 Sample Track".to_string(),
         title_lower: "adr 0034 sample track".to_string(),
         pub_date: None,

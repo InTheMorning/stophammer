@@ -26,6 +26,40 @@ const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
     "DROP TABLE IF EXISTS wallets;",
     "DROP TABLE IF EXISTS proof_challenges;",
     "DROP TABLE IF EXISTS proof_tokens;",
+    // Migration 0047 (ADR 0034 §11): the feeds/tracks rebuild, and every
+    // table the ADR lists to drop.
+    "DROP TABLE feeds;",
+    "DROP TABLE tracks;",
+    "DROP TABLE IF EXISTS artist_credit_name;",
+    "DROP TABLE IF EXISTS artist_aliases;",
+    "DROP TABLE IF EXISTS artist_credit;",
+    "DROP TABLE IF EXISTS artists;",
+    "DROP TABLE IF EXISTS artist_type;",
+    "DROP TABLE IF EXISTS rel_type;",
+    "DROP TABLE IF EXISTS external_ids;",
+    "DROP TABLE IF EXISTS feed_rel;",
+    "DROP TABLE IF EXISTS track_rel;",
+    "DROP TABLE IF EXISTS artist_artist_rel;",
+    "DROP TABLE IF EXISTS artist_tag;",
+    "DROP TABLE IF EXISTS artist_id_redirect;",
+    "DROP TABLE IF EXISTS feed_tag;",
+    "DROP TABLE IF EXISTS track_tag;",
+    "DROP TABLE IF EXISTS tags;",
+    "DROP TABLE IF EXISTS resolver_queue;",
+    "DROP TABLE IF EXISTS resolver_state;",
+    "DROP TABLE IF EXISTS resolved_entity_sources_by_feed;",
+    "DROP TABLE IF EXISTS resolved_external_ids_by_feed;",
+    "DROP TABLE IF EXISTS artist_identity_override;",
+    "DROP TABLE IF EXISTS artist_identity_review;",
+    "DROP TABLE IF EXISTS entity_field_status;",
+    "DROP TABLE IF EXISTS entity_source;",
+    "DROP TABLE IF EXISTS payment_routes_legacy_0032;",
+    "DROP TABLE IF EXISTS track_rel_legacy_0032;",
+    "DROP TABLE IF EXISTS track_tag_legacy_0032;",
+    "DROP TABLE IF EXISTS track_remote_items_raw_legacy_0032;",
+    "DROP TABLE IF EXISTS value_time_splits_legacy_0032;",
+    "DROP TABLE IF EXISTS tracks_legacy_0032;",
+    "DROP TABLE IF EXISTS live_events_legacy;",
 ];
 
 // ---------------------------------------------------------------------------
@@ -42,8 +76,12 @@ fn migrations_are_idempotent() {
     let conn1 = stophammer::db::open_db(&tmp);
     let tables_before = table_names(&conn1);
     assert!(
-        tables_before.contains(&"artists".to_string()),
-        "artists table must exist after first open"
+        tables_before.contains(&"feeds".to_string()),
+        "feeds table must exist after first open"
+    );
+    assert!(
+        !tables_before.contains(&"artists".to_string()),
+        "ADR 0034 §11: migration 0047 drops artists, so it must not exist after first open"
     );
     assert!(
         tables_before.contains(&"schema_migrations".to_string()),
@@ -58,12 +96,6 @@ fn migrations_are_idempotent() {
         tables_before, tables_after,
         "table set must be identical after restart"
     );
-
-    // Seed data must still be present (INSERT OR IGNORE must not duplicate).
-    let artist_type_count: i64 = conn2
-        .query_row("SELECT COUNT(*) FROM artist_type", [], |r| r.get(0))
-        .expect("count artist_type");
-    assert_eq!(artist_type_count, 6);
 
     drop(conn2);
     let _ = std::fs::remove_file(&tmp);
@@ -205,6 +237,69 @@ fn no_drop_table_in_migrations() {
     }
 }
 
+/// Every table ADR 0034 §11 names for migration 0047 to drop. Shared by
+/// [`removed_legacy_tables_stay_absent_and_kept_tables_remain_present`] and
+/// the migration-0047 acceptance test.
+const ADR_0034_DROPPED_TABLES: &[&str] = &[
+    // The artist credit.
+    "artists",
+    "artist_aliases",
+    "artist_credit",
+    "artist_credit_name",
+    "artist_type",
+    "rel_type",
+    "external_ids",
+    // Relationships and tags.
+    "feed_rel",
+    "track_rel",
+    "artist_artist_rel",
+    "artist_tag",
+    "artist_id_redirect",
+    "tags",
+    "feed_tag",
+    "track_tag",
+    // The resolver and the review.
+    "resolver_queue",
+    "resolver_state",
+    "resolved_entity_sources_by_feed",
+    "resolved_external_ids_by_feed",
+    "artist_identity_override",
+    "artist_identity_review",
+    "entity_field_status",
+    "entity_source",
+    // The wallets.
+    "wallets",
+    "wallet_aliases",
+    "wallet_artist_links",
+    "wallet_endpoints",
+    "wallet_feed_route_map",
+    "wallet_id_redirect",
+    "wallet_identity_override",
+    "wallet_identity_review",
+    "wallet_identity_review_legacy_0023",
+    "wallet_identity_review_legacy_0024",
+    "wallet_merge_apply_batch",
+    "wallet_merge_apply_entry",
+    "wallet_track_route_map",
+    // Leftover copies.
+    "tracks_legacy_0032",
+    "payment_routes_legacy_0032",
+    "track_rel_legacy_0032",
+    "track_tag_legacy_0032",
+    "track_remote_items_raw_legacy_0032",
+    "value_time_splits_legacy_0032",
+    "live_events_legacy",
+];
+
+fn table_exists(conn: &rusqlite::Connection, name: &str) -> bool {
+    conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
+        rusqlite::params![name],
+        |row| row.get(0),
+    )
+    .expect("query sqlite_master")
+}
+
 #[test]
 fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
     let conn = common::test_db();
@@ -218,39 +313,31 @@ fn removed_legacy_tables_stay_absent_and_kept_tables_remain_present() {
         "release_recordings",
         "recordings",
         "releases",
-        "wallets",
-        "wallet_endpoints",
-        "wallet_aliases",
-        "wallet_track_route_map",
-        "wallet_feed_route_map",
-        "wallet_id_redirect",
-        "wallet_artist_links",
-        "wallet_identity_review",
-        "wallet_identity_override",
-        "wallet_merge_apply_batch",
-        "wallet_merge_apply_entry",
         "proof_challenges",
         "proof_tokens",
     ] {
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
-                rusqlite::params![name],
-                |row| row.get(0),
-            )
-            .expect("query sqlite_master");
-        assert!(!exists, "legacy table {name} should not exist in schema");
+        assert!(
+            !table_exists(&conn, name),
+            "legacy table {name} should not exist in schema"
+        );
     }
 
-    let name = "artist_type";
-    let exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name=?1",
-            rusqlite::params![name],
-            |row| row.get(0),
-        )
-        .expect("query sqlite_master");
-    assert!(exists, "table {name} should still exist");
+    for name in ADR_0034_DROPPED_TABLES {
+        assert!(
+            !table_exists(&conn, name),
+            "ADR 0034 §11 table {name} should not exist in schema"
+        );
+    }
+
+    for name in [
+        "entity_quality",
+        "search_entities",
+        "search_index",
+        "feeds",
+        "tracks",
+    ] {
+        assert!(table_exists(&conn, name), "table {name} should still exist");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -597,21 +684,21 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // 001 added migration 0040, ADR 0052 task 006 added migration 0041, ADR
     // 0052 task 007 added migration 0042, ADR 0060 added migration 0043, ADR
     // 0064 task 002 added migration 0044, ADR 0067 task 001 added migration
-    // 0045, and ADR 0056 task 002 added migration 0046, after this fixture
-    // was written. The fixture still stops at 0035, so open_db also runs
-    // 0037 (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34),
-    // 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044 (entry 38),
-    // 0045 (entry 39) and 0046 (entry 40), ten migrations past the 0036 this
-    // test names.
+    // 0045, ADR 0056 task 002 added migration 0046, and ADR 0034 task 003
+    // added migration 0047, after this fixture was written. The fixture
+    // still stops at 0035, so open_db also runs 0037 (entry 31), 0038 (entry
+    // 32), 0039 (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry
+    // 36), 0043 (entry 37), 0044 (entry 38), 0045 (entry 39), 0046 (entry 40)
+    // and 0047 (entry 41), eleven migrations past the 0036 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 40,
-        "the runner must record version 40 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044, 0045 and 0046 run"
+        recorded_version, 41,
+        "the runner must record version 41 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045, 0046 and 0047 run"
     );
 }
 
@@ -713,21 +800,22 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // migration 0039, ADR 0058 task 001 added migration 0040, ADR 0052 task
     // 006 added migration 0041, ADR 0052 task 007 added migration 0042, ADR
     // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, ADR
-    // 0067 task 001 added migration 0045, and ADR 0056 task 002 added
-    // migration 0046, after this fixture was written. The fixture stops at
-    // 0036, so open_db also runs 0038 (entry 32), 0039 (entry 33), 0040
-    // (entry 34), 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044
-    // (entry 38), 0045 (entry 39) and 0046 (entry 40), nine migrations past
-    // the 0037 this test names.
+    // 0067 task 001 added migration 0045, ADR 0056 task 002 added migration
+    // 0046, and ADR 0034 task 003 added migration 0047, after this fixture
+    // was written. The fixture stops at 0036, so open_db also runs 0038
+    // (entry 32), 0039 (entry 33), 0040 (entry 34), 0041 (entry 35), 0042
+    // (entry 36), 0043 (entry 37), 0044 (entry 38), 0045 (entry 39), 0046
+    // (entry 40) and 0047 (entry 41), ten migrations past the 0037 this test
+    // names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 40,
-        "the runner must record version 40 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044, 0045 and 0046 run"
+        recorded_version, 41,
+        "the runner must record version 41 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045, 0046 and 0047 run"
     );
 }
 
@@ -768,17 +856,18 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
         "migration 0045 must run at position 39 and create source_gone_answers"
     );
 
-    // ADR 0056 task 002 added migration 0046, after this fixture was
-    // written. The fixture stops at 0044, so open_db also runs 0046 (entry
-    // 40) right after 0045 (entry 39).
+    // ADR 0056 task 002 added migration 0046, and ADR 0034 task 003 added
+    // migration 0047, after this fixture was written. The fixture stops at
+    // 0044, so open_db also runs 0046 (entry 40) and 0047 (entry 41) right
+    // after 0045 (entry 39).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 40,
-        "the runner must record version 40 after migrations 0045 and 0046 run"
+        recorded_version, 41,
+        "the runner must record version 41 after migrations 0045, 0046 and 0047 run"
     );
 }
 
@@ -828,14 +917,17 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
         "migration 0046 must run at position 40 and drop proof_tokens"
     );
 
+    // ADR 0034 task 003 added migration 0047, after this fixture was
+    // written. The fixture stops at 0045, so open_db also runs 0047 (entry
+    // 41) right after 0046 (entry 40).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 40,
-        "the runner must record version 40 after migration 0046 runs"
+        recorded_version, 41,
+        "the runner must record version 41 after migrations 0046 and 0047 run"
     );
 
     let trigger_sql: String = conn
@@ -862,18 +954,11 @@ fn feed_delete_succeeds_after_proof_tables_are_dropped() {
     let now = common::now();
 
     conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Drop Proof Tables Artist', ?1)",
-        rusqlite::params![now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          created_at, updated_at) \
          VALUES ('drop-proof-tables-feed', 'https://example.com/drop-proof-tables.xml', \
-         'Drop Proof Tables Feed', 'drop proof tables feed', ?1, ?2, ?3)",
-        rusqlite::params![credit_id, now, now],
+         'Drop Proof Tables Feed', 'drop proof tables feed', ?1, ?2)",
+        rusqlite::params![now, now],
     )
     .expect("insert feed");
 
@@ -891,4 +976,303 @@ fn feed_delete_succeeds_after_proof_tables_are_dropped() {
         )
         .expect("count remaining feed rows");
     assert_eq!(remaining, 0, "feed row must be gone after delete");
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0034 §11, task 003: migration 0047 rebuilds `feeds` and `tracks` with
+// no `artist_credit_id`, and drops every table the ADR lists, including the
+// six the first build of this task found still hold a foreign key to
+// `rel_type` or `artists` (`feed_rel`, `track_rel`, `artist_artist_rel`,
+// `artist_tag`, `artist_id_redirect`, `track_rel_legacy_0032`).
+// ---------------------------------------------------------------------------
+
+#[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "the migration 0047 acceptance test builds a pre-migration fixture, seeds every \
+              table from the original escalation, and checks each ADR 0034 §11 acceptance \
+              criterion in one place for a single, readable narrative"
+)]
+fn migration_0047_drops_every_adr_0034_table_and_keeps_deletes_working() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("adr-0034-task-003-migration.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0046_drop_proof_tables.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (40, 1);",
+        )
+        .expect("mark the database at the array position of migration 0046");
+
+        // Artist rows and a credit.
+        conn.execute(
+            "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
+             VALUES ('a1', 'Test Artist', 'test artist', 1, 1)",
+            [],
+        )
+        .expect("insert artist");
+        conn.execute(
+            "INSERT INTO artist_credit (id, display_name, feed_guid, created_at) \
+             VALUES (1, 'Test Artist', 'feed-1', 1)",
+            [],
+        )
+        .expect("insert artist_credit");
+        conn.execute(
+            "INSERT INTO artist_credit_name \
+             (artist_credit_id, artist_id, position, name, join_phrase) \
+             VALUES (1, 'a1', 0, 'Test Artist', '')",
+            [],
+        )
+        .expect("insert artist_credit_name");
+        conn.execute(
+            "INSERT INTO artist_aliases (alias_lower, artist_id, created_at) \
+             VALUES ('test artist', 'a1', 1)",
+            [],
+        )
+        .expect("insert artist_aliases");
+
+        // A feed and a track that carry the credit.
+        conn.execute(
+            "INSERT INTO feeds \
+             (feed_guid, feed_url, title, title_lower, artist_credit_id, explicit, \
+              episode_count, created_at, updated_at) \
+             VALUES ('feed-1', 'https://example.com/feed1.xml', 'Feed One', 'feed one', \
+                     1, 0, 1, 1, 1)",
+            [],
+        )
+        .expect("insert feed");
+        conn.execute(
+            "INSERT INTO tracks \
+             (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, \
+              created_at, updated_at) \
+             VALUES ('track-1', 'feed-1', 1, 'Track One', 'track one', 0, 1, 1)",
+            [],
+        )
+        .expect("insert track");
+
+        // One source_gone_answers row (ADR 0067), which must survive.
+        conn.execute(
+            "INSERT INTO source_gone_answers \
+             (feed_guid, source_url, first_gone_at, last_gone_at, last_status) \
+             VALUES ('feed-1', 'https://example.com/feed1.xml', 1, 1, 404)",
+            [],
+        )
+        .expect("insert source_gone_answers");
+
+        // Rows in the six tables the first build of this task found still
+        // hold a foreign key to `rel_type` or `artists`, so a plain feed or
+        // track delete exercises the exact regression that was found.
+        conn.execute(
+            "INSERT INTO rel_type (id, name, entity_pair, description) \
+             VALUES (99, 'performs_on', 'artist-track', 'test role')",
+            [],
+        )
+        .expect("insert rel_type");
+        conn.execute(
+            "INSERT INTO feed_rel (feed_guid_a, feed_guid_b, rel_type_id, created_at) \
+             VALUES ('feed-1', 'feed-1', 99, 1)",
+            [],
+        )
+        .expect("insert feed_rel");
+        conn.execute(
+            "INSERT INTO track_rel \
+             (feed_guid_a, track_guid_a, feed_guid_b, track_guid_b, rel_type_id, created_at) \
+             VALUES ('feed-1', 'track-1', 'feed-1', 'track-1', 99, 1)",
+            [],
+        )
+        .expect("insert track_rel");
+        conn.execute(
+            "INSERT INTO artist_artist_rel (artist_id_a, artist_id_b, rel_type_id, created_at) \
+             VALUES ('a1', 'a1', 99, 1)",
+            [],
+        )
+        .expect("insert artist_artist_rel");
+        conn.execute(
+            "INSERT INTO tags (id, name, created_at) VALUES (1, 'test-tag', 1)",
+            [],
+        )
+        .expect("insert tags");
+        conn.execute(
+            "INSERT INTO artist_tag (artist_id, tag_id, created_at) VALUES ('a1', 1, 1)",
+            [],
+        )
+        .expect("insert artist_tag");
+        conn.execute(
+            "INSERT INTO artist_id_redirect (old_artist_id, new_artist_id, merged_at) \
+             VALUES ('a0', 'a1', 1)",
+            [],
+        )
+        .expect("insert artist_id_redirect");
+    }
+
+    let feeds_before = 1_i64;
+    let tracks_before = 1_i64;
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    // `feeds` and `tracks` have no `artist_credit_id`.
+    assert!(
+        !table_has_column(&conn, "feeds", "artist_credit_id"),
+        "feeds must lose artist_credit_id"
+    );
+    assert!(
+        !table_has_column(&conn, "tracks", "artist_credit_id"),
+        "tracks must lose artist_credit_id"
+    );
+
+    // Each table of the ADR 0034 §11 list is gone.
+    for name in ADR_0034_DROPPED_TABLES {
+        assert!(
+            !table_exists(&conn, name),
+            "ADR 0034 §11 table {name} must be gone after migration 0047"
+        );
+    }
+
+    // The row counts of feeds and tracks are the same.
+    let feeds_after: i64 = conn
+        .query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))
+        .expect("count feeds");
+    let tracks_after: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks");
+    assert_eq!(
+        feeds_after, feeds_before,
+        "feeds row count must be unchanged"
+    );
+    assert_eq!(
+        tracks_after, tracks_before,
+        "tracks row count must be unchanged"
+    );
+
+    // PRAGMA foreign_key_check gives no row.
+    let mut fk_check_stmt = conn
+        .prepare("PRAGMA foreign_key_check")
+        .expect("prepare foreign_key_check");
+    let has_violation = fk_check_stmt
+        .query([])
+        .expect("run foreign_key_check")
+        .next()
+        .expect("read foreign_key_check row")
+        .is_some();
+    assert!(!has_violation, "foreign_key_check must give no row");
+    drop(fk_check_stmt);
+
+    // The source_gone_answers row is still there.
+    let gone_answers: i64 = conn
+        .query_row("SELECT COUNT(*) FROM source_gone_answers", [], |r| r.get(0))
+        .expect("count source_gone_answers");
+    assert_eq!(gone_answers, 1, "source_gone_answers row must survive");
+
+    // PRAGMA foreign_keys gives 1 again.
+    let foreign_keys_on: i64 = conn
+        .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+        .expect("read foreign_keys pragma");
+    assert_eq!(foreign_keys_on, 1, "foreign_keys must be back on");
+
+    // A delete of a track succeeds with foreign keys on.
+    conn.execute("DELETE FROM tracks WHERE track_guid = 'track-1'", [])
+        .expect("delete track with foreign keys on");
+    let tracks_left: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks after track delete");
+    assert_eq!(tracks_left, 0, "the deleted track must be gone");
+
+    // Re-seed a track so the feed delete below also exercises the cascade.
+    conn.execute(
+        "INSERT INTO tracks \
+         (track_guid, feed_guid, title, title_lower, explicit, created_at, updated_at) \
+         VALUES ('track-2', 'feed-1', 'Track Two', 'track two', 0, 1, 1)",
+        [],
+    )
+    .expect("insert second track");
+
+    // A delete of a feed succeeds with foreign keys on, and still deletes
+    // its tracks (the trigger's own `DELETE FROM tracks` statement).
+    conn.execute("DELETE FROM feeds WHERE feed_guid = 'feed-1'", [])
+        .expect("delete feed with foreign keys on");
+    let feeds_left: i64 = conn
+        .query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))
+        .expect("count feeds after feed delete");
+    let tracks_left_after_feed_delete: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks after feed delete");
+    assert_eq!(feeds_left, 0, "the deleted feed must be gone");
+    assert_eq!(
+        tracks_left_after_feed_delete, 0,
+        "the feed delete must still delete its tracks"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ADR 0034 §11: a migration marked `-- stophammer: foreign_keys=off` whose
+// SQL leaves a foreign key violation must roll back and name its version in
+// the error.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn migration_with_marker_and_fk_violation_fails_and_changes_nothing() {
+    let mut conn = common::test_db();
+    let now = common::now();
+
+    conn.execute(
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at) \
+         VALUES ('fk-violation-feed', 'https://example.com/fk-violation.xml', 'F', 'f', ?1, ?1)",
+        rusqlite::params![now],
+    )
+    .expect("insert feed");
+
+    let tracks_before: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks before");
+
+    // This migration's INSERT names a feed_guid that does not exist, which
+    // PRAGMA foreign_key_check must catch once the marker turns foreign keys
+    // back on for the check.
+    let bad_sql = "-- stophammer: foreign_keys=off\n\
+        INSERT INTO tracks \
+        (track_guid, feed_guid, title, title_lower, explicit, created_at, updated_at) \
+        VALUES ('orphan-track', 'no-such-feed', 'Orphan', 'orphan', 0, 1, 1);";
+
+    let result = stophammer::db::run_one_migration_for_test(&mut conn, bad_sql, 9001);
+
+    let err = result.expect_err("a migration that leaves a foreign key violation must fail");
+    let message = err.to_string();
+    assert!(
+        message.contains("9001"),
+        "the error must name the migration version, got: {message}"
+    );
+
+    let tracks_after: i64 = conn
+        .query_row("SELECT COUNT(*) FROM tracks", [], |r| r.get(0))
+        .expect("count tracks after");
+    assert_eq!(
+        tracks_after, tracks_before,
+        "a rolled-back migration must change nothing"
+    );
+
+    let applied: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version = 9001",
+            [],
+            |r| r.get(0),
+        )
+        .expect("count schema_migrations rows for version 9001");
+    assert_eq!(
+        applied, 0,
+        "a rolled-back migration must not record its version"
+    );
+
+    let foreign_keys_on: i64 = conn
+        .query_row("PRAGMA foreign_keys", [], |r| r.get(0))
+        .expect("read foreign_keys pragma");
+    assert_eq!(
+        foreign_keys_on, 1,
+        "foreign_keys must be back on after a failed migration"
+    );
 }

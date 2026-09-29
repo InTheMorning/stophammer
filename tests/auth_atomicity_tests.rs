@@ -8,54 +8,23 @@ use std::sync::{Arc, Mutex, RwLock};
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .expect("insert artist");
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .expect("insert artist_credit_name");
-    credit_id
-}
-
+/// Inserts a feed. ADR 0034 §11: `feeds` carries no artist credit.
 fn insert_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     feed_url: &str,
     title: &str,
-    credit_id: i64,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          description, explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             feed_guid,
             feed_url,
             title,
             title.to_lowercase(),
-            credit_id,
             "A test feed",
             0,
             0,
@@ -87,19 +56,15 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
     })
 }
 
-fn seed_feed(conn: &rusqlite::Connection) -> (i64, i64) {
+fn seed_feed(conn: &rusqlite::Connection) {
     let now = common::now();
-    insert_artist(conn, "artist-1", "Test Artist", now);
-    let credit_id = insert_artist_credit(conn, "artist-1", "Test Artist", now);
     insert_feed(
         conn,
         "feed-1",
         "https://example.com/feed.xml",
         "Test Album",
-        credit_id,
         now,
     );
-    (credit_id, now)
 }
 
 // ---------------------------------------------------------------------------

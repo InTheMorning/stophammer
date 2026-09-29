@@ -272,10 +272,13 @@ fn observation_guid(db: &Arc<Mutex<rusqlite::Connection>>, url: &str) -> Option<
         .map(|observation| observation.feed_guid)
 }
 
-fn artist_credit_count(db: &Arc<Mutex<rusqlite::Connection>>) -> i64 {
+/// Counts `feeds` rows. ADR 0034 §11 drops `artist_credit`; a rejected or
+/// no-change submission must add no new feed row, so `feeds` is the proxy
+/// these tests use for "no new persisted state" instead.
+fn feed_count(db: &Arc<Mutex<rusqlite::Connection>>) -> i64 {
     let conn = db.lock().expect("lock db");
-    conn.query_row("SELECT COUNT(*) FROM artist_credit", [], |row| row.get(0))
-        .expect("count artist_credit rows")
+    conn.query_row("SELECT COUNT(*) FROM feeds", [], |row| row.get(0))
+        .expect("count feeds rows")
 }
 
 /// ADR 0051 section 2, Mirror case: a body from a URL that is not the source
@@ -657,9 +660,9 @@ async fn a_no_change_submission_that_declares_a_different_held_guid_answers_reco
 }
 
 /// ADR 0051 Guards: a `guid_change_pending` rejection writes no new
-/// `artist_credit` row.
+/// feed row.
 #[tokio::test]
-async fn artist_credit_count_is_unchanged_by_guid_change_pending() {
+async fn feed_count_is_unchanged_by_guid_change_pending() {
     let crawl_token = "adr0051-artistcredit-token";
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db), crawl_token);
@@ -679,7 +682,7 @@ async fn artist_credit_count_is_unchanged_by_guid_change_pending() {
     )
     .await;
 
-    let credits_before = artist_credit_count(&db);
+    let feeds_before = feed_count(&db);
     let resp = ingest_response(
         stophammer::api::build_router(Arc::clone(&state)),
         &ingest_payload(
@@ -693,16 +696,16 @@ async fn artist_credit_count_is_unchanged_by_guid_change_pending() {
     .await;
     assert_eq!(resp["reason"], "guid_change_pending", "{resp:?}");
     assert_eq!(
-        artist_credit_count(&db),
-        credits_before,
-        "a guid_change_pending rejection must not add an artist_credit row"
+        feed_count(&db),
+        feeds_before,
+        "a guid_change_pending rejection must not add a feed row"
     );
 }
 
 /// ADR 0051 Guards: a `record_conflict` rejection in the write phase writes
-/// no new `artist_credit` row.
+/// no new feed row.
 #[tokio::test]
-async fn artist_credit_count_is_unchanged_by_record_conflict() {
+async fn feed_count_is_unchanged_by_record_conflict() {
     let crawl_token = "adr0051-artistcredit-token";
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db), crawl_token);
@@ -734,7 +737,7 @@ async fn artist_credit_count_is_unchanged_by_record_conflict() {
     )
     .await;
 
-    let credits_before = artist_credit_count(&db);
+    let feeds_before = feed_count(&db);
     let resp = ingest_response(
         stophammer::api::build_router(Arc::clone(&state)),
         &ingest_payload(
@@ -748,16 +751,16 @@ async fn artist_credit_count_is_unchanged_by_record_conflict() {
     .await;
     assert_eq!(resp["reason"], "record_conflict", "{resp:?}");
     assert_eq!(
-        artist_credit_count(&db),
-        credits_before,
-        "a record_conflict rejection must not add an artist_credit row"
+        feed_count(&db),
+        feeds_before,
+        "a record_conflict rejection must not add a feed row"
     );
 }
 
 /// ADR 0051 Guards: a `record_conflict` rejection in the no-change path
-/// writes no new `artist_credit` row.
+/// writes no new feed row.
 #[tokio::test]
-async fn artist_credit_count_is_unchanged_by_a_no_change_record_conflict() {
+async fn feed_count_is_unchanged_by_a_no_change_record_conflict() {
     let crawl_token = "adr0051-artistcredit-token";
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db), crawl_token);
@@ -790,7 +793,7 @@ async fn artist_credit_count_is_unchanged_by_a_no_change_record_conflict() {
     )
     .await;
 
-    let credits_before = artist_credit_count(&db);
+    let feeds_before = feed_count(&db);
     let resp = ingest_response(
         stophammer::api::build_router(Arc::clone(&state)),
         &ingest_payload(
@@ -804,8 +807,8 @@ async fn artist_credit_count_is_unchanged_by_a_no_change_record_conflict() {
     .await;
     assert_eq!(resp["reason"], "record_conflict", "{resp:?}");
     assert_eq!(
-        artist_credit_count(&db),
-        credits_before,
-        "a no-change record_conflict rejection must not add an artist_credit row"
+        feed_count(&db),
+        feeds_before,
+        "a no-change record_conflict rejection must not add a feed row"
     );
 }

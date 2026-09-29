@@ -19,15 +19,14 @@
 
 use crate::event::{Event, EventPayload, EventType};
 use crate::model::{
-    Artist, ArtistCredit, ArtistCreditName, CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute,
-    FeedRemoteItemRaw, LiveEvent, PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim,
-    SourceEntityIdClaim, SourceEntityLink, SourceItemEnclosure, SourceItemTranscript,
-    SourcePlatformClaim, SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit,
-    feed_recipient_set, recipient_set,
+    CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
+    PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim, SourceEntityIdClaim,
+    SourceEntityLink, SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim,
+    SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, feed_recipient_set,
+    recipient_set,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
-use sha2::Digest;
 use std::collections::BTreeMap;
 use std::fmt;
 use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
@@ -251,7 +250,47 @@ const MIGRATIONS: &[&str] = &[
     // Migration 46: drop proof_challenges and proof_tokens, and rebuild the
     // feed delete trigger without them (ADR 0056 §3, task 002)
     include_str!("../migrations/0046_drop_proof_tables.sql"),
+    // Migration 47: rebuild `feeds` and `tracks` with no `artist_credit_id`,
+    // and drop the seven tables that only served the compatibility artist
+    // credit (ADR 0034 §11)
+    include_str!("../migrations/0047_drop_artist_credit.sql"),
 ];
+
+/// First line of a migration that must run with foreign key enforcement
+/// turned off before its transaction starts.
+///
+/// `SQLite` ignores `PRAGMA foreign_keys` set inside a transaction, and
+/// [`run_migrations`] runs each migration inside one. A migration that drops
+/// a table another table's foreign key names — as migration 0047 does,
+/// rebuilding `feeds` and `tracks` — needs the setting off before its
+/// transaction opens, or the drop is refused. ADR 0034 §11 owns this rule.
+const FOREIGN_KEYS_OFF_MARKER: &str = "-- stophammer: foreign_keys=off";
+
+/// Reads the highest migration version `schema_migrations` records, or `0`
+/// when the table does not exist yet (a database no migration has ever
+/// opened). Used by [`try_open_db`] to decide, before `run_migrations` runs,
+/// which historical-watermark repair a database still needs.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query against `sqlite_master` or
+/// `schema_migrations` fails.
+fn recorded_migration_version(conn: &Connection) -> Result<i64, DbError> {
+    let table_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !table_exists {
+        return Ok(0);
+    }
+    let version: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) FROM schema_migrations",
+        [],
+        |r| r.get(0),
+    )?;
+    Ok(version)
+}
 
 /// Reports whether a newly appended migration can still run.
 ///
@@ -309,19 +348,103 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
         // Migration versions are 1-indexed; the array will never have enough
         // entries for the index to overflow i64.
         let version = i64::try_from(idx).expect("migration count overflowed i64") + 1;
-        if version > current {
-            // Issue-CHECKED-TX — 2026-03-16: conn is freshly opened in open_db, no nesting.
-            let tx = conn.transaction()?;
-            tx.execute_batch(sql)?;
-            tx.execute(
-                "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
-                params![version, unix_now()],
-            )?;
-            tx.commit()?;
+        if version <= current {
+            continue;
         }
+
+        let needs_foreign_keys_off = sql.lines().next() == Some(FOREIGN_KEYS_OFF_MARKER);
+        if needs_foreign_keys_off {
+            conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+        }
+
+        let result = run_one_migration(conn, sql, version, needs_foreign_keys_off);
+
+        // ADR 0034 §11: foreign keys go back on after the transaction, even
+        // when the migration failed and rolled back.
+        if needs_foreign_keys_off {
+            conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+        }
+
+        result?;
     }
 
     Ok(())
+}
+
+/// Runs one migration's SQL inside its own transaction, records its version,
+/// and commits.
+///
+/// When `needs_foreign_keys_off` is set, the caller has already turned
+/// foreign key enforcement off before this call. After the migration SQL
+/// runs, this checks `PRAGMA foreign_key_check` before the commit: a row
+/// means the rebuild left a dangling reference, and the transaction rolls
+/// back (by returning before `commit`) with an error that names the
+/// migration version. ADR 0034 §11 owns this rule.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the migration SQL fails, the foreign key check
+/// finds a violation, or the bookkeeping insert or commit fails.
+fn run_one_migration(
+    conn: &mut Connection,
+    sql: &str,
+    version: i64,
+    needs_foreign_keys_off: bool,
+) -> Result<(), DbError> {
+    // Issue-CHECKED-TX — 2026-03-16: conn is freshly opened in open_db, no nesting.
+    let tx = conn.transaction()?;
+    tx.execute_batch(sql)?;
+
+    if needs_foreign_keys_off {
+        let mut stmt = tx.prepare("PRAGMA foreign_key_check")?;
+        let has_violation = stmt.query(())?.next()?.is_some();
+        drop(stmt);
+        if has_violation {
+            // Dropping `tx` here rolls back every change this migration made.
+            return Err(DbError::Other(format!(
+                "migration {version} left a foreign key violation with foreign keys off; \
+                 rolled back"
+            )));
+        }
+    }
+
+    tx.execute(
+        "INSERT INTO schema_migrations (version, applied_at) VALUES (?1, ?2)",
+        params![version, unix_now()],
+    )?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Test-only seam onto [`run_one_migration`], so an integration test can
+/// exercise the `-- stophammer: foreign_keys=off` marker (ADR 0034 §11) with
+/// SQL of its own choosing, without adding a real entry to [`MIGRATIONS`].
+///
+/// Detects the marker the same way [`run_migrations`] does, sets
+/// `PRAGMA foreign_keys` off and back on around the call, and returns
+/// whatever [`run_one_migration`] returns.
+///
+/// # Errors
+///
+/// Returns [`DbError`] under the same conditions as [`run_one_migration`].
+#[cfg(feature = "test-util")]
+pub fn run_one_migration_for_test(
+    conn: &mut Connection,
+    sql: &str,
+    version: i64,
+) -> Result<(), DbError> {
+    let needs_foreign_keys_off = sql.lines().next() == Some(FOREIGN_KEYS_OFF_MARKER);
+    if needs_foreign_keys_off {
+        conn.execute_batch("PRAGMA foreign_keys = OFF;")?;
+    }
+
+    let result = run_one_migration(conn, sql, version, needs_foreign_keys_off);
+
+    if needs_foreign_keys_off {
+        conn.execute_batch("PRAGMA foreign_keys = ON;")?;
+    }
+
+    result
 }
 
 fn table_has_column(
@@ -462,6 +585,60 @@ fn ensure_remote_item_rel_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Adds `feeds.release_artist_source` when migration 0037 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. Migration 0047
+/// (ADR 0034 §11) rebuilds `feeds` copying every column the current schema
+/// declares, so a node missing this one needs it repaired first, not only
+/// after `run_migrations`. ADR 0049 §5 owns the field.
+fn ensure_feed_release_artist_source_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "feeds", "release_artist_source")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE feeds ADD COLUMN release_artist_source TEXT;")?;
+    Ok(())
+}
+
+/// Adds `feeds.declared_self_url` when migration 0039 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. Migration 0047
+/// (ADR 0034 §11) rebuilds `feeds` copying every column the current schema
+/// declares, so a node missing this one needs it repaired first, not only
+/// after `run_migrations`. ADR 0052 §2 owns the field.
+fn ensure_feed_declared_self_url_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "feeds", "declared_self_url")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE feeds ADD COLUMN declared_self_url TEXT;")?;
+    Ok(())
+}
+
+/// Adds `feeds.declared_new_feed_url`, `feeds.podcast_locked` and
+/// `feeds.locked_owner` when migration 0041 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. Migration 0047
+/// (ADR 0034 §11) rebuilds `feeds` copying every column the current schema
+/// declares, so a node missing one of these needs it repaired first, not
+/// only after `run_migrations`. ADR 0052 sections 2, 3 and 6, task 006, own
+/// the fields.
+fn ensure_feed_move_declaration_schema(conn: &Connection) -> Result<(), DbError> {
+    if !table_has_column(conn, "feeds", "declared_new_feed_url")? {
+        conn.execute_batch("ALTER TABLE feeds ADD COLUMN declared_new_feed_url TEXT;")?;
+    }
+    if !table_has_column(conn, "feeds", "podcast_locked")? {
+        conn.execute_batch("ALTER TABLE feeds ADD COLUMN podcast_locked INTEGER;")?;
+    }
+    if !table_has_column(conn, "feeds", "locked_owner")? {
+        conn.execute_batch("ALTER TABLE feeds ADD COLUMN locked_owner TEXT;")?;
+    }
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -500,11 +677,52 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
          PRAGMA synchronous = NORMAL;\n\
          PRAGMA cache_size = -65536;",
     )?;
+    // ADR 0034 §11: migration 0047 (array position 41) rebuilds `feeds` and
+    // `tracks`, copying every column an earlier migration adds. A node whose
+    // recorded watermark already skipped one of those migrations (ADR 0046)
+    // needs the repair before 0047 runs, not only after, or 0047's copy
+    // fails on the missing column. Each repair below runs only when the
+    // watermark recorded before this open already reached that migration's
+    // own array position: `run_migrations` is about to run that migration
+    // for real otherwise, and repairing it here first would make its own
+    // `ADD COLUMN` fail on a column that already exists.
+    let recorded_before_open = recorded_migration_version(&conn)?;
+    if recorded_before_open >= 26 {
+        // Migration 0032, `ensure_feed_scoped_track_identity_schema`.
+        ensure_feed_scoped_track_identity_schema(&mut conn)?;
+    }
+    if recorded_before_open >= 27 {
+        // Migration 0033, `ensure_source_contributor_npub_schema`.
+        ensure_source_contributor_npub_schema(&conn)?;
+    }
+    if recorded_before_open >= 28 {
+        // Migration 0034, `ensure_feed_last_build_date_schema`.
+        ensure_feed_last_build_date_schema(&conn)?;
+    }
+    if recorded_before_open >= 29 {
+        // Migration 0035, `ensure_remote_item_rel_schema`.
+        ensure_remote_item_rel_schema(&conn)?;
+    }
+    if recorded_before_open >= 31 {
+        // Migration 0037, `ensure_feed_release_artist_source_schema`.
+        ensure_feed_release_artist_source_schema(&conn)?;
+    }
+    if recorded_before_open >= 33 {
+        // Migration 0039, `ensure_feed_declared_self_url_schema`.
+        ensure_feed_declared_self_url_schema(&conn)?;
+    }
+    if recorded_before_open >= 35 {
+        // Migration 0041, `ensure_feed_move_declaration_schema`.
+        ensure_feed_move_declaration_schema(&conn)?;
+    }
     run_migrations(&mut conn)?;
     ensure_feed_scoped_track_identity_schema(&mut conn)?;
     ensure_source_contributor_npub_schema(&conn)?;
     ensure_feed_last_build_date_schema(&conn)?;
     ensure_remote_item_rel_schema(&conn)?;
+    ensure_feed_release_artist_source_schema(&conn)?;
+    ensure_feed_declared_self_url_schema(&conn)?;
+    ensure_feed_move_declaration_schema(&conn)?;
     Ok(conn)
 }
 
@@ -576,150 +794,6 @@ pub fn unix_now() -> i64 {
         .expect("system clock is before Unix epoch — check system time configuration")
         .as_secs()
         .cast_signed()
-}
-
-/// Returns a deterministic feed-scoped compatibility credit for published
-/// artist text without invoking cross-feed resolution.
-///
-/// This is a transitional helper for source-first ingest paths that still need
-/// `artist_credit_id` foreign keys while Phase 3 removes canonical identity
-/// assumptions from feed/track writes.
-pub fn get_or_create_feed_scoped_source_text_credit(
-    conn: &Connection,
-    display_name: &str,
-    feed_guid: &str,
-) -> Result<ArtistCredit, DbError> {
-    let display_name = display_name.trim();
-    if display_name.is_empty() {
-        return Err(DbError::Other(
-            "source text credit display_name must not be empty".to_string(),
-        ));
-    }
-
-    if let Some(existing) = get_artist_credit_by_display_name(conn, display_name, Some(feed_guid))?
-    {
-        return Ok(existing);
-    }
-
-    let now = unix_now();
-    let normalized = display_name.to_lowercase();
-    let artist_id = canonical_cluster_id(
-        "source_text_artist",
-        &format!("source_text_artist_v1|{feed_guid}|{normalized}"),
-    );
-    let artist = Artist {
-        artist_id,
-        name: display_name.to_string(),
-        name_lower: normalized,
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-    upsert_artist_if_absent(conn, &artist)?;
-    create_single_artist_credit(conn, &artist, Some(feed_guid))
-}
-
-/// Resolves `artist_credit_id` for a `Feed` or a `Track` applied from a
-/// signed event, making the feed-scoped credit when the payload carries none.
-///
-/// ADR 0034 §11 (Release A): a node accepts a `FeedUpserted` or a
-/// `TrackUpserted` event whose payload has no `artist_credit_id`, and makes
-/// the feed-scoped credit itself, the way ingest does. A primary on release A
-/// sets `artist_credit_id` to `Some` on every event it signs. The field is
-/// absent only in an event from a primary on release B. Ingest does not call
-/// this function.
-///
-/// `existing` is the payload's own `artist_credit_id`; when `Some`, it wins
-/// and no lookup runs. `text` is the payload field that names the credit
-/// directly — the feed's `release_artist`, or the track's `track_artist`.
-/// When `text` is absent or empty (after a trim), `fallback` supplies the
-/// credit id to use instead: the literal placeholder credit for a feed, or
-/// the feed's own stored credit for a track.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the credit lookup or insert fails, or if
-/// `fallback` fails.
-pub fn resolve_optional_artist_credit_id(
-    conn: &Connection,
-    existing: Option<i64>,
-    text: Option<&str>,
-    feed_guid: &str,
-    fallback: impl FnOnce(&Connection) -> Result<i64, DbError>,
-) -> Result<i64, DbError> {
-    if let Some(id) = existing {
-        return Ok(id);
-    }
-
-    match text.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => {
-            let credit = get_or_create_feed_scoped_source_text_credit(conn, name, feed_guid)?;
-            Ok(credit.id)
-        }
-        None => fallback(conn),
-    }
-}
-
-// ── get_artist_by_id ─────────────────────────────────────────────────────────
-// Issue-12 PATCH emits events — 2026-03-13
-
-/// Returns the artist row for `artist_id`, or `None` if absent.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn get_artist_by_id(conn: &Connection, artist_id: &str) -> Result<Option<Artist>, DbError> {
-    let result = conn
-        .query_row(
-            "SELECT artist_id, name, name_lower, sort_name, type_id, area, \
-         img_url, url, begin_year, end_year, created_at, updated_at \
-         FROM artists WHERE artist_id = ?1",
-            params![artist_id],
-            |row| {
-                Ok(Artist {
-                    artist_id: row.get(0)?,
-                    name: row.get(1)?,
-                    name_lower: row.get(2)?,
-                    sort_name: row.get(3)?,
-                    type_id: row.get(4)?,
-                    area: row.get(5)?,
-                    img_url: row.get(6)?,
-                    url: row.get(7)?,
-                    begin_year: row.get(8)?,
-                    end_year: row.get(9)?,
-                    created_at: row.get(10)?,
-                    updated_at: row.get(11)?,
-                })
-            },
-        )
-        .optional()?;
-    Ok(result)
-}
-
-// ── artist_exists ────────────────────────────────────────────────────────────
-// Issue-SSE-EXHAUSTION — 2026-03-15
-
-/// Returns `true` if an artist with the given `artist_id` exists in the database.
-///
-/// Uses a lightweight `SELECT 1` query (no row parsing) so it is cheaper than
-/// [`get_artist_by_id`] for pure existence checks.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn artist_exists(conn: &Connection, artist_id: &str) -> Result<bool, DbError> {
-    let exists: bool = conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM artists WHERE artist_id = ?1)",
-        params![artist_id],
-        |row| row.get(0),
-    )?;
-    Ok(exists)
 }
 
 // ── get_payment_routes_for_track ─────────────────────────────────────────────
@@ -855,532 +929,6 @@ pub fn get_value_time_splits_for_feed_track(
     rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
-// ── add_artist_alias ──────────────────────────────────────────────────────────
-
-/// Registers `alias` (lowercased) as an additional lookup key for `artist_id`.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL insert fails.
-pub fn add_artist_alias(conn: &Connection, artist_id: &str, alias: &str) -> Result<(), DbError> {
-    let now = unix_now();
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, created_at) \
-         VALUES (?1, ?2, ?3)",
-        params![alias.to_lowercase(), artist_id, now],
-    )?;
-    Ok(())
-}
-
-// ── upsert_artist_if_absent ───────────────────────────────────────────────────
-
-/// Inserts the artist if no row with the same `artist_id` exists yet.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL insert fails.
-pub fn upsert_artist_if_absent(conn: &Connection, artist: &Artist) -> Result<(), DbError> {
-    conn.execute(
-        "INSERT OR IGNORE INTO artists (artist_id, name, name_lower, sort_name, type_id, area, \
-         img_url, url, begin_year, end_year, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-        params![
-            artist.artist_id,
-            artist.name,
-            artist.name_lower,
-            artist.sort_name,
-            artist.type_id,
-            artist.area,
-            artist.img_url,
-            artist.url,
-            artist.begin_year,
-            artist.end_year,
-            artist.created_at,
-            artist.updated_at,
-        ],
-    )?;
-    Ok(())
-}
-
-// ── Artist credit operations ────────────────────────────────────────────────
-
-fn ensure_credit_artist_exists(
-    conn: &Connection,
-    artist_id: &str,
-    credited_name: &str,
-    feed_guid: Option<&str>,
-    now: i64,
-) -> Result<(), DbError> {
-    let existing: Option<String> = conn
-        .query_row(
-            "SELECT artist_id FROM artists WHERE artist_id = ?1",
-            params![artist_id],
-            |row| row.get(0),
-        )
-        .optional()?;
-    if existing.is_none() {
-        let name_lower = credited_name.to_lowercase();
-        conn.execute(
-            "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![artist_id, credited_name, name_lower, now, now],
-        )?;
-        conn.execute(
-            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) \
-             VALUES (?1, ?2, ?3, ?4)",
-            params![name_lower, artist_id, feed_guid, now],
-        )?;
-    }
-    Ok(())
-}
-
-/// Ensures the `artist_credit` row, its referenced artists, and all
-/// `artist_credit_name` members exist.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any dependency lookup or insert fails.
-pub(crate) fn upsert_artist_credit_sql(
-    conn: &Connection,
-    credit: &ArtistCredit,
-) -> Result<(), DbError> {
-    let now = unix_now();
-    for acn in &credit.names {
-        ensure_credit_artist_exists(
-            conn,
-            &acn.artist_id,
-            &acn.name,
-            credit.feed_guid.as_deref(),
-            now,
-        )?;
-    }
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (id, display_name, feed_guid, created_at) \
-         VALUES (?1, ?2, ?3, ?4)",
-        params![
-            credit.id,
-            credit.display_name,
-            credit.feed_guid,
-            credit.created_at
-        ],
-    )?;
-    for acn in &credit.names {
-        conn.execute(
-            "INSERT OR IGNORE INTO artist_credit_name \
-             (artist_credit_id, artist_id, position, name, join_phrase) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![
-                acn.artist_credit_id,
-                acn.artist_id,
-                acn.position,
-                acn.name,
-                acn.join_phrase
-            ],
-        )?;
-    }
-    Ok(())
-}
-
-/// Creates an artist credit with its constituent names. Returns the credit with
-/// the assigned `id` populated.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL insert fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn create_artist_credit(
-    conn: &Connection,
-    display_name: &str,
-    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
-    feed_guid: Option<&str>,
-) -> Result<ArtistCredit, DbError> {
-    let now = unix_now();
-
-    // INSERT OR IGNORE guards against the SQLite LOWER()-vs-Unicode mismatch:
-    // SQLite's built-in LOWER() is ASCII-only, so the pre-insert lookup in
-    // get_or_create_artist_credit misses rows whose display_name contains
-    // non-ASCII uppercase letters (e.g. "ZÄVODI").  If a concurrent or
-    // repeated ingest hits that path we must not hard-fail; fetch the
-    // existing row instead.
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (display_name, feed_guid, created_at) VALUES (?1, ?2, ?3)",
-        params![display_name, feed_guid, now],
-    )?;
-    let credit_id = if conn.changes() == 0 {
-        // Row already existed (UNIQUE conflict silenced by OR IGNORE).
-        // Re-fetch by exact display_name + feed_guid.
-        conn.query_row(
-            "SELECT id FROM artist_credit WHERE display_name = ?1 AND \
-             (feed_guid = ?2 OR (feed_guid IS NULL AND ?2 IS NULL))",
-            params![display_name, feed_guid],
-            |row| row.get::<_, i64>(0),
-        )?
-    } else {
-        conn.last_insert_rowid()
-    };
-
-    let mut credit_names = Vec::with_capacity(names.len());
-    for (pos, (artist_id, name, join_phrase)) in names.iter().enumerate() {
-        ensure_credit_artist_exists(conn, artist_id, name, feed_guid, now)?;
-        #[expect(
-            clippy::cast_possible_wrap,
-            reason = "artist credit position count never approaches i64::MAX"
-        )]
-        let position = pos as i64;
-        conn.execute(
-            "INSERT OR IGNORE INTO artist_credit_name \
-             (artist_credit_id, artist_id, position, name, join_phrase) \
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![credit_id, artist_id, position, name, join_phrase],
-        )?;
-        let acn_id = if conn.changes() == 0 {
-            conn.query_row(
-                "SELECT id FROM artist_credit_name \
-                 WHERE artist_credit_id = ?1 AND position = ?2",
-                params![credit_id, position],
-                |row| row.get::<_, i64>(0),
-            )?
-        } else {
-            conn.last_insert_rowid()
-        };
-        credit_names.push(ArtistCreditName {
-            id: acn_id,
-            artist_credit_id: credit_id,
-            artist_id: artist_id.clone(),
-            position,
-            name: name.clone(),
-            join_phrase: join_phrase.clone(),
-        });
-    }
-
-    Ok(ArtistCredit {
-        id: credit_id,
-        display_name: display_name.to_string(),
-        feed_guid: feed_guid.map(String::from),
-        created_at: now,
-        names: credit_names,
-    })
-}
-
-/// Creates a simple single-artist credit and returns it.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the underlying credit creation fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn create_single_artist_credit(
-    conn: &Connection,
-    artist: &Artist,
-    feed_guid: Option<&str>,
-) -> Result<ArtistCredit, DbError> {
-    create_artist_credit(
-        conn,
-        &artist.name,
-        &[(artist.artist_id.clone(), artist.name.clone(), String::new())],
-        feed_guid,
-    )
-}
-
-/// Retrieves an artist credit by ID, including its constituent names.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL query fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn get_artist_credit(
-    conn: &Connection,
-    credit_id: i64,
-) -> Result<Option<ArtistCredit>, DbError> {
-    let credit: Option<(i64, String, Option<String>, i64)> = conn
-        .query_row(
-            "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id = ?1",
-            params![credit_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?;
-
-    let Some((id, display_name, feed_guid, created_at)) = credit else {
-        return Ok(None);
-    };
-
-    let mut stmt = conn.prepare(
-        "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
-         FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
-    )?;
-    let names: Vec<ArtistCreditName> = stmt
-        .query_map(params![id], |row| {
-            Ok(ArtistCreditName {
-                id: row.get(0)?,
-                artist_credit_id: row.get(1)?,
-                artist_id: row.get(2)?,
-                position: row.get(3)?,
-                name: row.get(4)?,
-                join_phrase: row.get(5)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-
-    Ok(Some(ArtistCredit {
-        id,
-        display_name,
-        feed_guid,
-        created_at,
-        names,
-    }))
-}
-
-// Issue-6 batch credits — 2026-03-13
-/// Batch-loads multiple artist credits by ID in two queries instead of 2*N.
-///
-/// Returns a `HashMap<credit_id, ArtistCredit>` for O(1) lookup. Credits whose
-/// IDs are not found in the database are silently omitted from the map.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL query fails.
-pub fn load_credits_batch(
-    conn: &Connection,
-    ids: &[i64],
-) -> Result<std::collections::HashMap<i64, ArtistCredit>, DbError> {
-    use std::collections::HashMap;
-
-    if ids.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    // Deduplicate IDs to avoid redundant rows.
-    let unique_ids: Vec<i64> = {
-        let mut set = std::collections::HashSet::new();
-        ids.iter().copied().filter(|id| set.insert(*id)).collect()
-    };
-
-    // Build a single parameterised placeholder string: ?,?,?
-    let placeholders: String = std::iter::repeat_n("?", unique_ids.len())
-        .collect::<Vec<_>>()
-        .join(",");
-
-    // Query 1: artist_credit rows.
-    // Issue-ARTIST-IDENTITY — 2026-03-14
-    let sql_credits = format!(
-        "SELECT id, display_name, feed_guid, created_at FROM artist_credit WHERE id IN ({placeholders})"
-    );
-    let mut stmt = conn.prepare(&sql_credits)?;
-    let params_credits: Vec<Box<dyn rusqlite::types::ToSql>> = unique_ids
-        .iter()
-        .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
-        .collect();
-    let credit_rows = stmt.query_map(
-        params_credits
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        |row| {
-            Ok((
-                row.get::<_, i64>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, Option<String>>(2)?,
-                row.get::<_, i64>(3)?,
-            ))
-        },
-    )?;
-
-    let mut map: HashMap<i64, ArtistCredit> = HashMap::new();
-    for row in credit_rows {
-        let (id, display_name, feed_guid, created_at) = row?;
-        map.insert(
-            id,
-            ArtistCredit {
-                id,
-                display_name,
-                feed_guid,
-                created_at,
-                names: Vec::new(),
-            },
-        );
-    }
-
-    if map.is_empty() {
-        return Ok(map);
-    }
-
-    // Query 2: artist_credit_name rows for all loaded credits.
-    let sql_names = format!(
-        "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
-         FROM artist_credit_name WHERE artist_credit_id IN ({placeholders}) ORDER BY artist_credit_id, position"
-    );
-    let mut stmt_names = conn.prepare(&sql_names)?;
-    let params_names: Vec<Box<dyn rusqlite::types::ToSql>> = unique_ids
-        .iter()
-        .map(|id| Box::new(*id) as Box<dyn rusqlite::types::ToSql>)
-        .collect();
-    let name_rows = stmt_names.query_map(
-        params_names
-            .iter()
-            .map(AsRef::as_ref)
-            .collect::<Vec<_>>()
-            .as_slice(),
-        |row| {
-            Ok(ArtistCreditName {
-                id: row.get(0)?,
-                artist_credit_id: row.get(1)?,
-                artist_id: row.get(2)?,
-                position: row.get(3)?,
-                name: row.get(4)?,
-                join_phrase: row.get(5)?,
-            })
-        },
-    )?;
-
-    for row in name_rows {
-        let acn = row?;
-        if let Some(credit) = map.get_mut(&acn.artist_credit_id) {
-            credit.names.push(acn);
-        }
-    }
-
-    Ok(map)
-}
-
-/// Looks up an artist credit by display name (case-insensitive via `LOWER()`)
-/// scoped to a specific feed when `feed_guid` is provided.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL query fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn get_artist_credit_by_display_name(
-    conn: &Connection,
-    display_name: &str,
-    feed_guid: Option<&str>,
-) -> Result<Option<ArtistCredit>, DbError> {
-    let lower = display_name.to_lowercase();
-
-    let credit: Option<(i64, String, Option<String>, i64)> = if let Some(fg) = feed_guid {
-        conn.query_row(
-            "SELECT id, display_name, feed_guid, created_at FROM artist_credit \
-             WHERE LOWER(display_name) = ?1 AND feed_guid = ?2",
-            params![lower, fg],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?
-    } else {
-        conn.query_row(
-            "SELECT id, display_name, feed_guid, created_at FROM artist_credit \
-             WHERE LOWER(display_name) = ?1 AND feed_guid IS NULL",
-            params![lower],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .optional()?
-    };
-
-    let Some((id, display_name, feed_guid_val, created_at)) = credit else {
-        return Ok(None);
-    };
-
-    let mut stmt = conn.prepare(
-        "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
-         FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
-    )?;
-    let names: Vec<ArtistCreditName> = stmt
-        .query_map(params![id], |row| {
-            Ok(ArtistCreditName {
-                id: row.get(0)?,
-                artist_credit_id: row.get(1)?,
-                artist_id: row.get(2)?,
-                position: row.get(3)?,
-                name: row.get(4)?,
-                join_phrase: row.get(5)?,
-            })
-        })?
-        .collect::<Result<_, _>>()?;
-
-    Ok(Some(ArtistCredit {
-        id,
-        display_name,
-        feed_guid: feed_guid_val,
-        created_at,
-        names,
-    }))
-}
-
-/// Idempotent artist credit retrieval, scoped by feed.
-///
-/// Returns an existing credit if one with a matching `display_name`
-/// (case-insensitive) already exists within the same feed scope, otherwise
-/// creates a new credit with the given `names`.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the lookup or creation query fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn get_or_create_artist_credit(
-    conn: &Connection,
-    display_name: &str,
-    names: &[(String, String, String)], // (artist_id, credited_name, join_phrase)
-    feed_guid: Option<&str>,
-) -> Result<ArtistCredit, DbError> {
-    if let Some(existing) = get_artist_credit_by_display_name(conn, display_name, feed_guid)? {
-        return Ok(existing);
-    }
-    create_artist_credit(conn, display_name, names, feed_guid)
-}
-
-/// Returns all artist credits in which `artist_id` participates (via
-/// `artist_credit_name` JOIN).
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL query fails.
-// Issue-ARTIST-IDENTITY — 2026-03-14
-pub fn get_artist_credits_for_artist(
-    conn: &Connection,
-    artist_id: &str,
-) -> Result<Vec<ArtistCredit>, DbError> {
-    let mut credit_stmt = conn.prepare(
-        "SELECT DISTINCT ac.id, ac.display_name, ac.feed_guid, ac.created_at \
-         FROM artist_credit ac \
-         JOIN artist_credit_name acn ON acn.artist_credit_id = ac.id \
-         WHERE acn.artist_id = ?1 \
-         ORDER BY ac.id",
-    )?;
-    let credits: Vec<(i64, String, Option<String>, i64)> = credit_stmt
-        .query_map(params![artist_id], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })?
-        .collect::<Result<_, _>>()?;
-
-    let mut name_stmt = conn.prepare(
-        "SELECT id, artist_credit_id, artist_id, position, name, join_phrase \
-         FROM artist_credit_name WHERE artist_credit_id = ?1 ORDER BY position",
-    )?;
-
-    let mut result = Vec::with_capacity(credits.len());
-    for (id, display_name, feed_guid, created_at) in credits {
-        let names: Vec<ArtistCreditName> = name_stmt
-            .query_map(params![id], |row| {
-                Ok(ArtistCreditName {
-                    id: row.get(0)?,
-                    artist_credit_id: row.get(1)?,
-                    artist_id: row.get(2)?,
-                    position: row.get(3)?,
-                    name: row.get(4)?,
-                    join_phrase: row.get(5)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?;
-        result.push(ArtistCredit {
-            id,
-            display_name,
-            feed_guid,
-            created_at,
-            names,
-        });
-    }
-
-    Ok(result)
-}
-
 // ── upsert_feed ───────────────────────────────────────────────────────────────
 
 /// Inserts or updates a feed row keyed on `feed_guid`.
@@ -1390,17 +938,16 @@ pub fn get_artist_credits_for_artist(
 /// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
          last_build_date, release_artist_source) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
-         ?22, ?23) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
+         ?21, ?22) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
            title_lower      = excluded.title_lower, \
-           artist_credit_id = excluded.artist_credit_id, \
            description      = excluded.description, \
            image_url        = excluded.image_url, \
            publisher        = excluded.publisher, \
@@ -1423,7 +970,6 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             feed.feed_url,
             feed.title,
             feed.title_lower,
-            feed.artist_credit_id,
             feed.description,
             feed.image_url,
             feed.publisher,
@@ -1456,12 +1002,11 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
 /// Returns [`DbError`] if the SQL upsert fails.
 pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
          explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
          ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
-           artist_credit_id = excluded.artist_credit_id, \
            title            = excluded.title, \
            title_lower      = excluded.title_lower, \
            pub_date         = excluded.pub_date, \
@@ -1482,7 +1027,6 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
         params![
             track.track_guid,
             track.feed_guid,
-            track.artist_credit_id,
             track.title,
             track.title_lower,
             track.pub_date,
@@ -1504,11 +1048,6 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
         ],
     )?;
     Ok(())
-}
-
-fn canonical_cluster_id(kind: &str, key: &str) -> String {
-    let digest = sha2::Sha256::digest(key.as_bytes());
-    format!("{kind}:{}", hex::encode(digest))
 }
 
 /// Transitional no-op kept only so retired canonical tests and fixtures can
@@ -2908,10 +2447,6 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         params![feed_guid],
     )?;
     conn.execute(
-        "DELETE FROM live_events_legacy WHERE feed_guid = ?1",
-        params![feed_guid],
-    )?;
-    conn.execute(
         "DELETE FROM source_contributor_claims WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
@@ -3156,96 +2691,6 @@ pub fn delete_track_with_event(
     Ok((seq, signed_by, signature))
 }
 
-/// Stats returned by [`cleanup_orphaned_artists`].
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct OrphanCleanupStats {
-    pub artists_deleted: usize,
-    pub credits_deleted: usize,
-}
-
-/// Deletes artists that have no live references in feeds or tracks, and cleans
-/// up their associated rows.
-///
-/// An artist is considered orphaned if none of its `artist_credit_name` rows
-/// has an `artist_credit_id` that appears in `feeds.artist_credit_id` or
-/// `tracks.artist_credit_id`.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any query or deletion fails.
-pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupStats, DbError> {
-    let tx = conn.transaction()?;
-
-    // Collect artist_ids with no live credit reference.
-    let mut stmt = tx.prepare(
-        "SELECT a.artist_id \
-         FROM artists a \
-         WHERE NOT EXISTS ( \
-             SELECT 1 \
-             FROM artist_credit_name acn \
-             WHERE acn.artist_id = a.artist_id \
-               AND ( \
-                   EXISTS(SELECT 1 FROM feeds     f WHERE f.artist_credit_id = acn.artist_credit_id) \
-                OR EXISTS(SELECT 1 FROM tracks    t WHERE t.artist_credit_id = acn.artist_credit_id) \
-               ) \
-         ) \
-         ORDER BY a.artist_id",
-    )?;
-    let orphan_ids: Vec<String> = stmt
-        .query_map([], |row| row.get(0))?
-        .collect::<Result<_, _>>()?;
-    drop(stmt);
-
-    let mut stats = OrphanCleanupStats::default();
-    for artist_id in &orphan_ids {
-        // Collect the artist_credit ids exclusively owned by this orphan before
-        // deleting artist_credit_name rows.
-        let mut credit_stmt = tx.prepare(
-            "SELECT DISTINCT acn.artist_credit_id \
-             FROM artist_credit_name acn \
-             WHERE acn.artist_id = ?1 \
-               AND NOT EXISTS ( \
-                   SELECT 1 FROM artist_credit_name other \
-                   WHERE other.artist_credit_id = acn.artist_credit_id \
-                     AND other.artist_id <> ?1 \
-               )",
-        )?;
-        let exclusive_credits: Vec<i64> = credit_stmt
-            .query_map(params![artist_id], |row| row.get(0))?
-            .collect::<Result<_, _>>()?;
-        drop(credit_stmt);
-
-        tx.execute(
-            "DELETE FROM artist_aliases WHERE artist_id = ?1",
-            params![artist_id],
-        )?;
-        tx.execute(
-            "DELETE FROM external_ids WHERE entity_type = 'artist' AND entity_id = ?1",
-            params![artist_id],
-        )?;
-        tx.execute(
-            "DELETE FROM artist_credit_name WHERE artist_id = ?1",
-            params![artist_id],
-        )?;
-        tx.execute(
-            "DELETE FROM artists WHERE artist_id = ?1",
-            params![artist_id],
-        )?;
-        stats.artists_deleted += 1;
-
-        for credit_id in exclusive_credits {
-            tx.execute(
-                "DELETE FROM artist_credit WHERE id = ?1",
-                params![credit_id],
-            )?;
-            stats.credits_deleted += 1;
-        }
-    }
-
-    tx.commit()?;
-    Ok(stats)
-}
-
 // ── get_feed_by_guid ────────────────────────────────────────────────────────
 
 /// Looks up the feed row by `feed_guid`, returning `None` if absent.
@@ -3255,38 +2700,37 @@ pub fn cleanup_orphaned_artists(conn: &mut Connection) -> Result<OrphanCleanupSt
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_feed_by_guid(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbError> {
     let result = conn.query_row(
-        "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
+        "SELECT feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
          last_build_date, release_artist_source \
          FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
-            let explicit_i: i64 = row.get(9)?;
+            let explicit_i: i64 = row.get(8)?;
             Ok(Feed {
                 feed_guid:        row.get(0)?,
                 feed_url:         row.get(1)?,
                 title:            row.get(2)?,
                 title_lower:      row.get(3)?,
-                artist_credit_id: row.get(4)?,
-                description:      row.get(5)?,
-                image_url:        row.get(6)?,
-                publisher:        row.get(7)?,
-                language:         row.get(8)?,
+                description:      row.get(4)?,
+                image_url:        row.get(5)?,
+                publisher:        row.get(6)?,
+                language:         row.get(7)?,
                 explicit:         explicit_i != 0,
-                itunes_type:      row.get(10)?,
-                release_artist:   row.get(11)?,
-                release_artist_sort: row.get(12)?,
-                release_date:     row.get(13)?,
-                release_kind:     row.get(14)?,
-                episode_count:    row.get(15)?,
-                newest_item_at:   row.get(16)?,
-                oldest_item_at:   row.get(17)?,
-                created_at:       row.get(18)?,
-                updated_at:       row.get(19)?,
-                raw_medium:       row.get(20)?,
-                last_build_date:  row.get(21)?,
-                release_artist_source: row.get(22)?,
+                itunes_type:      row.get(9)?,
+                release_artist:   row.get(10)?,
+                release_artist_sort: row.get(11)?,
+                release_date:     row.get(12)?,
+                release_kind:     row.get(13)?,
+                episode_count:    row.get(14)?,
+                newest_item_at:   row.get(15)?,
+                oldest_item_at:   row.get(16)?,
+                created_at:       row.get(17)?,
+                updated_at:       row.get(18)?,
+                raw_medium:       row.get(19)?,
+                last_build_date:  row.get(20)?,
+                release_artist_source: row.get(21)?,
             })
         },
     ).optional()?;
@@ -3343,36 +2787,35 @@ pub fn get_track_by_guid(conn: &Connection, track_guid: &str) -> Result<Option<T
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_tracks_by_guid(conn: &Connection, track_guid: &str) -> Result<Vec<Track>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+        "SELECT track_guid, feed_guid, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE track_guid = ?1 ORDER BY feed_guid ASC",
     )?;
 
     let rows = stmt.query_map(params![track_guid], |row| {
-        let explicit_i: i64 = row.get(15)?;
+        let explicit_i: i64 = row.get(14)?;
         Ok(Track {
             track_guid: row.get(0)?,
             feed_guid: row.get(1)?,
-            artist_credit_id: row.get(2)?,
-            title: row.get(3)?,
-            title_lower: row.get(4)?,
-            pub_date: row.get(5)?,
-            duration_secs: row.get(6)?,
-            image_url: row.get(7)?,
-            publisher: row.get(8)?,
-            language: row.get(9)?,
-            enclosure_url: row.get(10)?,
-            enclosure_type: row.get(11)?,
-            enclosure_bytes: row.get(12)?,
-            track_number: row.get(13)?,
-            season: row.get(14)?,
+            title: row.get(2)?,
+            title_lower: row.get(3)?,
+            pub_date: row.get(4)?,
+            duration_secs: row.get(5)?,
+            image_url: row.get(6)?,
+            publisher: row.get(7)?,
+            language: row.get(8)?,
+            enclosure_url: row.get(9)?,
+            enclosure_type: row.get(10)?,
+            enclosure_bytes: row.get(11)?,
+            track_number: row.get(12)?,
+            season: row.get(13)?,
             explicit: explicit_i != 0,
-            description: row.get(16)?,
-            track_artist: row.get(17)?,
-            track_artist_sort: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
+            description: row.get(15)?,
+            track_artist: row.get(16)?,
+            track_artist_sort: row.get(17)?,
+            created_at: row.get(18)?,
+            updated_at: row.get(19)?,
         })
     })?;
 
@@ -3391,35 +2834,34 @@ pub fn get_track_for_feed(
 ) -> Result<Option<Track>, DbError> {
     let result = conn
         .query_row(
-            "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+            "SELECT track_guid, feed_guid, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
             params![feed_guid, track_guid],
             |row| {
-                let explicit_i: i64 = row.get(15)?;
+                let explicit_i: i64 = row.get(14)?;
                 Ok(Track {
                     track_guid: row.get(0)?,
                     feed_guid: row.get(1)?,
-                    artist_credit_id: row.get(2)?,
-                    title: row.get(3)?,
-                    title_lower: row.get(4)?,
-                    pub_date: row.get(5)?,
-                    duration_secs: row.get(6)?,
-                    image_url: row.get(7)?,
-                    publisher: row.get(8)?,
-                    language: row.get(9)?,
-                    enclosure_url: row.get(10)?,
-                    enclosure_type: row.get(11)?,
-                    enclosure_bytes: row.get(12)?,
-                    track_number: row.get(13)?,
-                    season: row.get(14)?,
+                    title: row.get(2)?,
+                    title_lower: row.get(3)?,
+                    pub_date: row.get(4)?,
+                    duration_secs: row.get(5)?,
+                    image_url: row.get(6)?,
+                    publisher: row.get(7)?,
+                    language: row.get(8)?,
+                    enclosure_url: row.get(9)?,
+                    enclosure_type: row.get(10)?,
+                    enclosure_bytes: row.get(11)?,
+                    track_number: row.get(12)?,
+                    season: row.get(13)?,
                     explicit: explicit_i != 0,
-                    description: row.get(16)?,
-                    track_artist: row.get(17)?,
-                    track_artist_sort: row.get(18)?,
-                    created_at: row.get(19)?,
-                    updated_at: row.get(20)?,
+                    description: row.get(15)?,
+                    track_artist: row.get(16)?,
+                    track_artist_sort: row.get(17)?,
+                    created_at: row.get(18)?,
+                    updated_at: row.get(19)?,
                 })
             },
         )
@@ -3437,36 +2879,35 @@ pub fn get_track_for_feed(
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_tracks_for_feed(conn: &Connection, feed_guid: &str) -> Result<Vec<Track>, DbError> {
     let mut stmt = conn.prepare(
-        "SELECT track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+        "SELECT track_guid, feed_guid, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, \
          season, explicit, description, track_artist, track_artist_sort, created_at, updated_at \
          FROM tracks WHERE feed_guid = ?1",
     )?;
 
     let rows = stmt.query_map(params![feed_guid], |row| {
-        let explicit_i: i64 = row.get(15)?;
+        let explicit_i: i64 = row.get(14)?;
         Ok(Track {
             track_guid: row.get(0)?,
             feed_guid: row.get(1)?,
-            artist_credit_id: row.get(2)?,
-            title: row.get(3)?,
-            title_lower: row.get(4)?,
-            pub_date: row.get(5)?,
-            duration_secs: row.get(6)?,
-            image_url: row.get(7)?,
-            publisher: row.get(8)?,
-            language: row.get(9)?,
-            enclosure_url: row.get(10)?,
-            enclosure_type: row.get(11)?,
-            enclosure_bytes: row.get(12)?,
-            track_number: row.get(13)?,
-            season: row.get(14)?,
+            title: row.get(2)?,
+            title_lower: row.get(3)?,
+            pub_date: row.get(4)?,
+            duration_secs: row.get(5)?,
+            image_url: row.get(6)?,
+            publisher: row.get(7)?,
+            language: row.get(8)?,
+            enclosure_url: row.get(9)?,
+            enclosure_type: row.get(10)?,
+            enclosure_bytes: row.get(11)?,
+            track_number: row.get(12)?,
+            season: row.get(13)?,
             explicit: explicit_i != 0,
-            description: row.get(16)?,
-            track_artist: row.get(17)?,
-            track_artist_sort: row.get(18)?,
-            created_at: row.get(19)?,
-            updated_at: row.get(20)?,
+            description: row.get(15)?,
+            track_artist: row.get(16)?,
+            track_artist_sort: row.get(17)?,
+            created_at: row.get(18)?,
+            updated_at: row.get(19)?,
         })
     })?;
 
@@ -3591,18 +3032,6 @@ fn track_fields_changed(existing: &Track, new: &Track) -> bool {
         || existing.publisher != new.publisher
         || existing.track_artist != new.track_artist
         || existing.track_artist_sort != new.track_artist_sort
-}
-
-/// Compares two artists by their content fields (ignoring timestamps).
-fn artist_fields_changed(existing: &Artist, new: &Artist) -> bool {
-    existing.name != new.name
-        || existing.sort_name != new.sort_name
-        || existing.type_id != new.type_id
-        || existing.area != new.area
-        || existing.img_url != new.img_url
-        || existing.url != new.url
-        || existing.begin_year != new.begin_year
-        || existing.end_year != new.end_year
 }
 
 /// Compares two sets of feed payment routes by their content fields
@@ -3831,8 +3260,6 @@ fn source_platform_claims_changed(
 )]
 pub fn build_diff_events(
     conn: &Connection,
-    artist: &Artist,
-    artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
@@ -3846,21 +3273,16 @@ pub fn build_diff_events(
     feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
-    track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
 ) -> Result<Vec<EventRow>, DbError> {
     // Use feed existence as the primary gate: if the feed is not yet in the
-    // DB, this is a first ingest and all events must be emitted. Note: the
-    // artist may already exist (resolve_artist creates it before this runs),
-    // so we cannot rely on artist existence alone.
+    // DB, this is a first ingest and all events must be emitted.
     let existing_feed = get_feed_by_guid(conn, &feed.feed_guid)?;
 
     existing_feed.map_or_else(
         || {
             build_all_events(
-                artist,
-                artist_credit,
                 feed,
                 remote_items,
                 source_contributor_claims,
@@ -3874,7 +3296,6 @@ pub fn build_diff_events(
                 feed_list_values,
                 live_events,
                 tracks,
-                track_credits,
                 now,
                 warnings,
             )
@@ -3882,8 +3303,6 @@ pub fn build_diff_events(
         |ef| {
             build_changed_events(
                 conn,
-                artist,
-                artist_credit,
                 feed,
                 remote_items,
                 source_contributor_claims,
@@ -3897,7 +3316,6 @@ pub fn build_diff_events(
                 feed_list_values,
                 live_events,
                 tracks,
-                track_credits,
                 now,
                 warnings,
                 &ef,
@@ -3912,8 +3330,6 @@ pub fn build_diff_events(
     reason = "mirrors build_diff_events params"
 )]
 fn build_all_events(
-    artist: &Artist,
-    artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
@@ -3927,27 +3343,13 @@ fn build_all_events(
     feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
-    track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
 ) -> Result<Vec<EventRow>, DbError> {
     let mut event_rows: Vec<EventRow> = Vec::new();
     let warn_vec: Vec<String> = warnings.to_vec();
 
-    event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
-    event_rows.push(build_artist_credit_event(
-        artist_credit,
-        artist,
-        now,
-        &warn_vec,
-    )?);
-    event_rows.push(build_feed_upserted_event(
-        feed,
-        artist,
-        artist_credit,
-        now,
-        &warn_vec,
-    )?);
+    event_rows.push(build_feed_upserted_event(feed, now, &warn_vec)?);
 
     if !feed_routes.is_empty() {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
@@ -4034,14 +3436,9 @@ fn build_all_events(
         )?);
     }
 
-    for (i, (track, routes, vts, track_remote_items)) in tracks.iter().enumerate() {
-        let credit = if i < track_credits.len() {
-            &track_credits[i]
-        } else {
-            artist_credit
-        };
+    for (track, routes, vts, track_remote_items) in tracks {
         event_rows.push(build_track_upserted_event(
-            track, routes, vts, credit, now, &warn_vec,
+            track, routes, vts, now, &warn_vec,
         )?);
 
         if !track_remote_items.is_empty() {
@@ -4064,8 +3461,6 @@ fn build_all_events(
 )]
 fn build_changed_events(
     conn: &Connection,
-    artist: &Artist,
-    artist_credit: &ArtistCredit,
     feed: &Feed,
     remote_items: &[FeedRemoteItemRaw],
     source_contributor_claims: &[SourceContributorClaim],
@@ -4079,7 +3474,6 @@ fn build_changed_events(
     feed_list_values: &[FeedListValueRaw],
     live_events: &[LiveEvent],
     tracks: &[TrackIngestBundle],
-    track_credits: &[ArtistCredit],
     now: i64,
     warnings: &[String],
     existing_feed: &Feed,
@@ -4087,27 +3481,9 @@ fn build_changed_events(
     let mut event_rows: Vec<EventRow> = Vec::new();
     let warn_vec: Vec<String> = warnings.to_vec();
 
-    // --- Artist diff ---
-    let artist_changed = diff_artist(conn, artist)?;
-    if artist_changed {
-        event_rows.push(build_artist_upserted_event(artist, now, &warn_vec)?);
-        event_rows.push(build_artist_credit_event(
-            artist_credit,
-            artist,
-            now,
-            &warn_vec,
-        )?);
-    }
-
     // --- Feed diff ---
     if feed_fields_changed(existing_feed, feed) {
-        event_rows.push(build_feed_upserted_event(
-            feed,
-            artist,
-            artist_credit,
-            now,
-            &warn_vec,
-        )?);
+        event_rows.push(build_feed_upserted_event(feed, now, &warn_vec)?);
     }
 
     // --- Feed routes diff ---
@@ -4244,19 +3620,14 @@ fn build_changed_events(
         .map(|t| (t.track_guid.as_str(), t))
         .collect();
 
-    for (i, (track, routes, vts, track_remote_items)) in tracks.iter().enumerate() {
+    for (track, routes, vts, track_remote_items) in tracks {
         let is_new_or_changed = existing_map
             .get(track.track_guid.as_str())
             .is_none_or(|existing| track_fields_changed(existing, track));
 
         if is_new_or_changed {
-            let credit = if i < track_credits.len() {
-                &track_credits[i]
-            } else {
-                artist_credit
-            };
             event_rows.push(build_track_upserted_event(
-                track, routes, vts, credit, now, &warn_vec,
+                track, routes, vts, now, &warn_vec,
             )?);
 
             if !track_remote_items.is_empty() {
@@ -4289,54 +3660,8 @@ fn build_changed_events(
 
 // --- private event builders (keep each under 50 lines) ---
 
-fn diff_artist(conn: &Connection, artist: &Artist) -> Result<bool, DbError> {
-    let existing = get_artist_by_id(conn, &artist.artist_id)?;
-    Ok(existing.is_none_or(|e| artist_fields_changed(&e, artist)))
-}
-
-fn build_artist_upserted_event(
-    artist: &Artist,
-    now: i64,
-    warnings: &[String],
-) -> Result<EventRow, DbError> {
-    let payload = crate::event::ArtistUpsertedPayload {
-        artist: artist.clone(),
-    };
-    let payload_json = serde_json::to_string(&payload)?;
-    Ok(EventRow {
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_type: EventType::ArtistUpserted,
-        payload_json,
-        subject_guid: artist.artist_id.clone(),
-        created_at: now,
-        warnings: warnings.to_vec(),
-    })
-}
-
-fn build_artist_credit_event(
-    credit: &ArtistCredit,
-    artist: &Artist,
-    now: i64,
-    warnings: &[String],
-) -> Result<EventRow, DbError> {
-    let payload = crate::event::ArtistCreditCreatedPayload {
-        artist_credit: credit.clone(),
-    };
-    let payload_json = serde_json::to_string(&payload)?;
-    Ok(EventRow {
-        event_id: uuid::Uuid::new_v4().to_string(),
-        event_type: EventType::ArtistCreditCreated,
-        payload_json,
-        subject_guid: artist.artist_id.clone(),
-        created_at: now,
-        warnings: warnings.to_vec(),
-    })
-}
-
 fn build_feed_upserted_event(
     feed: &Feed,
-    _artist: &Artist,
-    _credit: &ArtistCredit,
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
@@ -4612,7 +3937,6 @@ fn build_track_upserted_event(
     track: &Track,
     routes: &[PaymentRoute],
     vts: &[ValueTimeSplit],
-    _credit: &ArtistCredit,
     now: i64,
     warnings: &[String],
 ) -> Result<EventRow, DbError> {
@@ -6290,38 +5614,37 @@ pub fn get_node_sync_cursor(conn: &Connection, node_pubkey: &str) -> Result<i64,
 /// Returns [`DbError`] if the SQL query fails.
 pub fn get_existing_feed(conn: &Connection, feed_url: &str) -> Result<Option<Feed>, DbError> {
     let result = conn.query_row(
-        "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
+        "SELECT feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
          last_build_date, release_artist_source \
          FROM feeds WHERE feed_url = ?1",
         params![feed_url],
         |row| {
-            let explicit_i: i64 = row.get(9)?;
+            let explicit_i: i64 = row.get(8)?;
             Ok(Feed {
                 feed_guid:        row.get(0)?,
                 feed_url:         row.get(1)?,
                 title:            row.get(2)?,
                 title_lower:      row.get(3)?,
-                artist_credit_id: row.get(4)?,
-                description:      row.get(5)?,
-                image_url:        row.get(6)?,
-                publisher:        row.get(7)?,
-                language:         row.get(8)?,
+                description:      row.get(4)?,
+                image_url:        row.get(5)?,
+                publisher:        row.get(6)?,
+                language:         row.get(7)?,
                 explicit:         explicit_i != 0,
-                itunes_type:      row.get(10)?,
-                release_artist:   row.get(11)?,
-                release_artist_sort: row.get(12)?,
-                release_date:     row.get(13)?,
-                release_kind:     row.get(14)?,
-                episode_count:    row.get(15)?,
-                newest_item_at:   row.get(16)?,
-                oldest_item_at:   row.get(17)?,
-                created_at:       row.get(18)?,
-                updated_at:       row.get(19)?,
-                raw_medium:       row.get(20)?,
-                last_build_date:  row.get(21)?,
-                release_artist_source: row.get(22)?,
+                itunes_type:      row.get(9)?,
+                release_artist:   row.get(10)?,
+                release_artist_sort: row.get(11)?,
+                release_date:     row.get(12)?,
+                release_kind:     row.get(13)?,
+                episode_count:    row.get(14)?,
+                newest_item_at:   row.get(15)?,
+                oldest_item_at:   row.get(16)?,
+                created_at:       row.get(17)?,
+                updated_at:       row.get(18)?,
+                raw_medium:       row.get(19)?,
+                last_build_date:  row.get(20)?,
+                release_artist_source: row.get(21)?,
             })
         },
     ).optional()?;
@@ -6417,9 +5740,9 @@ pub fn classify_submission(
 // `&Transaction` handle so all writes participate in the same atomic commit.
 /// Writes a complete feed ingest atomically and returns the new event `seq` values.
 ///
-/// Upserts the artist, creates the artist credit, upserts the feed (with feed
-/// payment routes), all tracks (with payment routes and value-time splits),
-/// and inserts the supplied event rows — all inside one `SQLite` transaction.
+/// Upserts the feed (with feed payment routes), all tracks (with payment
+/// routes and value-time splits), and inserts the supplied event rows — all
+/// inside one `SQLite` transaction.
 ///
 /// Tracks that existed in the DB for this feed but are absent from the new
 /// crawl are removed: their search-index and quality rows are cleaned up,
@@ -6446,8 +5769,6 @@ pub fn classify_submission(
 )]
 pub fn ingest_transaction(
     conn: &mut Connection,
-    artist: Artist,
-    artist_credit: ArtistCredit,
     feed: Feed,
     remote_items: Vec<FeedRemoteItemRaw>,
     source_contributor_claims: Vec<SourceContributorClaim>,
@@ -6472,73 +5793,18 @@ pub fn ingest_transaction(
     let source_item_transcripts = dedupe_source_item_transcripts(&source_item_transcripts);
     let tx = conn.transaction()?;
 
-    // 1. Resolve/insert artist (and ensure a feed-scoped canonical alias row exists)
-    // Issue-ARTIST-IDENTITY — 2026-03-14
-    {
-        let name_lower = artist.name.to_lowercase();
-        let feed_guid_ref = Some(feed.feed_guid.as_str());
-
-        // Check if this artist already exists (by artist_id PK, not by name).
-        let existing: Option<String> = tx
-            .query_row(
-                "SELECT artist_id FROM artists WHERE artist_id = ?1",
-                params![artist.artist_id],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        if existing.is_none() {
-            tx.execute(
-                "INSERT INTO artists (artist_id, name, name_lower, sort_name, type_id, area, \
-                 img_url, url, begin_year, end_year, created_at, updated_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                params![
-                    artist.artist_id,
-                    artist.name,
-                    name_lower,
-                    artist.sort_name,
-                    artist.type_id,
-                    artist.area,
-                    artist.img_url,
-                    artist.url,
-                    artist.begin_year,
-                    artist.end_year,
-                    artist.created_at,
-                    artist.updated_at,
-                ],
-            )?;
-        }
-        tx.execute(
-            "INSERT OR IGNORE INTO artist_aliases (alias_lower, artist_id, feed_guid, created_at) \
-             VALUES (?1, ?2, ?3, ?4)",
-            params![
-                name_lower,
-                artist.artist_id,
-                feed_guid_ref,
-                artist.created_at
-            ],
-        )?;
-    }
-
-    // 2. Insert artist credit (idempotent via INSERT OR IGNORE on PK)
-    // Issue-ARTIST-IDENTITY — 2026-03-14
-    {
-        upsert_artist_credit_sql(&tx, &artist_credit)?;
-    }
-
     // 3. Upsert feed
     tx.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
          last_build_date, release_artist_source) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, \
-         ?22, ?23) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
+         ?21, ?22) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
            title_lower      = excluded.title_lower, \
-           artist_credit_id = excluded.artist_credit_id, \
            description      = excluded.description, \
            image_url        = excluded.image_url, \
            publisher        = excluded.publisher, \
@@ -6561,7 +5827,6 @@ pub fn ingest_transaction(
             feed.feed_url,
             feed.title,
             feed.title_lower,
-            feed.artist_credit_id,
             feed.description,
             feed.image_url,
             feed.publisher,
@@ -6863,12 +6128,11 @@ pub fn ingest_transaction(
     // 4. Tracks, routes, splits
     for (track, routes, splits, remote_items) in &tracks {
         tx.execute(
-            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, \
+            "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, \
              duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
              explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
              ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
-               artist_credit_id = excluded.artist_credit_id, \
                title            = excluded.title, \
                title_lower      = excluded.title_lower, \
                pub_date         = excluded.pub_date, \
@@ -6889,7 +6153,6 @@ pub fn ingest_transaction(
             params![
                 track.track_guid,
                 track.feed_guid,
-                track.artist_credit_id,
                 track.title,
                 track.title_lower,
                 track.pub_date,
@@ -7087,147 +6350,10 @@ pub fn ingest_transaction(
     Ok(seqs)
 }
 
-// ── External ID operations ──────────────────────────────────────────────────
-
-/// Links an external identifier (e.g. `MusicBrainz`, ISRC, Spotify) to an entity.
-///
-/// Uses `INSERT OR REPLACE` so a second call with the same `(entity_type,
-/// entity_id, scheme)` triple updates the stored `value`.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL upsert fails.
-pub fn link_external_id(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-    scheme: &str,
-    value: &str,
-) -> Result<i64, DbError> {
-    let now = unix_now();
-    conn.execute(
-        "INSERT OR REPLACE INTO external_ids (entity_type, entity_id, scheme, value, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![entity_type, entity_id, scheme, value, now],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// Returns all external IDs linked to the given entity.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn get_external_ids(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-) -> Result<Vec<ExternalIdRow>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, scheme, value FROM external_ids \
-         WHERE entity_type = ?1 AND entity_id = ?2 \
-         ORDER BY scheme",
-    )?;
-    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
-        Ok(ExternalIdRow {
-            id: row.get(0)?,
-            scheme: row.get(1)?,
-            value: row.get(2)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
-/// Given a `(scheme, value)` pair, returns the `(entity_type, entity_id)` that
-/// owns it, or `None` if no matching row exists.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn reverse_lookup_external_id(
-    conn: &Connection,
-    scheme: &str,
-    value: &str,
-) -> Result<Option<(String, String)>, DbError> {
-    let result = conn
-        .query_row(
-            "SELECT entity_type, entity_id FROM external_ids \
-         WHERE scheme = ?1 AND value = ?2",
-            params![scheme, value],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()?;
-    Ok(result)
-}
-
-// ── Provenance operations ───────────────────────────────────────────────────
-
-/// Records how an entity was discovered or imported.
-///
-/// `source_type` should be one of: `"rss_crawl"`, `"manifest"`, `"manual"`,
-/// `"bulk_import"`. `trust_level`: 0 = unknown, 1 = rss, 2 = signed manifest,
-/// 3 = verified.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL insert fails.
-pub fn record_entity_source(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-    source_type: &str,
-    source_url: Option<&str>,
-    trust_level: i64,
-) -> Result<i64, DbError> {
-    let now = unix_now();
-    conn.execute(
-        "INSERT INTO entity_source (entity_type, entity_id, source_type, source_url, trust_level, created_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![entity_type, entity_id, source_type, source_url, trust_level, now],
-    )?;
-    Ok(conn.last_insert_rowid())
-}
-
-/// Returns all provenance records for the given entity.
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn get_entity_sources(
-    conn: &Connection,
-    entity_type: &str,
-    entity_id: &str,
-) -> Result<Vec<EntitySourceRow>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, source_type, source_url, trust_level, created_at \
-         FROM entity_source \
-         WHERE entity_type = ?1 AND entity_id = ?2 \
-         ORDER BY created_at",
-    )?;
-    let rows = stmt.query_map(params![entity_type, entity_id], |row| {
-        Ok(EntitySourceRow {
-            id: row.get(0)?,
-            source_type: row.get(1)?,
-            source_url: row.get(2)?,
-            trust_level: row.get(3)?,
-            created_at: row.get(4)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
-}
-
 /// Returns a source feed by GUID, or `None` if it does not exist.
 pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbError> {
     conn.query_row(
-        "SELECT feed_guid, feed_url, title, title_lower, artist_credit_id, description, \
+        "SELECT feed_guid, feed_url, title, title_lower, description, \
          image_url, publisher, language, explicit, itunes_type, release_artist, release_artist_sort, \
          release_date, release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
          last_build_date, release_artist_source \
@@ -7239,25 +6365,24 @@ pub fn get_feed(conn: &Connection, feed_guid: &str) -> Result<Option<Feed>, DbEr
                 feed_url: row.get(1)?,
                 title: row.get(2)?,
                 title_lower: row.get(3)?,
-                artist_credit_id: row.get(4)?,
-                description: row.get(5)?,
-                image_url: row.get(6)?,
-                publisher: row.get(7)?,
-                language: row.get(8)?,
-                explicit: row.get(9)?,
-                itunes_type: row.get(10)?,
-                release_artist: row.get(11)?,
-                release_artist_sort: row.get(12)?,
-                release_date: row.get(13)?,
-                release_kind: row.get(14)?,
-                episode_count: row.get(15)?,
-                newest_item_at: row.get(16)?,
-                oldest_item_at: row.get(17)?,
-                created_at: row.get(18)?,
-                updated_at: row.get(19)?,
-                raw_medium: row.get(20)?,
-                last_build_date: row.get(21)?,
-                release_artist_source: row.get(22)?,
+                description: row.get(4)?,
+                image_url: row.get(5)?,
+                publisher: row.get(6)?,
+                language: row.get(7)?,
+                explicit: row.get(8)?,
+                itunes_type: row.get(9)?,
+                release_artist: row.get(10)?,
+                release_artist_sort: row.get(11)?,
+                release_date: row.get(12)?,
+                release_kind: row.get(13)?,
+                episode_count: row.get(14)?,
+                newest_item_at: row.get(15)?,
+                oldest_item_at: row.get(16)?,
+                created_at: row.get(17)?,
+                updated_at: row.get(18)?,
+                raw_medium: row.get(19)?,
+                last_build_date: row.get(20)?,
+                release_artist_source: row.get(21)?,
             })
         },
     )

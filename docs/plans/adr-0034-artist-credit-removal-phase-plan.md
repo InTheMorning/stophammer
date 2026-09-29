@@ -153,6 +153,31 @@ known community node runs release A.
   the primary signed after the deploy are then lost from the primary, so a
   rollback is possible only in the first hours.
 
+## Measurement Of The Migration
+
+On 2026-09-28 the node of task 003, built from the working tree in release
+mode, opened a copy of the production copy of 2026-09-26. The copy recorded
+migration version 37, so the node ran migrations 0044 to 0047. The node
+answered `/health` 0.5 seconds after its start.
+
+| Count | Before | After |
+|---|---|---|
+| Migration version | 37 | 41 |
+| `feeds` | 10,424 | 10,424 |
+| `tracks` | 26,883 | 26,883 |
+| `payment_routes` | 32,390 | 32,390 |
+| Tables | 79 | 35 |
+
+79 tables, plus `source_gone_answers`, less the 2 proof tables and the 43
+tables of §11, give 35. After the migration, `integrity_check` gave `ok`,
+`foreign_key_check` gave no row, no foreign key named a missing table, and no
+table had `artist_credit_id`. With foreign keys on, a delete of a feed also
+deleted its track, and a delete of a track succeeded.
+
+Task 004 step 5 asks for the same check with the image of the 0.3.0
+candidate. This measurement used a local build, so step 5 stays open until the
+candidate exists.
+
 ## Review
 
 [The review checklist](../reviews/adr-0034-artist-credit-removal-review-checklist.md)

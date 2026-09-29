@@ -28,41 +28,9 @@ use stophammer::db::PublisherLinkStats;
 // Section 1: db::get_publisher_link_stats, direct against the database.
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .expect("insert artist");
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .expect("insert artist_credit_name");
-
-    credit_id
-}
-
-/// Inserts a minimal indexed feed, with its own artist and artist-credit row,
-/// and an explicit `raw_medium` (unlike the resolver test's `insert_feed`,
-/// which leaves it null).
+/// Inserts a minimal indexed feed with an explicit `raw_medium` (unlike the
+/// resolver test's `insert_feed`, which leaves it null). ADR 0034 §11:
+/// `feeds` carries no artist credit.
 fn seed_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
@@ -70,19 +38,15 @@ fn seed_feed(
     raw_medium: Option<&str>,
     now: i64,
 ) {
-    let artist_id = format!("{feed_guid}-artist");
-    insert_artist(conn, &artist_id, "Seed Artist", now);
-    let credit_id = insert_artist_credit(conn, &artist_id, "Seed Artist", now);
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          explicit, episode_count, created_at, updated_at, raw_medium) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             feed_guid,
             feed_url,
             "Seed Feed",
             "seed feed",
-            credit_id,
             0,
             0,
             now,

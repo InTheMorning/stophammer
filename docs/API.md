@@ -2141,10 +2141,10 @@ The signature covers `event_id`, `event_type`, `payload_json`, `subject_guid`,
 | `feed_retired` | feed_guid | Feed permanently removed |
 | `track_upserted` | track_guid | Track created or metadata/routes changed |
 | `track_removed` | track_guid | Track deleted from a feed |
-| `artist_upserted` | artist_id | Artist created or display name changed |
+| `artist_upserted` | artist_id | Artist created or display name changed. The log holds this event only before release 0.3.0 (ADR 0034 §11). A node applies nothing for it. |
 | `routes_replaced` | track_guid | Track payment routes atomically replaced |
-| `artist_merged` | target_artist_id | Two artists merged |
-| `artist_credit_created` | artist_id | Multi-artist credit created |
+| `artist_merged` | target_artist_id | Two artists merged. No code emits this event. The log holds it only before release 0.3.0 (ADR 0034 §11). A node applies nothing for it. |
+| `artist_credit_created` | artist_id | Multi-artist credit created. The log holds this event only before release 0.3.0 (ADR 0034 §11). A node applies nothing for it. |
 | `feed_routes_replaced` | feed_guid | Feed-level payment routes replaced |
 | `feed_remote_items_replaced` | feed_guid | Feed-level `podcast:remoteItem` snapshot replaced |
 | `live_events_replaced` | feed_guid | Feed-level live-item snapshot replaced |

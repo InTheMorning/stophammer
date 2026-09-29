@@ -3,50 +3,21 @@ mod common;
 use rusqlite::params;
 
 // ---------------------------------------------------------------------------
-// Helper: insert an artist and return its artist_id.
+// Helper: insert a feed or a track. ADR 0034 §11: `feeds` and `tracks` carry
+// no artist credit.
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, id: &str, name: &str) -> String {
-    let now = common::now();
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, sort_name, type_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-        params![id, name, name.to_lowercase(), name, now],
-    )
-    .unwrap();
-    id.to_string()
-}
-
-/// Create an artist credit for a single artist and return the credit id.
-fn insert_single_credit(conn: &rusqlite::Connection, artist_id: &str, display: &str) -> i64 {
-    let now = common::now();
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display, now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name)
-         VALUES (?1, ?2, 0, ?3)",
-        params![credit_id, artist_id, display],
-    )
-    .unwrap();
-    credit_id
-}
-
 /// Insert a minimal feed and return its `feed_guid`.
-fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> String {
+fn insert_feed(conn: &rusqlite::Connection, guid: &str) -> String {
     let now = common::now();
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
         params![
             guid,
             format!("https://example.com/{guid}"),
             "Test Feed",
             "test feed",
-            credit_id,
             now,
         ],
     )
@@ -55,77 +26,22 @@ fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> Strin
 }
 
 /// Insert a minimal track and return its `track_guid`.
-fn insert_track(
-    conn: &rusqlite::Connection,
-    track_guid: &str,
-    feed_guid: &str,
-    credit_id: i64,
-) -> String {
+fn insert_track(conn: &rusqlite::Connection, track_guid: &str, feed_guid: &str) -> String {
     let now = common::now();
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![track_guid, feed_guid, credit_id, "Test Track", "test track", now],
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![track_guid, feed_guid, "Test Track", "test track", now],
     )
     .unwrap();
     track_guid.to_string()
 }
 
 // ---------------------------------------------------------------------------
-// 1. Artist with no feeds
+// ADR 0034 §11 — 2026-09-28: `artists` and `artist_credit_name` are dropped,
+// and a feed no longer joins to an artist through a credit. The test
+// `artist_with_no_feeds` read that join and is removed with it.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn artist_with_no_feeds() {
-    let conn = common::test_db();
-    insert_artist(&conn, "art-lonely", "Lonely Artist");
-    let cid = insert_single_credit(&conn, "art-lonely", "Lonely Artist");
-
-    // LEFT JOIN to feeds: artist exists but no feeds.
-    let mut stmt = conn
-        .prepare(
-            "SELECT a.artist_id, f.feed_guid
-             FROM artists a
-             LEFT JOIN artist_credit_name acn ON acn.artist_id = a.artist_id
-             LEFT JOIN feeds f ON f.artist_credit_id = acn.artist_credit_id
-             WHERE a.artist_id = 'art-lonely'",
-        )
-        .unwrap();
-    let results: Vec<(String, Option<String>)> = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
-        .unwrap()
-        .collect::<Result<_, _>>()
-        .unwrap();
-
-    assert_eq!(results.len(), 1);
-    assert_eq!(results[0].0, "art-lonely");
-    assert!(
-        results[0].1.is_none(),
-        "feed_guid should be NULL for artist with no feeds"
-    );
-
-    // Direct feed query returns nothing.
-    let feed_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM feeds WHERE artist_credit_id = ?1",
-            params![cid],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(feed_count, 0);
-
-    // Direct track query returns nothing.
-    let track_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM tracks t
-             JOIN feeds f ON f.feed_guid = t.feed_guid
-             WHERE f.artist_credit_id = ?1",
-            params![cid],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(track_count, 0);
-}
 
 // ---------------------------------------------------------------------------
 // 2. Feed with no tracks
@@ -134,9 +50,7 @@ fn artist_with_no_feeds() {
 #[test]
 fn feed_with_no_tracks() {
     let conn = common::test_db();
-    insert_artist(&conn, "art-empty-feed", "Empty Feed Artist");
-    let cid = insert_single_credit(&conn, "art-empty-feed", "Empty Feed Artist");
-    insert_feed(&conn, "feed-empty", cid);
+    insert_feed(&conn, "feed-empty");
 
     let track_count: i64 = conn
         .query_row(
@@ -227,42 +141,13 @@ fn duplicate_event_idempotent() {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Artist credit display name uniqueness honors feed scope
+// ADR 0034 §11 — 2026-09-28: `artist_credit` is dropped from the current
+// schema. `artist_credit_display_name_duplicates_rejected_for_null_scope`
+// tested its unique index; `tests/db_tests.rs`'s
+// `migrations_dedup_legacy_null_scoped_artist_credits` still covers that
+// index's history by replaying the historical migration files. The
+// current-schema copy of the test is removed with the table.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn artist_credit_display_name_duplicates_rejected_for_null_scope() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    insert_artist(&conn, "art-dup-name-1", "Same Name");
-    insert_artist(&conn, "art-dup-name-2", "Same Name Too");
-
-    // Two legacy null-scoped credits with the same display_name should not both succeed.
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Same Display', ?1)",
-        params![now],
-    )
-    .unwrap();
-
-    let duplicate = conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('Same Display', ?1)",
-        params![now],
-    );
-    assert!(
-        duplicate.is_err(),
-        "duplicate null-scoped artist credits should be rejected"
-    );
-
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM artist_credit WHERE display_name = 'Same Display'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 1);
-}
 
 // ---------------------------------------------------------------------------
 // 5. Feed payment routes replaced
@@ -271,9 +156,7 @@ fn artist_credit_display_name_duplicates_rejected_for_null_scope() {
 #[test]
 fn feed_payment_routes_replaced() {
     let conn = common::test_db();
-    insert_artist(&conn, "art-fpr-reg", "FPR Reg Artist");
-    let cid = insert_single_credit(&conn, "art-fpr-reg", "FPR Reg Artist");
-    let fg = insert_feed(&conn, "feed-fpr-reg", cid);
+    let fg = insert_feed(&conn, "feed-fpr-reg");
 
     // Insert initial routes.
     conn.execute(
@@ -356,10 +239,8 @@ fn value_time_splits_ordering() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "art-vts-ord", "VTS Order Artist");
-    let cid = insert_single_credit(&conn, "art-vts-ord", "VTS Order Artist");
-    let fg = insert_feed(&conn, "feed-vts-ord", cid);
-    let tg = insert_track(&conn, "track-vts-ord", &fg, cid);
+    let fg = insert_feed(&conn, "feed-vts-ord");
+    let tg = insert_track(&conn, "track-vts-ord", &fg);
 
     // Insert VTS entries with non-sequential start_time_secs (out of order).
     let times = [120, 0, 60, 240, 180];
@@ -390,71 +271,10 @@ fn value_time_splits_ordering() {
 }
 
 // ---------------------------------------------------------------------------
-// 7. External ID cross-entity (same scheme+value, different entity types)
+// ADR 0034 §11 — 2026-09-28: `external_ids` is dropped from the current
+// schema. `external_id_cross_entity` tested that table directly and is
+// removed with it.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn external_id_cross_entity() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    // Insert an external ID for an artist.
-    conn.execute(
-        "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at)
-         VALUES ('artist', 'art-ext-1', 'isrc', 'USRC17607839', ?1)",
-        params![now],
-    )
-    .unwrap();
-
-    // Insert the same scheme for a track (different entity_type + entity_id).
-    // The UNIQUE constraint is (entity_type, entity_id, scheme), so this is fine.
-    conn.execute(
-        "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at)
-         VALUES ('track', 'track-ext-1', 'isrc', 'USRC17607839', ?1)",
-        params![now],
-    )
-    .unwrap();
-
-    // Both should exist.
-    let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM external_ids WHERE scheme = 'isrc' AND value = 'USRC17607839'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(count, 2);
-
-    // Verify they link to different entities.
-    let artist_eid: String = conn
-        .query_row(
-            "SELECT entity_id FROM external_ids WHERE entity_type = 'artist' AND scheme = 'isrc'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(artist_eid, "art-ext-1");
-
-    let track_eid: String = conn
-        .query_row(
-            "SELECT entity_id FROM external_ids WHERE entity_type = 'track' AND scheme = 'isrc'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(track_eid, "track-ext-1");
-
-    // Duplicate (same entity_type, entity_id, scheme) should fail.
-    let dup_result = conn.execute(
-        "INSERT INTO external_ids (entity_type, entity_id, scheme, value, created_at)
-         VALUES ('artist', 'art-ext-1', 'isrc', 'DIFFERENT_VALUE', ?1)",
-        params![now],
-    );
-    assert!(
-        dup_result.is_err(),
-        "duplicate entity_type+entity_id+scheme should fail"
-    );
-}
 
 // ---------------------------------------------------------------------------
 // 9. Large batch insert (100 feeds)
@@ -465,21 +285,18 @@ fn large_batch_insert() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "art-batch", "Batch Artist");
-    let cid = insert_single_credit(&conn, "art-batch", "Batch Artist");
-
-    // Insert 100 feeds in a loop.
+    // Insert 100 feeds in a loop. ADR 0034 §11: `feeds` carries no artist
+    // credit.
     for i in 0..100 {
         let guid = format!("feed-batch-{i:04}");
         conn.execute(
-            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
             params![
                 &guid,
                 format!("https://example.com/batch/{i}"),
                 format!("Batch Album {i}"),
                 format!("batch album {i}"),
-                cid,
                 now,
             ],
         )

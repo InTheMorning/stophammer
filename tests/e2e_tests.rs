@@ -3,64 +3,29 @@ mod common;
 use rusqlite::params;
 
 // ---------------------------------------------------------------------------
-// Helper: insert an artist and return its artist_id.
+// Helper: insert a feed or a track. ADR 0034 §11: `feeds` and `tracks` carry
+// no artist credit.
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, id: &str, name: &str) -> String {
+/// Insert a feed with full control over guid, url, and title.
+fn insert_feed_full(conn: &rusqlite::Connection, guid: &str, url: &str, title: &str) -> String {
     let now = common::now();
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, sort_name, type_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-        params![id, name, name.to_lowercase(), name, now],
-    )
-    .unwrap();
-    id.to_string()
-}
-
-/// Create an artist credit for a single artist and return the credit id.
-fn insert_single_credit(conn: &rusqlite::Connection, artist_id: &str, display: &str) -> i64 {
-    let now = common::now();
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display, now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name)
-         VALUES (?1, ?2, 0, ?3)",
-        params![credit_id, artist_id, display],
-    )
-    .unwrap();
-    credit_id
-}
-
-/// Insert a feed with full control over guid, url, title, and `credit_id`.
-fn insert_feed_full(
-    conn: &rusqlite::Connection,
-    guid: &str,
-    url: &str,
-    title: &str,
-    credit_id: i64,
-) -> String {
-    let now = common::now();
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![guid, url, title, title.to_lowercase(), credit_id, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![guid, url, title, title.to_lowercase(), now],
     )
     .unwrap();
     guid.to_string()
 }
 
 /// Insert a minimal feed and return its `feed_guid`.
-fn insert_feed(conn: &rusqlite::Connection, guid: &str, credit_id: i64) -> String {
+fn insert_feed(conn: &rusqlite::Connection, guid: &str) -> String {
     insert_feed_full(
         conn,
         guid,
         &format!("https://example.com/{guid}"),
         "Test Feed",
-        credit_id,
     )
 }
 
@@ -69,27 +34,21 @@ fn insert_track_full(
     conn: &rusqlite::Connection,
     track_guid: &str,
     feed_guid: &str,
-    credit_id: i64,
     title: &str,
 ) -> String {
     let now = common::now();
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
-        params![track_guid, feed_guid, credit_id, title, title.to_lowercase(), now],
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
+        params![track_guid, feed_guid, title, title.to_lowercase(), now],
     )
     .unwrap();
     track_guid.to_string()
 }
 
 /// Insert a minimal track and return its `track_guid`.
-fn insert_track(
-    conn: &rusqlite::Connection,
-    track_guid: &str,
-    feed_guid: &str,
-    credit_id: i64,
-) -> String {
-    insert_track_full(conn, track_guid, feed_guid, credit_id, "Test Track")
+fn insert_track(conn: &rusqlite::Connection, track_guid: &str, feed_guid: &str) -> String {
+    insert_track_full(conn, track_guid, feed_guid, "Test Track")
 }
 
 // ---------------------------------------------------------------------------
@@ -97,54 +56,26 @@ fn insert_track(
 // ---------------------------------------------------------------------------
 
 #[test]
-#[expect(
-    clippy::too_many_lines,
-    reason = "integration test exercises full ingest-to-query pipeline"
-)]
 fn ingest_to_query_pipeline() {
     let conn = common::test_db();
     let now = common::now();
 
-    // Step 1: Create an artist.
+    // Step 1: Create a feed. ADR 0034 §11: `feeds` carries no artist credit.
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, sort_name, type_id, area, created_at, updated_at)
-         VALUES ('art-e2e', 'E2E Artist', 'e2e artist', 'E2E Artist', 1, 'Brazil', ?1, ?1)",
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, language, created_at, updated_at)
+         VALUES ('feed-e2e', 'https://example.com/e2e', 'E2E Album', 'e2e album', 'A test album', 'https://img.example.com/e2e.jpg', 'en', ?1, ?1)",
         params![now],
     )
     .unwrap();
 
-    // Step 2: Create an artist_credit + artist_credit_name.
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('E2E Artist', ?1)",
-        params![now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name)
-         VALUES (?1, 'art-e2e', 0, 'E2E Artist')",
-        params![credit_id],
-    )
-    .unwrap();
-
-    // Step 3: Create a feed linked to the artist_credit.
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, language, created_at, updated_at)
-         VALUES ('feed-e2e', 'https://example.com/e2e', 'E2E Album', 'e2e album', ?1, 'A test album', 'https://img.example.com/e2e.jpg', 'en', ?2, ?2)",
-        params![credit_id, now],
-    )
-    .unwrap();
-
-    // Step 4: Create 3 tracks with payment routes and VTS.
+    // Step 2: Create 3 tracks with payment routes and VTS.
     for i in 1..=3 {
         let tg = format!("track-e2e-{i}");
         conn.execute(
-            "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, duration_secs, track_number, created_at, updated_at)
-             VALUES (?1, 'feed-e2e', ?2, ?3, ?4, ?5, ?6, ?7, ?5, ?5)",
+            "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, duration_secs, track_number, created_at, updated_at)
+             VALUES (?1, 'feed-e2e', ?2, ?3, ?4, ?5, ?6, ?4, ?4)",
             params![
                 &tg,
-                credit_id,
                 format!("Song {i}"),
                 format!("song {i}"),
                 now + i * 60,
@@ -171,7 +102,7 @@ fn ingest_to_query_pipeline() {
         .unwrap();
     }
 
-    // Step 5: Add feed payment routes.
+    // Step 3: Add feed payment routes.
     conn.execute(
         "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, split)
          VALUES ('feed-e2e', 'E2E Artist', 'keysend', 'node-feed-e2e', 100)",
@@ -179,37 +110,7 @@ fn ingest_to_query_pipeline() {
     )
     .unwrap();
 
-    // Step 6: Query each entity to verify.
-
-    // Verify artist.
-    let (artist_name, artist_area): (String, String) = conn
-        .query_row(
-            "SELECT name, area FROM artists WHERE artist_id = 'art-e2e'",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(artist_name, "E2E Artist");
-    assert_eq!(artist_area, "Brazil");
-
-    // Verify credit.
-    let credit_display: String = conn
-        .query_row(
-            "SELECT display_name FROM artist_credit WHERE id = ?1",
-            params![credit_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(credit_display, "E2E Artist");
-
-    let credit_name_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM artist_credit_name WHERE artist_credit_id = ?1",
-            params![credit_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(credit_name_count, 1);
+    // Step 4: Query each entity to verify.
 
     // Verify feed.
     let (feed_title, feed_desc, feed_lang): (String, String, String) = conn
@@ -279,10 +180,8 @@ fn search_index_population() {
     let conn = common::test_db();
 
     // Insert prerequisites.
-    insert_artist(&conn, "art-fts", "FTS Artist");
-    let cid = insert_single_credit(&conn, "art-fts", "FTS Artist");
-    insert_feed(&conn, "feed-fts", cid);
-    insert_track(&conn, "track-fts", "feed-fts", cid);
+    insert_feed(&conn, "feed-fts");
+    insert_track(&conn, "track-fts", "feed-fts");
 
     // Populate via the library function so both FTS5 + search_entities stay in
     // sync.
@@ -372,22 +271,19 @@ fn quality_score_integration() {
     let conn = common::test_db();
     let now = common::now();
 
-    // Create two fully-populated feeds.
-    insert_artist(&conn, "art-q1", "Quality Artist 1");
-    let cid1 = insert_single_credit(&conn, "art-q1", "Quality Artist 1");
+    // Create two fully-populated feeds. ADR 0034 §11: `feeds` carries no
+    // artist credit.
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, language, created_at, updated_at)
-         VALUES ('feed-q1', 'https://example.com/q1', 'High Quality Album', 'high quality album', ?1, 'Excellent', 'https://img.example.com/q1.jpg', 'en', ?2, ?2)",
-        params![cid1, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, language, created_at, updated_at)
+         VALUES ('feed-q1', 'https://example.com/q1', 'High Quality Album', 'high quality album', 'Excellent', 'https://img.example.com/q1.jpg', 'en', ?1, ?1)",
+        params![now],
     )
     .unwrap();
 
-    insert_artist(&conn, "art-q2", "Quality Artist 2");
-    let cid2 = insert_single_credit(&conn, "art-q2", "Quality Artist 2");
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, description, image_url, language, created_at, updated_at)
-         VALUES ('feed-q2', 'https://example.com/q2', 'Low Quality Album', 'low quality album', ?1, 'Sparse', 'https://img.example.com/q2.jpg', 'en', ?2, ?2)",
-        params![cid2, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, language, created_at, updated_at)
+         VALUES ('feed-q2', 'https://example.com/q2', 'Low Quality Album', 'low quality album', 'Sparse', 'https://img.example.com/q2.jpg', 'en', ?1, ?1)",
+        params![now],
     )
     .unwrap();
 
@@ -456,10 +352,6 @@ fn quality_score_integration() {
 fn pagination_with_cursors() {
     let conn = common::test_db();
 
-    // Create shared artist/credit.
-    insert_artist(&conn, "art-page", "Page Artist");
-    let cid = insert_single_credit(&conn, "art-page", "Page Artist");
-
     // Insert 5 feeds with deterministic guids for ordering.
     for i in 1..=5 {
         let guid = format!("feed-page-{i:02}");
@@ -468,7 +360,6 @@ fn pagination_with_cursors() {
             &guid,
             &format!("https://example.com/page/{i}"),
             &format!("Album {i}"),
-            cid,
         );
     }
 
@@ -531,16 +422,12 @@ fn pagination_with_cursors() {
 fn unicode_search() {
     let conn = common::test_db();
 
-    insert_artist(&conn, "art-uni", "Unicode Artist");
-    let cid = insert_single_credit(&conn, "art-uni", "Unicode Artist");
-
     let unicode_title = "Musica Electronica \u{65E5}\u{672C}\u{8A9E}";
     insert_feed_full(
         &conn,
         "feed-uni",
         "https://example.com/unicode",
         unicode_title,
-        cid,
     );
 
     // Insert into FTS5 search_index (contentless -- use rowid for lookups).
@@ -600,14 +487,6 @@ fn unicode_search() {
 fn empty_db_queries() {
     let conn = common::test_db();
 
-    // Query non-existent artist.
-    let artist_result = conn.query_row(
-        "SELECT artist_id FROM artists WHERE artist_id = 'nonexistent'",
-        [],
-        |r| r.get::<_, String>(0),
-    );
-    assert!(artist_result.is_err());
-
     // Query non-existent feed.
     let feed_result = conn.query_row(
         "SELECT feed_guid FROM feeds WHERE feed_guid = 'nonexistent'",
@@ -625,11 +504,6 @@ fn empty_db_queries() {
     assert!(track_result.is_err());
 
     // Count queries return 0, not errors.
-    let artist_count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM artists", [], |r| r.get(0))
-        .unwrap();
-    assert_eq!(artist_count, 0);
-
     let feed_count: i64 = conn
         .query_row("SELECT COUNT(*) FROM feeds", [], |r| r.get(0))
         .unwrap();
@@ -661,14 +535,20 @@ fn sql_injection_prevention() {
     let conn = common::test_db();
     let now = common::now();
 
-    let injection_name = "'; DROP TABLE feeds; --";
-    let injection_id = "art-inject";
+    let injection_title = "'; DROP TABLE feeds; --";
+    let injection_guid = "feed-inject";
 
-    // Insert an artist with an injection string as the name.
+    // Insert a feed with an injection string as the title. ADR 0034 §11:
+    // `feeds` is the vehicle here now that `artists` is gone.
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, sort_name, type_id, created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)",
-        params![injection_id, injection_name, injection_name.to_lowercase(), injection_name, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, created_at, updated_at)
+         VALUES (?1, 'https://example.com/inject', ?2, ?3, ?4, ?4)",
+        params![
+            injection_guid,
+            injection_title,
+            injection_title.to_lowercase(),
+            now
+        ],
     )
     .unwrap();
 
@@ -682,53 +562,47 @@ fn sql_injection_prevention() {
         .unwrap();
     assert!(feed_table_exists, "feeds table should still exist");
 
-    // Retrieve the artist and verify the name was stored literally.
-    let stored_name: String = conn
+    // Retrieve the feed and verify the title was stored literally.
+    let stored_title: String = conn
         .query_row(
-            "SELECT name FROM artists WHERE artist_id = ?1",
-            params![injection_id],
+            "SELECT title FROM feeds WHERE feed_guid = ?1",
+            params![injection_guid],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(stored_name, injection_name);
+    assert_eq!(stored_title, injection_title);
 
     // Try querying with an injection string as a parameter.
     let query_injection = "' OR '1'='1";
     let result = conn.query_row(
-        "SELECT artist_id FROM artists WHERE name = ?1",
+        "SELECT feed_guid FROM feeds WHERE title = ?1",
         params![query_injection],
         |r| r.get::<_, String>(0),
     );
-    // Should find nothing (the injection string is not a valid name).
+    // Should find nothing (the injection string is not a valid title).
     assert!(result.is_err());
 
-    // Create a credit with injection string as display_name.
-    let cid = insert_single_credit(&conn, injection_id, injection_name);
-    let stored_display: String = conn
-        .query_row(
-            "SELECT display_name FROM artist_credit WHERE id = ?1",
-            params![cid],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(stored_display, injection_name);
-
-    // Insert a feed with injection string as title.
+    // Insert a track with injection string as title, linked to the feed above.
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, created_at, updated_at)
-         VALUES ('feed-inject', 'https://example.com/inject', ?1, ?2, ?3, ?4, ?4)",
-        params![injection_name, injection_name.to_lowercase(), cid, now],
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, created_at, updated_at)
+         VALUES ('track-inject', ?1, ?2, ?3, ?4, ?4)",
+        params![
+            injection_guid,
+            injection_title,
+            injection_title.to_lowercase(),
+            now
+        ],
     )
     .unwrap();
 
-    let stored_title: String = conn
+    let stored_track_title: String = conn
         .query_row(
-            "SELECT title FROM feeds WHERE feed_guid = 'feed-inject'",
+            "SELECT title FROM tracks WHERE track_guid = 'track-inject'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(stored_title, injection_name);
+    assert_eq!(stored_track_title, injection_title);
 
     // Final sanity: all core tables still exist.
     let table_count: i64 = conn
@@ -739,5 +613,8 @@ fn sql_injection_prevention() {
         )
         .unwrap();
     // Dead schema removed — 2026-03-13: feed_type, artist_location, manifest_source
-    assert!(table_count > 17, "all tables should still exist");
+    // ADR 0034 §11 — 2026-09-28: the artist credit, resolver, review, tag,
+    // relationship and wallet tables are gone. `src/schema.sql` still
+    // declares more than 20 tables, before FTS5 shadow tables.
+    assert!(table_count > 20, "all tables should still exist");
 }

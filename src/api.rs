@@ -3071,33 +3071,11 @@ async fn handle_ingest_feed(
             now,
         );
 
-        // 5. Phase 3 source-first transition: keep a deterministic feed-scoped
-        // compatibility artist/credit for the published release artist text
-        // without invoking cross-feed resolution in ingest.
-        //
-        // ADR 0049 §5: the feed release artist comes from one RSS element,
-        // and the field that names its source travels beside it.
+        // 5. ADR 0049 §5: the feed release artist comes from one RSS element,
+        // and the field that names its source travels beside it. ADR 0034
+        // §11 (release B): the ingest makes no artist and no credit from this
+        // text; it only stores `release_artist` on the feed and track rows.
         let (artist_name, release_artist_source) = derive_release_artist(feed_data);
-        let feed_artist_credit =
-            db::get_or_create_feed_scoped_source_text_credit(&conn, &artist_name, feed_guid_str)?;
-        let feed_artist_id = feed_artist_credit
-            .names
-            .first()
-            .map(|name| name.artist_id.clone())
-            .ok_or_else(|| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!(
-                    "feed artist credit {} missing primary artist name",
-                    feed_artist_credit.id
-                ),
-                www_authenticate: None,
-            })?;
-        let feed_artist =
-            db::get_artist_by_id(&conn, &feed_artist_id)?.ok_or_else(|| ApiError {
-                status: StatusCode::INTERNAL_SERVER_ERROR,
-                message: format!("feed artist {feed_artist_id} missing after credit creation"),
-                www_authenticate: None,
-            })?;
         let existing_live_events =
             db::get_live_events_for_feed(&conn, feed_guid_str).map_err(ApiError::from)?;
 
@@ -3128,7 +3106,6 @@ async fn handle_ingest_feed(
             feed_url,
             title: feed_data.title.clone(),
             title_lower: feed_data.title.to_lowercase(),
-            artist_credit_id: Some(feed_artist_credit.id),
             description: feed_data.description.clone(),
             image_url: feed_data.image_url.clone(),
             publisher: derive_publisher_name(feed_data),
@@ -3322,9 +3299,6 @@ async fn handle_ingest_feed(
         let mut track_tuples: Vec<db::TrackIngestBundle> =
             Vec::with_capacity(feed_data.tracks.len());
 
-        // Track artist credits for event generation
-        let mut track_credits: Vec<model::ArtistCredit> = Vec::with_capacity(tracks.len());
-
         for track_data in tracks {
             source_contributor_claims.extend(build_source_contributor_claims(
                 &feed_data.feed_guid,
@@ -3385,21 +3359,9 @@ async fn handle_ingest_feed(
                 now,
             );
 
-            // Per-track artist resolution (feed-scoped)
-            // Phase 3 source-first transition: keep feed-scoped compatibility
-            // credits without invoking cross-feed artist resolution here.
-            let (track_credit_id, track_credit) = if let Some(author) = &track_data.author_name {
-                let credit =
-                    db::get_or_create_feed_scoped_source_text_credit(&conn, author, feed_guid_str)?;
-                (credit.id, credit)
-            } else {
-                (feed_artist_credit.id, feed_artist_credit.clone())
-            };
-
             let track = model::Track {
                 track_guid: track_data.track_guid.clone(),
                 feed_guid: feed_data.feed_guid.clone(),
-                artist_credit_id: Some(track_credit_id),
                 title: track_data.title.clone(),
                 title_lower: track_data.title.to_lowercase(),
                 pub_date: track_data.pub_date,
@@ -3478,7 +3440,6 @@ async fn handle_ingest_feed(
                 .collect();
 
             track_tuples.push((track, routes, vts, track_remote_items));
-            track_credits.push(track_credit);
         }
 
         for live_item in live_items {
@@ -3601,8 +3562,6 @@ async fn handle_ingest_feed(
         // signs each event after the DB assigns its seq.
         let event_rows = db::build_diff_events(
             &conn,
-            &feed_artist,
-            &feed_artist_credit,
             &feed,
             &feed_remote_items,
             &source_contributor_claims,
@@ -3616,7 +3575,6 @@ async fn handle_ingest_feed(
             &feed_list_values,
             &live_events,
             &track_tuples,
-            &track_credits,
             now,
             &warnings,
         )
@@ -3680,8 +3638,6 @@ async fn handle_ingest_feed(
         // Issue-SEQ-INTEGRITY — 2026-03-14
         let seqs = db::ingest_transaction(
             &mut conn,
-            feed_artist,
-            feed_artist_credit,
             feed,
             feed_remote_items,
             source_contributor_claims,

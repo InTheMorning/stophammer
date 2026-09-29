@@ -239,8 +239,9 @@ The v1 schema decision implies a source-first API direction:
 
 ### 10. The state on 2026-09-27
 
-The resolver, review, release, recording, tag and relationship tables are
-gone, and the seven `source_*` tables exist. These parts of section 4 are
+The release and recording tables are gone, and the seven `source_*` tables
+exist. The resolver, review, tag, relationship and wallet tables are empty and
+no code uses them, but they still exist. Section 11 drops them. These parts of section 4 are
 changed or open:
 
 - **Search and quality stay.** `search_index`, `search_entities` and
@@ -280,9 +281,31 @@ each community node must upgrade first. Two releases remove that order:
 2. **Release B.** The primary makes no artist, no credit and no
    `artist_credit_id`, and signs no `ArtistCreditCreated` and no
    `ArtistUpserted`. A migration rebuilds `feeds` and `tracks` with no
-   `artist_credit_id`, and drops the tables of section 10. The release notes
+   `artist_credit_id`, and drops the tables of section 10 and the dead tables
+  below. The release notes
    state that each community node must run release A or later before the
    primary runs release B.
+
+The migration of release B drops each table that no code uses. On the
+production copy of 2026-09-26, each one is empty, or holds fixed seed values,
+or is a leftover copy of migration 0032:
+
+- The artist credit: `artists`, `artist_aliases`, `artist_credit`,
+  `artist_credit_name`, `artist_type`, `rel_type`, `external_ids`.
+- Relationships and tags: `feed_rel`, `track_rel`, `artist_artist_rel`,
+  `artist_tag`, `artist_id_redirect`, `tags`, `feed_tag`, `track_tag`.
+- The resolver and the review: `resolver_queue`, `resolver_state`,
+  `resolved_entity_sources_by_feed`, `resolved_external_ids_by_feed`,
+  `artist_identity_override`, `artist_identity_review`,
+  `entity_field_status`, `entity_source`.
+- The wallets: `wallets` and each table whose name starts with `wallet_`.
+- Leftover copies: each table whose name ends with `_legacy_0032`, and
+  `live_events_legacy`.
+
+The two delete triggers stop naming these tables. The `rel` role of a
+publisher link is not one of them: ADR 0049 §6 keeps it as the RSS gives it,
+in `feed_remote_items_raw.rel`. `feed_rel` was a derived link with the closed
+role list of `rel_type`, and it could not keep a role that the list lacks.
 
 After release B, these rules hold:
 

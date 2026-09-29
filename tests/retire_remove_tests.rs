@@ -12,87 +12,51 @@ use std::sync::{Arc, Mutex};
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .unwrap();
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .unwrap();
-
-    credit_id
-}
-
+/// Inserts a feed. ADR 0034 §11: `feeds` carries no artist credit.
 fn insert_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     feed_url: &str,
     title: &str,
-    credit_id: i64,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          description, explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)",
         params![
             feed_guid,
             feed_url,
             title,
             title.to_lowercase(),
-            credit_id,
             "A test feed",
             0,
             0,
-            now,
             now,
         ],
     )
     .unwrap();
 }
 
+/// Inserts a track. ADR 0034 §11: `tracks` carries no artist credit.
 fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,
     feed_guid: &str,
-    credit_id: i64,
     title: &str,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          description, explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         params![
             track_guid,
             feed_guid,
-            credit_id,
             title,
             title.to_lowercase(),
             "A test track",
             0,
-            now,
             now,
         ],
     )
@@ -163,22 +127,20 @@ fn count(conn: &rusqlite::Connection, table: &str, where_clause: &str) -> i64 {
 }
 
 /// Populate a feed with two tracks and all associated child rows
-/// (payment routes, VTS, quality).
-fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
+/// (payment routes, VTS, quality). ADR 0034 §11: `feeds` and `tracks` carry
+/// no artist credit.
+fn populate_feed_with_tracks(conn: &rusqlite::Connection) {
     let now = common::now();
-    insert_artist(conn, "artist-1", "Test Artist", now);
-    let credit_id = insert_artist_credit(conn, "artist-1", "Test Artist", now);
     insert_feed(
         conn,
         "feed-1",
         "https://example.com/feed.xml",
         "Test Album",
-        credit_id,
         now,
     );
 
-    insert_track(conn, "track-1", "feed-1", credit_id, "Song One", now);
-    insert_track(conn, "track-2", "feed-1", credit_id, "Song Two", now);
+    insert_track(conn, "track-1", "feed-1", "Song One", now);
+    insert_track(conn, "track-2", "feed-1", "Song Two", now);
 
     // Track-level child rows
     insert_payment_route(conn, "track-1", "feed-1");
@@ -223,8 +185,6 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) -> i64 {
         "",
     )
     .unwrap();
-
-    credit_id
 }
 
 // ---------------------------------------------------------------------------
@@ -291,8 +251,6 @@ fn delete_feed_removes_all_children() {
         ),
         0
     );
-    // Artist and artist_credit should still exist (not cascade-deleted).
-    assert_eq!(count(&conn, "artists", "artist_id = 'artist-1'"), 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -382,17 +340,15 @@ fn delete_track_idempotent() {
 // ---------------------------------------------------------------------------
 
 /// Populate a feed with N tracks, each having payment routes, VTS,
-/// and `entity_quality` rows. Returns (`credit_id`, `track_guids`).
-fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, Vec<String>) {
+/// and `entity_quality` rows. Returns `track_guids`. ADR 0034 §11: `feeds`
+/// and `tracks` carry no artist credit.
+fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> Vec<String> {
     let now = common::now();
-    insert_artist(conn, "artist-n", "N-Track Artist", now);
-    let credit_id = insert_artist_credit(conn, "artist-n", "N-Track Artist", now);
     insert_feed(
         conn,
         "feed-n",
         "https://example.com/feed-n.xml",
         "N-Track Album",
-        credit_id,
         now,
     );
 
@@ -400,7 +356,7 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
     for i in 0..n {
         let tg = format!("track-n-{i}");
         let title = format!("Song {i}");
-        insert_track(conn, &tg, "feed-n", credit_id, &title, now);
+        insert_track(conn, &tg, "feed-n", &title, now);
         insert_payment_route(conn, &tg, "feed-n");
         insert_value_time_split(conn, &tg, now);
 
@@ -412,30 +368,22 @@ fn populate_feed_with_n_tracks(conn: &rusqlite::Connection, n: usize) -> (i64, V
     insert_feed_payment_route(conn, "feed-n");
     insert_entity_quality(conn, "feed", "feed-n", now);
 
-    (credit_id, guids)
+    guids
 }
 
 #[expect(
     clippy::too_many_lines,
     reason = "test fixture seeds the full set of feed-scoped dependency tables in one place"
 )]
-fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id: i64, now: i64) {
+fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, now: i64) {
     insert_feed(
         conn,
         "feed-peer",
         "https://example.com/feed-peer.xml",
         "Peer Feed",
-        credit_id,
         now,
     );
-    insert_track(
-        conn,
-        "track-delete-extra",
-        "feed-n",
-        credit_id,
-        "Extra Track",
-        now,
-    );
+    insert_track(conn, "track-delete-extra", "feed-n", "Extra Track", now);
 
     conn.execute(
         "INSERT INTO feed_remote_items_raw (
@@ -558,13 +506,12 @@ fn seed_delete_feed_with_event_dependents(conn: &rusqlite::Connection, credit_id
         params!["feed-n", now],
     )
     .expect("insert source platform claim");
-    let _ = credit_id;
 }
 
 #[test]
 fn delete_feed_many_tracks_removes_all_children() {
     let mut conn = common::test_db();
-    let (_credit_id, _track_guids) = populate_feed_with_n_tracks(&conn, 5);
+    let _track_guids = populate_feed_with_n_tracks(&conn, 5);
 
     // Verify data exists before deletion.
     assert_eq!(count(&conn, "feeds", "feed_guid = 'feed-n'"), 1);
@@ -617,14 +564,12 @@ fn delete_feed_many_tracks_removes_all_children() {
         ),
         0
     );
-    // Artist should still exist.
-    assert_eq!(count(&conn, "artists", "artist_id = 'artist-n'"), 1);
 }
 
 #[test]
 fn delete_feed_with_event_many_tracks_removes_all_children() {
     let mut conn = common::test_db();
-    let (_credit_id, _track_guids) = populate_feed_with_n_tracks(&conn, 5);
+    let _track_guids = populate_feed_with_n_tracks(&conn, 5);
 
     // Verify data exists.
     assert_eq!(count(&conn, "tracks", "feed_guid = 'feed-n'"), 5);
@@ -690,9 +635,9 @@ fn delete_feed_with_event_many_tracks_removes_all_children() {
 #[test]
 fn delete_feed_with_event_removes_resolver_and_source_dependents() {
     let mut conn = common::test_db();
-    let (credit_id, _track_guids) = populate_feed_with_n_tracks(&conn, 2);
+    let _track_guids = populate_feed_with_n_tracks(&conn, 2);
     let now = common::now();
-    seed_delete_feed_with_event_dependents(&conn, credit_id, now);
+    seed_delete_feed_with_event_dependents(&conn, now);
 
     let signer = common::temp_signer("test-delete-dependent-cleanup");
     let event_id = uuid::Uuid::new_v4().to_string();

@@ -7,48 +7,19 @@ use stophammer::quality;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Insert prerequisite entities (artist, credit, `credit_name`, feed) and
-/// return the `feed_guid`.
+/// Insert a prerequisite feed and return the `feed_guid`.
 ///
 /// The feed's `release_artist` is left `NULL`. ADR 0034 §11: the feed and
-/// track quality scores read `release_artist`/`track_artist`, not the
-/// artist-credit columns, so a caller that wants the feed-level bonus or the
-/// track's feed-level fallback sets `release_artist` itself.
+/// track quality scores read `release_artist`/`track_artist`, and `feeds`
+/// carries no artist-credit column, so a caller that wants the feed-level
+/// bonus or the track's feed-level fallback sets `release_artist` itself.
 fn setup_feed(conn: &rusqlite::Connection) -> String {
     let now = common::now();
 
     conn.execute(
-        "INSERT OR IGNORE INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params!["artist-1", "Test Artist", "test artist", now, now],
-    )
-    .unwrap();
-
-    // A "null" credit with id=0 so tracks reference a valid
-    // artist_credit_id FK while carrying no author identity.
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) VALUES (?1, ?2, ?3)",
-        params![0, "", now],
-    )
-    .unwrap();
-
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit (id, display_name, created_at) VALUES (?1, ?2, ?3)",
-        params![1, "Test Artist", now],
-    )
-    .unwrap();
-
-    conn.execute(
-        "INSERT OR IGNORE INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![1, "artist-1", 0, "Test Artist", ""],
-    )
-    .unwrap();
-
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params!["feed-1", "https://example.com/feed.xml", "Test Feed", "test feed", 1, 0, now, now],
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, episode_count, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params!["feed-1", "https://example.com/feed.xml", "Test Feed", "test feed", 0, now],
     )
     .unwrap();
 
@@ -66,10 +37,10 @@ fn test_compute_track_quality_all_fields() {
     setup_feed(&conn);
 
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, duration_secs, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, duration_secs, \
          enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, track_artist, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-        params!["track-1", "feed-1", 1, "Test Track", "test track", now, 180,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        params!["track-1", "feed-1", "Test Track", "test track", now, 180,
                 "https://example.com/track.mp3", "audio/mpeg", 5_000_000, 1, 1, 0, "A great track", "Test Artist", now, now],
     )
     .unwrap();
@@ -108,19 +79,17 @@ fn test_compute_track_quality_minimal() {
     // `NULL` and the feed's `release_artist` is left `NULL` by `setup_feed`,
     // so the author-name check (ADR 0034 §11) does not fire.
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          enclosure_url, explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
         params![
             "track-min",
             "feed-1",
-            0,
             "Minimal Track",
             "minimal track",
             "https://example.com/min.mp3",
             0,
             now,
-            now
         ],
     )
     .unwrap();
@@ -145,10 +114,10 @@ fn test_compute_track_quality_with_routes_no_vts() {
     setup_feed(&conn);
 
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, pub_date, duration_secs, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, duration_secs, \
          enclosure_url, enclosure_type, enclosure_bytes, track_number, season, explicit, description, track_artist, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
-        params!["track-routes", "feed-1", 1, "Routes Track", "routes track", now, 240,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        params!["track-routes", "feed-1", "Routes Track", "routes track", now, 240,
                 "https://example.com/routes.mp3", "audio/mpeg", 6_000_000, 2, 1, 0, "Track with routes", "Test Artist", now, now],
     )
     .unwrap();
@@ -212,9 +181,9 @@ fn test_compute_feed_quality() {
 
     // Insert a track so has_tracks fires.
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        params!["track-feed", "feed-1", 1, "Feed Track", "feed track", 0, now, now],
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, explicit, created_at, updated_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)",
+        params!["track-feed", "feed-1", "Feed Track", "feed track", 0, now],
     )
     .unwrap();
 

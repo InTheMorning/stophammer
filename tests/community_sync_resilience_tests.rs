@@ -172,31 +172,48 @@ async fn test_community_push_handler_rejects_wrong_signer() {
 
     let app = stophammer::community::build_community_push_router(state);
 
-    // Push an event signed by a DIFFERENT key (wrong signer).
+    // Push an event signed by a DIFFERENT key (wrong signer). ADR 0034 §11:
+    // `ArtistUpserted` is a no-op, so `FeedUpserted` is the vehicle here.
     let wrong_signer = "1111aaaa2222bbbb3333cccc4444dddd5555eeee6666ffff1111aaaa2222bbbb";
+    let bad_feed = serde_json::json!({
+        "feed_guid": "feed-bad",
+        "feed_url": "https://example.com/feed-bad.xml",
+        "title": "Bad Feed",
+        "title_lower": "bad feed",
+        "description": null,
+        "image_url": null,
+        "publisher": null,
+        "language": null,
+        "explicit": false,
+        "itunes_type": null,
+        "release_artist": null,
+        "release_artist_sort": null,
+        "release_date": null,
+        "release_kind": null,
+        "episode_count": 0,
+        "newest_item_at": null,
+        "oldest_item_at": null,
+        "created_at": 1000,
+        "updated_at": 1000,
+        "raw_medium": null
+    });
+    let bad_payload_json =
+        serde_json::to_string(&serde_json::json!({ "feed": bad_feed })).expect("serialize");
     let payload = serde_json::json!({
         "events": [{
             "event_id": "evt-bad-signer",
-            "event_type": "artist_upserted",
+            "event_type": "feed_upserted",
             "payload": {
-                "type": "artist_upserted",
-                "data": {
-                    "artist": {
-                        "artist_id": "art-bad",
-                        "name": "Bad Artist",
-                        "name_lower": "bad artist",
-                        "created_at": 1000,
-                        "updated_at": 1000
-                    }
-                }
+                "type": "feed_upserted",
+                "data": { "feed": bad_feed }
             },
-            "subject_guid": "art-bad",
+            "subject_guid": "feed-bad",
             "signed_by": wrong_signer,
             "signature": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "seq": 1,
             "created_at": 1000,
             "warnings": [],
-            "payload_json": "{\"artist\":{\"artist_id\":\"art-bad\",\"name\":\"Bad Artist\",\"name_lower\":\"bad artist\",\"created_at\":1000,\"updated_at\":1000}}"
+            "payload_json": bad_payload_json
         }]
     });
 
@@ -222,19 +239,16 @@ async fn test_community_push_handler_rejects_wrong_signer() {
     assert_eq!(body["applied"].as_u64().expect("applied"), 0);
     assert_eq!(body["rejected"].as_u64().expect("rejected"), 1);
 
-    // Verify the artist was NOT inserted into the DB.
+    // Verify the feed was NOT inserted into the DB.
     let conn = db.lock().expect("lock for verification");
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM artists WHERE artist_id = 'art-bad'",
+            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-bad'",
             [],
             |row| row.get(0),
         )
-        .expect("query artists");
-    assert_eq!(
-        count, 0,
-        "artist from wrong-signer event should not be in DB"
-    );
+        .expect("query feeds");
+    assert_eq!(count, 0, "feed from wrong-signer event should not be in DB");
 }
 
 // ---------------------------------------------------------------------------
@@ -256,24 +270,40 @@ async fn test_community_push_handler_accepts_valid_events() {
     let primary_pubkey = signer.pubkey_hex().to_string();
     let now = stophammer::db::unix_now();
 
-    // Build a valid ArtistUpserted event.
+    // Build a valid FeedUpserted event. ADR 0034 §11: `ArtistUpserted` is a
+    // no-op, so `FeedUpserted` is the vehicle here.
     let event_id = uuid::Uuid::new_v4().to_string();
-    let artist_payload = serde_json::json!({
-        "artist": {
-            "artist_id": "art-valid-tc03",
-            "name": "Valid TC03 Artist",
-            "name_lower": "valid tc03 artist",
+    let feed_payload = serde_json::json!({
+        "feed": {
+            "feed_guid": "feed-valid-tc03",
+            "feed_url": "https://example.com/feed-valid-tc03.xml",
+            "title": "Valid TC03 Feed",
+            "title_lower": "valid tc03 feed",
+            "description": null,
+            "image_url": null,
+            "publisher": null,
+            "language": null,
+            "explicit": false,
+            "itunes_type": null,
+            "release_artist": null,
+            "release_artist_sort": null,
+            "release_date": null,
+            "release_kind": null,
+            "episode_count": 0,
+            "newest_item_at": null,
+            "oldest_item_at": null,
             "created_at": now,
-            "updated_at": now
+            "updated_at": now,
+            "raw_medium": null
         }
     });
-    let payload_json = serde_json::to_string(&artist_payload).expect("serialize payload");
+    let payload_json = serde_json::to_string(&feed_payload).expect("serialize payload");
 
     let (signed_by, signature) = signer.sign_event(
         &event_id,
-        &stophammer::event::EventType::ArtistUpserted,
+        &stophammer::event::EventType::FeedUpserted,
         &payload_json,
-        "art-valid-tc03",
+        "feed-valid-tc03",
         now,
         1, // Issue-SEQ-INTEGRITY — 2026-03-14
     );
@@ -281,12 +311,12 @@ async fn test_community_push_handler_accepts_valid_events() {
     let push_body = serde_json::json!({
         "events": [{
             "event_id": event_id,
-            "event_type": "artist_upserted",
+            "event_type": "feed_upserted",
             "payload": {
-                "type": "artist_upserted",
-                "data": artist_payload
+                "type": "feed_upserted",
+                "data": feed_payload
             },
-            "subject_guid": "art-valid-tc03",
+            "subject_guid": "feed-valid-tc03",
             "signed_by": signed_by,
             "signature": signature,
             "seq": 1,
@@ -328,14 +358,14 @@ async fn test_community_push_handler_accepts_valid_events() {
     assert_eq!(body["applied"].as_u64().expect("applied"), 1);
     assert_eq!(body["rejected"].as_u64().expect("rejected"), 0);
 
-    // Verify the artist WAS inserted into the DB.
+    // Verify the feed WAS inserted into the DB.
     let conn = db.lock().expect("lock for verification");
-    let name: String = conn
+    let title: String = conn
         .query_row(
-            "SELECT name FROM artists WHERE artist_id = 'art-valid-tc03'",
+            "SELECT title FROM feeds WHERE feed_guid = 'feed-valid-tc03'",
             [],
             |row| row.get(0),
         )
-        .expect("artist should exist in DB");
-    assert_eq!(name, "Valid TC03 Artist");
+        .expect("feed should exist in DB");
+    assert_eq!(title, "Valid TC03 Feed");
 }

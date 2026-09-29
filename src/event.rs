@@ -31,10 +31,16 @@ pub enum EventType {
     /// A track was deleted from a feed.
     TrackRemoved,
     /// An artist record was created or its display name changed.
+    ///
+    /// ADR 0034 §11: only an event signed before release 0.3.0 carries this
+    /// type. The node applies each one as a no-op.
     ArtistUpserted,
     /// The full set of payment routes for a track was atomically replaced.
     RoutesReplaced,
     /// An artist credit was created (multi-artist attribution).
+    ///
+    /// ADR 0034 §11: only an event signed before release 0.3.0 carries this
+    /// type. The node applies each one as a no-op.
     ArtistCreditCreated,
     /// Feed-level payment routes were replaced.
     FeedRoutesReplaced,
@@ -93,11 +99,13 @@ pub enum EventPayload {
     TrackUpserted(TrackUpsertedPayload),
     /// Payload for a track deletion event.
     TrackRemoved(TrackRemovedPayload),
-    /// Payload for an artist create-or-update event.
+    /// Payload for an artist create-or-update event. ADR 0034 §11: a node
+    /// applies this as a no-op.
     ArtistUpserted(ArtistUpsertedPayload),
     /// Payload for an atomic payment-route replacement event.
     RoutesReplaced(RoutesReplacedPayload),
-    /// Payload for an artist credit creation event.
+    /// Payload for an artist credit creation event. ADR 0034 §11: a node
+    /// applies this as a no-op.
     ArtistCreditCreated(ArtistCreditCreatedPayload),
     /// Payload for a feed-level payment route replacement event.
     FeedRoutesReplaced(FeedRoutesReplacedPayload),
@@ -229,7 +237,9 @@ pub struct TrackRemovedPayload {
     pub feed_guid: String,
 }
 
-/// Emitted when an artist record is created or its display name changes.
+/// A wire type only. ADR 0034 §11: the node signs no new `ArtistUpserted`
+/// event. Only an event signed before release 0.3.0 carries this payload, and
+/// a node applies it as a no-op.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtistUpsertedPayload {
     pub artist: Artist,
@@ -244,7 +254,9 @@ pub struct RoutesReplacedPayload {
     pub routes: Vec<PaymentRoute>,
 }
 
-/// Emitted when a new artist credit is created (multi-artist attribution).
+/// A wire type only. ADR 0034 §11: the node signs no new `ArtistCreditCreated`
+/// event. Only an event signed before release 0.3.0 carries this payload, and
+/// a node applies it as a no-op.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArtistCreditCreatedPayload {
     pub artist_credit: ArtistCredit,

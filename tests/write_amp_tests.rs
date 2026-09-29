@@ -63,36 +63,6 @@ fn ingest_and_count_track_events(
     // trigger false-positive diffs due to timestamp drift.
     let fixed_pub_date: i64 = 1_700_000_000;
 
-    let artist = stophammer::model::Artist {
-        artist_id: format!("art-{}", feed.feed_guid),
-        name: "Test Artist".into(),
-        name_lower: "test artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    let artist_credit = stophammer::model::ArtistCredit {
-        id: 0,
-        display_name: "Test Artist".into(),
-        feed_guid: None,
-        created_at: now,
-        names: vec![stophammer::model::ArtistCreditName {
-            id: 0,
-            artist_credit_id: 0,
-            artist_id: format!("art-{}", feed.feed_guid),
-            position: 0,
-            name: "Test Artist".into(),
-            join_phrase: String::new(),
-        }],
-    };
-
     #[expect(
         clippy::cast_possible_wrap,
         reason = "test: track counts never approach i64::MAX"
@@ -102,7 +72,6 @@ fn ingest_and_count_track_events(
         feed_url: format!("https://example.com/{}.xml", feed.feed_guid),
         title: feed.title.into(),
         title_lower: feed.title.to_lowercase(),
-        artist_credit_id: Some(0),
         description: feed.description.map(String::from),
         image_url: None,
         publisher: None,
@@ -130,7 +99,6 @@ fn ingest_and_count_track_events(
             let track = stophammer::model::Track {
                 track_guid: t.guid.into(),
                 feed_guid: feed.feed_guid.into(),
-                artist_credit_id: Some(0),
                 title: t.title.into(),
                 title_lower: t.title.to_lowercase(),
                 pub_date: Some(fixed_pub_date),
@@ -158,8 +126,6 @@ fn ingest_and_count_track_events(
     // Query existing state and only emit events for changed entities.
     let event_rows = stophammer::db::build_diff_events(
         conn,
-        &artist,
-        &artist_credit,
         &feed_model,
         &[], // no remote items
         &[], // no source contributor claims
@@ -173,7 +139,6 @@ fn ingest_and_count_track_events(
         &[], // no list value block
         &[], // no live events
         &track_tuples,
-        &[], // no track credits override — use the same one
         now,
         &[], // no warnings
     )
@@ -181,8 +146,6 @@ fn ingest_and_count_track_events(
 
     stophammer::db::ingest_transaction(
         conn,
-        artist,
-        artist_credit,
         feed_model,
         vec![],
         vec![],

@@ -210,60 +210,27 @@ async fn remote_item_without_rel_reports_null() {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: insert prerequisite artist + artist_credit + feed rows for tests
-// that apply events directly (mirrors tests/apply_tests.rs).
+// Helper: insert a prerequisite feed row for tests that apply events
+// directly (mirrors tests/apply_tests.rs). ADR 0034 §11: `feeds` carries no
+// artist credit.
 // ---------------------------------------------------------------------------
-
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .expect("insert artist");
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .expect("insert artist_credit_name");
-
-    credit_id
-}
 
 fn insert_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     feed_url: &str,
     title: &str,
-    credit_id: i64,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             feed_guid,
             feed_url,
             title,
             title.to_lowercase(),
-            credit_id,
             0,
             0,
             now,
@@ -301,14 +268,11 @@ fn feed_remote_items_replaced_payload_without_rel_key_decodes_and_applies() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-no-rel-key", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-no-rel-key", "Artist", now);
         insert_feed(
             &conn,
             "feed-no-rel-key",
             "https://example.com/no-rel-key.xml",
             "No Rel Key Feed",
-            credit_id,
             now,
         );
     }
@@ -379,14 +343,11 @@ fn feed_remote_items_replaced_event_with_rel_applies_identically_on_second_datab
 
     for db in [&db1, &db2] {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-rel-replicated", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-rel-replicated", "Artist", now);
         insert_feed(
             &conn,
             "feed-rel-replicated",
             "https://example.com/rel-replicated.xml",
             "Replicated Rel Feed",
-            credit_id,
             now,
         );
     }

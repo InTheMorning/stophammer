@@ -13,60 +13,27 @@ use rusqlite::params;
 use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
-// Helper: insert prerequisite artist + artist_credit for tests that need a
-// feed or track (which require foreign keys to those tables).
+// Helper: insert a feed or track row directly, for tests that need one to
+// exist as the target of a replace event (payment routes, claims, ...).
+// ADR 0034 §11: neither table carries an artist credit any more.
 // ---------------------------------------------------------------------------
-
-fn insert_artist(conn: &rusqlite::Connection, artist_id: &str, name: &str, now: i64) {
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![artist_id, name, name.to_lowercase(), now, now],
-    )
-    .unwrap();
-}
-
-fn insert_artist_credit(
-    conn: &rusqlite::Connection,
-    artist_id: &str,
-    display_name: &str,
-    now: i64,
-) -> i64 {
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params![display_name, now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, artist_id, 0, display_name, ""],
-    )
-    .unwrap();
-
-    credit_id
-}
 
 fn insert_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
     feed_url: &str,
     title: &str,
-    credit_id: i64,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          explicit, episode_count, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             feed_guid,
             feed_url,
             title,
             title.to_lowercase(),
-            credit_id,
             0,
             0,
             now,
@@ -80,18 +47,16 @@ fn insert_track(
     conn: &rusqlite::Connection,
     track_guid: &str,
     feed_guid: &str,
-    credit_id: i64,
     title: &str,
     now: i64,
 ) {
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          explicit, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             track_guid,
             feed_guid,
-            credit_id,
             title,
             title.to_lowercase(),
             0,
@@ -103,38 +68,7 @@ fn insert_track(
 }
 
 // ---------------------------------------------------------------------------
-// 1. apply_artist_upserted
-// ---------------------------------------------------------------------------
-
-#[test]
-fn apply_artist_upserted() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    insert_artist(&conn, "artist-1", "Test Artist", now);
-
-    let name: String = conn
-        .query_row(
-            "SELECT name FROM artists WHERE artist_id = 'artist-1'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(name, "Test Artist");
-
-    // name_lower is stored alongside.
-    let name_lower: String = conn
-        .query_row(
-            "SELECT name_lower FROM artists WHERE artist_id = 'artist-1'",
-            [],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(name_lower, "test artist");
-}
-
-// ---------------------------------------------------------------------------
-// 2. apply_feed_upserted
+// 1. apply_feed_upserted
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -142,27 +76,23 @@ fn apply_feed_upserted() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "artist-1", "Feed Artist", now);
-    let credit_id = insert_artist_credit(&conn, "artist-1", "Feed Artist", now);
     insert_feed(
         &conn,
         "feed-guid-1",
         "https://example.com/feed.xml",
         "My Album",
-        credit_id,
         now,
     );
 
-    // Verify feed exists with correct title and credit.
-    let (title, fc): (String, i64) = conn
+    // Verify feed exists with correct title.
+    let title: String = conn
         .query_row(
-            "SELECT title, artist_credit_id FROM feeds WHERE feed_guid = 'feed-guid-1'",
+            "SELECT title FROM feeds WHERE feed_guid = 'feed-guid-1'",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| r.get(0),
         )
         .unwrap();
     assert_eq!(title, "My Album");
-    assert_eq!(fc, credit_id);
 }
 
 // ---------------------------------------------------------------------------
@@ -174,17 +104,14 @@ fn apply_track_upserted() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "artist-1", "Track Artist", now);
-    let credit_id = insert_artist_credit(&conn, "artist-1", "Track Artist", now);
     insert_feed(
         &conn,
         "feed-1",
         "https://example.com/feed.xml",
         "Album",
-        credit_id,
         now,
     );
-    insert_track(&conn, "track-1", "feed-1", credit_id, "Song One", now);
+    insert_track(&conn, "track-1", "feed-1", "Song One", now);
 
     // Insert a payment route for the track.
     conn.execute(
@@ -251,17 +178,8 @@ fn apply_routes_replaced() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "artist-1", "Artist", now);
-    let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
-    insert_feed(
-        &conn,
-        "feed-1",
-        "https://example.com/f.xml",
-        "Album",
-        credit_id,
-        now,
-    );
-    insert_track(&conn, "track-1", "feed-1", credit_id, "Song", now);
+    insert_feed(&conn, "feed-1", "https://example.com/f.xml", "Album", now);
+    insert_track(&conn, "track-1", "feed-1", "Song", now);
 
     // Insert original route.
     conn.execute(
@@ -353,16 +271,7 @@ fn apply_feed_routes_replaced() {
     let conn = common::test_db();
     let now = common::now();
 
-    insert_artist(&conn, "artist-1", "Artist", now);
-    let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
-    insert_feed(
-        &conn,
-        "feed-1",
-        "https://example.com/f.xml",
-        "Album",
-        credit_id,
-        now,
-    );
+    insert_feed(&conn, "feed-1", "https://example.com/f.xml", "Album", now);
 
     // Insert original feed-level route.
     conn.execute(
@@ -504,91 +413,6 @@ fn apply_duplicate_event() {
     assert_eq!(seq, 1, "original seq must be preserved");
 }
 
-// ---------------------------------------------------------------------------
-// 8. apply_creates_artist_credit
-// ---------------------------------------------------------------------------
-
-/// Artist credits link multiple artists to a single display name. This test
-/// verifies the credit + `credit_name` rows are created correctly and the
-/// foreign key to artists is valid.
-#[test]
-fn apply_creates_artist_credit() {
-    let conn = common::test_db();
-    let now = common::now();
-
-    // Create two artists.
-    insert_artist(&conn, "artist-a", "Alice", now);
-    insert_artist(&conn, "artist-b", "Bob", now);
-
-    // Create a joint credit: "Alice & Bob".
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params!["Alice & Bob", now],
-    )
-    .unwrap();
-    let credit_id = conn.last_insert_rowid();
-
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, "artist-a", 0, "Alice", " & "],
-    )
-    .unwrap();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![credit_id, "artist-b", 1, "Bob", ""],
-    )
-    .unwrap();
-
-    // Verify credit display name.
-    let display_name: String = conn
-        .query_row(
-            "SELECT display_name FROM artist_credit WHERE id = ?1",
-            params![credit_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(display_name, "Alice & Bob");
-
-    // Verify two credit names exist.
-    let name_count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM artist_credit_name WHERE artist_credit_id = ?1",
-            params![credit_id],
-            |r| r.get(0),
-        )
-        .unwrap();
-    assert_eq!(name_count, 2);
-
-    // Verify ordering and join phrase.
-    let (first_name, first_join): (String, String) = conn
-        .query_row(
-            "SELECT name, join_phrase FROM artist_credit_name \
-             WHERE artist_credit_id = ?1 AND position = 0",
-            params![credit_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(first_name, "Alice");
-    assert_eq!(first_join, " & ");
-
-    let (second_name, second_join): (String, String) = conn
-        .query_row(
-            "SELECT name, join_phrase FROM artist_credit_name \
-             WHERE artist_credit_id = ?1 AND position = 1",
-            params![credit_id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
-    assert_eq!(second_name, "Bob");
-    assert_eq!(second_join, "");
-
-    // Reconstructing the display name from parts:
-    let reconstructed = format!("{first_name}{first_join}{second_name}");
-    assert_eq!(reconstructed, "Alice & Bob");
-}
-
 // ============================================================================
 // Sprint 4B — Issue #16: Timestamp captured before mutex lock
 // ============================================================================
@@ -693,65 +517,69 @@ fn timestamp_captured_before_lock() {
 /// `apply_single_event` applies state from `payload_json` (the signed bytes),
 /// not the potentially-tampered `ev.payload`.
 ///
-/// Strategy: create an event with `payload_json` containing artist name
-/// "Signed Artist", but tamper `ev.payload` to contain "Tampered Artist".
-/// After `apply_single_event`, the DB must contain "Signed Artist".
+/// Strategy: create an event with `payload_json` containing feed title
+/// "Signed Title", but tamper `ev.payload` to contain "Tampered Title".
+/// After `apply_single_event`, the DB must contain "Signed Title". ADR 0034
+/// §11 retired the `ArtistUpserted` payload this test used to carry, so it
+/// now carries a `FeedUpserted` payload instead; the security property under
+/// test does not depend on which payload type carries it.
 // Issue-PAYLOAD-INTEGRITY — 2026-03-14
 #[test]
 fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
-    use stophammer::event::{ArtistUpsertedPayload, Event, EventPayload, EventType};
-    use stophammer::model::Artist;
+    use stophammer::event::{Event, EventPayload, EventType, FeedUpsertedPayload};
+    use stophammer::model::Feed;
 
     let db: Arc<Mutex<rusqlite::Connection>> = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
 
-    // The "real" (signed) artist — what payload_json contains.
-    let signed_artist = Artist {
-        artist_id: "integrity-artist-1".into(),
-        name: "Signed Artist".into(),
-        name_lower: "signed artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
+    // The "real" (signed) feed — what payload_json contains.
+    let signed_feed = Feed {
+        feed_guid: "integrity-feed-1".into(),
+        feed_url: "https://example.com/integrity-feed.xml".into(),
+        title: "Signed Title".into(),
+        title_lower: "signed title".into(),
+        description: None,
+        image_url: None,
+        publisher: None,
+        language: None,
+        explicit: false,
+        itunes_type: None,
+        release_artist: None,
+        release_artist_sort: None,
+        release_date: None,
+        release_kind: None,
+        episode_count: 0,
+        newest_item_at: None,
+        oldest_item_at: None,
         created_at: now,
         updated_at: now,
+        raw_medium: None,
+        last_build_date: None,
+        release_artist_source: None,
     };
 
     // payload_json is the inner struct, matching production format.
-    let inner = ArtistUpsertedPayload {
-        artist: signed_artist,
+    let inner = FeedUpsertedPayload {
+        feed: signed_feed,
+        reason: None,
     };
     let payload_json = serde_json::to_string(&inner).expect("serialize inner payload");
 
     // The tampered payload struct — what an attacker puts in ev.payload.
-    let tampered_artist = Artist {
-        artist_id: "integrity-artist-1".into(),
-        name: "Tampered Artist".into(),
-        name_lower: "tampered artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-    let tampered_payload = EventPayload::ArtistUpserted(ArtistUpsertedPayload {
-        artist: tampered_artist,
+    let mut tampered_feed = inner.feed.clone();
+    tampered_feed.title = "Tampered Title".into();
+    tampered_feed.title_lower = "tampered title".into();
+    let tampered_payload = EventPayload::FeedUpserted(FeedUpsertedPayload {
+        feed: tampered_feed,
+        reason: None,
     });
 
     let ev = Event {
         event_id: "integrity-evt-001".into(),
-        event_type: EventType::ArtistUpserted,
+        event_type: EventType::FeedUpserted,
         payload: tampered_payload, // TAMPERED — must be ignored
-        subject_guid: "integrity-artist-1".into(),
+        subject_guid: "integrity-feed-1".into(),
         signed_by: "deadbeef".into(),
         signature: "cafebabe".into(),
         seq: 1,
@@ -766,19 +594,19 @@ fn tampered_payload_struct_is_ignored_in_favour_of_payload_json() {
         "apply_single_event should succeed: {result:?}"
     );
 
-    // Verify the DB contains the signed name, NOT the tampered name.
-    let stored_name: String = {
+    // Verify the DB contains the signed title, NOT the tampered title.
+    let stored_title: String = {
         let conn = db.lock().expect("lock after apply");
         conn.query_row(
-            "SELECT name FROM artists WHERE artist_id = 'integrity-artist-1'",
+            "SELECT title FROM feeds WHERE feed_guid = 'integrity-feed-1'",
             [],
             |r| r.get(0),
         )
-        .expect("artist row should exist")
+        .expect("feed row should exist")
     };
 
     assert_eq!(
-        stored_name, "Signed Artist",
+        stored_title, "Signed Title",
         "apply_single_event must use payload_json (signed data), not ev.payload (tampered data)"
     );
 }
@@ -850,14 +678,11 @@ fn apply_feed_remote_items_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-remote-1",
             "https://example.com/feed.xml",
             "Remote Feed",
-            credit_id,
             now,
         );
     }
@@ -927,14 +752,11 @@ fn apply_live_events_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-live-1",
             "https://example.com/live.xml",
             "Live Feed",
-            credit_id,
             now,
         );
     }
@@ -1006,14 +828,11 @@ fn apply_source_contributor_claims_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-contrib-1",
             "https://example.com/contrib.xml",
             "Contributor Feed",
-            credit_id,
             now,
         );
     }
@@ -1089,14 +908,11 @@ fn apply_source_entity_ids_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-ids-1",
             "https://example.com/ids.xml",
             "IDs Feed",
-            credit_id,
             now,
         );
     }
@@ -1166,14 +982,11 @@ fn apply_source_entity_links_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-links-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-links-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-links-1",
             "https://example.com/links.xml",
             "Links Feed",
-            credit_id,
             now,
         );
     }
@@ -1243,14 +1056,11 @@ fn apply_source_release_claims_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-release-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-release-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-release-1",
             "https://example.com/release.xml",
             "Release Feed",
-            credit_id,
             now,
         );
     }
@@ -1320,14 +1130,11 @@ fn apply_source_item_enclosures_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-enclosure-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-enclosure-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-enclosure-1",
             "https://example.com/enclosure.xml",
             "Enclosure Feed",
-            credit_id,
             now,
         );
     }
@@ -1402,14 +1209,11 @@ fn apply_source_platform_claims_replaced() {
 
     {
         let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-platform-1", "Artist", now);
-        let credit_id = insert_artist_credit(&conn, "artist-platform-1", "Artist", now);
         insert_feed(
             &conn,
             "feed-platform-1",
             "https://example.com/platform.xml",
             "Platform Feed",
-            credit_id,
             now,
         );
     }
@@ -1486,7 +1290,6 @@ fn make_feed_upserted_event(
         feed_url: format!("https://example.com/{feed_guid}.xml"),
         title: feed_title.into(),
         title_lower: feed_title.to_lowercase(),
-        artist_credit_id: Some(1),
         description: None,
         image_url: None,
         publisher: None,
@@ -1538,7 +1341,6 @@ fn make_track_upserted_event(
     let track = Track {
         track_guid: track_guid.into(),
         feed_guid: feed_guid.into(),
-        artist_credit_id: Some(1),
         title: track_title.into(),
         title_lower: track_title.to_lowercase(),
         pub_date: Some(now),
@@ -1580,50 +1382,6 @@ fn make_track_upserted_event(
     }
 }
 
-#[test]
-fn apply_track_upserted_requires_existing_credit_rows() {
-    use stophammer::apply::apply_single_event;
-    use stophammer::event::EventPayload;
-
-    let db = common::test_db_arc();
-    let pool = common::wrap_pool(db.clone());
-    let now = common::now();
-
-    {
-        let conn = db.lock().unwrap();
-        insert_artist(&conn, "feed-artist", "Feed Artist", now);
-        let feed_credit_id = insert_artist_credit(&conn, "feed-artist", "Feed Artist", now);
-        insert_feed(
-            &conn,
-            "feed-apply-credit",
-            "https://example.com/feed-apply-credit.xml",
-            "Apply Credit Feed",
-            feed_credit_id,
-            now,
-        );
-    }
-
-    let mut event = make_track_upserted_event(
-        "track-credit-event",
-        "feed-apply-credit",
-        "track-apply-credit",
-        "Applied Track",
-        Some(1),
-        1,
-        now,
-    );
-    if let EventPayload::TrackUpserted(payload) = &mut event.payload {
-        payload.track.artist_credit_id = Some(999);
-        event.payload_json = serde_json::to_string(payload).expect("reserialize payload");
-    }
-
-    let outcome = apply_single_event(&pool, &event);
-    assert!(
-        outcome.is_err(),
-        "track upsert should fail without prerequisite credit rows"
-    );
-}
-
 // ---------------------------------------------------------------------------
 // 12. Issue-DEDUP-ORDER: duplicate `FeedUpserted` must not overwrite newer data
 // ---------------------------------------------------------------------------
@@ -1638,11 +1396,6 @@ fn duplicate_feed_upserted_does_not_overwrite_newer_data() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
-    {
-        let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-dedup", "Dedup Artist", now);
-        let _credit_id = insert_artist_credit(&conn, "artist-dedup", "Dedup Artist", now);
-    }
     let ev = make_feed_upserted_event(
         "dedup-evt-feed-001",
         "dedup-feed-1",
@@ -1712,11 +1465,6 @@ fn source_track_rows_apply_and_remove_without_canonicalization() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
-    {
-        let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-canon-apply", "Apply Artist", now);
-        let _credit_id = insert_artist_credit(&conn, "artist-canon-apply", "Apply Artist", now);
-    }
 
     let feed_ev = make_feed_upserted_event(
         "canon-feed-evt",
@@ -1843,11 +1591,6 @@ fn out_of_order_event_is_rejected() {
     let db = common::test_db_arc();
     let pool = common::wrap_pool(db.clone());
     let now = common::now();
-    {
-        let conn = db.lock().expect("lock");
-        insert_artist(&conn, "artist-ooo", "Out Of Order Artist", now);
-        let _credit_id = insert_artist_credit(&conn, "artist-ooo", "Out Of Order Artist", now);
-    }
     let ev10 =
         make_feed_upserted_event("ooo-evt-010", "ooo-feed-1", "Title Seq 10", "ooo", 10, now);
 

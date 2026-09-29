@@ -2,30 +2,16 @@
 
 mod common;
 
-use rusqlite::params;
-
 // ===========================================================================
 // Issue #7: Missing DB indexes
 // ===========================================================================
 
-#[test]
-fn test_issue7_idx_ac_display_lower_exists() {
-    let conn = common::test_db();
-    let exists: bool = conn
-        .query_row(
-            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_ac_display_lower'",
-            [],
-            |row| row.get(0),
-        )
-        .expect("query sqlite_master");
-    assert!(
-        exists,
-        "missing index idx_ac_display_lower on artist_credit(LOWER(display_name))"
-    );
-}
-
 // ADR 0056 task 002 dropped proof_challenges. Its index tests are dropped
 // with it (AGENTS.md "Delete Dead Things").
+//
+// ADR 0034 §11 — 2026-09-28: `artist_credit` and its index
+// `idx_ac_display_lower` are dropped. `test_issue7_idx_ac_display_lower_exists`
+// is removed with the table.
 
 // ===========================================================================
 // Issue #11: RouteType enum mismatches schema
@@ -75,25 +61,9 @@ fn test_issue11_all_route_types_roundtrip() {
 // Issue #3: insert_event_idempotent uses RETURNING seq
 // ===========================================================================
 
-fn seed_for_event(conn: &rusqlite::Connection) {
-    let now = stophammer::db::unix_now();
-    conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params!["artist-i3", "I3 Artist", "i3 artist", now, now],
-    )
-    .expect("insert artist");
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES (?1, ?2)",
-        params!["I3 Artist", now],
-    )
-    .expect("insert artist_credit");
-}
-
 #[test]
 fn test_issue3_insert_event_idempotent_returns_seq() {
     let conn = common::test_db();
-    seed_for_event(&conn);
 
     let result = stophammer::db::insert_event_idempotent(
         &conn,
@@ -115,7 +85,6 @@ fn test_issue3_insert_event_idempotent_returns_seq() {
 #[test]
 fn test_issue3_insert_event_idempotent_duplicate_returns_none() {
     let conn = common::test_db();
-    seed_for_event(&conn);
 
     let now = stophammer::db::unix_now();
     let event_id = "evt-i3-dup";
@@ -154,7 +123,6 @@ fn test_issue3_insert_event_idempotent_duplicate_returns_none() {
 #[test]
 fn test_issue3_insert_event_idempotent_seq_increments() {
     let conn = common::test_db();
-    seed_for_event(&conn);
 
     let now = stophammer::db::unix_now();
     let seq1 = stophammer::db::insert_event_idempotent(

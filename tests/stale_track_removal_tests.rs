@@ -13,10 +13,6 @@ use rusqlite::params;
 // the given track GUIDs. Returns the seqs produced by the transaction.
 // ---------------------------------------------------------------------------
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "test helper building full model objects for ingest_transaction"
-)]
 fn ingest_feed_with_tracks(
     conn: &mut rusqlite::Connection,
     feed_guid: &str,
@@ -24,36 +20,6 @@ fn ingest_feed_with_tracks(
     signer: &stophammer::signing::NodeSigner,
 ) -> Vec<(i64, String, String)> {
     let now = common::now();
-
-    let artist = stophammer::model::Artist {
-        artist_id: format!("art-{feed_guid}"),
-        name: "Test Artist".into(),
-        name_lower: "test artist".into(),
-        sort_name: None,
-        type_id: None,
-        area: None,
-        img_url: None,
-        url: None,
-        begin_year: None,
-        end_year: None,
-        created_at: now,
-        updated_at: now,
-    };
-
-    let artist_credit = stophammer::model::ArtistCredit {
-        id: 0,
-        display_name: "Test Artist".into(),
-        feed_guid: None,
-        created_at: now,
-        names: vec![stophammer::model::ArtistCreditName {
-            id: 0,
-            artist_credit_id: 0,
-            artist_id: format!("art-{feed_guid}"),
-            position: 0,
-            name: "Test Artist".into(),
-            join_phrase: String::new(),
-        }],
-    };
 
     #[expect(
         clippy::cast_possible_wrap,
@@ -64,7 +30,6 @@ fn ingest_feed_with_tracks(
         feed_url: format!("https://example.com/{feed_guid}.xml"),
         title: "Test Feed".into(),
         title_lower: "test feed".into(),
-        artist_credit_id: Some(0),
         description: Some("Test feed description".into()),
         image_url: None,
         publisher: None,
@@ -92,7 +57,6 @@ fn ingest_feed_with_tracks(
             let track = stophammer::model::Track {
                 track_guid: (*tg).into(),
                 feed_guid: feed_guid.into(),
-                artist_credit_id: Some(0),
                 title: format!("Track {i}"),
                 title_lower: format!("track {i}"),
                 pub_date: Some(now),
@@ -139,8 +103,6 @@ fn ingest_feed_with_tracks(
 
     stophammer::db::ingest_transaction(
         conn,
-        artist,
-        artist_credit,
         feed,
         vec![],
         vec![],

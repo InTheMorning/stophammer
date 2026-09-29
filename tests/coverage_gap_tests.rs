@@ -1279,27 +1279,44 @@ async fn community_push_bad_signature_rejected() {
     let now = stophammer::db::unix_now();
 
     // Build an event with the correct signer pubkey but a garbage signature.
+    // ADR 0034 §11: `ArtistUpserted` is a no-op, so `FeedUpserted` is the
+    // vehicle here.
     let event_id = uuid::Uuid::new_v4().to_string();
-    let artist_payload = serde_json::json!({
-        "artist": {
-            "artist_id": "art-badsig",
-            "name": "BadSig Artist",
-            "name_lower": "badsig artist",
+    let feed_payload = serde_json::json!({
+        "feed": {
+            "feed_guid": "feed-badsig",
+            "feed_url": "https://example.com/feed-badsig.xml",
+            "title": "BadSig Feed",
+            "title_lower": "badsig feed",
+            "description": null,
+            "image_url": null,
+            "publisher": null,
+            "language": null,
+            "explicit": false,
+            "itunes_type": null,
+            "release_artist": null,
+            "release_artist_sort": null,
+            "release_date": null,
+            "release_kind": null,
+            "episode_count": 0,
+            "newest_item_at": null,
+            "oldest_item_at": null,
             "created_at": now,
-            "updated_at": now
+            "updated_at": now,
+            "raw_medium": null
         }
     });
-    let payload_json = serde_json::to_string(&artist_payload).expect("serialize");
+    let payload_json = serde_json::to_string(&feed_payload).expect("serialize");
 
     let push_body = serde_json::json!({
         "events": [{
             "event_id": event_id,
-            "event_type": "artist_upserted",
+            "event_type": "feed_upserted",
             "payload": {
-                "type": "artist_upserted",
-                "data": artist_payload
+                "type": "feed_upserted",
+                "data": feed_payload
             },
-            "subject_guid": "art-badsig",
+            "subject_guid": "feed-badsig",
             "signed_by": primary_pubkey,
             "signature": "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
             "seq": 1,
@@ -1342,19 +1359,16 @@ async fn community_push_bad_signature_rejected() {
         "bad signature should be rejected"
     );
 
-    // Verify artist was NOT inserted.
+    // Verify feed was NOT inserted.
     let conn = db.lock().expect("lock");
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM artists WHERE artist_id = 'art-badsig'",
+            "SELECT COUNT(*) FROM feeds WHERE feed_guid = 'feed-badsig'",
             [],
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(
-        count, 0,
-        "artist from bad-signature event must not be in DB"
-    );
+    assert_eq!(count, 0, "feed from bad-signature event must not be in DB");
 }
 
 // ============================================================================

@@ -43,40 +43,23 @@ fn test_app_state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::
 }
 
 /// Seeds one feed with one track and returns `(feed_guid, track_guid)`.
+/// ADR 0034 §11: `feeds` and `tracks` carry no artist credit.
 fn seed_feed_with_track(conn: &rusqlite::Connection) -> (&'static str, &'static str) {
     let now = common::now();
     conn.execute(
-        "INSERT INTO artists (artist_id, name, name_lower, created_at, updated_at) \
-         VALUES ('adr0056-artist', 'ADR 0056 Artist', 'adr0056 artist', ?1, ?2)",
-        rusqlite::params![now, now],
-    )
-    .expect("insert artist");
-    conn.execute(
-        "INSERT INTO artist_credit (display_name, created_at) VALUES ('ADR 0056 Artist', ?1)",
-        rusqlite::params![now],
-    )
-    .expect("insert artist_credit");
-    let credit_id = conn.last_insert_rowid();
-    conn.execute(
-        "INSERT INTO artist_credit_name (artist_credit_id, artist_id, position, name, join_phrase) \
-         VALUES (?1, 'adr0056-artist', 0, 'ADR 0056 Artist', '')",
-        rusqlite::params![credit_id],
-    )
-    .expect("insert artist_credit_name");
-    conn.execute(
-        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, artist_credit_id, \
+        "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, \
          description, explicit, episode_count, created_at, updated_at) \
          VALUES ('adr0056-feed', 'https://example.com/adr0056-feed.xml', 'ADR 0056 Feed', \
-         'adr0056 feed', ?1, 'A test feed', 0, 0, ?2, ?3)",
-        rusqlite::params![credit_id, now, now],
+         'adr0056 feed', 'A test feed', 0, 0, ?1, ?1)",
+        rusqlite::params![now],
     )
     .expect("insert feed");
     conn.execute(
-        "INSERT INTO tracks (track_guid, feed_guid, artist_credit_id, title, title_lower, \
+        "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, \
          description, explicit, created_at, updated_at) \
-         VALUES ('adr0056-track', 'adr0056-feed', ?1, 'ADR 0056 Track', 'adr0056 track', \
-         'A test track', 0, ?2, ?3)",
-        rusqlite::params![credit_id, now, now],
+         VALUES ('adr0056-track', 'adr0056-feed', 'ADR 0056 Track', 'adr0056 track', \
+         'A test track', 0, ?1, ?1)",
+        rusqlite::params![now],
     )
     .expect("insert track");
     ("adr0056-feed", "adr0056-track")
