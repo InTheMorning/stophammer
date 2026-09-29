@@ -123,21 +123,6 @@ v4vmm read the live API with read-only GET requests on 2026-09-26.
 - Request 2: `GET /node/info` gave `git_revision` `264706e` and `built_at` `2026-09-26T04:05:34Z`.
 - Request 3: `/v1/node/capabilities` listed `remote_items` and `publisher` for tracks.
 
-## Release 0.2.0 - 2026-09-27
-
-`info.version` of `/openapi.json` gives `0.2.0`. A read of a publisher feed,
-`GET /v1/feeds/{guid}`, gives four new fields (Stophammer ADR 0061):
-
-- `confirmed_release_artists` and `confirmed_release_artist_count`: the
-  artists of the albums that the publisher lists, and that also name the
-  publisher.
-- `unconfirmed_release_artists` and `unconfirmed_release_artist_count`: the
-  artists of the albums that the publisher lists, but that do not name it.
-
-`distinct_release_artists` and `distinct_release_artist_count` do not change.
-A music feed read has none of the four fields. A publisher page can show the
-unconfirmed artists apart, for example as "listed only".
-
 ## Release 0.1.0 - 2026-09-27
 
 Stophammer 0.1.0 is the first release. `info.version` of `/openapi.json`
@@ -163,6 +148,14 @@ An album that names a publisher without a listing by it does not appear. Stopham
 
 The v4vmm operator decided on 2026-09-25 not to request this list now, because Stophammer is correcting the relationship data.
 `/v1/publisher-links/stats` shows the correction: unresolved links fell from 1,159 on 2026-09-24 to 156 on 2026-09-25.
+
+**A `musicL` playlist import.** Stophammer ADR 0060 is deployed on 2026-09-26. Each `remote_items` entry of a list feed gives `item_guid` and `item_title`.
+A v4vmm playlist could take a list feed by `feedGuid` and `itemGuid`, with no name match. v4vmm reads neither field on 2026-09-28.
+
+This is new product scope, and it needs a v4vmm ADR before a request. The v4vmm operator deferred it on 2026-09-28.
+
+**The confirmed and unconfirmed artists.** Stophammer ADR 0061 is Accepted on 2026-09-27. Release 0.2.0 carries it.
+On 2026-09-28, the deployed contract is version 0.1.0 and does not give the four fields. v4vmm ADR 0077 packet 007 waits for the deploy. This needs no Stophammer action.
 
 ## Answered, No Action
 
