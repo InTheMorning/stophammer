@@ -156,12 +156,31 @@ I can send a pull request for this change.
   - "The feeds do not agree" when `role_source` is `conflict`. On 2026-09-26
     Sir Libre Records has 3 such links.
 
-## Step 4: Wavlake
+## Step 4: Fountain
 
-Most of the 1,772 publisher feeds are Wavlake artist feeds. Each is the page of
-one artist. When the namespace accepts `rel`, the operator asks Wavlake to
-write `rel="artist"` on each link of its artist feeds. One change then states
-the role of most publishers in the index.
+Fountain is the second host of music feeds in the index. On the production
+copy of 2026-09-26 it held 330 albums and 70 publisher feeds. Each of the 330
+albums names its publisher, and the 70 publisher feeds list 329 links. Thus
+Fountain writes both sides of each link, and only the role is missing. No
+Fountain link states a `rel`.
+
+The operator brings the change to the developers of Fountain, who are open to
+it. The request is the same as the MSP-2.0 issue. Fountain writes the same
+`rel` value on both sides of each link, and the publisher chooses the role. One change
+then states the role of about 330 links, with no conflict.
+
+The request links to the namespace discussion
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579)
+and to MSP-2.0 issue
+[#148](https://github.com/ChadFarrow/MSP-2.0/issues/148).
+
+## Step 5: Wavlake
+
+Wavlake hosts 7,531 albums and 1,619 publisher feeds, each album with a link
+to its publisher. A `rel="artist"` on its artist feeds would state the role of
+most publishers in the index. The operator expects no answer from Wavlake, so
+no other step depends on this one. The operator asks after the namespace
+accepts `rel`.
 
 ## Measurement
 
