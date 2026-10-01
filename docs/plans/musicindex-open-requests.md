@@ -36,6 +36,7 @@ names the requests that the two clients share.
 | 4 | A stated maximum for `limit` | Contract correction | Small |
 | 5 | Track summary fields on each list entry | API field addition | Wanted |
 | 6 | The deployed revision in release images | Regression | Small |
+| 7 | Link and role facts on publisher feed rows | API field addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -182,6 +183,38 @@ image does not fill them.
 **Request.** Fill `git_revision` and `built_at` in the release image. If the
 release version replaces them, state that in the contract, and give the
 version in `/node/info`.
+
+### 7. Link And Role Facts On Publisher Feed Rows
+
+Added on 2026-10-01. Evidence: read-only GET requests for all 1,772 publisher
+feeds on 2026-10-01. The page rule is musicindex ADR 0007.
+
+**What happens.** The search site shows a publisher feed as an artist, a
+label, a publisher or an unverified link. It gets this type from the
+`publisher_to_music` rows of a full feed read with `include=publisher`:
+`two_way_validated`, `publisher_rel` and `confirmed_release_artists`. A row of
+`/v1/feeds/recent?medium=publisher` gives none of these fields. A search row
+does not give `raw_medium`, so the page cannot identify a publisher feed in
+the search results.
+
+**What it costs.** The Browse list "Artists & Labels" shows each row as
+"Publisher feed". To show the type of each row, the page must read each feed:
+20 requests for each page of the list. On 2026-10-01, 15 of 1,772 publisher
+feeds had no two-way link, and 1 stated `rel="label"`. The list cannot show
+these feeds differently.
+
+**Request.** Add these fields to each row with medium `publisher`, in
+`/v1/feeds/recent` and in `/v1/search`:
+
+| Field | Value |
+|---|---|
+| `raw_medium` | On search rows. The list rows give it at this time |
+| `two_way_link_count` | The count of `publisher_to_music` rows with `two_way_validated` |
+| `stated_rels` | The different `publisher_rel` values of the two-way rows, such as `["label"]`. Empty when the feed states none |
+| `confirmed_release_artists` | The value of the feed read (ADR 0061) |
+
+These are RSS facts, as ADR 0049 requires. The page derives the type, with
+the rule of its ADR 0007. Stophammer derives no type.
 
 ## Stophammer Answers - 2026-09-25
 
