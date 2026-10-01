@@ -50,8 +50,8 @@ migration of release B runs with a backup and a measured time.
 
 ## Visual Check
 
-- The operator opens `/api` and one album page on musicindex.org, and sees
-  the artist names as before.
+- The operator opens `/api` of the node (`api.musicindex.org/api`) and one
+  album page on musicindex.org, and sees the artist names as before.
 
 ## Rollback
 
