@@ -78,6 +78,10 @@ Complete and deployed:
 
   The primary and the gossip crawler run the GHCR images of the release. The
   primary sets `SOURCE_GONE_HOSTS=wavlake.com`.
+
+  No long replay of the archive has run on the fixed crawler yet. After the
+  next stop of the gossip crawler, check that its memory stays low during the
+  catch-up, and that `dmesg` shows no new kill.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
