@@ -7,6 +7,9 @@ On 2026-09-27 [ADR 0061](0061-a-publisher-read-counts-its-listed-artists.md)
 §5 made a rule of the present behavior of §4. The `publisher` view of an album
 gives only the publishers that the album names.
 
+On 2026-10-01 §6 was amended. A `rel` value is a role set, and the node accepts
+a comma or white space as the separator.
+
 ## Date
 2026-09-23
 
@@ -178,6 +181,22 @@ marks it as non-standard. Each `publisher` row reports:
 When both sides state a value and the values are equal, `role_source` is
 `publisher_rel`. When the values are different, the node does not select one.
 Provenance First requires that the conflict is visible.
+
+The node reads a `rel` value as a set of roles before it compares two values:
+
+- A value with a comma is a comma list. A role can then hold a space, as in
+  `"sound engineer, mastering engineer"`.
+- A value with no comma is a list separated by white space, as HTML `rel` is.
+  `"artist producer"` gives two roles.
+- Each role is trimmed and lowercased in the ASCII range. An empty role and a
+  duplicate role are removed.
+
+The namespace discussion
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579)
+has not selected a separator. Kolomona proposed a comma, and matthewruzzi
+proposed white space as in HTML. The node accepts the two forms, so a feed is
+read correctly with either result. On 2026-09-26 no stored value held a space
+and no comma, so this rule changed no stored role.
 
 ### 7. The artist count is derived and says so
 A feed read of a publisher feed reports `distinct_release_artist_count`. It is

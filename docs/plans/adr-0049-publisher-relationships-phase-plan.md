@@ -100,19 +100,9 @@ The ADR leaves these points to the plan. A task packet does not change them.
     default is `podcast`, so the item is not a listed album. The node keeps
     refusing a publisher feed with no `medium="music"` item. The Jimmy V
     publisher feed is such a feed. The operator decided this on 2026-09-23.
-13. **A comma separates the roles in a `rel` value.** Each role is trimmed,
-    its internal white space becomes one space, and it is ASCII-lowercased.
-    Empty roles and duplicates are removed. A value with no comma is one role,
-    even when it holds a space, so `"sound engineer, mastering engineer"` gives
-    two roles. The Podcast Namespace discussion
-    [#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579)
-    has two proposals: a comma
-    list (Kolomona, 2026-05-26) and space-separated keywords as in HTML
-    (matthewruzzi, 2026-05-26). Spaces cannot express a role of two words
-    without a special spelling, and the one real feed with more than one role
-    uses commas. The operator decided this on 2026-09-24. It replaces the rule
-    of 2026-09-23 that a value with a comma is one value. Task 006b implements
-    it.
+13. **The separator of the roles in a `rel` value.** ADR 0049 §6 owns this
+    rule since 2026-10-01: a comma or white space separates the roles. The
+    decision of 2026-09-24 accepted only a comma. Task 006b implemented it.
 
 ## Affected Modules
 

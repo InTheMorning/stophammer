@@ -2164,29 +2164,37 @@ fn publisher_to_music_facts(
 }
 
 /// Reads a raw `rel` value as a set of roles, and gives that set back as
-/// one canonical string. ADR 0049 §6, plan decision 13.
+/// one canonical string. ADR 0049 §6.
 ///
-/// A comma separates the roles. Each role loses the white space at its
-/// start and its end, each internal run of white space becomes one space,
-/// and the role is lowercased in the ASCII range. An empty role and a
-/// duplicate role are removed. A value with no comma is one role, even
-/// when it holds a space, such as `"sound engineer"`.
+/// A value with a comma is a comma list: each role loses the white space at
+/// its start and its end, and each internal run of white space becomes one
+/// space, so `"sound engineer, mastering engineer"` gives two roles. A value
+/// with no comma is a list separated by white space, as HTML `rel` is, so
+/// `"artist producer"` gives two roles. Each role is lowercased in the ASCII
+/// range. An empty role and a duplicate role are removed.
 ///
 /// The result is the role set, sorted by byte order and joined by `", "`.
 /// No role can hold a comma, so this joined string is a faithful encoding
 /// of the set: two raw values normalize to the same string exactly when
 /// their role sets hold the same roles. An empty set counts as no value.
 fn normalize_rel(value: &str) -> Option<String> {
-    let roles: std::collections::BTreeSet<String> = value
-        .split(',')
-        .map(|part| {
-            part.split_whitespace()
-                .collect::<Vec<&str>>()
-                .join(" ")
-                .to_ascii_lowercase()
-        })
-        .filter(|role| !role.is_empty())
-        .collect();
+    let roles: std::collections::BTreeSet<String> = if value.contains(',') {
+        value
+            .split(',')
+            .map(|part| {
+                part.split_whitespace()
+                    .collect::<Vec<&str>>()
+                    .join(" ")
+                    .to_ascii_lowercase()
+            })
+            .filter(|role| !role.is_empty())
+            .collect()
+    } else {
+        value
+            .split_whitespace()
+            .map(str::to_ascii_lowercase)
+            .collect()
+    };
 
     if roles.is_empty() {
         None
@@ -4232,12 +4240,6 @@ mod tests {
         assert_eq!(normalize_rel("   "), None);
     }
 
-    // Renamed from `normalize_rel_keeps_a_comma_as_one_value` (task 006b,
-    // plan decision 13). The old rule kept a comma-bearing value as one
-    // un-split value: `normalize_rel("sound engineer,  Mastering
-    // Engineer")` gave `Some("sound engineer,  mastering   engineer")`
-    // (internal spacing kept, no split). The new rule splits on the comma,
-    // collapses and trims each role, and sorts the set by byte order.
     #[test]
     fn normalize_rel_splits_a_comma_list_into_a_sorted_role_set() {
         assert_eq!(
@@ -4255,10 +4257,20 @@ mod tests {
     }
 
     #[test]
-    fn normalize_rel_a_value_with_no_comma_is_one_role() {
+    fn normalize_rel_splits_a_value_with_no_comma_on_white_space() {
         assert_eq!(
-            normalize_rel("artist producer"),
-            Some("artist producer".to_string())
+            normalize_rel("Producer  artist"),
+            Some("artist, producer".to_string()),
+            "ADR 0049 §6: a value with no comma is a list separated by white space"
+        );
+    }
+
+    #[test]
+    fn normalize_rel_the_two_separators_give_the_same_role_set() {
+        assert_eq!(
+            normalize_rel("artist label"),
+            normalize_rel("label, artist"),
+            "ADR 0049 §6: a space list and a comma list of the same roles are equal"
         );
     }
 

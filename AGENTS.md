@@ -45,7 +45,7 @@ Complete and deployed:
   to 013, with 004b, 006b and 010b. The publisher view reports each
   relationship fact by an RSS fact, never by a host rule. `resolve_listed_feed`
   also accepts the stored `feed_url`, so a new community node resolves a link
-  the same way the primary node does. `rel` splits on commas into a role set.
+  the same way the primary node does. `rel` is a role set. A comma or white space separates the roles.
   `GET /v1/publisher-links/stats` gives the link counts.
 
   The `feed` and `refresh` crawler modes follow a publisher link in three
@@ -187,6 +187,8 @@ which gives the sequence of each open item of an Accepted ADR:
    [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task 001
    is built on 2026-10-01 and not deployed. With `include=link_facts`, a
    publisher row of `GET /v1/feeds/recent` gives its link facts.
+   The amendment of ADR 0049 §6 on 2026-10-01 is built and joins 0.4.0. A
+   `rel` value with no comma is a list separated by white space.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
    written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are built on
