@@ -13,6 +13,11 @@ Amended on 2026-09-27: section 4 also drops an item with an unknown status.
 The review of task 002b found that such an item made the whole ingest of its
 feed fail.
 
+Amendment proposed on 2026-10-01: section 6 gives each row two derived
+fields, `in_now_view` and `in_upcoming_view`. v4vmm reported two rows of the
+"100% Retro" feeds with the status `live` and an end in December 2022. `view=now`
+leaves them out, but `view=all` gives them with no sign of that.
+
 ## Date
 2026-09-26
 
@@ -146,6 +151,12 @@ the rows of that feed. The index removes no row because of its age.
 - Each row gives `live_item_guid`, `title`, `status`, `content_link`,
   `scheduled_start`, `scheduled_end`, `live_value_uri`, `live_value_protocol`
   and `confirming_relay`.
+- Each row also gives `in_now_view` and `in_upcoming_view`. Each is true when
+  the view of the same name gives the row at the time of the read. The node
+  computes them with the same rule as the view. `status` stays the value of
+  the feed. A client that reads `view=all` or `live_items` thus needs no rule
+  of its own. It knows from the row that a `live` row with an end in 2022 is
+  not live now.
 - The list takes `view`. The default is `now`:
 
   | View | Gives |
@@ -176,7 +187,9 @@ two responses.
 ### 7. The views are the only rule that the index adds
 
 The two views apply a margin of 1 hour to the times that the feed gives. The
-rows and their fields stay as the feed gives them.
+rows and their fields stay as the feed gives them. `in_now_view` and
+`in_upcoming_view` state the result of the same rule for each row. They add no
+rule.
 
 ### 8. The index derives no stream type
 
@@ -287,4 +300,7 @@ Mechanical. Each check is an integration test in `tests/`:
   give no value for it.
 - A deleted feed gives no row in `GET /v1/live-items`.
 - A `musicL` feed gives no row.
+- For each row of the case table, `in_now_view` is true exactly when
+  `view=now` gives the row, and `in_upcoming_view` is true exactly when
+  `view=upcoming` gives it. The same holds for `live_items` of a feed.
 - The guards of ADR 0044 pass with the new route and fields.
