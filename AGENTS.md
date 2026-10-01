@@ -68,12 +68,22 @@ Complete and deployed:
   a publisher feed read gives its confirmed and unconfirmed release artists.
   It also holds ADR 0034 task 001: a node accepts a feed or track event with
   no `artist_credit_id`. The primary runs the GHCR images of the release.
+- Release 0.3.0, on 2026-10-01. It promotes `v0.3.0-rc.2`, and it holds:
+  - ADR 0034 tasks 002 and 003, which drop the artist credit.
+  - ADR 0056 task 002, ADR 0067 tasks 001 and 002, and the amendment of ADR
+    0064 §6.
+  - A crawler fix of the `gossip` mode (ADR 0062). A crawl task held the feed
+    body through its podping window. Because of this, the gossip crawler
+    stopped from about 2026-09-29 03:00 UTC until the deploy.
+
+  The primary and the gossip crawler run the GHCR images of the release. The
+  primary sets `SOURCE_GONE_HOSTS=wavlake.com`.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
   `all`. `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
   The amendment of §6 on 2026-10-01 gives each row `in_now_view` and
-  `in_upcoming_view`. It is deployed with the candidate 0.3.0-rc.1.
+  `in_upcoming_view`. It is deployed in release 0.3.0.
 - [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
   gate is track coverage. A feed needs a channel-level `podcast:value` block
   only when a track declares none. Deployed on 2026-09-24.
@@ -172,27 +182,12 @@ which gives the sequence of each open item of an Accepted ADR:
      a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
-   - ADR 0056 task 002 is deployed with the candidate 0.3.0-rc.1. Migration
+   - ADR 0056 task 002 is deployed in release 0.3.0. Migration
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. Release 0.3.0, by
-   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). The
-   candidate `v0.3.0-rc.1` tags `4f3e53c`, and the primary runs its GHCR
-   image since 2026-10-01 at about 22:10 UTC. The checks after the deploy
-   passed.
-
-   The candidate `v0.3.0-rc.2` adds one crawler fix. A gossip crawl task held
-   its report, with the feed body, through its podping window (ADR 0062). So a
-   replay of the archive held thousands of feed bodies, and the host killed
-   the crawler. This stopped the gossip crawler from about 2026-09-29 03:00
-   UTC until the rc.2 deploy. The gossip crawler runs rc.2, and it replayed the
-   archive to the present with no kill.
-
-   The candidate is not yet promoted. The promotion waits for an `accepted`
-   ingest for the check of ADR 0034 task 004, and for the visual check.
-
-   Release 0.4.0 follows it. ADR 0059 task 002 (§5, the summary of a named
+3. The next release is 0.4.0.
+   ADR 0059 task 002 (§5, the summary of a named
    track) is built on 2026-10-01 and not deployed.
    [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task 001
    is built on 2026-10-01 and not deployed. With `include=link_facts`, a
@@ -202,12 +197,12 @@ which gives the sequence of each open item of an Accepted ADR:
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
    written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are deployed
-   with the candidate 0.3.0-rc.1. Migration 0047 dropped the 43 tables that
+   in release 0.3.0. Migration 0047 dropped the 43 tables that
    §11 lists. The feed and track counts stayed the same.
 5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)
-   is written. Tasks 001 and 002 are deployed with the candidate 0.3.0-rc.1,
+   is written. Tasks 001 and 002 are deployed in release 0.3.0,
    and the primary sets `SOURCE_GONE_HOSTS=wavlake.com`. Migration 0045 is its
    table.
 
