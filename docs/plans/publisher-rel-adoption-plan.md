@@ -30,7 +30,8 @@ MSP-2.0, supports the work on the tag.
 The proposal thus exists. The operator does not open a new discussion. The
 operator posted this text as
 [a comment in #579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-18626492)
-on 2026-09-27.
+on 2026-09-27. The operator edited point 3 on 2026-10-01, after ADR 0049 §6
+accepted a comma or a space as the separator.
 
 ---
 
@@ -51,10 +52,12 @@ Three points from our implementation:
    that the specification say the same.
 2. **Each side states the role.** When the publisher feed and the album give
    different values, we show the difference and do not select one.
-3. **We separate roles with a comma.** A role of two words, such as "sound
-   engineer", needs no special spelling with a comma. The one feed with more
-   than one role uses commas. Each role is trimmed and lowercased. We
-   can change this if the discussion selects spaces.
+3. **We accept a comma or a space between roles.** (Edited on 2026-10-01.
+   The first version of this comment said that we split only on commas.) A
+   value with a comma is a comma list, so a role can hold a space, as in
+   `sound engineer, mastering engineer`. A value with no comma is a list
+   separated by spaces, as HTML `rel` is. Each role is trimmed and
+   lowercased. We will follow the separator that this discussion selects.
 
 ---
 
