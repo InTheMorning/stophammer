@@ -168,8 +168,9 @@ albums names its publisher, and the 70 publisher feeds list 329 links. Thus
 Fountain writes both sides of each link, and only the role is missing. No
 Fountain link states a `rel`.
 
-The operator brings the change to the developers of Fountain, who are open to
-it. Fountain is the first step, because one change states the role of about
+The operator brings the change to Oscar Merry, the founder of Fountain, by a
+Nostr message. Fountain has no public issue tracker. The operator expects
+interest, but Fountain has not answered yet. Fountain is the first step, because one change states the role of about
 330 links, and a second implementation helps the discussion #579. The publisher
 chooses "Not stated", "Artist" or "Label", and Fountain writes the same `rel`
 value on both sides of each link. "Not stated" writes no attribute.
