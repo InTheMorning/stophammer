@@ -73,7 +73,7 @@ Complete and deployed:
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
   `all`. `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
   The amendment of §6 on 2026-10-01 gives each row `in_now_view` and
-  `in_upcoming_view`. It is built and joins release 0.3.0.
+  `in_upcoming_view`. It is deployed with the candidate 0.3.0-rc.1.
 - [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
   gate is track coverage. A feed needs a channel-level `podcast:value` block
   only when a track declares none. Deployed on 2026-09-24.
@@ -172,15 +172,17 @@ which gives the sequence of each open item of an Accepted ADR:
      a tool error. The
      [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
      gives the sequence.
-   - ADR 0056 task 002 is built on 2026-09-28 and not deployed. Migration
-     0046 drops the two proof tables and changes the trigger
-     `trg_feeds_cleanup_before_delete`. It deploys on 2026-10-02 or after,
-     with release 0.3.0.
+   - ADR 0056 task 002 is deployed with the candidate 0.3.0-rc.1. Migration
+     0046 dropped the two proof tables, which were empty, and changed the
+     trigger `trg_feeds_cleanup_before_delete`.
 
-3. The next release is 0.3.0, by
-   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). It
-   waits for 2026-10-02, the first day that ADR 0056 task 002 can deploy.
-   Each task of it is built.
+3. Release 0.3.0, by
+   [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). The
+   candidate `v0.3.0-rc.1` tags `4f3e53c`, and the primary and the gossip
+   crawler run its GHCR images since 2026-10-01 at about 22:10 UTC. The
+   checks after the deploy passed. The candidate is not yet promoted. The
+   promotion waits for the check of ADR 0034 task 004 after the next crawl,
+   and for the visual check.
 
    Release 0.4.0 follows it. ADR 0059 task 002 (§5, the summary of a named
    track) is built on 2026-10-01 and not deployed.
@@ -191,16 +193,15 @@ which gives the sequence of each open item of an Accepted ADR:
    `rel` value with no comma is a list separated by white space.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are built on
-   2026-09-28 and not deployed. Migration 0047 drops the 43 tables that §11
-   lists, and it ran on a copy of the production data in 0.5 seconds.
+   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are deployed
+   with the candidate 0.3.0-rc.1. Migration 0047 dropped the 43 tables that
+   §11 lists. The feed and track counts stayed the same.
 5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
    2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
    the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)
-   is written. Tasks 001 and 002 are built on 2026-09-27 and not deployed.
-   They join release 0.3.0. Migration 0045
-   is its table, so ADR 0056 task 002 is migration 0046, and ADR 0034 task
-   003 is migration 0047.
+   is written. Tasks 001 and 002 are deployed with the candidate 0.3.0-rc.1,
+   and the primary sets `SOURCE_GONE_HOSTS=wavlake.com`. Migration 0045 is its
+   table.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and

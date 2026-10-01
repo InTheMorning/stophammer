@@ -197,6 +197,24 @@ API failed, so the node had no network.
 
 The copy was deleted after the check.
 
+## The Deploy Of Release B, On 2026-10-01
+
+The primary and the gossip crawler run the images of `v0.3.0-rc.1` since
+about 22:10 UTC. The deploy came about two hours before the date of ADR 0056
+task 002. The backup of the database before the deploy gave 0 rows in each
+proof table, so the condition of that task held.
+
+| Check of task 004 | Before | After |
+|---|---|---|
+| `feeds` | 10,434 | 10,434 |
+| `tracks` | 27,373 | 27,373 |
+| `artist_credit_created` and `artist_upserted` events | 10,438 each | open: after the next crawl |
+| `foreign_key_check` | | no row |
+| Dropped tables that remain | | none |
+| `release_artist` of 3 albums | Jimmy V, ICT - DJ Lexo, Haleen | the same |
+
+The count of the events after the next crawl, and the visual check, stay open.
+
 ## Review
 
 [The review checklist](../reviews/adr-0034-artist-credit-removal-review-checklist.md)
