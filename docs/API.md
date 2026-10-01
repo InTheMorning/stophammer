@@ -868,7 +868,9 @@ Returns a single feed by its `podcast:guid`.
         "scheduled_end": 1710298800,
         "live_value_uri": "https://relay.example.com/events/abc",
         "live_value_protocol": "socket.io",
-        "confirming_relay": true
+        "confirming_relay": true,
+        "in_now_view": true,
+        "in_upcoming_view": false
       }
     ]
   },
@@ -911,6 +913,11 @@ host of `CONFIRMING_RELAY_HOSTS`. A `live_value_uri` with no scheme is a bare
 identifier, and the read gives it with no change. A `live_value_uri` with a
 scheme goes through the same web URL rule as `content_link`. ADR 0064
 section 6 owns this field.
+
+`in_now_view` is `true` when the `now` view of `GET /v1/live-items` gives
+this row at the time of the read. `in_upcoming_view` is `true` when the
+`upcoming` view gives it. `status` stays the value the feed gives. ADR 0064
+section 6 owns these fields.
 
 | Field | Value |
 |---|---|
@@ -1303,7 +1310,9 @@ Gives the live-event rows of every public feed. Each row also names its
       "scheduled_end": 1710298800,
       "live_value_uri": "https://relay.example.com/events/abc",
       "live_value_protocol": "socket.io",
-      "confirming_relay": true
+      "confirming_relay": true,
+      "in_now_view": true,
+      "in_upcoming_view": false
     }
   ],
   "pagination": { "cursor": null, "has_more": false },
@@ -1319,7 +1328,9 @@ Gives the live-event rows of every public feed. Each row also names its
 Each row has the shape of a `live_items` entry of `GET /v1/feeds/{guid}`
 (section 4), plus `feed_guid`. `confirming_relay` is `true` when
 `live_value_uri` names an `https` URL on a host of `CONFIRMING_RELAY_HOSTS`
-(ADR 0064 section 3).
+(ADR 0064 section 3). `in_now_view` and `in_upcoming_view` are `true` when the
+view of the same name gives this row at the time of the read. `status` stays
+the value the feed gives.
 
 A client can ask the relay about a row with `confirming_relay: true`. It
 sends `GET /v1/liveitems/{event_id}/metadata` to the relay. A `404` from the

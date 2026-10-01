@@ -339,6 +339,12 @@ struct LiveItemResponse {
     /// `true` when `live_value_uri` names a relay on a host of
     /// `CONFIRMING_RELAY_HOSTS` (ADR 0064 section 3).
     confirming_relay: bool,
+    /// `true` when the `now` view gives this row at the time of the read
+    /// (ADR 0064 section 6). Computed with `live::in_now_view`.
+    in_now_view: bool,
+    /// `true` when the `upcoming` view gives this row at the time of the
+    /// read (ADR 0064 section 6). Computed with `live::in_upcoming_view`.
+    in_upcoming_view: bool,
 }
 
 /// The pending GUID change of `FeedResponse.pending_guid_change` (ADR 0052
@@ -1272,23 +1278,28 @@ fn confirmed_and_unconfirmed_release_artists(
 /// Builds `live_items` for `GET /v1/feeds/{guid}` (ADR 0064 section 6).
 ///
 /// Reads every stored live-event row of `feed_guid` and gives them as
-/// [`LiveItemResponse`] values, sorted by `live_item_guid`.
+/// [`LiveItemResponse`] values, sorted by `live_item_guid`. `now` is the
+/// clock reading the caller took once, for `in_now_view` and
+/// `in_upcoming_view`.
 fn build_live_items_response(
     conn: &rusqlite::Connection,
     feed_guid: &str,
+    now: i64,
 ) -> Result<Vec<LiveItemResponse>, api::ApiError> {
     let mut events = db::get_live_events_for_feed(conn, feed_guid)?;
     events.sort_by(|a, b| a.live_item_guid.cmp(&b.live_item_guid));
     let hosts = live::confirming_relay_hosts();
     Ok(events
         .iter()
-        .map(|event| live_item_response(event, hosts))
+        .map(|event| live_item_response(event, hosts, now))
         .collect())
 }
 
 /// Builds one row of `live_items` from a stored [`LiveEvent`] (ADR 0064
-/// section 6).
-fn live_item_response(event: &LiveEvent, hosts: &[String]) -> LiveItemResponse {
+/// section 6). `now` is the clock reading the caller took once, for
+/// `in_now_view` and `in_upcoming_view`.
+fn live_item_response(event: &LiveEvent, hosts: &[String], now: i64) -> LiveItemResponse {
+    let confirming_relay = live::is_confirming_relay(event.live_value_uri.as_deref(), hosts);
     LiveItemResponse {
         live_item_guid: event.live_item_guid.clone(),
         title: event.title.clone(),
@@ -1300,7 +1311,9 @@ fn live_item_response(event: &LiveEvent, hosts: &[String]) -> LiveItemResponse {
         scheduled_end: event.scheduled_end,
         live_value_uri: live_value_uri_response(event.live_value_uri.as_deref()),
         live_value_protocol: event.live_value_protocol.clone(),
-        confirming_relay: live::is_confirming_relay(event.live_value_uri.as_deref(), hosts),
+        confirming_relay,
+        in_now_view: live::in_now_view(event, now, confirming_relay),
+        in_upcoming_view: live::in_upcoming_view(event, now),
     }
 }
 
@@ -1328,7 +1341,9 @@ fn build_feed_response(
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &feed_guid)?;
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &feed_guid)?.map(pending_guid_change_response);
-    let live_items = Some(build_live_items_response(conn, &feed_guid)?);
+    // ADR 0064 section 6: the feed read takes one clock reading, so
+    // in_now_view and in_upcoming_view agree across every row.
+    let live_items = Some(build_live_items_response(conn, &feed_guid, db::unix_now())?);
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
@@ -3008,14 +3023,22 @@ pub struct LiveItemListResponse {
     live_value_uri: Option<String>,
     live_value_protocol: Option<String>,
     confirming_relay: bool,
+    /// `true` when the `now` view gives this row at the time of the read
+    /// (ADR 0064 section 6). Computed with `live::in_now_view`.
+    in_now_view: bool,
+    /// `true` when the `upcoming` view gives this row at the time of the
+    /// read (ADR 0064 section 6). Computed with `live::in_upcoming_view`.
+    in_upcoming_view: bool,
 }
 
 /// Builds one row of `GET /v1/live-items` from a stored [`LiveEvent`].
 ///
 /// Reuses [`live_item_response`], the row builder of the single-feed read,
-/// and adds `feed_guid` (ADR 0064 section 6).
-fn live_item_list_response(event: &LiveEvent, hosts: &[String]) -> LiveItemListResponse {
-    let row = live_item_response(event, hosts);
+/// and adds `feed_guid` (ADR 0064 section 6). `now` is the `now` the list
+/// route already uses for the view, so the flags and the view agree in one
+/// read.
+fn live_item_list_response(event: &LiveEvent, hosts: &[String], now: i64) -> LiveItemListResponse {
+    let row = live_item_response(event, hosts, now);
     LiveItemListResponse {
         feed_guid: event.feed_guid.clone(),
         live_item_guid: row.live_item_guid,
@@ -3027,6 +3050,8 @@ fn live_item_list_response(event: &LiveEvent, hosts: &[String]) -> LiveItemListR
         live_value_uri: row.live_value_uri,
         live_value_protocol: row.live_value_protocol,
         confirming_relay: row.confirming_relay,
+        in_now_view: row.in_now_view,
+        in_upcoming_view: row.in_upcoming_view,
     }
 }
 
@@ -3103,7 +3128,7 @@ pub fn list_live_items(
     };
     let data = page
         .iter()
-        .map(|event| live_item_list_response(event, hosts))
+        .map(|event| live_item_list_response(event, hosts, now))
         .collect();
 
     Ok(LiveItemsPage {

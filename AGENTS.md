@@ -72,6 +72,8 @@ Complete and deployed:
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
   `all`. `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
+  The amendment of §6 on 2026-10-01 gives each row `in_now_view` and
+  `in_upcoming_view`. It is built and joins release 0.3.0.
 - [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
   gate is track coverage. A feed needs a channel-level `podcast:value` block
   only when a track declares none. Deployed on 2026-09-24.

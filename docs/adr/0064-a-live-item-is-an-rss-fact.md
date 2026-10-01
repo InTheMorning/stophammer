@@ -13,7 +13,7 @@ Amended on 2026-09-27: section 4 also drops an item with an unknown status.
 The review of task 002b found that such an item made the whole ingest of its
 feed fail.
 
-Amendment proposed on 2026-10-01: section 6 gives each row two derived
+Amended on 2026-10-01, accepted the same day: section 6 gives each row two derived
 fields, `in_now_view` and `in_upcoming_view`. v4vmm reported two rows of the
 "100% Retro" feeds with the status `live` and an end in December 2022. `view=now`
 leaves them out, but `view=all` gives them with no sign of that.
