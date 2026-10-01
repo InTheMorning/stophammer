@@ -22,7 +22,7 @@ directly first, then sends a small pull request.
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
 | 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing. Done | [#149](https://github.com/ChadFarrow/MSP-2.0/pull/149), merged on 2026-10-01 as `8179257` |
-| 2 | A switch to hide a feed from podcast apps | ADR 0057 | Nothing | Pull request in preparation |
+| 2 | A listing control: listed, hidden from podcast directories, hidden everywhere | ADR 0057 | Nothing | Pull request built on 2026-10-01, not yet opened |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Item 1 | No. A feature idea, not a defect |
 
 ## 1. Write The Publisher Role As `rel`
@@ -56,7 +56,7 @@ the attribute.
 and the issue links to it. Step 1 of the adoption plan is a comment in that
 discussion.
 
-## 2. A Switch To Hide A Feed From Podcast Apps
+## 2. A Listing Control
 
 **Now.** MSP writes neither `itunes:block` nor `podcast:block`. A musician on
 MSP cannot leave a directory through the feed.
@@ -65,18 +65,24 @@ MSP cannot leave a directory through the feed.
 `itunes:block` `yes`, and not on `podcast:block`. This index acts on
 `podcast:block`, and not on `itunes:block` (ADR 0057).
 
-**Change.** One switch in the album editor and in the publisher editor: "Hide
-from podcast apps". It writes `<itunes:block>Yes</itunes:block>`. The default
-writes no tag.
+**Change.** One "Listing" control in the album editor and in the publisher
+editor, with three choices:
 
-The request names no other index. A choice for musicindex in the UI of a tool
-of another person looks like an advertisement, and the maintainer would
-probably refuse it.
+| Choice | Tags |
+|---|---|
+| Listed (default) | No block tag |
+| Hidden from podcast directories | `<itunes:block>Yes</itunes:block>` |
+| Hidden everywhere | `<itunes:block>Yes</itunes:block>` and `<podcast:block>yes</podcast:block>` |
 
-**Effect on this index.** A musician who sets the switch stays listed in this
-index, because ADR 0057 reads only `podcast:block`. The musicindex.org site
-tells a musician to add `<podcast:block id="musicindex">yes</podcast:block>` to
-leave this index.
+The control names no index. A choice for musicindex in the UI of a tool of
+another person looks like an advertisement, and the maintainer would probably
+refuse it. "Hidden everywhere" names no service, so it has no such problem.
+
+**Effect on this index.** "Hidden everywhere" removes the feed from this index,
+because its plain `podcast:block` addresses each service. "Hidden from podcast
+directories" keeps the feed in this index, because ADR 0057 reads only
+`podcast:block`. That is the intent of the choice: a musician can leave the
+podcast apps and stay in music apps.
 
 The tool Sovereign Feeds writes `<podcast:block>no</podcast:block>` on each
 feed. That tag names no service, so it has no effect, and MSP should not copy
