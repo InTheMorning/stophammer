@@ -3,6 +3,10 @@
 ## Status
 Accepted on 2026-09-25
 
+Amended on 2026-10-01, accepted the same day, for release 0.4.0: section 5 applies the same rule to an entry
+that names a track. musicindex.org request 5 reported that a playlist page
+needs one request for each entry to show the title of the track.
+
 ## Date
 2026-09-25
 
@@ -76,6 +80,22 @@ Each entry costs one point lookup by primary key. A publisher with 131 albums
 costs 131 lookups in one request, not 132 requests from a client. The read of
 the largest publisher is measured before and after the change.
 
+### 5. An entry that names a track gives its summary
+
+Since ADR 0060, a `remote_items` entry gives `remote_track_guid` when the
+index holds the track that the entry names. Such an entry also gives:
+
+| Field | Value |
+|---|---|
+| `remote_track_title` | The stored `title` of the track |
+| `remote_track_duration_secs` | The stored duration of the track, or null |
+| `remote_track_image_url` | The stored image of the item, through `web_url_or_none`, or null |
+
+Each field is null when `remote_track_guid` is null. The image is the image of
+the item, not a resolved image, as section 3 gives for a feed. The values come
+from the same lookup that gives `remote_track_guid`, so section 4 adds no
+lookup.
+
 ## Alternatives Considered
 
 ### The names of each request
@@ -113,3 +133,6 @@ rejects a stored resolution for the same reason. Rejected.
   a feed that is not indexed gives null in each summary field.
 - An entry that resolves by URL gives the summary of the feed at that URL.
 - A named feed with a `javascript:` image gives a null image.
+- A `musicL` entry that names an indexed track gives its title, duration and
+  item image. An entry for a track that is not indexed gives null in each of
+  the three fields.

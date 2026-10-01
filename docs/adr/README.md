@@ -61,6 +61,7 @@ disagree.
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
+| [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of a list or a search gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`. A search row gives `raw_medium`. Opt-in with `include=link_facts` | Accepted |
 
 ## Identity, Signing And Security
 
@@ -75,7 +76,7 @@ disagree.
 | [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
 | [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits. A non-web URL field is kept raw and not served | Accepted |
-| [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image and the artist of the feed it names, as `remote_*` fields | Accepted |
+| [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image and the artist of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
 | [0060](0060-a-list-feed-keeps-its-items.md) | A `musicL` feed keeps `itemGuid`, `title` and its value block. Each entry gives its indexed track. The crawler follows a list, at most 1,000 URLs. Amends ADR 0049 §2 and ADR 0054 §3 | Accepted |
 | [0062](0062-a-podping-is-never-dropped.md) | The gossip mode merges a podping inside the window of its URL, and never drops it. The window is 30 seconds, and doubles to at most 1 hour for a URL whose crawl changes nothing. `live` and `liveEnd` are not delayed | Accepted |
 | [0058](0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID | Accepted |
