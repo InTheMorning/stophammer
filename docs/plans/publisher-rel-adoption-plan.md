@@ -68,7 +68,9 @@ change for MSP-2.0.
 
 The operator opened this issue as
 [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148) in
-`ChadFarrow/MSP-2.0` on 2026-09-27, and can offer a pull request. The facts are from commit `66f0d53` of 2026-09-27.
+`ChadFarrow/MSP-2.0` on 2026-09-27, and can offer a pull request. On
+2026-10-01 the operator made the issue smaller: three roles, no role for one
+catalog feed, and no separator. The facts are from commit `66f0d53` of 2026-09-27.
 
 ---
 
@@ -97,9 +99,8 @@ publisher page must guess, and most apps show each publisher as an artist.
    in `generatePublisherXml` when the field has a value. It writes no attribute
    when the field is empty.
 4. The publisher editor gets one control: "This publisher is: Not stated,
-   Artist, Label, Network, Producer". The default is "Not stated". The value
-   applies to each catalog feed, and a user can change it for one catalog
-   feed.
+   Artist, Label". The default is "Not stated". The value applies to each
+   catalog feed.
 5. The publish flow writes the same value into the `PublisherReference` of
    each catalog feed that it updates, so that the two sides agree.
 6. Tests: a round trip for each value, and a test that an empty value writes
@@ -120,8 +121,8 @@ publisher page must guess, and most apps show each publisher as an artist.
 </podcast:publisher>
 ```
 
-More than one role is a comma-separated list, for example
-`rel="artist,label"`.
+MSP writes one role. The namespace discussion has not selected a separator for
+two roles, so this change does not need one.
 
 **Status of the attribute**
 
