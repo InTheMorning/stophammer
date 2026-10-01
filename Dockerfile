@@ -23,6 +23,12 @@ COPY --from=planner /build/recipe.json recipe.json
 RUN cargo chef cook --release --bins --recipe-path recipe.json
 
 COPY . .
+# build.rs puts these two values into /node/info. The release workflow passes
+# them. They come after `cargo chef cook`, so they do not spoil its cache.
+ARG STOPHAMMER_GIT_REVISION
+ARG STOPHAMMER_BUILT_AT
+ENV STOPHAMMER_GIT_REVISION=$STOPHAMMER_GIT_REVISION \
+    STOPHAMMER_BUILT_AT=$STOPHAMMER_BUILT_AT
 RUN cargo build --release --bin stophammer --bin gen_openapi
 
 # ── Runtime ────────────────────────────────────────────────────────────────────

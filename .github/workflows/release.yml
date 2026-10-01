@@ -40,6 +40,13 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # /node/info gives the commit and the build time that build.rs reads
+      # from these two variables. A build without them gives null.
+      - name: Record the commit and the build time
+        run: |
+          echo "STOPHAMMER_GIT_REVISION=$(printf %.7s "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "STOPHAMMER_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Assemble role tarballs
         run: bash ./scripts/publish-release.sh "${GITHUB_REF_NAME}"
 
@@ -123,8 +130,16 @@ jobs:
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
 
+      # /node/info gives the commit and the build time that build.rs reads
+      # from these two variables. A build without them gives null.
+      - name: Record the commit and the build time
+        run: |
+          echo "STOPHAMMER_GIT_REVISION=$(printf %.7s "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "STOPHAMMER_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
+      # su starts a clean environment, so the two variables go in the command.
       - name: Build Arch packages
-        run: su builder -c "cd \"$GITHUB_WORKSPACE\" && bash ./scripts/build-arch-packages.sh \"${GITHUB_REF_NAME}\""
+        run: su builder -c "cd \"$GITHUB_WORKSPACE\" && STOPHAMMER_GIT_REVISION=\"$STOPHAMMER_GIT_REVISION\" STOPHAMMER_BUILT_AT=\"$STOPHAMMER_BUILT_AT\" bash ./scripts/build-arch-packages.sh \"${GITHUB_REF_NAME}\""
 
       - name: Upload Arch package bundle
         uses: actions/upload-artifact@v4
@@ -230,6 +245,13 @@ jobs:
         id: registry
         run: echo "prefix=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
+      # /node/info gives the commit and the build time that build.rs reads
+      # from these two variables. A build without them gives null.
+      - name: Record the commit and the build time
+        run: |
+          echo "STOPHAMMER_GIT_REVISION=$(printf %.7s "$GITHUB_SHA")" >> "$GITHUB_ENV"
+          echo "STOPHAMMER_BUILT_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+
       - name: Build stophammer-indexer
         id: indexer
         if: matrix.group == 'stophammer'
@@ -239,6 +261,9 @@ jobs:
           file: ./Dockerfile
           target: stophammer-indexer
           platforms: linux/${{ matrix.arch }}
+          build-args: |
+            STOPHAMMER_GIT_REVISION=${{ env.STOPHAMMER_GIT_REVISION }}
+            STOPHAMMER_BUILT_AT=${{ env.STOPHAMMER_BUILT_AT }}
           provenance: false
           sbom: false
           outputs: type=image,name=${{ steps.registry.outputs.prefix }}/stophammer-indexer,push-by-digest=true,name-canonical=true,push=true
@@ -254,6 +279,9 @@ jobs:
           file: ./Dockerfile
           target: stophammer-node
           platforms: linux/${{ matrix.arch }}
+          build-args: |
+            STOPHAMMER_GIT_REVISION=${{ env.STOPHAMMER_GIT_REVISION }}
+            STOPHAMMER_BUILT_AT=${{ env.STOPHAMMER_BUILT_AT }}
           provenance: false
           sbom: false
           outputs: type=image,name=${{ steps.registry.outputs.prefix }}/stophammer-node,push-by-digest=true,name-canonical=true,push=true
