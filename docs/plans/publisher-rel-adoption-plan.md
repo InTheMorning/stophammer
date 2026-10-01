@@ -165,14 +165,15 @@ Fountain writes both sides of each link, and only the role is missing. No
 Fountain link states a `rel`.
 
 The operator brings the change to the developers of Fountain, who are open to
-it. The request is the same as the MSP-2.0 issue. Fountain writes the same
-`rel` value on both sides of each link, and the publisher chooses the role. One change
-then states the role of about 330 links, with no conflict.
+it. Fountain is the first step, because one change states the role of about
+330 links, and a second implementation helps the discussion #579. The publisher
+chooses "Not stated", "Artist" or "Label", and Fountain writes the same `rel`
+value on both sides of each link. "Not stated" writes no attribute.
 
 The request links to the namespace discussion
-[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579)
-and to MSP-2.0 issue
-[#148](https://github.com/ChadFarrow/MSP-2.0/issues/148).
+[#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579).
+It does not link to MSP-2.0 issue #148, which has no answer. It tells that the
+index reads a comma or a space as the separator (ADR 0049 §6).
 
 ## Step 5: Wavlake
 
