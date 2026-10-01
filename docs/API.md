@@ -972,6 +972,19 @@ The node finds the track at each read, in the feed that the entry resolves to
 feed is kept as source data. `include=payment_routes` on a `musicL` feed gives
 an empty list.
 
+An entry with a `remote_track_guid` also gives three values of that track. ADR
+0059 §5 owns them. They come from the same lookup, so they add no query.
+
+| Field | Value |
+|---|---|
+| `remote_track_title` | The stored `title` of the track |
+| `remote_track_duration_secs` | The stored duration of the track in seconds. Null when the track gives none |
+| `remote_track_image_url` | The stored image of the item, not a resolved image. Null when the item gives none, or when the value is not a web URL (ADR 0054 §4) |
+
+Each of the three is null when `remote_track_guid` is null. When
+`remote_track_image_url` is null, a client can show `remote_feed_image_url`,
+the image of the feed that holds the track.
+
 `publisher` is a derived read-only view over those declarations. It reports
 direction and reciprocal validation exactly from RSS and does not add any
 canonical artist-confirmation layer in v1.

@@ -783,6 +783,14 @@ struct FeedRemoteItemResponse {
     /// The `track_guid` of the indexed track that this entry names, or null
     /// when no such track is indexed. Always present. ADR 0060 §3.
     remote_track_guid: Option<String>,
+    /// The stored `title` of the track that `remote_track_guid` names, or
+    /// null when `remote_track_guid` is null. ADR 0059 §5.
+    remote_track_title: Option<String>,
+    /// The stored duration of that track in seconds, or null. ADR 0059 §5.
+    remote_track_duration_secs: Option<i64>,
+    /// The stored image of that item, not a resolved image, or null. Only a
+    /// web URL reaches the client (ADR 0054 §4). ADR 0059 §5.
+    remote_track_image_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1904,16 +1912,36 @@ fn feed_remote_item_response(
         item.remote_feed_url.as_deref(),
     )?;
     let summary = named_feed_summary(conn, resolution.feed_guid())?;
-    let remote_track_guid = match (resolution.feed_guid(), item.remote_item_guid.as_deref()) {
+    // ADR 0059 §5: the same lookup that finds the track gives its summary,
+    // so the summary adds no query (ADR 0059 §4).
+    let track = match (resolution.feed_guid(), item.remote_item_guid.as_deref()) {
         (Some(feed_guid), Some(item_guid)) => conn
             .query_row(
-                "SELECT track_guid FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
+                "SELECT track_guid, title, duration_secs, image_url FROM tracks \
+                 WHERE feed_guid = ?1 AND track_guid = ?2",
                 params![feed_guid, item_guid],
-                |row| row.get::<_, String>(0),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
             )
             .optional()?,
         _ => None,
     };
+    let (remote_track_guid, remote_track_title, remote_track_duration_secs, remote_track_image_url) =
+        match track {
+            Some((guid, title, duration, image)) => (
+                Some(guid),
+                Some(title),
+                duration,
+                web_url_or_none(image.as_deref()),
+            ),
+            None => (None, None, None, None),
+        };
 
     Ok(FeedRemoteItemResponse {
         position: item.position,
@@ -1931,6 +1959,9 @@ fn feed_remote_item_response(
         remote_item_guid: item.remote_item_guid,
         remote_item_title: item.remote_item_title,
         remote_track_guid,
+        remote_track_title,
+        remote_track_duration_secs,
+        remote_track_image_url,
     })
 }
 
