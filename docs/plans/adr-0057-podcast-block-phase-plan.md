@@ -56,6 +56,15 @@ the operator:
    `404`.
 3. The removal of the tag admitted it again.
 
+## The Slug Request
+
+ADR 0057 §1 asks the namespace repository to add the slug `musicindex` to the
+service slug list. The operator opened
+[pull request #792](https://github.com/Podcastindex-org/podcast-namespace/pull/792)
+on 2026-10-01. The slug list has not changed since 2022, and another slug pull
+request has stayed open since July 2026. The index honors the slug without the
+list.
+
 ## Risks
 
 - A wrong direction of a rule removes a feed or keeps one that asked to leave.

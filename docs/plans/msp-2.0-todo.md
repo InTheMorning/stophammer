@@ -22,7 +22,7 @@ directly first, then sends a small pull request.
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
 | 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing. Done | [#149](https://github.com/ChadFarrow/MSP-2.0/pull/149), merged on 2026-10-01 as `8179257` |
-| 2 | A listing control: listed, hidden from podcast directories, hidden everywhere | ADR 0057 | Nothing | Pull request built on 2026-10-01, not yet opened |
+| 2 | A listing control: listed, hidden from podcast directories, hidden everywhere | ADR 0057 | The review of the pull request | [#150](https://github.com/ChadFarrow/MSP-2.0/pull/150), opened on 2026-10-01 |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Item 1 | No. A feature idea, not a defect |
 
 ## 1. Write The Publisher Role As `rel`
