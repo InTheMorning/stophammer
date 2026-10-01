@@ -198,6 +198,8 @@ which gives the sequence of each open item of an Accepted ADR:
    publisher row of `GET /v1/feeds/recent` gives its link facts.
    The amendment of ADR 0049 §6 on 2026-10-01 is built and joins 0.4.0. A
    `rel` value with no comma is a list separated by white space.
+   The primary logs each accepted ingest at `info`, and an ignored gone report
+   at `debug`. The release workflow uses actions that run on Node 24.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
    written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are deployed

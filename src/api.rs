@@ -2089,7 +2089,10 @@ fn handle_source_gone_report(
     };
 
     let Some(feed_guid) = feed_guid else {
-        tracing::info!(
+        // Most gone reports name a URL that the index never held: a gossip
+        // crawler reports each 404 of a podcast feed. That is the normal case,
+        // so it logs at debug.
+        tracing::debug!(
             canonical_url = req.canonical_url.as_str(),
             source_url = req.source_url.as_str(),
             http_status = req.http_status,
@@ -3798,7 +3801,17 @@ async fn handle_ingest_feed(
         }
     };
 
-    if !response.accepted {
+    if !response.accepted && response.reason.as_deref() == Some("source_gone_ignored") {
+        // ADR 0067: an ignored gone report is the normal case (see
+        // `handle_source_gone_report`), not a rejection to warn about.
+        tracing::debug!(
+            canonical_url = %log_canonical_url,
+            source_url = %log_source_url,
+            http_status = log_http_status,
+            elapsed_ms,
+            "ingest gone report ignored"
+        );
+    } else if !response.accepted {
         tracing::warn!(
             canonical_url = %log_canonical_url,
             source_url = %log_source_url,
@@ -3821,6 +3834,18 @@ async fn handle_ingest_feed(
             no_change = response.no_change,
             events_emitted = response.events_emitted.len(),
             "ingest request completed slowly"
+        );
+    } else {
+        // One line for each accepted ingest, so the operator can see the work
+        // of the crawlers in the log of the primary.
+        tracing::info!(
+            canonical_url = %log_canonical_url,
+            feed_guid = %log_feed_guid,
+            raw_medium = %log_raw_medium,
+            elapsed_ms,
+            no_change = response.no_change,
+            events_emitted = response.events_emitted.len(),
+            "ingest request accepted"
         );
     }
 
