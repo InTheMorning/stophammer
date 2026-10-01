@@ -21,7 +21,7 @@ directly first, then sends a small pull request.
 
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
-| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The answer of the maintainer | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27. Smaller form, and a direct question to the maintainer, on 2026-10-01 |
+| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The review of the pull request | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27. On 2026-10-01 the maintainer welcomed a pull request |
 | 2 | A switch to hide a feed from podcast apps | ADR 0057 | Item 1 | No |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Item 1 | No. A feature idea, not a defect |
 
@@ -45,8 +45,10 @@ specification is easier to accept:
 - The publish flow writes the same value into each catalog feed. There is no
   choice for one catalog feed.
 
-The operator first asks the maintainer if a pull request is welcome. If yes,
-the operator sends the pull request.
+On 2026-10-01 the maintainer welcomed a pull request. The pull request also
+copies the `rel` of each catalog entry into the `<podcast:publisher>` of its
+album. It fixes a loss: a parse and regenerate of a feed with `rel` dropped
+the attribute.
 
 **Waits for** nothing. Kolomona proposed `rel` in the namespace discussion
 [#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579#discussioncomment-17006145),
@@ -85,15 +87,20 @@ it.
 (`FeedType` in `src/types/feed.ts`). MSP cannot make a playlist. Its
 `RemoteItem` type already has `itemGuid` and `title`.
 
-**Evidence.** No playlist tool writes `feedUrl` on each entry by default. On
-2026-09-26 two of the playlists of Kolomona gave no `feedUrl` on any entry: 278
-and 383 entries. The crawler cannot follow such an entry to its album (ADR 0060
-§5), and 16 album GUIDs stay missing from the index.
+**Evidence.** An entry with no `feedUrl` resolves only when the index already
+holds its album (ADR 0060 §5). An MSP playlist that always writes `feedUrl`
+avoids that limit.
 
-MSP did not make these
-playlists, and the newer playlists of Kolomona give `feedUrl`. The operator
-asked Kolomona on 2026-10-01 to make the two old files again. This item is a feature idea for
-MSP, not a defect, and waits until item 1 has an answer.
+On 2026-09-26 two playlists of Kolomona gave no `feedUrl` on any entry, and 16
+of their album GUIDs were not in the index. On 2026-10-01 Kolomona told the
+operator that the two playlists come from the value splits of his feeds and of
+Adam Curry's feeds. Those splits name albums that no longer exist. No
+other feed in the index names any of the 16 GUIDs. Thus a `feedUrl` would not
+add them, and no change to those files is necessary. The API gives
+`remote_track_guid` null for such an entry, so a client can skip it.
+
+This item is a feature idea for MSP, not a defect, and waits until item 1 has
+an answer.
 
 **Change.** A playlist feed type:
 
