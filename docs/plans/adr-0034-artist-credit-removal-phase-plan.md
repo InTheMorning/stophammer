@@ -174,9 +174,28 @@ tables of §11, give 35. After the migration, `integrity_check` gave `ok`,
 table had `artist_credit_id`. With foreign keys on, a delete of a feed also
 deleted its track, and a delete of a track succeeded.
 
-Task 004 step 5 asks for the same check with the image of the 0.3.0
-candidate. This measurement used a local build, so step 5 stays open until the
-candidate exists.
+## Task 004 Steps 4 And 5, On 2026-10-01
+
+Step 4: `GET /v1/peers` of the primary gave an empty list, so the primary knows
+no community node. The primary ran 0.2.0, by the `info.version` of
+`/openapi.json`.
+
+Step 5 used the `stophammer` binary of the candidate `v0.3.0-rc.1`, from the
+release asset `stophammer-indexer-v0.3.0-rc.1.tar.gz`, with a correct checksum.
+The Docker daemon did not run on the build machine, and the image holds the
+same binary. The binary ran on a copy of the production backup of 2026-09-26,
+in a network namespace with only the loopback interface. A probe to the public
+API failed, so the node had no network.
+
+- The node answered `/health` 0.55 seconds after its start, with the
+  migrations.
+- `feeds` stayed 10,424 and `tracks` stayed 26,883.
+- The tables went from 79 to 35, and no dropped table remained.
+- `foreign_key_check` gave no row. The schema version was 41.
+- The 10,424 `artist_credit_created` and 10,424 `artist_upserted` events stayed
+  in the log.
+
+The copy was deleted after the check.
 
 ## Review
 
