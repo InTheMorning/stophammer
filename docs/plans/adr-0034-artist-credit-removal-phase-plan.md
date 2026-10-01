@@ -208,12 +208,15 @@ proof table, so the condition of that task held.
 |---|---|---|
 | `feeds` | 10,434 | 10,434 |
 | `tracks` | 27,373 | 27,373 |
-| `artist_credit_created` and `artist_upserted` events | 10,438 each | open: after the next crawl |
+| `artist_credit_created` and `artist_upserted` events | 10,438 each | 10,438 each, after 27 new events of an `accepted` crawl |
 | `foreign_key_check` | | no row |
 | Dropped tables that remain | | none |
 | `release_artist` of 3 albums | Jimmy V, ICT - DJ Lexo, Haleen | the same |
 
-The count of the events after the next crawl, and the visual check, stay open.
+On 2026-10-01 at 23:24 UTC a `feed` crawl of one album and the two albums it
+names was `accepted` three times. The node signed 27 events, with
+`feed_routes_replaced` and `track_upserted`, and no `artist%` event. The visual
+check stays open.
 
 ## Review
 

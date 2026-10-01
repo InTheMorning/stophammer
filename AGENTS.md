@@ -178,11 +178,19 @@ which gives the sequence of each open item of an Accepted ADR:
 
 3. Release 0.3.0, by
    [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). The
-   candidate `v0.3.0-rc.1` tags `4f3e53c`, and the primary and the gossip
-   crawler run its GHCR images since 2026-10-01 at about 22:10 UTC. The
-   checks after the deploy passed. The candidate is not yet promoted. The
-   promotion waits for the check of ADR 0034 task 004 after the next crawl,
-   and for the visual check.
+   candidate `v0.3.0-rc.1` tags `4f3e53c`, and the primary runs its GHCR
+   image since 2026-10-01 at about 22:10 UTC. The checks after the deploy
+   passed.
+
+   The candidate `v0.3.0-rc.2` adds one crawler fix. A gossip crawl task held
+   its report, with the feed body, through its podping window (ADR 0062). So a
+   replay of the archive held thousands of feed bodies, and the host killed
+   the crawler. This stopped the gossip crawler from about 2026-09-29 03:00
+   UTC until the rc.2 deploy. The gossip crawler runs rc.2, and it replayed the
+   archive to the present with no kill.
+
+   The candidate is not yet promoted. The promotion waits for an `accepted`
+   ingest for the check of ADR 0034 task 004, and for the visual check.
 
    Release 0.4.0 follows it. ADR 0059 task 002 (§5, the summary of a named
    track) is built on 2026-10-01 and not deployed.
