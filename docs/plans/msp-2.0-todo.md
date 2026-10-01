@@ -21,8 +21,8 @@ directly first, then sends a small pull request.
 
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
-| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The review of the pull request | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27. On 2026-10-01 the maintainer welcomed a pull request |
-| 2 | A switch to hide a feed from podcast apps | ADR 0057 | Item 1 | No |
+| 1 | Write the publisher role as `rel` | ADR 0049 §6 | Nothing. Done | [#149](https://github.com/ChadFarrow/MSP-2.0/pull/149), merged on 2026-10-01 as `8179257` |
+| 2 | A switch to hide a feed from podcast apps | ADR 0057 | Nothing | Pull request in preparation |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Item 1 | No. A feature idea, not a defect |
 
 ## 1. Write The Publisher Role As `rel`
@@ -45,7 +45,8 @@ specification is easier to accept:
 - The publish flow writes the same value into each catalog feed. There is no
   choice for one catalog feed.
 
-On 2026-10-01 the maintainer welcomed a pull request. The pull request also
+On 2026-10-01 the maintainer welcomed a pull request and merged it as
+[#149](https://github.com/ChadFarrow/MSP-2.0/pull/149). The pull request also
 copies the `rel` of each catalog entry into the `<podcast:publisher>` of its
 album. It fixes a loss: a parse and regenerate of a feed with `rel` dropped
 the attribute.
