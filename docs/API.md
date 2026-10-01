@@ -1081,6 +1081,19 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional `medium`
+- **Include `link_facts`:** each publisher row gives three more fields. A row
+  of another medium gives none of them. Without the include, no row gives
+  them. ADR 0068 owns this include.
+
+| Field | Value |
+|---|---|
+| `two_way_link_count` | The count of `publisher_to_music` rows of the `publisher` view with `two_way_validated` true |
+| `stated_rels` | The different raw `publisher_rel` values of those two-way rows, sorted. Empty when no such row states one |
+| `confirmed_release_artists` | The same list as a read of that feed (ADR 0061 §1) |
+
+Each value is the value that `GET /v1/feeds/{guid}?include=publisher` gives
+for the same feed. The node does not split or change a `rel` value. The node
+gives no type for a publisher. The client derives it from these facts.
 
 **Response:** Paginated array of feed objects.
 
@@ -1644,10 +1657,13 @@ capabilities payload.
   "entity_types": ["feed", "track"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"]
+    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
+    "feed_list": ["link_facts"]
   }
 }
 ```
+
+`feed_list` gives the include names of `GET /v1/feeds/recent` (ADR 0068).
 
 `publisher_text` on a track read is source-first publisher text. A track
 inherits the field from its parent feed at ingest. ADR 0035 and ADR 0049

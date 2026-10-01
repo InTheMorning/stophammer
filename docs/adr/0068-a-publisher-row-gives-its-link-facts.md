@@ -2,7 +2,9 @@
 
 ## Status
 Accepted on 2026-10-01, in the opt-in form of section 1. Release 0.4.0
-carries it.
+carries it. Amended on 2026-10-01 before the build: the decision applies to
+the list route only. The search part is removed. See "Search is not in
+scope".
 
 ## Date
 2026-10-01
@@ -16,8 +18,7 @@ come from each row of the `publisher` view: `two_way_validated` and
 
 A row of the list `GET /v1/feeds/recent` gives no such fact. ADR 0049 §7
 and ADR 0061 §3 give the derived artist fields only on a read of one feed.
-A comment in the list route states this limit. A row of `GET /v1/search` also
-gives no `raw_medium`, so a page cannot find a publisher feed in the results.
+A comment in the list route states this limit.
 
 So the "Artists & Labels" list shows each row as "Publisher feed". To show the
 type, the page must read each feed: 20 requests for each page of 20 rows.
@@ -30,7 +31,7 @@ and a read with 1 link took almost none.
 
 ### 1. A publisher row gives three link facts on request
 
-`GET /v1/feeds/recent` and `GET /v1/search` take the include name
+`GET /v1/feeds/recent` takes the include name
 `link_facts`. With it, each row of a feed with the medium `publisher` gives:
 
 | Field | Value |
@@ -45,25 +46,19 @@ functions. A row of another medium gives none of the three fields. Without
 `include=link_facts`, no row gives them, and the read costs what it costs
 today.
 
-`GET /v1/search` takes `include` for this name only. `GET /v1/node/capabilities`
-lists `link_facts` with the other include names, as it does for a feed read.
+`GET /v1/node/capabilities` lists `link_facts` as an include name of the
+list route.
 
 `stated_rels` holds the raw values, as the feed writes them, for example
 `label` or `recordLabel`. The node does not split, change or map them. A
 client reads the role set of ADR 0049 §6 from a full feed read.
 
-### 2. A search row gives its medium
-
-A search row of a feed gives `raw_medium`. ADR 0042 already says that a search
-result holds the fields that a client needs to show a row, so this part adds
-no rule.
-
-### 3. The node derives no type
+### 2. The node derives no type
 
 The node gives facts, and the client derives the type. The node does not label
 a publisher as an artist or as a label (ADR 0061 §4).
 
-### 4. The cost stays bounded
+### 3. The cost stays bounded
 
 The facts are derived at read time and are not stored. The node computes them
 only when a client asks, and only for the publisher rows of the page. Before
@@ -91,6 +86,14 @@ Rejected.
 The client would make two requests for each page and join them. The row is
 the place a client already reads. Rejected.
 
+### Search is not in scope
+The first form of this decision also gave the facts on a search row. It also
+gave `raw_medium` on each search row. ADR 0038 keeps publisher and `musicL` feeds
+out of the search index. So no search row is a publisher feed, and each feed
+row has the medium `music`. The operator removed the search part on
+2026-10-01, before the build. A client finds publisher feeds with
+`GET /v1/feeds/recent?medium=publisher`.
+
 ## Consequences
 
 - The "Artists & Labels" list needs one request for each page.
@@ -101,19 +104,18 @@ the place a client already reads. Rejected.
 
 ## Invariants
 
-- A list or search row gives the same three values as a full read of the same
+- A list row gives the same three values as a full read of the same
   feed.
 - A row of a feed that is not a publisher feed gives none of the three fields.
 
 ## Guards
 
 - For a publisher feed with two two-way links, one with `rel="label"`, and one
-  link that is not two-way: a list row and a search row give
+  link that is not two-way: a list row gives
   `two_way_link_count` 2 and `stated_rels` `["label"]`, the same as the full
   read.
 - A list row gives the same `confirmed_release_artists` as the full read.
 - A music feed row gives none of the three fields.
-- A list row and a search row without `include=link_facts` give none of the
+- A list row without `include=link_facts` gives none of the
   three fields.
 - `GET /v1/node/capabilities` lists `link_facts`.
-- A search row of a feed gives `raw_medium`.

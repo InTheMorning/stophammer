@@ -191,6 +191,9 @@ pub(crate) const FEED_INCLUDES: &[&str] = &[
     "publisher",
 ];
 
+/// The include names `GET /v1/feeds/recent` accepts. ADR 0068 §1.
+pub(crate) const FEED_LIST_INCLUDES: &[&str] = &["link_facts"];
+
 /// The include names `GET /v1/tracks/{guid}` accepts.
 pub(crate) const TRACK_INCLUDES: &[&str] = &[
     "payment_routes",
@@ -279,6 +282,17 @@ struct FeedResponse {
     /// is a publisher feed. ADR 0061 §1.
     #[serde(skip_serializing_if = "Option::is_none")]
     unconfirmed_release_artists: Option<Vec<String>>,
+    /// The count of two-way album links of a publisher feed: the
+    /// `publisher_to_music` rows of the `publisher` view with
+    /// `two_way_validated` true. Present only on a publisher row of
+    /// `GET /v1/feeds/recent` with `include=link_facts`. ADR 0068 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_link_count: Option<i64>,
+    /// The different raw `publisher_rel` values of those two-way rows,
+    /// sorted, with no change. Present only where `two_way_link_count` is.
+    /// ADR 0068 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stated_rels: Option<Vec<String>>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -1283,6 +1297,36 @@ fn confirmed_and_unconfirmed_release_artists(
     (confirmed, unconfirmed)
 }
 
+/// The link facts of one publisher feed. ADR 0068 §1.
+struct LinkFacts {
+    two_way_link_count: i64,
+    stated_rels: Vec<String>,
+    confirmed_release_artists: Vec<String>,
+}
+
+/// Derives [`LinkFacts`] from the `publisher` view rows of one feed, as
+/// [`load_publisher`] gives them. The values are the values that a full read
+/// of the same feed gives, because they come from the same rows and the same
+/// functions. ADR 0068 §1.
+fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
+    let two_way: Vec<&PublisherResponse> = rows
+        .iter()
+        .filter(|row| row.direction == "publisher_to_music" && row.two_way_validated)
+        .collect();
+    let stated_rels: Vec<String> = two_way
+        .iter()
+        .filter_map(|row| row.publisher_rel.clone())
+        .collect::<std::collections::BTreeSet<String>>()
+        .into_iter()
+        .collect();
+    let (confirmed_release_artists, _unconfirmed) = confirmed_and_unconfirmed_release_artists(rows);
+    LinkFacts {
+        two_way_link_count: i64::try_from(two_way.len()).unwrap_or(i64::MAX),
+        stated_rels,
+        confirmed_release_artists,
+    }
+}
+
 /// Builds `live_items` for `GET /v1/feeds/{guid}` (ADR 0064 section 6).
 ///
 /// Reads every stored live-event row of `feed_guid` and gives them as
@@ -1376,6 +1420,8 @@ fn build_feed_response(
         confirmed_release_artists: None,
         unconfirmed_release_artist_count: None,
         unconfirmed_release_artists: None,
+        two_way_link_count: None,
+        stated_rels: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -3354,6 +3400,20 @@ async fn handle_get_recent_feeds(
                 db::open_copy_summary(&conn, &r.feed_guid)?;
             let pending_guid_change = db::get_pending_guid_change_for_feed(&conn, &r.feed_guid)?
                 .map(pending_guid_change_response);
+            // ADR 0068 §1: the link facts of a publisher row, only on request.
+            let (two_way_link_count, stated_rels, listed_confirmed) = if params
+                .includes("link_facts")
+                && medium::is_publisher(r.raw_medium.as_deref())
+            {
+                let facts = link_facts(&load_publisher(&conn, &r.feed_guid)?);
+                (
+                    Some(facts.two_way_link_count),
+                    Some(facts.stated_rels),
+                    Some(facts.confirmed_release_artists),
+                )
+            } else {
+                (None, None, None)
+            };
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,
@@ -3371,15 +3431,17 @@ async fn handle_get_recent_feeds(
                 image_url: web_url_or_none(r.image_url.as_deref()),
                 publisher_text: r.publisher_text,
                 publisher_feed_title,
-                // The list route does not compute these per-row aggregates.
-                // ADR 0049 §7 and ADR 0061 §1 scope them to a single feed
-                // read.
+                // ADR 0049 §7 and ADR 0061 §1 scope the artist aggregates to
+                // a single feed read. ADR 0068 §1 gives only the confirmed
+                // list, with `include=link_facts`.
                 distinct_release_artist_count: None,
                 distinct_release_artists: None,
                 confirmed_release_artist_count: None,
-                confirmed_release_artists: None,
+                confirmed_release_artists: listed_confirmed,
                 unconfirmed_release_artist_count: None,
                 unconfirmed_release_artists: None,
+                two_way_link_count,
+                stated_rels,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,
@@ -3653,6 +3715,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
     let mut include_params = HashMap::new();
     include_params.insert("feed", FEED_INCLUDES.to_vec());
     include_params.insert("track", TRACK_INCLUDES.to_vec());
+    // ADR 0068 §1: the include names of `GET /v1/feeds/recent`.
+    include_params.insert("feed_list", FEED_LIST_INCLUDES.to_vec());
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),

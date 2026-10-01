@@ -181,8 +181,12 @@ which gives the sequence of each open item of an Accepted ADR:
    [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md). It
    waits for 2026-10-02, the first day that ADR 0056 task 002 can deploy.
    Each task of it is built.
+
    Release 0.4.0 follows it. ADR 0059 task 002 (§5, the summary of a named
-   track) is built on 2026-10-01 and not deployed. ADR 0068 task 001 is next.
+   track) is built on 2026-10-01 and not deployed.
+   [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task 001
+   is built on 2026-10-01 and not deployed. With `include=link_facts`, a
+   publisher row of `GET /v1/feeds/recent` gives its link facts.
 4. ADR 0034 §11 removes the artist credit in two releases. The
    [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
    written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are built on

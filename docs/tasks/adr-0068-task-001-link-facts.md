@@ -8,26 +8,26 @@ Repository: `stophammer`. The operator commits.
 
 ## Goal
 
-With `include=link_facts`, each publisher row of `GET /v1/feeds/recent` and
-of `GET /v1/search` gives `two_way_link_count`, `stated_rels` and
-`confirmed_release_artists`. Each search row of a feed gives `raw_medium`.
+With `include=link_facts`, each publisher row of `GET /v1/feeds/recent`
+gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`.
+The search part was removed from ADR 0068 on 2026-10-01, before the build.
+ADR 0038 keeps publisher feeds out of the search index.
 
 ## Files To Inspect
 
-- `src/query.rs`: `ListQuery` and `includes`, `SearchQuery`, the handler of
-  `GET /v1/feeds/recent` (it builds `FeedResponse` rows), the search handler
-  and `SearchResponseItem`, `load_publisher`, `PublisherResponse`
+- `src/query.rs`: `ListQuery` and `includes`, the handler of
+  `GET /v1/feeds/recent` (it builds `FeedResponse` rows), `load_publisher`,
+  `PublisherResponse`
   (`direction`, `two_way_validated`, `publisher_rel`),
   `confirmed_and_unconfirmed_release_artists`, `FEED_INCLUDES` and
   `handle_capabilities`
-- `src/search.rs`: the row type of a search hit
 - `tests/adr0061_confirmed_artists_tests.rs`: the helpers that store a
   publisher feed with linked albums
-- `docs/API.md`: the list route, the search route and the capabilities route
+- `docs/API.md`: the list route and the capabilities route
 
 ## Files Likely To Change
 
-- `src/query.rs`, possibly `src/search.rs`, `docs/API.md`
+- `src/query.rs`, `docs/API.md`
 - `tests/adr0068_link_facts_tests.rs`, new
 
 ## Do Not Touch
@@ -50,10 +50,7 @@ of `GET /v1/search` gives `two_way_link_count`, `stated_rels` and
 - Call the helper only when `include=link_facts` is given, and only for a row
   whose `raw_medium` is publisher by `medium::is_publisher`. Each field uses
   `#[serde(skip_serializing_if = "Option::is_none")]`.
-- `SearchQuery` takes `include`, parsed like `ListQuery::includes`. Search
-  gives the three fields on a feed hit of a publisher feed with the name.
-- A search row of a feed always gives `raw_medium`. A track row gives none.
-- Add a constant for the include names of the list route and of search.
+- Add a constant for the include names of the list route.
   Make `handle_capabilities` list it, as it lists `FEED_INCLUDES`. Name the
   key in `docs/API.md`.
 - Each new field and the helper have doc comments that name ADR 0068.
@@ -72,19 +69,31 @@ Before the report, measure on a copy of the production data:
 When the median with `include` is more than 1 second, report it as an
 escalation. ADR 0068 §4 gives that decision to the operator.
 
+### Result On 2026-10-01
+
+The copy of 2026-09-26 gave 200 publisher rows. The largest row had 52
+two-way links. Each form ran 5 times on a warm node:
+
+| Request | Median |
+|---|---|
+| Without `include` | 0.011 s |
+| With `include=link_facts` | 0.095 s |
+
+The median with `include` is less than 1 second, so no escalation is
+necessary. The first request of each form ran on a cold cache and took up to
+1.6 seconds. The node gave no panic.
+
 ## Acceptance
 
 Mechanical, each an integration test in `tests/adr0068_link_facts_tests.rs`:
 
 - A publisher feed with two two-way links, one with `rel="label"`, and one
-  link that is not two-way: a list row and a search row with
-  `include=link_facts` give `two_way_link_count` 2 and `stated_rels`
+  link that is not two-way: a list row with
+  `include=link_facts` gives `two_way_link_count` 2 and `stated_rels`
   `["label"]`. The full feed read gives the same counts.
 - The list row gives the same `confirmed_release_artists` as the full read.
 - A music feed row with `include=link_facts` gives none of the three fields.
-- A list row and a search row without the include give none of the three
-  fields.
-- A search row of a feed gives `raw_medium`.
+- A list row without the include gives none of the three fields.
 - `GET /v1/node/capabilities` lists `link_facts`.
 - The guards of ADR 0044 pass. The gate is green.
 
@@ -106,7 +115,6 @@ cargo fmt -- --check
 Stop and report without a workaround when:
 
 - The median of the measurement with `include` is more than 1 second.
-- The search hit has no feed GUID from which to read the medium.
 - A guard of ADR 0044 needs a change to the guard.
 
 ## Prompt for lower-context coding model
@@ -119,10 +127,10 @@ Read:
 - /home/citizen/build/stophammer/docs/tasks/adr-0068-task-001-link-facts.md
 - /home/citizen/build/stophammer/docs/adr/0068-a-publisher-row-gives-its-link-facts.md
 - /home/citizen/build/stophammer/AGENTS.md (Code Style, Tests)
-- Only the parts of src/query.rs and src/search.rs named in the task file. Use grep. The files are long.
+- Only the parts of src/query.rs named in the task file. Use grep. The files are long.
 
 Goal:
-- With include=link_facts, each publisher row of /v1/feeds/recent and /v1/search gives two_way_link_count, stated_rels and confirmed_release_artists. Each search row of a feed gives raw_medium. Measure the cost on a copy of the production data.
+- With include=link_facts, each publisher row of /v1/feeds/recent gives two_way_link_count, stated_rels and confirmed_release_artists. Measure the cost on a copy of the production data.
 
 Constraints:
 - The rules under "Constraints" and "Measurement" in the task file.
