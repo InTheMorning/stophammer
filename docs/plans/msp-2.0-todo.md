@@ -21,7 +21,7 @@ directly first, then sends a small pull request.
 
 | # | Item | Stophammer owner | Waits for | Sent |
 |---|---|---|---|---|
-| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The answer of the maintainer | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27. Smaller form on 2026-10-01 |
+| 1 | Write the publisher role as `rel` | ADR 0049 §6 | The answer of the maintainer | [#148](https://github.com/ChadFarrow/MSP-2.0/issues/148), 2026-09-27. Smaller form, and a direct question to the maintainer, on 2026-10-01 |
 | 2 | A switch to hide a feed from podcast apps | ADR 0057 | Item 1 | No |
 | 3 | A playlist feed (`musicL`) | ADR 0060 | Item 1 | No. A feature idea, not a defect |
 
@@ -92,7 +92,7 @@ and 383 entries. The crawler cannot follow such an entry to its album (ADR 0060
 
 MSP did not make these
 playlists, and the newer playlists of Kolomona give `feedUrl`. The operator
-asks Kolomona to make the two old files again. This item is a feature idea for
+asked Kolomona on 2026-10-01 to make the two old files again. This item is a feature idea for
 MSP, not a defect, and waits until item 1 has an answer.
 
 **Change.** A playlist feed type:
