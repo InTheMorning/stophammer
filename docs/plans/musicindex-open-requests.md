@@ -34,6 +34,8 @@ names the requests that the two clients share.
 | 2 | `itemGuid` and `title` on remote items | API field addition | Wanted |
 | 3 | Summary fields on search results | API field addition | Wanted |
 | 4 | A stated maximum for `limit` | Contract correction | Small |
+| 5 | Track summary fields on each list entry | API field addition | Wanted |
+| 6 | The deployed revision in release images | Regression | Small |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -129,6 +131,57 @@ cannot tell a cap from an exact page.
 **Request.** State the maximum of `limit` for each list route in the contract,
 for example as `maximum: 200` in the parameter schema. Alternatively, answer
 400 above the maximum.
+
+### 5. Track Summary Fields On Each List Entry
+
+Added on 2026-10-01. Evidence: read-only GET requests to the live API on
+2026-10-01.
+
+**What happens.** Since ADR 0060, each `remote_items` entry of a `musicL`
+feed gives `remote_track_guid` when the index holds the track. It gives no
+title, duration or image of that track. `remote_item_title` is the optional
+`title` attribute of the element, and the indexed playlists do not state it.
+On 2026-10-01:
+
+| Playlist | Entries | With `remote_track_guid` | With `remote_item_title` |
+|---|---|---|---|
+| "Boostagram Ball Playlist 1 to 25" | 278 | 269 | 0 |
+| "Lightning Thrashes Playlist episodes 1 - 60" | 383 | 367 | 0 |
+
+**What it costs.** The playlist page shows each entry as a row. Without the
+track title, a row can show only the feed of the track. To show the track
+title and the duration, the page must read each track: 269 or 367 requests
+for one playlist. The page also cannot give the total time of a playlist.
+
+**Request.** Add these fields to each `remote_items` entry that has a
+`remote_track_guid`, for that track:
+
+| Field | Value |
+|---|---|
+| `remote_track_title` | The `<title>` of the item |
+| `remote_track_duration_secs` | The stored duration of the track. Null when the item states none |
+| `remote_track_image_url` | The item image URL. Null when the item states none |
+
+Each value is null when `remote_track_guid` is null. This is the rule of
+ADR 0059, applied to the track that an entry names. Each entry that names an
+entity carries the summary of that entity.
+
+### 6. The Deployed Revision In Release Images
+
+Added on 2026-10-01. Evidence: `GET /node/info` on 2026-09-26 and on
+2026-10-01.
+
+**What happens.** On 2026-09-26, `GET /node/info` gave `git_revision`
+(`607bb3a`, then `264706e` and `9b6dc21`) and `built_at`. On 2026-10-01, with
+release `0.2.0`, it gives `"git_revision": null` and `"built_at": null`.
+
+**What it costs.** A client cannot tell which build serves a response. v4vmm
+request 2 asked for these fields, and its answer added them. The release
+image does not fill them.
+
+**Request.** Fill `git_revision` and `built_at` in the release image. If the
+release version replaces them, state that in the contract, and give the
+version in `/node/info`.
 
 ## Stophammer Answers - 2026-09-25
 
