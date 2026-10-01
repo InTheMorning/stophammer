@@ -51,7 +51,7 @@ jobs:
         run: bash ./scripts/publish-release.sh "${GITHUB_REF_NAME}"
 
       - name: Upload release bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: stophammer-release-bundle
           path: |
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download release bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: stophammer-release-bundle
           path: dist
@@ -81,13 +81,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: stophammer-release-bundle
           path: dist
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           # A candidate is a pre-release, and it does not become the latest
           # release.
@@ -142,7 +142,7 @@ jobs:
         run: su builder -c "cd \"$GITHUB_WORKSPACE\" && STOPHAMMER_GIT_REVISION=\"$STOPHAMMER_GIT_REVISION\" STOPHAMMER_BUILT_AT=\"$STOPHAMMER_BUILT_AT\" bash ./scripts/build-arch-packages.sh \"${GITHUB_REF_NAME}\""
 
       - name: Upload Arch package bundle
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: stophammer-arch-package-bundle
           path: |
@@ -157,7 +157,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download Arch package bundle
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: stophammer-arch-package-bundle
           path: dist/arch
@@ -179,13 +179,13 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           name: stophammer-arch-package-bundle
           path: dist/arch
 
       - name: Attach Arch packages to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           prerelease: true
           make_latest: false
@@ -233,9 +233,9 @@ jobs:
           ref: ${{ github.ref_name }}
           path: stophammer-crawler
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -255,7 +255,7 @@ jobs:
       - name: Build stophammer-indexer
         id: indexer
         if: matrix.group == 'stophammer'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -273,7 +273,7 @@ jobs:
       - name: Build stophammer-node
         id: node
         if: matrix.group == 'stophammer'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ./Dockerfile
@@ -290,7 +290,7 @@ jobs:
       - name: Build stophammer-crawler
         id: crawler
         if: matrix.group == 'crawler'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./stophammer-crawler
           file: ./stophammer-crawler/Dockerfile
@@ -319,7 +319,7 @@ jobs:
             touch "digests/$image/${digest#sha256:}"
           done
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: digests-${{ matrix.group }}-${{ matrix.arch }}
           path: digests
@@ -340,15 +340,15 @@ jobs:
           - stophammer-node
           - stophammer-crawler
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           pattern: digests-*
           path: digests
           merge-multiple: true
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -439,9 +439,9 @@ jobs:
           CANDIDATE: ${{ steps.candidate.outputs.tag }}
         run: bash ./scripts/promote-release.sh "$CANDIDATE" "$GITHUB_REF_NAME" candidate dist
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -466,7 +466,7 @@ jobs:
           done
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           prerelease: false
           make_latest: true
