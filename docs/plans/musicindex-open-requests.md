@@ -37,6 +37,7 @@ names the requests that the two clients share.
 | 5 | Track summary fields on each list entry | API field addition | Wanted |
 | 6 | The deployed revision in release images | Regression | Small |
 | 7 | Link and role facts on publisher feed rows | API field addition | Wanted |
+| 8 | An index for the route history read | Performance | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -215,6 +216,38 @@ these feeds differently.
 
 These are RSS facts, as ADR 0049 requires. The page derives the type, with
 the rule of its ADR 0007. Stophammer derives no type.
+
+### 8. An Index For The Route History Read
+
+Added on 2026-10-02. Evidence: timed read-only GET requests to the live API on
+2026-10-02, and the Stophammer source, read-only, at commit `de3a7ee`.
+
+**What happens.** `GET /v1/feeds/{guid}/route-history` takes 0.22 to 0.36
+seconds for each of 20 feeds. A feed read with tracks, `/copies` and
+`/v1/live-items` each take about 0.05 seconds from the same client. An answer
+of 2,683 bytes and an answer of 86,969 bytes take almost the same time.
+
+`get_route_history_events_for_feed` in `src/db.rs` selects from `events`
+with this condition:
+
+```sql
+WHERE (event_type = 'feed_routes_replaced' AND subject_guid = ?1)
+   OR (event_type = 'routes_replaced' AND json_extract(payload_json, '$.feed_guid') = ?1)
+   OR (event_type = 'track_upserted' AND json_extract(payload_json, '$.track.feed_guid') = ?1)
+```
+
+SQLite cannot use an index for `json_extract` on `payload_json`. Thus each read
+examines each row of the `events` table that has the two event types.
+
+**What it costs.** The search site reads the route history when a viewer
+pushes "Show route changes" (musicindex ADR 0008). The operator found the
+answer slow on 2026-10-02. The time increases with the number of events in
+the log, not with the number of tracks in the feed.
+
+**Request.** Make this read use an index. One method is a stored column, or a
+generated column, for the feed GUID of each `routes_replaced` and
+`track_upserted` event. Add an index on that column, and select on it. The answer stays
+the same. Only the plan of the query changes.
 
 ## Stophammer Answers - 2026-09-25
 
