@@ -192,7 +192,7 @@ text is outside this repository, with the operator.
 ## Step 4c: Credits For A Release With More Than One Party
 
 An album names only one publisher, so a label release cannot confirm its
-artist. [ADR 0069](../adr/0069-an-album-confirms-each-credit.md), Proposed,
+artist. [ADR 0069](../adr/0069-an-album-confirms-each-credit.md), Accepted,
 reads a bare channel `remoteItem` with `medium="publisher"` as a credit. The
 operator proposes the form in #579, after the `rel` pull request.
 [The guide](../publisher-links-guide.md) tells a feed author how to write it.

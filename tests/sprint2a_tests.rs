@@ -241,6 +241,7 @@ fn content_hash_passes_for_publisher_feed_when_cached_hash_matches() {
                 rel: None,
                 item_guid: None,
                 item_title: None,
+                publisher_reference: false,
             }],
             persons: vec![],
             entity_ids: vec![],

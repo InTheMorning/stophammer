@@ -901,6 +901,18 @@ sorted and joined by `", "`. `role_source` is `"conflict"` when the two
 sets differ, and `role` is then null. When neither side states a role, `role`
 is null and `role_source` is `"default"`. ADR 0049 §6.
 
+`album_names_as` tells how the album names the publisher feed of the row
+(ADR 0069 §3):
+
+| Value | Meaning |
+|---|---|
+| `"publisher"` | The album names it inside `<podcast:publisher>`, or as the first bare channel `remoteItem` with `medium="publisher"` when it has no `<podcast:publisher>` |
+| `"credit"` | The album names it with another bare channel `remoteItem` with `medium="publisher"` |
+| `null` | The album does not name it. The row is a listing by the publisher feed only |
+
+A record that the node stored before release 0.6.0 gives `"credit"` for each
+item until its next ingest.
+
 Each `remote_items` entry and each `publisher` entry gives four values of the
 feed that it names. ADR 0059 owns them. A track read gives them too.
 
@@ -1040,6 +1052,24 @@ A listed album that does not resolve to an indexed feed is in no list. An
 album that has `release_artist_source` set to `placeholder` gives no value to
 the two lists. A music feed read does not have these four fields. ADR 0061
 §1.
+
+With `include=publisher`, a publisher feed read also gives
+`co_credited_feeds` (ADR 0069 §4): each other publisher feed that a
+confirmed album of this feed also confirms. For a label, these are the artist
+feeds of its releases. For an artist, they are its labels.
+
+```json
+"co_credited_feeds": [
+  { "feed_guid": "artist-feed-guid", "title": "Artist One", "roles": ["artist"], "album_count": 2 }
+]
+```
+
+`roles` holds the different raw `rel` values that the shared albums give that
+feed, sorted. It is empty when no album states one. The list is sorted by
+`album_count`, highest first. A publisher feed that only lists an album, or
+an album credit that the credited feed does not confirm, is not in the list.
+The node computes the list at read time. On the largest publisher feed of
+2026-09-26, with 143 links, it adds about 160 ms to the read.
 
 `publisher_feed_title` is derived. It is the title of the feed that this feed
 names as its publisher. The node resolves the named link with

@@ -1469,6 +1469,7 @@ fn medium_music_verifier_pass_publisher_with_music_children() {
                 rel: None,
                 item_guid: None,
                 item_title: None,
+                publisher_reference: false,
             }],
             persons: vec![],
             entity_ids: vec![],

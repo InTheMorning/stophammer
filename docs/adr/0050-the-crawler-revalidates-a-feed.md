@@ -1,7 +1,8 @@
 # ADR 0050: The Crawler Revalidates A Feed
 
 ## Status
-Accepted
+Accepted. Amended on 2026-10-02: §3, a `304` to a request with no conditional
+header is a fetch error.
 
 ## Date
 2026-09-24
@@ -83,8 +84,13 @@ each header for which it has a value.
   kept body, as in a `--force` pass.
 - **`304` in a `--force` pass.** The crawler submits the kept body, with the
   kept hash, as if it had just fetched it. Then it records the node answer.
-- **`304` with no kept body.** The crawler cannot trust the answer. It sends one
-  GET with no conditional header, and then it continues as for `200`.
+- **`304` to a request with no conditional header.** Amended on 2026-10-02.
+  A `304` answers a conditional request only. When the crawler sent no
+  conditional header, because it holds no row or because the pass has
+  `--no-revalidate`, the `304` is a server fault. The crawler reports a fetch
+  error, as before this decision. Each row keeps its body, so a conditional
+  request always has a kept body. The first text of this item, one more GET
+  with no conditional header, had no case that could reach it.
 - **Any other status.** The crawler behaves as today, and it does not change the
   row.
 

@@ -241,14 +241,26 @@ which gives the sequence of each open item of an Accepted ADR:
    in its first 20 seconds, mostly cold pages of the podping archive. It only
    costs disk reads.
 
-4. [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md) is Proposed on
+4. [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md) is Accepted on
    2026-10-02. An album names one publisher and credits each other party, for
    example the artist of a label release, with a bare channel `remoteItem`
    with `medium="publisher"`. Only a two-way credit is confirmed. The node
-   reads the form now. The work is the provenance of each link and the
-   `co_credited_feeds` read. [The guide](docs/publisher-links-guide.md) tells
-   a feed author how to write the links, and a comment proposes the form to
-   namespace discussion #579.
+   reads the form now. [Task 001](docs/tasks/adr-0069-task-001-link-provenance.md)
+   (`album_names_as`) and
+   [task 002](docs/tasks/adr-0069-task-002-co-credited-feeds.md)
+   (`co_credited_feeds`) are built on 2026-10-02 for release 0.6.0. After its
+   deploy, one `refresh` pass with `--force` writes the new `source` values. [The guide](docs/publisher-links-guide.md) tells a feed author how to
+   write the links. Namespace discussion #579 has the proposal, and it must
+   select between a credit and several items inside `<podcast:publisher>`.
+
+   ADR 0049 §6 is amended on 2026-10-02 and built for 0.6.0: when no side
+   states a `rel`, `role` is null, no longer the guess `artist`.
+   `role_source` stays `default`. This changes the meaning of a field, so the
+   0.6.0 notes must tell v4vmm and musicindex.org.
+
+   ADR 0050 §3 is amended on 2026-10-02 and built in `stophammer-crawler` for
+   0.6.0: a `304` to a request with no conditional header is a fetch error.
+   The dead `refetch_unconditional` is deleted.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and

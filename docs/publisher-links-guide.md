@@ -7,7 +7,7 @@ the links. It is advisory. The rules belong to
 [ADR 0061](adr/0061-a-publisher-read-counts-its-listed-artists.md) and
 [ADR 0068](adr/0068-a-publisher-row-gives-its-link-facts.md). The credit form
 of this guide is
-[ADR 0069](adr/0069-an-album-confirms-each-credit.md), which is Proposed.
+[ADR 0069](adr/0069-an-album-confirms-each-credit.md).
 
 `rel` on `<podcast:remoteItem>` is not in the Podcast Namespace yet. It is
 proposed in
@@ -133,9 +133,9 @@ feed read (`GET /v1/feeds/{guid}?include=publisher`):
 | `two_way_validated` | Both feeds state the link |
 | `publisher_rel`, `music_rel` | The raw `rel` of each side |
 | `role`, `role_source` | The stated role, and which side stated it. `role` is null when no side states one (`default`) or when the sides differ (`conflict`) |
-| `album_names_as` | `publisher`, `credit`, or null. ADR 0069, Proposed |
+| `album_names_as` | `publisher`, `credit`, or null. ADR 0069, from release 0.6.0 |
 
 A publisher read also gives `confirmed_release_artists`, the artists of its
 true links, and `unconfirmed_release_artists`, the artists of its one-way
-listings. With ADR 0069 it also gives `co_credited_feeds`, the other publisher
+listings. From release 0.6.0 it also gives `co_credited_feeds`, the other publisher
 feeds of its true albums.

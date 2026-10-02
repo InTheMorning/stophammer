@@ -183,6 +183,13 @@ pub struct IngestRemoteFeedRef {
     /// track entry. ADR 0060 §1. A crawler that does not send it sends null.
     #[serde(default)]
     pub item_title: Option<String>,
+    /// True when this is the publisher of the album, false for credits.
+    ///
+    /// Stophammer ADR 0069 §3 owns this field. An older crawler sends no field,
+    /// and each item stays `podcast_remote_item`. The node maps this field to
+    /// the `source` column of `feed_remote_items_raw`.
+    #[serde(default)]
+    pub publisher_reference: bool,
 }
 
 #[derive(Debug, Deserialize)]

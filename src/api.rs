@@ -3061,7 +3061,11 @@ async fn handle_ingest_feed(
                 remote_feed_guid: item.remote_feed_guid.clone(),
                 remote_feed_url: item.remote_feed_url.clone(),
                 rel: item.rel.clone(),
-                source: "podcast_remote_item".to_string(),
+                source: if item.publisher_reference {
+                    "podcast_publisher".to_string()
+                } else {
+                    "podcast_remote_item".to_string()
+                },
                 remote_item_guid: item.item_guid.clone(),
                 remote_item_title: item.item_title.clone(),
             })

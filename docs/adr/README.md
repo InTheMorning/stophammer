@@ -48,7 +48,7 @@ disagree.
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Wavlake caveat superseded by ADR 0049 | Accepted |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
-| [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304` | Accepted |
+| [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304`. A `304` to a request with no conditional header is a fetch error (§3) | Accepted |
 | [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. Replaces the Wavlake exception of ADR 0035 | Accepted |
 
 ## HTTP API And Contract
@@ -62,7 +62,7 @@ disagree.
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
 | [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`. Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4) | Accepted |
-| [0069](0069-an-album-confirms-each-credit.md) | An album names one publisher and zero or more credits, each a bare channel `remoteItem` with `medium="publisher"`. Only a two-way credit is confirmed. Each publisher row gives `album_names_as`, and a publisher read gives `co_credited_feeds` | Proposed |
+| [0069](0069-an-album-confirms-each-credit.md) | An album names one publisher and zero or more credits, each a bare channel `remoteItem` with `medium="publisher"`. Only a two-way credit is confirmed. Each publisher row gives `album_names_as`, and a publisher read gives `co_credited_feeds` | Accepted |
 
 ## Identity, Signing And Security
 

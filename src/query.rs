@@ -326,6 +326,11 @@ struct FeedResponse {
     remote_items: Option<Vec<FeedRemoteItemResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     publisher: Option<Vec<PublisherResponse>>,
+    /// Each other publisher feed that a confirmed album of this publisher
+    /// feed also confirms. Present only on a read of a publisher feed with
+    /// `include=publisher`. ADR 0069 §4.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    co_credited_feeds: Option<Vec<CoCreditedFeedResponse>>,
     /// Null, or the pending GUID change the source URL of this feed
     /// declares (ADR 0052 section 4). `decision` is null until the operator
     /// decides, then `approve` or `reject`.
@@ -839,6 +844,21 @@ struct TrackRemoteItemResponse {
     remote_release_artist_source: Option<String>,
 }
 
+/// One entry of `co_credited_feeds` (ADR 0069 §4): a publisher feed that
+/// shares one or more confirmed albums with the feed that the client reads.
+#[derive(Debug, Serialize, ToSchema)]
+struct CoCreditedFeedResponse {
+    feed_guid: String,
+    /// The title of that publisher feed, or null when the node holds no feed
+    /// for it.
+    title: Option<String>,
+    /// The different raw `rel` values that the shared albums give that feed,
+    /// sorted. Empty when no album states one.
+    roles: Vec<String>,
+    /// The number of shared confirmed albums.
+    album_count: i64,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 #[expect(
     clippy::struct_excessive_bools,
@@ -899,6 +919,12 @@ struct PublisherResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// How the album names this publisher feed: `"publisher"`, `"credit"` or
+    /// null. ADR 0069 §3. On a `music_to_publisher` row, the value comes from
+    /// the album's own item. On a `publisher_to_music` row, it comes from the
+    /// album item that names this publisher feed, and it is null when
+    /// `music_names_publisher` is false.
+    album_names_as: Option<String>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -1332,6 +1358,67 @@ fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
     }
 }
 
+/// ADR 0069 §4: each other publisher feed that a confirmed album of
+/// `publisher_guid` also confirms. `rows` are the `publisher` rows of
+/// `publisher_guid`. For each two-way album, this reads the album's own
+/// rows, and keeps each other two-way publisher of that album. The value
+/// is computed at read time and is not stored.
+fn co_credited_feeds(
+    conn: &rusqlite::Connection,
+    publisher_guid: &str,
+    rows: &[PublisherResponse],
+) -> Result<Vec<CoCreditedFeedResponse>, api::ApiError> {
+    struct Entry {
+        title: Option<String>,
+        roles: std::collections::BTreeSet<String>,
+        albums: std::collections::BTreeSet<String>,
+    }
+    let mut entries: std::collections::BTreeMap<String, Entry> = std::collections::BTreeMap::new();
+
+    for row in rows {
+        if row.direction != "publisher_to_music" || !row.two_way_validated {
+            continue;
+        }
+        for album_row in load_publisher(conn, &row.music_feed_guid)? {
+            if album_row.direction != "music_to_publisher"
+                || !album_row.two_way_validated
+                || album_row.publisher_feed_guid == publisher_guid
+            {
+                continue;
+            }
+            let entry = entries
+                .entry(album_row.publisher_feed_guid.clone())
+                .or_insert_with(|| Entry {
+                    title: album_row.remote_feed_title.clone(),
+                    roles: std::collections::BTreeSet::new(),
+                    albums: std::collections::BTreeSet::new(),
+                });
+            if let Some(rel) = album_row.music_rel.as_deref().map(str::trim)
+                && !rel.is_empty()
+            {
+                entry.roles.insert(rel.to_string());
+            }
+            entry.albums.insert(row.music_feed_guid.clone());
+        }
+    }
+
+    let mut feeds: Vec<CoCreditedFeedResponse> = entries
+        .into_iter()
+        .map(|(feed_guid, entry)| CoCreditedFeedResponse {
+            feed_guid,
+            title: entry.title,
+            roles: entry.roles.into_iter().collect(),
+            album_count: i64::try_from(entry.albums.len()).unwrap_or(i64::MAX),
+        })
+        .collect();
+    feeds.sort_by(|a, b| {
+        b.album_count
+            .cmp(&a.album_count)
+            .then_with(|| a.feed_guid.cmp(&b.feed_guid))
+    });
+    Ok(feeds)
+}
+
 /// Builds `live_items` for `GET /v1/feeds/{guid}` (ADR 0064 section 6).
 ///
 /// Reads every stored live-event row of `feed_guid` and gives them as
@@ -1444,6 +1531,7 @@ fn build_feed_response(
         source_release_claims: None,
         remote_items: None,
         publisher: None,
+        co_credited_feeds: None,
         pending_guid_change,
         live_items,
     };
@@ -1578,10 +1666,16 @@ fn build_feed_response(
             "publisher" => {
                 // ADR 0061 §1: reuse the rows the publisher-feed guard above
                 // already loaded, rather than call `load_publisher` again.
-                resp.publisher = Some(match publisher_rows.take() {
-                    Some(rows) => rows,
+                let rows = match publisher_rows.take() {
+                    Some(rows) => {
+                        // ADR 0069 §4: only a publisher feed gives the
+                        // feeds that share its confirmed albums.
+                        resp.co_credited_feeds = Some(co_credited_feeds(conn, &feed_guid, &rows)?);
+                        rows
+                    }
                     None => load_publisher(conn, &feed_guid)?,
-                });
+                };
+                resp.publisher = Some(rows);
             }
             // FEED_INCLUDES lists only the names matched above.
             _ => unreachable!("FEED_INCLUDES and this match must list the same names"),
@@ -2031,6 +2125,10 @@ struct PublisherLinkFacts {
     /// The raw `rel` of the matched item on the other side, when the loop
     /// found one. `None` when no candidate matched. ADR 0049 §6.
     matched_item_rel: Option<String>,
+    /// The `source` of the album item that names the publisher, on a
+    /// `publisher_to_music` row. ADR 0069 §3. Null on the other direction,
+    /// and when the album does not name the publisher.
+    matched_item_source: Option<String>,
     /// The indexed feed that this row names: the album of a
     /// `publisher_to_music` row, or the publisher of a `music_to_publisher`
     /// row. `None` when the named feed does not resolve. ADR 0059 §2.
@@ -2109,6 +2207,7 @@ fn music_to_publisher_facts(
         music_feed_guid: current_feed.feed_guid.clone(),
         music_feed_url: Some(current_feed.feed_url.clone()),
         matched_item_rel,
+        matched_item_source: None,
         named_feed_guid: publisher_resolution.feed_guid().map(str::to_string),
     })
 }
@@ -2133,6 +2232,7 @@ fn publisher_to_music_facts(
     let mut music_names_publisher = false;
     let mut reciprocal_medium = None;
     let mut matched_item_rel = None;
+    let mut matched_item_source = None;
 
     if let Some(album_guid) = music_resolution.feed_guid() {
         for candidate in db::get_feed_remote_items_for_feed(conn, album_guid)?
@@ -2148,6 +2248,7 @@ fn publisher_to_music_facts(
                 music_names_publisher = true;
                 reciprocal_medium = candidate.medium;
                 matched_item_rel = candidate.rel;
+                matched_item_source = Some(candidate.source);
                 break;
             }
         }
@@ -2164,6 +2265,7 @@ fn publisher_to_music_facts(
         music_feed_guid,
         music_feed_url,
         matched_item_rel,
+        matched_item_source,
         named_feed_guid: music_resolution.feed_guid().map(str::to_string),
     })
 }
@@ -2234,6 +2336,19 @@ fn resolve_role(
     }
 }
 
+/// ADR 0069 §3: the `album_names_as` value of an album item with `source`
+/// and `medium`. `podcast_publisher` gives `publisher`. Another item with
+/// `medium="publisher"` gives `credit`.
+fn album_names_as_value(source: &str, medium: Option<&str>) -> Option<String> {
+    if source == "podcast_publisher" {
+        Some("publisher".to_string())
+    } else if medium == Some("publisher") {
+        Some("credit".to_string())
+    } else {
+        None
+    }
+}
+
 /// Builds one `publisher` view row for a remote item of `current_feed`, or
 /// `None` when the item's medium is neither `"publisher"` nor `"music"`.
 /// ADR 0049 §3, §4 and §6.
@@ -2244,6 +2359,7 @@ fn build_publisher_row(
     item_remote_feed_guid: &str,
     item_remote_feed_url: Option<&str>,
     item_rel: Option<&str>,
+    item_source: &str,
 ) -> Result<Option<PublisherResponse>, api::ApiError> {
     let Some(direction) = publisher_direction(item_medium) else {
         return Ok(None);
@@ -2286,6 +2402,19 @@ fn build_publisher_row(
     // resolution that the facts already made.
     let summary = named_feed_summary(conn, facts.named_feed_guid.as_deref())?;
 
+    // ADR 0069 §3: compute album_names_as from the source of the album's item.
+    // On a music_to_publisher row, the value comes from this feed's own item (item_source).
+    // On a publisher_to_music row, it comes from the album item (from the matched facts),
+    // and it is null when music_names_publisher is false.
+    let album_names_as = match direction {
+        "music_to_publisher" => album_names_as_value(item_source, item_medium),
+        "publisher_to_music" => facts
+            .matched_item_source
+            .as_deref()
+            .and_then(|source| album_names_as_value(source, Some("publisher"))),
+        _ => unreachable!("publisher_direction only returns the two names handled above"),
+    };
+
     // ADR 0054 §4: `remote_feed_url` is the raw `podcast:remoteItem` URL.
     // `publisher_feed_url` and `music_feed_url` fall back to that same raw
     // value when the resolver could not resolve the item to a stored feed
@@ -2314,6 +2443,7 @@ fn build_publisher_row(
         remote_feed_image_url: summary.image_url,
         remote_release_artist: summary.release_artist,
         remote_release_artist_source: summary.release_artist_source,
+        album_names_as,
     }))
 }
 
@@ -2335,6 +2465,7 @@ fn load_publisher(
             &item.remote_feed_guid,
             item.remote_feed_url.as_deref(),
             item.rel.as_deref(),
+            &item.source,
         )? {
             rows.push(row);
         }
@@ -2401,6 +2532,7 @@ fn load_track_publisher(
             &item.remote_feed_guid,
             item.remote_feed_url.as_deref(),
             item.rel.as_deref(),
+            &item.source,
         )? {
             rows.push(row);
         }
@@ -3563,6 +3695,7 @@ async fn handle_get_recent_feeds(
                 source_release_claims: None,
                 remote_items: None,
                 publisher: None,
+                co_credited_feeds: None,
                 pending_guid_change,
                 live_items: None,
             });

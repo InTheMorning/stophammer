@@ -1,7 +1,7 @@
 # ADR 0069: An Album Confirms Each Publisher That It Credits
 
 ## Status
-Proposed on 2026-10-02.
+Accepted on 2026-10-02.
 
 ## Date
 2026-10-02
@@ -141,8 +141,15 @@ with examples.
 ## Alternatives Considered
 
 ### More than one `remoteItem` inside `<podcast:publisher>`
-The specification says that the element contains exactly one. A tool that
-reads only the first item would show the wrong publisher. Rejected.
+This is the form of the first `rel` proposal in #579, of 2026-05-21: one item
+for each party, each with `rel`, inside `<podcast:publisher>`. It gives the
+same two-way proof as a credit, and it keeps each party in one place. But
+since 2024-05 the specification says that the element contains exactly one
+item. A tool that reads only the first item shows the artist or the label as
+the publisher, by the order of the items. Not selected while the
+specification says "exactly one". The parser already reads each item inside
+the element, so the node reads this form too. If #579 selects it, a new
+decision changes section 1, and sections 2 to 5 stay the same.
 
 ### The label states the artist
 `<podcast:remoteItem>` has no attribute for the artist, and a statement of
