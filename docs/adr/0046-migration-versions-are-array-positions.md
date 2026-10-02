@@ -1,7 +1,8 @@
 # ADR 0046: Migration Versions Are Array Positions
 
 ## Status
-Accepted
+Accepted. Amended on 2026-10-02: the check of item 3 reports only a recorded
+version above the migration count.
 
 ## Date
 2026-09-22
@@ -40,8 +41,15 @@ A migration version stays an array position. The runner is unchanged.
 2. A repair does not write a `schema_migrations` row when the version it would
    claim belongs to an earlier migration.
 3. `run_migrations` reports the condition at start. When the recorded version
-   has reached the migration count, it emits a `tracing::error!` that names
-   this ADR and the repair to write.
+   is above the migration count, it emits a `tracing::error!` that names this
+   ADR and the repair to write.
+
+   Amended on 2026-10-02. Before, the check also fired when the recorded
+   version was equal to the migration count. After the array passed the
+   recorded version 29, each migration ran, and a database that ran each one
+   records the count. So the error showed at each start of a correct
+   database. A version equal to the count cannot show the fault. It is the
+   usual condition after a start.
 4. The guard reports and does not refuse to start. The condition is already
    true in production, so a guard that blocked start would stop the node.
 5. `migrations_can_advance` holds the condition and carries unit tests.
@@ -80,8 +88,8 @@ deploy. Rejected.
 
 - Adding a column to an existing table needs two changes, not one: the
   migration file and the repair function.
-- The error line appears at every start until the numbering is changed. That is
-  intended. It is the record of a known fault.
+- The error line appears only for a database that records a version above
+  the migration count of the code that starts it.
 - A fresh database is unaffected. `run_migrations` applies every entry, and
   `src/schema.sql` carries the same shape.
 - The reconciliation cost is deferred, not paid.
@@ -96,7 +104,7 @@ deploy. Rejected.
 
 This fault reached three migrations. It earns a test.
 
-- `migrations_can_advance` returns false when the recorded version has reached
-  the migration count, and true below it.
+- `migrations_can_advance` returns false when the recorded version is above
+  the migration count, and true at or below it.
 - `open_db_repairs_feed_last_build_date_when_0034_was_skipped` proves the
   repair path, beside the two equivalent tests for 0032 and 0033.

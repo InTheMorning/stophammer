@@ -295,18 +295,20 @@ fn recorded_migration_version(conn: &Connection) -> Result<i64, DbError> {
     Ok(version)
 }
 
-/// Reports whether a newly appended migration can still run.
+/// Reports whether the recorded version agrees with the migrations of this code.
 ///
-/// A migration's version is its 1-indexed position in [`MIGRATIONS`], so the
-/// newest entry is assigned `total`. The runner applies an entry only when its
-/// version is greater than the highest version the database records. When that
-/// recorded version has already reached `total`, the newest entry is skipped
-/// and nothing reports it.
+/// A migration's version is its 1-indexed position in [`MIGRATIONS`]. A
+/// database that ran each migration records `total`, and a database that
+/// waits for a newly appended migration records less. A recorded version
+/// above `total` means that the database and the code disagree: the database
+/// came from a later build, or it recorded versions by a different
+/// numbering. A migration appended to this code then gets a version that the
+/// database treats as applied, and the runner skips it.
 ///
 /// ADR 0046 owns this behaviour.
 fn migrations_can_advance(recorded_version: i64, total: usize) -> bool {
     let total = i64::try_from(total).unwrap_or(i64::MAX);
-    recorded_version < total
+    recorded_version <= total
 }
 
 /// Applies any pending schema migrations to `conn`.
@@ -338,11 +340,11 @@ fn run_migrations(conn: &mut Connection) -> Result<(), DbError> {
         tracing::error!(
             recorded_version = current,
             migration_count = MIGRATIONS.len(),
-            "ADR 0046: the database records migration version {current} but the code \
-             has {} migrations, so a newly added migration is assigned version {} and \
-             is skipped without an error. Add an ensure_*_schema repair in src/db.rs \
-             and call it from open_db.",
-            MIGRATIONS.len(),
+            "ADR 0046: the database records migration version {current}, but the code \
+             has only {} migrations. A migration appended to this code gets a version \
+             that the database treats as applied, and the runner skips it. Run the \
+             build that made this database, or add an ensure_*_schema repair in \
+             src/db.rs and call it from open_db.",
             MIGRATIONS.len(),
         );
     }
@@ -7249,20 +7251,20 @@ mod tests {
     }
 
     #[test]
-    fn a_recorded_version_at_the_migration_count_blocks_the_newest_entry() {
+    fn only_a_recorded_version_above_the_migration_count_is_reported() {
         let total = MIGRATIONS.len();
         let at_count = i64::try_from(total).expect("migration count fits i64");
         assert!(
-            !migrations_can_advance(at_count, total),
-            "version {at_count} equals the migration count, so the newest entry is skipped"
-        );
-        assert!(
-            !migrations_can_advance(at_count + 1, total),
-            "a recorded version above the migration count also skips the newest entry"
+            migrations_can_advance(at_count, total),
+            "version {at_count} equals the migration count: each migration ran, so no error"
         );
         assert!(
             migrations_can_advance(at_count - 1, total),
-            "one below the count still leaves room for the newest entry"
+            "one below the count leaves the newest entry to run"
+        );
+        assert!(
+            !migrations_can_advance(at_count + 1, total),
+            "a recorded version above the migration count skips the next appended entry"
         );
     }
 }
