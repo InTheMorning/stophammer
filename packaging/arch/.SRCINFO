@@ -1,6 +1,6 @@
 pkgbase = stophammer-packages
 	pkgdesc = Role-based Arch packages for the Stophammer music index stack
-	pkgver = 0.4.1
+	pkgver = 0.5.0
 	pkgrel = 1
 	url = https://github.com/InTheMorning/stophammer
 	arch = x86_64
