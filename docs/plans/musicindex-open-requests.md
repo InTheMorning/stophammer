@@ -39,6 +39,7 @@ names the requests that the two clients share.
 | 7 | Link and role facts on publisher feed rows | API field addition | Wanted |
 | 8 | An index for the route history read | Performance | Wanted |
 | 9 | Track titles and an image on each copy row | API field addition | Wanted |
+| 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -284,6 +285,41 @@ copy view has no cover, because the row gives no image.
 
 These are values from the parsed body of the copy, as ADR 0058 §1 reads it.
 The node keeps no other part of the body.
+
+### 10. Link Fact Filters On The Publisher Feed List
+
+Added on 2026-10-02. Evidence: read-only GET requests for all 1,772 publisher
+feeds with `include=link_facts` on 2026-10-02. The page rule is musicindex
+ADR 0007.
+
+**What happens.** The search site gives artists, labels and other publisher
+feeds each a Browse item of its own. It gets the type of a row from
+`two_way_link_count`, `stated_rels` and `confirmed_release_artists`.
+`/v1/feeds/recent` cannot filter on these values. On 2026-10-02:
+
+| Type | Feeds | Position in the list |
+|---|---|---|
+| Artist | 1,751 | All through the list |
+| Label | 1 | Row 1,372 |
+| Unverified link (no two-way link) | 15 | All through the list |
+| Publisher (two-way links, no role) | 5 | All through the list |
+
+**What it costs.** To show the one label, the page must read the full list:
+9 requests of 200 rows, 4.6 seconds from a fast client. The cost increases
+with the number of publisher feeds.
+
+**Request.** Add two filters to `/v1/feeds/recent` with
+`medium=publisher`. Each one keeps the cursor paging of the route:
+
+| Parameter | Rows that it keeps |
+|---|---|
+| `stated_rel=<value>` | Rows with that value in `stated_rels` |
+| `two_way_links=none` | Rows with `two_way_link_count` 0 |
+
+These are filters on RSS facts that the list gives at this time. The page
+keeps its own rule for the artist type, which uses the names. Thus the five
+feeds with two-way links and no role continue to need a full read of the
+list.
 
 ## Stophammer Answers - 2026-09-25
 
