@@ -334,6 +334,20 @@ request 2. Stophammer then indexed 10 more `musicL` feeds. For example,
 (`287e27fa-adc5-4762-956f-0282bba5ed77`) gives a track for 367 of its 383
 entries.
 
+## Stophammer Answers - 2026-10-02
+
+Stophammer examined requests 5 to 9 against the live API, the source at
+`v0.4.0`, and a copy of the production data of 2026-09-26. These answers are
+advisory. The ADR that each answer names is the owner of the rule.
+
+| # | Answer |
+|---|---|
+| 5 | Complete in release 0.4.0. Each entry with a `remote_track_guid` gives `remote_track_title`, `remote_track_duration_secs` and `remote_track_image_url`, with the names of this request. ADR 0059 §5 owns the rule |
+| 6 | Complete in release 0.3.0. `GET /node/info` of the release images gives `git_revision` and `built_at`. On 2026-10-02 it gives `b3bc0b3` |
+| 7 | Complete in release 0.4.0 for `/v1/feeds/recent`, with `include=link_facts` (ADR 0068). The search part is declined: ADR 0038 keeps publisher feeds out of the search index, so each search row has the medium `music`. `GET /v1/node/capabilities` lists `link_facts` under `feed_list` |
+| 8 | Confirmed. Each read examined all 30,705 `track_upserted` events of the copy and parsed their payload. Two partial indexes on the `json_extract` expressions of the query took the read from 0.095 to 0.014 seconds on that copy, with the same answer. The query and the answer do not change. Release 0.4.1 carries it |
+| 9 | Confirmed. `feed_copies` stores `item_guids`, but no item title and no image. `item_titles` and `image_url` need new stored values, so they need an amendment of ADR 0058 §1. Stophammer gives the three fields together, after that amendment. A copy row gets the titles and the image at the next crawl that observes the copy |
+
 ## Requests That v4vmm Also Makes
 
 musicindex.org is a second client for these v4vmm requests. This may matter
@@ -344,6 +358,31 @@ for their priority.
 | 1 | Album summary fields in each publisher relationship entry | The publisher page reads each album separately: a maximum of 24, six at a time, and a "Show all" control for the remainder (`ALBUM_PAGE_SIZE` and `FEED_FETCH_CONCURRENCY`, lines 1881 and 1882). With the fields, one request per publisher |
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
+
+## Release 0.4.0 - 2026-10-02
+
+`info.version` of `/openapi.json` gives `0.4.0`.
+
+- Each `remote_items` entry that names an indexed track gives
+  `remote_track_title`, `remote_track_duration_secs` and
+  `remote_track_image_url` (ADR 0059 §5). This closes request 5.
+- `GET /v1/feeds/recent` takes `include=link_facts`. With it, each publisher
+  row gives `two_way_link_count`, `stated_rels` and
+  `confirmed_release_artists` (ADR 0068). This closes request 7 for the list.
+- A `rel` value with no comma is now a list separated by white space, as HTML
+  `rel` is (ADR 0049 §6). A value with a comma reads as before. No stored
+  value changed its role.
+
+## Release 0.3.0 - 2026-10-01
+
+- Each live row gives `in_now_view` and `in_upcoming_view` (ADR 0064 §6). Each
+  one is `true` when that view gives the row at the time of the read.
+- A feed whose source URL is gone leaves the index after two gone answers, 24
+  hours or more apart (ADR 0067). It is retired with the reason `source_gone`.
+- `GET /node/info` gives `git_revision` and `built_at` again. This closes
+  request 6.
+- The node keeps no artist credit (ADR 0034 §11). `release_artist` and
+  `track_artist` do not change.
 
 ## Release 0.2.0 - 2026-09-27
 
@@ -381,12 +420,13 @@ gives the details.
 ## Deferred, Not Requested Now
 
 **A reverse playlist list.** A query that gives the `musicL` feeds that name a
-feed or a track would support an "On playlists" rail. It needs request 2
-first. On 2026-09-25 the node indexes one `musicL` feed.
+feed or a track would support an "On playlists" rail. Request 2 is complete
+since 2026-09-26, and the node indexes 11 `musicL` feeds. musicindex.org can
+make this a request when it wants the rail.
 
-**Summary fields in the new copy and route-history routes.** musicindex.org
-does not use `/v1/feeds/{guid}/copies` or `/v1/feeds/{guid}/route-history`
-yet. It can show a copy warning from `copy_count` alone.
+**Summary fields in the route-history route.** musicindex.org uses both routes
+since 2026-10-01. Request 9 covers the copy rows. The route-history entries
+have no open request.
 
 ## Answered, No Action
 

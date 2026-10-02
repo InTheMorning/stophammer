@@ -202,7 +202,14 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. No release is planned. Two small items are open:
+3. Release 0.4.1 is next. It holds migration 0048, built on 2026-10-02: two
+   indexes for the route history read of a feed, musicindex.org request 8. On
+   a copy of the production data the read went from 0.095 to 0.014 seconds.
+
+   musicindex.org request 9 asks for item titles and an image on each copy
+   row. It needs an amendment of ADR 0058 §1, which is not written yet.
+
+   Two small items are open:
    - The Docker build action of the release workflow warns
      `SecretsUsedInArgOrEnv` on `ENV KEY_PATH`. `KEY_PATH` is a path, not a
      secret, so the warning is false.

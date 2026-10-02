@@ -171,6 +171,27 @@ rule of its view for that row. When the operator accepts it, release 0.3.0
 carries it, also in `live_items` of a feed read. A client of `view=all` then
 needs no rule of its own.
 
+## Release 0.3.0 - 2026-10-01
+
+Release 0.3.0 delivers both answers of 2026-10-01:
+
+- `GET /node/info` gives `git_revision` and `built_at` for the release images.
+  On 2026-10-02 the primary gives `b3bc0b3`.
+- Each live row gives `in_now_view` and `in_upcoming_view` (ADR 0064 §6), in
+  `GET /v1/live-items` and in `live_items` of a feed read. The two "100%
+  Retro" rows give `status` `live`, and `in_now_view` `false`.
+
+The node keeps no artist credit (ADR 0034 §11). `release_artist` and
+`track_artist` do not change. The event types `artist_upserted` and
+`artist_credit_created` stop.
+
+## Release 0.4.0 - 2026-10-02
+
+Release 0.4.0 adds fields for musicindex.org (ADR 0059 §5 and ADR 0068). One
+change of meaning can matter to v4vmm: a `rel` value with no comma is now a
+list separated by white space, as HTML `rel` is (ADR 0049 §6). A value with a
+comma reads as before. No stored value changed its role.
+
 ## Deferred, Not Requested Now
 
 **A reverse album list.** The publisher view lists only the albums that the publisher feed lists (`load_publisher` in `src/query.rs`).

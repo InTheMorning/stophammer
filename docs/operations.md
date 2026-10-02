@@ -116,8 +116,9 @@ docker compose pull primary gossip
 docker compose up -d --no-build primary gossip
 ```
 
-An image from GHCR gives `git_revision: null` in `/node/info`. The
-`info.version` of `/openapi.json` gives its version.
+`/node/info` gives the commit of the candidate in `git_revision`, and the build
+time in `built_at`. A promoted release is the same build as its candidate. The
+`info.version` of `/openapi.json` gives the version.
 
 ### Container image
 
