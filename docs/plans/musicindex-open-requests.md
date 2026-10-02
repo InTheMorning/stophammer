@@ -41,6 +41,7 @@ names the requests that the two clients share.
 | 9 | Track titles and an image on each copy row | API field addition | Wanted |
 | 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
+| 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -380,6 +381,38 @@ gives a `rel` in full. It cannot use `stated_rel=` for a set of tokens.
    is an extension of the PR, or remove it.
 5. Give the agreed roles of each two-way link in the list facts. A list can
    then show the role without a full read.
+
+### 12. The Feed List Of A Copy Of A Publisher Feed Or A Playlist
+
+Added on 2026-10-02. Evidence: read-only GET requests to the live API at
+release 0.7.0, and the RSS of the two URLs of one GUID on 2026-10-02.
+
+**What happens.** A copy row gives `item_guids` and `item_titles` (ADR 0058
+§1c). A publisher feed and a `musicL` feed list feeds as channel-level
+`podcast:remoteItem` elements, not as items. So for these feeds the row
+gives no content to compare.
+
+On 2026-10-02 the GUID `4d25f0dd-9270-4fb7-8aeb-ddd4a5213585` had two
+publisher feeds:
+
+| URL | `remoteItem` feeds |
+|---|---|
+| `https://headstarts.uk/msp/publisher-feeds/longy-everything-publisher-feed.xml` (indexed) | 24 |
+| `https://wavlake.com/feed/artist/4d25f0dd-9270-4fb7-8aeb-ddd4a5213585` (copy) | 18 |
+
+No feed GUID was in the two lists. The copy row gives `item_guids: []` and
+`differs_tracks: false`.
+
+**What it costs.** The copy view of the search site (musicindex ADR 0009 and
+0013) cannot show that the two versions list different albums. It tells the
+person to open the RSS of the copy. `differs_tracks` is `false`, so the copy
+facts also do not show the difference.
+
+**Request.** Keep the channel-level `remoteItem` feed GUIDs of a copy in
+sequence when the medium is `publisher` or `musicL`. Give them on the copy
+row, for example as `remote_feed_guids`. Compare them as ADR 0058 §2 compares
+the items, so that a different list sets a difference flag.
+The page gets the title of each indexed feed with one read.
 
 ## Stophammer Answers - 2026-09-25
 
