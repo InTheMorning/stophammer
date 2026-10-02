@@ -169,8 +169,9 @@ Fountain writes both sides of each link, and only the role is missing. No
 Fountain link states a `rel`.
 
 The operator sent the change to Oscar Merry, the founder of Fountain, by a
-Nostr message on 2026-10-01. Fountain has no public issue tracker. The operator expects
-interest, but Fountain has not answered yet. Fountain is the first step, because one change states the role of about
+Nostr message on 2026-10-01. Fountain has no public issue tracker. On
+2026-10-02 Oscar answered that Fountain can add it, and suggested a separate
+namespace pull request for the attribute, by Kolomona. Fountain is the first step, because one change states the role of about
 330 links, and a second implementation helps the discussion #579. The publisher
 chooses "Not stated", "Artist" or "Label", and Fountain writes the same `rel`
 value on both sides of each link. "Not stated" writes no attribute.
@@ -179,6 +180,24 @@ The request links to the namespace discussion
 [#579](https://github.com/Podcastindex-org/podcast-namespace/discussions/579).
 It does not link to MSP-2.0 issue #148, which has no answer. It tells that the
 index reads a comma or a space as the separator (ADR 0049 §6).
+
+## Step 4b: A Namespace Pull Request For `rel`
+
+The `remoteItem` page of the specification gives no `rel`. On 2026-10-02 no
+pull request for it existed. Kolomona proposed the attribute in #579, so the
+operator asks him to open the pull request. The pull request defines one role
+for each attribute, and leaves the separator of two roles to #579. The draft
+text is outside this repository, with the operator.
+
+## Step 4c: Credits For A Release With More Than One Party
+
+An album names only one publisher, so a label release cannot confirm its
+artist. [ADR 0069](../adr/0069-an-album-confirms-each-credit.md), Proposed,
+reads a bare channel `remoteItem` with `medium="publisher"` as a credit. The
+operator proposes the form in #579, after the `rel` pull request.
+[The guide](../publisher-links-guide.md) tells a feed author how to write it.
+MSP 2.0 drops such an item when the album has `<podcast:publisher>`, so MSP
+needs a change before it can write a credit.
 
 ## Step 5: Wavlake
 

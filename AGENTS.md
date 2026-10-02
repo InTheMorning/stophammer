@@ -241,6 +241,15 @@ which gives the sequence of each open item of an Accepted ADR:
    in its first 20 seconds, mostly cold pages of the podping archive. It only
    costs disk reads.
 
+4. [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md) is Proposed on
+   2026-10-02. An album names one publisher and credits each other party, for
+   example the artist of a label release, with a bare channel `remoteItem`
+   with `medium="publisher"`. Only a two-way credit is confirmed. The node
+   reads the form now. The work is the provenance of each link and the
+   `co_credited_feeds` read. [The guide](docs/publisher-links-guide.md) tells
+   a feed author how to write the links, and a comment proposes the form to
+   namespace discussion #579.
+
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and
 `tests/adr0045_governance_guards_tests.rs` checks that the ADR files agree with
