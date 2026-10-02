@@ -211,6 +211,14 @@ the listener's node key, peer cache, `archive.db`, and the SSE stream that
 One-shot `podping-listener-init` and `crawler-init` services fix named-volume ownership
 before the long-running non-root containers start.
 
+The listener keeps `ARCHIVE_RETENTION_DAYS` of podpings in `archive.db`, 30 by
+default. After an outage, the `gossip` crawler replays the archive from its
+cursor. If the cursor is older than the oldest podping that is left, the
+crawler stops with an "archive gap" error. So a gossip outage longer than the
+retention needs a new start: delete `gossip_state.db` and run a `refresh`
+pass. A delete does not shrink `archive.db`. To get the disk space back once,
+stop the listener and run `VACUUM` on the file.
+
 **One-shot stophammer-crawler service (ad-hoc feed crawl):**
 
 Run a single feed or set of feeds without defining a separate service:
