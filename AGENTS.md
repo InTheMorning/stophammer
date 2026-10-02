@@ -206,32 +206,33 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. Release 0.5.0 is next. Its work, in this sequence:
-   - The seven `source_*_changed` checks in `src/db.rs` compare
-     `observed_at`, which each ingest sets to the current time. So each ingest
-     that passes the content-hash check signs each source event again. In the
-     backup of 2026-09-26, 176,771 of 370,604 events changed only
-     `observed_at`. The fix leaves `observed_at` out of the checks. A guard
-     test ingests the same body twice.
+3. Release 0.5.0 is next. Each item of it is built on 2026-10-02, and none
+   is deployed:
+   - The seven `source_*_changed` checks in `src/db.rs` no longer compare
+     `observed_at`, which each ingest sets to the current time. Before this
+     fix, each ingest that passed the content-hash check signed each source
+     event again. In the backup of 2026-09-26, 176,771 of 370,604 events
+     changed only `observed_at`. The guard is in `tests/db_tests.rs`.
    - ADR 0058 §1c,
      [task 006](docs/tasks/adr-0058-task-006-copy-titles-and-image.md): a copy
-     row gives its item titles and image, musicindex.org request 9. After the
-     deploy, one `refresh` pass with `--no-revalidate` fills the old rows.
-   - The ADR 0046 check of `run_migrations` logs an `ERROR` at each start of a
-     database that is fully migrated. It fires only when the database records
-     a higher version than the code has migrations.
+     row gives its item titles and image, musicindex.org request 9. Migration
+     0049 adds the two columns. After the deploy, one `refresh` pass with
+     `--no-revalidate` fills the old rows.
+   - The ADR 0046 check of `run_migrations` fires only when the database
+     records a higher version than the code has migrations. ADR 0046 is
+     amended.
    - The `Dockerfile` skips the false `SecretsUsedInArgOrEnv` warning on
      `KEY_PATH`, which is a path and not a secret.
-   - A medium-gate rejection logs at `info`, not at `warn`.
-   - Optional: the gossip mode checks that the archive is not empty with one
-     row, not with a count of each podping.
-   - Built in `stophammer-crawler` on 2026-10-02: the amendment of
-     [ADR 0030](docs/adr/0030-podcastindex-importer-durable-attempt-memory.md).
-     A parse error, or a node `413` for a feed with no medium, waits 7 days
-     in the shared skip list.
-   - Built in `stophammer-crawler` on 2026-10-02: a `429` from the node
-     sends the same ingest POST again, at most 6 times. Before this fix, an
-     import pass recorded 7,764 feeds as ingest errors after one `429`.
+   - A medium-gate refusal logs at `info`, not at `warn`.
+   - The gossip mode checks that the archive is not empty with one row, not
+     with a count of each podping.
+   - The amendment of
+     [ADR 0030](docs/adr/0030-podcastindex-importer-durable-attempt-memory.md),
+     in `stophammer-crawler`. A parse error, or a node `413` for a feed with no
+     medium, waits 7 days in the shared skip list.
+   - In `stophammer-crawler`, a `429` from the node sends the same ingest POST
+     again, at most 6 times. Before this fix, an import pass recorded 7,764
+     feeds as ingest errors after one `429`.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB
    in its first 20 seconds, mostly cold pages of the podping archive. It only
