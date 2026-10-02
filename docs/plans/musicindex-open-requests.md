@@ -38,6 +38,7 @@ names the requests that the two clients share.
 | 6 | The deployed revision in release images | Regression | Small |
 | 7 | Link and role facts on publisher feed rows | API field addition | Wanted |
 | 8 | An index for the route history read | Performance | Wanted |
+| 9 | Track titles and an image on each copy row | API field addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -248,6 +249,41 @@ the log, not with the number of tracks in the feed.
 generated column, for the feed GUID of each `routes_replaced` and
 `track_upserted` event. Add an index on that column, and select on it. The answer stays
 the same. Only the plan of the query changes.
+
+### 9. Track Titles And An Image On Each Copy Row
+
+Added on 2026-10-02. Evidence: read-only GET requests to the live API on
+2026-10-02, and Stophammer ADR 0058. The page rule is musicindex ADR 0009.
+
+**What happens.** A row of `GET /v1/feeds/{guid}/copies` gives the title, the
+URL, the two differences, `feed_recipients` and `track_recipients`. The node
+stores the ordered item GUIDs of each copy (ADR 0058 §1), but the row does not
+give them. The only item GUIDs in the row are the keys of
+`track_recipients`, and these name only the items with their own recipients.
+The row gives no item title and no image.
+
+On 2026-10-02, the copy of "THERAPY IN SESSION"
+(`190dd27e-02b3-440d-9d1c-38e2304d93b3`) at
+`https://headstarts.uk/msp/nat-hills-music/Nat_Hills_Music.xml` has one item
+that the indexed record does not have:
+`a6e153ad-6433-4d67-a7de-f7b276bf19aa`. The search site can show only its
+GUID.
+
+**What it costs.** The search site compares a copy with the indexed feed. For
+an item that only the copy has, the page shows a GUID and no title. For an
+item with no own recipients, the page cannot tell if the copy has it. The
+copy view has no cover, because the row gives no image.
+
+**Request.** Add these fields to each copy row:
+
+| Field | Value |
+|---|---|
+| `item_guids` | The ordered item GUIDs of the copy, as the node stores them |
+| `item_titles` | The `<title>` of each item, in the same sequence |
+| `image_url` | The channel image URL of the copy. Null when the copy states none |
+
+These are values from the parsed body of the copy, as ADR 0058 §1 reads it.
+The node keeps no other part of the body.
 
 ## Stophammer Answers - 2026-09-25
 
