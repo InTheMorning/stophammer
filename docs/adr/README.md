@@ -41,7 +41,7 @@ disagree.
 | [0015](0015-verifier-plugin-architecture.md) | Verifier plugin architecture | Accepted |
 | [0017](0017-canonical-rss-parser-crate.md) | Canonical RSS parser crate | Accepted |
 | [0064](0064-a-live-item-is-an-rss-fact.md) | A live item is an RSS fact. The relay owns the real-time path, and the index gives the relay link. No poll, no recording. A client reads live items per feed and across feeds. Supersedes ADR 0021 | Accepted. §6 amended on 2026-10-01: `in_now_view` and `in_upcoming_view` on each row |
-| [0030](0030-podcastindex-importer-durable-attempt-memory.md) | PodcastIndex importer durable attempt memory | Accepted |
+| [0030](0030-podcastindex-importer-durable-attempt-memory.md) | PodcastIndex importer durable attempt memory. A parse error, or a node `413` for a feed with no medium, waits 7 days in the shared skip list | Accepted |
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh. A refresh keeps its disk | Accepted |
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |

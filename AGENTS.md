@@ -225,6 +225,13 @@ which gives the sequence of each open item of an Accepted ADR:
    - A medium-gate rejection logs at `info`, not at `warn`.
    - Optional: the gossip mode checks that the archive is not empty with one
      row, not with a count of each podping.
+   - Built in `stophammer-crawler` on 2026-10-02: the amendment of
+     [ADR 0030](docs/adr/0030-podcastindex-importer-durable-attempt-memory.md).
+     A parse error, or a node `413` for a feed with no medium, waits 7 days
+     in the shared skip list.
+   - Built in `stophammer-crawler` on 2026-10-02: a `429` from the node
+     sends the same ingest POST again, at most 6 times. Before this fix, an
+     import pass recorded 7,764 feeds as ingest errors after one `429`.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB
    in its first 20 seconds, mostly cold pages of the podping archive. It only

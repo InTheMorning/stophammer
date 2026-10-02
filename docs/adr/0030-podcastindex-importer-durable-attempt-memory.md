@@ -1,7 +1,8 @@
 # ADR 0030: PodcastIndex Importer Durable Attempt Memory
 
 ## Status
-Accepted
+Accepted. Amended on 2026-10-02 with the section "A failure that repeats
+waits 7 days".
 
 Date: 2026-03-25
 
@@ -123,6 +124,33 @@ This mode is optional and conservative:
 - skipped rows still update memory with a machine-readable outcome such as
   `skipped_known_irrelevant`
 
+### A failure that repeats waits 7 days
+
+Amended on 2026-10-02. Each mode that skips known feeds also reads the shared
+skip list, `feed_skip.db`. The list also skips a feed URL for 7 days after
+one of these results of a fetch that gave `200`:
+
+- a parse error of the body.
+- an ingest answer `413` from the node, for a body that states no
+  `podcast:medium`.
+
+The same body gives the same failure at each fetch. The node refuses a request
+body over 2 MiB with `413`, and the crawler accepts a feed body of a maximum of 16 MiB.
+A feed with no `podcast:medium` also fails the default `medium_music` gate. So
+each fetch of such a feed transfers a large body and changes nothing.
+
+After 7 days, one fetch tries the URL again. When the failure repeats, the URL
+waits 7 more days. When the publisher corrects the feed, the next fetch after
+the 7 days ingests it. A shorter `--skip-ttl-days` applies first.
+
+A `413` for a body that states a medium is not skipped. A larger body limit of
+the node can accept such a feed, and the operator must see each failure. A
+`429` from the node and each fetch error are also not skipped.
+
+The skip list of 2026-10-02 held 179,592 fetches of `413` feeds and 105,666
+fetches of parse errors. A 7-day wait allows at most 12,199 and 33,174 of
+them.
+
 ## Consequences
 - ADR 0013's high-level seed-source and live-fetch decisions remain valid, but
   its runtime/package decision is superseded by the existing Rust crawler
@@ -137,3 +165,7 @@ This mode is optional and conservative:
 - This ADR does not change stophammer ingest semantics, does not change the
   current batch cursor granularity, and does not require an append-only history
   log.
+- A feed that gives a parse error, or a node `413` with no medium, is fetched
+  at most once in 7 days. The guards are the `feed_skip` unit tests of
+  `stophammer-crawler`: a new failure skips, a failure older than 7 days does
+  not, and a `413` for a music feed or a `429` never skips.
