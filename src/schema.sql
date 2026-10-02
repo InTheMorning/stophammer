@@ -351,6 +351,13 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_events_seq_unique ON events(seq);
 CREATE INDEX IF NOT EXISTS idx_events_subject ON events(subject_guid);
 CREATE INDEX IF NOT EXISTS idx_events_type    ON events(event_type);
+-- The route history read of a feed (ADR 0053 §4, migration 0048).
+CREATE INDEX IF NOT EXISTS idx_events_routes_feed
+    ON events(json_extract(payload_json, '$.feed_guid'))
+    WHERE event_type = 'routes_replaced';
+CREATE INDEX IF NOT EXISTS idx_events_track_feed
+    ON events(json_extract(payload_json, '$.track.feed_guid'))
+    WHERE event_type = 'track_upserted';
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS feed_crawl_cache (

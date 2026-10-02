@@ -254,6 +254,9 @@ const MIGRATIONS: &[&str] = &[
     // and drop the seven tables that only served the compatibility artist
     // credit (ADR 0034 §11)
     include_str!("../migrations/0047_drop_artist_credit.sql"),
+    // Migration 48: indexes for the route history read of a feed (ADR 0053
+    // §4, musicindex.org request 8)
+    include_str!("../migrations/0048_route_history_indexes.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -5286,18 +5289,21 @@ pub fn get_events_since(
 ///
 /// Returns [`DbError`] if the SQL query fails or an event payload cannot be
 /// deserialised.
+/// The route history read of one feed. The two `json_extract` expressions
+/// must stay the same as in migration 0048, or `SQLite` stops using its
+/// indexes and parses the payload of each event again.
+const ROUTE_HISTORY_EVENTS_SQL: &str = "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json \
+     FROM events \
+     WHERE (event_type = 'feed_routes_replaced' AND subject_guid = ?1) \
+        OR (event_type = 'routes_replaced' AND json_extract(payload_json, '$.feed_guid') = ?1) \
+        OR (event_type = 'track_upserted' AND json_extract(payload_json, '$.track.feed_guid') = ?1) \
+     ORDER BY seq ASC";
+
 pub fn get_route_history_events_for_feed(
     conn: &Connection,
     feed_guid: &str,
 ) -> Result<Vec<Event>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT event_id, event_type, payload_json, subject_guid, signed_by, signature, seq, created_at, warnings_json \
-         FROM events \
-         WHERE (event_type = 'feed_routes_replaced' AND subject_guid = ?1) \
-            OR (event_type = 'routes_replaced' AND json_extract(payload_json, '$.feed_guid') = ?1) \
-            OR (event_type = 'track_upserted' AND json_extract(payload_json, '$.track.feed_guid') = ?1) \
-         ORDER BY seq ASC",
-    )?;
+    let mut stmt = conn.prepare(ROUTE_HISTORY_EVENTS_SQL)?;
 
     let rows = stmt.query_map(params![feed_guid], |row| {
         Ok((
@@ -7216,7 +7222,30 @@ pub fn get_source_item_transcripts_for_feed_entity(
 
 #[cfg(test)]
 mod tests {
-    use super::{MIGRATIONS, migrations_can_advance};
+    use super::{MIGRATIONS, ROUTE_HISTORY_EVENTS_SQL, migrations_can_advance};
+
+    /// musicindex.org request 8: the route history read parsed the payload of
+    /// each `track_upserted` event. It must search the indexes of migration
+    /// 0048 for both JSON branches.
+    #[test]
+    fn the_route_history_read_uses_the_payload_indexes() {
+        let dir = tempfile::tempdir().expect("create temp dir");
+        let conn = super::open_db(dir.path().join("route-history-plan.db"));
+        let plan: Vec<String> = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {ROUTE_HISTORY_EVENTS_SQL}"))
+            .expect("prepare the plan")
+            .query_map(["feed"], |row| row.get::<_, String>(3))
+            .expect("read the plan")
+            .collect::<Result<_, _>>()
+            .expect("plan rows");
+        for index in ["idx_events_routes_feed", "idx_events_track_feed"] {
+            assert!(
+                plan.iter().any(|step| step.contains(index)),
+                "ADR 0053 §4 and migration 0048: the route history read must use {index}. \
+                 Keep its json_extract expression the same as the index. Plan: {plan:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_newly_appended_migration_can_run_on_a_fresh_database() {
