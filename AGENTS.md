@@ -263,7 +263,9 @@ which gives the sequence of each open item of an Accepted ADR:
    The dead `refetch_unconditional` is deleted.
 
    ADR 0062 §8 is amended on 2026-10-02 and built in `stophammer-crawler` for
-   0.6.0. The crawler sends an ingest POST again when the node refuses the
+   0.6.0. The reconciliation reads the archive payload as bytes. Before, it
+   read each BLOB row as text, dropped it, and never moved the cursor. The
+   crawler sends an ingest POST again when the node refuses the
    connection. It stops when the reconciliation loop ends, so the restart
    policy starts it again, and it warns when the archive cursor lags by more
    than 15 minutes. A deploy stops `gossip` before `primary`.

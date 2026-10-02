@@ -122,12 +122,18 @@ Amended on 2026-10-02. Two defects lost podpings:
 
 - The node refuses each connection during its restart. The crawler then
   recorded the podping as an ingest error, and did not send it again.
-- Only the reconciliation loop moves the archive cursor. When that task
-  ended, nothing logged it. Live crawling went on. But a podping that the
-  stream did not deliver was not replayed until the next restart. That
-  restart then replayed each podping since the frozen cursor.
+- Only the reconciliation loop moves the archive cursor after the startup
+  replay. The listener stores each payload as a BLOB, and the reconciliation
+  read the payload as text. Each row failed, and the code dropped each
+  failure with no log line. So the cursor moved only at a restart. Live
+  crawling went on, but a podping that the stream did not deliver waited for
+  the next restart. That restart then replayed each podping since the last
+  one.
 
 The crawler now:
+
+- reads the payload as bytes in the reconciliation, as the startup replay
+  does, and logs each archive row that it cannot read.
 
 - sends the same ingest POST again when the node refuses the connection, at
   most 8 attempts in all, about two minutes. It does the same for a `429`.
@@ -190,6 +196,8 @@ and its window never grows. Rejected.
   change the window.
 - A podping for a URL just after a follow fetch of that URL gives a crawl at
   once.
+- §8: a reconciliation over BLOB payload rows reads them and moves the cursor
+  (`reconciliation_reads_blob_payload_rows_and_moves_the_cursor`).
 - §8: a POST to a closed port that opens 0.5 seconds later is accepted
   (`a_refused_connection_to_the_node_sends_the_ingest_again`). An ended
   reconciliation task gives an error line, and a lag over 15 minutes gives a

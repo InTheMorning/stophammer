@@ -20,7 +20,7 @@ are complete.
 | 4 | A `304` to a request with no conditional header is a fetch error. The dead `refetch_unconditional` is deleted | ADR 0050 §3, amended on 2026-10-02 | Code | Crawler | Built for 0.6.0 |
 | 5 | Each publisher link says how the album names it | ADR 0069, [task 001](../tasks/adr-0069-task-001-link-provenance.md) | Code | Parser, node, crawler fixtures | Built for 0.6.0 |
 | 6 | A publisher read gives `co_credited_feeds` | ADR 0069, [task 002](../tasks/adr-0069-task-002-co-credited-feeds.md) | Code | `stophammer` | Built for 0.6.0. It adds about 160 ms to the read of the largest publisher feed |
-| 6b | A refused connection to the node is sent again. A dead reconciliation loop stops the crawler, and a cursor lag over 15 minutes gives a warning | ADR 0062 §8, amended on 2026-10-02 | Code | Crawler | Built for 0.6.0 |
+| 6b | The reconciliation reads BLOB payloads and moves the archive cursor. A refused connection to the node is sent again. A dead reconciliation loop stops the crawler, and a cursor lag over 15 minutes gives a warning | ADR 0062 §8, amended on 2026-10-02 | Code | Crawler | Built for 0.6.0 |
 | 7 | Write the new `source` values of each record | ADR 0069 task 001, deploy step | Operator pass | None | After the deploy of 0.6.0 |
 | 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §5 | Decided: no action by the index | None | Below |
 | 9 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
