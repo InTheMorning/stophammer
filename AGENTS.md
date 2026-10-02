@@ -212,8 +212,7 @@ which gives the sequence of each open item of an Accepted ADR:
    that started on 2026-09-24 at 23:52 UTC. The replay sent 10,202 source
    bodies. The stale rule rejected 1,403 records, because a mirror had
    written a newer `lastBuildDate` before ADR 0051. Their stored dates were
-   cleared, and their bodies were sent again. The copy before that change is
-   `pre-stale-reset.db` in the `primary-data` volume. After the repair, 7,713
+   cleared, and their bodies were sent again. After the repair, 7,713
    records have `declared_self_url`, and 1,516 records can move on their next
    crawl.
 

@@ -60,8 +60,5 @@ decide on a second read some minutes later, as an amendment of ADR 0062 §4.
 
 ## Not In This Plan
 
-- The removal of the backup files `pre-stale-reset.db`, `pre-adr0058.db` and
-  `pre-adr0052.db` from the `primary-data` volume. This is an operator step
-  with no owner ADR.
 - The request of the slug `musicindex` in the namespace service slug list.
   ADR 0057 §1 makes it an operator step outside the code.
