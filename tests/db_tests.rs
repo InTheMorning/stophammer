@@ -1762,7 +1762,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
 
     stophammer::db::ingest_transaction(
         &mut conn,
-        feed,
+        feed.clone(),
         vec![],
         contributor_claims.clone(),
         entity_id_claims.clone(),
@@ -1795,4 +1795,41 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
     assert_eq!(stored_entity_id_claims.len(), 2);
     assert_eq!(stored_contributor_claims[1].entity_type, "live_item");
     assert_eq!(stored_entity_id_claims[0].scheme, "nostr_npub");
+
+    // The next ingest observes the same claims at a later time. Each source
+    // event would only change `observed_at`, so the diff signs none of them.
+    let later = now + 3_600;
+    let mut later_contributor_claims = contributor_claims;
+    for claim in &mut later_contributor_claims {
+        claim.observed_at = later;
+    }
+    let mut later_entity_id_claims = entity_id_claims;
+    for claim in &mut later_entity_id_claims {
+        claim.observed_at = later;
+    }
+    let repeat_rows = stophammer::db::build_diff_events(
+        &conn,
+        &feed,
+        &[],
+        &later_contributor_claims,
+        &later_entity_id_claims,
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        &[],
+        later,
+        &[],
+    )
+    .expect("build diff events again");
+    let repeat_types: Vec<_> = repeat_rows.iter().map(|e| e.event_type.clone()).collect();
+    assert!(
+        !repeat_types.contains(&stophammer::event::EventType::SourceContributorClaimsReplaced)
+            && !repeat_types.contains(&stophammer::event::EventType::SourceEntityIdsReplaced),
+        "expected no source event when only observed_at changed, got {repeat_types:?}"
+    );
 }

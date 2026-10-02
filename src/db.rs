@@ -3132,7 +3132,6 @@ fn source_contributor_claims_changed(
                 || a.npub != b.npub
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3150,7 +3149,6 @@ fn source_entity_ids_changed(
                 || a.value != b.value
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3165,7 +3163,6 @@ fn source_entity_links_changed(existing: &[SourceEntityLink], new: &[SourceEntit
                 || a.url != b.url
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3183,7 +3180,6 @@ fn source_release_claims_changed(
                 || a.claim_value != b.claim_value
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3205,7 +3201,6 @@ fn source_item_enclosures_changed(
                 || a.is_primary != b.is_primary
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3225,7 +3220,6 @@ fn source_item_transcripts_changed(
                 || a.rel != b.rel
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
@@ -3241,7 +3235,6 @@ fn source_platform_claims_changed(
                 || a.owner_name != b.owner_name
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
-                || a.observed_at != b.observed_at
         })
 }
 
