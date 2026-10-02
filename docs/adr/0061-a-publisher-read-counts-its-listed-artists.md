@@ -32,8 +32,9 @@ ADR 0059 gives each `publisher` entry `remote_release_artist` and
 the node can count the artists of each **listed** album at read time.
 
 A client also wants to show a publisher as an artist or as a label. No link
-in a sample of 249 stated `rel`, so ADR 0049 §6 gives each link
-`role: "artist"` with `role_source: "default"`.
+in a sample of 249 stated `rel`, so ADR 0049 §6 gave each link
+`role: "artist"` with `role_source: "default"`. Since 2026-10-02 it gives
+`role` null for such a link.
 
 The operator decided on 2026-09-26 that the index does not derive a kind.
 Two rules were tested: a rule on the artist names, and a rule on the
@@ -82,8 +83,8 @@ and reads its summary (ADR 0059), so the fields add no query.
 ### 4. No derived kind
 
 The node derives no artist or label kind. `role` and `role_source` of ADR
-0049 §6 stay the only role fields. A client that shows a role shows
-`role_source: "default"` as not stated by the feed.
+0049 §6 stay the only role fields. `role_source: "default"` means that no
+feed states a role, and `role` is then null.
 
 ### 5. An album shows only the publishers that it names
 

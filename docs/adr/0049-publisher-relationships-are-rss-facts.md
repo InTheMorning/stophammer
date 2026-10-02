@@ -7,6 +7,9 @@ On 2026-09-27 [ADR 0061](0061-a-publisher-read-counts-its-listed-artists.md)
 §5 made a rule of the present behavior of §4. The `publisher` view of an album
 gives only the publishers that the album names.
 
+Amended on 2026-10-02: §6 gives `role` null when no side states a role. The
+node no longer gives `artist` as a guess.
+
 On 2026-10-01 §6 was amended. A `rel` value is a role set, and the node accepts
 a comma or white space as the separator.
 
@@ -175,8 +178,15 @@ marks it as non-standard. Each `publisher` row reports:
 |---|---|
 | `publisher_rel` | The raw `rel` on the publisher feed item that lists the album |
 | `music_rel` | The raw `rel` on the album item that names the publisher |
-| `role` | The stated value, or `artist` when neither side states one. Null on a conflict |
+| `role` | The stated value. Null when neither side states one, and null on a conflict |
 | `role_source` | `publisher_rel`, `music_rel`, `default` or `conflict` |
+
+Amended on 2026-10-02. Before, `role` was `artist` when neither side stated a
+role, with `role_source` `default`. That value was a guess in the field that a
+client reads first. ADR 0069 credits make it wrong more often: an album that
+credits a label and an artist, with no `rel`, gave `artist` for both. Now
+`role` is null, and `role_source` stays `default`. The node states only what
+a feed states.
 
 When both sides state a value and the values are equal, `role_source` is
 `publisher_rel`. When the values are different, the node does not select one.

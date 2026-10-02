@@ -345,7 +345,7 @@ const DETOX_ALBUM_LISTED_URL: &str =
 const DETOX_ALBUM_OTHER_URL: &str = "https://wavlake.com/feed/cf3fb24c-582c-45dd-8ac7-bb41cdf4d41a";
 
 #[tokio::test]
-async fn detox_row_has_no_rel_on_either_side_and_defaults_to_artist() {
+async fn detox_row_has_no_rel_on_either_side_and_states_no_role() {
     let crawl_token = "adr0049-role-detox-token";
     let db = common::test_db_arc();
     let state = default_chain_state(Arc::clone(&db), crawl_token);
@@ -390,6 +390,10 @@ async fn detox_row_has_no_rel_on_either_side_and_defaults_to_artist() {
 
     assert_eq!(row["publisher_rel"], serde_json::json!(null));
     assert_eq!(row["music_rel"], serde_json::json!(null));
-    assert_eq!(row["role"], serde_json::json!("artist"));
+    assert_eq!(
+        row["role"],
+        serde_json::json!(null),
+        "ADR 0049 §6: with no rel on either side, role is null, not a guess"
+    );
     assert_eq!(row["role_source"], serde_json::json!("default"));
 }

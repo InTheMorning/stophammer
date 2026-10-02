@@ -898,7 +898,8 @@ value with a comma is a comma list, and a value with no comma is a list
 separated by white space. `role` reads each side as
 a set of roles and compares the two sets. The value of `role` is the set,
 sorted and joined by `", "`. `role_source` is `"conflict"` when the two
-sets differ. ADR 0049 §6.
+sets differ, and `role` is then null. When neither side states a role, `role`
+is null and `role_source` is `"default"`. ADR 0049 §6.
 
 Each `remote_items` entry and each `publisher` entry gives four values of the
 feed that it names. ADR 0059 owns them. A track read gives them too.

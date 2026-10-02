@@ -880,12 +880,9 @@ struct PublisherResponse {
     /// The Podcast Namespace does not define `rel` on `podcast:remoteItem`,
     /// so this value is non-standard. ADR 0049 §6.
     music_rel: Option<String>,
-    /// The role set, sorted and joined by `", "`, or `"artist"` when
-    /// neither side states one. Null on a conflict between the two role
-    /// sets. ADR 0049 §6, plan decision 13.
-    ///
-    /// `"artist"` with `role_source = "default"` is an assumption. It is
-    /// not a statement that the feed makes.
+    /// The role set, sorted and joined by `", "`. Null when neither side
+    /// states one, and null on a conflict between the two role sets. ADR
+    /// 0049 §6, amended on 2026-10-02: the node gives no guess.
     role: Option<String>,
     /// The source of `role`: `"publisher_rel"`, `"music_rel"`, `"default"`
     /// or `"conflict"`. ADR 0049 §6.
@@ -2233,7 +2230,7 @@ fn resolve_role(
             (Some(publisher_value), "publisher_rel")
         }
         (Some(_), Some(_)) => (None, "conflict"),
-        (None, None) => (Some("artist".to_string()), "default"),
+        (None, None) => (None, "default"),
     }
 }
 
@@ -4426,10 +4423,11 @@ mod tests {
     }
 
     #[test]
-    fn resolve_role_neither_defaults_to_artist() {
+    fn resolve_role_neither_states_no_role() {
         assert_eq!(
             resolve_role(None, None),
-            (Some("artist".to_string()), "default")
+            (None, "default"),
+            "ADR 0049 §6: with no rel on either side, the node gives no role"
         );
     }
 

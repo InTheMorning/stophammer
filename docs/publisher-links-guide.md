@@ -132,7 +132,7 @@ feed read (`GET /v1/feeds/{guid}?include=publisher`):
 |---|---|
 | `two_way_validated` | Both feeds state the link |
 | `publisher_rel`, `music_rel` | The raw `rel` of each side |
-| `role`, `role_source` | The stated role, and which side stated it. `conflict` when the two sides differ |
+| `role`, `role_source` | The stated role, and which side stated it. `role` is null when no side states one (`default`) or when the sides differ (`conflict`) |
 | `album_names_as` | `publisher`, `credit`, or null. ADR 0069, Proposed |
 
 A publisher read also gives `confirmed_release_artists`, the artists of its
