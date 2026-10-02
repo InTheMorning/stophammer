@@ -69,6 +69,24 @@ summary digest, so a resolution holds.
   OpenAPI schema of the row.
 - **Docs.** `docs/API.md` names the three fields for the copies route.
 
+## Deploy Step
+
+After the deploy of the release, the operator fills the old rows (ADR 0058
+§1c). On the VPS, in the compose directory:
+
+```bash
+docker compose run -d --name copy-backfill stophammer-crawler --no-revalidate refresh \
+  --concurrency 3 --host-delay-ms 3000
+docker logs copy-backfill 2>&1 | grep '^fetch:'
+```
+
+Then count the rows that still have no titles. A row whose URL no pass
+reaches keeps null:
+
+```bash
+docker run --rm -v stophammer_primary-data:/node alpine:3.20 sh -c 'apk add -q sqlite && sqlite3 -readonly /node/stophammer.db "SELECT COUNT(*), SUM(item_titles IS NULL) FROM feed_copies;"'
+```
+
 ## Acceptance Criteria
 
 Mechanical, each an integration test in `tests/adr0058_copy_titles_tests.rs`:

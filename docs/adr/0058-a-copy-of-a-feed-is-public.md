@@ -117,7 +117,17 @@ writes one when the channel title, an item title or the image changes. The
 event carries each value of the summary.
 
 A row that the node wrote before this amendment has no item titles and no
-image. It gets them at the next submission from its URL, with one event.
+image. It gets them at the next submission from its URL, with one event. The
+`refresh` pass does not list a copy URL, and a crawler sends nothing for a
+`304` (ADR 0050). So after the deploy the operator runs one `refresh` pass
+with `--no-revalidate`. That pass sends each full body and follows the links
+that reach the copies.
+
+The publisher of a copy chooses its titles and its image. For an
+impersonation, that is the attacker. The node gives them as facts, as it gives
+the channel title of a copy. A client decides how it shows them. Stophammer
+tells musicindex.org to show the image of an open copy only after a person
+asks for it.
 
 ### 2. A copy is a row that differs from the record
 

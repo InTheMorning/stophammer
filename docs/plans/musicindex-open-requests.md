@@ -346,7 +346,7 @@ advisory. The ADR that each answer names is the owner of the rule.
 | 6 | Complete in release 0.3.0. `GET /node/info` of the release images gives `git_revision` and `built_at`. On 2026-10-02 it gives `b3bc0b3` |
 | 7 | Complete in release 0.4.0 for `/v1/feeds/recent`, with `include=link_facts` (ADR 0068). The search part is declined: ADR 0038 keeps publisher feeds out of the search index, so each search row has the medium `music`. `GET /v1/node/capabilities` lists `link_facts` under `feed_list` |
 | 8 | Confirmed. Each read examined all 30,705 `track_upserted` events of the copy and parsed their payload. Two partial indexes on the `json_extract` expressions of the query took the read from 0.095 to 0.014 seconds on that copy, with the same answer. The query and the answer do not change. Release 0.4.1 carries it |
-| 9 | Confirmed. `feed_copies` stores `item_guids`, but no item title and no image. `item_titles` and `image_url` need new stored values, so they need an amendment of ADR 0058 §1. Stophammer gives the three fields together, after that amendment. A copy row gets the titles and the image at the next crawl that observes the copy |
+| 9 | Confirmed. `feed_copies` stores `item_guids`, but no item title and no image. `item_titles` and `image_url` need new stored values, so they need an amendment of ADR 0058 §1. Stophammer gives the three fields together, after that amendment. A copy row gets the titles and the image at the next crawl that observes the copy. The publisher of a copy chooses its image, and for an impersonation that is the attacker. Stophammer recommends that the page shows the image of an open copy only after a person asks for it |
 
 ## Requests That v4vmm Also Makes
 
