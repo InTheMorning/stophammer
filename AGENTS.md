@@ -82,6 +82,18 @@ Complete and deployed:
   No long replay of the archive has run on the fixed crawler yet. After the
   next stop of the gossip crawler, check that its memory stays low during the
   catch-up, and that `dmesg` shows no new kill.
+- Release 0.4.0, on 2026-10-02. It promotes `v0.4.0-rc.1`, and it holds:
+  - ADR 0059 task 002: an entry that names a track gives its title, duration
+    and image.
+  - [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task
+    001: with `include=link_facts`, a publisher row of `GET /v1/feeds/recent`
+    gives its link facts.
+  - The amendment of ADR 0049 §6: a `rel` value with no comma is a list
+    separated by white space.
+  - The primary logs each accepted ingest at `info`, and an ignored gone
+    report at `debug`. The release actions run on Node 24.
+
+  The primary and the gossip crawler run the GHCR images of the release.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -190,27 +202,13 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. The next release is 0.4.0.
-   ADR 0059 task 002 (§5, the summary of a named
-   track) is built on 2026-10-01 and not deployed.
-   [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task 001
-   is built on 2026-10-01 and not deployed. With `include=link_facts`, a
-   publisher row of `GET /v1/feeds/recent` gives its link facts.
-   The amendment of ADR 0049 §6 on 2026-10-01 is built and joins 0.4.0. A
-   `rel` value with no comma is a list separated by white space.
-   The primary logs each accepted ingest at `info`, and an ignored gone report
-   at `debug`. The release workflow uses actions that run on Node 24.
-4. ADR 0034 §11 removes the artist credit in two releases. The
-   [phase plan](docs/plans/adr-0034-artist-credit-removal-phase-plan.md) is
-   written. Task 001 is deployed in 0.2.0. Tasks 002 and 003 are deployed
-   in release 0.3.0. Migration 0047 dropped the 43 tables that
-   §11 lists. The feed and track counts stayed the same.
-5. [ADR 0067](docs/adr/0067-a-gone-source-retires-its-feed.md), Accepted on
-   2026-09-27. Two gone answers from the source URL, 24 hours apart, retire
-   the feed. The [phase plan](docs/plans/adr-0067-gone-source-phase-plan.md)
-   is written. Tasks 001 and 002 are deployed in release 0.3.0,
-   and the primary sets `SOURCE_GONE_HOSTS=wavlake.com`. Migration 0045 is its
-   table.
+3. No release is planned. Two small items are open:
+   - The Docker build action of the release workflow warns
+     `SecretsUsedInArgOrEnv` on `ENV KEY_PATH`. `KEY_PATH` is a path, not a
+     secret, so the warning is false.
+   - The content-hash check skips publisher feeds. A crawl of an unchanged
+     publisher feed signed `source_entity_links_replaced` and
+     `source_release_claims_replaced` on 2026-10-02. The cause is not known.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and
