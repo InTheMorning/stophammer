@@ -1,7 +1,8 @@
 # ADR 0058: A Copy Of A Feed Is Public
 
 ## Status
-Accepted on 2026-09-25
+Accepted on 2026-09-25. Amended on 2026-10-02 with section 1c and the
+fields of a copy row in section 3 (musicindex.org request 9).
 
 ## Date
 2026-09-25
@@ -98,6 +99,26 @@ own source URL. Three records had a copy at the origin URL of the GUID while
 the source URL was a different feed: `7192ec54`, `27735a10` and `c17b43a2`.
 The other matches were the two URL forms of Wavlake, which are aliases.
 
+### 1c. The summary also keeps how the copy looks
+
+Amended on 2026-10-02. The summary of section 1 also keeps:
+
+- the title of each item, in the order of the item GUIDs. An item with no
+  title gives null.
+- the channel image URL of the copy. It is null when the copy states none.
+
+These values show a copy to a person. The node does not compare them. The
+summary digest stays the digest of the item GUIDs and the recipient sets, as
+before. So a change of a title or of the image is not a difference of section
+2. It also does not open a resolved copy of section 4.
+
+The node writes a `FeedCopyObserved` event when the digest changes. It also
+writes one when the channel title, an item title or the image changes. The
+event carries each value of the summary.
+
+A row that the node wrote before this amendment has no item titles and no
+image. It gets them at the next submission from its URL, with one event.
+
 ### 2. A copy is a row that differs from the record
 
 The node compares a row with the current record when a client reads it:
@@ -117,7 +138,9 @@ is a copy. The title is information only.
   first and last time seen, the title, the two differences, `guid_origin`,
   the recipient sets, and the resolution when one exists. On the primary it
   also returns `copies_over_limit`. An alias is in the list, with both
-  differences false.
+  differences false. Since section 1c, each row also gives `item_guids`,
+  `item_titles` in the same sequence, and `image_url`. `image_url` passes the
+  web URL rule of ADR 0054 §4.
 - `GET /v1/copies` returns each record with one or more open copies, newest
   first, with the `QueryResponse` pagination. On the primary it also returns
   each record with a `copies_over_limit` above zero.
@@ -206,6 +229,9 @@ with different payment exists. The index shows its conflicts. Rejected.
   the operator blocks the attacker URLs. The counter shows the attack.
 - The admin relocation that exists now clears two fields, and it needs a
   reason.
+- Section 1c adds two columns and two payload fields of `FeedCopyObserved`. A
+  node that does not know the fields verifies the signature of the event, and
+  stores the row without them. So the nodes can upgrade in any sequence.
 
 ## Invariants
 
@@ -215,6 +241,7 @@ with different payment exists. The index shows its conflicts. Rejected.
 - A resolution holds only for the summary digest it names.
 - A GUID has at most 20 rows.
 - Only a new or changed summary makes a `FeedCopyObserved` event.
+- A title or an image never changes the summary digest.
 - Each public answer excludes a URL with an ADR 0053 block.
 
 ## Non-Goals
@@ -247,3 +274,8 @@ route changed six times, and no client could see the second copy. Tests:
   that URL.
 - A copy at the URL whose UUIDv5 is the GUID gets `guid_origin: true`. A copy
   at another URL gets `false`.
+- Section 1c, musicindex.org request 9: a copy row gives `item_titles` in the
+  sequence of `item_guids`, and `image_url`. A body that changes only an item
+  title signs one event, stores the new title, and keeps a `keep_source`
+  resolution. A row written with no titles gets them at the next submission.
+  A community node that applies the event gives the same values.

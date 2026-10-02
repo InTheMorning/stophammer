@@ -209,7 +209,9 @@ which gives the sequence of each open item of an Accepted ADR:
 3. No release is planned.
 
    musicindex.org request 9 asks for item titles and an image on each copy
-   row. It needs an amendment of ADR 0058 §1, which is not written yet.
+   row. ADR 0058 §1c, amended on 2026-10-02, decides it, and
+   [task 006](docs/tasks/adr-0058-task-006-copy-titles-and-image.md) builds
+   it for release 0.5.0.
 
    Three small items are open:
    - The ADR 0046 check of `run_migrations` logs an `ERROR` at each start of
