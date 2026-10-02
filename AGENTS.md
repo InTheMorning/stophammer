@@ -126,6 +126,22 @@ Complete and deployed:
   The primary and the gossip crawler run the GHCR images of 0.6.0. A cached
   body replays with `export-feed-cache-ndjson.py` and the `ndjson` mode, with
   no fetch: `--copies` for the copy rows, the default for the source URLs.
+- Release 0.7.0, on 2026-10-02. It promotes `v0.7.0-rc.1`, and it follows
+  the publisher link rules of podcast-namespace PR #793, musicindex.org
+  request 11, with
+  [task 014](docs/tasks/adr-0049-task-014-pr793-link-rules.md) of ADR 0049:
+  - ADR 0049 §6a: each `publisher` row gives `role_agreement`. A link whose
+    two sides state different role sets is not a confirmed link, and no count
+    uses it.
+  - ADR 0068 §5: `stated_rels` gives role tokens, a list row gives
+    `agreed_roles`, and `stated_rel=` matches one token.
+  - ADR 0069 §1a: only an album item in `<podcast:publisher>` is a
+    publisher link. `album_names_as` gives `publisher` or null.
+
+  Before the deploy, 194 album items had no publisher mark, because the node
+  had not read their albums since release 0.6.0. 190 are Wavlake albums, and
+  each one in a sample of five gave `404` at Wavlake. Their links stopped
+  counting. The primary and the gossip crawler run the GHCR images of 0.7.0.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -238,13 +254,7 @@ which gives the sequence of each open item of an Accepted ADR:
    in `<podcast:publisher>`, and it adds `rel`. ADR 0069 §1a follows it,
    and the bare-item credit is removed. [The guide](docs/publisher-links-guide.md)
    tells a feed author how to write the links.
-4. Release 0.7.0 follows the link rules of PR #793, musicindex.org request 11.
-   [Task 014](docs/tasks/adr-0049-task-014-pr793-link-rules.md) builds the
-   amendments ADR 0049 §6a (`role_agreement`, a `conflict` link is not
-   confirmed), ADR 0068 §5 (role tokens, `agreed_roles`) and ADR 0069 §1a (the
-   bare-item credit is removed). It is built, and not deployed. Before the
-   deploy, run the count of its deploy step.
-5. The research items of the plan: a station on a feed with `medium`
+4. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB
