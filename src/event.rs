@@ -398,6 +398,10 @@ pub struct FeedCopyObservedPayload {
     pub first_seen: i64,
     pub title: String,
     pub item_guids: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_titles: Option<Vec<Option<String>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_url: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,

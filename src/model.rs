@@ -515,6 +515,10 @@ pub struct FeedBlock {
 pub struct CopySummary {
     pub title: String,
     pub item_guids: Vec<String>,
+    /// The title of each item, in the order of `item_guids`. A copy summary
+    /// of a body always has it. An event signed before ADR 0058 §1c has none.
+    pub item_titles: Option<Vec<Option<String>>>,
+    pub image_url: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
 }
@@ -531,8 +535,9 @@ impl From<&IngestPaymentRoute> for RouteRecipient {
 }
 
 /// Builds the ADR 0058 Section 1 summary of a mirror body. The summary
-/// holds the channel title, the item GUIDs in the feed's own order, and the
-/// recipient set of the feed and of each track.
+/// holds the channel title, the item GUIDs in the feed's own order, the
+/// title of each item, the channel image URL, and the recipient set of the
+/// feed and of each track.
 #[must_use]
 pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
     let feed_recipients = feed
@@ -542,9 +547,16 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
         .collect();
 
     let mut item_guids = Vec::with_capacity(feed.tracks.len());
+    let mut item_titles = Vec::with_capacity(feed.tracks.len());
     let mut track_recipients = BTreeMap::new();
     for track in &feed.tracks {
         item_guids.push(track.track_guid.clone());
+        let title = if track.title.is_empty() {
+            None
+        } else {
+            Some(track.title.clone())
+        };
+        item_titles.push(title);
         let recipients: Vec<RouteRecipient> = track
             .payment_routes
             .iter()
@@ -556,6 +568,8 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
     CopySummary {
         title: feed.title.clone(),
         item_guids,
+        item_titles: Some(item_titles),
+        image_url: feed.image_url.clone(),
         feed_recipients,
         track_recipients,
     }

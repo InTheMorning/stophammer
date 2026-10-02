@@ -211,6 +211,8 @@ fn apply_single_event_inner(
             let summary = crate::model::CopySummary {
                 title: p.title.clone(),
                 item_guids: p.item_guids.clone(),
+                item_titles: p.item_titles.clone(),
+                image_url: p.image_url.clone(),
                 feed_recipients: p.feed_recipients.clone(),
                 track_recipients: p.track_recipients.clone(),
             };

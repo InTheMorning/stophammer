@@ -257,6 +257,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 48: indexes for the route history read of a feed (ADR 0053
     // §4, musicindex.org request 8)
     include_str!("../migrations/0048_route_history_indexes.sql"),
+    // Migration 49: add item titles and image URL to feed_copies table
+    // (ADR 0058 §1c, task 006)
+    include_str!("../migrations/0049_copy_titles_and_image.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -4345,6 +4348,8 @@ pub struct FeedCopyRow {
     pub last_seen: Option<i64>,
     pub title: String,
     pub item_guids: Vec<String>,
+    pub item_titles: Option<Vec<Option<String>>>,
+    pub image_url: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,
@@ -4354,7 +4359,7 @@ pub struct FeedCopyRow {
     pub resolved_digest: Option<String>,
 }
 
-/// The plain-column shape of a `feed_copies` row, before the three JSON
+/// The plain-column shape of a `feed_copies` row, before the JSON
 /// columns are parsed into their typed form.
 type RawFeedCopyRow = (
     String,
@@ -4370,11 +4375,13 @@ type RawFeedCopyRow = (
     Option<String>,
     Option<i64>,
     Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 const FEED_COPY_COLUMNS: &str = "feed_guid, url, first_seen, last_seen, title, item_guids, \
      feed_recipients, track_recipients, summary_digest, resolution, resolution_reason, \
-     resolved_at, resolved_digest";
+     resolved_at, resolved_digest, item_titles, image_url";
 
 fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCopyRow> {
     Ok((
@@ -4391,10 +4398,12 @@ fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCo
         row.get(10)?,
         row.get(11)?,
         row.get(12)?,
+        row.get(13)?,
+        row.get(14)?,
     ))
 }
 
-/// Parses the three JSON columns of a raw `feed_copies` row.
+/// Parses the JSON columns of a raw `feed_copies` row.
 ///
 /// # Errors
 ///
@@ -4414,7 +4423,14 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         resolution_reason,
         resolved_at,
         resolved_digest,
+        item_titles_json,
+        image_url,
     ) = raw;
+    let item_titles = if let Some(json) = item_titles_json {
+        Some(serde_json::from_str(&json)?)
+    } else {
+        None
+    };
     Ok(FeedCopyRow {
         feed_guid,
         url,
@@ -4422,6 +4438,8 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         last_seen,
         title,
         item_guids: serde_json::from_str(&item_guids_json)?,
+        item_titles,
+        image_url,
         feed_recipients: serde_json::from_str(&feed_recipients_json)?,
         track_recipients: serde_json::from_str(&track_recipients_json)?,
         summary_digest,
@@ -4513,19 +4531,26 @@ pub fn upsert_feed_copy_summary(
     digest: &str,
 ) -> Result<(), DbError> {
     let item_guids = serde_json::to_string(&summary.item_guids)?;
+    let item_titles = summary
+        .item_titles
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let feed_recipients = serde_json::to_string(&summary.feed_recipients)?;
     let track_recipients = serde_json::to_string(&summary.track_recipients)?;
     conn.execute(
         "INSERT INTO feed_copies \
          (feed_guid, url, first_seen, title, item_guids, feed_recipients, \
-          track_recipients, summary_digest) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8) \
+          track_recipients, summary_digest, item_titles, image_url) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
          ON CONFLICT(feed_guid, url) DO UPDATE SET \
            title            = excluded.title, \
            item_guids       = excluded.item_guids, \
            feed_recipients  = excluded.feed_recipients, \
            track_recipients = excluded.track_recipients, \
-           summary_digest   = excluded.summary_digest",
+           summary_digest   = excluded.summary_digest, \
+           item_titles      = excluded.item_titles, \
+           image_url        = excluded.image_url",
         params![
             feed_guid,
             url,
@@ -4534,7 +4559,9 @@ pub fn upsert_feed_copy_summary(
             item_guids,
             feed_recipients,
             track_recipients,
-            digest
+            digest,
+            item_titles,
+            summary.image_url
         ],
     )?;
     Ok(())

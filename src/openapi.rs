@@ -236,7 +236,7 @@ fn spec_value(mode: DocMode) -> Value {
         json!({
             "get": operation(
                 "Get feed copies",
-                "Returns each row of the ADR 0058 feed-copy summary of a feed: the URL, the two differences against the current record, guid_origin, and the resolution when one exists.",
+                "Returns each row of the ADR 0058 feed-copy summary of a feed: the URL, the two differences against the current record, guid_origin, the item titles and image, and the resolution when one exists.",
                 "Feeds",
                 vec![
                     path_param("guid", "string", "Feed GUID.")

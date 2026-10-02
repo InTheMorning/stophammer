@@ -832,6 +832,8 @@ fn feed_copy_observed_event_row(
         first_seen,
         title: summary.title.clone(),
         item_guids: summary.item_guids.clone(),
+        item_titles: summary.item_titles.clone(),
+        image_url: summary.image_url.clone(),
         feed_recipients: summary.feed_recipients.clone(),
         track_recipients: summary.track_recipients.clone(),
         summary_digest: digest.to_string(),
@@ -880,9 +882,12 @@ fn record_feed_copy_for_ingest(
     let signed_row = match existing {
         Some(row) => {
             db::touch_feed_copy_last_seen(&tx, feed_guid, url, now)?;
-            if digest == row.summary_digest {
-                None
-            } else {
+            let digest_changed = digest != row.summary_digest;
+            let title_changed = summary.title != row.title;
+            let item_titles_changed = summary.item_titles != row.item_titles;
+            let image_changed = summary.image_url != row.image_url;
+
+            if digest_changed || title_changed || item_titles_changed || image_changed {
                 db::upsert_feed_copy_summary(
                     &tx,
                     feed_guid,
@@ -903,6 +908,8 @@ fn record_feed_copy_for_ingest(
                     )?,
                     signer,
                 )?)
+            } else {
+                None
             }
         }
         None => {

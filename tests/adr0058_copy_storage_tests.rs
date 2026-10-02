@@ -126,6 +126,8 @@ fn summary_digest_ignores_the_title_but_changes_with_a_recipient() {
     let base = CopySummary {
         title: "Title One".into(),
         item_guids: vec!["item-1".into()],
+        item_titles: Some(vec![Some("Item Title".into())]),
+        image_url: Some("https://example.com/image.jpg".into()),
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };
@@ -190,6 +192,8 @@ fn make_feed_copy_observed_event(
         first_seen,
         title: "A Copy".into(),
         item_guids: vec!["item-1".into()],
+        item_titles: Some(vec![Some("Item Title".into())]),
+        image_url: Some("https://example.com/image.jpg".into()),
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
         summary_digest: digest.into(),
@@ -360,6 +364,8 @@ fn inserting_a_url_block_deletes_the_row_of_that_url_and_keeps_another() {
     let summary = CopySummary {
         title: "A Copy".into(),
         item_guids: vec!["item-1".into()],
+        item_titles: Some(vec![Some("Item Title".into())]),
+        image_url: Some("https://example.com/image.jpg".into()),
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };
@@ -414,6 +420,8 @@ fn deleting_a_feed_removes_its_copy_rows_and_its_overflow_counter() {
     let summary = CopySummary {
         title: "A Copy".into(),
         item_guids: vec!["item-1".into()],
+        item_titles: Some(vec![Some("Item Title".into())]),
+        image_url: Some("https://example.com/image.jpg".into()),
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };

@@ -437,6 +437,9 @@ struct FeedCopyResponse {
     /// Local to the primary. Null on a community node.
     last_seen: Option<i64>,
     title: String,
+    item_guids: Vec<String>,
+    item_titles: Option<Vec<Option<String>>>,
+    image_url: Option<String>,
     differs_tracks: bool,
     differs_recipients: bool,
     /// True when this URL's GUID is the `UUIDv5` of the URL itself, and not
@@ -2699,6 +2702,9 @@ fn build_feed_copy_response(
         first_seen: row.first_seen,
         last_seen: row.last_seen,
         title: row.title,
+        item_guids: row.item_guids,
+        item_titles: row.item_titles,
+        image_url: web_url_or_none(row.image_url.as_deref()),
         differs_tracks,
         differs_recipients,
         open,

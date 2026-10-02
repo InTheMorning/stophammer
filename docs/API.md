@@ -1175,6 +1175,9 @@ Gives each `feed_copies` row of a feed. ADR 0058 owns this route.
       "first_seen": 1710288000,
       "last_seen": 1710300000,
       "title": "Mirror Feed",
+      "item_guids": ["item-guid-1", "item-guid-2"],
+      "item_titles": ["Track One", null],
+      "image_url": "https://mirror.example.com/cover.jpg",
       "differs_tracks": false,
       "differs_recipients": true,
       "guid_origin": false,
@@ -1213,6 +1216,19 @@ indication for the operator, not a rule.
 `copies_over_limit` counts a mirror body that named a new URL after the
 feed's GUID held 20 rows (the ADR 0058 section 1a limit). This count is
 local to the primary. A community node answers `0`.
+
+`item_guids` gives the item GUIDs of the copy, in the sequence of the copy.
+`item_titles` gives the title of each item in the same sequence. An item
+with no title gives `null`. `image_url` gives the channel image of the copy.
+It is `null` when the copy states none, or when the URL is not a web URL
+(ADR 0054 §4). These three fields show a copy to a person. They do not change
+`differs_tracks`, `differs_recipients` or a resolution (ADR 0058 §1c).
+
+`item_titles` is `null` for a row that the node wrote before release 0.5.0.
+The row gets its titles at the next submission from its URL.
+
+The publisher of the copy chooses its titles and its image. Show the image of
+an open copy only after a person asks for it.
 
 `last_seen` is local to the primary. A community node answers `null`.
 

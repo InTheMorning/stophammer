@@ -418,6 +418,8 @@ CREATE TABLE IF NOT EXISTS feed_copies (
     resolution_reason TEXT,
     resolved_at       INTEGER,
     resolved_digest   TEXT,
+    item_titles       TEXT,
+    image_url         TEXT,
     PRIMARY KEY (feed_guid, url)
 ) STRICT;
 
