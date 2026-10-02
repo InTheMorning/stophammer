@@ -226,6 +226,9 @@ which gives the sequence of each open item of an Accepted ADR:
    - A medium-gate refusal logs at `info`, not at `warn`.
    - The gossip mode checks that the archive is not empty with one row, not
      with a count of each podping.
+   - ADR 0068 §4, musicindex.org request 10: with `medium=publisher`,
+     `GET /v1/feeds/recent` takes `stated_rel` and `two_way_links=none`. One
+     request examines at most 1,000 rows.
    - The amendment of
      [ADR 0030](docs/adr/0030-podcastindex-importer-durable-attempt-memory.md),
      in `stophammer-crawler`. A parse error, or a node `413` for a feed with no

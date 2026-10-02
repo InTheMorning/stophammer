@@ -61,7 +61,7 @@ disagree.
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
-| [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`. Opt-in with `include=link_facts` | Accepted |
+| [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`. Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4) | Accepted |
 
 ## Identity, Signing And Security
 

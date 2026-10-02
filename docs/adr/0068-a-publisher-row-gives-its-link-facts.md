@@ -4,7 +4,8 @@
 Accepted on 2026-10-01, in the opt-in form of section 1. Release 0.4.0
 carries it. Amended on 2026-10-01 before the build: the decision applies to
 the list route only. The search part is removed. See "Search is not in
-scope".
+scope". Amended on 2026-10-02 with section 4, the two filters of
+musicindex.org request 10.
 
 ## Date
 2026-10-01
@@ -66,6 +67,34 @@ the deploy, the time of a page of 200 publisher rows with `link_facts` is
 measured on a copy of the production data. When it is more than 1 second, this
 decision goes back to the operator before the deploy.
 
+### 4. The list can keep only the rows with a link fact
+
+Amended on 2026-10-02, musicindex.org request 10. On 2026-10-02 the list held
+1,772 publisher feeds. Only 4 rows stated a `rel`, and only 15 rows had no
+two-way link. To show these rows, the page read the full list.
+
+With `medium=publisher`, `GET /v1/feeds/recent` takes two filters:
+
+| Parameter | Rows that it keeps |
+|---|---|
+| `stated_rel=<value>` | Rows with `<value>` in `stated_rels`. The node compares the raw value, as section 1 gives it |
+| `two_way_links=none` | Rows with `two_way_link_count` 0 |
+
+Each filter gives the link facts on each row, as `include=link_facts` does.
+The two filters together keep the rows that agree with both. A filter with
+another medium, an empty `stated_rel`, or a `two_way_links` value that is not
+`none` gives `400`.
+
+The node computes the facts for each row that it examines, in the sequence of
+the route. It examines at most 1,000 rows for one request. When it reaches
+that limit, it gives the rows that it kept, and a cursor at the last row that
+it examined. So a page can hold fewer rows than `limit`, or none, and
+give `has_more` true. A client follows the cursor until `has_more` is false.
+
+The filter compares facts that a row gives. It does not derive a type
+(section 2). On a copy of the production data of 2026-09-26, a pass over all
+publisher rows with the facts took 801 ms of node time.
+
 ## Alternatives Considered
 
 ### The facts on each row, with no request
@@ -101,6 +130,8 @@ row has the medium `music`. The operator removed the search part on
   list. This decision adds three other facts to the list rows.
 - A list page of publishers with `link_facts` costs more node time. A read
   without it costs the same as before.
+- A filtered request examines at most 1,000 rows. A client that shows the
+  rows of one type reads one or two requests, not the full list.
 
 ## Invariants
 
@@ -119,3 +150,11 @@ row has the medium `music`. The operator removed the search part on
 - A list row without `include=link_facts` gives none of the
   three fields.
 - `GET /v1/node/capabilities` lists `link_facts`.
+- Section 4: with `stated_rel=label`, the list gives only the publisher rows
+  that state `label`, with their link facts. With `two_way_links=none`, it
+  gives only the rows with no two-way link.
+- Section 4: a filtered request that reaches the limit of examined rows gives
+  a cursor and `has_more` true, and the next request continues after the last
+  examined row.
+- Section 4: a filter with `medium=music`, or `two_way_links=some`, gives
+  `400`.

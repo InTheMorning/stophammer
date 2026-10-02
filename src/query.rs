@@ -99,6 +99,11 @@ pub struct ListQuery {
     limit: Option<i64>,
     include: Option<String>,
     medium: Option<String>,
+    /// ADR 0068 §4: keep only the publisher rows with this raw value in
+    /// `stated_rels`.
+    stated_rel: Option<String>,
+    /// ADR 0068 §4: `none` keeps only the publisher rows with no two-way link.
+    two_way_links: Option<String>,
 }
 
 impl ListQuery {
@@ -3271,6 +3276,178 @@ async fn handle_list_live_items(
     clippy::too_many_lines,
     reason = "single paginated-list flow with two SQL branches"
 )]
+/// ADR 0068 §4: the most rows that one filtered list request examines.
+pub const LINK_FACT_FILTER_SCAN_MAX: usize = 1_000;
+
+/// The rows that one batch of a filtered list request reads.
+const LINK_FACT_FILTER_BATCH: i64 = 200;
+
+/// The position after which `GET /v1/feeds/recent` continues: the sort key
+/// `COALESCE(newest_item_at, -1)` and the feed GUID of a row.
+type RecentCursor = (i64, String);
+
+/// The two filters of ADR 0068 §4.
+struct LinkFactFilter {
+    stated_rel: Option<String>,
+    no_two_way_links: bool,
+}
+
+impl LinkFactFilter {
+    /// Gives the filter of `params`, or `None` when the request names no
+    /// filter. A filter needs `medium=publisher` (ADR 0068 §4).
+    fn from_params(params: &ListQuery, medium: &str) -> Result<Option<Self>, api::ApiError> {
+        if params.stated_rel.is_none() && params.two_way_links.is_none() {
+            return Ok(None);
+        }
+        let bad_request = |message: &str| api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: message.into(),
+            www_authenticate: None,
+        };
+        if medium != "publisher" {
+            return Err(bad_request(
+                "stated_rel and two_way_links need medium=publisher (ADR 0068 section 4)",
+            ));
+        }
+        if params.stated_rel.as_deref().is_some_and(str::is_empty) {
+            return Err(bad_request("stated_rel must not be empty"));
+        }
+        let no_two_way_links = match params.two_way_links.as_deref() {
+            None => false,
+            Some("none") => true,
+            Some(_) => return Err(bad_request("two_way_links accepts only none")),
+        };
+        Ok(Some(Self {
+            stated_rel: params.stated_rel.clone(),
+            no_two_way_links,
+        }))
+    }
+
+    fn keeps(&self, facts: &LinkFacts) -> bool {
+        self.stated_rel
+            .as_ref()
+            .is_none_or(|rel| facts.stated_rels.iter().any(|stated| stated == rel))
+            && (!self.no_two_way_links || facts.two_way_link_count == 0)
+    }
+}
+
+/// Decodes a cursor of `GET /v1/feeds/recent`.
+fn parse_recent_cursor(cursor: &str) -> Result<RecentCursor, api::ApiError> {
+    let decoded = decode_cursor(cursor)?;
+    let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+    if parts.len() != 2 {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "invalid cursor format".into(),
+            www_authenticate: None,
+        });
+    }
+    // ADR 0047 task 002: this value is the sort key
+    // `COALESCE(newest_item_at, -1)` of the last row of the page
+    // before, not always a real timestamp. `-1` marks a feed with no
+    // dated item. A cursor made before this change always carries a
+    // real timestamp here, and that value still orders the same way.
+    let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: "invalid cursor timestamp".into(),
+        www_authenticate: None,
+    })?;
+    Ok((cursor_ts, parts[1].to_string()))
+}
+
+/// Reads at most `count` rows of `GET /v1/feeds/recent` after `after`, in
+/// the sequence of the route.
+fn recent_feed_rows(
+    conn: &rusqlite::Connection,
+    medium: &str,
+    after: Option<RecentCursor>,
+    count: i64,
+) -> Result<Vec<FeedRow>, api::ApiError> {
+    let (cursor_ts, cursor_guid) = after.map_or((None, None), |(ts, guid)| (Some(ts), Some(guid)));
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
+         release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
+         episode_count, newest_item_at, oldest_item_at, \
+         created_at, updated_at, last_build_date, release_artist_source \
+         FROM feeds \
+         WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
+           AND (?2 IS NULL OR (COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3)) \
+         ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
+         LIMIT ?4",
+    )?;
+    let rows = stmt
+        .query_map(params![medium, cursor_ts, cursor_guid, count], |row| {
+            Ok(FeedRow {
+                feed_guid: row.get(0)?,
+                feed_url: row.get(1)?,
+                title: row.get(2)?,
+                raw_medium: row.get(3)?,
+                release_artist: row.get(4)?,
+                release_artist_sort: row.get(5)?,
+                release_date: row.get(6)?,
+                release_kind: row.get(7)?,
+                description: row.get(8)?,
+                image_url: row.get(9)?,
+                publisher_text: row.get(10)?,
+                language: row.get(11)?,
+                explicit_int: row.get(12)?,
+                episode_count: row.get(13)?,
+                newest_item_at: row.get(14)?,
+                oldest_item_at: row.get(15)?,
+                created_at: row.get(16)?,
+                updated_at: row.get(17)?,
+                last_build_date: row.get(18)?,
+                release_artist_source: row.get(19)?,
+            })
+        })?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// ADR 0068 §4: reads the rows after `after` in batches, and keeps the rows
+/// whose link facts `filter` keeps. Stops after `limit + 1` kept rows, at
+/// the end of the list, or after [`LINK_FACT_FILTER_SCAN_MAX`] examined
+/// rows. Gives the kept rows (at most `limit`), `has_more`, and the position
+/// for the next cursor.
+fn filtered_recent_rows(
+    conn: &rusqlite::Connection,
+    medium: &str,
+    mut after: Option<RecentCursor>,
+    limit: i64,
+    filter: &LinkFactFilter,
+) -> Result<(Vec<FeedRow>, bool, Option<RecentCursor>), api::ApiError> {
+    let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+    let mut kept: Vec<FeedRow> = Vec::new();
+    let mut examined = 0_usize;
+    loop {
+        let batch = recent_feed_rows(conn, medium, after.clone(), LINK_FACT_FILTER_BATCH)?;
+        let at_end = batch.len() < usize::try_from(LINK_FACT_FILTER_BATCH).unwrap_or(usize::MAX);
+        for row in batch {
+            examined += 1;
+            after = Some((row.newest_item_at.unwrap_or(-1), row.feed_guid.clone()));
+            if filter.keeps(&link_facts(&load_publisher(conn, &row.feed_guid)?)) {
+                kept.push(row);
+                if kept.len() > limit {
+                    kept.truncate(limit);
+                    let next = kept
+                        .last()
+                        .map(|r| (r.newest_item_at.unwrap_or(-1), r.feed_guid.clone()));
+                    return Ok((kept, true, next));
+                }
+            }
+            if examined >= LINK_FACT_FILTER_SCAN_MAX {
+                // The limit of examined rows: continue after the last
+                // examined row. When it was the last row of the list, the
+                // next request gives an empty page with `has_more` false.
+                return Ok((kept, true, after));
+            }
+        }
+        if at_end {
+            return Ok((kept, false, None));
+        }
+    }
+}
+
 async fn handle_get_recent_feeds(
     State(state): State<Arc<api::AppState>>,
     Query(params): Query<ListQuery>,
@@ -3289,120 +3466,35 @@ async fn handle_get_recent_feeds(
         // compares one lowered column against one lowered bind.
         let medium = params.medium.as_deref().unwrap_or("music").to_lowercase();
 
-        let rows: Vec<FeedRow> = if let Some(ref cursor_str) = params.cursor {
-            let decoded = decode_cursor(cursor_str)?;
-            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
-            if parts.len() != 2 {
-                return Err(api::ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "invalid cursor format".into(),
-                    www_authenticate: None,
-                });
-            }
-            // ADR 0047 task 002: this value is the sort key
-            // `COALESCE(newest_item_at, -1)` of the last row of the page
-            // before, not always a real timestamp. `-1` marks a feed with no
-            // dated item. A cursor made before this change always carries a
-            // real timestamp here, and that value still orders the same way.
-            let cursor_ts: i64 = parts[0].parse().map_err(|_err| api::ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "invalid cursor timestamp".into(),
-                www_authenticate: None,
-            })?;
-            let cursor_guid = parts[1];
+        let filter = LinkFactFilter::from_params(&params, &medium)?;
+        let mut after = params
+            .cursor
+            .as_deref()
+            .map(parse_recent_cursor)
+            .transpose()?;
 
-            let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
-                 release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
-                 episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at, last_build_date, release_artist_source \
-                 FROM feeds \
-                 WHERE (?1 = 'all' OR lower(raw_medium) = ?1)
-                   AND (COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3) \
-                 ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
-                 LIMIT ?4",
-            )?;
-            stmt.query_map(
-                params![medium, cursor_ts, cursor_guid, limit + 1],
-                |row| {
-                    Ok(FeedRow {
-                        feed_guid: row.get(0)?,
-                        feed_url: row.get(1)?,
-                        title: row.get(2)?,
-                        raw_medium: row.get(3)?,
-                        release_artist: row.get(4)?,
-                        release_artist_sort: row.get(5)?,
-                        release_date: row.get(6)?,
-                        release_kind: row.get(7)?,
-                        description: row.get(8)?,
-                        image_url: row.get(9)?,
-                        publisher_text: row.get(10)?,
-                        language: row.get(11)?,
-                        explicit_int: row.get(12)?,
-                        episode_count: row.get(13)?,
-                        newest_item_at: row.get(14)?,
-                        oldest_item_at: row.get(15)?,
-                        created_at: row.get(16)?,
-                        updated_at: row.get(17)?,
-                        last_build_date: row.get(18)?,
-                        release_artist_source: row.get(19)?,
-                    })
-                },
-            )?
-            .collect::<Result<_, _>>()?
+        let (items, has_more, next_after) = if let Some(filter) = &filter {
+            filtered_recent_rows(&conn, &medium, after, limit, filter)?
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
-                 release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
-                 episode_count, newest_item_at, oldest_item_at, \
-                 created_at, updated_at, last_build_date, release_artist_source \
-                 FROM feeds \
-                 WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
-                 ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
-                 LIMIT ?2",
-            )?;
-            stmt.query_map(params![medium, limit + 1], |row| {
-                Ok(FeedRow {
-                    feed_guid: row.get(0)?,
-                    feed_url: row.get(1)?,
-                    title: row.get(2)?,
-                    raw_medium: row.get(3)?,
-                    release_artist: row.get(4)?,
-                    release_artist_sort: row.get(5)?,
-                    release_date: row.get(6)?,
-                    release_kind: row.get(7)?,
-                    description: row.get(8)?,
-                    image_url: row.get(9)?,
-                    publisher_text: row.get(10)?,
-                    language: row.get(11)?,
-                    explicit_int: row.get(12)?,
-                    episode_count: row.get(13)?,
-                    newest_item_at: row.get(14)?,
-                    oldest_item_at: row.get(15)?,
-                    created_at: row.get(16)?,
-                    updated_at: row.get(17)?,
-                    last_build_date: row.get(18)?,
-                    release_artist_source: row.get(19)?,
-                })
-            })?
-            .collect::<Result<_, _>>()?
+            let rows = recent_feed_rows(&conn, &medium, after.take(), limit + 1)?;
+            let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+            let items: Vec<FeedRow> = rows
+                .into_iter()
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .collect();
+            let next_after = items
+                .last()
+                .map(|r| (r.newest_item_at.unwrap_or(-1), r.feed_guid.clone()));
+            (items, has_more, next_after)
         };
-
-        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
-        let items: Vec<_> = rows
-            .into_iter()
-            .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .collect();
 
         // ADR 0047 task 002: the cursor always encodes the sort key
         // `COALESCE(newest_item_at, -1)`, so a page that ends on a feed with
         // no dated item still gets a cursor, and `has_more: true` never pairs
         // with a null cursor.
         let next_cursor = if has_more {
-            items.last().map(|r| {
-                let sort_key = r.newest_item_at.unwrap_or(-1);
-                encode_cursor(&format!("{sort_key}\0{}", r.feed_guid))
-            })
+            next_after
+                .map(|(sort_key, feed_guid)| encode_cursor(&format!("{sort_key}\0{feed_guid}")))
         } else {
             None
         };
@@ -3415,19 +3507,20 @@ async fn handle_get_recent_feeds(
             let pending_guid_change = db::get_pending_guid_change_for_feed(&conn, &r.feed_guid)?
                 .map(pending_guid_change_response);
             // ADR 0068 §1: the link facts of a publisher row, only on request.
-            let (two_way_link_count, stated_rels, listed_confirmed) = if params
-                .includes("link_facts")
-                && medium::is_publisher(r.raw_medium.as_deref())
-            {
-                let facts = link_facts(&load_publisher(&conn, &r.feed_guid)?);
-                (
-                    Some(facts.two_way_link_count),
-                    Some(facts.stated_rels),
-                    Some(facts.confirmed_release_artists),
-                )
-            } else {
-                (None, None, None)
-            };
+            // ADR 0068 §4: a filter also gives the facts.
+            let (two_way_link_count, stated_rels, listed_confirmed) =
+                if (params.includes("link_facts") || filter.is_some())
+                    && medium::is_publisher(r.raw_medium.as_deref())
+                {
+                    let facts = link_facts(&load_publisher(&conn, &r.feed_guid)?);
+                    (
+                        Some(facts.two_way_link_count),
+                        Some(facts.stated_rels),
+                        Some(facts.confirmed_release_artists),
+                    )
+                } else {
+                    (None, None, None)
+                };
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
                 feed_url: r.feed_url,

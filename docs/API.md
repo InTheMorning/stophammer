@@ -1096,11 +1096,25 @@ Each value is the value that `GET /v1/feeds/{guid}?include=publisher` gives
 for the same feed. The node does not split or change a `rel` value. The node
 gives no type for a publisher. The client derives it from these facts.
 
+**Filters (ADR 0068 §4):** with `medium=publisher`, two filters keep only some
+rows. Each filter gives the three fields above on each row.
+
+| Parameter | Rows that it keeps |
+|---|---|
+| `stated_rel=<value>` | Rows with `<value>` in `stated_rels`. The node compares the raw value |
+| `two_way_links=none` | Rows with `two_way_link_count` 0 |
+
+With both filters, a row must agree with both. One request examines at most
+1,000 rows. At that limit, it gives the rows that it kept and a cursor after
+the last examined row. So a page can hold fewer rows than `limit`, or no row,
+with `has_more` true. Follow the cursor until `has_more` is false.
+
 **Response:** Paginated array of feed objects.
 
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
+| 400  | A filter without `medium=publisher`, an empty `stated_rel`, or a `two_way_links` value that is not `none` |
 
 ---
 

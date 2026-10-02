@@ -161,8 +161,10 @@ fn spec_value(mode: DocMode) -> Value {
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
-                    query_param("include", "string", None, false, "Comma-separated include list. Supports `tracks`."),
-                    query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium.")
+                    query_param("include", "string", None, false, "Comma-separated include list. Supports `link_facts` (ADR 0068)."),
+                    query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
+                    query_param("stated_rel", "string", None, false, "With `medium=publisher`: keep only the rows with this raw value in `stated_rels` (ADR 0068 section 4). Gives the link facts."),
+                    query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts.")
                 ],
                 None,
                 json!({
