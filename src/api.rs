@@ -3811,6 +3811,24 @@ async fn handle_ingest_feed(
             elapsed_ms,
             "ingest gone report ignored"
         );
+    } else if !response.accepted
+        && response
+            .reason
+            .as_deref()
+            .is_some_and(|reason| reason.starts_with("[medium_music]"))
+    {
+        // Most podpings name a feed that is not music, so the medium gate
+        // refuses most submissions. That is the normal case, not a warning.
+        tracing::info!(
+            canonical_url = %log_canonical_url,
+            source_url = %log_source_url,
+            http_status = log_http_status,
+            feed_guid = %log_feed_guid,
+            raw_medium = %log_raw_medium,
+            elapsed_ms,
+            reason = response.reason.as_deref().unwrap_or(""),
+            "ingest request refused by the medium gate"
+        );
     } else if !response.accepted {
         tracing::warn!(
             canonical_url = %log_canonical_url,
