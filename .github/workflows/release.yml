@@ -10,12 +10,46 @@ env:
   RUST_TOOLCHAIN: 1.93.1
 
 jobs:
+  # ADR 0065 section 4: a candidate builds only on a commit whose CI run of
+  # main passed. The tag push and the main push start their runs at about the
+  # same time, so this job waits for the CI run.
+  ci-passed:
+    name: Wait for CI on this commit
+    if: contains(github.ref_name, '-')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    steps:
+      - name: Wait for a passed CI run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 1 60); do
+            result="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${GITHUB_SHA}&event=push" \
+              --jq '.workflow_runs[0] // {} | "\(.status // "none") \(.conclusion // "none")"')"
+            status="${result% *}"
+            conclusion="${result#* }"
+            if [ "$status" = completed ]; then
+              if [ "$conclusion" = success ]; then
+                echo "CI passed on ${GITHUB_SHA}."
+                exit 0
+              fi
+              echo "::error::ADR 0065 section 4: CI on ${GITHUB_SHA} ended with ${conclusion}. Fix main and tag a new candidate."
+              exit 1
+            fi
+            echo "CI on ${GITHUB_SHA}: ${status}. Waiting."
+            sleep 30
+          done
+          echo "::error::ADR 0065 section 4: no CI run on ${GITHUB_SHA} ended within 30 minutes. Push main before the candidate tag, so that CI tests the commit of the tag."
+          exit 1
+
   # A tag with a hyphen, such as v0.1.0-rc.1, is a candidate. Only a candidate
   # builds. A tag with no hyphen promotes its candidate (ADR 0065). Each job
   # below needs assemble-tarballs, so each one skips for a release tag.
   assemble-tarballs:
     name: Assemble role tarballs
     if: contains(github.ref_name, '-')
+    needs: ci-passed
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5

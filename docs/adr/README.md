@@ -93,7 +93,7 @@ disagree.
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036 | Accepted in part |
 | [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination | Accepted |
 | [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Accepted |
-| [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds. A release tag publishes the files and images of its candidate on the same commits | Accepted |
+| [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds, and only on a commit that passed CI. A release tag publishes the files and images of its candidate on the same commits | Accepted |
 | [0063](0063-a-release-publishes-role-packages.md) | A release is one tag in each repository. It publishes role tarballs, Arch packages and images. Supersedes ADR 0010 | Accepted |
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
 | [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Accepted |

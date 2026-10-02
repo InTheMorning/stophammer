@@ -1,7 +1,7 @@
 # ADR 0065: A Release Promotes Its Candidate
 
 ## Status
-Accepted on 2026-09-26
+Accepted on 2026-09-26. Amended on 2026-10-02 with section 4.
 
 ## Date
 2026-09-26
@@ -55,6 +55,18 @@ The workflow stops before it publishes a file in two conditions. No
 candidate is on the commit, or the crawler or the parser has the release tag on
 a different commit. The operator then gives a new candidate on the correct commits.
 
+### 4. A candidate builds only on a commit that passed CI
+
+Before a candidate builds, the release workflow waits for the CI run of
+`main` on the same commit. It builds only when that run passed. When the run
+failed, or when no run starts within 30 minutes, the workflow stops before it
+builds a file.
+
+So the operator pushes `main` before the candidate tag. A tag on a commit that
+`main` does not hold gets no CI run, and its candidate stops. The CI of the
+`stophammer` repository builds and tests only that repository. The crawler and
+the parser have no CI, so their gate is the check before each commit.
+
 ## Consequences
 
 - A release is the bytes that passed as a candidate.
@@ -74,6 +86,8 @@ Mechanical:
   `v0.1.0-rc.2`. Each binary and each Arch package was the same bytes.
 - `actionlint` with `shellcheck` finds no error in
   `.github/workflows/release.yml`.
+- Section 4: the job `ci-passed` of `release.yml` is the first job of each
+  candidate, and `assemble-tarballs` needs it.
 
 Manual, because a test cannot give a tag to GitHub:
 
