@@ -262,6 +262,12 @@ which gives the sequence of each open item of an Accepted ADR:
    0.6.0: a `304` to a request with no conditional header is a fetch error.
    The dead `refetch_unconditional` is deleted.
 
+   ADR 0062 §8 is amended on 2026-10-02 and built in `stophammer-crawler` for
+   0.6.0. The crawler sends an ingest POST again when the node refuses the
+   connection. It stops when the reconciliation loop ends, so the restart
+   policy starts it again, and it warns when the archive cursor lags by more
+   than 15 minutes. A deploy stops `gossip` before `primary`.
+
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and
 `tests/adr0045_governance_guards_tests.rs` checks that the ADR files agree with
