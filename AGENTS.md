@@ -240,7 +240,12 @@ which gives the sequence of each open item of an Accepted ADR:
    `<podcast:publisher>`. [The guide](docs/publisher-links-guide.md) tells a
    feed author how to write the links. The operator asks Kolomona to open the
    pull request for `rel`.
-4. The research items of the plan: a station on a feed with `medium`
+4. Release 0.7.0 follows the link rules of PR #793, musicindex.org request 11.
+   [Task 014](docs/tasks/adr-0049-task-014-pr793-link-rules.md) builds the
+   amendments ADR 0049 §6a (`role_agreement`, a `conflict` link is not
+   confirmed), ADR 0068 §5 (role tokens, `agreed_roles`) and ADR 0069 §1a (the
+   bare-item credit is removed). It is not built yet.
+5. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB

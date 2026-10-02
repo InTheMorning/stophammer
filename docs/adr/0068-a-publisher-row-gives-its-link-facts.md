@@ -5,7 +5,8 @@ Accepted on 2026-10-01, in the opt-in form of section 1. Release 0.4.0
 carries it. Amended on 2026-10-01 before the build: the decision applies to
 the list route only. The search part is removed. See "Search is not in
 scope". Amended on 2026-10-02 with section 4, the two filters of
-musicindex.org request 10.
+musicindex.org request 10. Amended on 2026-10-02 with section 5: the link
+facts are role tokens, musicindex.org request 11.
 
 ## Date
 2026-10-01
@@ -94,6 +95,30 @@ give `has_more` true. A client follows the cursor until `has_more` is false.
 The filter compares facts that a row gives. It does not derive a type
 (section 2). On a copy of the production data of 2026-09-26, a pass over all
 publisher rows with the facts took 801 ms of node time.
+
+### 5. The link facts are role tokens
+
+Amended on 2026-10-02, musicindex.org request 11. A `rel` value is a set of
+role tokens (ADR 0049 §6, podcast-namespace PR #793). A feed that states
+`rel="artist host author label producer"` has five roles. A raw value cannot
+be filtered by one of them.
+
+The facts of section 1 change, and one is added. Each counts only confirmed
+links (ADR 0049 §6a):
+
+| Field | Value |
+|---|---|
+| `two_way_link_count` | The count of confirmed links |
+| `stated_rels` | The different role tokens of `publisher_rel` over the confirmed links, normalized as ADR 0049 §6 gives, and sorted |
+| `agreed_roles` | The different role tokens of the confirmed links with `role_agreement` `both`, sorted. Added |
+| `confirmed_release_artists` | As before, over the confirmed links |
+
+`stated_rel=<value>` of section 4 keeps a row when the normalized `<value>` is
+one of its `stated_rels` tokens. A raw value with a comma or with white space
+no longer matches as one string.
+
+This changes the meaning of `stated_rels`. Section 1 said that the node does
+not split a `rel` value. That sentence no longer holds.
 
 ## Alternatives Considered
 

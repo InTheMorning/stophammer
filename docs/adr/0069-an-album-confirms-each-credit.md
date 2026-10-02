@@ -1,7 +1,9 @@
 # ADR 0069: An Album Confirms Each Publisher That It Credits
 
 ## Status
-Accepted on 2026-10-02.
+Accepted on 2026-10-02. Amended on 2026-10-02 with §1a, musicindex.org
+request 11: the credit of §1 is removed. Only an item inside
+`<podcast:publisher>` is a publisher link, as podcast-namespace PR #793 gives.
 
 ## Date
 2026-10-02
@@ -100,6 +102,22 @@ Each row of the `publisher` view gives a new field, `album_names_as`:
 
 A row of an album read gives the value of its own item. A row of a publisher
 read gives the value of the matching item of the album.
+
+### 1a. Only an item inside `<podcast:publisher>` is a link
+
+Amended on 2026-10-02, musicindex.org request 11. Podcast-namespace PR #793
+puts one `remoteItem` for each party inside `<podcast:publisher>`, and an app
+ignores `rel` on an item that is not in a publisher link. So the credit of
+section 1 has no place in the namespace, and no tool writes it. It is removed.
+
+An album item is a publisher link when its `source` is `podcast_publisher`
+(section 3): an item inside `<podcast:publisher>`, or the first bare
+`medium="publisher"` item of an album with no `<podcast:publisher>`. The node
+keeps each other bare item as a raw fact, but it is not a link. It gives no
+`publisher` row, and it counts nowhere.
+
+`album_names_as` gives `publisher` or null. It no longer gives `credit`.
+Sections 2 to 5 apply to the parties inside `<podcast:publisher>`.
 
 ### 4. A publisher read gives the feeds that share its albums
 

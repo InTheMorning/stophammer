@@ -10,6 +10,10 @@ gives only the publishers that the album names.
 Amended on 2026-10-02: §6 gives `role` null when no side states a role. The
 node no longer gives `artist` as a guess.
 
+Amended on 2026-10-02 with §6a, musicindex.org request 11: each row tells if
+the two sides agree on the role, and a link whose sides state different role
+sets is not a confirmed link. This follows podcast-namespace PR #793.
+
 On 2026-10-01 §6 was amended. A `rel` value is a role set, and the node accepts
 a comma or white space as the separator.
 
@@ -207,6 +211,38 @@ has not selected a separator. Kolomona proposed a comma, and matthewruzzi
 proposed white space as in HTML. The node accepts the two forms, so a feed is
 read correctly with either result. On 2026-09-26 no stored value held a space
 and no comma, so this rule changed no stored role.
+
+### 6a. A role is confirmed only when both sides state it
+
+Amended on 2026-10-02, musicindex.org request 11. Podcast-namespace PR #793
+gives the rules of a role on a publisher link. A role is confirmed only when
+the two sides state the same set. When the sets differ, an app discards the
+link. When one side states no `rel`, the link has no role.
+
+Each `publisher` row gives `role_agreement`:
+
+| Value | When |
+|---|---|
+| `both` | Both sides state `rel`, and the role sets are equal |
+| `one_side` | Only one side states `rel` |
+| `conflict` | Both sides state `rel`, and the role sets differ |
+| null | No side states `rel` |
+
+`role` and `role_source` keep their meaning. A client that follows PR #793
+shows `role` only when `role_agreement` is `both`.
+
+A **confirmed link** is a row with `two_way_validated` true, and a
+`role_agreement` that is not `conflict`. A row with `conflict` stays in the
+view, with its raw values, so a publisher can see the disagreement and correct
+it. `two_way_validated` stays a fact: both feeds name each other. But each
+count of a link uses only confirmed links: `two_way_link_count`, `stated_rels`
+and `agreed_roles` (ADR 0068), `confirmed_release_artists` (ADR 0061) and
+`co_credited_feeds` (ADR 0069 §4). The artist of an album with a `conflict`
+link goes into `unconfirmed_release_artists`.
+
+On 2026-10-02 four links had different sets: three of Sir Libre Records
+(`label` and `recordLabel`) and one of Crash Landing. After this amendment
+they are not confirmed until a feed changes.
 
 ### 7. The artist count is derived and says so
 A feed read of a publisher feed reports `distinct_release_artist_count`. It is

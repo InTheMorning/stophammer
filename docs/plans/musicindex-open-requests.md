@@ -40,6 +40,7 @@ names the requests that the two clients share.
 | 8 | An index for the route history read | Performance | Wanted |
 | 9 | Track titles and an image on each copy row | API field addition | Wanted |
 | 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
+| 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -321,6 +322,65 @@ keeps its own rule for the artist type, which uses the names. Thus the five
 feeds with two-way links and no role continue to need a full read of the
 list.
 
+### 11. Publisher Link Rules Of Namespace PR #793
+
+Added on 2026-10-02. Evidence: Podcast Namespace pull request
+<https://github.com/Podcastindex-org/podcast-namespace/pull/793>, open and not
+merged on 2026-10-02. The Stophammer source, read-only, at `cf4659e`:
+`stophammer-parser/src/engine.rs` (`extract_feed_remote_items`) and
+`src/query.rs` (`normalize_rel`, `resolve_role`). The live API at release
+0.6.0, and the RSS of the HeyCitizen feeds on 2026-10-02.
+
+**What PR #793 states.** `<podcast:publisher>` holds one `remoteItem` for each
+party. `rel` is a set of tokens separated by white space. A link counts only
+when the two feeds name each other. Then:
+
+- When the two sides give `rel` and the token sets are equal, the link has
+  those roles.
+- When the two sides give `rel` and the sets are different, the app
+  discards the link.
+- When one side does not give `rel`, the link keeps its first meaning: the
+  entity publishes the feed. It has no role.
+- An app ignores `rel` on a `remoteItem` that is not in a publisher link.
+
+**What Stophammer does.** The parser keeps each `remoteItem` in
+`<podcast:publisher>`, in sequence. `normalize_rel` compares token sets. These
+agree with the PR. These parts do not agree:
+
+| PR #793 | Stophammer 0.6.0 |
+|---|---|
+| Different sets: the app discards the link | `two_way_validated` stays `true`. `role` is null and `role_source` is `conflict`. The link counts in `two_way_link_count`, `confirmed_release_artists` and `co_credited_feeds` |
+| One side gives `rel`: no role | `role` is the value of that side, with `role_source` `publisher_rel` or `music_rel` |
+| `rel` only on publisher links | ADR 0069 reads a bare `medium="publisher"` item that is not in `<podcast:publisher>` as a credit, and confirms and counts it |
+| A set of tokens | `stated_rels` (ADR 0068 §1) holds raw values, and `stated_rel=` (§4) compares the raw value |
+
+On 2026-10-02, 4 links of the index had different sets: three of Sir Libre
+Records (`label` and `recordLabel`) and one of Crash Landing (`artist` and
+`wrongRel`). At 20:55 UTC the three HeyCitizen feeds changed to
+`rel="artist host author label producer"` on each side. The node read them
+last at 20:02 UTC. After the next read, the raw `stated_rels` value is
+`artist host author label producer`, so `stated_rel=artist` and
+`stated_rel=label` do not find the feed.
+
+**What it costs.** The search site follows the PR (musicindex ADR 0011). A
+list row gives only the `rel` of the publisher side, so the page cannot know
+from the row if the two sides agree. It reads each publisher feed that
+gives a `rel` in full. It cannot use `stated_rel=` for a set of tokens.
+
+**Request.** If Stophammer follows PR #793:
+
+1. Give `stated_rels` as tokens, and make `stated_rel=` match one token.
+2. Tell a role that the two sides give from a role that one side gives.
+   For example, a field `role_agreement` with `both`, `one_side`,
+   `conflict` or null. Or give `role` only when the two sides agree.
+3. Show a link with different sets apart from the confirmed links, or leave
+   it out of `two_way_link_count`, `confirmed_release_artists` and
+   `co_credited_feeds`.
+4. Record in ADR 0069 that a credit that is not in `<podcast:publisher>`
+   is an extension of the PR, or remove it.
+5. Give the agreed roles of each two-way link in the list facts. A list can
+   then show the role without a full read.
+
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at
@@ -372,7 +432,7 @@ entries.
 
 ## Stophammer Answers - 2026-10-02
 
-Stophammer examined requests 5 to 10 against the live API, the source at
+Stophammer examined requests 5 to 11 against the live API, the source at
 `v0.4.0`, and a copy of the production data of 2026-09-26. These answers are
 advisory. The ADR that each answer names is the owner of the rule.
 
@@ -384,6 +444,7 @@ advisory. The ADR that each answer names is the owner of the rule.
 | 8 | Confirmed. Each read examined all 30,705 `track_upserted` events of the copy and parsed their payload. Two partial indexes on the `json_extract` expressions of the query took the read from 0.095 to 0.014 seconds on that copy, with the same answer. The query and the answer do not change. Release 0.4.1 carries it |
 | 9 | Confirmed. `feed_copies` stores `item_guids`, but no item title and no image. `item_titles` and `image_url` need new stored values, so they need an amendment of ADR 0058 §1. Stophammer gives the three fields together, after that amendment. A copy row gets the titles and the image at the next crawl that observes the copy. The publisher of a copy chooses its image, and for an impersonation that is the attacker. Stophammer recommends that the page shows the image of an open copy only after a person asks for it |
 | 10 | Built for release 0.5.0, as ADR 0068 §4. `stated_rel` and `two_way_links=none` take the names of this request, and each one gives the link facts on each row. On the copy of 2026-09-26, a pass over all 1,772 publisher rows with the facts took 801 ms of node time. Most of the 4.6 seconds of the request is transfer. So one request examines at most 1,000 rows, and then gives a cursor. A page can hold fewer rows than `limit`, or no row, with `has_more` true. The page follows the cursor until `has_more` is false. On that copy, 4 rows stated a `rel` and 15 rows had no two-way link |
+| 11 | Accepted, for release 0.7.0, with [task 014](../tasks/adr-0049-task-014-pr793-link-rules.md). (1) `stated_rels` gives normalized role tokens, and `stated_rel=` matches one token (ADR 0068 §5). (2) Each `publisher` row gives `role_agreement`: `both`, `one_side`, `conflict` or null (ADR 0049 §6a). `role` keeps its meaning, so show it only when `role_agreement` is `both`. (3) A link with `conflict` is not a confirmed link. It stays in the view, and no count uses it. Sir Libre Records loses three links from its counts until a feed changes. (4) The bare-item credit of ADR 0069 is removed (§1a). Only an item inside `<podcast:publisher>`, or the first bare item of an album with no wrapper, is a link. (5) A list row with `include=link_facts` gives `agreed_roles`. The HeyCitizen value `artist host author label producer` is five real roles, and after 0.7.0 each one finds the feed |
 
 ## Requests That v4vmm Also Makes
 
