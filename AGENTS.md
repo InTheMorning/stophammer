@@ -206,23 +206,29 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. No release is planned.
+3. Release 0.5.0 is next. Its work, in this sequence:
+   - The seven `source_*_changed` checks in `src/db.rs` compare
+     `observed_at`, which each ingest sets to the current time. So each ingest
+     that passes the content-hash check signs each source event again. In the
+     backup of 2026-09-26, 176,771 of 370,604 events changed only
+     `observed_at`. The fix leaves `observed_at` out of the checks. A guard
+     test ingests the same body twice.
+   - ADR 0058 §1c,
+     [task 006](docs/tasks/adr-0058-task-006-copy-titles-and-image.md): a copy
+     row gives its item titles and image, musicindex.org request 9. After the
+     deploy, one `refresh` pass with `--no-revalidate` fills the old rows.
+   - The ADR 0046 check of `run_migrations` logs an `ERROR` at each start of a
+     database that is fully migrated. It fires only when the database records
+     a higher version than the code has migrations.
+   - The `Dockerfile` skips the false `SecretsUsedInArgOrEnv` warning on
+     `KEY_PATH`, which is a path and not a secret.
+   - A medium-gate rejection logs at `info`, not at `warn`.
+   - Optional: the gossip mode checks that the archive is not empty with one
+     row, not with a count of each podping.
 
-   musicindex.org request 9 asks for item titles and an image on each copy
-   row. ADR 0058 §1c, amended on 2026-10-02, decides it, and
-   [task 006](docs/tasks/adr-0058-task-006-copy-titles-and-image.md) builds
-   it for release 0.5.0.
-
-   Three small items are open:
-   - The ADR 0046 check of `run_migrations` logs an `ERROR` at each start of
-     a database that is fully migrated. It should fire only when the database
-     records a higher version than the code has migrations.
-   - The Docker build action of the release workflow warns
-     `SecretsUsedInArgOrEnv` on `ENV KEY_PATH`. `KEY_PATH` is a path, not a
-     secret, so the warning is false.
-   - The content-hash check skips publisher feeds. A crawl of an unchanged
-     publisher feed signed `source_entity_links_replaced` and
-     `source_release_claims_replaced` on 2026-10-02. The cause is not known.
+   One question is open: a restart of the gossip crawler reads about 2.4 GB
+   in its first 20 seconds, mostly cold pages of the podping archive. It only
+   costs disk reads.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and
