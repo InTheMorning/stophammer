@@ -98,6 +98,34 @@ Complete and deployed:
   adds two indexes for the route history read of a feed, musicindex.org
   request 8. On the primary the read takes about as long as a plain feed read.
   The candidate `v0.4.1-rc.1` was tagged on a commit without the migration.
+- Release 0.5.0, on 2026-10-02. It promotes `v0.5.0-rc.1`, and it holds:
+  - The node signs a source event only when a source fact changes, not when
+    only `observed_at` changes. In the backup of 2026-09-26, 176,771 of
+    370,604 events changed only `observed_at`.
+  - ADR 0058 §1c: a copy row gives `item_guids`, `item_titles` and
+    `image_url`, musicindex.org request 9. Migration 0049 adds the columns.
+    An `ndjson` replay of the cached copy bodies filled all 80 rows.
+  - ADR 0068 §4: the filters `stated_rel` and `two_way_links=none` on the
+    publisher list, musicindex.org request 10.
+  - ADR 0030: a parse error, or a node `413` for a feed with no medium, waits
+    7 days in the shared skip list. A node `429` sends the ingest again.
+  - The ADR 0046 error fires only for a database ahead of the code.
+- Release 0.6.0, on 2026-10-02. It promotes `v0.6.0-rc.1`, and it holds:
+  - ADR 0049 §6: `role` is null when no feed states a `rel`.
+  - [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md): each
+    publisher row gives `album_names_as`, and a publisher read gives
+    `co_credited_feeds`. An `ndjson` replay of the cached source bodies wrote
+    the `source` of each link: 7,901 links are `podcast_publisher`.
+  - ADR 0062 §8: the archive reconciliation reads BLOB payloads and moves the
+    cursor each minute. A refused connection to the node is sent again. A dead
+    reconciliation loop stops the crawler, and a lag over 15 minutes gives a
+    warning. A deploy stops `gossip` before `primary`.
+  - ADR 0050 §3: a `304` to a request with no conditional header is a fetch
+    error.
+
+  The primary and the gossip crawler run the GHCR images of 0.6.0. A cached
+  body replays with `export-feed-cache-ndjson.py` and the `ndjson` mode, with
+  no fetch: `--copies` for the copy rows, the default for the source URLs.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -206,69 +234,18 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. Release 0.5.0 is next. Each item of it is built on 2026-10-02, and none
-   is deployed:
-   - The seven `source_*_changed` checks in `src/db.rs` no longer compare
-     `observed_at`, which each ingest sets to the current time. Before this
-     fix, each ingest that passed the content-hash check signed each source
-     event again. In the backup of 2026-09-26, 176,771 of 370,604 events
-     changed only `observed_at`. The guard is in `tests/db_tests.rs`.
-   - ADR 0058 §1c,
-     [task 006](docs/tasks/adr-0058-task-006-copy-titles-and-image.md): a copy
-     row gives its item titles and image, musicindex.org request 9. Migration
-     0049 adds the two columns. After the deploy, one `refresh` pass with
-     `--no-revalidate` fills the old rows.
-   - The ADR 0046 check of `run_migrations` fires only when the database
-     records a higher version than the code has migrations. ADR 0046 is
-     amended.
-   - The `Dockerfile` skips the false `SecretsUsedInArgOrEnv` warning on
-     `KEY_PATH`, which is a path and not a secret.
-   - A medium-gate refusal logs at `info`, not at `warn`.
-   - The gossip mode checks that the archive is not empty with one row, not
-     with a count of each podping.
-   - ADR 0068 §4, musicindex.org request 10: with `medium=publisher`,
-     `GET /v1/feeds/recent` takes `stated_rel` and `two_way_links=none`. One
-     request examines at most 1,000 rows.
-   - The amendment of
-     [ADR 0030](docs/adr/0030-podcastindex-importer-durable-attempt-memory.md),
-     in `stophammer-crawler`. A parse error, or a node `413` for a feed with no
-     medium, waits 7 days in the shared skip list.
-   - In `stophammer-crawler`, a `429` from the node sends the same ingest POST
-     again, at most 6 times. Before this fix, an import pass recorded 7,764
-     feeds as ingest errors after one `429`.
+3. Namespace discussion #579 has the proposal of ADR 0069: an album credits
+   each other party with a bare channel `remoteItem` with `medium="publisher"`.
+   The discussion must select between a credit and several items inside
+   `<podcast:publisher>`. [The guide](docs/publisher-links-guide.md) tells a
+   feed author how to write the links. The operator asks Kolomona to open the
+   pull request for `rel`.
+4. The research items of the plan: a station on a feed with `medium`
+   `podcast`, and a read from a cache after a `live` podping.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB
    in its first 20 seconds, mostly cold pages of the podping archive. It only
    costs disk reads.
-
-4. [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md) is Accepted on
-   2026-10-02. An album names one publisher and credits each other party, for
-   example the artist of a label release, with a bare channel `remoteItem`
-   with `medium="publisher"`. Only a two-way credit is confirmed. The node
-   reads the form now. [Task 001](docs/tasks/adr-0069-task-001-link-provenance.md)
-   (`album_names_as`) and
-   [task 002](docs/tasks/adr-0069-task-002-co-credited-feeds.md)
-   (`co_credited_feeds`) are built on 2026-10-02 for release 0.6.0. After its
-   deploy, one `refresh` pass with `--force` writes the new `source` values. [The guide](docs/publisher-links-guide.md) tells a feed author how to
-   write the links. Namespace discussion #579 has the proposal, and it must
-   select between a credit and several items inside `<podcast:publisher>`.
-
-   ADR 0049 §6 is amended on 2026-10-02 and built for 0.6.0: when no side
-   states a `rel`, `role` is null, no longer the guess `artist`.
-   `role_source` stays `default`. This changes the meaning of a field, so the
-   0.6.0 notes must tell v4vmm and musicindex.org.
-
-   ADR 0050 §3 is amended on 2026-10-02 and built in `stophammer-crawler` for
-   0.6.0: a `304` to a request with no conditional header is a fetch error.
-   The dead `refetch_unconditional` is deleted.
-
-   ADR 0062 §8 is amended on 2026-10-02 and built in `stophammer-crawler` for
-   0.6.0. The reconciliation reads the archive payload as bytes. Before, it
-   read each BLOB row as text, dropped it, and never moved the cursor. The
-   crawler sends an ingest POST again when the node refuses the
-   connection. It stops when the reconciliation loop ends, so the restart
-   policy starts it again, and it warns when the archive cursor lags by more
-   than 15 minutes. A deploy stops `gossip` before `primary`.
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
 Accepted. Each superseded ADR is in `docs/adr/archive/`, and

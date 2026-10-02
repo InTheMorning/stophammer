@@ -14,38 +14,17 @@ are complete.
 
 | # | Item | Owner | Kind | Repositories | State |
 |---|---|---|---|---|---|
-| 1 | Release 0.5.0 | ADR 0065, ADR 0066 | Release | All three | Built. The candidate `v0.5.0-rc.1` goes on `a05f62a` |
-| 2 | Fill the item titles and image of the copy rows | ADR 0058 §1c, [task 006](../tasks/adr-0058-task-006-copy-titles-and-image.md) | Operator pass | None | After the deploy of 0.5.0 |
-| 3 | `role` is null when no feed states a `rel` | ADR 0049 §6, amended on 2026-10-02 | Code | `stophammer` | Built for 0.6.0 |
-| 4 | A `304` to a request with no conditional header is a fetch error. The dead `refetch_unconditional` is deleted | ADR 0050 §3, amended on 2026-10-02 | Code | Crawler | Built for 0.6.0 |
-| 5 | Each publisher link says how the album names it | ADR 0069, [task 001](../tasks/adr-0069-task-001-link-provenance.md) | Code | Parser, node, crawler fixtures | Built for 0.6.0 |
-| 6 | A publisher read gives `co_credited_feeds` | ADR 0069, [task 002](../tasks/adr-0069-task-002-co-credited-feeds.md) | Code | `stophammer` | Built for 0.6.0. It adds about 160 ms to the read of the largest publisher feed |
-| 6b | The reconciliation reads BLOB payloads and moves the archive cursor. A refused connection to the node is sent again. A dead reconciliation loop stops the crawler, and a cursor lag over 15 minutes gives a warning | ADR 0062 §8, amended on 2026-10-02 | Code | Crawler | Built for 0.6.0 |
-| 7 | Write the new `source` values of each record | ADR 0069 task 001, deploy step | Operator pass | None | After the deploy of 0.6.0 |
 | 8 | The four pending GUID changes of Elijah Lied | ADR 0052 §5 | Decided: no action by the index | None | Below |
 | 9 | A station that runs 24 hours a day on a feed with `medium` `podcast` | None yet | Research, then a decision | Node | Below |
 | 10 | A read at once after a `live` or `liveEnd` podping can get an old copy of the feed | ADR 0062 §4 | Measure, then a decision | Crawler | Below |
 
 ## Sequence
 
-1. Tag and deploy release 0.5.0, then run item 2.
-2. Release 0.6.0 holds items 3 to 6b, each built. Its notes tell
-   v4vmm and musicindex.org that `role` can now be null.
-3. Deploy 0.6.0, then run item 7.
-4. Items 9 and 10 at any time. Each needs a measurement and a decision before
-   code.
+Items 9 and 10 at any time. Each needs a measurement and a decision before
+code. Item 8 needs no action by the index.
 
-## Item 2: The Copy Rows
-
-The deploy step of ADR 0058 task 006 gives the commands: one `refresh` pass
-with `--no-revalidate`, and a count of the rows that still have no titles.
-
-## Item 7: The `source` Values
-
-The deploy step of ADR 0069 task 001: one `refresh` pass with `--force`. Each
-record sends its body again, and the node stores the new `source` values.
-Since release 0.5.0, the pass signs only the events of the changed remote
-items.
+Releases 0.5.0 and 0.6.0 of 2026-10-02 hold the items of this plan that were
+built.
 
 ## Item 8: The Pending GUID Changes
 

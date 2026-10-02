@@ -396,6 +396,33 @@ for their priority.
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
 
+## Release 0.6.0 - 2026-10-02
+
+**One change of meaning:** when neither side of a publisher link states a
+`rel`, `role` is now null. Before, it was the guess `"artist"`.
+`role_source` stays `"default"`. The site already shows "Role not stated" for
+`default`, so it needs no change. A code path that reads `role` alone must
+accept null.
+
+Each `publisher` row gives `album_names_as`: `"publisher"`, `"credit"` or
+null (ADR 0069). A publisher read with `include=publisher` gives
+`co_credited_feeds`: for a label, the artist feeds of its releases, and for
+an artist, its labels. Each entry rests on two two-way links through one
+album. The guide `docs/publisher-links-guide.md` tells a feed author how to
+write a credit.
+
+## Release 0.5.0 - 2026-10-02
+
+Request 9 is complete. Each row of `GET /v1/feeds/{guid}/copies` gives
+`item_guids`, `item_titles` in the same sequence, and `image_url`. All 80
+copy rows have their titles. Show the image of an open copy only after a
+person asks for it.
+
+Request 10 is complete. With `medium=publisher`, `GET /v1/feeds/recent` takes
+`stated_rel` and `two_way_links=none`. One request examines at most 1,000
+rows, so follow the cursor while `has_more` is true. On 2026-10-02 the label
+filter found Sir Libre Records on its second request.
+
 ## Release 0.4.1 - 2026-10-02
 
 `GET /v1/feeds/{guid}/route-history` uses two new indexes (migration 0048).
