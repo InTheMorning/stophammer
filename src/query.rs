@@ -99,8 +99,8 @@ pub struct ListQuery {
     limit: Option<i64>,
     include: Option<String>,
     medium: Option<String>,
-    /// ADR 0068 §4: keep only the publisher rows with this raw value in
-    /// `stated_rels`.
+    /// ADR 0068 §4 and §5: keep only the publisher rows with this role token
+    /// in `stated_rels`.
     stated_rel: Option<String>,
     /// ADR 0068 §4: `none` keeps only the publisher rows with no two-way link.
     two_way_links: Option<String>,
@@ -287,17 +287,24 @@ struct FeedResponse {
     /// is a publisher feed. ADR 0061 §1.
     #[serde(skip_serializing_if = "Option::is_none")]
     unconfirmed_release_artists: Option<Vec<String>>,
-    /// The count of two-way album links of a publisher feed: the
+    /// The count of confirmed album links of a publisher feed: the
     /// `publisher_to_music` rows of the `publisher` view with
-    /// `two_way_validated` true. Present only on a publisher row of
-    /// `GET /v1/feeds/recent` with `include=link_facts`. ADR 0068 §1.
+    /// `two_way_validated` true and a `role_agreement` that is not
+    /// `conflict`. Present only on a publisher row of
+    /// `GET /v1/feeds/recent` with `include=link_facts`. ADR 0068 §1 and
+    /// ADR 0049 §6a.
     #[serde(skip_serializing_if = "Option::is_none")]
     two_way_link_count: Option<i64>,
-    /// The different raw `publisher_rel` values of those two-way rows,
-    /// sorted, with no change. Present only where `two_way_link_count` is.
-    /// ADR 0068 §1.
+    /// The different role tokens of the `publisher_rel` values of those
+    /// confirmed rows, lowercased and sorted. Present only where
+    /// `two_way_link_count` is. ADR 0068 §5.
     #[serde(skip_serializing_if = "Option::is_none")]
     stated_rels: Option<Vec<String>>,
+    /// The role tokens of the confirmed rows that both sides state, with
+    /// `role_agreement` `both`, sorted. Present only where
+    /// `two_way_link_count` is. ADR 0068 §5.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agreed_roles: Option<Vec<String>>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -907,6 +914,10 @@ struct PublisherResponse {
     /// The source of `role`: `"publisher_rel"`, `"music_rel"`, `"default"`
     /// or `"conflict"`. ADR 0049 §6.
     role_source: String,
+    /// Whether the two sides agree on the role: `"both"`, `"one_side"`,
+    /// `"conflict"`, or null when no side states one. ADR 0049 §6a. A row
+    /// with `"conflict"` is not a confirmed link.
+    role_agreement: Option<String>,
     /// The title of the named feed, or null when the node holds no feed for
     /// this entry. ADR 0059 §1.
     remote_feed_title: Option<String>,
@@ -1206,18 +1217,21 @@ async fn handle_get_feed(
 
 /// Gives the title of the feed that `feed_guid` names as its publisher.
 ///
-/// Takes the feed's own `medium="publisher"` remote item at the lowest
-/// position (the items are stored in position order), resolves it with
+/// Takes the feed's own publisher link at the lowest position (the items are
+/// stored in position order), resolves it with
 /// [`db::resolve_listed_feed`], and reads the title of the resolved feed.
 /// Gives `None` when the feed names no publisher or the resolver cannot
-/// place it. ADR 0049 §5.
+/// place it. A publisher link is an item with `medium="publisher"` and
+/// `source` `podcast_publisher` (ADR 0069 §1a). ADR 0049 §5.
 fn resolve_publisher_feed_title(
     conn: &rusqlite::Connection,
     feed_guid: &str,
 ) -> Result<Option<String>, api::ApiError> {
     let Some(item) = db::get_feed_remote_items_for_feed(conn, feed_guid)?
         .into_iter()
-        .find(|item| item.medium.as_deref() == Some("publisher"))
+        .find(|item| {
+            item.medium.as_deref() == Some("publisher") && is_album_publisher_link(&item.source)
+        })
     else {
         return Ok(None);
     };
@@ -1284,8 +1298,8 @@ fn publisher_artist_count(
 ///
 /// A row counts only when its `direction` is `publisher_to_music` and its
 /// `publisher_link_resolution` is not `unresolved` (a listed album). A row
-/// counts as confirmed when `music_names_publisher` is true, else as
-/// unconfirmed. A row gives no artist, and is skipped, when
+/// counts as confirmed when it is a confirmed link ([`is_confirmed_link`],
+/// ADR 0049 §6a), else as unconfirmed. A row gives no artist, and is skipped, when
 /// `remote_release_artist` is null or `remote_release_artist_source` is
 /// `placeholder`. Two artists are the same value when
 /// [`normalize_release_artist`] gives the same result; the raw value kept is
@@ -1311,7 +1325,7 @@ fn confirmed_and_unconfirmed_release_artists(
         };
         let normalized = normalize_release_artist(artist);
 
-        if row.music_names_publisher {
+        if is_confirmed_link(row) {
             if confirmed_seen.insert(normalized) {
                 confirmed.push(artist.to_string());
             }
@@ -1332,28 +1346,36 @@ fn confirmed_and_unconfirmed_release_artists(
 struct LinkFacts {
     two_way_link_count: i64,
     stated_rels: Vec<String>,
+    agreed_roles: Vec<String>,
     confirmed_release_artists: Vec<String>,
 }
 
 /// Derives [`LinkFacts`] from the `publisher` view rows of one feed, as
 /// [`load_publisher`] gives them. The values are the values that a full read
 /// of the same feed gives, because they come from the same rows and the same
-/// functions. ADR 0068 §1.
+/// functions. Only a confirmed link counts (ADR 0049 §6a), and the roles are
+/// tokens (ADR 0068 §5). ADR 0068 §1.
 fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
-    let two_way: Vec<&PublisherResponse> = rows
+    let confirmed: Vec<&PublisherResponse> = rows
         .iter()
-        .filter(|row| row.direction == "publisher_to_music" && row.two_way_validated)
+        .filter(|row| row.direction == "publisher_to_music" && is_confirmed_link(row))
         .collect();
-    let stated_rels: Vec<String> = two_way
+    let stated_rels: std::collections::BTreeSet<String> = confirmed
         .iter()
-        .filter_map(|row| row.publisher_rel.clone())
-        .collect::<std::collections::BTreeSet<String>>()
-        .into_iter()
+        .filter_map(|row| row.publisher_rel.as_deref())
+        .flat_map(rel_tokens)
+        .collect();
+    let agreed_roles: std::collections::BTreeSet<String> = confirmed
+        .iter()
+        .filter(|row| row.role_agreement.as_deref() == Some("both"))
+        .filter_map(|row| row.publisher_rel.as_deref())
+        .flat_map(rel_tokens)
         .collect();
     let (confirmed_release_artists, _unconfirmed) = confirmed_and_unconfirmed_release_artists(rows);
     LinkFacts {
-        two_way_link_count: i64::try_from(two_way.len()).unwrap_or(i64::MAX),
-        stated_rels,
+        two_way_link_count: i64::try_from(confirmed.len()).unwrap_or(i64::MAX),
+        stated_rels: stated_rels.into_iter().collect(),
+        agreed_roles: agreed_roles.into_iter().collect(),
         confirmed_release_artists,
     }
 }
@@ -1376,12 +1398,12 @@ fn co_credited_feeds(
     let mut entries: std::collections::BTreeMap<String, Entry> = std::collections::BTreeMap::new();
 
     for row in rows {
-        if row.direction != "publisher_to_music" || !row.two_way_validated {
+        if row.direction != "publisher_to_music" || !is_confirmed_link(row) {
             continue;
         }
         for album_row in load_publisher(conn, &row.music_feed_guid)? {
             if album_row.direction != "music_to_publisher"
-                || !album_row.two_way_validated
+                || !is_confirmed_link(&album_row)
                 || album_row.publisher_feed_guid == publisher_guid
             {
                 continue;
@@ -1514,6 +1536,7 @@ fn build_feed_response(
         unconfirmed_release_artists: None,
         two_way_link_count: None,
         stated_rels: None,
+        agreed_roles: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -2217,8 +2240,10 @@ fn music_to_publisher_facts(
 ///
 /// `publisher_lists_music` is true by declaration, and its resolution is the
 /// resolution of the listed album. `music_names_publisher` holds when the
-/// resolved album's own `medium="publisher"` items include one that resolves
-/// back to `current_feed`. ADR 0049 §3, task 005 "Constraints".
+/// resolved album's own publisher links include one that resolves back to
+/// `current_feed`. A publisher link is an item with `medium="publisher"` and
+/// `source` `podcast_publisher` (ADR 0069 §1a). ADR 0049 §3, task 005
+/// "Constraints".
 fn publisher_to_music_facts(
     conn: &rusqlite::Connection,
     current_feed: &Feed,
@@ -2237,7 +2262,9 @@ fn publisher_to_music_facts(
     if let Some(album_guid) = music_resolution.feed_guid() {
         for candidate in db::get_feed_remote_items_for_feed(conn, album_guid)?
             .into_iter()
-            .filter(|item| item.medium.as_deref() == Some("publisher"))
+            .filter(|item| {
+                item.medium.as_deref() == Some("publisher") && is_album_publisher_link(&item.source)
+            })
         {
             let candidate_resolution = db::resolve_listed_feed(
                 conn,
@@ -2336,17 +2363,49 @@ fn resolve_role(
     }
 }
 
-/// ADR 0069 §3: the `album_names_as` value of an album item with `source`
-/// and `medium`. `podcast_publisher` gives `publisher`. Another item with
-/// `medium="publisher"` gives `credit`.
-fn album_names_as_value(source: &str, medium: Option<&str>) -> Option<String> {
-    if source == "podcast_publisher" {
-        Some("publisher".to_string())
-    } else if medium == Some("publisher") {
-        Some("credit".to_string())
-    } else {
-        None
+/// ADR 0049 §6a: whether the two sides of a link agree on the role. `both`
+/// when both state equal role sets, `one_side` when only one states a role,
+/// `conflict` when the sets differ, and `None` when no side states one.
+fn role_agreement(publisher_rel: Option<&str>, music_rel: Option<&str>) -> Option<&'static str> {
+    match (
+        publisher_rel.and_then(normalize_rel),
+        music_rel.and_then(normalize_rel),
+    ) {
+        (Some(publisher_value), Some(music_value)) => Some(if publisher_value == music_value {
+            "both"
+        } else {
+            "conflict"
+        }),
+        (Some(_), None) | (None, Some(_)) => Some("one_side"),
+        (None, None) => None,
     }
+}
+
+/// The role tokens of a raw `rel` value, normalized and sorted as
+/// [`normalize_rel`] gives them. ADR 0068 §5.
+fn rel_tokens(value: &str) -> Vec<String> {
+    normalize_rel(value).map_or_else(Vec::new, |roles| {
+        roles.split(", ").map(str::to_string).collect()
+    })
+}
+
+/// ADR 0049 §6a: a confirmed link is two-way, and its sides do not state
+/// different role sets. Each count of a link uses only confirmed links.
+fn is_confirmed_link(row: &PublisherResponse) -> bool {
+    row.two_way_validated && row.role_agreement.as_deref() != Some("conflict")
+}
+
+/// ADR 0069 §1a: an album item with `medium="publisher"` is a publisher
+/// link only when its `source` is `podcast_publisher`. Each other such item
+/// stays a raw fact, and gives no `publisher` row.
+fn is_album_publisher_link(source: &str) -> bool {
+    source == "podcast_publisher"
+}
+
+/// ADR 0069 §1a and §3: the `album_names_as` value of an album item with
+/// `source`. A publisher link gives `publisher`. Each other item gives null.
+fn album_names_as_value(source: &str) -> Option<String> {
+    is_album_publisher_link(source).then(|| "publisher".to_string())
 }
 
 /// Builds one `publisher` view row for a remote item of `current_feed`, or
@@ -2397,6 +2456,7 @@ fn build_publisher_row(
         _ => unreachable!("publisher_direction only returns the two names handled above"),
     };
     let (role, role_source) = resolve_role(publisher_rel.as_deref(), music_rel.as_deref());
+    let role_agreement = role_agreement(publisher_rel.as_deref(), music_rel.as_deref());
 
     // ADR 0059 §2: the summary of the feed on the other side, from the
     // resolution that the facts already made.
@@ -2407,11 +2467,11 @@ fn build_publisher_row(
     // On a publisher_to_music row, it comes from the album item (from the matched facts),
     // and it is null when music_names_publisher is false.
     let album_names_as = match direction {
-        "music_to_publisher" => album_names_as_value(item_source, item_medium),
+        "music_to_publisher" => album_names_as_value(item_source),
         "publisher_to_music" => facts
             .matched_item_source
             .as_deref()
-            .and_then(|source| album_names_as_value(source, Some("publisher"))),
+            .and_then(album_names_as_value),
         _ => unreachable!("publisher_direction only returns the two names handled above"),
     };
 
@@ -2439,6 +2499,7 @@ fn build_publisher_row(
         music_rel,
         role,
         role_source: role_source.to_string(),
+        role_agreement: role_agreement.map(str::to_string),
         remote_feed_title: summary.title,
         remote_feed_image_url: summary.image_url,
         remote_release_artist: summary.release_artist,
@@ -2458,6 +2519,12 @@ fn load_publisher(
     let mut rows = Vec::new();
 
     for item in remote_items {
+        // ADR 0069 §1a: a bare `medium="publisher"` item next to a
+        // `<podcast:publisher>` is a raw fact, not a link. The track view
+        // (`load_track_publisher`) keeps its items: they are not album items.
+        if item.medium.as_deref() == Some("publisher") && !is_album_publisher_link(&item.source) {
+            continue;
+        }
         if let Some(row) = build_publisher_row(
             conn,
             &current_feed,
@@ -3446,8 +3513,15 @@ impl LinkFactFilter {
             Some("none") => true,
             Some(_) => return Err(bad_request("two_way_links accepts only none")),
         };
+        // ADR 0068 §5: the value is one role token, normalized as a
+        // `rel` token is.
+        let stated_rel = match params.stated_rel.as_deref().map(rel_tokens) {
+            None => None,
+            Some(tokens) if tokens.len() == 1 => tokens.into_iter().next(),
+            Some(_) => return Err(bad_request("stated_rel must be one role token")),
+        };
         Ok(Some(Self {
-            stated_rel: params.stated_rel.clone(),
+            stated_rel,
             no_two_way_links,
         }))
     }
@@ -3637,7 +3711,7 @@ async fn handle_get_recent_feeds(
                 .map(pending_guid_change_response);
             // ADR 0068 §1: the link facts of a publisher row, only on request.
             // ADR 0068 §4: a filter also gives the facts.
-            let (two_way_link_count, stated_rels, listed_confirmed) =
+            let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed) =
                 if (params.includes("link_facts") || filter.is_some())
                     && medium::is_publisher(r.raw_medium.as_deref())
                 {
@@ -3645,10 +3719,11 @@ async fn handle_get_recent_feeds(
                     (
                         Some(facts.two_way_link_count),
                         Some(facts.stated_rels),
+                        Some(facts.agreed_roles),
                         Some(facts.confirmed_release_artists),
                     )
                 } else {
-                    (None, None, None)
+                    (None, None, None, None)
                 };
             feeds.push(FeedResponse {
                 feed_guid: r.feed_guid,
@@ -3678,6 +3753,7 @@ async fn handle_get_recent_feeds(
                 unconfirmed_release_artists: None,
                 two_way_link_count,
                 stated_rels,
+                agreed_roles,
                 language: r.language,
                 explicit: r.explicit_int != 0,
                 episode_count: r.episode_count,

@@ -114,12 +114,15 @@ async fn get(st: &Arc<stophammer::api::AppState>, uri: &str) -> Value {
     serde_json::from_slice(&bytes).expect("parse json")
 }
 
+/// A `medium="publisher"` item is the parser output of an item inside
+/// `<podcast:publisher>`, so it carries `publisher_reference` (ADR 0069 §1a).
 fn remote_item(position: i64, medium: &str, guid: &str, url: &str) -> Value {
     json!({
         "position": position,
         "medium": medium,
         "remote_feed_guid": guid,
         "remote_feed_url": url,
+        "publisher_reference": medium == "publisher",
     })
 }
 

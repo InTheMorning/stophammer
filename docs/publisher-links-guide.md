@@ -130,38 +130,44 @@ cannot state the artist of an album. The album states its own artist, with
 
 ## How musicindex.org Reads A Link
 
-The node at `api.musicindex.org` gives each link in the `publisher` view of a
-feed read (`GET /v1/feeds/{guid}?include=publisher`):
+The node at `api.musicindex.org` follows the link rules of PR #793. It gives
+each link in the `publisher` view of a feed read
+(`GET /v1/feeds/{guid}?include=publisher`):
 
 | Field | Meaning |
 |---|---|
 | `two_way_validated` | Both feeds state the link |
 | `publisher_rel`, `music_rel` | The raw `rel` of each side |
 | `role`, `role_source` | The role set, and which side stated it. `role` is null when no side states one (`default`), and when the two sides state different sets (`conflict`) |
-| `album_names_as` | `publisher` for an item inside `<podcast:publisher>`. `credit` for the older form below. Null when the album does not name the feed |
+| `role_agreement` | `both`: the two sides state the same set. `one_side`: only one side states a role. `conflict`: the sets differ. Null: no side states a role |
+| `album_names_as` | `publisher` when the album names the feed inside `<podcast:publisher>`. Null when the album does not name the feed |
+
+A confirmed link is a two-way link with a `role_agreement` that is not
+`conflict`.
+This is the "discard" rule of PR #793. A link with a `conflict` stays in the
+view with each raw value, so a feed author can find it and correct it. But no
+count uses it.
+
+A role that only one side states is not an agreed role. The node shows it as
+`role`, with `role_agreement` `one_side`. For a client that follows PR #793
+fully, the link is a plain publisher link.
 
 The node reads a `rel` value with a comma as a list separated by commas, and
 a value with no comma as a list separated by spaces.
 
 A publisher read also gives `confirmed_release_artists`, the artists of its
-true links. It gives `unconfirmed_release_artists`, the artists of its one-way
-listings. It also gives `co_credited_feeds`: the other publisher feeds that
-its true albums also name in a true link.
+confirmed links. It gives `unconfirmed_release_artists`, the artists of its
+other listings. It also gives `co_credited_feeds`. This list holds the other
+publisher feeds that its confirmed albums name in a confirmed link.
 
-### Where musicindex.org Differs From PR #793
+The publisher list, `GET /v1/feeds/recent?medium=publisher&include=link_facts`,
+gives the role tokens of each publisher. `stated_rels` holds each token of its
+confirmed links. `agreed_roles` holds each token that the two sides state.
+`stated_rel=label` keeps the publishers with the token `label`.
 
-These two rules wait for the merge of PR #793. Then an amendment of ADR 0049
-§6 brings the node to the PR.
+### Older Forms
 
-| Case | PR #793 | musicindex.org on 2026-10-02 |
-|---|---|---|
-| Only one side states `rel` | No role: the link is a plain publisher link | `role` is the value of that side, with `role_source` `publisher_rel` or `music_rel` |
-| Both sides state `rel`, and the sets differ | Discard the link | `two_way_validated` stays true. `role` is null, with `role_source` `conflict` |
-
-### An Older Form That The Node Also Reads
-
-Before PR #793, ADR 0069 proposed a credit: a bare `remoteItem` with
-`medium="publisher"` directly in `<channel>` of the album. The node still
-reads it, with `album_names_as` `credit`. When the album has no
-`<podcast:publisher>`, the node reads the first such item as the publisher.
-Write the form of PR #793 in a new feed.
+An album with no `<podcast:publisher>` can name its publisher with a bare
+`remoteItem` with `medium="publisher"` directly in `<channel>`. The node reads
+the first such item as the publisher. It does not read each other bare item
+as a link. Write the form of PR #793 in a new feed.

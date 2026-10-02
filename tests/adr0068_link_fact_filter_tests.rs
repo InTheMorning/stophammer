@@ -122,6 +122,7 @@ async fn stored_publisher() -> Arc<stophammer::api::AppState> {
         "medium": "publisher",
         "remote_feed_guid": PUBLISHER_GUID,
         "remote_feed_url": PUBLISHER_URL,
+        "publisher_reference": true,
     }]);
     for (guid, author) in [("album-a", "Artist A"), ("album-b", "Artist B")] {
         let url = format!("https://a.example/{guid}.xml");

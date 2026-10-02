@@ -604,7 +604,8 @@ async fn feed_query_exposes_publisher_rss_truth() {
                 "position": 0,
                 "medium": "publisher",
                 "remote_feed_guid": publisher_feed_guid,
-                "remote_feed_url": "https://wavlake.com/feed/artist/publisher-truth"
+                "remote_feed_url": "https://wavlake.com/feed/artist/publisher-truth",
+                "publisher_reference": true
             }],
             "persons": [],
             "entity_ids": [],

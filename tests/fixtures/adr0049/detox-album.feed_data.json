@@ -17,7 +17,8 @@
       "medium": "publisher",
       "remote_feed_guid": "137aaa9c-75ff-4916-9f23-e02968b2d15e",
       "remote_feed_url": "https://wavlake.com/feed/artist/137aaa9c-75ff-4916-9f23-e02968b2d15e",
-      "rel": null
+      "rel": null,
+      "publisher_reference": true
     }
   ],
   "persons": [],

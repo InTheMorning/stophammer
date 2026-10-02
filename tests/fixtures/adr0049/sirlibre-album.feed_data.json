@@ -17,14 +17,16 @@
       "medium": "publisher",
       "remote_feed_guid": "66222b31-294a-4921-be38-f4fae1a61591",
       "remote_feed_url": "https://cdn.kolomona.com/podcasts/lightning-thrashes/faces-pale/faces-pale-publisher-rss.xml",
-      "rel": "artist"
+      "rel": "artist",
+      "publisher_reference": true
     },
     {
       "position": 1,
       "medium": "publisher",
       "remote_feed_guid": "34bf795f-f551-4db1-8877-ad19aa5f89c8",
       "remote_feed_url": "https://sirlibre.com/publisher/sir-libre-records-publisher-rss.xml",
-      "rel": "label"
+      "rel": "label",
+      "publisher_reference": true
     }
   ],
   "persons": [

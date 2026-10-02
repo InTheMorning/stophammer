@@ -170,7 +170,8 @@ async fn three_named_artists_count_distinct_and_keep_the_lowest_guid() {
                 "position": 0,
                 "medium": "publisher",
                 "remote_feed_guid": p_guid,
-                "remote_feed_url": p_url
+                "remote_feed_url": p_url,
+                "publisher_reference": true
             }]
         });
         ingest(
@@ -245,7 +246,8 @@ async fn itunes_owner_album_is_not_counted() {
             "position": 0,
             "medium": "publisher",
             "remote_feed_guid": p_guid,
-            "remote_feed_url": p_url
+            "remote_feed_url": p_url,
+            "publisher_reference": true
         }]
     });
     ingest(
@@ -273,7 +275,8 @@ async fn itunes_owner_album_is_not_counted() {
             "position": 0,
             "medium": "publisher",
             "remote_feed_guid": p_guid,
-            "remote_feed_url": p_url
+            "remote_feed_url": p_url,
+            "publisher_reference": true
         }]
     });
     ingest(
@@ -354,7 +357,8 @@ async fn feed_url_observation_album_is_counted() {
             "position": 0,
             "medium": "publisher",
             "remote_feed_guid": z_bogus_remote_guid,
-            "remote_feed_url": r_source_url
+            "remote_feed_url": r_source_url,
+            "publisher_reference": true
         }]
     });
     ingest(

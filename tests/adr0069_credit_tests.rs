@@ -1,11 +1,12 @@
-// ADR 0069: an album confirms each publisher that it credits.
+// ADR 0069: an album confirms each publisher that it names.
 //
-// docs/tasks/adr-0069-task-001-link-provenance.md and
-// docs/tasks/adr-0069-task-002-co-credited-feeds.md
+// docs/tasks/adr-0069-task-001-link-provenance.md,
+// docs/tasks/adr-0069-task-002-co-credited-feeds.md and
+// docs/tasks/adr-0049-task-014-pr793-link-rules.md
 //
-// An album names one publisher (inside `<podcast:publisher>`) and credits each
-// other party with a bare channel `remoteItem` with `medium="publisher"`. Each
-// `publisher` row gives `album_names_as`. A publisher read gives
+// An album names each party with one `remoteItem` inside
+// `<podcast:publisher>`, as podcast-namespace PR #793 gives (ADR 0069 §1a).
+// Each `publisher` row gives `album_names_as`. A publisher read gives
 // `co_credited_feeds`: the other publisher feeds of its confirmed albums.
 
 mod common;
@@ -177,8 +178,8 @@ fn row<'a>(data: &'a Value, other_guid: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no publisher row for {other_guid} in {data}"))
 }
 
-/// A label release: the album names the label as publisher and credits the
-/// artist. The label and the artist each list the album back.
+/// A label release: the album names the label and the artist inside
+/// `<podcast:publisher>`. The label and the artist each list the album back.
 async fn label_release() -> Arc<stophammer::api::AppState> {
     let st = state(common::test_db_arc());
     album(
@@ -187,7 +188,7 @@ async fn label_release() -> Arc<stophammer::api::AppState> {
         "Artist One",
         json!([
             names(0, "label", Some("label"), true),
-            names(1, "artist", Some("artist"), false)
+            names(1, "artist", Some("artist"), true)
         ]),
     )
     .await;
@@ -211,7 +212,7 @@ async fn label_release() -> Arc<stophammer::api::AppState> {
 // ── Task 001 ────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn the_album_read_names_the_publisher_and_the_credit() {
+async fn the_album_read_names_both_parties() {
     let st = label_release().await;
     let data = read(&st, "album-1").await;
     let rows = data["publisher"].as_array().expect("publisher is an array");
@@ -226,7 +227,7 @@ async fn the_album_read_names_the_publisher_and_the_credit() {
     assert_eq!(label["album_names_as"], "publisher", "{label}");
     let artist = row(&data, "artist");
     assert_eq!(artist["two_way_validated"], true, "{artist}");
-    assert_eq!(artist["album_names_as"], "credit", "{artist}");
+    assert_eq!(artist["album_names_as"], "publisher", "{artist}");
 }
 
 #[tokio::test]
@@ -241,7 +242,7 @@ async fn the_publisher_reads_give_the_same_values() {
     let artist = read(&st, "artist").await;
     assert_eq!(
         row(&artist, "album-1")["album_names_as"],
-        "credit",
+        "publisher",
         "{artist}"
     );
 }
@@ -267,7 +268,7 @@ async fn a_listing_that_the_album_does_not_confirm_gives_null() {
 }
 
 #[tokio::test]
-async fn an_ingest_with_no_publisher_reference_gives_credit() {
+async fn an_ingest_with_no_publisher_reference_gives_no_link() {
     let st = state(common::test_db_arc());
     // An older crawler sends no `publisher_reference`.
     let item = json!({
@@ -284,8 +285,14 @@ async fn an_ingest_with_no_publisher_reference_gives_credit() {
         json!([lists(0, "album-1", None)]),
     )
     .await;
+    // ADR 0069 §1a: the item has no `podcast_publisher` source, so it is a
+    // raw fact and not a link.
     let data = read(&st, "album-1").await;
-    assert_eq!(row(&data, "label")["album_names_as"], "credit", "{data}");
+    assert_eq!(data["publisher"], json!([]), "{data}");
+    let label = read(&st, "label").await;
+    let listed = row(&label, "album-1");
+    assert_eq!(listed["music_names_publisher"], false, "{listed}");
+    assert_eq!(listed["album_names_as"], Value::Null, "{listed}");
 }
 
 // ── Task 002 ────────────────────────────────────────────────────────────────
@@ -327,12 +334,12 @@ async fn a_feed_that_only_lists_the_album_is_not_co_credited() {
     assert_eq!(
         guids,
         vec!["artist"],
-        "the album does not credit the claimer: {label}"
+        "the album does not name the claimer: {label}"
     );
 }
 
 #[tokio::test]
-async fn a_credit_that_the_artist_does_not_confirm_is_not_co_credited() {
+async fn a_party_that_the_artist_does_not_confirm_is_not_co_credited() {
     let st = state(common::test_db_arc());
     album(
         &st,
@@ -340,7 +347,7 @@ async fn a_credit_that_the_artist_does_not_confirm_is_not_co_credited() {
         "Artist One",
         json!([
             names(0, "label", Some("label"), true),
-            names(1, "artist", Some("artist"), false)
+            names(1, "artist", Some("artist"), true)
         ]),
     )
     .await;
@@ -367,7 +374,7 @@ async fn two_shared_albums_give_album_count_two() {
             "Artist One",
             json!([
                 names(0, "label", Some("label"), true),
-                names(1, "artist", Some("artist"), false)
+                names(1, "artist", Some("artist"), true)
             ]),
         )
         .await;

@@ -5046,8 +5046,9 @@ pub struct PublisherAlbumArtist {
 /// Returns the `release_artist` of each album of publisher feed
 /// `publisher_feed_guid`, for the derived artist count of ADR 0049 §7.
 ///
-/// An album is a music feed with a remote item, `medium = "publisher"`, that
-/// [`resolve_listed_feed`] resolves to `publisher_feed_guid`. This function
+/// An album is a music feed with a publisher link that [`resolve_listed_feed`]
+/// resolves to `publisher_feed_guid`. A publisher link is a remote item with
+/// `medium = "publisher"` and `source = "podcast_publisher"` (ADR 0069 §1a). This function
 /// finds a candidate album in two steps, then confirms each one with
 /// [`resolve_listed_feed`] so the result agrees with the `publisher` view:
 ///
@@ -5081,7 +5082,8 @@ pub fn get_publisher_album_release_artists(
     let mut guid_stmt = conn.prepare(
         "SELECT feed_guid, remote_feed_guid, remote_feed_url \
          FROM feed_remote_items_raw \
-         WHERE medium = 'publisher' AND remote_feed_guid = ?1",
+         WHERE medium = 'publisher' AND source = 'podcast_publisher' \
+           AND remote_feed_guid = ?1",
     )?;
     let guid_candidates = guid_stmt.query_map(params![publisher_feed_guid], |row| {
         Ok((
@@ -5117,7 +5119,8 @@ pub fn get_publisher_album_release_artists(
         let mut url_stmt = conn.prepare(
             "SELECT feed_guid, remote_feed_guid, remote_feed_url \
              FROM feed_remote_items_raw \
-             WHERE medium = 'publisher' AND remote_feed_url = ?1",
+             WHERE medium = 'publisher' AND source = 'podcast_publisher' \
+               AND remote_feed_url = ?1",
         )?;
         let url_candidates = url_stmt.query_map(params![url], |row| {
             Ok((

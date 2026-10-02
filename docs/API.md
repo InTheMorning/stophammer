@@ -852,6 +852,7 @@ Returns a single feed by its `podcast:guid`.
         "music_rel": null,
         "role": "label",
         "role_source": "publisher_rel",
+        "role_agreement": "one_side",
         "remote_feed_title": "Label Name",
         "remote_feed_image_url": "https://example.com/label.jpg",
         "remote_release_artist": "Label Name",
@@ -901,17 +902,33 @@ sorted and joined by `", "`. `role_source` is `"conflict"` when the two
 sets differ, and `role` is then null. When neither side states a role, `role`
 is null and `role_source` is `"default"`. ADR 0049 §6.
 
+`role_agreement` tells whether the two sides agree on the role (ADR 0049
+§6a):
+
+| Value | Meaning |
+|---|---|
+| `"both"` | Both sides state a role, and the two role sets are equal |
+| `"one_side"` | Only one side states a role |
+| `"conflict"` | Both sides state a role, and the two role sets differ |
+| `null` | No side states a role |
+
+A row with `"conflict"` is not a confirmed link. It stays in the `publisher`
+view with `two_way_validated` and each raw value, but no count uses it:
+`confirmed_release_artists`, `co_credited_feeds`, and the link facts of
+`GET /v1/feeds/recent`. Its artist goes into `unconfirmed_release_artists`.
+
 `album_names_as` tells how the album names the publisher feed of the row
-(ADR 0069 §3):
+(ADR 0069 §1a and §3):
 
 | Value | Meaning |
 |---|---|
 | `"publisher"` | The album names it inside `<podcast:publisher>`, or as the first bare channel `remoteItem` with `medium="publisher"` when it has no `<podcast:publisher>` |
-| `"credit"` | The album names it with another bare channel `remoteItem` with `medium="publisher"` |
 | `null` | The album does not name it. The row is a listing by the publisher feed only |
 
-A record that the node stored before release 0.6.0 gives `"credit"` for each
-item until its next ingest.
+Only an album item that `album_names_as` calls `"publisher"` is a publisher
+link. Each other bare channel `remoteItem` with `medium="publisher"` stays in
+`remote_items`, but it gives no `publisher` row. It also does not give
+`publisher_feed_title` or `distinct_release_artists`.
 
 Each `remote_items` entry and each `publisher` entry gives four values of the
 feed that it names. ADR 0059 owns them. A track read gives them too.
@@ -1043,7 +1060,8 @@ albums that **name** this feed as their publisher. The count is the same when
 this feed lists the album and when it does not.
 
 `confirmed_release_artist_count` and `confirmed_release_artists` count only
-the albums that this feed **lists**, and that also name it: a two-way link.
+the albums that this feed **lists**, and that also name it: a confirmed link.
+A confirmed link is two-way, and its `role_agreement` is not `"conflict"`.
 `unconfirmed_release_artist_count` and `unconfirmed_release_artists` give the
 same count for a listed album that does not name this feed: a one-way link
 from the publisher's side.
@@ -1067,7 +1085,8 @@ feeds of its releases. For an artist, they are its labels.
 `roles` holds the different raw `rel` values that the shared albums give that
 feed, sorted. It is empty when no album states one. The list is sorted by
 `album_count`, highest first. A publisher feed that only lists an album, or
-an album credit that the credited feed does not confirm, is not in the list.
+a feed that the album names but that does not list the album, is not in the
+list. A link with `role_agreement` `"conflict"` is not in the list.
 The node computes the list at read time. On the largest publisher feed of
 2026-09-26, with 143 links, it adds about 160 ms to the read.
 
@@ -1113,26 +1132,28 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional `medium`
-- **Include `link_facts`:** each publisher row gives three more fields. A row
+- **Include `link_facts`:** each publisher row gives four more fields. A row
   of another medium gives none of them. Without the include, no row gives
   them. ADR 0068 owns this include.
 
 | Field | Value |
 |---|---|
-| `two_way_link_count` | The count of `publisher_to_music` rows of the `publisher` view with `two_way_validated` true |
-| `stated_rels` | The different raw `publisher_rel` values of those two-way rows, sorted. Empty when no such row states one |
+| `two_way_link_count` | The count of confirmed links: the `publisher_to_music` rows of the `publisher` view with `two_way_validated` true and a `role_agreement` that is not `"conflict"` |
+| `stated_rels` | The role tokens of the `publisher_rel` values of those rows: lowercased, different values only, sorted. `"artist producer"` gives `"artist"` and `"producer"`. Empty when no such row states one |
+| `agreed_roles` | The role tokens of the rows with `role_agreement` `"both"`, sorted. A role that only one side states is not in it |
 | `confirmed_release_artists` | The same list as a read of that feed (ADR 0061 §1) |
 
-Each value is the value that `GET /v1/feeds/{guid}?include=publisher` gives
-for the same feed. The node does not split or change a `rel` value. The node
-gives no type for a publisher. The client derives it from these facts.
+Each value comes from the rows that `GET /v1/feeds/{guid}?include=publisher`
+gives for the same feed. The node splits a `rel` value into tokens as `role`
+does (ADR 0068 §5). The node gives no type for a publisher. The client derives
+it from these facts.
 
 **Filters (ADR 0068 §4):** with `medium=publisher`, two filters keep only some
-rows. Each filter gives the three fields above on each row.
+rows. Each filter gives the four fields above on each row.
 
 | Parameter | Rows that it keeps |
 |---|---|
-| `stated_rel=<value>` | Rows with `<value>` in `stated_rels`. The node compares the raw value |
+| `stated_rel=<token>` | Rows with `<token>` in `stated_rels`. The node lowercases the value, so `Label` finds `label`. The value is one token |
 | `two_way_links=none` | Rows with `two_way_link_count` 0 |
 
 With both filters, a row must agree with both. One request examines at most
@@ -1145,7 +1166,7 @@ with `has_more` true. Follow the cursor until `has_more` is false.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | A filter without `medium=publisher`, an empty `stated_rel`, or a `two_way_links` value that is not `none` |
+| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none` |
 
 ---
 

@@ -17,7 +17,8 @@
       "medium": "publisher",
       "remote_feed_guid": "844e0b32-7c69-5850-bf62-5abb28b3830b",
       "remote_feed_url": "https://publishers.rssblue.com/acoldtripnowhere",
-      "rel": null
+      "rel": null,
+      "publisher_reference": true
     }
   ],
   "persons": [],

@@ -234,17 +234,16 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. Namespace discussion #579 has the proposal of ADR 0069: an album credits
-   each other party with a bare channel `remoteItem` with `medium="publisher"`.
-   The discussion must select between a credit and several items inside
-   `<podcast:publisher>`. [The guide](docs/publisher-links-guide.md) tells a
-   feed author how to write the links. The operator asks Kolomona to open the
-   pull request for `rel`.
+3. Podcast-namespace PR #793 is open. It puts one `remoteItem` for each party
+   in `<podcast:publisher>`, and it adds `rel`. ADR 0069 §1a follows it,
+   and the bare-item credit is removed. [The guide](docs/publisher-links-guide.md)
+   tells a feed author how to write the links.
 4. Release 0.7.0 follows the link rules of PR #793, musicindex.org request 11.
    [Task 014](docs/tasks/adr-0049-task-014-pr793-link-rules.md) builds the
    amendments ADR 0049 §6a (`role_agreement`, a `conflict` link is not
    confirmed), ADR 0068 §5 (role tokens, `agreed_roles`) and ADR 0069 §1a (the
-   bare-item credit is removed). It is not built yet.
+   bare-item credit is removed). It is built, and not deployed. Before the
+   deploy, run the count of its deploy step.
 5. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 

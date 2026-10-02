@@ -88,3 +88,13 @@ GUID today. Only `ndjson` mode passes one, and only from a GUID stored in
 the database from an earlier ingest. So a first crawl of this URL, through
 the crawler as it stands, finds the same parse error this record found.
 This record does not change the crawler. It only reports the result.
+
+## The Field `publisher_reference`
+
+The parser commit `c18b70d` did not give `publisher_reference`. ADR 0069 §1a
+makes an album item a publisher link only when that field has the value
+`true`. Task 014 of ADR 0049 added the field to four `.feed_data.json` files:
+`detox-album`, `jimmyv-produced-album`, `rssblue-album` and `sirlibre-album`.
+The value is the value that the parser of release 0.6.0 gives for the same
+`.xml`. Each other field
+stays the same as the output of `c18b70d`.
