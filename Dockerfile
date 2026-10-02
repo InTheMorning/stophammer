@@ -1,3 +1,8 @@
+# check=skip=SecretsUsedInArgOrEnv
+#
+# KEY_PATH is the path of the signing key, not a secret. The BuildKit check
+# SecretsUsedInArgOrEnv matches the name "KEY" and gives a false warning. A
+# check directive must be the first line of the file.
 # Runtime image for stophammer indexer/community roles.
 # Build all main-workspace binaries, then copy the runtime subset into a minimal image.
 
