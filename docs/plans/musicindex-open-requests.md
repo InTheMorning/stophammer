@@ -359,6 +359,13 @@ for their priority.
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
 
+## Release 0.4.1 - 2026-10-02
+
+`GET /v1/feeds/{guid}/route-history` uses two new indexes (migration 0048).
+On 2026-10-02 five reads of "THERAPY IN SESSION" took 0.061 to 0.076 seconds,
+and a plain read of the same feed took 0.058 to 0.107 seconds. The answer does
+not change. This closes request 8.
+
 ## Release 0.4.0 - 2026-10-02
 
 `info.version` of `/openapi.json` gives `0.4.0`.

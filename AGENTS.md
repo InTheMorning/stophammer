@@ -94,6 +94,10 @@ Complete and deployed:
     report at `debug`. The release actions run on Node 24.
 
   The primary and the gossip crawler run the GHCR images of the release.
+- Release 0.4.1, on 2026-10-02. It promotes `v0.4.1-rc.2`. Migration 0048
+  adds two indexes for the route history read of a feed, musicindex.org
+  request 8. On the primary the read takes about as long as a plain feed read.
+  The candidate `v0.4.1-rc.1` was tagged on a commit without the migration.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -202,14 +206,15 @@ which gives the sequence of each open item of an Accepted ADR:
      0046 dropped the two proof tables, which were empty, and changed the
      trigger `trg_feeds_cleanup_before_delete`.
 
-3. Release 0.4.1 is next. It holds migration 0048, built on 2026-10-02: two
-   indexes for the route history read of a feed, musicindex.org request 8. On
-   a copy of the production data the read went from 0.095 to 0.014 seconds.
+3. No release is planned.
 
    musicindex.org request 9 asks for item titles and an image on each copy
    row. It needs an amendment of ADR 0058 §1, which is not written yet.
 
-   Two small items are open:
+   Three small items are open:
+   - The ADR 0046 check of `run_migrations` logs an `ERROR` at each start of
+     a database that is fully migrated. It should fire only when the database
+     records a higher version than the code has migrations.
    - The Docker build action of the release workflow warns
      `SecretsUsedInArgOrEnv` on `ENV KEY_PATH`. `KEY_PATH` is a path, not a
      secret, so the warning is false.
