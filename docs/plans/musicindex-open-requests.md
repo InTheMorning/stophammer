@@ -42,6 +42,7 @@ names the requests that the two clients share.
 | 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 | 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
+| 13 | Item facts on each copy row | API field addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -413,6 +414,40 @@ sequence when the medium is `publisher` or `musicL`. Give them on the copy
 row, for example as `remote_feed_guids`. Compare them as ADR 0058 §2 compares
 the items, so that a different list sets a difference flag.
 The page gets the title of each indexed feed with one read.
+
+### 13. Item Facts On Each Copy Row
+
+Added on 2026-10-03. Evidence: read-only GET requests to the live API at
+release 0.7.0 on 2026-10-03.
+
+**What happens.** The search site compares a copy with the indexed feed in
+two columns (musicindex ADR 0014). For each item of the indexed feed it shows
+the title, the duration and the recipients. For each item of the copy, the row
+gives the GUID, the title (`item_titles`) and the recipients
+(`track_recipients`). It gives no duration, no audio URL and no publication
+date. For the channel, it gives no author and no description.
+
+On 2026-10-03 the copy of "THERAPY IN SESSION"
+(`190dd27e-02b3-440d-9d1c-38e2304d93b3`) had the item "Exist", which the
+indexed feed does not have. The page can show its title and its recipients,
+but not its length or its audio.
+
+**What it costs.** A person cannot see if a track of the two versions is the
+same recording. The audio URL and the duration are the facts that show it.
+
+**Request.** Keep these values from the parsed body of a copy, as ADR 0058
+§1c keeps the titles. Keep them out of the summary digest, as §1c does:
+
+| Field | Value |
+|---|---|
+| `item_durations` | The duration of each item in seconds, in the sequence of `item_guids`. Null when an item gives none |
+| `item_enclosure_urls` | The enclosure URL of each item, in the same sequence |
+| `item_pub_dates` | The publication date of each item, in the same sequence |
+| `author` | The channel `itunes:author` of the copy |
+
+A different enclosure URL for the same item GUID is a strong sign of a
+different recording. Stophammer can select if it is a difference of ADR 0058
+§2.
 
 ## Stophammer Answers - 2026-09-25
 
