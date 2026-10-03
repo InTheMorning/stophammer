@@ -253,7 +253,11 @@ which gives the sequence of each open item of an Accepted ADR:
    in `<podcast:publisher>`, and it adds `rel`. ADR 0069 §1a follows it,
    and the bare-item credit is removed. [The guide](docs/publisher-links-guide.md)
    tells a feed author how to write the links.
-4. The research items of the plan: a station on a feed with `medium`
+4. Release 0.8.0 gives the feed list of a copy, musicindex.org request 12.
+   [Task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md) of ADR 0058
+   builds §1d: each copy row gives its channel-level entries with the
+   resolved feeds, and `differs_remote_items`. It is not built yet.
+5. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB

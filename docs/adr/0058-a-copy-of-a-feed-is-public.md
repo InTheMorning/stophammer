@@ -2,7 +2,8 @@
 
 ## Status
 Accepted on 2026-09-25. Amended on 2026-10-02 with section 1c and the
-fields of a copy row in section 3 (musicindex.org request 9).
+fields of a copy row in section 3 (musicindex.org request 9). Amended on
+2026-10-03 with section 1d (musicindex.org request 12).
 
 ## Date
 2026-09-25
@@ -129,6 +130,42 @@ the channel title of a copy. A client decides how it shows them. Stophammer
 tells musicindex.org to show the image of an open copy only after a person
 asks for it.
 
+### 1d. The summary also keeps the feed list of the copy
+
+Amended on 2026-10-03, musicindex.org request 12. A publisher feed and a
+`musicL` feed list feeds as channel-level `podcast:remoteItem` elements, and
+they have no items. So the summary of section 1 has nothing to compare for
+them. An album also has channel-level items: the parties that it names as
+its publisher.
+
+The summary of each copy also keeps its channel-level `remoteItem` entries,
+in the sequence of the body, whatever the medium of the record. Each entry
+keeps the raw `medium`, `feedGuid`, `feedUrl` and `itemGuid`. A `musicL`
+entry names a track, so `itemGuid` is a part of the entry.
+
+A raw `feedGuid` does not identify a feed. A host can write its own ID
+there. On 2026-10-02 the record of Longy was a publisher feed at
+headstarts.uk, and its copy was the Wavlake artist feed. The record gave the
+`podcast:guid` of each album as `feedGuid`. The copy gave the Wavlake album
+ID. The two lists had no `feedGuid` in common, but 11 albums were on
+both lists. So section 2 compares the resolved feeds, as ADR 0049 §3 resolves
+a publisher link.
+
+The list has its own digest: the SHA-256 of the different raw entries,
+sorted. A different sequence of the same entries is not a change. The digest
+of section 1 does not change.
+
+The node signs a `FeedCopyObserved` event when the list digest changes. The
+event carries the list. A row that the node wrote before this amendment has
+no list. It gets the list at the next submission from its URL, with one
+event. After the deploy, the operator sends the cached body of each copy URL
+again, with no fetch.
+
+A resolution of section 4 holds for the summary digest and for the list
+digest that it names. `FeedCopyResolved` carries the list digest. A
+resolution that the node signed before this amendment names no list digest.
+It holds whatever the list is, until the operator resolves the copy again.
+
 ### 2. A copy is a row that differs from the record
 
 The node compares a row with the current record when a client reads it:
@@ -136,8 +173,14 @@ The node compares a row with the current record when a client reads it:
 - `differs_tracks`: the item GUIDs are not the same set.
 - `differs_recipients`: a recipient set of the feed or of a shared item is not
   the same.
+- `differs_remote_items` (section 1d): the channel-level entries of the row
+  and of the record do not name the same set. The node resolves each entry
+  of the two sides with `resolve_listed_feed`. An entry names its resolved
+  feed, with its `itemGuid`. An entry that does not resolve names its raw
+  `feedGuid` and `feedUrl`, with its `itemGuid`. A row with no list gives
+  false.
 
-A row with no difference is an alias. A row with one or two differences
+A row with no difference is an alias. A row with one or more differences
 is a copy. The title is information only.
 
 ### 3. The API shows each copy
@@ -150,7 +193,10 @@ is a copy. The title is information only.
   also returns `copies_over_limit`. An alias is in the list, with both
   differences false. Since section 1c, each row also gives `item_guids`,
   `item_titles` in the same sequence, and `image_url`. `image_url` passes the
-  web URL rule of ADR 0054 §4.
+  web URL rule of ADR 0054 §4. Since section 1d, each row also gives
+  `differs_remote_items`, and `remote_items`: each entry of the list in
+  sequence, with its raw values, its resolved feed GUID, and the summary of
+  ADR 0059 for that feed. A row with no list gives `remote_items` null.
 - `GET /v1/copies` returns each record with one or more open copies, newest
   first, with the `QueryResponse` pagination. On the primary it also returns
   each record with a `copies_over_limit` above zero.
@@ -242,6 +288,15 @@ with different payment exists. The index shows its conflicts. Rejected.
 - Section 1c adds two columns and two payload fields of `FeedCopyObserved`. A
   node that does not know the fields verifies the signature of the event, and
   stores the row without them. So the nodes can upgrade in any sequence.
+- Section 1d adds a list column, a list digest, one payload field of
+  `FeedCopyObserved` and one of `FeedCopyResolved`. A node that does not know
+  them stores the row without the list. When it upgrades, it gets the list at
+  the next change of the row. So a community node upgrades before the primary
+  to give the same lists.
+- Section 1d compares the list for each medium. A copy of an album that names
+  another publisher is open. Some rows that were aliases become copies, and
+  `copy_count` can increase. On 2026-10-02 the primary held 80 rows and 2
+  records with an open copy.
 
 ## Invariants
 
@@ -252,6 +307,10 @@ with different payment exists. The index shows its conflicts. Rejected.
 - A GUID has at most 20 rows.
 - Only a new or changed summary makes a `FeedCopyObserved` event.
 - A title or an image never changes the summary digest.
+- Section 1d never changes the summary digest. A different sequence of the
+  same list never changes the list digest.
+- The node compares a list entry by its resolved feed, never by its raw
+  `feedGuid` alone.
 - Each public answer excludes a URL with an ADR 0053 block.
 
 ## Non-Goals
@@ -288,4 +347,9 @@ route changed six times, and no client could see the second copy. Tests:
   sequence of `item_guids`, and `image_url`. A body that changes only an item
   title signs one event, stores the new title, and keeps a `keep_source`
   resolution. A row written with no titles gets them at the next submission.
+- Section 1d, musicindex.org request 12: the Longy case. A copy whose list
+  names the same albums with other `feedGuid` values, by URL, gives
+  `differs_remote_items` false. A list with a different album gives true.
+  The same list in a different sequence signs no event. An old
+  `keep_source` resolution stays held when the list arrives.
   A community node that applies the event gives the same values.
