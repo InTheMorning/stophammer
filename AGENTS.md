@@ -256,7 +256,7 @@ which gives the sequence of each open item of an Accepted ADR:
 4. Release 0.8.0 gives the feed list of a copy, musicindex.org request 12.
    [Task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md) of ADR 0058
    builds §1d: each copy row gives its channel-level entries with the
-   resolved feeds, and `differs_remote_items`. It is not built yet.
+   resolved feeds, and `differs_remote_items`. It is built, and not deployed.
 5. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 

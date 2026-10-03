@@ -1246,10 +1246,24 @@ Gives each `feed_copies` row of a feed. ADR 0058 owns this route.
       "image_url": "https://mirror.example.com/cover.jpg",
       "differs_tracks": false,
       "differs_recipients": true,
+      "differs_remote_items": false,
       "guid_origin": false,
       "open": true,
       "feed_recipients": [{ "address": "attacker@ln.example", "split": 100 }],
       "track_recipients": {},
+      "remote_items": [
+        {
+          "medium": "publisher",
+          "feed_guid": "host-id-of-the-label",
+          "feed_url": "https://example.com/label.xml",
+          "item_guid": null,
+          "resolved_feed_guid": "label-feed-guid",
+          "remote_feed_title": "Label Name",
+          "remote_feed_image_url": "https://example.com/label.jpg",
+          "remote_release_artist": "Label Name",
+          "remote_release_artist_source": "itunes_author"
+        }
+      ],
       "resolution": null
     }
   ],
@@ -1268,12 +1282,15 @@ A copy is a stored summary of a mirror body. The body carries the same
 `podcast:guid`, at a URL that differs from the record's source URL.
 `differs_tracks` compares the item GUIDs of the row against the feed's
 current tracks. `differs_recipients` compares the feed-level recipient set,
-and the recipient set of each shared track. A row with no difference is an
-alias.
+and the recipient set of each shared track. `differs_remote_items` compares
+the channel-level `remoteItem` entries of the row and of the record (ADR 0058
+§1d). A row with no difference is an alias.
 
 `open` is `true` when the row differs and has no resolution that holds. A
-resolution holds while its digest matches the row's own `summary_digest`. A
-changed summary opens a resolved copy again.
+resolution holds while its digest matches the row's own `summary_digest`, and
+while its list digest matches the list of the row. A resolution from before
+release 0.8.0 has no list digest, and a change of the list does not open it.
+A changed summary opens a resolved copy again.
 
 `guid_origin` is `true` when the `UUIDv5` of the row's URL equals the feed
 GUID, and the `UUIDv5` of the record's source URL does not. This is an
@@ -1292,6 +1309,29 @@ It is `null` when the copy states none, or when the URL is not a web URL
 
 `item_titles` is `null` for a row that the node wrote before release 0.5.0.
 The row gets its titles at the next submission from its URL.
+
+`remote_items` gives each channel-level `remoteItem` entry of the copy, in
+the sequence of the copy. A publisher feed and a `musicL` feed list feeds
+with these entries. An album names its publisher with them.
+
+Each entry gives
+the raw `medium`, `feed_guid`, `feed_url` and `item_guid`. A host can write
+its own ID as `feedGuid`, so `feed_guid` does not always identify a feed.
+
+`resolved_feed_guid` is the indexed feed that the entry names, by its GUID or
+by its URL, as a publisher link resolves (ADR 0049 §3). It is `null` when the
+entry does not resolve. The four `remote_*` fields give the summary of that
+feed (ADR 0059), and they are `null` when the entry does not resolve.
+
+`differs_remote_items` compares the two lists by the resolved feeds, with the
+`item_guid` of each entry. Two entries of a `musicL` feed with the same feed
+and different `item_guid` values are two entries. An entry that does not
+resolve compares by its raw `feed_guid` and `feed_url`. The sequence of the
+entries is not a difference.
+
+`remote_items` is `null` for a row that the node wrote before release 0.8.0,
+and `differs_remote_items` is then `false`. The row gets its list at the next
+submission from its URL.
 
 The publisher of the copy chooses its titles and its image. Show the image of
 an open copy only after a person asks for it.

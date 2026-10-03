@@ -505,6 +505,22 @@ pub struct FeedBlock {
 
 // ── feed_copies (ADR 0058) ───────────────────────────────────────────────────
 
+/// One channel-level `podcast:remoteItem` entry from an ADR 0058 feed copy.
+/// ADR 0058 §1d, task 007.
+///
+/// The entry keeps the raw `medium`, `feed_guid`, `feed_url` and `item_guid`
+/// from the ingest data. The list is stored in the order of the body, and
+/// has its own digest independent of the summary digest.
+#[derive(
+    Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, utoipa::ToSchema,
+)]
+pub struct CopyRemoteItem {
+    pub medium: Option<String>,
+    pub feed_guid: String,
+    pub feed_url: Option<String>,
+    pub item_guid: Option<String>,
+}
+
 /// This is the ADR 0058 Section 1 summary of one submission at a URL for a
 /// feed GUID. It holds the channel title, the item GUIDs in the feed's own
 /// order, and the recipient set of the feed and of each track.
@@ -519,6 +535,9 @@ pub struct CopySummary {
     /// of a body always has it. An event signed before ADR 0058 §1c has none.
     pub item_titles: Option<Vec<Option<String>>>,
     pub image_url: Option<String>,
+    /// Channel-level remote items from `podcast:remoteItem`. A copy summary
+    /// of a body always has it. An event signed before ADR 0058 §1d has none.
+    pub remote_items: Option<Vec<CopyRemoteItem>>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
 }
@@ -536,8 +555,8 @@ impl From<&IngestPaymentRoute> for RouteRecipient {
 
 /// Builds the ADR 0058 Section 1 summary of a mirror body. The summary
 /// holds the channel title, the item GUIDs in the feed's own order, the
-/// title of each item, the channel image URL, and the recipient set of the
-/// feed and of each track.
+/// title of each item, the channel image URL, the channel-level remote items,
+/// and the recipient set of the feed and of each track.
 #[must_use]
 pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
     let feed_recipients = feed
@@ -565,11 +584,23 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
         track_recipients.insert(track.track_guid.clone(), recipients);
     }
 
+    let remote_items = feed
+        .remote_items
+        .iter()
+        .map(|item| CopyRemoteItem {
+            medium: item.medium.clone(),
+            feed_guid: item.remote_feed_guid.clone(),
+            feed_url: item.remote_feed_url.clone(),
+            item_guid: item.item_guid.clone(),
+        })
+        .collect();
+
     CopySummary {
         title: feed.title.clone(),
         item_guids,
         item_titles: Some(item_titles),
         image_url: feed.image_url.clone(),
+        remote_items: Some(remote_items),
         feed_recipients,
         track_recipients,
     }
@@ -606,6 +637,22 @@ pub fn summary_digest(summary: &CopySummary) -> String {
     let bytes =
         serde_json::to_vec(&fields).expect("CopySummaryDigestFields always serializes to JSON");
     hex::encode(sha2::Sha256::digest(&bytes))
+}
+
+/// Returns the SHA-256 hex digest of the remote items list of `summary`
+/// (ADR 0058 Section 1d): the different entries, sorted, so the same entries
+/// in another sequence give the same digest. Returns `None` when the summary
+/// has no list, as an event signed before section 1d has none.
+///
+/// # Panics
+///
+/// Panics if the sorted entries cannot be serialized to JSON.
+#[must_use]
+pub fn remote_items_digest(summary: &CopySummary) -> Option<String> {
+    let entries: std::collections::BTreeSet<&CopyRemoteItem> =
+        summary.remote_items.as_ref()?.iter().collect();
+    let bytes = serde_json::to_vec(&entries).expect("remote items always serialize to JSON");
+    Some(hex::encode(sha2::Sha256::digest(&bytes)))
 }
 
 /// The ADR 0058 Section 1b namespace for deriving a `podcast:guid` from a

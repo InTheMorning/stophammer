@@ -420,6 +420,9 @@ CREATE TABLE IF NOT EXISTS feed_copies (
     resolved_digest   TEXT,
     item_titles       TEXT,
     image_url         TEXT,
+    remote_items      TEXT,
+    remote_items_digest TEXT,
+    resolved_remote_items_digest TEXT,
     PRIMARY KEY (feed_guid, url)
 ) STRICT;
 

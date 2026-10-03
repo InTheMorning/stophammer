@@ -402,6 +402,8 @@ pub struct FeedCopyObservedPayload {
     pub item_titles: Option<Vec<Option<String>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_items: Option<Vec<crate::model::CopyRemoteItem>>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,
@@ -413,7 +415,8 @@ pub struct FeedCopyObservedPayload {
 /// The subject GUID of the [`Event`] carrying this payload is `feed_guid`.
 /// `decision` is `"keep_source"` or `"relocate"`. `resolved_digest` is the
 /// `summary_digest` of the row at the time of the resolution. The
-/// resolution holds only while the row keeps that digest.
+/// resolution holds only while the row keeps that digest and (since ADR 0058
+/// §1d) the remote items digest it names.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FeedCopyResolvedPayload {
     pub feed_guid: String,
@@ -422,6 +425,8 @@ pub struct FeedCopyResolvedPayload {
     pub reason: String,
     pub resolved_at: i64,
     pub resolved_digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_remote_items_digest: Option<String>,
 }
 
 /// Emitted when the `feed_guid_changes` row of `source_url` is new, or its

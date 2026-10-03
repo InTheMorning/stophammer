@@ -834,6 +834,7 @@ fn feed_copy_observed_event_row(
         item_guids: summary.item_guids.clone(),
         item_titles: summary.item_titles.clone(),
         image_url: summary.image_url.clone(),
+        remote_items: summary.remote_items.clone(),
         feed_recipients: summary.feed_recipients.clone(),
         track_recipients: summary.track_recipients.clone(),
         summary_digest: digest.to_string(),
@@ -875,6 +876,7 @@ fn record_feed_copy_for_ingest(
 ) -> Result<Vec<SignedEventRow>, ApiError> {
     let summary = model::copy_summary(feed_data);
     let digest = model::summary_digest(&summary);
+    let remote_items_digest = model::remote_items_digest(&summary);
 
     let tx = conn.transaction().map_err(db::DbError::from)?;
     let existing = db::get_feed_copy(&tx, feed_guid, url)?;
@@ -886,8 +888,14 @@ fn record_feed_copy_for_ingest(
             let title_changed = summary.title != row.title;
             let item_titles_changed = summary.item_titles != row.item_titles;
             let image_changed = summary.image_url != row.image_url;
+            let remote_items_changed = remote_items_digest != row.remote_items_digest;
 
-            if digest_changed || title_changed || item_titles_changed || image_changed {
+            if digest_changed
+                || title_changed
+                || item_titles_changed
+                || image_changed
+                || remote_items_changed
+            {
                 db::upsert_feed_copy_summary(
                     &tx,
                     feed_guid,
@@ -895,6 +903,7 @@ fn record_feed_copy_for_ingest(
                     row.first_seen,
                     &summary,
                     &digest,
+                    remote_items_digest.as_deref(),
                 )?;
                 Some(sign_event_row(
                     &tx,
@@ -917,7 +926,15 @@ fn record_feed_copy_for_ingest(
                 db::increment_copy_overflow(&tx, feed_guid)?;
                 None
             } else {
-                db::upsert_feed_copy_summary(&tx, feed_guid, url, now, &summary, &digest)?;
+                db::upsert_feed_copy_summary(
+                    &tx,
+                    feed_guid,
+                    url,
+                    now,
+                    &summary,
+                    &digest,
+                    remote_items_digest.as_deref(),
+                )?;
                 db::touch_feed_copy_last_seen(&tx, feed_guid, url, now)?;
                 Some(sign_event_row(
                     &tx,
@@ -5405,8 +5422,9 @@ async fn handle_resolve_copy(
             }
         }
 
-        // The resolution names the row's own summary_digest — not a
-        // recomputed one — so it holds until that summary next changes.
+        // The resolution names the row's own summary_digest and remote_items_digest
+        // — not recomputed ones — so it holds until that summary next changes
+        // (ADR 0058 §4, §1d).
         let event_id = uuid::Uuid::new_v4().to_string();
         let payload = event::FeedCopyResolvedPayload {
             feed_guid: guid2.clone(),
@@ -5415,6 +5433,7 @@ async fn handle_resolve_copy(
             reason: reason.clone(),
             resolved_at: now,
             resolved_digest: row.summary_digest.clone(),
+            resolved_remote_items_digest: row.remote_items_digest.clone(),
         };
         let payload_json = serde_json::to_string(&payload)?;
         let (seq, signed_by, signature) = db::insert_event(
@@ -5435,6 +5454,7 @@ async fn handle_resolve_copy(
             &reason,
             now,
             &row.summary_digest,
+            row.remote_items_digest.as_deref(),
         )?;
 
         tx.commit()?;

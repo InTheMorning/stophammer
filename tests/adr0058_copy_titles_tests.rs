@@ -548,6 +548,7 @@ async fn a_keep_source_resolution_holds_after_a_title_or_image_change() {
             "operator kept the source",
             stophammer::db::unix_now(),
             &digest,
+            None,
         )
         .expect("set resolution");
     }

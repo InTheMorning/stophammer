@@ -260,6 +260,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 49: add item titles and image URL to feed_copies table
     // (ADR 0058 §1c, task 006)
     include_str!("../migrations/0049_copy_titles_and_image.sql"),
+    // Migration 50: add channel-level remote items to feed_copies table
+    // (ADR 0058 §1d, task 007)
+    include_str!("../migrations/0050_copy_remote_items.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -4350,13 +4353,16 @@ pub struct FeedCopyRow {
     pub item_guids: Vec<String>,
     pub item_titles: Option<Vec<Option<String>>>,
     pub image_url: Option<String>,
+    pub remote_items: Option<Vec<crate::model::CopyRemoteItem>>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,
+    pub remote_items_digest: Option<String>,
     pub resolution: Option<String>,
     pub resolution_reason: Option<String>,
     pub resolved_at: Option<i64>,
     pub resolved_digest: Option<String>,
+    pub resolved_remote_items_digest: Option<String>,
 }
 
 /// The plain-column shape of a `feed_copies` row, before the JSON
@@ -4377,11 +4383,15 @@ type RawFeedCopyRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 const FEED_COPY_COLUMNS: &str = "feed_guid, url, first_seen, last_seen, title, item_guids, \
      feed_recipients, track_recipients, summary_digest, resolution, resolution_reason, \
-     resolved_at, resolved_digest, item_titles, image_url";
+     resolved_at, resolved_digest, item_titles, image_url, remote_items, remote_items_digest, \
+     resolved_remote_items_digest";
 
 fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCopyRow> {
     Ok((
@@ -4400,6 +4410,9 @@ fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCo
         row.get(12)?,
         row.get(13)?,
         row.get(14)?,
+        row.get(15)?,
+        row.get(16)?,
+        row.get(17)?,
     ))
 }
 
@@ -4425,8 +4438,16 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         resolved_digest,
         item_titles_json,
         image_url,
+        remote_items_json,
+        remote_items_digest,
+        resolved_remote_items_digest,
     ) = raw;
     let item_titles = if let Some(json) = item_titles_json {
+        Some(serde_json::from_str(&json)?)
+    } else {
+        None
+    };
+    let remote_items = if let Some(json) = remote_items_json {
         Some(serde_json::from_str(&json)?)
     } else {
         None
@@ -4440,13 +4461,16 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         item_guids: serde_json::from_str(&item_guids_json)?,
         item_titles,
         image_url,
+        remote_items,
         feed_recipients: serde_json::from_str(&feed_recipients_json)?,
         track_recipients: serde_json::from_str(&track_recipients_json)?,
         summary_digest,
+        remote_items_digest,
         resolution,
         resolution_reason,
         resolved_at,
         resolved_digest,
+        resolved_remote_items_digest,
     })
 }
 
@@ -4529,10 +4553,16 @@ pub fn upsert_feed_copy_summary(
     first_seen: i64,
     summary: &CopySummary,
     digest: &str,
+    remote_items_digest: Option<&str>,
 ) -> Result<(), DbError> {
     let item_guids = serde_json::to_string(&summary.item_guids)?;
     let item_titles = summary
         .item_titles
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let remote_items = summary
+        .remote_items
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
@@ -4541,16 +4571,19 @@ pub fn upsert_feed_copy_summary(
     conn.execute(
         "INSERT INTO feed_copies \
          (feed_guid, url, first_seen, title, item_guids, feed_recipients, \
-          track_recipients, summary_digest, item_titles, image_url) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10) \
+          track_recipients, summary_digest, item_titles, image_url, remote_items, \
+          remote_items_digest) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
          ON CONFLICT(feed_guid, url) DO UPDATE SET \
-           title            = excluded.title, \
-           item_guids       = excluded.item_guids, \
-           feed_recipients  = excluded.feed_recipients, \
-           track_recipients = excluded.track_recipients, \
-           summary_digest   = excluded.summary_digest, \
-           item_titles      = excluded.item_titles, \
-           image_url        = excluded.image_url",
+           title               = excluded.title, \
+           item_guids          = excluded.item_guids, \
+           feed_recipients     = excluded.feed_recipients, \
+           track_recipients    = excluded.track_recipients, \
+           summary_digest      = excluded.summary_digest, \
+           item_titles         = excluded.item_titles, \
+           image_url           = excluded.image_url, \
+           remote_items        = excluded.remote_items, \
+           remote_items_digest = excluded.remote_items_digest",
         params![
             feed_guid,
             url,
@@ -4561,7 +4594,9 @@ pub fn upsert_feed_copy_summary(
             track_recipients,
             digest,
             item_titles,
-            summary.image_url
+            summary.image_url,
+            remote_items,
+            remote_items_digest
         ],
     )?;
     Ok(())
@@ -4635,6 +4670,10 @@ pub fn get_copy_overflow(conn: &Connection, feed_guid: &str) -> Result<i64, DbEr
 /// # Errors
 ///
 /// Returns [`DbError`] if the write fails.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the function needs each argument: the resolution fields of section 4 (decision, reason, resolved_at, resolved_digest), plus the list digest of section 1d"
+)]
 pub fn set_feed_copy_resolution(
     conn: &Connection,
     feed_guid: &str,
@@ -4643,16 +4682,18 @@ pub fn set_feed_copy_resolution(
     reason: &str,
     resolved_at: i64,
     resolved_digest: &str,
+    resolved_remote_items_digest: Option<&str>,
 ) -> Result<(), DbError> {
     conn.execute(
         "UPDATE feed_copies SET resolution = ?1, resolution_reason = ?2, \
-         resolved_at = ?3, resolved_digest = ?4 \
-         WHERE feed_guid = ?5 AND url = ?6",
+         resolved_at = ?3, resolved_digest = ?4, resolved_remote_items_digest = ?5 \
+         WHERE feed_guid = ?6 AND url = ?7",
         params![
             decision,
             reason,
             resolved_at,
             resolved_digest,
+            resolved_remote_items_digest,
             feed_guid,
             url
         ],
@@ -4708,7 +4749,7 @@ pub fn copy_differences(
     conn: &Connection,
     feed_guid: &str,
     row: &FeedCopyRow,
-) -> Result<(bool, bool), DbError> {
+) -> Result<(bool, bool, bool), DbError> {
     let tracks = get_tracks_for_feed(conn, feed_guid)?;
 
     let current_item_guids: std::collections::HashSet<&str> =
@@ -4737,21 +4778,93 @@ pub fn copy_differences(
         }
     }
 
-    Ok((differs_tracks, differs_recipients))
+    // ADR 0058 §1d and §2: compare the channel-level entries by the feed
+    // that each one resolves to, never by the raw `feedGuid` alone.
+    let differs_remote_items = if let Some(row_items) = &row.remote_items {
+        let mut current_keys = std::collections::HashSet::new();
+        for item in get_feed_remote_items_for_feed(conn, feed_guid)? {
+            current_keys.insert(copy_entry_key(
+                conn,
+                &item.remote_feed_guid,
+                item.remote_feed_url.as_deref(),
+                item.remote_item_guid.as_deref(),
+            )?);
+        }
+        let mut row_keys = std::collections::HashSet::new();
+        for item in row_items {
+            row_keys.insert(copy_entry_key(
+                conn,
+                &item.feed_guid,
+                item.feed_url.as_deref(),
+                item.item_guid.as_deref(),
+            )?);
+        }
+        current_keys != row_keys
+    } else {
+        false
+    };
+
+    Ok((differs_tracks, differs_recipients, differs_remote_items))
+}
+
+/// The key of one channel-level entry for the comparison of ADR 0058 §2:
+/// the resolved feed GUID and the `itemGuid`, or, when the entry does not
+/// resolve, its raw `feedGuid`, `feedUrl` and `itemGuid`.
+type CopyEntryKey = (
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
+fn copy_entry_key(
+    conn: &Connection,
+    feed_guid: &str,
+    feed_url: Option<&str>,
+    item_guid: Option<&str>,
+) -> Result<CopyEntryKey, DbError> {
+    let item_guid = item_guid.map(str::to_string);
+    Ok(
+        match resolve_listed_feed(conn, feed_guid, feed_url)?.feed_guid() {
+            Some(resolved) => (Some(resolved.to_string()), None, None, item_guid),
+            None => (
+                None,
+                Some(feed_guid.to_string()),
+                feed_url.map(str::to_string),
+                item_guid,
+            ),
+        },
+    )
+}
+
+/// True when the resolution of `row` holds: it names the current summary
+/// digest, and it names no list digest or the current one (ADR 0058 §4 and
+/// §1d). A resolution signed before §1d names no list digest.
+#[must_use]
+pub fn copy_resolution_holds(row: &FeedCopyRow) -> bool {
+    row.resolved_digest
+        .as_deref()
+        .is_some_and(|digest| digest == row.summary_digest)
+        && row
+            .resolved_remote_items_digest
+            .as_deref()
+            .is_none_or(|digest| Some(digest) == row.remote_items_digest.as_deref())
 }
 
 /// True when `row` is an open copy of `feed_guid` (ADR 0058 Section 4, plan
 /// decision 9): it differs from the current record, and no resolution holds
-/// for its current summary. `differs_tracks` and `differs_recipients` come
+/// for its current summary and remote items list (ADR 0058 §1d).
+/// `differs_tracks`, `differs_recipients`, and `differs_remote_items` come
 /// from [`copy_differences`].
 #[must_use]
-pub fn is_open_copy(differs_tracks: bool, differs_recipients: bool, row: &FeedCopyRow) -> bool {
-    let differs = differs_tracks || differs_recipients;
-    let resolution_holds = row
-        .resolved_digest
-        .as_deref()
-        .is_some_and(|digest| digest == row.summary_digest);
-    differs && !resolution_holds
+pub fn is_open_copy(
+    differs_tracks: bool,
+    differs_recipients: bool,
+    differs_remote_items: bool,
+    row: &FeedCopyRow,
+) -> bool {
+    let differs = differs_tracks || differs_recipients || differs_remote_items;
+    differs && !copy_resolution_holds(row)
 }
 
 /// Returns the number of open copies of `feed_guid`, and the newest
@@ -4779,8 +4892,14 @@ pub fn open_copy_summary(
     let mut count = 0i64;
     let mut newest_first_seen: Option<i64> = None;
     for row in &rows {
-        let (differs_tracks, differs_recipients) = copy_differences(conn, feed_guid, row)?;
-        if is_open_copy(differs_tracks, differs_recipients, row) {
+        let (differs_tracks, differs_recipients, differs_remote_items) =
+            copy_differences(conn, feed_guid, row)?;
+        if is_open_copy(
+            differs_tracks,
+            differs_recipients,
+            differs_remote_items,
+            row,
+        ) {
             count += 1;
             newest_first_seen =
                 Some(newest_first_seen.map_or(row.first_seen, |seen| seen.max(row.first_seen)));

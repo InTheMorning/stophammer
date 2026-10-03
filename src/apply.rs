@@ -213,9 +213,11 @@ fn apply_single_event_inner(
                 item_guids: p.item_guids.clone(),
                 item_titles: p.item_titles.clone(),
                 image_url: p.image_url.clone(),
+                remote_items: p.remote_items.clone(),
                 feed_recipients: p.feed_recipients.clone(),
                 track_recipients: p.track_recipients.clone(),
             };
+            let remote_items_digest = crate::model::remote_items_digest(&summary);
             db::upsert_feed_copy_summary(
                 conn,
                 &p.feed_guid,
@@ -223,6 +225,7 @@ fn apply_single_event_inner(
                 p.first_seen,
                 &summary,
                 &p.summary_digest,
+                remote_items_digest.as_deref(),
             )?;
         }
         event::EventPayload::FeedCopyResolved(p) => {
@@ -236,6 +239,7 @@ fn apply_single_event_inner(
                 &p.reason,
                 p.resolved_at,
                 &p.resolved_digest,
+                p.resolved_remote_items_digest.as_deref(),
             )?;
         }
         event::EventPayload::FeedGuidChangeObserved(p) => {

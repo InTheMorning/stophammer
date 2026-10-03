@@ -128,6 +128,7 @@ fn summary_digest_ignores_the_title_but_changes_with_a_recipient() {
         item_guids: vec!["item-1".into()],
         item_titles: Some(vec![Some("Item Title".into())]),
         image_url: Some("https://example.com/image.jpg".into()),
+        remote_items: None,
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };
@@ -194,6 +195,7 @@ fn make_feed_copy_observed_event(
         item_guids: vec!["item-1".into()],
         item_titles: Some(vec![Some("Item Title".into())]),
         image_url: Some("https://example.com/image.jpg".into()),
+        remote_items: None,
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
         summary_digest: digest.into(),
@@ -229,6 +231,7 @@ fn make_feed_copy_resolved_event(
         reason: "confirmed by artist".into(),
         resolved_at: now,
         resolved_digest: resolved_digest.into(),
+        resolved_remote_items_digest: None,
     };
     let payload_json = serde_json::to_string(&inner).expect("serialize");
 
@@ -366,6 +369,7 @@ fn inserting_a_url_block_deletes_the_row_of_that_url_and_keeps_another() {
         item_guids: vec!["item-1".into()],
         item_titles: Some(vec![Some("Item Title".into())]),
         image_url: Some("https://example.com/image.jpg".into()),
+        remote_items: None,
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };
@@ -376,10 +380,19 @@ fn inserting_a_url_block_deletes_the_row_of_that_url_and_keeps_another() {
         now,
         &summary,
         "digest-blocked",
+        None,
     )
     .expect("upsert blocked url row");
-    db::upsert_feed_copy_summary(&conn, feed_guid, kept_url, now, &summary, "digest-kept")
-        .expect("upsert kept url row");
+    db::upsert_feed_copy_summary(
+        &conn,
+        feed_guid,
+        kept_url,
+        now,
+        &summary,
+        "digest-kept",
+        None,
+    )
+    .expect("upsert kept url row");
 
     db::insert_feed_block(
         &conn,
@@ -422,6 +435,7 @@ fn deleting_a_feed_removes_its_copy_rows_and_its_overflow_counter() {
         item_guids: vec!["item-1".into()],
         item_titles: Some(vec![Some("Item Title".into())]),
         image_url: Some("https://example.com/image.jpg".into()),
+        remote_items: None,
         feed_recipients: vec![recipient("aaa")],
         track_recipients: std::collections::BTreeMap::new(),
     };
@@ -432,6 +446,7 @@ fn deleting_a_feed_removes_its_copy_rows_and_its_overflow_counter() {
         now,
         &summary,
         "digest-delete",
+        None,
     )
     .expect("upsert row");
     db::increment_copy_overflow(&conn, feed_guid).expect("increment overflow");

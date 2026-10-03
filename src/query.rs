@@ -442,6 +442,33 @@ struct FeedCopyResolutionResponse {
     current: bool,
 }
 
+/// One channel-level `podcast:remoteItem` entry of a copy, in the sequence
+/// of the copy body. ADR 0058 §1d and §3.
+#[derive(Debug, Serialize, ToSchema)]
+struct CopyRemoteItemResponse {
+    /// The raw `medium` of the entry.
+    medium: Option<String>,
+    /// The raw `feedGuid` of the entry. A host can write its own ID here, so
+    /// it does not always identify a feed.
+    feed_guid: String,
+    /// The raw `feedUrl` of the entry, or null when it is not a web URL.
+    /// ADR 0054 §4.
+    feed_url: Option<String>,
+    /// The raw `itemGuid` of the entry, or null when it has none.
+    item_guid: Option<String>,
+    /// The indexed feed that the entry resolves to, by its GUID or its URL,
+    /// or null when it does not resolve. ADR 0049 §3.
+    resolved_feed_guid: Option<String>,
+    /// The title of the resolved feed, or null. ADR 0059 §1.
+    remote_feed_title: Option<String>,
+    /// The image URL of the resolved feed, or null. ADR 0059 §3.
+    remote_feed_image_url: Option<String>,
+    /// The release artist of the resolved feed, or null. ADR 0059 §1.
+    remote_release_artist: Option<String>,
+    /// The release artist source of the resolved feed, or null. ADR 0059 §1.
+    remote_release_artist_source: Option<String>,
+}
+
 /// One row of `GET /v1/feeds/{guid}/copies` (ADR 0058 sections 1 to 4).
 #[derive(Debug, Serialize, ToSchema)]
 #[expect(
@@ -459,6 +486,9 @@ struct FeedCopyResponse {
     image_url: Option<String>,
     differs_tracks: bool,
     differs_recipients: bool,
+    /// True when the `remote_items` list of the row and the record do not name
+    /// the same set (ADR 0058 §2, §1d).
+    differs_remote_items: bool,
     /// True when this URL's GUID is the `UUIDv5` of the URL itself, and not
     /// of the record's stored source URL (ADR 0058 Section 1b).
     guid_origin: bool,
@@ -466,6 +496,7 @@ struct FeedCopyResponse {
     open: bool,
     feed_recipients: Vec<RouteRecipient>,
     track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
+    remote_items: Option<Vec<CopyRemoteItemResponse>>,
     resolution: Option<FeedCopyResolutionResponse>,
 }
 
@@ -2882,20 +2913,49 @@ fn build_feed_copy_response(
     feed_guid: &str,
     row: db::FeedCopyRow,
 ) -> Result<FeedCopyResponse, api::ApiError> {
-    let (differs_tracks, differs_recipients) = db::copy_differences(conn, feed_guid, &row)?;
-    let open = db::is_open_copy(differs_tracks, differs_recipients, &row);
-    let resolution = row.resolution.map(|decision| {
-        let current = row
-            .resolved_digest
-            .as_deref()
-            .is_some_and(|digest| digest == row.summary_digest);
-        FeedCopyResolutionResponse {
-            decision,
-            reason: row.resolution_reason.unwrap_or_default(),
-            resolved_at: row.resolved_at.unwrap_or_default(),
-            current,
-        }
+    let (differs_tracks, differs_recipients, differs_remote_items) =
+        db::copy_differences(conn, feed_guid, &row)?;
+    let open = db::is_open_copy(
+        differs_tracks,
+        differs_recipients,
+        differs_remote_items,
+        &row,
+    );
+    let current = db::copy_resolution_holds(&row);
+    let resolution = row.resolution.map(|decision| FeedCopyResolutionResponse {
+        decision,
+        reason: row.resolution_reason.unwrap_or_default(),
+        resolved_at: row.resolved_at.unwrap_or_default(),
+        current,
     });
+
+    // ADR 0058 §1d and §3: each entry with its resolved feed and the ADR
+    // 0059 summary of that feed.
+    let remote_items = match &row.remote_items {
+        Some(items) => {
+            let mut entries = Vec::with_capacity(items.len());
+            for item in items {
+                let resolved =
+                    db::resolve_listed_feed(conn, &item.feed_guid, item.feed_url.as_deref())?
+                        .feed_guid()
+                        .map(str::to_string);
+                let summary = named_feed_summary(conn, resolved.as_deref())?;
+                entries.push(CopyRemoteItemResponse {
+                    medium: item.medium.clone(),
+                    feed_guid: item.feed_guid.clone(),
+                    feed_url: web_url_or_none(item.feed_url.as_deref()),
+                    item_guid: item.item_guid.clone(),
+                    resolved_feed_guid: resolved,
+                    remote_feed_title: summary.title,
+                    remote_feed_image_url: summary.image_url,
+                    remote_release_artist: summary.release_artist,
+                    remote_release_artist_source: summary.release_artist_source,
+                });
+            }
+            Some(entries)
+        }
+        None => None,
+    };
 
     Ok(FeedCopyResponse {
         guid_origin: guid_origin_matches(feed_guid, &row.url),
@@ -2908,9 +2968,11 @@ fn build_feed_copy_response(
         image_url: web_url_or_none(row.image_url.as_deref()),
         differs_tracks,
         differs_recipients,
+        differs_remote_items,
         open,
         feed_recipients: row.feed_recipients,
         track_recipients: row.track_recipients,
+        remote_items,
         resolution,
     })
 }

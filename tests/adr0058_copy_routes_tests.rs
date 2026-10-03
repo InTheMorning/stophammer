@@ -446,6 +446,7 @@ async fn a_resolution_closes_the_copy_and_a_changed_summary_opens_it_again() {
             "operator checked it and kept the source",
             stophammer::db::unix_now(),
             &digest_before,
+            None,
         )
         .expect("set resolution");
     }
