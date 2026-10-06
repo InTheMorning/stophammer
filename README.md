@@ -139,8 +139,9 @@ docker compose up -d --build live-relay
 ```
 
 It publishes on the host loopback at `127.0.0.1:8018` for a front-end proxy to
-reach. All of its state is in memory, so recreating the container invalidates
-every provisioned `event_id` and broadcaster token. Deploy prebuilt binaries
+reach. A recreate removes each ephemeral live item and its broadcaster token.
+A reserved live item survives when `ADMIN_TOKEN` is set and a volume holds
+`/var/lib/musicindex-live-relay`. See `docs/operations.md`. Deploy prebuilt binaries
 with [`deploy-live-relay.sh`](deploy-live-relay.sh); source lives in
 [Live-Metadata-Relay](https://github.com/InTheMorning/Live-Metadata-Relay).
 

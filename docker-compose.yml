@@ -45,9 +45,11 @@ services:
     # Deployed by ./deploy-live-relay.sh, which builds a static musl binary
     # locally and sets STOPHAMMER_LIVE_RELAY_IMAGE in the remote .env.
     #
-    # Stateless by design: all live items and broadcaster tokens live in
-    # memory, so recreating this container invalidates every provisioned
-    # event_id and token. No volume, deliberately.
+    # An ephemeral live item lives in memory only, and a recreate removes it.
+    # A reserved live item (relay ADR 0001) needs ADMIN_TOKEN and a named
+    # volume at /var/lib/musicindex-live-relay. The VPS adds that volume in
+    # docker-compose.override.yml. deploy-live-relay.sh refuses a recreate
+    # when ADMIN_TOKEN is set and the volume is missing.
     image: ${STOPHAMMER_LIVE_RELAY_IMAGE:-musicindex-live-relay}
     build:
       context: .

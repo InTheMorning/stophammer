@@ -482,18 +482,30 @@ Use `/v1/liveitems/health`, **not** the top-level `/health`, to check the relay.
 On `api.musicindex.org` the top-level route belongs to `primary`, so `/health`
 can return 200 while the relay is down.
 
-### State Is In Memory Only
+### Ephemeral And Reserved Live Items
 
-The relay persists nothing. Restarting or recreating the container drops every
-live item, broadcaster token, latest snapshot, and replay buffer. There is no
-volume and no backup, deliberately.
+The relay has two classes of live item (relay ADR 0001):
 
-Consequences for operators:
+- **Ephemeral.** `POST /v1/liveitems` makes one. It lives in memory only. A
+  restart, a recreate or the idle TTL removes it and its broadcaster token.
+  Its `event_id` then gives `404`, and an RSS live value link to it is dead.
+- **Reserved.** The operator makes one with the relay admin token. The relay
+  keeps its identity and its token hash in the SQLite file `STATE_FILE`. A
+  restart restores the identity. It does not restore the snapshot, the display
+  state or the images. Until the next publish, `remoteValue` gives `{}`.
 
-- Every broadcaster must re-provision after a relay restart. Their existing
-  `event_id` becomes unknown and publishes fail with HTTP 404.
-- Any RSS live value block advertising an `event_id` goes stale on restart.
-- Do not recreate this service casually alongside unrelated deploys.
+A reserved item needs two settings:
+
+- `ADMIN_TOKEN` in `packaging/env/live-relay.compose.env`, with the file mode
+  `600`.
+- A named volume at `/var/lib/musicindex-live-relay`. The VPS adds it in
+  `docker-compose.override.yml`, which is not in this repository.
+  `deploy-live-relay.sh` refuses a recreate when `ADMIN_TOKEN` is set and the
+  volume is missing.
+
+The relay runbook `docs/runbooks/reserved-live-items.md` has the procedures to
+reserve, back up and recover. Do not recreate this service with unrelated
+deploys. A recreate removes each ephemeral item.
 
 ### Deploy
 
@@ -525,6 +537,35 @@ Per-IP rate limiting is the proxy's job. `MAX_CREATES_PER_SEC` in
 `packaging/env/live-relay.compose.env` is a global safety bound, not a
 per-client limit. CORS is permissive at the relay so browser apps can consume
 SSE directly; restrict it at the proxy if you need a stricter origin policy.
+
+### Capacity
+
+Three limits set the number of SSE streams that the relay can serve. Increase
+the three limits together.
+
+| Limit | Where | Note |
+|---|---|---|
+| `MAX_SSE_CONNECTIONS` | `packaging/env/live-relay.compose.env` | Default `1000`. It counts each SSE stream on the relay, for all events: `/events` and `/display/events`. At the limit the relay gives `503 max_sse_connections_reached`. |
+| `worker_connections` | The nginx configuration of the host | nginx uses two connections for each proxied stream: one to the listener and one to the relay. |
+| Open files (`nofile`) | The limits of the nginx and relay processes | Each connection uses one file descriptor. |
+
+A listener of the private app opens one SSE stream today. With publisher ADR
+0009 it opens two. The default thus serves about 1,000 listeners today, and
+about 500 after ADR 0009, for all events together. Socket.IO streams do not
+count against `MAX_SSE_CONNECTIONS`.
+
+Each SSE location needs `proxy_buffering off` and a `proxy_read_timeout`
+longer than the 15-second SSE heartbeat of the relay.
+
+Open checks, recorded 2026-10-06:
+
+- [ ] Read `worker_connections` with `sudo nginx -T | grep worker_`.
+- [ ] Read the open-file limit of nginx with
+  `cat /proc/$(pgrep -o nginx)/limits | grep 'open files'`.
+- [ ] Make sure that each SSE location of the relay has `proxy_buffering off`
+  and a `proxy_read_timeout` of more than 15 seconds.
+- [ ] Select a value for `MAX_SSE_CONNECTIONS` that the two other limits can
+  serve, and set it before a show with a large audience.
 
 ---
 
