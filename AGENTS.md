@@ -142,6 +142,22 @@ Complete and deployed:
   had not read their albums since release 0.6.0. 190 are Wavlake albums, and
   each one in a sample of five gave `404` at Wavlake. Their links stopped
   counting. The primary and the gossip crawler run the GHCR images of 0.7.0.
+- Release 0.8.0, on 2026-10-08. It promotes `v0.8.0-rc.2`, and it holds:
+  - ADR 0058 §1d, with
+    [task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md): each copy
+    row gives its channel-level entries with the resolved feeds, and
+    `differs_remote_items`, musicindex.org request 12. Migration 0050 adds the
+    column. An `ndjson` replay of the cached copy bodies filled the rows from
+    before the release.
+  - The answer to v4vmm request 5: a search gives each entity one time. The
+    search index kept a row with the bare track GUID of each track from before
+    the feed-scoped track identity. On the first open, the primary rebuilt the
+    index for 10,462 feeds in 29 seconds. The
+    [verification record](docs/reviews/v4vmm-request-5-search-duplicates-verification.md)
+    holds the checks.
+
+  The candidate `v0.8.0-rc.1` did not hold the search repair. The primary and
+  the gossip crawler run the GHCR images of the release.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -155,7 +171,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`76487f7` makes. `GET /node/info` gives the revision of the running node.
+`c1734b3` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
 [the client requests work plan](docs/plans/client-requests-work-plan.md). Each
@@ -253,18 +269,7 @@ which gives the sequence of each open item of an Accepted ADR:
    in `<podcast:publisher>`, and it adds `rel`. ADR 0069 §1a follows it,
    and the bare-item credit is removed. [The guide](docs/publisher-links-guide.md)
    tells a feed author how to write the links.
-4. Release 0.8.0 gives the feed list of a copy, musicindex.org request 12.
-   [Task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md) of ADR 0058
-   builds §1d: each copy row gives its channel-level entries with the
-   resolved feeds, and `differs_remote_items`. It is built, and not deployed.
-
-   Release 0.8.0 also answers v4vmm request 5. A search gave one track two
-   times, because the search index kept a row with the bare track GUID from
-   before the feed-scoped track identity. On the first open, the node rebuilds
-   the search index. That takes some seconds. The
-   [verification record](docs/reviews/v4vmm-request-5-search-duplicates-verification.md)
-   holds the checks.
-5. The research items of the plan: a station on a feed with `medium`
+4. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 
    One question is open: a restart of the gossip crawler reads about 2.4 GB
