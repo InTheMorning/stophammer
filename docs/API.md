@@ -1690,6 +1690,9 @@ Default search includes:
 Search is source-first in the current runtime. Feed and track search results
 align with the same public IDs exposed by the direct read endpoints.
 
+A response gives each feed and each track one time. A track is identified by
+its feed GUID and its track GUID.
+
 Track search hits also include canonical disambiguators:
 
 - `feed_guid` when `entity_type = "track"`

@@ -257,6 +257,13 @@ which gives the sequence of each open item of an Accepted ADR:
    [Task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md) of ADR 0058
    builds §1d: each copy row gives its channel-level entries with the
    resolved feeds, and `differs_remote_items`. It is built, and not deployed.
+
+   Release 0.8.0 also answers v4vmm request 5. A search gave one track two
+   times, because the search index kept a row with the bare track GUID from
+   before the feed-scoped track identity. On the first open, the node rebuilds
+   the search index. That takes some seconds. The
+   [verification record](docs/reviews/v4vmm-request-5-search-duplicates-verification.md)
+   holds the checks.
 5. The research items of the plan: a station on a feed with `medium`
    `podcast`, and a read from a cache after a `live` podping.
 

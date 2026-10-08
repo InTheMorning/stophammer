@@ -734,7 +734,59 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_release_artist_source_schema(&conn)?;
     ensure_feed_declared_self_url_schema(&conn)?;
     ensure_feed_move_declaration_schema(&conn)?;
+    ensure_search_index_track_identity(&mut conn)?;
     Ok(conn)
+}
+
+/// Rebuilds the search index when it holds a track row keyed by a bare track
+/// GUID.
+///
+/// Since tracks became feed-scoped, each search and quality row of a track is
+/// keyed by [`canonical_track_entity_id`]. The rows written before that change
+/// keep the bare GUID, and no write replaces them, so one track can match a
+/// search two times. The index is contentless: a row can only be deleted with
+/// its original text, and no table keeps that text. Thus the repair clears the
+/// whole index and fills it again from the source tables. A database with no
+/// bare-GUID track row skips the repair, so it runs one time.
+fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbError> {
+    let has_bare_track_rows: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM search_entities \
+         WHERE entity_type = 'track' AND entity_id NOT LIKE '[\"%')",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_bare_track_rows {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO search_index(search_index) VALUES('delete-all')",
+        [],
+    )?;
+    tx.execute("DELETE FROM search_entities", [])?;
+    let stale_quality_rows = tx.execute(
+        "DELETE FROM entity_quality \
+         WHERE entity_type = 'track' AND entity_id NOT LIKE '[\"%'",
+        [],
+    )?;
+    let feed_guids: Vec<String> = tx
+        .prepare("SELECT feed_guid FROM feeds")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for feed_guid in &feed_guids {
+        sync_source_read_models_for_feed(&tx, feed_guid)?;
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        feeds = feed_guids.len(),
+        stale_quality_rows,
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: rebuilt the search index without bare track GUID rows"
+    );
+    Ok(())
 }
 
 /// Opens the `SQLite` database at `path` and runs pending schema migrations.

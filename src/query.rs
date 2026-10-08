@@ -3998,23 +3998,15 @@ async fn handle_search(
             limited_results
                 .into_iter()
                 .map(|r| {
-                    let (entity_id, feed_guid, href) = if r.entity_type == "track" {
-                        if let Some((feed_guid, track_guid)) =
-                            db::parse_canonical_track_entity_id(&r.entity_id)
-                        {
+                    let (entity_id, feed_guid, href) = match (
+                        r.entity_type.as_str(),
+                        db::parse_canonical_track_entity_id(&r.entity_id),
+                    ) {
+                        ("track", Some((feed_guid, track_guid))) => {
                             let href = Some(api::canonical_track_href(&feed_guid, &track_guid));
                             (track_guid, Some(feed_guid), href)
-                        } else {
-                            let track = db::get_track_by_guid(&conn, &r.entity_id)
-                                .map_err(api::ApiError::from)?;
-                            let feed_guid = track.as_ref().map(|track| track.feed_guid.clone());
-                            let href = track.as_ref().map(|track| {
-                                api::canonical_track_href(&track.feed_guid, &track.track_guid)
-                            });
-                            (r.entity_id.clone(), feed_guid, href)
                         }
-                    } else {
-                        (r.entity_id.clone(), None, None)
+                        _ => (r.entity_id.clone(), None, None),
                     };
                     let mut summary = SearchSummary::default();
                     if r.entity_type == "track" {
