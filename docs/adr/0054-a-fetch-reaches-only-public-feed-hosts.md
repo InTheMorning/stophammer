@@ -3,6 +3,9 @@
 ## Status
 Accepted on 2026-09-25
 
+Amended on 2026-10-17 for musicindex.org request 15. Section 4a reads a link
+value with no scheme that starts with a host name.
+
 ## Date
 2026-09-24
 
@@ -92,6 +95,36 @@ rest of the submission applies.
 Each read route returns `null` for such a value. No client gets a
 `javascript:`, `data:` or other non-web URL from the index. The raw value
 stays in the database for the operator.
+
+### 4a. A link with no scheme reads as `https`
+
+Added on 2026-10-17. Some feeds write a website as a host name with no
+scheme, for example `<link>www.pixelpalace.party</link>`. Section 4 then gives
+null. In the backup of 2026-09-26, 13 of 9,956 `website` values had no scheme.
+One of them was `The Fraglebay`, which is not a host name.
+
+The rule applies to two read values: a link row of the type `website` or
+`web_page`, and the `link` of a live item (ADR 0064 §6). It applies to no
+other URL field.
+
+1. The value is the stored raw value, after a trim of the white space at the
+   start and at the end.
+2. The value has no scheme and no white space.
+3. The part before the first `/`, `?` or `#` is a host name: two or more
+   labels with a `.` between them. Each label has 1 to 63 ASCII letters,
+   digits or `-`, and does not start or end with `-`. The last label has two
+   or more letters and no digit.
+4. When steps 2 and 3 are true, the read value is `https://` and the value.
+   The section 4 rule then applies to that read value.
+5. Each other value without a scheme reads as null, as before.
+
+The row states that the node added the scheme. A link row gives
+`url_scheme_added`, and a live item row gives `link_scheme_added`. Each one is
+true only when step 4 added the scheme. The stored raw value does not change,
+as mandate 3 of `AGENTS.md` requires.
+
+The node adds `https`, not `http`. A client that wants a different choice
+reads the flag.
 
 ### 5. One rule, two implementations, one list of cases
 

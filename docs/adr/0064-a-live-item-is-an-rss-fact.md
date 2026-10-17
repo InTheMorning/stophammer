@@ -18,6 +18,10 @@ fields, `in_now_view` and `in_upcoming_view`. v4vmm reported two rows of the
 "100% Retro" feeds with the status `live` and an end in December 2022. `view=now`
 leaves them out, but `view=all` gives them with no sign of that.
 
+Amended on 2026-10-17, musicindex.org request 14: section 6 gives each row
+`link`, the page that the live item advertises. The node already stores the
+value. The amendment changes only the read.
+
 ## Date
 2026-09-26
 
@@ -151,6 +155,12 @@ the rows of that feed. The index removes no row because of its age.
 - Each row gives `live_item_guid`, `title`, `status`, `content_link`,
   `scheduled_start`, `scheduled_end`, `live_value_uri`, `live_value_protocol`
   and `confirming_relay`.
+- Each row also gives `link` and `link_scheme_added`. `link` is the RSS
+  `<link>` of the live item: the stored link with `extraction_path`
+  `entity.link`. An Atom link does not give the value.
+- The web URL rules of ADR 0054 §4 and §4a apply to `link`. `link` is null
+  when the item gives no `<link>`. `link_scheme_added` is true only when §4a
+  added the scheme.
 - Each row also gives `in_now_view` and `in_upcoming_view`. Each is true when
   the view of the same name gives the row at the time of the read. The node
   computes them with the same rule as the view. `status` stays the value of

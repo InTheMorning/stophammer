@@ -196,6 +196,11 @@ the sort key and `GET /v1/feeds/by-name`, and
 and the [review checklist](docs/reviews/adr-0070-name-lists-review-checklist.md)
 gives the checks of each task.
 
+musicindex.org requests 14 and 15 are accepted on 2026-10-17, and request 16
+is declined. The amendment of ADR 0064 §6 gives each live row `link`. ADR 0054
+§4a reads a link with no scheme that starts with a host name as `https`, with
+a flag. No task is written yet.
+
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:

@@ -43,6 +43,9 @@ names the requests that the two clients share.
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 | 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
 | 13 | Item facts on each copy row | API field addition | Wanted |
+| 14 | The advertised page of each live item | API field addition | Accepted on 2026-10-17 |
+| 15 | A website link that has no scheme | Contract change | Accepted on 2026-10-17 |
+| 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -449,6 +452,63 @@ A different enclosure URL for the same item GUID is a strong sign of a
 different recording. Stophammer can select if it is a difference of ADR 0058
 §2.
 
+### 14. The Advertised Page Of Each Live Item
+
+Added on 2026-10-17. Changed on 2026-10-17 to the scope that Stophammer
+accepted. Evidence: read-only GET requests to the live API and the RSS file of
+"Pixel Palace" (`d1dca4bb-1966-59d7-9aff-c1eda9f31fb7`) on 2026-10-17.
+
+**What happens.** The `podcast:liveItem` "Jorfest 2026" gives
+`<link>https://www.pixelpalace.party/</link>`. That is the page that the show
+advertises. A live item row gives `content_link` (here an HLS stream) and
+`live_value_uri` (here a curiohoster.com event URL with the protocol
+`socket.io`). It does not give the `<link>`.
+
+**What it costs.** The search site cannot send a viewer to the show
+(musicindex ADR 0016). It must use the website of the feed, or no link.
+
+**Request.** Give the RSS `<link>` of each live item as `link` on each row of
+`/v1/live-items` and of `live_items` in the feed read. Null when the item gives
+none. Only the RSS `<link>` element gives the value, and the web URL rules of
+Stophammer ADR 0054 §4 and §4a apply. The node already stores the value, so
+this changes only the read.
+
+### 15. A Website Link That Has No Scheme
+
+Added on 2026-10-17. Changed on 2026-10-17 to the scope that Stophammer
+accepted. Evidence: the same reads as request 14, and the Stophammer backup
+of 2026-09-26.
+
+**What happens.** The channel of "Pixel Palace" gives
+`<link>www.pixelpalace.party</link>`. The ADR 0054 §4 rule gives `url: null`
+for this `website` row, because the value has no scheme. In the backup, 13 of
+9,956 `website` values had no scheme. One of them, `The Fraglebay`, is not a
+host name.
+
+**What it costs.** The feed page shows no website for the feed, although the
+feed advertises one.
+
+**Request.** When a `website` or `web_page` link, or the live item `link` of
+request 14, has no scheme and starts with a strict host name, read it as
+`https://` and the value. Mark the row with a flag, so that a client knows
+that the index added the scheme. Each other value with no scheme stays null.
+The stored raw value does not change. Stophammer ADR 0054 §4a gives the host
+name rule.
+
+### 16. One Nostr Row For Each `npub` Of A Feed
+
+Added on 2026-10-17. Declined by Stophammer on 2026-10-17. Evidence: the feed
+read of "The Heycitizen Experience" (`a2d2e313-9cbd-5169-b89c-ab07b33ecc33`)
+with `include=source_contributors` on 2026-10-17.
+
+**What happens.** The feed gives the same `npub` on seven contributor rows,
+one for each role. The page must merge the rows to show one Nostr handle
+(musicindex ADR 0016).
+
+**Decision.** The client groups the contributor rows by `npub`. The rows
+already give each fact that a merged row gives. A second shape of the same
+facts adds work to the index and gives no new fact.
+
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at
@@ -514,6 +574,21 @@ advisory. The ADR that each answer names is the owner of the rule.
 | 10 | Built for release 0.5.0, as ADR 0068 §4. `stated_rel` and `two_way_links=none` take the names of this request, and each one gives the link facts on each row. On the copy of 2026-09-26, a pass over all 1,772 publisher rows with the facts took 801 ms of node time. Most of the 4.6 seconds of the request is transfer. So one request examines at most 1,000 rows, and then gives a cursor. A page can hold fewer rows than `limit`, or no row, with `has_more` true. The page follows the cursor until `has_more` is false. On that copy, 4 rows stated a `rel` and 15 rows had no two-way link |
 | 11 | Deployed in release 0.7.0 on 2026-10-02, with [task 014](../tasks/adr-0049-task-014-pr793-link-rules.md). (1) `stated_rels` gives normalized role tokens, and `stated_rel=` matches one token (ADR 0068 §5). (2) Each `publisher` row gives `role_agreement`: `both`, `one_side`, `conflict` or null (ADR 0049 §6a). `role` keeps its meaning, so show it only when `role_agreement` is `both`. (3) A link with `conflict` is not a confirmed link. It stays in the view, and no count uses it. Sir Libre Records loses three links from its counts until a feed changes. (4) The bare-item credit of ADR 0069 is removed (§1a). Only an item inside `<podcast:publisher>`, or the first bare item of an album with no wrapper, is a link. (5) A list row with `include=link_facts` gives `agreed_roles`. The HeyCitizen value `artist host author label producer` is five real roles, and after 0.7.0 each one finds the feed |
 | 12 | Deployed in release 0.8.0 on 2026-10-08, as ADR 0058 §1d with [task 007](../tasks/adr-0058-task-007-copy-remote-items.md). The evidence is correct, but a comparison of the raw `feedGuid` values gives a false answer. The Wavlake artist feed gives the Wavlake album ID as `feedGuid`, and the headstarts.uk feed gives the `podcast:guid` of each album. By the album URL, 11 albums are on both lists, 13 are only on the indexed feed, and 7 are only on the copy. So the node resolves each entry, as it resolves a publisher link, and compares the resolved feeds. (1) Each copy row gives `remote_items`: each channel-level entry in sequence, with `medium`, `feed_guid`, `feed_url`, `item_guid`, `resolved_feed_guid`, and the ADR 0059 summary of the resolved feed. The page needs no other read. A `musicL` entry keeps its `item_guid`. (2) A new flag, `differs_remote_items`, is true when the two lists name different feeds. `differs_tracks` keeps its meaning. (3) The rule applies to each medium. An album copy that names another publisher is also a copy, so `copy_count` can increase. (4) A row gets its list at the next body from its URL. After the deploy, a replay of the cached copy bodies fills the old rows |
+
+## Stophammer Answers - 2026-10-17
+
+Stophammer examined requests 14 to 16 against the live API at revision
+`c1734b3`, the RSS file of "Pixel Palace", the source, and the backup of
+2026-09-26. Each report is correct. The Stophammer operator decided on
+2026-10-17. The text of each request above now gives the accepted scope.
+
+| # | Answer |
+|---|---|
+| 14 | Accepted as an amendment of ADR 0064 §6. Each live row gives `link` and `link_scheme_added`. The node already stores the RSS `<link>` of a live item: the backup holds 16 such rows. An Atom link does not give the value |
+| 15 | Accepted as ADR 0054 §4a. A `website` or `web_page` link row, and a live item `link`, read a value with no scheme as `https://` and the value, when the value starts with a strict host name. A link row gives `url_scheme_added`, and a live row gives `link_scheme_added`. `The Fraglebay` stays null |
+| 16 | Declined. A client groups the contributor rows by `npub`. ADR 0041 does not change |
+
+A release record gives the release that carries requests 14 and 15.
 
 ## Requests That v4vmm Also Makes
 
