@@ -1,7 +1,8 @@
 # ADR 0070: A Name List Gives Each Identity One Row
 
 ## Status
-Proposed on 2026-10-17, for v4vmm request 6.
+Accepted on 2026-10-17, for v4vmm request 6. Task 001 gives the sort key and
+the release list. Task 002 gives the artist list.
 
 ## Date
 2026-10-17

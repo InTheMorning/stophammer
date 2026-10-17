@@ -184,6 +184,14 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
+v4vmm request 6 asks for lists of releases and artists by name.
+[ADR 0070](docs/adr/0070-a-name-list-gives-each-identity-one-row.md) is
+Accepted on 2026-10-17. Its two tasks are not started:
+[task 001](docs/tasks/adr-0070-task-001-sort-key-and-release-list.md) gives
+the sort key and `GET /v1/feeds/by-name`, and
+[task 002](docs/tasks/adr-0070-task-002-artist-list.md) gives
+`GET /v1/artist-names`.
+
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
