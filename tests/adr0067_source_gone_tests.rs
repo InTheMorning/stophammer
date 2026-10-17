@@ -46,6 +46,7 @@ fn test_app_state(
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         source_gone_hosts: source_gone_hosts.iter().map(|h| (*h).to_string()).collect(),
         skip_ssrf_validation: true,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
     })
 }
 

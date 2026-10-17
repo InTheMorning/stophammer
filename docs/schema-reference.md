@@ -25,6 +25,7 @@ Key columns:
 - `feed_guid`
 - `feed_url`
 - `title`
+- `title_sort`
 - `raw_medium`
 - `release_artist`
 - `release_artist_source`
@@ -37,6 +38,15 @@ Key columns:
 
 Notes:
 - `title` is the release title in v1.
+- `title_sort` is the sort key of `title` (ADR 0070 section 1). The node
+  removes the white space at the start and at the end. It replaces each
+  internal run of white space with one space. It changes each character to
+  Unicode lowercase.
+- The `title_sort` column is null until a write to the row, or the fill at
+  open, sets it. The node derives the value from `title` at each write. The
+  signed `FeedUpserted` event does not carry this value. `GET
+  /v1/feeds/by-name` orders by this column, then by `feed_guid`. Migration
+  0051 adds the column.
 - `publisher` means publisher by default. It has no host exception. ADR 0049
   section 5.
 - `release_artist_source` is nullable. It names the value that

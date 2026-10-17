@@ -688,3 +688,60 @@ pub fn web_url_or_none(value: Option<&str>) -> Option<String> {
         _ => None,
     }
 }
+
+/// Gives the sort key of a text (ADR 0070 §1, ADR 0049 §7).
+///
+/// The function takes three steps. It removes the white space at the start
+/// and at the end. It replaces each internal run of white space with one
+/// space. It changes each character to Unicode lowercase.
+///
+/// The function does not remove a leading article, punctuation or an
+/// accent. Two sort keys compare by Unicode code point: the byte order of
+/// UTF-8, and the order of the `SQLite` `BINARY` collation.
+///
+/// This is the one function that makes a sort key. The release list
+/// (`GET /v1/feeds/by-name`), the artist list, the `from` parameter of each
+/// list, and the publisher artist count of ADR 0049 §7 use it.
+#[must_use]
+pub fn sort_key(text: &str) -> String {
+    text.split_whitespace()
+        .collect::<Vec<&str>>()
+        .join(" ")
+        .to_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── sort_key (ADR 0070 §1, ADR 0049 §7, task 001) ───────────────────────
+
+    #[test]
+    fn sort_key_trims_collapses_white_space_and_lowercases() {
+        assert_eq!(sort_key("the  best\tsong "), "the best song");
+    }
+
+    #[test]
+    fn sort_key_lowercases_by_unicode_rule() {
+        assert_eq!(sort_key("Élan"), "élan");
+    }
+
+    #[test]
+    fn sort_key_keeps_a_leading_article_and_punctuation() {
+        assert_eq!(sort_key("The Beatles"), "the beatles");
+        assert_eq!(sort_key("Mr. T"), "mr. t");
+    }
+
+    // ── sort_key as the publisher artist count's rule (task 008 "Constraints") ──
+
+    #[test]
+    fn sort_key_trims_and_collapses_and_lowercases_an_artist_name() {
+        assert_eq!(sort_key("  Jimmy   V "), "jimmy v");
+        assert_eq!(sort_key("jimmy v"), "jimmy v");
+    }
+
+    #[test]
+    fn sort_key_does_not_split_a_feat_credit() {
+        assert_ne!(sort_key("A feat. B"), sort_key("A"));
+    }
+}

@@ -186,11 +186,15 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
 
 v4vmm request 6 asks for lists of releases and artists by name.
 [ADR 0070](docs/adr/0070-a-name-list-gives-each-identity-one-row.md) is
-Accepted on 2026-10-17. Its two tasks are not started:
+Accepted on 2026-10-17, and amended the same day with §4a. Both tasks are
+complete, and no release carries them yet:
 [task 001](docs/tasks/adr-0070-task-001-sort-key-and-release-list.md) gives
 the sort key and `GET /v1/feeds/by-name`, and
 [task 002](docs/tasks/adr-0070-task-002-artist-list.md) gives
-`GET /v1/artist-names`.
+`GET /v1/artist-names`, from a copy in memory. The
+[phase plan](docs/plans/adr-0070-name-lists-phase-plan.md) gives the sequence,
+and the [review checklist](docs/reviews/adr-0070-name-lists-review-checklist.md)
+gives the checks of each task.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),

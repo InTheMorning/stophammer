@@ -83,6 +83,7 @@ async fn health_endpoint_not_rate_limited_in_router() {
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
     });
 
     let app = stophammer::api::build_router(state);

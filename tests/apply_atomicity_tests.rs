@@ -231,6 +231,7 @@ async fn ingest_search_quality_atomic_with_ingest_transaction() {
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
     });
     let app = stophammer::api::build_router(state);
 

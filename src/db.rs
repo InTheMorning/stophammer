@@ -23,7 +23,7 @@ use crate::model::{
     PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim, SourceEntityIdClaim,
     SourceEntityLink, SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim,
     SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, feed_recipient_set,
-    recipient_set,
+    recipient_set, sort_key,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -263,6 +263,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 50: add channel-level remote items to feed_copies table
     // (ADR 0058 §1d, task 007)
     include_str!("../migrations/0050_copy_remote_items.sql"),
+    // Migration 51: store the sort key of each feed title (ADR 0070 §1,
+    // task 001)
+    include_str!("../migrations/0051_feed_title_sort.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -650,6 +653,22 @@ fn ensure_feed_move_declaration_schema(conn: &Connection) -> Result<(), DbError>
     Ok(())
 }
 
+/// Adds `feeds.title_sort` when migration 0051 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. Migration 0051
+/// comes after migration 0047 (ADR 0034 §11), so no pre-`run_migrations`
+/// guard is needed: the rebuild that migration performs predates this
+/// column and never depends on it. ADR 0070 §1, task 001 owns the field.
+fn ensure_feed_title_sort_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "feeds", "title_sort")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE feeds ADD COLUMN title_sort TEXT;")?;
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -734,7 +753,9 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_release_artist_source_schema(&conn)?;
     ensure_feed_declared_self_url_schema(&conn)?;
     ensure_feed_move_declaration_schema(&conn)?;
+    ensure_feed_title_sort_schema(&conn)?;
     ensure_search_index_track_identity(&mut conn)?;
+    ensure_feed_title_sort_filled(&mut conn)?;
     Ok(conn)
 }
 
@@ -785,6 +806,49 @@ fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbErr
         stale_quality_rows,
         elapsed_ms = started.elapsed().as_millis(),
         "db: rebuilt the search index without bare track GUID rows"
+    );
+    Ok(())
+}
+
+/// Fills `feeds.title_sort` for each row where it is null.
+///
+/// `SQLite` cannot give the Unicode lowercase the key needs, so
+/// [`sort_key`] computes it in Rust from the stored `title`, and this
+/// repair writes the result back. A database with no null `title_sort`
+/// skips the repair. Migration 0051 adds the column with no value, so only
+/// a database that opened before migration 0051 ran still has a null row
+/// here: `upsert_feed` and `ingest_transaction` derive `title_sort` from
+/// `title` at every write, including a write that applies a historical
+/// signed event, so no write after this repair's first run ever leaves a
+/// row null again. ADR 0070 §1, task 001.
+fn ensure_feed_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
+    let has_null_title_sort: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM feeds WHERE title_sort IS NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_null_title_sort {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    let rows: Vec<(String, String)> = tx
+        .prepare("SELECT feed_guid, title FROM feeds WHERE title_sort IS NULL")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    {
+        let mut stmt = tx.prepare("UPDATE feeds SET title_sort = ?1 WHERE feed_guid = ?2")?;
+        for (feed_guid, title) in &rows {
+            stmt.execute(params![sort_key(title), feed_guid])?;
+        }
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        feeds = rows.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: filled feeds.title_sort from title"
     );
     Ok(())
 }
@@ -1004,9 +1068,9 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date, release_artist_source) \
+         last_build_date, release_artist_source, title_sort) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
-         ?21, ?22) \
+         ?21, ?22, ?23) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -1027,7 +1091,8 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
            updated_at       = excluded.updated_at, \
            raw_medium       = excluded.raw_medium, \
            last_build_date  = excluded.last_build_date, \
-           release_artist_source = excluded.release_artist_source",
+           release_artist_source = excluded.release_artist_source, \
+           title_sort       = excluded.title_sort",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -1051,6 +1116,12 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             feed.raw_medium,
             feed.last_build_date,
             feed.release_artist_source,
+            // ADR 0070 §1: the sort key is derived from `title` at each
+            // write, here, not read from `feed`. `Feed` carries no
+            // `title_sort` field, so a signed `FeedUpserted` event never
+            // encodes this column, and a historical event cannot write a
+            // stale or missing key over a correct one.
+            sort_key(&feed.title),
         ],
     )?;
     Ok(())
@@ -6000,9 +6071,9 @@ pub fn ingest_transaction(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date, release_artist_source) \
+         last_build_date, release_artist_source, title_sort) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
-         ?21, ?22) \
+         ?21, ?22, ?23) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -6023,7 +6094,8 @@ pub fn ingest_transaction(
            updated_at       = excluded.updated_at, \
            raw_medium       = excluded.raw_medium, \
            last_build_date  = excluded.last_build_date, \
-           release_artist_source = excluded.release_artist_source",
+           release_artist_source = excluded.release_artist_source, \
+           title_sort       = excluded.title_sort",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -6047,6 +6119,9 @@ pub fn ingest_transaction(
             feed.raw_medium,
             feed.last_build_date,
             feed.release_artist_source,
+            // ADR 0070 §1: derived from `title` at each write, not read
+            // from `feed`. See the note in `upsert_feed`.
+            sort_key(&feed.title),
         ],
     )?;
 

@@ -189,6 +189,79 @@ fn spec_value(mode: DocMode) -> Value {
         }),
     );
     paths.insert(
+        "/v1/feeds/by-name".into(),
+        json!({
+            "get": operation(
+                "List feeds by name",
+                "Lists the feeds of one medium in the order of the stored sort key, then feed_guid (ADR 0070 section 2).",
+                "Feeds",
+                vec![
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
+                    query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
+                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated feeds in sort-key order.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/FeedResponse" }
+                        })),
+                        query_envelope_example(json!([
+                            {
+                                "feed_guid": "feed-guid",
+                                "feed_url": "https://example.com/feed.xml",
+                                "title": "A Sorted Feed",
+                                "raw_medium": "music",
+                                "sort_name": "a sorted feed"
+                            }
+                        ]))
+                    )
+                }),
+                None
+            )
+        }),
+    );
+    paths.insert(
+        "/v1/artist-names".into(),
+        json!({
+            "get": operation(
+                "List artist names",
+                "Lists one row for each publisher feed and one row for each sort key of the releases of the name level, in the order of sort_name, then kind, then key (ADR 0070 sections 3 and 4).",
+                "Feeds",
+                vec![
+                    query_param("cursor", "string", None, false, "Opaque pagination cursor."),
+                    limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
+                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "Paginated artist-name rows in sort-key order.",
+                        envelope_schema(json!({
+                            "type": "array",
+                            "items": { "$ref": "#/components/schemas/ArtistNameRow" }
+                        })),
+                        query_envelope_example(json!([
+                            {
+                                "kind": "name",
+                                "name": "A Sorted Artist",
+                                "sort_name": "a sorted artist",
+                                "key": "a sorted artist",
+                                "feed_guid": null,
+                                "image_url": null,
+                                "release_count": 1
+                            }
+                        ]))
+                    )
+                }),
+                None
+            )
+        }),
+    );
+    paths.insert(
         "/v1/feeds/{guid}/route-history".into(),
         json!({
             "get": operation(

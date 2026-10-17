@@ -56,6 +56,40 @@ the feeds of one medium in the order of that key, with `cursor` and `from`.
 - **Cost.** Measure a page of 50 rows at the start, and a page after
   `from=m`, on a copy of the backup of 2026-09-26. Report both times.
 
+## Do Not Touch
+
+- `stophammer-crawler/`, `stophammer-parser/`
+- Each existing migration file. Never rewrite a merged migration.
+- `docs/adr/`, `docs/plans/`, `AGENTS.md`
+- Each existing route, response field and column, except where a step below
+  names it
+- `backups/`. Read a backup only with `?immutable=1`, or from a copy in the
+  scratch directory.
+- Git: run no git write command. The operator commits.
+
+## Implementation Steps
+
+1. Add `pub fn sort_key(text: &str) -> String` in `src/model.rs`, with a doc
+   comment that names ADR 0070 §1 and ADR 0049 §7, and unit tests.
+2. Add `migrations/0051_feed_title_sort.sql`, add it at the end of
+   `MIGRATIONS` in `src/db.rs`, and add the column and the index to
+   `src/schema.sql`.
+3. Do not add `title_sort` to `model::Feed`, because the node signs that
+   struct in `FeedUpsertedPayload`. The feed upsert and `ingest_transaction`
+   in `src/db.rs` write `sort_key(&feed.title)` into the column.
+4. Add the fill at open, modeled on `ensure_search_index_track_identity`, and
+   call it from `open_db`.
+5. Add the handler and the route `/v1/feeds/by-name` in `src/query.rs`. Reuse
+   `ListQuery`, `FeedResponse` and the response mapping of
+   `handle_get_recent_feeds`. Move a shared part into a function, and do not
+   copy it.
+6. Add `sort_name` to `FeedResponse` with
+   `#[serde(default, skip_serializing_if = "Option::is_none")]`.
+7. Add the path to `spec_value()` in `src/openapi.rs`, and the route to
+   `handle_capabilities`.
+8. Write the tests, then `docs/API.md` and `docs/schema-reference.md`.
+9. Measure the fill and the two pages on a copy of the backup.
+
 ## Acceptance Criteria
 
 Mechanical. Each is a test in `tests/adr0070_release_list_tests.rs`, or in
@@ -85,10 +119,66 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt -- --check
 ```
 
+## Escalation Triggers
+
+Stop and report to the orchestrator, with no workaround, when:
+
+- A step needs a change to an ADR, or to a file of "Do Not Touch".
+- A constraint of this task disagrees with the code.
+- An existing test fails after the change, and the cause is not clear.
+- The fill at open takes more than 10 seconds on the backup.
+- `EXPLAIN QUERY PLAN` shows that the release list does not use the index.
+
 ## Expected Final Report
 
 1. files changed
 2. tests run and their results, and the two page times
 3. behavior changed
 4. deviations from this task
+5. unresolved concerns
+
+## Prompt for lower-context coding model
+
+You are implementing one bounded task from a larger plan.
+
+Implement only this task. Do not redesign the architecture.
+
+Read:
+- `AGENTS.md` (the code style and the pre-commit gate)
+- `docs/adr/0070-a-name-list-gives-each-identity-one-row.md`
+- `docs/tasks/adr-0070-task-001-sort-key-and-release-list.md` (this task: the constraints, the steps and the triggers)
+- the files of "Files To Inspect" in this task
+
+Goal:
+- The node stores the sort key of each feed title, and `GET /v1/feeds/by-name` gives the feeds of one medium in the order of that key, with `cursor` and `from`.
+
+Constraints:
+- Follow the section "Constraints" and the section "Implementation Steps" of this task.
+- One Rust function makes each sort key. No SQL `lower()` makes a key.
+- `title_lower` and `/v1/feeds/recent` do not change.
+- Stop at each escalation trigger of this task.
+
+Do not touch:
+- `stophammer-crawler/`, `stophammer-parser/`, `docs/adr/`, `docs/plans/`, `AGENTS.md`
+- each existing migration file
+- each existing route, response field and column, except as this task names
+- `backups/` except for read-only measurement
+- git: run no git write command
+
+Acceptance criteria:
+- Each item of the section "Acceptance Criteria" of this task is a passing test.
+
+Test commands:
+- `cargo build`
+- `cargo test --test adr0070_release_list_tests`
+- `cargo test`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo fmt -- --check`
+- `cargo test --test migration_tests`
+
+At the end, report:
+1. files changed
+2. tests run
+3. behavior changed
+4. deviations from task
 5. unresolved concerns

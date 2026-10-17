@@ -1170,6 +1170,116 @@ with `has_more` true. Follow the cursor until `has_more` is false.
 
 ---
 
+### GET /v1/feeds/by-name
+
+Gives the feeds of one medium. The sequence is the stored sort key, then
+`feed_guid` (ADR 0070 section 2).
+
+- **Authentication:** None
+- **Constraint:** Defaults to feeds with `raw_medium = 'music'`. Pass
+  `medium=publisher` for publisher feeds, or `medium=all` for every feed the
+  index holds, whatever its medium.
+- **Sort key:** The node makes the key from `title`. It removes the white
+  space at the start and at the end. It replaces each internal run of white
+  space with one space. It changes each character to Unicode lowercase. ADR
+  0070 section 1 owns this rule.
+- **Sort comparison:** Two sort keys compare by Unicode code point. This
+  matches a byte comparison of UTF-8 text, and the SQLite `BINARY`
+  collation. The node keeps a leading article such as "The", and it keeps
+  punctuation and an accent.
+- **Query parameters:** common pagination params plus optional `medium` and
+  `from`.
+- **`from`:** Starts the list at the first row with a sort key equal to or
+  after the sort key of this text. `from=M` starts at the first title that
+  starts with `m`. A request with `cursor` ignores `from`.
+
+Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
+`sort_name`: the sort key of this row's `title`. No other route gives
+`sort_name`.
+
+**Response:** Paginated array of feed objects, each with `sort_name`.
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+---
+
+### GET /v1/artist-names
+
+Gives one `publisher` row for each feed with the medium `publisher`, and one
+`name` row for each sort key of the releases of the name level. ADR 0070
+sections 3 and 4 own this route.
+
+- **Authentication:** None
+- **Sequence:** The list follows `sort_name`, then `kind`, then `key`. Each
+  step compares by code point value. When two rows share one `sort_name`,
+  `kind` `name` comes before `kind` `publisher`.
+- **The name level:** ADR 0049 section 6a owns `role_agreement` and the
+  role tokens of a link. A release can open the name level two ways.
+  First: no item of its `<podcast:publisher>` names a publisher feed that
+  the node holds. Second: each such link has `role_agreement` `both`, with
+  an agreed role set that excludes `artist`. The node derives no artist
+  identity from this rule. A `name` row states a fact about a text, not a
+  claim that the text names an artist.
+- **Query parameters:** common pagination params plus optional `from`, as
+  `GET /v1/feeds/by-name` takes them.
+- **`from`:** Starts the list at the first row with a sort key equal to or
+  after the sort key of this text. A request with `cursor` ignores `from`.
+- **Freshness:** The node keeps the full list in memory (ADR 0070 section
+  4a). A write to the event log can make the copy stale. The node rebuilds
+  the copy at most one time in each 30 seconds. A read of this route can
+  lag the newest write by 30 seconds at most.
+
+Each row gives:
+
+| Field | `kind` `publisher` | `kind` `name` |
+|-------|---------------------|---------------|
+| `name` | The feed title | The raw `release_artist` text that the most releases of the row state. A tie keeps the first text in code point order |
+| `sort_name` | The sort key of `name` | The key of the row |
+| `key` | The feed GUID | The sort key of the group |
+| `feed_guid` | The feed GUID | `null` |
+| `image_url` | The feed image, as a web URL | `null` |
+| `release_count` | `null` | The number of name-level releases with this key |
+
+The node does not merge a `publisher` row and a `name` row that share the
+same text. The two rows can show together, each with its own `kind`.
+
+**Response (`200 OK`):**
+
+```json
+{
+  "data": [
+    {
+      "kind": "name",
+      "name": "A Sorted Artist",
+      "sort_name": "a sorted artist",
+      "key": "a sorted artist",
+      "feed_guid": null,
+      "image_url": null,
+      "release_count": 1
+    },
+    {
+      "kind": "publisher",
+      "feed_guid": "publisher-guid",
+      "name": "A Sorted Publisher",
+      "sort_name": "a sorted publisher",
+      "key": "publisher-guid",
+      "image_url": "https://example.com/cover.jpg",
+      "release_count": null
+    }
+  ],
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Code | Meaning |
+|------|---------|
+| 200  | Success |
+
+---
+
 ### GET /v1/feeds/{guid}/route-history
 
 Gives each change of the payment recipients of a feed and its tracks. The
@@ -1779,7 +1889,7 @@ capabilities payload.
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists"],
   "entity_types": ["feed", "track"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -1790,6 +1900,9 @@ capabilities payload.
 ```
 
 `feed_list` gives the include names of `GET /v1/feeds/recent` (ADR 0068).
+
+`name_lists` marks `GET /v1/feeds/by-name` and `GET /v1/artist-names` (ADR
+0070 section 6).
 
 `publisher_text` on a track read is source-first publisher text. A track
 inherits the field from its parent feed at ingest. ADR 0035 and ADR 0049

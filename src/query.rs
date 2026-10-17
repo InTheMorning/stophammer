@@ -27,7 +27,9 @@ use rusqlite::{OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
-use crate::model::{Feed, LiveEvent, RouteRecipient, guid_origin_matches, web_url_or_none};
+use crate::model::{
+    Feed, LiveEvent, RouteRecipient, guid_origin_matches, sort_key, web_url_or_none,
+};
 use crate::{api, db, event, live, medium};
 
 // ── Pagination ──────────────────────────────────────────────────────────────
@@ -104,6 +106,10 @@ pub struct ListQuery {
     stated_rel: Option<String>,
     /// ADR 0068 §4: `none` keeps only the publisher rows with no two-way link.
     two_way_links: Option<String>,
+    /// ADR 0070 §2: `GET /v1/feeds/by-name` starts at the first row whose
+    /// sort key is equal to or after the sort key of this text. Ignored
+    /// when `cursor` is present, and by every other route.
+    from: Option<String>,
 }
 
 impl ListQuery {
@@ -351,6 +357,11 @@ struct FeedResponse {
     /// wrongly state that the feed has no live item.
     #[serde(skip_serializing_if = "Option::is_none")]
     live_items: Option<Vec<LiveItemResponse>>,
+    /// The sort key of `title` (ADR 0070 §1). Present only on a row of
+    /// `GET /v1/feeds/by-name`, section 2 of the same decision. Absent from
+    /// every other route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sort_name: Option<String>,
 }
 
 /// One row of `FeedResponse.live_items` (ADR 0064 section 6).
@@ -1279,21 +1290,6 @@ fn resolve_publisher_feed_title(
     Ok(db::get_feed(conn, resolved_guid)?.map(|feed| feed.title))
 }
 
-/// Normalizes a `release_artist` value for the publisher artist count of
-/// ADR 0049 §7.
-///
-/// The steps are: remove the white space at the start and at the end,
-/// replace each internal run of white space with one space, then apply
-/// [`str::to_lowercase`]. This function does not split a credit such as
-/// "feat.": two different credits normalize to two different values.
-fn normalize_release_artist(value: &str) -> String {
-    value
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ")
-        .to_lowercase()
-}
-
 /// Builds the derived artist count of a publisher feed, ADR 0049 §7.
 ///
 /// Reads the albums of `feed_guid` with
@@ -1315,7 +1311,7 @@ fn publisher_artist_count(
         std::collections::BTreeMap::new();
     for album in albums {
         by_normalized
-            .entry(normalize_release_artist(&album.release_artist))
+            .entry(sort_key(&album.release_artist))
             .or_insert(album.release_artist);
     }
 
@@ -1333,7 +1329,7 @@ fn publisher_artist_count(
 /// ADR 0049 §6a), else as unconfirmed. A row gives no artist, and is skipped, when
 /// `remote_release_artist` is null or `remote_release_artist_source` is
 /// `placeholder`. Two artists are the same value when
-/// [`normalize_release_artist`] gives the same result; the raw value kept is
+/// [`sort_key`] gives the same result; the raw value kept is
 /// the first row's, in row order. An artist counted as confirmed is removed
 /// from the unconfirmed list.
 fn confirmed_and_unconfirmed_release_artists(
@@ -1354,7 +1350,7 @@ fn confirmed_and_unconfirmed_release_artists(
         let Some(artist) = row.remote_release_artist.as_deref() else {
             continue;
         };
-        let normalized = normalize_release_artist(artist);
+        let normalized = sort_key(artist);
 
         if is_confirmed_link(row) {
             if confirmed_seen.insert(normalized) {
@@ -1368,7 +1364,7 @@ fn confirmed_and_unconfirmed_release_artists(
     // ADR 0061 §1: an artist of a confirmed album is not in the unconfirmed
     // list, even when an earlier row listed it there before a later row
     // confirmed the same normalized artist.
-    unconfirmed.retain(|artist| !confirmed_seen.contains(&normalize_release_artist(artist)));
+    unconfirmed.retain(|artist| !confirmed_seen.contains(&sort_key(artist)));
 
     (confirmed, unconfirmed)
 }
@@ -1588,6 +1584,7 @@ fn build_feed_response(
         co_credited_feeds: None,
         pending_guid_change,
         live_items,
+        sort_name: None,
     };
 
     // ADR 0049 §7: only a publisher feed carries the derived artist count.
@@ -2424,6 +2421,33 @@ fn rel_tokens(value: &str) -> Vec<String> {
 /// different role sets. Each count of a link uses only confirmed links.
 fn is_confirmed_link(row: &PublisherResponse) -> bool {
     row.two_way_validated && row.role_agreement.as_deref() != Some("conflict")
+}
+
+/// ADR 0070 §4: whether a release is of the name level.
+///
+/// `rows` are the `publisher` view rows of the release, as [`load_publisher`]
+/// gives them. Only a `music_to_publisher` row matters: it is a link that
+/// the release's own `<podcast:publisher>` states. Such a row is held when
+/// the node holds the named publisher feed, which [`load_publisher`] marks
+/// with a non-null `remote_feed_title` (ADR 0059 §1).
+///
+/// The release is of the name level when it has no held link, or when each
+/// held link has `role_agreement` `both`, with an agreed role set that does
+/// not include `artist`. ADR 0049 §6a owns `role_agreement` and the role
+/// tokens.
+fn is_name_level_release(rows: &[PublisherResponse]) -> bool {
+    rows.iter()
+        .filter(|row| row.direction == "music_to_publisher" && row.remote_feed_title.is_some())
+        .all(|row| {
+            row.role_agreement.as_deref() == Some("both")
+                && row
+                    .role
+                    .as_deref()
+                    .map(rel_tokens)
+                    .unwrap_or_default()
+                    .iter()
+                    .all(|token| token != "artist")
+        })
 }
 
 /// ADR 0069 §1a: an album item with `medium="publisher"` is a publisher
@@ -3713,6 +3737,88 @@ fn filtered_recent_rows(
     }
 }
 
+/// Builds the `FeedResponse` of one row of `GET /v1/feeds/recent` or
+/// `GET /v1/feeds/by-name`.
+///
+/// `include_link_facts` gives the link facts of a publisher row (ADR 0068
+/// §1), the same as the caller passes for the `include=link_facts` of
+/// either route. `sort_name` is always `None`; `handle_get_feeds_by_name`
+/// sets it on the row this function gives back (ADR 0070 §2, task 001).
+fn feed_list_row_to_response(
+    conn: &rusqlite::Connection,
+    r: FeedRow,
+    include_link_facts: bool,
+) -> Result<FeedResponse, api::ApiError> {
+    let publisher_feed_title = resolve_publisher_feed_title(conn, &r.feed_guid)?;
+    let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &r.feed_guid)?;
+    let pending_guid_change =
+        db::get_pending_guid_change_for_feed(conn, &r.feed_guid)?.map(pending_guid_change_response);
+    // ADR 0068 §1: the link facts of a publisher row, only on request.
+    let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed) =
+        if include_link_facts && medium::is_publisher(r.raw_medium.as_deref()) {
+            let facts = link_facts(&load_publisher(conn, &r.feed_guid)?);
+            (
+                Some(facts.two_way_link_count),
+                Some(facts.stated_rels),
+                Some(facts.agreed_roles),
+                Some(facts.confirmed_release_artists),
+            )
+        } else {
+            (None, None, None, None)
+        };
+    Ok(FeedResponse {
+        feed_guid: r.feed_guid,
+        feed_url: r.feed_url,
+        title: r.title,
+        raw_medium: r.raw_medium,
+        release_artist: r.release_artist,
+        release_artist_source: r.release_artist_source,
+        release_artist_sort: r.release_artist_sort,
+        release_date: r.release_date,
+        last_build_date: r.last_build_date,
+        release_kind: r.release_kind,
+        description: r.description,
+        // ADR 0054 §4: a feed image from RSS reaches the client only
+        // when it is a web URL.
+        image_url: web_url_or_none(r.image_url.as_deref()),
+        publisher_text: r.publisher_text,
+        publisher_feed_title,
+        // ADR 0049 §7 and ADR 0061 §1 scope the artist aggregates to
+        // a single feed read. ADR 0068 §1 gives only the confirmed
+        // list, with `include=link_facts`.
+        distinct_release_artist_count: None,
+        distinct_release_artists: None,
+        confirmed_release_artist_count: None,
+        confirmed_release_artists: listed_confirmed,
+        unconfirmed_release_artist_count: None,
+        unconfirmed_release_artists: None,
+        two_way_link_count,
+        stated_rels,
+        agreed_roles,
+        language: r.language,
+        explicit: r.explicit_int != 0,
+        episode_count: r.episode_count,
+        newest_item_at: r.newest_item_at,
+        oldest_item_at: r.oldest_item_at,
+        copy_count,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+        tracks: None,
+        payment_routes: None,
+        source_links: None,
+        source_ids: None,
+        source_contributors: None,
+        source_platforms: None,
+        source_release_claims: None,
+        remote_items: None,
+        publisher: None,
+        co_credited_feeds: None,
+        pending_guid_change,
+        live_items: None,
+        sort_name: None,
+    })
+}
+
 async fn handle_get_recent_feeds(
     State(state): State<Arc<api::AppState>>,
     Query(params): Query<ListQuery>,
@@ -3764,83 +3870,500 @@ async fn handle_get_recent_feeds(
             None
         };
 
+        // ADR 0068 §1: the link facts of a publisher row, only on request.
+        // ADR 0068 §4: a filter also gives the facts.
+        let include_link_facts = params.includes("link_facts") || filter.is_some();
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
-            let publisher_feed_title = resolve_publisher_feed_title(&conn, &r.feed_guid)?;
-            let (copy_count, _newest_open_copy_first_seen) =
-                db::open_copy_summary(&conn, &r.feed_guid)?;
-            let pending_guid_change = db::get_pending_guid_change_for_feed(&conn, &r.feed_guid)?
-                .map(pending_guid_change_response);
-            // ADR 0068 §1: the link facts of a publisher row, only on request.
-            // ADR 0068 §4: a filter also gives the facts.
-            let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed) =
-                if (params.includes("link_facts") || filter.is_some())
-                    && medium::is_publisher(r.raw_medium.as_deref())
-                {
-                    let facts = link_facts(&load_publisher(&conn, &r.feed_guid)?);
-                    (
-                        Some(facts.two_way_link_count),
-                        Some(facts.stated_rels),
-                        Some(facts.agreed_roles),
-                        Some(facts.confirmed_release_artists),
-                    )
-                } else {
-                    (None, None, None, None)
-                };
-            feeds.push(FeedResponse {
-                feed_guid: r.feed_guid,
-                feed_url: r.feed_url,
-                title: r.title,
-                raw_medium: r.raw_medium,
-                release_artist: r.release_artist,
-                release_artist_source: r.release_artist_source,
-                release_artist_sort: r.release_artist_sort,
-                release_date: r.release_date,
-                last_build_date: r.last_build_date,
-                release_kind: r.release_kind,
-                description: r.description,
-                // ADR 0054 §4: a feed image from RSS reaches the client only
-                // when it is a web URL.
-                image_url: web_url_or_none(r.image_url.as_deref()),
-                publisher_text: r.publisher_text,
-                publisher_feed_title,
-                // ADR 0049 §7 and ADR 0061 §1 scope the artist aggregates to
-                // a single feed read. ADR 0068 §1 gives only the confirmed
-                // list, with `include=link_facts`.
-                distinct_release_artist_count: None,
-                distinct_release_artists: None,
-                confirmed_release_artist_count: None,
-                confirmed_release_artists: listed_confirmed,
-                unconfirmed_release_artist_count: None,
-                unconfirmed_release_artists: None,
-                two_way_link_count,
-                stated_rels,
-                agreed_roles,
-                language: r.language,
-                explicit: r.explicit_int != 0,
-                episode_count: r.episode_count,
-                newest_item_at: r.newest_item_at,
-                oldest_item_at: r.oldest_item_at,
-                copy_count,
-                created_at: r.created_at,
-                updated_at: r.updated_at,
-                tracks: None,
-                payment_routes: None,
-                source_links: None,
-                source_ids: None,
-                source_contributors: None,
-                source_platforms: None,
-                source_release_claims: None,
-                remote_items: None,
-                publisher: None,
-                co_credited_feeds: None,
-                pending_guid_change,
-                live_items: None,
-            });
+            feeds.push(feed_list_row_to_response(&conn, r, include_link_facts)?);
         }
 
         Ok::<_, api::ApiError>(QueryResponse {
             data: feeds,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/feeds/by-name ────────────────────────────────────────────────────
+// ADR 0070 §2, task 001: the feeds of one medium in the order of the stored
+// sort key, then feed_guid.
+
+/// Decodes a cursor of `GET /v1/feeds/by-name`: the `title_sort` and the
+/// `feed_guid` of the last row of the page before.
+fn parse_by_name_cursor(cursor: &str) -> Result<(String, String), api::ApiError> {
+    let decoded = decode_cursor(cursor)?;
+    let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+    if parts.len() != 2 {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "invalid cursor format".into(),
+            www_authenticate: None,
+        });
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
+
+/// Reads at most `count` rows of `GET /v1/feeds/by-name` after `after`, or
+/// from `from_floor` when there is no cursor, in the order of `title_sort`,
+/// then `feed_guid`. Gives each row with its `title_sort`.
+///
+/// At most one of `after` and `from_floor` is ever set: the handler applies
+/// `from` only when the request carries no cursor (ADR 0070 §2).
+fn by_name_feed_rows(
+    conn: &rusqlite::Connection,
+    medium: &str,
+    after: Option<(String, String)>,
+    from_floor: Option<&str>,
+    count: i64,
+) -> Result<Vec<(FeedRow, String)>, api::ApiError> {
+    let (cursor_sort, cursor_guid) =
+        after.map_or((None, None), |(sort, guid)| (Some(sort), Some(guid)));
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
+         release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
+         episode_count, newest_item_at, oldest_item_at, \
+         created_at, updated_at, last_build_date, release_artist_source, title_sort \
+         FROM feeds \
+         WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
+           AND (?2 IS NULL OR (title_sort, feed_guid) > (?2, ?3)) \
+           AND (?4 IS NULL OR title_sort >= ?4) \
+         ORDER BY title_sort ASC, feed_guid ASC \
+         LIMIT ?5",
+    )?;
+    let rows = stmt
+        .query_map(
+            params![medium, cursor_sort, cursor_guid, from_floor, count],
+            |row| {
+                let feed_row = FeedRow {
+                    feed_guid: row.get(0)?,
+                    feed_url: row.get(1)?,
+                    title: row.get(2)?,
+                    raw_medium: row.get(3)?,
+                    release_artist: row.get(4)?,
+                    release_artist_sort: row.get(5)?,
+                    release_date: row.get(6)?,
+                    release_kind: row.get(7)?,
+                    description: row.get(8)?,
+                    image_url: row.get(9)?,
+                    publisher_text: row.get(10)?,
+                    language: row.get(11)?,
+                    explicit_int: row.get(12)?,
+                    episode_count: row.get(13)?,
+                    newest_item_at: row.get(14)?,
+                    oldest_item_at: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
+                    last_build_date: row.get(18)?,
+                    release_artist_source: row.get(19)?,
+                };
+                let title_sort: Option<String> = row.get(20)?;
+                Ok((feed_row, title_sort.unwrap_or_default()))
+            },
+        )?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+async fn handle_get_feeds_by_name(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+        let medium = params.medium.as_deref().unwrap_or("music").to_lowercase();
+
+        let cursor_after = params
+            .cursor
+            .as_deref()
+            .map(parse_by_name_cursor)
+            .transpose()?;
+        // ADR 0070 §2: `from` applies only when the request carries no cursor.
+        let from_floor = if cursor_after.is_none() {
+            params.from.as_deref().map(sort_key)
+        } else {
+            None
+        };
+
+        let rows = by_name_feed_rows(
+            &conn,
+            &medium,
+            cursor_after,
+            from_floor.as_deref(),
+            limit + 1,
+        )?;
+        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+        let rows: Vec<(FeedRow, String)> = rows
+            .into_iter()
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .collect();
+
+        let next_cursor = if has_more {
+            rows.last()
+                .map(|(r, sort)| encode_cursor(&format!("{sort}\0{}", r.feed_guid)))
+        } else {
+            None
+        };
+
+        let include_link_facts = params.includes("link_facts");
+        let mut feeds = Vec::with_capacity(rows.len());
+        for (r, title_sort) in rows {
+            let mut resp = feed_list_row_to_response(&conn, r, include_link_facts)?;
+            resp.sort_name = Some(title_sort);
+            feeds.push(resp);
+        }
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: feeds,
+            pagination: Pagination {
+                cursor: next_cursor,
+                has_more,
+            },
+            meta: meta(&state2),
+        })
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    Ok(Json(result))
+}
+
+// ── GET /v1/artist-names ─────────────────────────────────────────────────────
+// ADR 0070 §3 and §4, task 002: one `publisher` row for each publisher feed,
+// and one `name` row for each sort key of the releases of the name level.
+
+/// One row of `GET /v1/artist-names` (ADR 0070 §3).
+#[derive(Debug, Clone, Serialize, ToSchema)]
+struct ArtistNameRow {
+    /// `"publisher"` for a feed with the medium `publisher`. `"name"` for a
+    /// group of release texts with no held artist link. ADR 0070 §3.
+    kind: String,
+    /// The feed title, for a `publisher` row. The raw `release_artist` text
+    /// that the most releases of the row state, for a `name` row. ADR 0070
+    /// §3.
+    name: String,
+    /// The sort key of `name`, for a `publisher` row. The key of the row,
+    /// for a `name` row. The list orders by this field, then by `kind`,
+    /// then by `key`. ADR 0070 §1 and §3.
+    sort_name: String,
+    /// The feed GUID, for a `publisher` row. The sort key of the group, for
+    /// a `name` row. ADR 0070 §3.
+    key: String,
+    /// The feed GUID of a `publisher` row. Null for a `name` row. ADR 0070
+    /// §3.
+    feed_guid: Option<String>,
+    /// The image of the publisher feed (ADR 0054 §4). Null for a `name`
+    /// row. ADR 0070 §3.
+    image_url: Option<String>,
+    /// The count of music releases of the name level with this key. Null
+    /// for a `publisher` row. ADR 0070 §3 and §4.
+    release_count: Option<i64>,
+}
+
+/// One `name` group of `GET /v1/artist-names`: every release of the name
+/// level that shares one sort key. ADR 0070 §3.
+#[derive(Default)]
+struct ArtistNameGroup {
+    release_count: i64,
+    /// The count of each raw `release_artist` text of the group. A
+    /// `BTreeMap` key orders by byte value, which is code point order for a
+    /// UTF-8 `String` (ADR 0070 §1).
+    raw_counts: BTreeMap<String, i64>,
+}
+
+impl ArtistNameGroup {
+    /// The raw text that the most releases of the group state. With a tie,
+    /// the first text in code point order. ADR 0070 §3.
+    fn name(&self) -> String {
+        let mut best: Option<(&str, i64)> = None;
+        for (raw, count) in &self.raw_counts {
+            let keep_current = best.is_some_and(|(_, best_count)| best_count >= *count);
+            if !keep_current {
+                best = Some((raw.as_str(), *count));
+            }
+        }
+        best.map_or_else(String::new, |(raw, _)| raw.to_string())
+    }
+}
+
+/// Reads every feed with the medium `publisher`: its GUID, title and image
+/// URL. ADR 0070 §3: every such feed gives a `publisher` row, even one that
+/// no music feed names.
+fn publisher_feed_rows(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, String, Option<String>)>, api::ApiError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, title, image_url FROM feeds WHERE lower(raw_medium) = 'publisher'",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// Reads every feed with the medium `music` and a non-null `release_artist`:
+/// its GUID and its raw `release_artist`. ADR 0070 §4: a release with a
+/// null `release_artist` gives no row, so the query skips it here.
+fn music_feed_artist_rows(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<(String, String)>, api::ApiError> {
+    let mut stmt = conn.prepare(
+        "SELECT feed_guid, release_artist FROM feeds \
+         WHERE lower(raw_medium) = 'music' AND release_artist IS NOT NULL",
+    )?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    Ok(rows)
+}
+
+/// Builds every row of `GET /v1/artist-names`, sorted by `(sort_name, kind,
+/// key)` in code point order. ADR 0070 §3 and §4, task 002.
+///
+/// The function reads the whole list at each call. It reads the link facts
+/// of a release through [`load_publisher`] and [`is_name_level_release`],
+/// the same functions that the publisher view uses, so this list uses no
+/// second role rule.
+fn build_artist_name_rows(
+    conn: &rusqlite::Connection,
+) -> Result<Vec<ArtistNameRow>, api::ApiError> {
+    let mut rows = Vec::new();
+
+    for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
+        let sort_name = sort_key(&title);
+        rows.push(ArtistNameRow {
+            kind: "publisher".to_string(),
+            name: title,
+            sort_name,
+            key: feed_guid.clone(),
+            feed_guid: Some(feed_guid),
+            image_url: web_url_or_none(image_url.as_deref()),
+            release_count: None,
+        });
+    }
+
+    let mut groups: BTreeMap<String, ArtistNameGroup> = BTreeMap::new();
+    for (feed_guid, raw_artist) in music_feed_artist_rows(conn)? {
+        if raw_artist.trim().is_empty() {
+            continue;
+        }
+        let publisher_rows = load_publisher(conn, &feed_guid)?;
+        if !is_name_level_release(&publisher_rows) {
+            continue;
+        }
+        let key = sort_key(&raw_artist);
+        let group = groups.entry(key).or_default();
+        group.release_count += 1;
+        *group.raw_counts.entry(raw_artist).or_insert(0) += 1;
+    }
+    for (key, group) in groups {
+        rows.push(ArtistNameRow {
+            kind: "name".to_string(),
+            name: group.name(),
+            sort_name: key.clone(),
+            key,
+            feed_guid: None,
+            image_url: None,
+            release_count: Some(group.release_count),
+        });
+    }
+
+    rows.sort_by(|a, b| {
+        (a.sort_name.as_str(), a.kind.as_str(), a.key.as_str()).cmp(&(
+            b.sort_name.as_str(),
+            b.kind.as_str(),
+            b.key.as_str(),
+        ))
+    });
+    Ok(rows)
+}
+
+/// ADR 0070 §4a: the node builds the artist list again at most one time in
+/// each 30 seconds.
+const ARTIST_NAME_CACHE_MIN_REBUILD_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(30);
+
+/// Reads the highest `events.seq`: the change marker of ADR 0070 §4a. Zero
+/// when the event log is empty.
+fn current_event_seq(conn: &rusqlite::Connection) -> Result<i64, api::ApiError> {
+    Ok(
+        conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM events", [], |row| {
+            row.get(0)
+        })?,
+    )
+}
+
+/// One built copy of the artist list, with the event-log position and the
+/// time of its build. ADR 0070 §4a.
+#[derive(Debug, Clone)]
+struct ArtistNameCacheEntry {
+    rows: Arc<Vec<ArtistNameRow>>,
+    seq_at_build: i64,
+    built_at: std::time::Instant,
+}
+
+/// The in-memory copy of `GET /v1/artist-names` (ADR 0070 §4a).
+///
+/// `AppState` holds one instance. A request compares the highest
+/// `events.seq` with the `seq` of the last build:
+///
+/// - The same `seq`: the request uses the copy.
+/// - A different `seq`, and the last build is `min_rebuild_interval` old or
+///   more: the request builds the list again.
+/// - A different `seq`, and the last build is newer than
+///   `min_rebuild_interval`: the request uses the old copy.
+///
+/// One lock lets only one build run. A request that arrives during a build
+/// waits for it. The lock never crosses an `.await`: [`ArtistNameCache::get_or_build`]
+/// is a plain blocking call, and the handler runs it inside
+/// `spawn_blocking`.
+#[derive(Debug)]
+pub struct ArtistNameCache {
+    inner: std::sync::Mutex<Option<ArtistNameCacheEntry>>,
+    min_rebuild_interval: std::time::Duration,
+}
+
+impl Default for ArtistNameCache {
+    fn default() -> Self {
+        Self::new(ARTIST_NAME_CACHE_MIN_REBUILD_INTERVAL)
+    }
+}
+
+impl ArtistNameCache {
+    /// Creates an empty cache with the given minimum time between two
+    /// builds. Production code uses [`ArtistNameCache::default`]. A test
+    /// passes a short interval here, so it does not wait 30 seconds.
+    #[must_use]
+    pub fn new(min_rebuild_interval: std::time::Duration) -> Self {
+        Self {
+            inner: std::sync::Mutex::new(None),
+            min_rebuild_interval,
+        }
+    }
+
+    /// Gives the current copy of the artist list, building it again when
+    /// ADR 0070 §4a calls for it. Blocking: the caller runs this inside
+    /// `spawn_blocking`.
+    fn get_or_build(
+        &self,
+        conn: &rusqlite::Connection,
+    ) -> Result<Arc<Vec<ArtistNameRow>>, api::ApiError> {
+        let mut guard = self.inner.lock().map_err(|_poison| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: "artist name cache lock poisoned".into(),
+            www_authenticate: None,
+        })?;
+        let current_seq = current_event_seq(conn)?;
+        if let Some(entry) = guard.as_ref() {
+            let same_seq = entry.seq_at_build == current_seq;
+            let recent_build = entry.built_at.elapsed() < self.min_rebuild_interval;
+            if same_seq || recent_build {
+                return Ok(Arc::clone(&entry.rows));
+            }
+        }
+        let rows = Arc::new(build_artist_name_rows(conn)?);
+        *guard = Some(ArtistNameCacheEntry {
+            rows: Arc::clone(&rows),
+            seq_at_build: current_seq,
+            built_at: std::time::Instant::now(),
+        });
+        Ok(rows)
+    }
+}
+
+/// Decodes a cursor of `GET /v1/artist-names`: the `sort_name`, `kind` and
+/// `key` of the last row of the page before. ADR 0070 §3.
+fn parse_artist_names_cursor(cursor: &str) -> Result<(String, String, String), api::ApiError> {
+    let decoded = decode_cursor(cursor)?;
+    let parts: Vec<&str> = decoded.splitn(3, '\0').collect();
+    if parts.len() != 3 {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "invalid cursor format".into(),
+            www_authenticate: None,
+        });
+    }
+    Ok((
+        parts[0].to_string(),
+        parts[1].to_string(),
+        parts[2].to_string(),
+    ))
+}
+
+async fn handle_get_artist_names(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<ListQuery>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let state2 = Arc::clone(&state);
+    let result = tokio::task::spawn_blocking(move || {
+        // Mutex safety compliant — 2026-03-12
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        let limit = params.capped_limit();
+        let all_rows = state2.artist_name_cache.get_or_build(&conn)?;
+
+        let cursor_after = params
+            .cursor
+            .as_deref()
+            .map(parse_artist_names_cursor)
+            .transpose()?;
+
+        // ADR 0070 §3: `from` applies only when the request carries no
+        // cursor, as it does for `GET /v1/feeds/by-name`.
+        let start = if let Some((sort, kind, key)) = &cursor_after {
+            all_rows.partition_point(|r| {
+                (r.sort_name.as_str(), r.kind.as_str(), r.key.as_str())
+                    <= (sort.as_str(), kind.as_str(), key.as_str())
+            })
+        } else if let Some(from) = params.from.as_deref().map(sort_key) {
+            all_rows.partition_point(|r| r.sort_name.as_str() < from.as_str())
+        } else {
+            0
+        };
+
+        let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
+        let has_more = all_rows.len().saturating_sub(start) > limit_usize;
+        let page: Vec<ArtistNameRow> = all_rows[start..]
+            .iter()
+            .take(limit_usize)
+            .cloned()
+            .collect();
+
+        let next_cursor = if has_more {
+            page.last()
+                .map(|r| encode_cursor(&format!("{}\0{}\0{}", r.sort_name, r.kind, r.key)))
+        } else {
+            None
+        };
+
+        Ok::<_, api::ApiError>(QueryResponse {
+            data: page,
             pagination: Pagination {
                 cursor: next_cursor,
                 has_more,
@@ -4087,7 +4610,10 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
-        capabilities: vec!["query", "search", "sync", "push"],
+        // ADR 0070 §6: `name_lists` names the two routes that give an
+        // identity one row in sort-key order. Task 001 ships the release
+        // list, `GET /v1/feeds/by-name`.
+        capabilities: vec!["query", "search", "sync", "push", "name_lists"],
         entity_types: vec!["feed", "track"],
         include_params,
     })
@@ -4529,6 +5055,8 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/guid-changes", get(handle_list_guid_changes))
         .route("/v1/live-items", get(handle_list_live_items))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
+        .route("/v1/feeds/by-name", get(handle_get_feeds_by_name))
+        .route("/v1/artist-names", get(handle_get_artist_names))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
         .route("/v1/search", get(handle_search))
@@ -4580,6 +5108,7 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<FeedSupersededBody>(&mut schemas);
     register_schema::<LiveItemResponse>(&mut schemas);
     register_schema::<LiveItemListResponse>(&mut schemas);
+    register_schema::<ArtistNameRow>(&mut schemas);
     schemas
 }
 
@@ -4694,19 +5223,77 @@ mod tests {
         );
     }
 
-    // ── normalize_release_artist (task 008 "Constraints") ───────────────────
+    // ── is_name_level_release (ADR 0070 §4, task 002) ───────────────────────
 
-    #[test]
-    fn normalize_release_artist_trims_and_collapses_and_lowercases() {
-        assert_eq!(normalize_release_artist("  Jimmy   V "), "jimmy v");
-        assert_eq!(normalize_release_artist("jimmy v"), "jimmy v");
+    /// A `music_to_publisher` row of a release's publisher view, with the
+    /// fields `is_name_level_release` reads. `held` sets whether the node
+    /// holds the named publisher feed.
+    fn held_link_row(
+        held: bool,
+        role_agreement: Option<&str>,
+        role: Option<&str>,
+    ) -> PublisherResponse {
+        PublisherResponse {
+            direction: "music_to_publisher".to_string(),
+            remote_feed_guid: "remote-feed".to_string(),
+            remote_feed_url: None,
+            remote_feed_medium: None,
+            publisher_feed_guid: "publisher-feed".to_string(),
+            publisher_feed_url: None,
+            music_feed_guid: "music-feed".to_string(),
+            music_feed_url: None,
+            music_names_publisher: true,
+            publisher_lists_music: false,
+            publisher_link_resolution: "unresolved".to_string(),
+            publisher_link_observed_at: None,
+            reciprocal_declared: false,
+            reciprocal_medium: None,
+            two_way_validated: false,
+            publisher_rel: None,
+            music_rel: None,
+            role: role.map(str::to_string),
+            role_source: "default".to_string(),
+            role_agreement: role_agreement.map(str::to_string),
+            remote_feed_title: held.then(|| "Held Publisher Feed".to_string()),
+            remote_feed_image_url: None,
+            remote_release_artist: None,
+            remote_release_artist_source: None,
+            album_names_as: None,
+        }
     }
 
     #[test]
-    fn normalize_release_artist_does_not_split_a_feat_credit() {
-        assert_ne!(
-            normalize_release_artist("A feat. B"),
-            normalize_release_artist("A")
+    fn is_name_level_release_true_with_no_publisher_link() {
+        assert!(
+            is_name_level_release(&[]),
+            "ADR 0070 §4: no item names a held publisher feed"
+        );
+    }
+
+    #[test]
+    fn is_name_level_release_false_when_a_held_link_states_no_rel() {
+        let rows = vec![held_link_row(true, None, None)];
+        assert!(
+            !is_name_level_release(&rows),
+            "ADR 0070 §4: a held link with no rel is not role_agreement both"
+        );
+    }
+
+    #[test]
+    fn is_name_level_release_true_when_the_only_held_link_agrees_on_label() {
+        let rows = vec![held_link_row(true, Some("both"), Some("label"))];
+        assert!(
+            is_name_level_release(&rows),
+            "ADR 0070 §4: both sides agree on a role that is not artist"
+        );
+    }
+
+    #[test]
+    fn is_name_level_release_false_when_the_agreed_roles_include_artist() {
+        let rows = vec![held_link_row(true, Some("both"), Some("artist, label"))];
+        assert!(
+            !is_name_level_release(&rows),
+            "ADR 0070 §4: the agreed role set includes artist"
         );
     }
 }

@@ -2,7 +2,8 @@
 
 ## Status
 Accepted on 2026-10-17, for v4vmm request 6. Task 001 gives the sort key and
-the release list. Task 002 gives the artist list.
+the release list. Task 002 gives the artist list. Amended on 2026-10-17 with
+section 4a: the node keeps the artist list in memory.
 
 ## Date
 2026-10-17
@@ -129,6 +130,26 @@ A music release is of the name level when one of these conditions is true:
 Thus the `release_count` of a `name` row counts the releases that open the
 name level of v4vmm ADR 0084 Decision 7.
 
+### 4a. The node keeps the artist list in memory
+
+Added on 2026-10-17. On the backup of 2026-09-26, one build of the full
+artist list took about 200 ms in a release build. 93% to 95% of that time was
+the link facts of the 8,641 releases. Each page needs the full list.
+
+The node builds the full list with the rules of sections 3 and 4, and keeps it
+in memory. A page reads the copy in memory.
+
+- The copy records the highest `seq` of the event log at its build.
+- When the highest `seq` changes, the copy is stale. The next request builds
+  the list again.
+- The node builds the list at most one time in each 30 seconds. During a burst
+  of changes, a page can thus give a list that is at most 30 seconds old.
+- Only one build runs at a time. A request during a build waits for it.
+
+The node stores no derived table. A derived table needs an update rule for
+each change of a link, on the album side and on the publisher side. Such rules
+are a second copy of the rules of section 4.
+
 ### 5. The node derives no artist
 
 The node gives facts about feeds and texts. It does not decide that a name and
@@ -175,8 +196,29 @@ client.
 - The node writes a sort key for each feed title. An existing database gets the
   values from a migration.
 - The artist list needs the link facts of ADR 0049 §6a for each release.
-  Task 001 measures the cost of a page on the backup, and it chooses a
-  calculation at each read or a derived table.
+  Section 4a keeps the list in memory. The first request after a change
+  costs one full build.
+
+## Invariants
+
+- One function gives the sort key. The release list, the artist list and
+  `from` use it.
+- A row gives the `sort_name` that the order of its list uses.
+- A cursor continues a list with no gap and no repeat.
+- The artist list merges no `publisher` row and no `name` row by text.
+- The artist list in memory is at most 30 seconds older than the last
+  change of the event log.
+- The name level uses the link facts of the publisher view (ADR 0049 §6a). It
+  has no second rule.
+- `title_lower` and the other routes do not change.
+
+## Non-Goals
+
+- A sort that knows a language, for example one that removes "The".
+- An artist record, an artist identity or a merge of names. ADR 0034 removed
+  the artist records.
+- A search in the two lists. `GET /v1/search` gives the search.
+- A list of the tracks by name.
 
 ## Acceptance Criteria
 
@@ -193,6 +235,9 @@ Mechanical, each one checked by an integration test:
 - A release with a link that is not a label link does not count in a `name`
   row.
 - The OpenAPI guards of ADR 0044 pass for the two routes.
+- After a feed ingest, the next artist list request more than 30 seconds
+  after the last build gives the change.
+- Two requests with no change between them build the list one time.
 
 Visual, checked by the v4vmm operator:
 

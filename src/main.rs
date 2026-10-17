@@ -11,7 +11,7 @@ static GLOBAL: MiMalloc = MiMalloc;
 
 use std::process::ExitCode;
 
-use stophammer::{api, blocks, community, db, db_pool, live, signing, tls, verify};
+use stophammer::{api, blocks, community, db, db_pool, live, query, signing, tls, verify};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -170,6 +170,7 @@ async fn run_primary(
         push_subscribers,
         sse_registry: std::sync::Arc::new(api::SseRegistry::new()),
         source_gone_hosts: source_gone_hosts_from_env(),
+        artist_name_cache: query::ArtistNameCache::default(),
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });
@@ -296,6 +297,7 @@ async fn run_community(
         // A community node never serves POST /ingest/feed, so this list is
         // never read.
         source_gone_hosts: Vec::new(),
+        artist_name_cache: query::ArtistNameCache::default(),
         #[cfg(feature = "test-util")]
         skip_ssrf_validation: false,
     });

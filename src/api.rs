@@ -613,6 +613,8 @@ pub struct AppState {
     /// the same env var on the primary; empty on a community node, which
     /// never serves `POST /ingest/feed`.
     pub source_gone_hosts: Vec<String>,
+    /// ADR 0070 §4a: the in-memory copy of `GET /v1/artist-names`.
+    pub artist_name_cache: query::ArtistNameCache,
     /// When true, skip SSRF validation of a peer's `node_url` during
     /// `sync/register`. Only intended for test environments where mock
     /// servers use localhost.

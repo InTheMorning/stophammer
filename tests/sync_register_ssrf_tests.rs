@@ -35,6 +35,7 @@ fn state_with_ssrf_enabled(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophamm
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         source_gone_hosts: Vec::new(),
         skip_ssrf_validation: false,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
     })
 }
 
@@ -60,6 +61,7 @@ fn state_with_ssrf_disabled(
         sse_registry: Arc::new(stophammer::api::SseRegistry::new()),
         source_gone_hosts: Vec::new(),
         skip_ssrf_validation: true,
+        artist_name_cache: stophammer::query::ArtistNameCache::default(),
     })
 }
 

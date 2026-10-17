@@ -38,12 +38,14 @@ CREATE TABLE IF NOT EXISTS feeds (
     declared_self_url TEXT,
     declared_new_feed_url TEXT,
     podcast_locked INTEGER,
-    locked_owner TEXT
+    locked_owner TEXT,
+    title_sort TEXT
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feeds_newest ON feeds(newest_item_at DESC);
 CREATE INDEX IF NOT EXISTS idx_feeds_title  ON feeds(title_lower);
 CREATE INDEX IF NOT EXISTS idx_feeds_title_guid ON feeds(title_lower, feed_guid);
+CREATE INDEX IF NOT EXISTS idx_feeds_title_sort_guid ON feeds(title_sort, feed_guid);
 
 CREATE TABLE IF NOT EXISTS tracks (
     track_guid       TEXT NOT NULL,
