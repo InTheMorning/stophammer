@@ -63,6 +63,7 @@ disagree.
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
 | [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels`, `agreed_roles` and `confirmed_release_artists`, as role tokens over confirmed links (§5). Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4) | Accepted |
 | [0069](0069-an-album-confirms-each-credit.md) | An album names one or more publishers inside `<podcast:publisher>`, and only a two-way link is confirmed. Each publisher row gives `album_names_as`, and a publisher read gives `co_credited_feeds`. The bare-item credit is removed (§1a) | Accepted |
+| [0070](0070-a-name-list-gives-each-identity-one-row.md) | `GET /v1/feeds/by-name` and `GET /v1/artist-names` give lists in name order, with one sort key in `sort_name`. The artist list gives one row for each publisher feed and one for each name of the name level, and merges no row by text. v4vmm request 6 | Proposed |
 
 ## Identity, Signing And Security
 
