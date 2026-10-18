@@ -42,7 +42,7 @@ names the requests that the two clients share.
 | 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 | 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
-| 13 | Item facts on each copy row | API field addition | Wanted |
+| 13 | Item facts on each copy row | API field addition | Accepted on 2026-10-18 |
 | 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
@@ -420,8 +420,9 @@ The page gets the title of each indexed feed with one read.
 
 ### 13. Item Facts On Each Copy Row
 
-Added on 2026-10-03. Evidence: read-only GET requests to the live API at
-release 0.7.0 on 2026-10-03.
+Added on 2026-10-03. Changed on 2026-10-18 to the scope that Stophammer
+accepted. Evidence: read-only GET requests to the live API at release 0.7.0
+on 2026-10-03.
 
 **What happens.** The search site compares a copy with the indexed feed in
 two columns (musicindex ADR 0014). For each item of the indexed feed it shows
@@ -448,9 +449,10 @@ same recording. The audio URL and the duration are the facts that show it.
 | `item_pub_dates` | The publication date of each item, in the same sequence |
 | `author` | The channel `itunes:author` of the copy |
 
-A different enclosure URL for the same item GUID is a strong sign of a
-different recording. Stophammer can select if it is a difference of ADR 0058
-§2.
+A different enclosure URL for the same item GUID can show a different
+recording. The client compares the URLs and shows the difference. The index
+does not count it as a difference of ADR 0058 §2, because a mirror can serve
+the same recording from a different URL.
 
 ### 14. The Advertised Page Of Each Live Item
 
@@ -591,6 +593,14 @@ Stophammer examined requests 14 to 16 against the live API at revision
 | 16 | Declined. A client groups the contributor rows by `npub`. ADR 0041 does not change |
 
 A release record gives the release that carries requests 14 and 15.
+
+## Stophammer Answers - 2026-10-18
+
+The Stophammer operator decided request 13 on 2026-10-18. The text of the request above now gives the accepted scope.
+
+| # | Answer |
+|---|---|
+| 13 | Accepted as ADR 0058 §1e. Each copy row gives `item_durations`, `item_enclosure_urls`, `item_pub_dates` and `author`. They follow §1c: display values, out of the summary digest, and an event when one changes. Each enclosure URL passes the web URL rule of ADR 0054 §4, because the publisher of a copy can be an attacker. A different enclosure URL is not a difference of §2. In the backup of 2026-09-26, 225 of 2,022 indexed tracks with more than one event had changed their URL on their own feed, for example with an analytics prefix. After the deploy, a replay of the cached copy bodies fills the rows from before the release. A release record gives the release |
 
 ## Requests That v4vmm Also Makes
 
