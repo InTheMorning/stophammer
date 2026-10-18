@@ -235,6 +235,7 @@ fn spec_value(mode: DocMode) -> Value {
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
+                    include_query_param(query::ARTIST_NAME_INCLUDES),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
                 ],
                 None,

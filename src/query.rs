@@ -207,6 +207,9 @@ pub const FEED_INCLUDES: &[&str] = &[
 /// accept. ADR 0068 §1 and ADR 0071 §1c.
 pub const FEED_LIST_INCLUDES: &[&str] = &["link_facts"];
 
+/// The include names `GET /v1/artist-names` accepts. ADR 0071 §2.
+pub const ARTIST_NAME_INCLUDES: &[&str] = &["link_facts"];
+
 /// The include names `GET /v1/tracks/{guid}` accepts.
 pub const TRACK_INCLUDES: &[&str] = &[
     "payment_routes",
@@ -316,6 +319,12 @@ struct FeedResponse {
     /// `two_way_link_count` is. ADR 0068 §5.
     #[serde(skip_serializing_if = "Option::is_none")]
     agreed_roles: Option<Vec<String>>,
+    /// The count of the confirmed rows of `two_way_link_count` with
+    /// `album_names_rank` 1: the albums that name this feed first. A
+    /// fallback for a feed with an empty `agreed_roles`. Present only where
+    /// `two_way_link_count` is. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_named_count: Option<i64>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -1446,11 +1455,14 @@ fn confirmed_and_unconfirmed_release_artists(
 }
 
 /// The link facts of one publisher feed. ADR 0068 §1.
+#[derive(Debug, Clone)]
 struct LinkFacts {
     two_way_link_count: i64,
     stated_rels: Vec<String>,
     agreed_roles: Vec<String>,
     confirmed_release_artists: Vec<String>,
+    /// ADR 0071 §2: the confirmed links whose album names this feed first.
+    first_named_count: i64,
 }
 
 /// Derives [`LinkFacts`] from the `publisher` view rows of one feed, as
@@ -1475,8 +1487,13 @@ fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
         .flat_map(rel_tokens)
         .collect();
     let (confirmed_release_artists, _unconfirmed) = confirmed_and_unconfirmed_release_artists(rows);
+    let first_named = confirmed
+        .iter()
+        .filter(|row| row.album_names_rank == Some(1))
+        .count();
     LinkFacts {
         two_way_link_count: i64::try_from(confirmed.len()).unwrap_or(i64::MAX),
+        first_named_count: i64::try_from(first_named).unwrap_or(i64::MAX),
         stated_rels: stated_rels.into_iter().collect(),
         agreed_roles: agreed_roles.into_iter().collect(),
         confirmed_release_artists,
@@ -1705,6 +1722,7 @@ fn build_feed_response(
         two_way_link_count: None,
         stated_rels: None,
         agreed_roles: None,
+        first_named_count: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -4019,18 +4037,21 @@ fn feed_list_row_to_response(
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &r.feed_guid)?.map(pending_guid_change_response);
     // ADR 0068 §1: the link facts of a publisher row, only on request.
-    let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed) =
-        if include_link_facts && medium::is_publisher(r.raw_medium.as_deref()) {
-            let facts = link_facts(&load_publisher(conn, &r.feed_guid)?);
+    let facts = if include_link_facts && medium::is_publisher(r.raw_medium.as_deref()) {
+        Some(link_facts(&load_publisher(conn, &r.feed_guid)?))
+    } else {
+        None
+    };
+    let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed, first_named_count) =
+        facts.map_or((None, None, None, None, None), |facts| {
             (
                 Some(facts.two_way_link_count),
                 Some(facts.stated_rels),
                 Some(facts.agreed_roles),
                 Some(facts.confirmed_release_artists),
+                Some(facts.first_named_count),
             )
-        } else {
-            (None, None, None, None)
-        };
+        });
     Ok(FeedResponse {
         feed_guid: r.feed_guid,
         feed_url: r.feed_url,
@@ -4061,6 +4082,7 @@ fn feed_list_row_to_response(
         two_way_link_count,
         stated_rels,
         agreed_roles,
+        first_named_count,
         language: r.language,
         explicit: r.explicit_int != 0,
         episode_count: r.episode_count,
@@ -4347,6 +4369,49 @@ struct ArtistNameRow {
     /// The count of music releases of the name level with this key. Null
     /// for a `publisher` row. ADR 0070 §3 and §4.
     release_count: Option<i64>,
+    /// With `include=link_facts`, the ADR 0068 value for a `publisher` row.
+    /// Absent on a `name` row. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_link_count: Option<i64>,
+    /// With `include=link_facts`, the ADR 0068 §5 value for a `publisher`
+    /// row. Absent on a `name` row. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stated_rels: Option<Vec<String>>,
+    /// With `include=link_facts`, the ADR 0068 §5 value for a `publisher`
+    /// row. Absent on a `name` row. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agreed_roles: Option<Vec<String>>,
+    /// With `include=link_facts`, the ADR 0061 §1 value for a `publisher`
+    /// row. Absent on a `name` row. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed_release_artists: Option<Vec<String>>,
+    /// With `include=link_facts`, the count of the confirmed links whose
+    /// album names this feed first. A fallback for a feed with an empty
+    /// `agreed_roles`. Absent on a `name` row. ADR 0071 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_named_count: Option<i64>,
+}
+
+impl ArtistNameRow {
+    /// Sets the link facts of a `publisher` row. ADR 0071 §2.
+    fn with_link_facts(mut self, facts: LinkFacts) -> Self {
+        self.two_way_link_count = Some(facts.two_way_link_count);
+        self.stated_rels = Some(facts.stated_rels);
+        self.agreed_roles = Some(facts.agreed_roles);
+        self.confirmed_release_artists = Some(facts.confirmed_release_artists);
+        self.first_named_count = Some(facts.first_named_count);
+        self
+    }
+
+    /// Removes the link facts, for a page with no `include=link_facts`.
+    fn without_link_facts(mut self) -> Self {
+        self.two_way_link_count = None;
+        self.stated_rels = None;
+        self.agreed_roles = None;
+        self.confirmed_release_artists = None;
+        self.first_named_count = None;
+        self
+    }
 }
 
 /// One `name` group of `GET /v1/artist-names`: every release of the name
@@ -4420,15 +4485,26 @@ fn build_artist_name_rows(
 
     for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
         let sort_name = sort_key(&title);
-        rows.push(ArtistNameRow {
-            kind: "publisher".to_string(),
-            name: title,
-            sort_name,
-            key: feed_guid.clone(),
-            feed_guid: Some(feed_guid),
-            image_url: web_url_or_none(image_url.as_deref()),
-            release_count: None,
-        });
+        // ADR 0071 §2: the build keeps the link facts of each publisher
+        // feed, so a page with `include=link_facts` reads no database row.
+        let facts = link_facts(&load_publisher(conn, &feed_guid)?);
+        rows.push(
+            ArtistNameRow {
+                kind: "publisher".to_string(),
+                name: title,
+                sort_name,
+                key: feed_guid.clone(),
+                feed_guid: Some(feed_guid),
+                image_url: web_url_or_none(image_url.as_deref()),
+                release_count: None,
+                two_way_link_count: None,
+                stated_rels: None,
+                agreed_roles: None,
+                confirmed_release_artists: None,
+                first_named_count: None,
+            }
+            .with_link_facts(facts),
+        );
     }
 
     let mut groups: BTreeMap<String, ArtistNameGroup> = BTreeMap::new();
@@ -4454,6 +4530,11 @@ fn build_artist_name_rows(
             feed_guid: None,
             image_url: None,
             release_count: Some(group.release_count),
+            two_way_link_count: None,
+            stated_rels: None,
+            agreed_roles: None,
+            confirmed_release_artists: None,
+            first_named_count: None,
         });
     }
 
@@ -4615,10 +4696,20 @@ async fn handle_get_artist_names(
 
         let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
         let has_more = all_rows.len().saturating_sub(start) > limit_usize;
+        // ADR 0071 §2: the copy holds the link facts. A page gives them only
+        // with `include=link_facts`.
+        let include_link_facts = params.includes("link_facts");
         let page: Vec<ArtistNameRow> = all_rows[start..]
             .iter()
             .take(limit_usize)
             .cloned()
+            .map(|row| {
+                if include_link_facts {
+                    row
+                } else {
+                    row.without_link_facts()
+                }
+            })
             .collect();
 
         let next_cursor = if has_more {
@@ -4873,6 +4964,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
     include_params.insert("track", TRACK_INCLUDES.to_vec());
     // ADR 0068 §1: the include names of `GET /v1/feeds/recent`.
     include_params.insert("feed_list", FEED_LIST_INCLUDES.to_vec());
+    // ADR 0071 §2: the include names of `GET /v1/artist-names`.
+    include_params.insert("artist_list", ARTIST_NAME_INCLUDES.to_vec());
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),

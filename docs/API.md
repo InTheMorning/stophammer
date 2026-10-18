@@ -1168,9 +1168,10 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional `medium`
-- **Include `link_facts`:** each publisher row gives four more fields. A row
+- **Include `link_facts`:** each publisher row gives five more fields. A row
   of another medium gives none of them. Without the include, no row gives
-  them. ADR 0068 owns this include.
+  them. ADR 0068 owns this include, and ADR 0071 section 2 adds
+  `first_named_count`.
 
 | Field | Value |
 |---|---|
@@ -1178,6 +1179,7 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 | `stated_rels` | The role tokens of the `publisher_rel` values of those rows: lowercased, different values only, sorted. `"artist producer"` gives `"artist"` and `"producer"`. Empty when no such row states one |
 | `agreed_roles` | The role tokens of the rows with `role_agreement` `"both"`, sorted. A role that only one side states is not in it |
 | `confirmed_release_artists` | The same list as a read of that feed (ADR 0061 §1) |
+| `first_named_count` | The count of the confirmed links whose album names this feed first, with `album_names_rank` 1. A fallback for a feed with an empty `agreed_roles`. The node derives no artist from it (ADR 0069 §3a, ADR 0071 §2) |
 
 Each value comes from the rows that `GET /v1/feeds/{guid}?include=publisher`
 gives for the same feed. The node splits a `rel` value into tokens as `role`
@@ -1225,7 +1227,7 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   punctuation and an accent.
 - **Query parameters:** common pagination params plus optional `include`,
   `medium` and `from`.
-- **Include `link_facts`:** each publisher row gives the four fields of
+- **Include `link_facts`:** each publisher row gives the five fields of
   `GET /v1/feeds/recent` with the same include (ADR 0068, ADR 0071 section
   1c).
 - **`from`:** Starts the list at the first row with a sort key equal to or
@@ -1261,8 +1263,12 @@ sections 3 and 4 own this route.
   an agreed role set that excludes `artist`. The node derives no artist
   identity from this rule. A `name` row states a fact about a text, not a
   claim that the text names an artist.
-- **Query parameters:** common pagination params plus optional `from`, as
-  `GET /v1/feeds/by-name` takes them.
+- **Query parameters:** common pagination params plus optional `include`
+  and `from`, as `GET /v1/feeds/by-name` takes them.
+- **Include `link_facts`:** each `publisher` row gives the five fields of
+  `GET /v1/feeds/recent` with the same include, with the same values. A
+  `name` row gives none of them. The node calculates them in the build of
+  the copy in memory. ADR 0071 section 2.
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. A request with `cursor` ignores `from`.
 - **Freshness:** The node keeps the full list in memory (ADR 0070 section
@@ -1956,7 +1962,8 @@ capabilities payload.
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
     "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
-    "feed_list": ["link_facts"]
+    "feed_list": ["link_facts"],
+    "artist_list": ["link_facts"]
   }
 }
 ```

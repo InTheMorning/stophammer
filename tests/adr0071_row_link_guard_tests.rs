@@ -55,6 +55,11 @@ const INCLUDE_ROUTES: &[(&str, &str, &[&str])] = &[
         "handle_get_feeds_by_name",
         stophammer::query::FEED_LIST_INCLUDES,
     ),
+    (
+        "/v1/artist-names",
+        "handle_get_artist_names",
+        stophammer::query::ARTIST_NAME_INCLUDES,
+    ),
 ];
 
 fn primary_document() -> Value {
