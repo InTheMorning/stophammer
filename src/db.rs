@@ -3615,7 +3615,10 @@ fn build_changed_events(
 
     // --- Feed routes diff ---
     let existing_routes = get_feed_payment_routes_for_feed(conn, &feed.feed_guid)?;
-    if !feed_routes.is_empty() && feed_routes_changed(&existing_routes, feed_routes) {
+    // A change to an empty list also needs an event, so a community node
+    // deletes the same rows. `ingest_transaction` replaces the rows at each
+    // ingest.
+    if feed_routes_changed(&existing_routes, feed_routes) {
         event_rows.push(build_feed_routes_event(feed, feed_routes, now, &warn_vec)?);
     }
 
@@ -3634,7 +3637,8 @@ fn build_changed_events(
 
     // --- Feed remote-item diff ---
     let existing_remote_items = get_feed_remote_items_for_feed(conn, &feed.feed_guid)?;
-    if !remote_items.is_empty() && feed_remote_items_changed(&existing_remote_items, remote_items) {
+    // A change to an empty list also needs an event, as for the routes.
+    if feed_remote_items_changed(&existing_remote_items, remote_items) {
         event_rows.push(build_feed_remote_items_event(
             feed,
             remote_items,
@@ -3757,7 +3761,16 @@ fn build_changed_events(
                 track, routes, vts, now, &warn_vec,
             )?);
 
-            if !track_remote_items.is_empty() {
+            // A changed track that empties its remote items also needs an
+            // event, so a community node deletes the same rows.
+            let emptied = existing_map.contains_key(track.track_guid.as_str())
+                && !get_track_remote_items_for_feed_track(
+                    conn,
+                    &track.feed_guid,
+                    &track.track_guid,
+                )?
+                .is_empty();
+            if !track_remote_items.is_empty() || emptied {
                 event_rows.push(build_track_remote_items_event(
                     track,
                     track_remote_items,
@@ -3769,9 +3782,7 @@ fn build_changed_events(
             // Track fields didn't change, but check if remote items changed
             let existing_remote_items =
                 get_track_remote_items_for_feed_track(conn, &track.feed_guid, &track.track_guid)?;
-            if !track_remote_items.is_empty()
-                && track_remote_items_changed(&existing_remote_items, track_remote_items)
-            {
+            if track_remote_items_changed(&existing_remote_items, track_remote_items) {
                 event_rows.push(build_track_remote_items_event(
                     track,
                     track_remote_items,
