@@ -523,7 +523,7 @@ fn spec_value(mode: DocMode) -> Value {
                 "Search",
                 vec![
                     query_param("q", "string", None, true, "Search query (FTS5 syntax)."),
-                    query_param("type", "string", None, false, "Filter by entity type: `feed` or `track`."),
+                    query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor.")
                 ],

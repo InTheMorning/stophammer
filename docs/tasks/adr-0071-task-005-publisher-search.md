@@ -47,6 +47,11 @@ whose text matches `q`. Each other search gives the same results as before.
   where each publisher feed has a row skips it. It logs the count and the time
   at `info`.
 - Declare `publisher` in the `type` parameter, and in the capabilities.
+- **Row summary.** `handle_search` builds each row that is not a track with
+  `feed_search_summary`. A `publisher` row thus needs no new summary code.
+- **Quality.** `entity_quality` stores a score under the type `feed`. The
+  search joins on the type of the row, so a `publisher` row gets the score 0.
+  Keep this. Do not store a second quality row.
 - No migration, no event change and no ingest change.
 
 ## Do Not Touch
@@ -109,3 +114,53 @@ Stop and report, with no workaround, when:
 4. the count and the time of the repair on the backup
 5. deviations from this task
 6. unresolved concerns
+
+## Prompt for lower-context coding model
+
+You are implementing one bounded task from a larger plan.
+
+Implement only this task. Do not redesign the architecture.
+
+Read:
+- `AGENTS.md` (the code style and the pre-commit gate)
+- `docs/adr/0071-a-list-row-links-what-it-names.md`, section 5
+- `docs/adr/0038-item-level-publisher-remote-items.md`, "Amendment Of 2026-10-18"
+- `docs/tasks/adr-0071-task-005-publisher-search.md` (this task)
+- the files of "Files To Inspect" in this task
+
+Goal:
+- `GET /v1/search?type=publisher` gives the feeds with the medium `publisher` whose text matches `q`. Each other search gives the same results as before.
+
+Constraints:
+- Follow the sections "Constraints" and "Implementation Steps" of this task.
+- A publisher feed is a search entity of the type `publisher`. `type=feed` and a search with no `type` read only `feed` and `track`.
+- The repair at the start adds rows. It never clears the index.
+- Measure the repair on a copy of the newest file in `backups/`, in the scratchpad directory of the session. Delete the copy after the measurement.
+- No migration, no event change and no ingest change.
+- Stop at each escalation trigger of this task.
+
+Do not touch:
+- `stophammer-crawler/`, `stophammer-parser/`, `docs/adr/`, `docs/plans/`, `docs/tasks/`, `AGENTS.md`
+- `GET /v1/publishers` and `handle_publisher_search`
+- the ranking of search, and the quality rows
+- each migration file
+- git: run no git write command (no add, commit, stash, checkout, reset). The operator commits.
+
+Acceptance criteria:
+- The criteria of "Acceptance Criteria" in this task, each one a test in `tests/adr0071_publisher_search_tests.rs`.
+- The guards in `tests/adr0071_row_link_guard_tests.rs`, `tests/adr0044_contract_guard_tests.rs` and `tests/adr0044_schema_refs_tests.rs` pass.
+
+Test commands:
+- `cargo build`
+- `cargo test --test adr0071_publisher_search_tests`
+- `cargo test --test search_tests`
+- `cargo test`
+- `cargo clippy --all-targets -- -D warnings`
+- `cargo fmt -- --check`
+
+At the end, report:
+1. files changed
+2. tests run
+3. behavior changed
+4. deviations from task
+5. unresolved concerns

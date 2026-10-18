@@ -200,8 +200,10 @@ Complete and deployed:
   `include` of a route. The artist list gives link facts and
   `first_named_count`, and a release row gives `named_feeds`.
   `GET /v1/feeds/by-name` takes `artist_key`, and search takes
-  `type=publisher`. Tasks 001 to 005 are
-  open, and no release holds them.
+  `type=publisher`. Tasks 001 to 005 are complete, and no release holds
+  them. At the first start, the node adds each publisher feed to the search
+  index. On the backup of 2026-10-18 it added 1,774 feeds in about 0.6
+  seconds.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and

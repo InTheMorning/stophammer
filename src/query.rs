@@ -4919,7 +4919,7 @@ async fn handle_search(
     let results = tokio::task::spawn_blocking(move || {
         let conn = pool.reader()?;
         match kind.as_deref() {
-            Some("feed" | "track") => crate::search::search(
+            Some("feed" | "track" | "publisher") => crate::search::search(
                 &conn,
                 &q,
                 kind.as_deref(),
@@ -5100,7 +5100,9 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         // identity one row in sort-key order. Task 001 ships the release
         // list, `GET /v1/feeds/by-name`.
         capabilities: vec!["query", "search", "sync", "push", "name_lists"],
-        entity_types: vec!["feed", "track"],
+        // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
+        // its title.
+        entity_types: vec!["feed", "track", "publisher"],
         include_params,
     })
 }

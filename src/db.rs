@@ -793,6 +793,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_title_sort_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
     ensure_search_index_track_identity(&mut conn)?;
+    ensure_search_index_publisher_feeds(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
     Ok(conn)
 }
@@ -844,6 +845,46 @@ fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbErr
         stale_quality_rows,
         elapsed_ms = started.elapsed().as_millis(),
         "db: rebuilt the search index without bare track GUID rows"
+    );
+    Ok(())
+}
+
+/// Adds a `publisher` search-entity row for each publisher feed that the
+/// index does not hold.
+///
+/// ADR 0071 §5: the search index holds a publisher feed as its own entity
+/// type, found only with `type=publisher`. A node that opened before this
+/// decision wrote no such row for a publisher feed it already held. This
+/// repair only adds the missing rows. It never clears an existing row. A
+/// database where each publisher feed already has a `search_entities` row
+/// skips the repair, so a second open adds none.
+fn ensure_search_index_publisher_feeds(conn: &mut Connection) -> Result<(), DbError> {
+    let missing_feed_guids: Vec<String> = conn
+        .prepare(
+            "SELECT f.feed_guid FROM feeds f \
+             WHERE lower(f.raw_medium) = 'publisher' \
+             AND NOT EXISTS ( \
+                 SELECT 1 FROM search_entities e \
+                 WHERE e.entity_type = 'publisher' AND e.entity_id = f.feed_guid \
+             )",
+        )?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    if missing_feed_guids.is_empty() {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    for feed_guid in &missing_feed_guids {
+        sync_source_read_models_for_feed(&tx, feed_guid)?;
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        feeds = missing_feed_guids.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: added the publisher feeds the search index did not hold"
     );
     Ok(())
 }
@@ -1235,28 +1276,36 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
         return Ok(());
     };
 
-    let is_music = feed.raw_medium.as_deref() == Some("music");
+    let is_music = crate::medium::is_music(feed.raw_medium.as_deref());
+    let is_publisher_feed = crate::medium::is_publisher(feed.raw_medium.as_deref());
 
-    if is_music {
-        crate::search::populate_search_index(
-            conn,
-            "feed",
-            &feed.feed_guid,
-            feed.release_artist.as_deref().unwrap_or(""),
-            &feed.title,
-            feed.description.as_deref().unwrap_or(""),
-            feed.raw_medium.as_deref().unwrap_or(""),
-        )?;
-    } else {
-        crate::search::delete_from_search_index(
-            conn,
-            "feed",
-            &feed.feed_guid,
-            feed.release_artist.as_deref().unwrap_or(""),
-            &feed.title,
-            feed.description.as_deref().unwrap_or(""),
-            feed.raw_medium.as_deref().unwrap_or(""),
-        )?;
+    // ADR 0071 §5: the index holds a publisher feed as its own entity type.
+    // A feed is at most one of the two row types, so a medium change (music
+    // to publisher or back) deletes the row of the type it left and writes
+    // the row of the type it entered. A `musicL` feed or a feed with no
+    // medium holds neither row.
+    for (entity_type, keep) in [("feed", is_music), ("publisher", is_publisher_feed)] {
+        if keep {
+            crate::search::populate_search_index(
+                conn,
+                entity_type,
+                &feed.feed_guid,
+                feed.release_artist.as_deref().unwrap_or(""),
+                &feed.title,
+                feed.description.as_deref().unwrap_or(""),
+                feed.raw_medium.as_deref().unwrap_or(""),
+            )?;
+        } else {
+            crate::search::delete_from_search_index(
+                conn,
+                entity_type,
+                &feed.feed_guid,
+                feed.release_artist.as_deref().unwrap_or(""),
+                &feed.title,
+                feed.description.as_deref().unwrap_or(""),
+                feed.raw_medium.as_deref().unwrap_or(""),
+            )?;
+        }
     }
 
     let feed_score = crate::quality::compute_feed_quality(conn, &feed.feed_guid)?;

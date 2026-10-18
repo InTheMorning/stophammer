@@ -1880,14 +1880,22 @@ Notes:
 
 ### GET /v1/search
 
-Full-text search using SQLite FTS5. Only music feeds and tracks are indexed.
+Full-text search using SQLite FTS5. The index holds music feeds, their
+tracks, and publisher feeds.
 
-- **Constraint:** Only feeds and tracks with `raw_medium = 'music'` are indexed and returned.
+- **Constraint:** A feed with `raw_medium = 'music'` is indexed as `feed`,
+  and its tracks are indexed as `track`. A feed with `raw_medium =
+  'publisher'` is indexed as `publisher`. A `musicL` feed and a feed with no
+  medium are not indexed.
 
 Default search includes:
 
 - `feed`
 - `track`
+
+`type=publisher` gives only publisher feeds, in the row shape of a feed
+result, with `entity_type` set to `publisher`. `type=feed`, `type=track`, and
+a search with no `type` do not give a publisher feed (ADR 0071 section 5).
 
 Search is source-first in the current runtime. Feed and track search results
 align with the same public IDs exposed by the direct read endpoints.
@@ -1918,7 +1926,7 @@ needs no call for each hit. ADR 0042 owns these fields.
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `q` | string | **required** | Search query (FTS5 syntax) |
-| `type` | string | feed/track | Filter by entity type: `feed`, `track` |
+| `type` | string | feed/track | Filter by entity type: `feed`, `track`, `publisher` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
 
@@ -1969,9 +1977,9 @@ needs no call for each hit. ADR 0042 owns these fields.
 ### GET /v1/node/capabilities
 
 Returns the node's capabilities, supported entity types, and valid `include`
-parameters. Publisher search/detail routes are available even though
-`publisher` is a stored text facet rather than a standalone entity type in the
-capabilities payload.
+parameters. `entity_types` lists each value of the `type` parameter of
+`GET /v1/search`. `publisher` is the type of a publisher feed in the search
+index (ADR 0071 section 5).
 
 - **Authentication:** None
 
@@ -1982,7 +1990,7 @@ capabilities payload.
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
   "capabilities": ["query", "search", "sync", "push", "name_lists"],
-  "entity_types": ["feed", "track"],
+  "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
     "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
