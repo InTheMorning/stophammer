@@ -199,7 +199,10 @@ gives the checks of each task.
 musicindex.org requests 14 and 15 are accepted on 2026-10-17, and request 16
 is declined. The amendment of ADR 0064 §6 gives each live row `link`. ADR 0054
 §4a reads a link with no scheme that starts with a host name as `https`, with
-a flag. No task is written yet.
+a flag. [ADR 0054 task 005](docs/tasks/adr-0054-task-005-host-name-link.md)
+gives the rule, and
+[ADR 0064 task 006](docs/tasks/adr-0064-task-006-live-item-link.md) gives the
+live row `link`. Task 005 comes first.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
