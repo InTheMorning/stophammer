@@ -43,8 +43,8 @@ names the requests that the two clients share.
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 | 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
 | 13 | Item facts on each copy row | API field addition | Wanted |
-| 14 | The advertised page of each live item | API field addition | Accepted on 2026-10-17 |
-| 15 | A website link that has no scheme | Contract change | Accepted on 2026-10-17 |
+| 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
+| 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
 
 ### 1. Summary Fields On Each `remote_items` Entry
@@ -479,9 +479,11 @@ Added on 2026-10-17. Changed on 2026-10-17 to the scope that Stophammer
 accepted. Evidence: the same reads as request 14, and the Stophammer backup
 of 2026-09-26.
 
-**What happens.** The channel of "Pixel Palace" gives
-`<link>www.pixelpalace.party</link>`. The ADR 0054 §4 rule gives `url: null`
-for this `website` row, because the value has no scheme. In the backup, 13 of
+**What happens.** On 2026-10-17 the channel of "Pixel Palace" gave
+`<link>www.pixelpalace.party</link>`. The ADR 0054 §4 rule gave `url: null`
+for this `website` row, because the value had no scheme. At 03:00 UTC on
+2026-10-18 the feed gave `https://www.pixelpalace.party`, so this feed is
+correct now. Other feeds can give a value with no scheme. In the backup, 13 of
 9,956 `website` values had no scheme. One of them, `The Fraglebay`, is not a
 host name.
 
@@ -600,6 +602,13 @@ for their priority.
 | 1 | Album summary fields in each publisher relationship entry | The publisher page reads each album separately: a maximum of 24, six at a time, and a "Show all" control for the remainder (`ALBUM_PAGE_SIZE` and `FEED_FETCH_CONCURRENCY`, lines 1881 and 1882). With the fields, one request per publisher |
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
+
+## Release 0.9.0 - 2026-10-18
+
+Release 0.9.0 delivers requests 14 and 15. `GET /node/info` gives `git_revision` `3ec1352`.
+
+- Each live row gives `link` and `link_scheme_added` (Stophammer ADR 0064 §6). On 2026-10-18, each of the 17 rows of `GET /v1/live-items?view=all` gave a `link`.
+- A `website` or `web_page` link row gives `url_scheme_added` (ADR 0054 §4a). "Good Enough (Single)" (`cfcabfcf-fdf1-556b-8955-94d48dbb6dcb`) stores `nathanabbottmusic.co.uk`, and gives `https://nathanabbottmusic.co.uk` with `url_scheme_added` true.
 
 ## Release 0.6.0 - 2026-10-02
 

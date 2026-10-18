@@ -158,6 +158,26 @@ Complete and deployed:
 
   The candidate `v0.8.0-rc.1` did not hold the search repair. The primary and
   the gossip crawler run the GHCR images of the release.
+- Release 0.9.0, on 2026-10-18. It promotes `v0.9.0-rc.1`, and it holds:
+  - [ADR 0070](docs/adr/0070-a-name-list-gives-each-identity-one-row.md),
+    v4vmm request 6: `GET /v1/feeds/by-name` and `GET /v1/artist-names` give
+    rows in the order of one sort key. Migration 0051 stores the key of each
+    title. The artist list stays in memory (§4a).
+  - The amendment of ADR 0064 §6, musicindex.org request 14: each live row
+    gives `link`.
+  - ADR 0054 §4a, musicindex.org request 15: a link with no scheme that starts
+    with a host name reads as `https`, with a flag. musicindex.org request 16
+    is declined.
+  - A feed that empties its payment routes, its remote items or its track
+    remote items now signs an event. Before, a community node kept the old
+    rows.
+  - The `album_names_as` text of the contract gives `"publisher"` or null.
+
+  The primary and the gossip crawler run the GHCR images of the release. On
+  the primary, the first artist list after a start took about 7 seconds, and a
+  page from the copy takes less than 0.1 second. The time of a build after a
+  change is not measured yet. Measure it when the gossip crawler sends
+  changes.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -171,7 +191,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`c1734b3` makes. `GET /node/info` gives the revision of the running node.
+`3ec1352` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
 [the client requests work plan](docs/plans/client-requests-work-plan.md). Each
@@ -183,26 +203,6 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   Accepted on 2026-09-26. The
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
-
-v4vmm request 6 asks for lists of releases and artists by name.
-[ADR 0070](docs/adr/0070-a-name-list-gives-each-identity-one-row.md) is
-Accepted on 2026-10-17, and amended the same day with §4a. Both tasks are
-complete, and no release carries them yet:
-[task 001](docs/tasks/adr-0070-task-001-sort-key-and-release-list.md) gives
-the sort key and `GET /v1/feeds/by-name`, and
-[task 002](docs/tasks/adr-0070-task-002-artist-list.md) gives
-`GET /v1/artist-names`, from a copy in memory. The
-[phase plan](docs/plans/adr-0070-name-lists-phase-plan.md) gives the sequence,
-and the [review checklist](docs/reviews/adr-0070-name-lists-review-checklist.md)
-gives the checks of each task.
-
-musicindex.org requests 14 and 15 are accepted on 2026-10-17, and request 16
-is declined. The amendment of ADR 0064 §6 gives each live row `link`. ADR 0054
-§4a reads a link with no scheme that starts with a host name as `https`, with
-a flag. [ADR 0054 task 005](docs/tasks/adr-0054-task-005-host-name-link.md)
-gives the rule, and
-[ADR 0064 task 006](docs/tasks/adr-0064-task-006-live-item-link.md) gives the
-live row `link`. Both tasks are complete, and no release carries them yet.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
