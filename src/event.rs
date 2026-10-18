@@ -404,6 +404,22 @@ pub struct FeedCopyObservedPayload {
     pub image_url: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_items: Option<Vec<crate::model::CopyRemoteItem>>,
+    /// ADR 0058 §1e, task 008. An event signed before this amendment has
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_durations: Option<Vec<Option<i64>>>,
+    /// ADR 0058 §1e, task 008. An event signed before this amendment has
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_enclosure_urls: Option<Vec<Option<String>>>,
+    /// ADR 0058 §1e, task 008. An event signed before this amendment has
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub item_pub_dates: Option<Vec<Option<i64>>>,
+    /// The channel `itunes:author` of the copy. ADR 0058 §1e, task 008. An
+    /// event signed before this amendment has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,

@@ -508,6 +508,20 @@ struct FeedCopyResponse {
     item_guids: Vec<String>,
     item_titles: Option<Vec<Option<String>>>,
     image_url: Option<String>,
+    /// The duration, in seconds, of each item, in the sequence of
+    /// `item_guids`. Null in a position where the item has none. Null for a
+    /// row from before ADR 0058 §1e. ADR 0058 §1e, task 008.
+    item_durations: Option<Vec<Option<i64>>>,
+    /// The enclosure URL of each item, in the sequence of `item_guids`. Each
+    /// entry passes the web URL rule of ADR 0054 §4. Null for a row from
+    /// before ADR 0058 §1e. ADR 0058 §1e, task 008.
+    item_enclosure_urls: Option<Vec<Option<String>>>,
+    /// The publication date of each item, in the sequence of `item_guids`.
+    /// Null for a row from before ADR 0058 §1e. ADR 0058 §1e, task 008.
+    item_pub_dates: Option<Vec<Option<i64>>>,
+    /// The channel `itunes:author` of the copy. Null when the copy states
+    /// none, or for a row from before ADR 0058 §1e. ADR 0058 §1e, task 008.
+    author: Option<String>,
     differs_tracks: bool,
     differs_recipients: bool,
     /// True when the `remote_items` list of the row and the record do not name
@@ -3070,6 +3084,15 @@ fn build_feed_copy_response(
         None => None,
     };
 
+    // ADR 0058 §1e: each enclosure URL passes the web URL rule of ADR 0054
+    // §4 on a read. A refused entry gives null in its position, so the
+    // sequence stays equal to item_guids.
+    let item_enclosure_urls = row.item_enclosure_urls.map(|urls| {
+        urls.iter()
+            .map(|url| web_url_or_none(url.as_deref()))
+            .collect()
+    });
+
     Ok(FeedCopyResponse {
         guid_origin: guid_origin_matches(feed_guid, &row.url),
         url: row.url,
@@ -3079,6 +3102,10 @@ fn build_feed_copy_response(
         item_guids: row.item_guids,
         item_titles: row.item_titles,
         image_url: web_url_or_none(row.image_url.as_deref()),
+        item_durations: row.item_durations,
+        item_enclosure_urls,
+        item_pub_dates: row.item_pub_dates,
+        author: row.author,
         differs_tracks,
         differs_recipients,
         differs_remote_items,

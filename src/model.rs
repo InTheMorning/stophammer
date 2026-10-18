@@ -538,6 +538,19 @@ pub struct CopySummary {
     /// Channel-level remote items from `podcast:remoteItem`. A copy summary
     /// of a body always has it. An event signed before ADR 0058 §1d has none.
     pub remote_items: Option<Vec<CopyRemoteItem>>,
+    /// The duration, in seconds, of each item, in the order of `item_guids`.
+    /// A copy summary of a body always has it. An event signed before ADR
+    /// 0058 §1e has none. ADR 0058 §1e, task 008.
+    pub item_durations: Option<Vec<Option<i64>>>,
+    /// The enclosure URL of each item, in the order of `item_guids`. ADR
+    /// 0058 §1e, task 008.
+    pub item_enclosure_urls: Option<Vec<Option<String>>>,
+    /// The publication date of each item, in the order of `item_guids`. ADR
+    /// 0058 §1e, task 008.
+    pub item_pub_dates: Option<Vec<Option<i64>>>,
+    /// The channel `itunes:author` of the copy. Null when the copy states
+    /// none. ADR 0058 §1e, task 008.
+    pub author: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
 }
@@ -555,8 +568,10 @@ impl From<&IngestPaymentRoute> for RouteRecipient {
 
 /// Builds the ADR 0058 Section 1 summary of a mirror body. The summary
 /// holds the channel title, the item GUIDs in the feed's own order, the
-/// title of each item, the channel image URL, the channel-level remote items,
-/// and the recipient set of the feed and of each track.
+/// title of each item, the channel image URL, the channel-level remote
+/// items, the duration, the enclosure URL and the publication date of each
+/// item, the channel author, and the recipient set of the feed and of each
+/// track.
 #[must_use]
 pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
     let feed_recipients = feed
@@ -567,6 +582,9 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
 
     let mut item_guids = Vec::with_capacity(feed.tracks.len());
     let mut item_titles = Vec::with_capacity(feed.tracks.len());
+    let mut item_durations = Vec::with_capacity(feed.tracks.len());
+    let mut item_enclosure_urls = Vec::with_capacity(feed.tracks.len());
+    let mut item_pub_dates = Vec::with_capacity(feed.tracks.len());
     let mut track_recipients = BTreeMap::new();
     for track in &feed.tracks {
         item_guids.push(track.track_guid.clone());
@@ -576,6 +594,14 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
             Some(track.title.clone())
         };
         item_titles.push(title);
+        item_durations.push(track.duration_secs);
+        let enclosure_url = track
+            .enclosure_url
+            .as_ref()
+            .filter(|url| !url.is_empty())
+            .cloned();
+        item_enclosure_urls.push(enclosure_url);
+        item_pub_dates.push(track.pub_date);
         let recipients: Vec<RouteRecipient> = track
             .payment_routes
             .iter()
@@ -583,6 +609,11 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
             .collect();
         track_recipients.insert(track.track_guid.clone(), recipients);
     }
+    let author = feed
+        .author_name
+        .as_ref()
+        .filter(|name| !name.is_empty())
+        .cloned();
 
     let remote_items = feed
         .remote_items
@@ -601,6 +632,10 @@ pub fn copy_summary(feed: &IngestFeedData) -> CopySummary {
         item_titles: Some(item_titles),
         image_url: feed.image_url.clone(),
         remote_items: Some(remote_items),
+        item_durations: Some(item_durations),
+        item_enclosure_urls: Some(item_enclosure_urls),
+        item_pub_dates: Some(item_pub_dates),
+        author,
         feed_recipients,
         track_recipients,
     }

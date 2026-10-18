@@ -266,6 +266,10 @@ const MIGRATIONS: &[&str] = &[
     // Migration 51: store the sort key of each feed title (ADR 0070 §1,
     // task 001)
     include_str!("../migrations/0051_feed_title_sort.sql"),
+    // Migration 52: add the duration, the enclosure URL and the publication
+    // date of each item, and the channel author, to feed_copies (ADR 0058
+    // §1e, task 008)
+    include_str!("../migrations/0052_copy_item_facts.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -669,6 +673,39 @@ fn ensure_feed_title_sort_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Adds the ADR 0058 §1e item-fact columns to `feed_copies` when migration
+/// 0052 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. Migration 0052
+/// comes after migration 0047 (ADR 0034 §11), so no pre-`run_migrations`
+/// guard is needed: the rebuild that migration performs predates these
+/// columns and never depends on them. ADR 0058 §1e, task 008 owns the
+/// columns.
+///
+/// `feed_copies` itself is not part of the baseline schema; migration 0040
+/// creates it (ADR 0058 §1). A database whose watermark sits ahead of every
+/// migration (ADR 0046) never ran that migration either, so this repair
+/// does nothing when the table itself is still missing.
+fn ensure_copy_item_facts_schema(conn: &Connection) -> Result<(), DbError> {
+    let table_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'feed_copies'",
+        [],
+        |row| row.get(0),
+    )?;
+    if !table_exists || table_has_column(conn, "feed_copies", "item_durations")? {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "ALTER TABLE feed_copies ADD COLUMN item_durations TEXT;\n\
+         ALTER TABLE feed_copies ADD COLUMN item_enclosure_urls TEXT;\n\
+         ALTER TABLE feed_copies ADD COLUMN item_pub_dates TEXT;\n\
+         ALTER TABLE feed_copies ADD COLUMN author TEXT;",
+    )?;
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -754,6 +791,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_declared_self_url_schema(&conn)?;
     ensure_feed_move_declaration_schema(&conn)?;
     ensure_feed_title_sort_schema(&conn)?;
+    ensure_copy_item_facts_schema(&conn)?;
     ensure_search_index_track_identity(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
     Ok(conn)
@@ -4488,6 +4526,14 @@ pub struct FeedCopyRow {
     pub item_titles: Option<Vec<Option<String>>>,
     pub image_url: Option<String>,
     pub remote_items: Option<Vec<crate::model::CopyRemoteItem>>,
+    /// ADR 0058 §1e, task 008.
+    pub item_durations: Option<Vec<Option<i64>>>,
+    /// ADR 0058 §1e, task 008.
+    pub item_enclosure_urls: Option<Vec<Option<String>>>,
+    /// ADR 0058 §1e, task 008.
+    pub item_pub_dates: Option<Vec<Option<i64>>>,
+    /// The channel `itunes:author` of the copy. ADR 0058 §1e, task 008.
+    pub author: Option<String>,
     pub feed_recipients: Vec<RouteRecipient>,
     pub track_recipients: BTreeMap<String, Vec<RouteRecipient>>,
     pub summary_digest: String,
@@ -4501,6 +4547,8 @@ pub struct FeedCopyRow {
 
 /// The plain-column shape of a `feed_copies` row, before the JSON
 /// columns are parsed into their typed form.
+// ADR 0058 §1e, task 008: the last four columns are item_durations,
+// item_enclosure_urls, item_pub_dates and author.
 type RawFeedCopyRow = (
     String,
     String,
@@ -4520,12 +4568,16 @@ type RawFeedCopyRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
 );
 
 const FEED_COPY_COLUMNS: &str = "feed_guid, url, first_seen, last_seen, title, item_guids, \
      feed_recipients, track_recipients, summary_digest, resolution, resolution_reason, \
      resolved_at, resolved_digest, item_titles, image_url, remote_items, remote_items_digest, \
-     resolved_remote_items_digest";
+     resolved_remote_items_digest, item_durations, item_enclosure_urls, item_pub_dates, author";
 
 fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCopyRow> {
     Ok((
@@ -4547,6 +4599,10 @@ fn feed_copy_raw_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RawFeedCo
         row.get(15)?,
         row.get(16)?,
         row.get(17)?,
+        row.get(18)?,
+        row.get(19)?,
+        row.get(20)?,
+        row.get(21)?,
     ))
 }
 
@@ -4575,6 +4631,10 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         remote_items_json,
         remote_items_digest,
         resolved_remote_items_digest,
+        item_durations_json,
+        item_enclosure_urls_json,
+        item_pub_dates_json,
+        author,
     ) = raw;
     let item_titles = if let Some(json) = item_titles_json {
         Some(serde_json::from_str(&json)?)
@@ -4582,6 +4642,21 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         None
     };
     let remote_items = if let Some(json) = remote_items_json {
+        Some(serde_json::from_str(&json)?)
+    } else {
+        None
+    };
+    let item_durations = if let Some(json) = item_durations_json {
+        Some(serde_json::from_str(&json)?)
+    } else {
+        None
+    };
+    let item_enclosure_urls = if let Some(json) = item_enclosure_urls_json {
+        Some(serde_json::from_str(&json)?)
+    } else {
+        None
+    };
+    let item_pub_dates = if let Some(json) = item_pub_dates_json {
         Some(serde_json::from_str(&json)?)
     } else {
         None
@@ -4596,6 +4671,10 @@ fn feed_copy_row_from_raw(raw: RawFeedCopyRow) -> Result<FeedCopyRow, DbError> {
         item_titles,
         image_url,
         remote_items,
+        item_durations,
+        item_enclosure_urls,
+        item_pub_dates,
+        author,
         feed_recipients: serde_json::from_str(&feed_recipients_json)?,
         track_recipients: serde_json::from_str(&track_recipients_json)?,
         summary_digest,
@@ -4700,14 +4779,29 @@ pub fn upsert_feed_copy_summary(
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
+    let item_durations = summary
+        .item_durations
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let item_enclosure_urls = summary
+        .item_enclosure_urls
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let item_pub_dates = summary
+        .item_pub_dates
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     let feed_recipients = serde_json::to_string(&summary.feed_recipients)?;
     let track_recipients = serde_json::to_string(&summary.track_recipients)?;
     conn.execute(
         "INSERT INTO feed_copies \
          (feed_guid, url, first_seen, title, item_guids, feed_recipients, \
           track_recipients, summary_digest, item_titles, image_url, remote_items, \
-          remote_items_digest) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12) \
+          remote_items_digest, item_durations, item_enclosure_urls, item_pub_dates, author) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16) \
          ON CONFLICT(feed_guid, url) DO UPDATE SET \
            title               = excluded.title, \
            item_guids          = excluded.item_guids, \
@@ -4717,7 +4811,11 @@ pub fn upsert_feed_copy_summary(
            item_titles         = excluded.item_titles, \
            image_url           = excluded.image_url, \
            remote_items        = excluded.remote_items, \
-           remote_items_digest = excluded.remote_items_digest",
+           remote_items_digest = excluded.remote_items_digest, \
+           item_durations      = excluded.item_durations, \
+           item_enclosure_urls = excluded.item_enclosure_urls, \
+           item_pub_dates      = excluded.item_pub_dates, \
+           author              = excluded.author",
         params![
             feed_guid,
             url,
@@ -4730,7 +4828,11 @@ pub fn upsert_feed_copy_summary(
             item_titles,
             summary.image_url,
             remote_items,
-            remote_items_digest
+            remote_items_digest,
+            item_durations,
+            item_enclosure_urls,
+            item_pub_dates,
+            summary.author
         ],
     )?;
     Ok(())

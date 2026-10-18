@@ -837,6 +837,10 @@ fn feed_copy_observed_event_row(
         item_titles: summary.item_titles.clone(),
         image_url: summary.image_url.clone(),
         remote_items: summary.remote_items.clone(),
+        item_durations: summary.item_durations.clone(),
+        item_enclosure_urls: summary.item_enclosure_urls.clone(),
+        item_pub_dates: summary.item_pub_dates.clone(),
+        author: summary.author.clone(),
         feed_recipients: summary.feed_recipients.clone(),
         track_recipients: summary.track_recipients.clone(),
         summary_digest: digest.to_string(),
@@ -891,12 +895,21 @@ fn record_feed_copy_for_ingest(
             let item_titles_changed = summary.item_titles != row.item_titles;
             let image_changed = summary.image_url != row.image_url;
             let remote_items_changed = remote_items_digest != row.remote_items_digest;
+            let item_durations_changed = summary.item_durations != row.item_durations;
+            let item_enclosure_urls_changed =
+                summary.item_enclosure_urls != row.item_enclosure_urls;
+            let item_pub_dates_changed = summary.item_pub_dates != row.item_pub_dates;
+            let author_changed = summary.author != row.author;
 
             if digest_changed
                 || title_changed
                 || item_titles_changed
                 || image_changed
                 || remote_items_changed
+                || item_durations_changed
+                || item_enclosure_urls_changed
+                || item_pub_dates_changed
+                || author_changed
             {
                 db::upsert_feed_copy_summary(
                     &tx,

@@ -725,6 +725,87 @@ fn open_db_fills_title_sort_for_a_feed_that_predates_migration_0051() {
 }
 
 // ---------------------------------------------------------------------------
+// ADR 0058 §1e, task 008: migration 0052 adds item_durations,
+// item_enclosure_urls, item_pub_dates and author to feed_copies.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn migration_0052_adds_the_four_item_fact_columns_to_feed_copies() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("copy-item-facts-migration.db");
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open db");
+    apply_migration_files_through(&conn, "0051_feed_title_sort.sql");
+
+    for column in [
+        "item_durations",
+        "item_enclosure_urls",
+        "item_pub_dates",
+        "author",
+    ] {
+        assert!(
+            !table_has_column(&conn, "feed_copies", column),
+            "feed_copies must not have {column} before migration 0052"
+        );
+    }
+
+    let sql_0052 =
+        fs::read_to_string("migrations/0052_copy_item_facts.sql").expect("read migration 0052");
+    conn.execute_batch(&sql_0052).expect("apply migration 0052");
+
+    for column in [
+        "item_durations",
+        "item_enclosure_urls",
+        "item_pub_dates",
+        "author",
+    ] {
+        assert!(
+            table_has_column(&conn, "feed_copies", column),
+            "feed_copies must gain {column} after migration 0052"
+        );
+    }
+}
+
+#[test]
+fn open_db_repairs_copy_item_facts_schema_when_0052_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("legacy-high-watermark-copy-item-facts.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0051_feed_title_sort.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (46, 1);",
+        )
+        .expect("mark high migration watermark");
+
+        assert!(
+            !table_has_column(&conn, "feed_copies", "item_durations"),
+            "legacy fixture should start without feed_copies.item_durations"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+
+    for column in [
+        "item_durations",
+        "item_enclosure_urls",
+        "item_pub_dates",
+        "author",
+    ] {
+        assert!(
+            table_has_column(&conn, "feed_copies", column),
+            "open_db should repair skipped 0052 {column}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ADR 0049 task 004: migration 0036 is the 30th entry in MIGRATIONS. ADR 0046
 // records that a production database already recorded version 29, one below
 // 30, so the runner applies this migration there without a repair.
@@ -770,23 +851,24 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // 0064 task 002 added migration 0044, ADR 0067 task 001 added migration
     // 0045, ADR 0056 task 002 added migration 0046, ADR 0034 task 003 added
     // migration 0047, ADR 0053 task 004 added migration 0048, ADR 0058 task
-    // 006 added migration 0049, ADR 0058 task 007 added migration 0050, and
-    // ADR 0070 task 001 added migration 0051, after this fixture was
-    // written. The fixture still stops at 0035, so open_db also runs 0037
-    // (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041
-    // (entry 35), 0042 (entry 36), 0043 (entry 37), 0044 (entry 38), 0045
-    // (entry 39), 0046 (entry 40) 0047 (entry 41), 0048 (entry 42), 0049
-    // (entry 43), 0050 (entry 44) and 0051 (entry 45), fifteen migrations
-    // past the 0036 this test names.
+    // 006 added migration 0049, ADR 0058 task 007 added migration 0050, ADR
+    // 0070 task 001 added migration 0051, and ADR 0058 task 008 added
+    // migration 0052, after this fixture was written. The fixture still
+    // stops at 0035, so open_db also runs 0037 (entry 31), 0038 (entry 32),
+    // 0039 (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36),
+    // 0043 (entry 37), 0044 (entry 38), 0045 (entry 39), 0046 (entry 40)
+    // 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry 44),
+    // 0051 (entry 45) and 0052 (entry 46), sixteen migrations past the 0036
+    // this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 45,
-        "the runner must record version 45 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050 and 0051 run"
+        recorded_version, 46,
+        "the runner must record version 46 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051 and 0052 run"
     );
 }
 
@@ -889,22 +971,23 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // 006 added migration 0041, ADR 0052 task 007 added migration 0042, ADR
     // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, ADR
     // 0067 task 001 added migration 0045, ADR 0056 task 002 added migration
-    // 0046, ADR 0034 task 003 added migration 0047, and ADR 0070 task 001
-    // added migration 0051, after this fixture was written. The fixture
-    // stops at 0036, so open_db also runs 0038 (entry 32), 0039 (entry 33),
-    // 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043 (entry 37),
-    // 0044 (entry 38), 0045 (entry 39), 0046 (entry 40), 0047 (entry 41),
-    // 0048 (entry 42), 0049 (entry 43), 0050 (entry 44) and 0051 (entry 45),
-    // fourteen migrations past the 0037 this test names.
+    // 0046, ADR 0034 task 003 added migration 0047, ADR 0070 task 001 added
+    // migration 0051, and ADR 0058 task 008 added migration 0052, after this
+    // fixture was written. The fixture stops at 0036, so open_db also runs
+    // 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041 (entry 35),
+    // 0042 (entry 36), 0043 (entry 37), 0044 (entry 38), 0045 (entry 39),
+    // 0046 (entry 40), 0047 (entry 41), 0048 (entry 42), 0049 (entry 43),
+    // 0050 (entry 44), 0051 (entry 45) and 0052 (entry 46), fifteen
+    // migrations past the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 45,
-        "the runner must record version 45 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050 and 0051 run"
+        recorded_version, 46,
+        "the runner must record version 46 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051 and 0052 run"
     );
 }
 
@@ -946,19 +1029,21 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
     );
 
     // ADR 0056 task 002 added migration 0046, ADR 0034 task 003 added
-    // migration 0047, ADR 0058 task 007 added migration 0050, and ADR 0070
-    // task 001 added migration 0051, after this fixture was written. The
-    // fixture stops at 0044, so open_db also runs 0046 (entry 40), 0047
-    // (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry 44) and 0051
-    // (entry 45) right after 0045 (entry 39).
+    // migration 0047, ADR 0058 task 007 added migration 0050, ADR 0070 task
+    // 001 added migration 0051, and ADR 0058 task 008 added migration 0052,
+    // after this fixture was written. The fixture stops at 0044, so open_db
+    // also runs 0046 (entry 40), 0047 (entry 41), 0048 (entry 42), 0049
+    // (entry 43), 0050 (entry 44), 0051 (entry 45) and 0052 (entry 46) right
+    // after 0045 (entry 39).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 45,
-        "the runner must record version 45 after migrations 0045, 0046, 0047, 0048, 0049, 0050 and 0051 run"
+        recorded_version, 46,
+        "the runner must record version 46 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
+         0051 and 0052 run"
     );
 }
 
@@ -1009,18 +1094,20 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
     );
 
     // ADR 0034 task 003 added migration 0047, ADR 0058 task 007 added
-    // migration 0050, and ADR 0070 task 001 added migration 0051, after
-    // this fixture was written. The fixture stops at 0045, so open_db also
-    // runs 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry
-    // 44) and 0051 (entry 45) right after 0046 (entry 40).
+    // migration 0050, ADR 0070 task 001 added migration 0051, and ADR 0058
+    // task 008 added migration 0052, after this fixture was written. The
+    // fixture stops at 0045, so open_db also runs 0047 (entry 41), 0048
+    // (entry 42), 0049 (entry 43), 0050 (entry 44), 0051 (entry 45) and 0052
+    // (entry 46) right after 0046 (entry 40).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 45,
-        "the runner must record version 45 after migrations 0046, 0047, 0048, 0049, 0050 and 0051 run"
+        recorded_version, 46,
+        "the runner must record version 46 after migrations 0046, 0047, 0048, 0049, 0050, 0051 \
+         and 0052 run"
     );
 
     let trigger_sql: String = conn

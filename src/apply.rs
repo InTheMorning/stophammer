@@ -214,6 +214,10 @@ fn apply_single_event_inner(
                 item_titles: p.item_titles.clone(),
                 image_url: p.image_url.clone(),
                 remote_items: p.remote_items.clone(),
+                item_durations: p.item_durations.clone(),
+                item_enclosure_urls: p.item_enclosure_urls.clone(),
+                item_pub_dates: p.item_pub_dates.clone(),
+                author: p.author.clone(),
                 feed_recipients: p.feed_recipients.clone(),
                 track_recipients: p.track_recipients.clone(),
             };

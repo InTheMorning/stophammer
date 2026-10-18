@@ -1370,6 +1370,10 @@ Gives each `feed_copies` row of a feed. ADR 0058 owns this route.
       "item_guids": ["item-guid-1", "item-guid-2"],
       "item_titles": ["Track One", null],
       "image_url": "https://mirror.example.com/cover.jpg",
+      "item_durations": [185, null],
+      "item_enclosure_urls": ["https://mirror.example.com/track-one.mp3", null],
+      "item_pub_dates": [1710200000, null],
+      "author": "Mirror Author",
       "differs_tracks": false,
       "differs_recipients": true,
       "differs_remote_items": false,
@@ -1435,6 +1439,20 @@ It is `null` when the copy states none, or when the URL is not a web URL
 
 `item_titles` is `null` for a row that the node wrote before release 0.5.0.
 The row gets its titles at the next submission from its URL.
+
+`item_durations` gives the duration, in seconds, of each item, in the same
+sequence. `item_enclosure_urls` gives the enclosure URL of each item, in the
+same sequence. Each enclosure URL is `null` when the item states none, or
+when the URL is not a web URL (ADR 0054 §4). `item_pub_dates` gives the
+publication date of each item, in the same sequence.
+
+`author` gives the channel `itunes:author` of the copy. It is `null` when
+the copy states none. These four fields show a copy to a person. They do not
+change `differs_tracks`, `differs_recipients` or a resolution (ADR 0058
+§1e).
+
+Each of the four fields is `null` for a row that the node wrote before this
+change. The row gets its values at the next submission from its URL.
 
 `remote_items` gives each channel-level `remoteItem` entry of the copy, in
 the sequence of the copy. A publisher feed and a `musicL` feed list feeds

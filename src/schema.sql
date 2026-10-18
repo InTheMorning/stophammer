@@ -425,6 +425,10 @@ CREATE TABLE IF NOT EXISTS feed_copies (
     remote_items      TEXT,
     remote_items_digest TEXT,
     resolved_remote_items_digest TEXT,
+    item_durations      TEXT,
+    item_enclosure_urls  TEXT,
+    item_pub_dates       TEXT,
+    author               TEXT,
     PRIMARY KEY (feed_guid, url)
 ) STRICT;
 
