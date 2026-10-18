@@ -211,6 +211,12 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
+v4vmm request 7 is accepted on 2026-10-18 without `remote_release_kind`. ADR
+0069 §3a gives `album_names_rank`, and ADR 0059 §1 gives
+`remote_episode_count`.
+[Task 003](docs/tasks/adr-0069-task-003-rank-and-track-count.md) of ADR 0069
+is not started.
+
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:

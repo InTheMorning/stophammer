@@ -4,6 +4,8 @@
 Accepted on 2026-10-02. Amended on 2026-10-02 with §1a, musicindex.org
 request 11: the credit of §1 is removed. Only an item inside
 `<podcast:publisher>` is a publisher link, as podcast-namespace PR #793 gives.
+Amended on 2026-10-18 with §3a, v4vmm request 7: each row gives the rank of
+the publisher feed in `<podcast:publisher>` of the album.
 
 ## Date
 2026-10-02
@@ -118,6 +120,28 @@ keeps each other bare item as a raw fact, but it is not a link. It gives no
 
 `album_names_as` gives `publisher` or null. It no longer gives `credit`.
 Sections 2 to 5 apply to the parties inside `<podcast:publisher>`.
+
+### 3a. Each link gives the rank of the publisher feed
+
+Added on 2026-10-18, v4vmm request 7. An album can name more than one
+publisher feed inside `<podcast:publisher>`. A client that shows the first
+named feed as the main artist needs the sequence of the names.
+
+Each row of the `publisher` view gives `album_names_rank`. The node takes the
+items of the album with the source `podcast_publisher`, in the sequence of
+their `position`. The rank is the place of the item of this publisher feed in
+that sequence, from 1. The matching item is the item that gives
+`album_names_as` (section 3).
+
+- The rank counts each such item, also an item that names a feed that the
+  node does not hold. So the rank does not change when the node indexes
+  another feed.
+- Other feed-level items do not count. A raw `position` also counts them, so
+  it is not the rank.
+- The rank is null when `album_names_as` is null.
+
+The node derives no main artist from the rank. A client decides what rank 1
+means.
 
 ### 4. A publisher read gives the feeds that share its albums
 

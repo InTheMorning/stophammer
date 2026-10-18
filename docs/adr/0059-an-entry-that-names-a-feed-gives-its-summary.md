@@ -7,6 +7,9 @@ Amended on 2026-10-01, accepted the same day, for release 0.4.0: section 5 appli
 that names a track. musicindex.org request 5 reported that a playlist page
 needs one request for each entry to show the title of the track.
 
+Amended on 2026-10-18, v4vmm request 7: section 1 adds
+`remote_episode_count`.
+
 ## Date
 2026-09-25
 
@@ -50,6 +53,7 @@ track read, gets these fields:
 | `remote_feed_image_url` | The channel image URL of the named feed |
 | `remote_release_artist` | The `release_artist` of the named feed |
 | `remote_release_artist_source` | The `release_artist_source` of the named feed |
+| `remote_episode_count` | The `episode_count` of the named feed. Added on 2026-10-18 |
 
 Each field is null when the node holds no feed for the entry. Each value is a
 stored value of the named feed. The node derives none.
