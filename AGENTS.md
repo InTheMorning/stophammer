@@ -204,6 +204,11 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
+musicindex.org request 13 is accepted on 2026-10-18 as ADR 0058 §1e: each
+copy row gives the duration, the enclosure URL and the date of each item, and
+the channel author.
+[Task 008](docs/tasks/adr-0058-task-008-copy-item-facts.md) is not started.
+
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:

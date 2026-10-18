@@ -3,7 +3,8 @@
 ## Status
 Accepted on 2026-09-25. Amended on 2026-10-02 with section 1c and the
 fields of a copy row in section 3 (musicindex.org request 9). Amended on
-2026-10-03 with section 1d (musicindex.org request 12).
+2026-10-03 with section 1d (musicindex.org request 12). Amended on
+2026-10-18 with section 1e (musicindex.org request 13).
 
 ## Date
 2026-09-25
@@ -166,6 +167,42 @@ digest that it names. `FeedCopyResolved` carries the list digest. A
 resolution that the node signed before this amendment names no list digest.
 It holds whatever the list is, until the operator resolves the copy again.
 
+### 1e. The summary also keeps the item facts that show a recording
+
+Amended on 2026-10-18, musicindex.org request 13. A person compares a copy
+with the record to see if an item of the two is the same recording. The
+duration and the audio URL show it. Section 1c gives only the titles.
+
+The summary of each copy also keeps:
+
+- the duration of each item in seconds, in the sequence of the item GUIDs. An
+  item with no duration gives null.
+- the enclosure URL of each item, in the same sequence.
+- the publication date of each item, in the same sequence.
+- the channel `itunes:author` of the copy. It is null when the copy states
+  none.
+
+These values follow section 1c. They show a copy to a person, and the node
+does not compare them. They stay out of the summary digest. So a change of
+one of them is not a difference of section 2, and it does not open a resolved
+copy of section 4. The node signs a `FeedCopyObserved` event when one of them
+changes, and the event carries each value of the summary.
+
+A different enclosure URL is not a difference of section 2. A mirror can
+serve the same recording from a different URL. On 2026-09-26, 225 of the 2,022
+indexed tracks with more than one event had changed their enclosure URL on
+their own feed, for example with an analytics prefix. The URLs changed one
+time or two times, not at each crawl. So the event cost of this section is
+small.
+
+The publisher of a copy chooses these values. Each enclosure URL passes the
+web URL rule of ADR 0054 §4 on a read.
+
+A row that the node wrote before this amendment has none of these values. It
+gets them at the next submission from its URL, with one event. After the
+deploy, the operator sends the cached body of each copy URL again, with no
+fetch.
+
 ### 2. A copy is a row that differs from the record
 
 The node compares a row with the current record when a client reads it:
@@ -196,7 +233,11 @@ is a copy. The title is information only.
   web URL rule of ADR 0054 §4. Since section 1d, each row also gives
   `differs_remote_items`, and `remote_items`: each entry of the list in
   sequence, with its raw values, its resolved feed GUID, and the summary of
-  ADR 0059 for that feed. A row with no list gives `remote_items` null.
+  ADR 0059 for that feed. A row with no list gives `remote_items` null. Since
+  section 1e, each row also gives `item_durations`, `item_enclosure_urls` and
+  `item_pub_dates` in the sequence of `item_guids`, and `author`. Each
+  enclosure URL passes the web URL rule of ADR 0054 §4. A row from before
+  section 1e gives null in each of the four fields.
 - `GET /v1/copies` returns each record with one or more open copies, newest
   first, with the `QueryResponse` pagination. On the primary it also returns
   each record with a `copies_over_limit` above zero.
