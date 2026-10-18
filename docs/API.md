@@ -1186,6 +1186,22 @@ gives for the same feed. The node splits a `rel` value into tokens as `role`
 does (ADR 0068 §5). The node gives no type for a publisher. The client derives
 it from these facts.
 
+- **Include `named_feeds`:** each music row gives `named_feeds`, one entry
+  for each feed that the release names inside `<podcast:publisher>`, in the
+  sequence of `album_names_rank`. Each value is the value of the
+  `music_to_publisher` row of `GET /v1/feeds/{guid}?include=publisher` for
+  the same link. The list is empty when the release names no feed. A row of
+  another medium gives no `named_feeds`. On a page of 200 rows, the include
+  adds about 50 ms. ADR 0071 section 3 owns this include.
+
+| Field | Value |
+|---|---|
+| `publisher_feed_guid` | The GUID that the item names |
+| `remote_feed_title` | The title of that feed. Null when the node does not hold it |
+| `album_names_rank` | The rank of the item among the publisher items of the release (ADR 0069 §3a) |
+| `role` | The role set of the link (ADR 0049 §6) |
+| `role_agreement` | The agreement of the two sides on the role set (ADR 0049 §6a) |
+
 **Filters (ADR 0068 §4):** with `medium=publisher`, two filters keep only some
 rows. Each filter gives the four fields above on each row.
 
@@ -1235,6 +1251,8 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
 - **Include `link_facts`:** each publisher row gives the five fields of
   `GET /v1/feeds/recent` with the same include (ADR 0068, ADR 0071 section
   1c).
+- **Include `named_feeds`:** each music row gives `named_feeds`, as on
+  `GET /v1/feeds/recent` (ADR 0071 section 3).
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. `from=M` starts at the first title that
   starts with `m`. A request with `cursor` ignores `from`.
@@ -1968,7 +1986,7 @@ capabilities payload.
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
     "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
-    "feed_list": ["link_facts"],
+    "feed_list": ["link_facts", "named_feeds"],
     "artist_list": ["link_facts"]
   }
 }

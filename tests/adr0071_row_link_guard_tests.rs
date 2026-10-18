@@ -21,11 +21,15 @@ use tower::ServiceExt;
 
 /// Each pair of a feed title and its GUID whose names do not share a prefix:
 /// (schema, title property, GUID property). ADR 0071 §1a.
-const TITLE_GUID_PAIRS: &[(&str, &str, &str)] = &[(
-    "CopyRemoteItemResponse",
-    "remote_feed_title",
-    "resolved_feed_guid",
-)];
+const TITLE_GUID_PAIRS: &[(&str, &str, &str)] = &[
+    (
+        "CopyRemoteItemResponse",
+        "remote_feed_title",
+        "resolved_feed_guid",
+    ),
+    // ADR 0071 §3 names the GUID of a named feed as the publisher view does.
+    ("NamedFeedEntry", "remote_feed_title", "publisher_feed_guid"),
+];
 
 /// Each route that reads `include`: (path, the function of `src/query.rs`
 /// that reads it, the names that the function acts on). ADR 0071 §1c.

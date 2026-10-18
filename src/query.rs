@@ -208,7 +208,7 @@ pub const FEED_INCLUDES: &[&str] = &[
 
 /// The include names `GET /v1/feeds/recent` and `GET /v1/feeds/by-name`
 /// accept. ADR 0068 §1 and ADR 0071 §1c.
-pub const FEED_LIST_INCLUDES: &[&str] = &["link_facts"];
+pub const FEED_LIST_INCLUDES: &[&str] = &["link_facts", "named_feeds"];
 
 /// The include names `GET /v1/artist-names` accepts. ADR 0071 §2.
 pub const ARTIST_NAME_INCLUDES: &[&str] = &["link_facts"];
@@ -361,6 +361,11 @@ struct FeedResponse {
     /// `include=publisher`. ADR 0069 §4.
     #[serde(skip_serializing_if = "Option::is_none")]
     co_credited_feeds: Option<Vec<CoCreditedFeedResponse>>,
+    /// Each feed that this release names inside `<podcast:publisher>`, in
+    /// rank order. Present only on a music row of `GET /v1/feeds/recent` or
+    /// `GET /v1/feeds/by-name` with `include=named_feeds`. ADR 0071 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    named_feeds: Option<Vec<NamedFeedEntry>>,
     /// Null, or the pending GUID change the source URL of this feed
     /// declares (ADR 0052 section 4). `decision` is null until the operator
     /// decides, then `approve` or `reject`.
@@ -949,6 +954,45 @@ struct TrackRemoteItemResponse {
     /// The `episode_count` of the named feed, or null when the node holds no
     /// feed for this entry. ADR 0059 §1, added 2026-10-18.
     remote_episode_count: Option<i64>,
+}
+
+/// One entry of `named_feeds` (ADR 0071 §3): a feed that a release names
+/// inside `<podcast:publisher>`. Each value is the value of the
+/// `music_to_publisher` row of the `publisher` view for the same link.
+#[derive(Debug, Serialize, ToSchema)]
+struct NamedFeedEntry {
+    /// The GUID that the item names.
+    publisher_feed_guid: String,
+    /// The title of that feed, or null when the node does not hold it.
+    remote_feed_title: Option<String>,
+    /// The rank of the item among the publisher items of the release. ADR
+    /// 0069 §3a.
+    album_names_rank: Option<u32>,
+    /// The role set of the link. ADR 0049 §6.
+    role: Option<String>,
+    /// The agreement of the two sides on the role set. ADR 0049 §6a.
+    role_agreement: Option<String>,
+}
+
+impl NamedFeedEntry {
+    /// The entries of one release, in the sequence of `album_names_rank`.
+    /// `rows` are the `publisher` view rows of the release, as
+    /// [`load_publisher`] gives them. A row with no rank goes last.
+    fn from_rows(rows: Vec<PublisherResponse>) -> Vec<Self> {
+        let mut entries: Vec<Self> = rows
+            .into_iter()
+            .filter(|row| row.direction == "music_to_publisher")
+            .map(|row| Self {
+                publisher_feed_guid: row.publisher_feed_guid,
+                remote_feed_title: row.remote_feed_title,
+                album_names_rank: row.album_names_rank,
+                role: row.role,
+                role_agreement: row.role_agreement,
+            })
+            .collect();
+        entries.sort_by_key(|entry| (entry.album_names_rank.is_none(), entry.album_names_rank));
+        entries
+    }
 }
 
 /// One entry of `co_credited_feeds` (ADR 0069 §4): a publisher feed that
@@ -1744,6 +1788,7 @@ fn build_feed_response(
         remote_items: None,
         publisher: None,
         co_credited_feeds: None,
+        named_feeds: None,
         pending_guid_change,
         live_items,
         sort_name: None,
@@ -4027,12 +4072,14 @@ fn filtered_recent_rows(
 ///
 /// `include_link_facts` gives the link facts of a publisher row (ADR 0068
 /// §1), the same as the caller passes for the `include=link_facts` of
-/// either route. `sort_name` is always `None`; `handle_get_feeds_by_name`
+/// either route. `include_named_feeds` gives the named feeds of a
+/// music row (ADR 0071 §3). `sort_name` is always `None`; `handle_get_feeds_by_name`
 /// sets it on the row this function gives back (ADR 0070 §2, task 001).
 fn feed_list_row_to_response(
     conn: &rusqlite::Connection,
     r: FeedRow,
     include_link_facts: bool,
+    include_named_feeds: bool,
 ) -> Result<FeedResponse, api::ApiError> {
     let (publisher_feed_guid, publisher_feed_title) =
         PublisherFeedName::into_fields(resolve_publisher_feed(conn, &r.feed_guid)?);
@@ -4040,6 +4087,15 @@ fn feed_list_row_to_response(
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &r.feed_guid)?.map(pending_guid_change_response);
     // ADR 0068 §1: the link facts of a publisher row, only on request.
+    // ADR 0071 §3: the named feeds of a music row, only on request.
+    let named_feeds = if include_named_feeds && medium::is_music(r.raw_medium.as_deref()) {
+        Some(NamedFeedEntry::from_rows(load_publisher(
+            conn,
+            &r.feed_guid,
+        )?))
+    } else {
+        None
+    };
     let facts = if include_link_facts && medium::is_publisher(r.raw_medium.as_deref()) {
         Some(link_facts(&load_publisher(conn, &r.feed_guid)?))
     } else {
@@ -4104,6 +4160,7 @@ fn feed_list_row_to_response(
         remote_items: None,
         publisher: None,
         co_credited_feeds: None,
+        named_feeds,
         pending_guid_change,
         live_items: None,
         sort_name: None,
@@ -4166,7 +4223,12 @@ async fn handle_get_recent_feeds(
         let include_link_facts = params.includes("link_facts") || filter.is_some();
         let mut feeds = Vec::with_capacity(items.len());
         for r in items {
-            feeds.push(feed_list_row_to_response(&conn, r, include_link_facts)?);
+            feeds.push(feed_list_row_to_response(
+                &conn,
+                r,
+                include_link_facts,
+                params.includes("named_feeds"),
+            )?);
         }
 
         Ok::<_, api::ApiError>(QueryResponse {
@@ -4354,7 +4416,12 @@ async fn handle_get_feeds_by_name(
         let include_link_facts = params.includes("link_facts");
         let mut feeds = Vec::with_capacity(rows.len());
         for (r, title_sort) in rows {
-            let mut resp = feed_list_row_to_response(&conn, r, include_link_facts)?;
+            let mut resp = feed_list_row_to_response(
+                &conn,
+                r,
+                include_link_facts,
+                params.includes("named_feeds"),
+            )?;
             resp.sort_name = Some(title_sort);
             feeds.push(resp);
         }
