@@ -834,7 +834,8 @@ Returns a single feed by its `podcast:guid`.
         "remote_feed_title": "Label Name",
         "remote_feed_image_url": "https://example.com/label.jpg",
         "remote_release_artist": "Label Name",
-        "remote_release_artist_source": "itunes_author"
+        "remote_release_artist_source": "itunes_author",
+        "remote_episode_count": 12
       }
     ],
     "publisher": [
@@ -862,7 +863,10 @@ Returns a single feed by its `podcast:guid`.
         "remote_feed_title": "Label Name",
         "remote_feed_image_url": "https://example.com/label.jpg",
         "remote_release_artist": "Label Name",
-        "remote_release_artist_source": "itunes_author"
+        "remote_release_artist_source": "itunes_author",
+        "remote_episode_count": 12,
+        "album_names_as": "publisher",
+        "album_names_rank": 1
       }
     ],
     "live_items": [
@@ -938,7 +942,17 @@ link. Each other bare channel `remoteItem` with `medium="publisher"` stays in
 `remote_items`, but it gives no `publisher` row. It also does not give
 `publisher_feed_title` or `distinct_release_artists`.
 
-Each `remote_items` entry and each `publisher` entry gives four values of the
+`album_names_rank` gives the rank of the album's link to this publisher feed.
+The node counts the `<podcast:publisher>` items of the album, in the
+sequence of `position`. The first item gives rank 1, the second item gives
+rank 2, and so on. The rank counts an item also when the node does not hold
+its feed.
+
+A row of an album read and a row of a publisher read give the same rank for
+the same link. The rank is null when `album_names_as` is null. ADR 0069 §3a,
+added 2026-10-18.
+
+Each `remote_items` entry and each `publisher` entry gives five values of the
 feed that it names. ADR 0059 owns them. A track read gives them too.
 
 `live_items` lists each stored live-item row of the feed. It lists a
@@ -972,6 +986,7 @@ then `false`. ADR 0064 section 6 owns these fields.
 | `remote_feed_image_url` | The channel image of the named feed. Null when it is not a web URL (ADR 0054 §4) |
 | `remote_release_artist` | The `release_artist` of the named feed |
 | `remote_release_artist_source` | The source of that `release_artist` |
+| `remote_episode_count` | The `episode_count` of the named feed. Added 2026-10-18 |
 
 The named feed of a `publisher` entry is the album on a `publisher_to_music`
 row, and the publisher on a `music_to_publisher` row. The node resolves the
@@ -1391,7 +1406,8 @@ Gives each `feed_copies` row of a feed. ADR 0058 owns this route.
           "remote_feed_title": "Label Name",
           "remote_feed_image_url": "https://example.com/label.jpg",
           "remote_release_artist": "Label Name",
-          "remote_release_artist_source": "itunes_author"
+          "remote_release_artist_source": "itunes_author",
+          "remote_episode_count": 12
         }
       ],
       "resolution": null

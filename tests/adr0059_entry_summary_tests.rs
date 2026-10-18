@@ -21,11 +21,13 @@ use tower::ServiceExt;
 
 const TOKEN: &str = "adr0059-crawl-token";
 
-const SUMMARY_KEYS: [&str; 4] = [
+const SUMMARY_KEYS: [&str; 5] = [
     "remote_feed_title",
     "remote_feed_image_url",
     "remote_release_artist",
     "remote_release_artist_source",
+    // ADR 0059 §1, added 2026-10-18.
+    "remote_episode_count",
 ];
 
 fn state(db: Arc<Mutex<rusqlite::Connection>>) -> Arc<stophammer::api::AppState> {
@@ -318,6 +320,92 @@ async fn a_remote_items_entry_gives_the_summary_or_null() {
             "ADR 0059 guard 3: an entry for a feed that is not indexed gives the key {key} with null"
         );
     }
+}
+
+#[tokio::test]
+async fn a_publisher_entry_and_a_remote_items_entry_give_the_track_count() {
+    let st = state(common::test_db_arc());
+    let mut g = album("album-g", "https://g.example/g.xml", "Album G", "Artist G");
+    g.tracks = json!([
+        {
+            "track_guid": "track-g1",
+            "title": "Track G1",
+            "pub_date": 1_700_000_000,
+            "explicit": false,
+            "payment_routes": [],
+            "value_time_splits": [],
+        },
+        {
+            "track_guid": "track-g2",
+            "title": "Track G2",
+            "pub_date": 1_700_000_100,
+            "explicit": false,
+            "payment_routes": [],
+            "value_time_splits": [],
+        },
+    ]);
+    ingest(&st, &g).await;
+
+    ingest(
+        &st,
+        &Feed {
+            guid: "publisher-g",
+            url: "https://pg.example/pg.xml",
+            title: "Publisher G",
+            medium: "publisher",
+            image_url: None,
+            author: None,
+            remote_items: json!([remote_item(
+                0,
+                "music",
+                "album-g",
+                "https://g.example/g.xml"
+            )]),
+            tracks: json!([]),
+        },
+    )
+    .await;
+    ingest(
+        &st,
+        &Feed {
+            guid: "list-g",
+            url: "https://l.example/g-list.xml",
+            title: "List G",
+            medium: "musicL",
+            image_url: None,
+            author: None,
+            remote_items: json!([remote_item(
+                0,
+                "music",
+                "album-g",
+                "https://g.example/g.xml"
+            )]),
+            tracks: json!([]),
+        },
+    )
+    .await;
+
+    let publisher_body = get(&st, "/v1/feeds/publisher-g?include=publisher").await;
+    let publisher_row = find(
+        entries(&publisher_body, "publisher"),
+        "remote_feed_guid",
+        "album-g",
+    );
+    assert_eq!(
+        publisher_row["remote_episode_count"], 2,
+        "ADR 0059 §1, added 2026-10-18: a publisher entry gives the track count of the named feed: {publisher_row}"
+    );
+
+    let list_body = get(&st, "/v1/feeds/list-g?include=remote_items").await;
+    let list_entry = find(
+        entries(&list_body, "remote_items"),
+        "remote_feed_guid",
+        "album-g",
+    );
+    assert_eq!(
+        list_entry["remote_episode_count"], 2,
+        "ADR 0059 §1, added 2026-10-18: a remote_items entry gives the track count of the named feed: {list_entry}"
+    );
 }
 
 #[tokio::test]

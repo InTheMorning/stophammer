@@ -491,6 +491,9 @@ struct CopyRemoteItemResponse {
     remote_release_artist: Option<String>,
     /// The release artist source of the resolved feed, or null. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// The `episode_count` of the resolved feed, or null. ADR 0059 §1, added
+    /// 2026-10-18.
+    remote_episode_count: Option<i64>,
 }
 
 /// One row of `GET /v1/feeds/{guid}/copies` (ADR 0058 sections 1 to 4).
@@ -883,6 +886,9 @@ struct FeedRemoteItemResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// The `episode_count` of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1, added 2026-10-18.
+    remote_episode_count: Option<i64>,
     /// The `itemGuid` of the track this entry names, or null when the entry
     /// has no `itemGuid`. Always present. ADR 0060 §3.
     remote_item_guid: Option<String>,
@@ -924,6 +930,9 @@ struct TrackRemoteItemResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// The `episode_count` of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1, added 2026-10-18.
+    remote_episode_count: Option<i64>,
 }
 
 /// One entry of `co_credited_feeds` (ADR 0069 §4): a publisher feed that
@@ -1005,12 +1014,19 @@ struct PublisherResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
+    /// The `episode_count` of the named feed, or null when the node holds no
+    /// feed for this entry. ADR 0059 §1, added 2026-10-18.
+    remote_episode_count: Option<i64>,
     /// How the album names this publisher feed: `"publisher"` or null. ADR
     /// 0069 §1a and §3. On a `music_to_publisher` row, the value comes from
     /// the album's own item. On a `publisher_to_music` row, it comes from the
     /// album item that names this publisher feed, and it is null when
     /// `music_names_publisher` is false.
     album_names_as: Option<String>,
+    /// The one-based place of the item that `album_names_as` uses, among the
+    /// album's own publisher-link items, in `position` order. Null when
+    /// `album_names_as` is null. ADR 0069 §3a, added 2026-10-18.
+    album_names_rank: Option<u32>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -2157,6 +2173,8 @@ struct NamedFeedSummary {
     image_url: Option<String>,
     release_artist: Option<String>,
     release_artist_source: Option<String>,
+    /// The `episode_count` of the named feed. ADR 0059 §1, added 2026-10-18.
+    episode_count: Option<i64>,
 }
 
 /// Reads the summary of `feed_guid` with one point read. Each field is null
@@ -2170,7 +2188,7 @@ fn named_feed_summary(
     };
     let summary = conn
         .query_row(
-            "SELECT title, image_url, release_artist, release_artist_source \
+            "SELECT title, image_url, release_artist, release_artist_source, episode_count \
              FROM feeds WHERE feed_guid = ?1",
             params![feed_guid],
             |row| {
@@ -2181,6 +2199,7 @@ fn named_feed_summary(
                     image_url: web_url_or_none(row.get::<_, Option<String>>(1)?.as_deref()),
                     release_artist: row.get(2)?,
                     release_artist_source: row.get(3)?,
+                    episode_count: row.get(4)?,
                 })
             },
         )
@@ -2255,6 +2274,7 @@ fn feed_remote_item_response(
         remote_feed_image_url: summary.image_url,
         remote_release_artist: summary.release_artist,
         remote_release_artist_source: summary.release_artist_source,
+        remote_episode_count: summary.episode_count,
         remote_item_guid: item.remote_item_guid,
         remote_item_title: item.remote_item_title,
         remote_track_guid,
@@ -2283,6 +2303,11 @@ struct PublisherLinkFacts {
     /// `publisher_to_music` row. ADR 0069 §3. Null on the other direction,
     /// and when the album does not name the publisher.
     matched_item_source: Option<String>,
+    /// The rank of `matched_item_source`'s item among the album's own
+    /// publisher-link items, on a `publisher_to_music` row. ADR 0069 §3a.
+    /// Null on the other direction, and when the album does not name the
+    /// publisher.
+    album_names_rank: Option<u32>,
     /// The indexed feed that this row names: the album of a
     /// `publisher_to_music` row, or the publisher of a `music_to_publisher`
     /// row. `None` when the named feed does not resolve. ADR 0059 §2.
@@ -2362,6 +2387,7 @@ fn music_to_publisher_facts(
         music_feed_url: Some(current_feed.feed_url.clone()),
         matched_item_rel,
         matched_item_source: None,
+        album_names_rank: None,
         named_feed_guid: publisher_resolution.feed_guid().map(str::to_string),
     })
 }
@@ -2389,14 +2415,15 @@ fn publisher_to_music_facts(
     let mut reciprocal_medium = None;
     let mut matched_item_rel = None;
     let mut matched_item_source = None;
+    let mut album_names_rank = None;
 
     if let Some(album_guid) = music_resolution.feed_guid() {
-        for candidate in db::get_feed_remote_items_for_feed(conn, album_guid)?
-            .into_iter()
-            .filter(|item| {
-                item.medium.as_deref() == Some("publisher") && is_album_publisher_link(&item.source)
-            })
-        {
+        // ADR 0069 §3a: kept as a named list, so a match can also give the
+        // rank of its own item among this same list, with no second read.
+        let album_items = db::get_feed_remote_items_for_feed(conn, album_guid)?;
+        for candidate in album_items.iter().filter(|item| {
+            item.medium.as_deref() == Some("publisher") && is_album_publisher_link(&item.source)
+        }) {
             let candidate_resolution = db::resolve_listed_feed(
                 conn,
                 &candidate.remote_feed_guid,
@@ -2404,9 +2431,10 @@ fn publisher_to_music_facts(
             )?;
             if candidate_resolution.feed_guid() == Some(current_feed.feed_guid.as_str()) {
                 music_names_publisher = true;
-                reciprocal_medium = candidate.medium;
-                matched_item_rel = candidate.rel;
-                matched_item_source = Some(candidate.source);
+                reciprocal_medium.clone_from(&candidate.medium);
+                matched_item_rel.clone_from(&candidate.rel);
+                matched_item_source = Some(candidate.source.clone());
+                album_names_rank = album_item_rank(&album_items, candidate.position);
                 break;
             }
         }
@@ -2424,6 +2452,7 @@ fn publisher_to_music_facts(
         music_feed_url,
         matched_item_rel,
         matched_item_source,
+        album_names_rank,
         named_feed_guid: music_resolution.feed_guid().map(str::to_string),
     })
 }
@@ -2566,37 +2595,80 @@ fn album_names_as_value(source: &str) -> Option<String> {
     is_album_publisher_link(source).then(|| "publisher".to_string())
 }
 
+/// ADR 0069 §3a: the one-based rank of the item at `matched_position`, among
+/// the publisher-link items of an album, in `position` order. One function
+/// gives this rank for both directions of the `publisher` view.
+///
+/// `items` holds the full feed-level remote items of the album, as
+/// [`db::get_feed_remote_items_for_feed`] gives them, already sorted by
+/// `position`. The rank counts each item with `medium` `"publisher"` and the
+/// source `podcast_publisher` (the same test as [`is_album_publisher_link`]),
+/// also an item whose feed the node does not hold.
+///
+/// The result is `None` when no counted item has `matched_position`. A
+/// caller passes the position of the same item that [`album_names_as_value`]
+/// reads, so the rank is null exactly when `album_names_as` is null.
+fn album_item_rank(
+    items: &[crate::model::FeedRemoteItemRaw],
+    matched_position: i64,
+) -> Option<u32> {
+    items
+        .iter()
+        .filter(|item| {
+            item.medium.as_deref() == Some("publisher") && is_album_publisher_link(&item.source)
+        })
+        .position(|item| item.position == matched_position)
+        .and_then(|index| u32::try_from(index + 1).ok())
+}
+
+/// This row's own remote item, as the scalar fields [`build_publisher_row`]
+/// needs. Its caller's raw item is feed-level (`FeedRemoteItemRaw`) or
+/// track-level (`TrackRemoteItemRaw`); both give these same fields, so this
+/// type keeps `build_publisher_row` generic over either one. `position` is
+/// added by ADR 0069 §3a, for the rank of a `music_to_publisher` row.
+struct PublisherRowItem<'a> {
+    medium: Option<&'a str>,
+    remote_feed_guid: &'a str,
+    remote_feed_url: Option<&'a str>,
+    rel: Option<&'a str>,
+    source: &'a str,
+    position: i64,
+}
+
 /// Builds one `publisher` view row for a remote item of `current_feed`, or
 /// `None` when the item's medium is neither `"publisher"` nor `"music"`.
-/// ADR 0049 §3, §4 and §6.
+///
+/// `current_feed_remote_items` is the full feed-level remote-item list of
+/// `current_feed` itself, in `position` order, as the caller already holds
+/// it. It gives the rank of a `music_to_publisher` row: `item.position` is
+/// this row's own item in that same list. An empty slice is safe: it only
+/// ever gives a null rank, which a `publisher_to_music` row or a track-level
+/// item (never ranked, ADR 0069 §3a) needs anyway. ADR 0049 §3, §4 and §6.
 fn build_publisher_row(
     conn: &rusqlite::Connection,
     current_feed: &Feed,
-    item_medium: Option<&str>,
-    item_remote_feed_guid: &str,
-    item_remote_feed_url: Option<&str>,
-    item_rel: Option<&str>,
-    item_source: &str,
+    current_feed_remote_items: &[crate::model::FeedRemoteItemRaw],
+    item: &PublisherRowItem<'_>,
 ) -> Result<Option<PublisherResponse>, api::ApiError> {
-    let Some(direction) = publisher_direction(item_medium) else {
+    let Some(direction) = publisher_direction(item.medium) else {
         return Ok(None);
     };
 
     let remote_feed_medium =
-        db::get_feed(conn, item_remote_feed_guid)?.and_then(|feed| feed.raw_medium);
+        db::get_feed(conn, item.remote_feed_guid)?.and_then(|feed| feed.raw_medium);
 
     let facts = match direction {
         "music_to_publisher" => music_to_publisher_facts(
             conn,
             current_feed,
-            item_remote_feed_guid,
-            item_remote_feed_url,
+            item.remote_feed_guid,
+            item.remote_feed_url,
         )?,
         "publisher_to_music" => publisher_to_music_facts(
             conn,
             current_feed,
-            item_remote_feed_guid,
-            item_remote_feed_url,
+            item.remote_feed_guid,
+            item.remote_feed_url,
         )?,
         _ => unreachable!("publisher_direction only returns the two names handled above"),
     };
@@ -2607,7 +2679,7 @@ fn build_publisher_row(
     // matched item on the other side, if any) give `publisher_rel` and
     // `music_rel` in an order that depends on which side `item` is on.
     // ADR 0049 §6, task 006 "Constraints".
-    let own_rel = item_rel.map(str::to_string);
+    let own_rel = item.rel.map(str::to_string);
     let (publisher_rel, music_rel) = match direction {
         "music_to_publisher" => (facts.matched_item_rel, own_rel),
         "publisher_to_music" => (own_rel, facts.matched_item_rel),
@@ -2621,15 +2693,23 @@ fn build_publisher_row(
     let summary = named_feed_summary(conn, facts.named_feed_guid.as_deref())?;
 
     // ADR 0069 §3: compute album_names_as from the source of the album's item.
-    // On a music_to_publisher row, the value comes from this feed's own item (item_source).
+    // On a music_to_publisher row, the value comes from this feed's own item (item.source).
     // On a publisher_to_music row, it comes from the album item (from the matched facts),
     // and it is null when music_names_publisher is false.
     let album_names_as = match direction {
-        "music_to_publisher" => album_names_as_value(item_source),
+        "music_to_publisher" => album_names_as_value(item.source),
         "publisher_to_music" => facts
             .matched_item_source
             .as_deref()
             .and_then(album_names_as_value),
+        _ => unreachable!("publisher_direction only returns the two names handled above"),
+    };
+
+    // ADR 0069 §3a: the rank of the same matched item that gives
+    // album_names_as, from the list each direction already holds.
+    let album_names_rank = match direction {
+        "music_to_publisher" => album_item_rank(current_feed_remote_items, item.position),
+        "publisher_to_music" => facts.album_names_rank,
         _ => unreachable!("publisher_direction only returns the two names handled above"),
     };
 
@@ -2639,8 +2719,8 @@ fn build_publisher_row(
     // (`resolved_or_declared`), so all three go through the helper.
     Ok(Some(PublisherResponse {
         direction: direction.to_string(),
-        remote_feed_guid: item_remote_feed_guid.to_string(),
-        remote_feed_url: web_url_or_none(item_remote_feed_url),
+        remote_feed_guid: item.remote_feed_guid.to_string(),
+        remote_feed_url: web_url_or_none(item.remote_feed_url),
         remote_feed_medium,
         publisher_feed_guid: facts.publisher_feed_guid,
         publisher_feed_url: web_url_or_none(facts.publisher_feed_url.as_deref()),
@@ -2662,7 +2742,9 @@ fn build_publisher_row(
         remote_feed_image_url: summary.image_url,
         remote_release_artist: summary.release_artist,
         remote_release_artist_source: summary.release_artist_source,
+        remote_episode_count: summary.episode_count,
         album_names_as,
+        album_names_rank,
     }))
 }
 
@@ -2676,7 +2758,7 @@ fn load_publisher(
     let remote_items = db::get_feed_remote_items_for_feed(conn, feed_guid)?;
     let mut rows = Vec::new();
 
-    for item in remote_items {
+    for item in &remote_items {
         // ADR 0069 §1a: a bare `medium="publisher"` item next to a
         // `<podcast:publisher>` is a raw fact, not a link. The track view
         // (`load_track_publisher`) keeps its items: they are not album items.
@@ -2686,11 +2768,18 @@ fn load_publisher(
         if let Some(row) = build_publisher_row(
             conn,
             &current_feed,
-            item.medium.as_deref(),
-            &item.remote_feed_guid,
-            item.remote_feed_url.as_deref(),
-            item.rel.as_deref(),
-            &item.source,
+            // ADR 0069 §3a: `current_feed` is the album of a
+            // `music_to_publisher` row, so its own full item list gives the
+            // rank, with no second read.
+            &remote_items,
+            &PublisherRowItem {
+                medium: item.medium.as_deref(),
+                remote_feed_guid: &item.remote_feed_guid,
+                remote_feed_url: item.remote_feed_url.as_deref(),
+                rel: item.rel.as_deref(),
+                source: &item.source,
+                position: item.position,
+            },
         )? {
             rows.push(row);
         }
@@ -2726,6 +2815,7 @@ fn load_track_remote_items(
             remote_feed_image_url: summary.image_url,
             remote_release_artist: summary.release_artist,
             remote_release_artist_source: summary.release_artist_source,
+            remote_episode_count: summary.episode_count,
         });
     }
     Ok(responses)
@@ -2753,11 +2843,20 @@ fn load_track_publisher(
         if let Some(row) = build_publisher_row(
             conn,
             &current_feed,
-            item.medium.as_deref(),
-            &item.remote_feed_guid,
-            item.remote_feed_url.as_deref(),
-            item.rel.as_deref(),
-            &item.source,
+            // ADR 0069 §3a: a track-level item never carries the source
+            // `podcast_publisher` (only a feed-level item can, src/api.rs),
+            // so a music_to_publisher row from this loop always has a null
+            // `album_names_as`. This empty slice keeps its rank null too,
+            // with no extra read of the feed's own items.
+            &[],
+            &PublisherRowItem {
+                medium: item.medium.as_deref(),
+                remote_feed_guid: &item.remote_feed_guid,
+                remote_feed_url: item.remote_feed_url.as_deref(),
+                rel: item.rel.as_deref(),
+                source: &item.source,
+                position: item.position,
+            },
         )? {
             rows.push(row);
         }
@@ -3077,6 +3176,7 @@ fn build_feed_copy_response(
                     remote_feed_image_url: summary.image_url,
                     remote_release_artist: summary.release_artist,
                     remote_release_artist_source: summary.release_artist_source,
+                    remote_episode_count: summary.episode_count,
                 });
             }
             Some(entries)
@@ -5393,7 +5493,9 @@ mod tests {
             remote_feed_image_url: None,
             remote_release_artist: None,
             remote_release_artist_source: None,
+            remote_episode_count: None,
             album_names_as: None,
+            album_names_rank: None,
         }
     }
 

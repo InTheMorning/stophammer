@@ -215,7 +215,7 @@ v4vmm request 7 is accepted on 2026-10-18 without `remote_release_kind`. ADR
 0069 §3a gives `album_names_rank`, and ADR 0059 §1 gives
 `remote_episode_count`.
 [Task 003](docs/tasks/adr-0069-task-003-rank-and-track-count.md) of ADR 0069
-is not started.
+is complete, and no release carries it yet.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
