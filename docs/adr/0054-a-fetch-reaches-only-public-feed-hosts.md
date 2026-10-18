@@ -113,7 +113,7 @@ other URL field.
 3. The part before the first `/`, `?` or `#` is a host name: two or more
    labels with a `.` between them. Each label has 1 to 63 ASCII letters,
    digits or `-`, and does not start or end with `-`. The last label has two
-   or more letters and no digit.
+   or more ASCII letters and no other character.
 4. When steps 2 and 3 are true, the read value is `https://` and the value.
    The section 4 rule then applies to that read value.
 5. Each other value without a scheme reads as null, as before.

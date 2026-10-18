@@ -689,6 +689,86 @@ pub fn web_url_or_none(value: Option<&str>) -> Option<String> {
     }
 }
 
+/// Gives the read value of a link with no scheme. Also states if the node
+/// added the scheme (ADR 0054 section 4a).
+///
+/// The function trims the white space at the start and at the end of `raw`.
+/// Call the result `trimmed`. The function runs two tests on `trimmed`:
+///
+/// 1. `trimmed` has no scheme. `trimmed` has no white space.
+/// 2. The part of `trimmed` before the first `/`, `?` or `#` is a host
+///    name. A host name has two or more labels, with a `.` between each
+///    pair. Each label has 1 to 63 ASCII letters, digits or `-`. No label
+///    starts or ends with `-`. The last label has two or more ASCII
+///    letters, and no other character.
+///
+/// When both tests pass, the read value is `https://` and `trimmed`. The
+/// function then gives `true`. The [`web_url_or_none`] rule of ADR 0054
+/// section 4 applies to that read value.
+///
+/// When a test fails, the function gives `web_url_or_none` of `trimmed`.
+/// The function then gives `false`.
+///
+/// This function serves a link row of the type `website` or `web_page`
+/// (ADR 0054 task 005). It also serves a live item link (ADR 0064 task
+/// 006). It serves no other link type and no other URL field.
+#[must_use]
+pub fn web_link_for_read(raw: &str) -> (Option<String>, bool) {
+    let trimmed = raw.trim();
+    let has_no_scheme_or_space =
+        !starts_with_uri_scheme(trimmed) && !trimmed.chars().any(char::is_whitespace);
+    if has_no_scheme_or_space {
+        let host_candidate_end = trimmed.find(['/', '?', '#']).unwrap_or(trimmed.len());
+        if is_host_name(&trimmed[..host_candidate_end]) {
+            let with_scheme = format!("https://{trimmed}");
+            return (web_url_or_none(Some(&with_scheme)), true);
+        }
+    }
+    (web_url_or_none(Some(trimmed)), false)
+}
+
+/// True when `s` starts with a URI scheme: an ASCII letter, then zero or
+/// more ASCII letters, digits, `+`, `-` or `.`, then a `:`.
+fn starts_with_uri_scheme(s: &str) -> bool {
+    let mut chars = s.chars();
+    if !matches!(chars.next(), Some(c) if c.is_ascii_alphabetic()) {
+        return false;
+    }
+    for c in chars {
+        match c {
+            ':' => return true,
+            c if c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.') => {}
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// True when `candidate` is a host name under ADR 0054 section 4a.
+/// `candidate` then has two or more dot-separated labels. Each label has
+/// 1 to 63 ASCII letters, digits or `-`. No label starts or ends with `-`.
+/// The last label has two or more ASCII letters, and no other character.
+fn is_host_name(candidate: &str) -> bool {
+    let labels: Vec<&str> = candidate.split('.').collect();
+    let Some(last) = labels.last().copied() else {
+        return false;
+    };
+    labels.len() >= 2
+        && labels.iter().copied().all(is_host_name_label)
+        && last.len() >= 2
+        && last.chars().all(|c| c.is_ascii_alphabetic())
+}
+
+/// True when `label` has 1 to 63 ASCII letters, digits or `-`. `label` does
+/// not start or end with `-`.
+fn is_host_name_label(label: &str) -> bool {
+    let len = label.chars().count();
+    (1..=63).contains(&len)
+        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+        && !label.starts_with('-')
+        && !label.ends_with('-')
+}
+
 /// Gives the sort key of a text (ADR 0070 §1, ADR 0049 §7).
 ///
 /// The function takes three steps. It removes the white space at the start
@@ -743,5 +823,60 @@ mod tests {
     #[test]
     fn sort_key_does_not_split_a_feat_credit() {
         assert_ne!(sort_key("A feat. B"), sort_key("A"));
+    }
+
+    // ── web_link_for_read (ADR 0054 §4a, task 005) ──────────────────────────
+
+    #[test]
+    fn web_link_for_read_adds_the_scheme_to_a_bare_host_name() {
+        assert_eq!(
+            web_link_for_read("www.pixelpalace.party"),
+            (Some("https://www.pixelpalace.party".to_string()), true)
+        );
+    }
+
+    #[test]
+    fn web_link_for_read_adds_the_scheme_to_a_bare_host_name_with_a_path() {
+        assert_eq!(
+            web_link_for_read("strangeloveofmusic.wixsite.com/strangelove"),
+            (
+                Some("https://strangeloveofmusic.wixsite.com/strangelove".to_string()),
+                true
+            )
+        );
+    }
+
+    #[test]
+    fn web_link_for_read_keeps_an_https_value_unchanged() {
+        assert_eq!(
+            web_link_for_read("https://example.com/"),
+            (Some("https://example.com/".to_string()), false)
+        );
+    }
+
+    #[test]
+    fn web_link_for_read_gives_none_for_each_non_host_name_value() {
+        for value in [
+            "The Fraglebay",
+            "localhost",
+            "example",
+            "example.c0m",
+            "-a.com",
+            "javascript:alert(1)",
+        ] {
+            assert_eq!(
+                web_link_for_read(value),
+                (None, false),
+                "{value} should give (None, false)"
+            );
+        }
+    }
+
+    #[test]
+    fn web_link_for_read_trims_white_space_before_the_host_name_test() {
+        assert_eq!(
+            web_link_for_read("  www.TheSynthesatsers.com "),
+            (Some("https://www.TheSynthesatsers.com".to_string()), true)
+        );
     }
 }

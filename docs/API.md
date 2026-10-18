@@ -703,6 +703,11 @@ other than `http` or `https` becomes `null`.
 [ADR 0054](adr/0054-a-fetch-reaches-only-public-feed-hosts.md) section 4
 owns this rule. The raw value stays in the database.
 
+This rule has one difference for a `source_links` row of the type `website`
+or `web_page`. A stored value with no scheme that names a host name reads
+as `https://` and the value. The row then gives `url_scheme_added` as
+`true`. ADR 0054 section 4a owns this rule.
+
 ### Common query parameters
 
 | Parameter | Type | Default | Description |
@@ -777,6 +782,7 @@ Returns a single feed by its `podcast:guid`.
         "position": 0,
         "link_type": "website",
         "url": "https://artist.example.com",
+        "url_scheme_added": false,
         "source": "rss_link",
         "extraction_path": "feed.link",
         "observed_at": 1710288000
@@ -1670,6 +1676,7 @@ canonical feed-scoped URLs for the caller to retry.
         "position": 0,
         "link_type": "web_page",
         "url": "https://artist.example.com/song",
+        "url_scheme_added": false,
         "source": "rss_link",
         "extraction_path": "entity.link",
         "observed_at": 1710288000

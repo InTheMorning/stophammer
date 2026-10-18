@@ -28,7 +28,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::model::{
-    Feed, LiveEvent, RouteRecipient, guid_origin_matches, sort_key, web_url_or_none,
+    Feed, LiveEvent, RouteRecipient, guid_origin_matches, sort_key, web_link_for_read,
+    web_url_or_none,
 };
 use crate::{api, db, event, live, medium};
 
@@ -763,8 +764,14 @@ struct SourceEntityLinkResponse {
     position: i64,
     link_type: String,
     /// Null when the raw source value's scheme is not `http` or `https`
-    /// (ADR 0054 section 4).
+    /// (ADR 0054 section 4). A `website` or `web_page` link is different.
+    /// Its raw value can name a host name with no scheme. The read value
+    /// is then `https://` and the raw value (ADR 0054 section 4a).
     url: Option<String>,
+    /// True when the node added the `https://` scheme to `url` (ADR 0054
+    /// section 4a). Always false for a `link_type` other than `website` or
+    /// `web_page`.
+    url_scheme_added: bool,
     source: String,
     extraction_path: String,
     observed_at: i64,
@@ -1969,14 +1976,21 @@ fn entity_id_response(claim: crate::model::SourceEntityIdClaim) -> SourceEntityI
 }
 
 fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLinkResponse {
+    // ADR 0054 §4: a link from RSS reaches the client only when it is a web
+    // URL. ADR 0054 §4a: a stored `website` or `web_page` link can have no
+    // scheme. The read value is then `https://` and the stored value, when
+    // the stored value names a host name.
+    let (url, url_scheme_added) = match link.link_type.as_str() {
+        "website" | "web_page" => web_link_for_read(&link.url),
+        _ => (web_url_or_none(Some(&link.url)), false),
+    };
     SourceEntityLinkResponse {
         entity_type: link.entity_type,
         entity_id: link.entity_id,
         position: link.position,
         link_type: link.link_type,
-        // ADR 0054 §4: a link from RSS reaches the client only when it is a
-        // web URL.
-        url: web_url_or_none(Some(&link.url)),
+        url,
+        url_scheme_added,
         source: link.source,
         extraction_path: link.extraction_path,
         observed_at: link.observed_at,
