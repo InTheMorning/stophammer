@@ -191,7 +191,7 @@ fn like_contains_pattern(value: &str) -> String {
 // each route read the same list, so the two cannot drift apart again.
 
 /// The include names `GET /v1/feeds/{guid}` accepts.
-pub(crate) const FEED_INCLUDES: &[&str] = &[
+pub const FEED_INCLUDES: &[&str] = &[
     "tracks",
     "payment_routes",
     "source_links",
@@ -203,11 +203,12 @@ pub(crate) const FEED_INCLUDES: &[&str] = &[
     "publisher",
 ];
 
-/// The include names `GET /v1/feeds/recent` accepts. ADR 0068 §1.
-pub(crate) const FEED_LIST_INCLUDES: &[&str] = &["link_facts"];
+/// The include names `GET /v1/feeds/recent` and `GET /v1/feeds/by-name`
+/// accept. ADR 0068 §1 and ADR 0071 §1c.
+pub const FEED_LIST_INCLUDES: &[&str] = &["link_facts"];
 
 /// The include names `GET /v1/tracks/{guid}` accepts.
-pub(crate) const TRACK_INCLUDES: &[&str] = &[
+pub const TRACK_INCLUDES: &[&str] = &[
     "payment_routes",
     "value_time_splits",
     "source_links",
@@ -247,6 +248,9 @@ struct FeedResponse {
     /// with [`db::resolve_listed_feed`]. Null when the feed names no
     /// publisher or the resolver cannot place it. ADR 0049 §5.
     publisher_feed_title: Option<String>,
+    /// The GUID of the feed that gives `publisher_feed_title`, from the same
+    /// resolution. Null when the title is null. ADR 0071 §1a and §3.
+    publisher_feed_guid: Option<String>,
     /// The number of distinct album artists of a publisher feed.
     ///
     /// The value is derived, not stored. It counts only an album whose
@@ -1313,11 +1317,12 @@ async fn handle_get_feed(
 /// [`db::resolve_listed_feed`], and reads the title of the resolved feed.
 /// Gives `None` when the feed names no publisher or the resolver cannot
 /// place it. A publisher link is an item with `medium="publisher"` and
-/// `source` `podcast_publisher` (ADR 0069 §1a). ADR 0049 §5.
-fn resolve_publisher_feed_title(
+/// `source` `podcast_publisher` (ADR 0069 §1a). ADR 0049 §5. The GUID of the
+/// resolved feed goes with its title, as ADR 0071 §1a gives.
+fn resolve_publisher_feed(
     conn: &rusqlite::Connection,
     feed_guid: &str,
-) -> Result<Option<String>, api::ApiError> {
+) -> Result<Option<PublisherFeedName>, api::ApiError> {
     let Some(item) = db::get_feed_remote_items_for_feed(conn, feed_guid)?
         .into_iter()
         .find(|item| {
@@ -1336,7 +1341,29 @@ fn resolve_publisher_feed_title(
         return Ok(None);
     };
 
-    Ok(db::get_feed(conn, resolved_guid)?.map(|feed| feed.title))
+    Ok(
+        db::get_feed(conn, resolved_guid)?.map(|feed| PublisherFeedName {
+            feed_guid: feed.feed_guid,
+            title: feed.title,
+        }),
+    )
+}
+
+/// The feed that an album names as its publisher: its GUID and its title.
+/// ADR 0049 §5 and ADR 0071 §1a.
+struct PublisherFeedName {
+    feed_guid: String,
+    title: String,
+}
+
+impl PublisherFeedName {
+    /// Splits an optional name into the `publisher_feed_guid` and the
+    /// `publisher_feed_title` of a `FeedResponse`.
+    fn into_fields(name: Option<Self>) -> (Option<String>, Option<String>) {
+        name.map_or((None, None), |name| {
+            (Some(name.feed_guid), Some(name.title))
+        })
+    }
 }
 
 /// Builds the derived artist count of a publisher feed, ADR 0049 §7.
@@ -1642,7 +1669,8 @@ fn build_feed_response(
     params: &ListQuery,
 ) -> Result<FeedResponse, api::ApiError> {
     let feed_guid = row.feed_guid.clone();
-    let publisher_feed_title = resolve_publisher_feed_title(conn, &feed_guid)?;
+    let (publisher_feed_guid, publisher_feed_title) =
+        PublisherFeedName::into_fields(resolve_publisher_feed(conn, &feed_guid)?);
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &feed_guid)?;
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &feed_guid)?.map(pending_guid_change_response);
@@ -1667,6 +1695,7 @@ fn build_feed_response(
         image_url: web_url_or_none(row.image_url.as_deref()),
         publisher_text: row.publisher_text,
         publisher_feed_title,
+        publisher_feed_guid,
         distinct_release_artist_count: None,
         distinct_release_artists: None,
         confirmed_release_artist_count: None,
@@ -3984,7 +4013,8 @@ fn feed_list_row_to_response(
     r: FeedRow,
     include_link_facts: bool,
 ) -> Result<FeedResponse, api::ApiError> {
-    let publisher_feed_title = resolve_publisher_feed_title(conn, &r.feed_guid)?;
+    let (publisher_feed_guid, publisher_feed_title) =
+        PublisherFeedName::into_fields(resolve_publisher_feed(conn, &r.feed_guid)?);
     let (copy_count, _newest_open_copy_first_seen) = db::open_copy_summary(conn, &r.feed_guid)?;
     let pending_guid_change =
         db::get_pending_guid_change_for_feed(conn, &r.feed_guid)?.map(pending_guid_change_response);
@@ -4018,6 +4048,7 @@ fn feed_list_row_to_response(
         image_url: web_url_or_none(r.image_url.as_deref()),
         publisher_text: r.publisher_text,
         publisher_feed_title,
+        publisher_feed_guid,
         // ADR 0049 §7 and ADR 0061 §1 scope the artist aggregates to
         // a single feed read. ADR 0068 §1 gives only the confirmed
         // list, with `include=link_facts`.

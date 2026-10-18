@@ -161,7 +161,7 @@ fn spec_value(mode: DocMode) -> Value {
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
-                    query_param("include", "string", None, false, "Comma-separated include list. Supports `link_facts` (ADR 0068)."),
+                    include_query_param(query::FEED_LIST_INCLUDES),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("stated_rel", "string", None, false, "With `medium=publisher`: keep only the rows with this role token in `stated_rels`. The value is lowercased (ADR 0068 sections 4 and 5). Gives the link facts."),
                     query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts.")
@@ -198,6 +198,7 @@ fn spec_value(mode: DocMode) -> Value {
                 vec![
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
+                    include_query_param(query::FEED_LIST_INCLUDES),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
                 ],
@@ -1044,7 +1045,7 @@ fn feed_path_item(mode: DocMode) -> Value {
                 path_param("guid", "string", "Feed GUID."),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections."),
                 limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
-                query_param("include", "string", None, false, "Comma-separated include list. Supports `tracks`, `payment_routes`, `source_links`, `source_ids`, `source_contributors`, `source_platforms`, `source_release_claims`, `remote_items`, `publisher`."),
+                include_query_param(query::FEED_INCLUDES),
                 query_param("medium", "string", None, false, "Optional medium override used by shared query parsing.")
             ],
             None,
@@ -1132,7 +1133,7 @@ fn track_path_item(mode: DocMode) -> Value {
             "Tracks",
             vec![
                 path_param("guid", "string", "Track GUID."),
-                query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
+                include_query_param(query::TRACK_INCLUDES),
                 limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
                 query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
             ],
@@ -1217,9 +1218,15 @@ fn feed_track_path_item(mode: DocMode) -> Value {
             vec![
                 path_param("guid", "string", "Parent feed GUID."),
                 path_param("track_guid", "string", "Track GUID."),
-                query_param("include", "string", None, false, "Comma-separated include list. Supports `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`."),
+                include_query_param(query::TRACK_INCLUDES),
                 limit_query_param("Maximum nested rows to return.", query::LIST_LIMIT_MAX),
-                query_param("cursor", "string", None, false, "Opaque pagination cursor for included nested collections.")
+                query_param(
+                    "cursor",
+                    "string",
+                    None,
+                    false,
+                    "Opaque pagination cursor for included nested collections.",
+                ),
             ],
             None,
             json!({
@@ -1342,6 +1349,29 @@ fn query_param(
         "description": description,
         "schema": Value::Object(schema)
     })
+}
+
+/// An `include` query parameter that declares the names in `names`.
+///
+/// ADR 0071 §1c: the document declares each include name that a route acts
+/// on. `names` is the constant that the route reads, so the description and
+/// `x-include-names` cannot drift from the code. The route ignores an unknown
+/// name.
+fn include_query_param(names: &[&str]) -> Value {
+    let listed = names
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let mut param = query_param(
+        "include",
+        "string",
+        None,
+        false,
+        &format!("Comma-separated include list. Supports {listed}. An unknown name is ignored."),
+    );
+    param["x-include-names"] = json!(names);
+    param
 }
 
 /// A `limit` query parameter with `minimum: 1` and the given `maximum`.

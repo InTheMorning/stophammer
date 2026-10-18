@@ -749,6 +749,7 @@ Returns a single feed by its `podcast:guid`.
     "image_url": "https://...",
     "publisher_text": "Wavlake",
     "publisher_feed_title": "Publisher Feed Title",
+    "publisher_feed_guid": "publisher-feed-guid",
     "language": "en",
     "explicit": false,
     "copy_count": 0,
@@ -1128,6 +1129,10 @@ null when the feed names no publisher, or the resolver cannot place the link.
 A one-way link, with no reciprocal declaration on the other side, still
 resolves `publisher_feed_title`. ADR 0049 section 5.
 
+`publisher_feed_guid` is the GUID of the feed that gives
+`publisher_feed_title`, from the same resolution. It is null when the title is
+null. ADR 0071 sections 1a and 3.
+
 `copy_count` is derived. It is the number of open copies of this feed.
 `GET /v1/feeds/{guid}/copies` lists each copy, open or not. ADR 0058 owns
 `copy_count` and the two copy routes below.
@@ -1218,8 +1223,11 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   matches a byte comparison of UTF-8 text, and the SQLite `BINARY`
   collation. The node keeps a leading article such as "The", and it keeps
   punctuation and an accent.
-- **Query parameters:** common pagination params plus optional `medium` and
-  `from`.
+- **Query parameters:** common pagination params plus optional `include`,
+  `medium` and `from`.
+- **Include `link_facts`:** each publisher row gives the four fields of
+  `GET /v1/feeds/recent` with the same include (ADR 0068, ADR 0071 section
+  1c).
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. `from=M` starts at the first title that
   starts with `m`. A request with `cursor` ignores `from`.
