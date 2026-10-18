@@ -202,7 +202,7 @@ is declined. The amendment of ADR 0064 §6 gives each live row `link`. ADR 0054
 a flag. [ADR 0054 task 005](docs/tasks/adr-0054-task-005-host-name-link.md)
 gives the rule, and
 [ADR 0064 task 006](docs/tasks/adr-0064-task-006-live-item-link.md) gives the
-live row `link`. Task 005 comes first.
+live row `link`. Both tasks are complete, and no release carries them yet.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),

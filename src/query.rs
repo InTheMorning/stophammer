@@ -367,6 +367,10 @@ struct FeedResponse {
 
 /// One row of `FeedResponse.live_items` (ADR 0064 section 6).
 #[derive(Debug, Serialize, ToSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is a named ADR 0064 fact of the row (confirming_relay, in_now_view, in_upcoming_view, link_scheme_added), not a state machine"
+)]
 struct LiveItemResponse {
     live_item_guid: String,
     title: String,
@@ -388,6 +392,14 @@ struct LiveItemResponse {
     /// `true` when the `upcoming` view gives this row at the time of the
     /// read (ADR 0064 section 6). Computed with `live::in_upcoming_view`.
     in_upcoming_view: bool,
+    /// The RSS `<link>` of the live item: the stored link with
+    /// `extraction_path` `entity.link` (ADR 0064 section 6). An Atom link
+    /// does not give this value. Null when the item gives no such link.
+    /// The web URL rules of ADR 0054 sections 4 and 4a apply.
+    link: Option<String>,
+    /// `true` only when the node added the `https` scheme to `link` (ADR
+    /// 0054 section 4a).
+    link_scheme_added: bool,
 }
 
 /// The pending GUID change of `FeedResponse.pending_guid_change` (ADR 0052
@@ -1489,17 +1501,78 @@ fn build_live_items_response(
     let mut events = db::get_live_events_for_feed(conn, feed_guid)?;
     events.sort_by(|a, b| a.live_item_guid.cmp(&b.live_item_guid));
     let hosts = live::confirming_relay_hosts();
+    let links = live_item_links_for_feed(conn, feed_guid)?;
     Ok(events
         .iter()
-        .map(|event| live_item_response(event, hosts, now))
+        .map(|event| {
+            let link = links.get(&event.live_item_guid).map(String::as_str);
+            live_item_response(event, hosts, now, link)
+        })
         .collect())
+}
+
+/// Reads the RSS `<link>` of each live item of `feed_guid`, keyed by
+/// `live_item_guid` (ADR 0064 section 6, ADR 0064 task 006).
+///
+/// Reads every staged entity link of the feed with one query, the batch
+/// read the task allows for a feed read. The function keeps the first row
+/// of each live item whose `link_type` is `web_page` and whose
+/// `extraction_path` is `entity.link`. The parser gives that extraction
+/// path only to a plain RSS `<link>` child of a live item. An Atom
+/// alternate link has a different extraction path, so it never enters the
+/// map.
+fn live_item_links_for_feed(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+) -> Result<HashMap<String, String>, api::ApiError> {
+    let mut links = HashMap::new();
+    for link in db::get_source_entity_links_for_feed(conn, feed_guid)? {
+        if link.entity_type == "live_item"
+            && link.link_type == "web_page"
+            && link.extraction_path == "entity.link"
+        {
+            links.entry(link.entity_id).or_insert(link.url);
+        }
+    }
+    Ok(links)
+}
+
+/// Reads the RSS `<link>` of one live item (ADR 0064 section 6, ADR 0064
+/// task 006).
+///
+/// One query for the one row the list route needs, the cost the task
+/// allows. The function applies the same rule as
+/// [`live_item_links_for_feed`]: it keeps the first row whose `link_type`
+/// is `web_page` and whose `extraction_path` is `entity.link`.
+fn live_item_link_for_feed_item(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    live_item_guid: &str,
+) -> Result<Option<String>, api::ApiError> {
+    Ok(
+        db::get_source_entity_links_for_feed_entity(conn, feed_guid, "live_item", live_item_guid)?
+            .into_iter()
+            .find(|link| link.link_type == "web_page" && link.extraction_path == "entity.link")
+            .map(|link| link.url),
+    )
 }
 
 /// Builds one row of `live_items` from a stored [`LiveEvent`] (ADR 0064
 /// section 6). `now` is the clock reading the caller took once, for
-/// `in_now_view` and `in_upcoming_view`.
-fn live_item_response(event: &LiveEvent, hosts: &[String], now: i64) -> LiveItemResponse {
+/// `in_now_view` and `in_upcoming_view`. `link` is the stored raw RSS
+/// `<link>` of the live item, when the caller found one (ADR 0064 task
+/// 006).
+fn live_item_response(
+    event: &LiveEvent,
+    hosts: &[String],
+    now: i64,
+    link: Option<&str>,
+) -> LiveItemResponse {
     let confirming_relay = live::is_confirming_relay(event.live_value_uri.as_deref(), hosts);
+    let (link, link_scheme_added) = match link {
+        Some(raw) => web_link_for_read(raw),
+        None => (None, false),
+    };
     LiveItemResponse {
         live_item_guid: event.live_item_guid.clone(),
         title: event.title.clone(),
@@ -1514,6 +1587,8 @@ fn live_item_response(event: &LiveEvent, hosts: &[String], now: i64) -> LiveItem
         confirming_relay,
         in_now_view: live::in_now_view(event, now, confirming_relay),
         in_upcoming_view: live::in_upcoming_view(event, now),
+        link,
+        link_scheme_added,
     }
 }
 
@@ -3404,6 +3479,10 @@ fn live_event_matches(
 /// One row of `GET /v1/live-items`: the same shape as a `live_items` row of
 /// `GET /v1/feeds/{guid}`, plus `feed_guid` (ADR 0064 section 6).
 #[derive(Debug, Serialize, ToSchema)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is a named ADR 0064 fact of the row (confirming_relay, in_now_view, in_upcoming_view, link_scheme_added), not a state machine"
+)]
 pub struct LiveItemListResponse {
     feed_guid: String,
     live_item_guid: String,
@@ -3421,6 +3500,12 @@ pub struct LiveItemListResponse {
     /// `true` when the `upcoming` view gives this row at the time of the
     /// read (ADR 0064 section 6). Computed with `live::in_upcoming_view`.
     in_upcoming_view: bool,
+    /// The RSS `<link>` of the live item (ADR 0064 section 6, ADR 0064 task
+    /// 006). The same rule as `LiveItemResponse.link`.
+    link: Option<String>,
+    /// `true` only when the node added the `https` scheme to `link` (ADR
+    /// 0054 section 4a).
+    link_scheme_added: bool,
 }
 
 /// Builds one row of `GET /v1/live-items` from a stored [`LiveEvent`].
@@ -3428,10 +3513,17 @@ pub struct LiveItemListResponse {
 /// Reuses [`live_item_response`], the row builder of the single-feed read,
 /// and adds `feed_guid` (ADR 0064 section 6). `now` is the `now` the list
 /// route already uses for the view, so the flags and the view agree in one
-/// read.
-fn live_item_list_response(event: &LiveEvent, hosts: &[String], now: i64) -> LiveItemListResponse {
-    let row = live_item_response(event, hosts, now);
-    LiveItemListResponse {
+/// read. Reads `link` with one query, through
+/// [`live_item_link_for_feed_item`] (ADR 0064 task 006).
+fn live_item_list_response(
+    conn: &rusqlite::Connection,
+    event: &LiveEvent,
+    hosts: &[String],
+    now: i64,
+) -> Result<LiveItemListResponse, api::ApiError> {
+    let link = live_item_link_for_feed_item(conn, &event.feed_guid, &event.live_item_guid)?;
+    let row = live_item_response(event, hosts, now, link.as_deref());
+    Ok(LiveItemListResponse {
         feed_guid: event.feed_guid.clone(),
         live_item_guid: row.live_item_guid,
         title: row.title,
@@ -3444,7 +3536,9 @@ fn live_item_list_response(event: &LiveEvent, hosts: &[String], now: i64) -> Liv
         confirming_relay: row.confirming_relay,
         in_now_view: row.in_now_view,
         in_upcoming_view: row.in_upcoming_view,
-    }
+        link: row.link,
+        link_scheme_added: row.link_scheme_added,
+    })
 }
 
 /// The page [`list_live_items`] gives.
@@ -3520,8 +3614,8 @@ pub fn list_live_items(
     };
     let data = page
         .iter()
-        .map(|event| live_item_list_response(event, hosts, now))
-        .collect();
+        .map(|event| live_item_list_response(conn, event, hosts, now))
+        .collect::<Result<_, _>>()?;
 
     Ok(LiveItemsPage {
         data,
