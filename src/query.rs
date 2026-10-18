@@ -972,8 +972,8 @@ struct PublisherResponse {
     /// The release artist source of the named feed, or null when the node
     /// holds no feed for this entry. ADR 0059 §1.
     remote_release_artist_source: Option<String>,
-    /// How the album names this publisher feed: `"publisher"`, `"credit"` or
-    /// null. ADR 0069 §3. On a `music_to_publisher` row, the value comes from
+    /// How the album names this publisher feed: `"publisher"` or null. ADR
+    /// 0069 §1a and §3. On a `music_to_publisher` row, the value comes from
     /// the album's own item. On a `publisher_to_music` row, it comes from the
     /// album item that names this publisher feed, and it is null when
     /// `music_names_publisher` is false.
