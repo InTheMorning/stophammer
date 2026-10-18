@@ -1226,7 +1226,12 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   collation. The node keeps a leading article such as "The", and it keeps
   punctuation and an accent.
 - **Query parameters:** common pagination params plus optional `include`,
-  `medium` and `from`.
+  `medium`, `from` and `artist_key`.
+- **`artist_key`:** Keeps only the music releases that the `name` row of
+  `GET /v1/artist-names` with this `key` counts in `release_count`. The node
+  reads the set from the copy in memory of that list, so the count and the
+  list agree. A key with no `name` row gives an empty list. With a `medium`
+  other than `music`, the route gives `400`. ADR 0071 section 4.
 - **Include `link_facts`:** each publisher row gives the five fields of
   `GET /v1/feeds/recent` with the same include (ADR 0068, ADR 0071 section
   1c).
@@ -1243,6 +1248,7 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
+| 400  | `artist_key` with a `medium` other than `music` |
 
 ---
 
@@ -1285,7 +1291,7 @@ Each row gives:
 | `key` | The feed GUID | The sort key of the group |
 | `feed_guid` | The feed GUID | `null` |
 | `image_url` | The feed image, as a web URL | `null` |
-| `release_count` | `null` | The number of name-level releases with this key |
+| `release_count` | `null` | The number of name-level releases with this key. `GET /v1/feeds/by-name?artist_key=<key>` lists them |
 
 The node does not merge a `publisher` row and a `name` row that share the
 same text. The two rows can show together, each with its own `kind`.

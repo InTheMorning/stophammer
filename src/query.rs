@@ -111,6 +111,9 @@ pub struct ListQuery {
     /// sort key is equal to or after the sort key of this text. Ignored
     /// when `cursor` is present, and by every other route.
     from: Option<String>,
+    /// ADR 0071 §4: `GET /v1/feeds/by-name` gives only the releases that the
+    /// `name` row with this `key` counts. Ignored by every other route.
+    artist_key: Option<String>,
 }
 
 impl ListQuery {
@@ -4210,11 +4213,15 @@ fn parse_by_name_cursor(cursor: &str) -> Result<(String, String), api::ApiError>
 ///
 /// At most one of `after` and `from_floor` is ever set: the handler applies
 /// `from` only when the request carries no cursor (ADR 0070 §2).
+///
+/// `only_guids` is null, or a JSON array of the feed GUIDs to keep (ADR 0071
+/// §4).
 fn by_name_feed_rows(
     conn: &rusqlite::Connection,
     medium: &str,
     after: Option<(String, String)>,
     from_floor: Option<&str>,
+    only_guids: Option<&str>,
     count: i64,
 ) -> Result<Vec<(FeedRow, String)>, api::ApiError> {
     let (cursor_sort, cursor_guid) =
@@ -4228,12 +4235,20 @@ fn by_name_feed_rows(
          WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
            AND (?2 IS NULL OR (title_sort, feed_guid) > (?2, ?3)) \
            AND (?4 IS NULL OR title_sort >= ?4) \
+           AND (?6 IS NULL OR feed_guid IN (SELECT value FROM json_each(?6))) \
          ORDER BY title_sort ASC, feed_guid ASC \
          LIMIT ?5",
     )?;
     let rows = stmt
         .query_map(
-            params![medium, cursor_sort, cursor_guid, from_floor, count],
+            params![
+                medium,
+                cursor_sort,
+                cursor_guid,
+                from_floor,
+                count,
+                only_guids
+            ],
             |row| {
                 let feed_row = FeedRow {
                     feed_guid: row.get(0)?,
@@ -4292,11 +4307,35 @@ async fn handle_get_feeds_by_name(
             None
         };
 
+        // ADR 0071 §4: `artist_key` keeps the releases that the `name` row
+        // with that key counts. The set comes from the same copy in memory as
+        // `release_count`, so the count and the list agree.
+        let only_guids = match params.artist_key.as_deref() {
+            None => None,
+            Some(_) if medium != "music" => {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "artist_key needs medium=music".into(),
+                    www_authenticate: None,
+                });
+            }
+            Some(key) => {
+                let list = state2.artist_name_cache.get_or_build(&conn)?;
+                let guids = list.name_releases.get(key).cloned().unwrap_or_default();
+                Some(serde_json::to_string(&guids).map_err(|e| api::ApiError {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    message: format!("artist_key set encoding error: {e}"),
+                    www_authenticate: None,
+                })?)
+            }
+        };
+
         let rows = by_name_feed_rows(
             &conn,
             &medium,
             cursor_after,
             from_floor.as_deref(),
+            only_guids.as_deref(),
             limit + 1,
         )?;
         let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
@@ -4418,7 +4457,10 @@ impl ArtistNameRow {
 /// level that shares one sort key. ADR 0070 §3.
 #[derive(Default)]
 struct ArtistNameGroup {
-    release_count: i64,
+    /// The feed GUID of each release of the group. Its length is the
+    /// `release_count` of the row, and `artist_key` lists the same set
+    /// (ADR 0071 §4).
+    feed_guids: Vec<String>,
     /// The count of each raw `release_artist` text of the group. A
     /// `BTreeMap` key orders by byte value, which is code point order for a
     /// UTF-8 `String` (ADR 0070 §1).
@@ -4471,16 +4513,27 @@ fn music_feed_artist_rows(
     Ok(rows)
 }
 
+/// The built artist list of ADR 0070 §4a: every row, and the releases of
+/// each `name` row.
+#[derive(Debug)]
+struct ArtistNameList {
+    /// Every row of `GET /v1/artist-names`, sorted by `(sort_name, kind,
+    /// key)`.
+    rows: Vec<ArtistNameRow>,
+    /// The feed GUIDs of the releases of each `name` row, by its `key`.
+    /// `release_count` is the length of the same list. ADR 0071 §4.
+    name_releases: BTreeMap<String, Vec<String>>,
+}
+
 /// Builds every row of `GET /v1/artist-names`, sorted by `(sort_name, kind,
-/// key)` in code point order. ADR 0070 §3 and §4, task 002.
+/// key)` in code point order, and the releases of each `name` row. ADR 0070
+/// §3 and §4, task 002, and ADR 0071 §4.
 ///
 /// The function reads the whole list at each call. It reads the link facts
 /// of a release through [`load_publisher`] and [`is_name_level_release`],
 /// the same functions that the publisher view uses, so this list uses no
 /// second role rule.
-fn build_artist_name_rows(
-    conn: &rusqlite::Connection,
-) -> Result<Vec<ArtistNameRow>, api::ApiError> {
+fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList, api::ApiError> {
     let mut rows = Vec::new();
 
     for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
@@ -4518,24 +4571,27 @@ fn build_artist_name_rows(
         }
         let key = sort_key(&raw_artist);
         let group = groups.entry(key).or_default();
-        group.release_count += 1;
+        group.feed_guids.push(feed_guid);
         *group.raw_counts.entry(raw_artist).or_insert(0) += 1;
     }
+    let mut name_releases = BTreeMap::new();
     for (key, group) in groups {
+        let release_count = i64::try_from(group.feed_guids.len()).unwrap_or(i64::MAX);
         rows.push(ArtistNameRow {
             kind: "name".to_string(),
             name: group.name(),
             sort_name: key.clone(),
-            key,
+            key: key.clone(),
             feed_guid: None,
             image_url: None,
-            release_count: Some(group.release_count),
+            release_count: Some(release_count),
             two_way_link_count: None,
             stated_rels: None,
             agreed_roles: None,
             confirmed_release_artists: None,
             first_named_count: None,
         });
+        name_releases.insert(key, group.feed_guids);
     }
 
     rows.sort_by(|a, b| {
@@ -4545,7 +4601,10 @@ fn build_artist_name_rows(
             b.key.as_str(),
         ))
     });
-    Ok(rows)
+    Ok(ArtistNameList {
+        rows,
+        name_releases,
+    })
 }
 
 /// ADR 0070 §4a: the node builds the artist list again at most one time in
@@ -4567,7 +4626,7 @@ fn current_event_seq(conn: &rusqlite::Connection) -> Result<i64, api::ApiError> 
 /// time of its build. ADR 0070 §4a.
 #[derive(Debug, Clone)]
 struct ArtistNameCacheEntry {
-    rows: Arc<Vec<ArtistNameRow>>,
+    list: Arc<ArtistNameList>,
     seq_at_build: i64,
     built_at: std::time::Instant,
 }
@@ -4617,7 +4676,7 @@ impl ArtistNameCache {
     fn get_or_build(
         &self,
         conn: &rusqlite::Connection,
-    ) -> Result<Arc<Vec<ArtistNameRow>>, api::ApiError> {
+    ) -> Result<Arc<ArtistNameList>, api::ApiError> {
         let mut guard = self.inner.lock().map_err(|_poison| api::ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             message: "artist name cache lock poisoned".into(),
@@ -4628,16 +4687,16 @@ impl ArtistNameCache {
             let same_seq = entry.seq_at_build == current_seq;
             let recent_build = entry.built_at.elapsed() < self.min_rebuild_interval;
             if same_seq || recent_build {
-                return Ok(Arc::clone(&entry.rows));
+                return Ok(Arc::clone(&entry.list));
             }
         }
-        let rows = Arc::new(build_artist_name_rows(conn)?);
+        let list = Arc::new(build_artist_name_list(conn)?);
         *guard = Some(ArtistNameCacheEntry {
-            rows: Arc::clone(&rows),
+            list: Arc::clone(&list),
             seq_at_build: current_seq,
             built_at: std::time::Instant::now(),
         });
-        Ok(rows)
+        Ok(list)
     }
 }
 
@@ -4673,7 +4732,8 @@ async fn handle_get_artist_names(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
-        let all_rows = state2.artist_name_cache.get_or_build(&conn)?;
+        let list = state2.artist_name_cache.get_or_build(&conn)?;
+        let all_rows = &list.rows;
 
         let cursor_after = params
             .cursor

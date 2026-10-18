@@ -200,7 +200,8 @@ fn spec_value(mode: DocMode) -> Value {
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
                     include_query_param(query::FEED_LIST_INCLUDES),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
-                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
+                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
+                    query_param("artist_key", "string", None, false, "Keeps only the music releases that the `name` row of `GET /v1/artist-names` with this `key` counts in `release_count` (ADR 0071 section 4). Needs `medium=music`. A key with no `name` row gives an empty list.")
                 ],
                 None,
                 json!({
