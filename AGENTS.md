@@ -194,6 +194,14 @@ Complete and deployed:
   `release_kind` `unknown`. On the primary, 6 albums name two publisher
   feeds, and each gives Sir Libre Records rank 2. The primary and the gossip
   crawler run the GHCR images of the release.
+- [ADR 0071](docs/adr/0071-a-list-row-links-what-it-names.md), Accepted on
+  2026-10-18, for v4vmm request 8. A row gives the GUID beside each feed title,
+  a count has a route that lists its items, and the contract declares each
+  `include` of a route. The artist list gives link facts and
+  `first_named_count`, and a release row gives `named_feeds`.
+  `GET /v1/feeds/by-name` takes `artist_key`, and search takes
+  `type=publisher`. Tasks 001 to 005 are
+  open, and no release holds them.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and

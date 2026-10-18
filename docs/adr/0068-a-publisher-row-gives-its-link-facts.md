@@ -8,6 +8,10 @@ scope". Amended on 2026-10-02 with section 4, the two filters of
 musicindex.org request 10. Amended on 2026-10-02 with section 5: the link
 facts are role tokens, musicindex.org request 11.
 
+Amended on 2026-10-18 by ADR 0071. `GET /v1/artist-names` and
+`GET /v1/feeds/by-name` give the link facts of section 1 with
+`include=link_facts`. Search finds a publisher feed with `type=publisher`.
+
 ## Date
 2026-10-01
 
@@ -147,6 +151,10 @@ out of the search index. So no search row is a publisher feed, and each feed
 row has the medium `music`. The operator removed the search part on
 2026-10-01, before the build. A client finds publisher feeds with
 `GET /v1/feeds/recent?medium=publisher`.
+
+On 2026-10-18, ADR 0071 §5 put the publisher feeds in the search index, as
+the type `publisher`. A search row still gives no link facts. A client reads
+them from a list row or from a read of the feed.
 
 ## Consequences
 

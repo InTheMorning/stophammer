@@ -7,6 +7,9 @@ Amended on 2026-09-27: `GET /v1/feeds/recent` keeps its `medium` parameter.
 See "Amendment Of 2026-09-27". ADR 0049 replaces the Wavlake caveat of
 Decision A.
 
+Amended on 2026-10-18 by ADR 0071 §5: the search index holds the publisher
+feeds, and only `type=publisher` gives them. See "Amendment Of 2026-10-18".
+
 ## Date
 2026-04-18
 
@@ -234,6 +237,15 @@ breaking change of `v1` under
 [ADR 0044](0044-api-contract-declares-its-fields.md).
 
 The other parts of Decision A and Decision B are implemented on this date.
+
+## Amendment Of 2026-10-18
+
+[ADR 0071](0071-a-list-row-links-what-it-names.md) §5 changes Decision B for
+search. The search index holds each publisher feed as an entity of the type
+`publisher`. Only a search with `type=publisher` gives such a row. A search with
+`type=feed`, with `type=track` or with no `type` gives only music feeds and
+their tracks, as before. A `musicL` feed and a feed with no medium stay out of
+the index.
 
 ## Consequences
 

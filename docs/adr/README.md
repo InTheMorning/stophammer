@@ -45,7 +45,7 @@ disagree.
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh. A refresh keeps its disk | Accepted |
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
-| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Wavlake caveat superseded by ADR 0049 | Accepted |
+| [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Search holds publisher feeds only for `type=publisher` (ADR 0071 §5). Wavlake caveat superseded by ADR 0049 | Accepted |
 | [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
 | [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304`. A `304` to a request with no conditional header is a fetch error (§3) | Accepted |
@@ -61,10 +61,10 @@ disagree.
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
-| [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels`, `agreed_roles` and `confirmed_release_artists`, as role tokens over confirmed links (§5). Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4) | Accepted |
+| [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels`, `agreed_roles` and `confirmed_release_artists`, as role tokens over confirmed links (§5). Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4). ADR 0071 adds the facts to the two name lists | Accepted |
 | [0069](0069-an-album-confirms-each-credit.md) | An album names one or more publishers inside `<podcast:publisher>`, and only a two-way link is confirmed. Each publisher row gives `album_names_as` and `album_names_rank` (§3a), and a publisher read gives `co_credited_feeds`. The bare-item credit is removed (§1a) | Accepted |
 | [0070](0070-a-name-list-gives-each-identity-one-row.md) | `GET /v1/feeds/by-name` and `GET /v1/artist-names` give lists in name order, with one sort key in `sort_name`. The artist list gives one row for each publisher feed and one for each name of the name level, and merges no row by text. The node keeps the artist list in memory, and builds it again after a change, at most one time in 30 seconds (§4a). v4vmm request 6 | Accepted |
-| [0071](0071-a-list-row-links-what-it-names.md) | A list row links what it names: a feed title has its GUID, a count names its list, and a route declares each include (§1). The artist list gives link facts and `first_named_count`, a release row gives `named_feeds`, `by-name` takes `artist_key`, and search takes `type=publisher`. v4vmm request 8 | Proposed |
+| [0071](0071-a-list-row-links-what-it-names.md) | A list row links what it names: a feed title has its GUID, a count names its list, and a route declares each include (§1). The artist list gives link facts and `first_named_count`, a release row gives `named_feeds`, `by-name` takes `artist_key`, and search takes `type=publisher`. v4vmm request 8 | Accepted |
 
 ## Identity, Signing And Security
 

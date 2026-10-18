@@ -1,10 +1,9 @@
 # ADR 0071: A List Row Links What It Names
 
 ## Status
-Proposed on 2026-10-18, for v4vmm request 8.
-
-When this decision is Accepted, the same commit amends ADR 0038 Decision B and
-the section "Search is not in scope" of ADR 0068. Section 5 gives the change.
+Accepted on 2026-10-18, for v4vmm request 8. It amends ADR 0038 Decision B and
+the section "Search is not in scope" of ADR 0068 (section 5). Tasks 001 to 005
+give the build.
 
 ## Date
 2026-10-18
@@ -60,8 +59,9 @@ design.
 
 **1a. A feed title has its GUID.** A field that gives the title of another feed
 has a field in the same object that gives the GUID of that feed. A field
-`<prefix>feed_title` has the field `<prefix>feed_guid`. The guard of section 8
-holds the list of each pair with other names.
+`<prefix>feed_title` has the field `<prefix>feed_guid`. The guard of this rule
+holds the list of each pair with other names, for example `remote_feed_title`
+and `resolved_feed_guid` of a copy entry.
 
 **1b. A count names its list.** A field that counts items has a route or a
 filter that lists the same items. The decision that adds the count names that
@@ -69,7 +69,8 @@ list. A review checks this rule, because the contract does not record which
 route lists a count.
 
 **1c. A route declares each include.** The OpenAPI document declares each
-`include` name that a route accepts, and the node accepts no other name.
+`include` name that a route acts on. The node ignores an unknown name, as each
+route does today, so a client that sends an old name gets no error.
 
 The rules give facts. They do not let the node derive a kind. ADR 0061 §4 and
 ADR 0070 §5 stay true.
@@ -133,13 +134,16 @@ A request with `artist_key` and a `medium` other than `music` gives `400`.
 ### 5. Search finds a publisher feed on request
 
 `GET /v1/search` takes `type=publisher`. It gives the feeds with the medium
-`publisher` whose text matches `q`, in the row shape of a feed result.
+`publisher` whose text matches `q`, in the row shape of a feed result. Each row
+gives the `entity_type` `publisher`.
 
 A search with `type=feed`, with `type=track` or with no `type` gives the same
 results as before. Thus no present client gets a new row kind.
 
-The search index holds the publisher feeds. On the first start of a release
-with this decision, the node builds the index again, as release 0.8.0 did.
+The search index holds each publisher feed as an entity of the type
+`publisher`. A search with `type=feed` or with no `type` reads only the types
+`feed` and `track`, so it does not change. On the first start of a release with
+this decision, the node adds each publisher feed that the index does not hold.
 
 This changes ADR 0038 Decision B for search: a publisher feed is in the index,
 and only `type=publisher` gives it. A `musicL` feed and a feed with no medium
@@ -208,9 +212,9 @@ Mechanical, each one checked by a test:
 
 - A guard over the OpenAPI document fails when an object has a feed title with
   no GUID field. Its message names this ADR §1a and the fix.
-- A guard fails when a route accepts an `include` name that the document does
+- A guard fails when a route acts on an `include` name that the document does
   not declare for it (§1c). It also fails when the document declares a name
-  that the route rejects. `GET /v1/feeds/by-name` declares `link_facts`.
+  that the route ignores. `GET /v1/feeds/by-name` declares `link_facts`.
 - With `include=link_facts`, a `publisher` row of `GET /v1/artist-names` gives
   the values of a read of that feed. `first_named_count` counts only the
   confirmed links with rank 1.
