@@ -42,7 +42,7 @@ names the requests that the two clients share.
 | 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
 | 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
 | 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
-| 13 | Item facts on each copy row | API field addition | Accepted on 2026-10-18 |
+| 13 | Item facts on each copy row | API field addition | Deployed in release 0.10.0 on 2026-10-18 |
 | 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
@@ -612,6 +612,14 @@ for their priority.
 | 1 | Album summary fields in each publisher relationship entry | The publisher page reads each album separately: a maximum of 24, six at a time, and a "Show all" control for the remainder (`ALBUM_PAGE_SIZE` and `FEED_FETCH_CONCURRENCY`, lines 1881 and 1882). With the fields, one request per publisher |
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
+
+## Release 0.10.0 - 2026-10-18
+
+Release 0.10.0 delivers request 13 (Stophammer ADR 0058 §1e). `GET /node/info` gives `git_revision` `b45062b`.
+
+- Each copy row gives `item_durations`, `item_enclosure_urls`, `item_pub_dates` and `author`. A replay of the cached copy bodies filled all 81 rows.
+- The copy of "THERAPY IN SESSION" at headstarts.uk gives the durations `[183, 226, 219]` and the author "Nat Hills".
+- The two copies of the Strange Love album give the same durations in a different sequence. One item gives 323 seconds on one copy and 324 seconds on the other.
 
 ## Release 0.9.0 - 2026-10-18
 

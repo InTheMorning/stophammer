@@ -178,6 +178,13 @@ Complete and deployed:
   page from the copy takes less than 0.1 second. The time of a build after a
   change is not measured yet. Measure it when the gossip crawler sends
   changes.
+- Release 0.10.0, on 2026-10-18. It promotes `v0.10.0-rc.1`. It holds ADR
+  0058 §1e with
+  [task 008](docs/tasks/adr-0058-task-008-copy-item-facts.md), musicindex.org
+  request 13: each copy row gives `item_durations`, `item_enclosure_urls`,
+  `item_pub_dates` and `author`. Migration 0052 adds the columns. An `ndjson`
+  replay of the cached copy bodies filled all 81 rows. The primary and the
+  gossip crawler run the GHCR images of the release.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -191,7 +198,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`3ec1352` makes. `GET /node/info` gives the revision of the running node.
+`b45062b` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
 [the client requests work plan](docs/plans/client-requests-work-plan.md). Each
@@ -203,12 +210,6 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   Accepted on 2026-09-26. The
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
-
-musicindex.org request 13 is accepted on 2026-10-18 as ADR 0058 §1e: each
-copy row gives the duration, the enclosure URL and the date of each item, and
-the channel author.
-[Task 008](docs/tasks/adr-0058-task-008-copy-item-facts.md) is complete,
-and no release carries it yet. Migration 0052 adds the four columns.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
