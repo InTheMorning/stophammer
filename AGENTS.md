@@ -194,16 +194,21 @@ Complete and deployed:
   `release_kind` `unknown`. On the primary, 6 albums name two publisher
   feeds, and each gives Sir Libre Records rank 2. The primary and the gossip
   crawler run the GHCR images of the release.
-- [ADR 0071](docs/adr/0071-a-list-row-links-what-it-names.md), Accepted on
-  2026-10-18, for v4vmm request 8. A row gives the GUID beside each feed title,
-  a count has a route that lists its items, and the contract declares each
-  `include` of a route. The artist list gives link facts and
-  `first_named_count`, and a release row gives `named_feeds`.
-  `GET /v1/feeds/by-name` takes `artist_key`, and search takes
-  `type=publisher`. Tasks 001 to 005 are complete, and no release holds
-  them. At the first start, the node adds each publisher feed to the search
-  index. On the backup of 2026-10-18 it added 1,774 feeds in about 0.6
-  seconds.
+- Release 0.12.0, on 2026-10-18. It promotes `v0.12.0-rc.1`, for v4vmm
+  request 8 with
+  [ADR 0071](docs/adr/0071-a-list-row-links-what-it-names.md) tasks 001 to
+  005:
+  - §1: a row gives the GUID beside each feed title, and the contract declares
+    each `include` of a route. Two guards in
+    `tests/adr0071_row_link_guard_tests.rs` enforce it.
+  - §2: with `include=link_facts`, a publisher row of `GET /v1/artist-names`
+    gives its link facts and `first_named_count`.
+  - §3: a release row gives `publisher_feed_guid`, and `include=named_feeds`.
+  - §4: `GET /v1/feeds/by-name` takes `artist_key`.
+  - §5: search takes `type=publisher`. At the first start, the primary added
+    1,774 publisher feeds to the search index in about 7 seconds.
+
+  The primary and the gossip crawler run the GHCR images of the release.
 - [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
   2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
   `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
@@ -217,7 +222,7 @@ Complete and deployed:
   holds the measurement that led to it.
 
 The node at `api.musicindex.org` serves the OpenAPI document that commit
-`99e90f7` makes. `GET /node/info` gives the revision of the running node.
+`056199b` makes. `GET /node/info` gives the revision of the running node.
 
 The client requests of v4vmm and musicindex.org follow
 [the client requests work plan](docs/plans/client-requests-work-plan.md). Each
