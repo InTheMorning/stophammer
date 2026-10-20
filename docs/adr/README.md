@@ -50,6 +50,8 @@ disagree.
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
 | [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304`. A `304` to a request with no conditional header is a fetch error (§3) | Accepted |
 | [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. A role is confirmed only when both sides state the same set, and a link whose sides differ is not confirmed (§6a). Replaces the Wavlake exception of ADR 0035 | Accepted |
+| [0072](0072-a-feed-fetch-accepts-compression.md) | A feed fetch accepts `gzip` and `br`, and sends `Accept`. The snapshot download does not ask for compression. The hash is over the decoded body. A stored `ETag` with `-gzip` or `-br` is sent with its base tag, and a batch pass counts wasted `200` answers. Amends ADR 0050 §2 and §6 | Proposed |
+| [0073](0073-a-value-time-split-keeps-both-forms.md) | A value time split keeps the remote form and the local form of the specification, with the stated values. The `v1` response adds fields and removes none. Supersedes the `remotePercentage` skip of ADR 0011 | Proposed |
 
 ## HTTP API And Contract
 
