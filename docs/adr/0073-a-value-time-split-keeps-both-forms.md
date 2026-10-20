@@ -124,7 +124,7 @@ The contract declares each field and the new include (ADR 0044, ADR 0071 §1).
 
 ### 5. ADR 0011
 
-This section, with ADR 0072, supersedes the last two sections of ADR 0011 that
+This section, with ADR 0072 and ADR 0074, supersedes the last three sections of ADR 0011 that
 are in force. The other sections of ADR 0011 no longer describe the code:
 
 | ADR 0011 section | Current owner |
@@ -133,18 +133,15 @@ are in force. The other sections of ADR 0011 no longer describe the code:
 | Separate process | ADR 0006 |
 | Content hash strategy | ADR 0072 §4 |
 | `podcast:valueTimeSplit` with `remotePercentage` | This ADR |
+| `podcast:guid` absent | ADR 0074 |
 | A stateless crawler | ADR 0050 |
 | No redirect resolution | ADR 0052 |
 | Scheduling | ADR 0031 and ADR 0047 |
 
-When this ADR and ADR 0072 are Accepted, ADR 0011 moves to `docs/adr/archive/`.
+When this ADR, ADR 0072 and ADR 0074 are Accepted, ADR 0011 moves to `docs/adr/archive/`.
 
 ## Not Decided Here
 
-- **A feed with no `podcast:guid`.** ADR 0011 says that the crawler submits
-  an empty GUID, which the node rejects. The parser now gives an error, and the
-  crawler submits nothing. No ADR states the current behavior. It needs an owner
-  before ADR 0011 moves to the archive.
 - **Route history.** ADR 0053 shows each change of the payment recipients of a
   feed. This ADR does not add the recipients of a split to that history.
 - **A parse warning.** The parser has no channel for a warning. A dropped split
