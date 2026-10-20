@@ -57,8 +57,10 @@ crawler in Rust. No ADR states a reason for them.
 
 Two stores decide which feeds a mode skips. The shared skip list
 `feed_skip.db` is read by `gossip` and `import`. The import memory
-`import_feed_memory` of ADR 0030 is read by `import`. Each store keeps
-`raw_medium` only from a body that parsed.
+`import_feed_memory` of ADR 0030 is read by `import`. The `gossip` mode also
+reads its own memory, `gossip_feed_memory`, after the shared skip list. That
+memory applies only the medium rules. Each store keeps `raw_medium` only from a
+body that parsed.
 
 The false node answer is a medium-gate rejection. Both stores skip a feed with
 a medium-gate rejection with no time limit. Thus today:
