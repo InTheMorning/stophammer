@@ -38,7 +38,7 @@ disagree.
 | [0005](0005-pluggable-verifier-chain.md) | Pluggable verifier chain for feed ingest | Accepted |
 | [0006](0006-crawlers-as-untrusted-clients.md) | Crawlers are separate, untrusted HTTP clients | Accepted |
 | [0015](0015-verifier-plugin-architecture.md) | Verifier plugin architecture | Accepted |
-| [0017](0017-canonical-rss-parser-crate.md) | Canonical RSS parser crate | Accepted |
+| [0017](0017-canonical-rss-parser-crate.md) | Canonical RSS parser crate | Accepted. Amended on 2026-10-20: the crawler calls the parser as a library |
 | [0064](0064-a-live-item-is-an-rss-fact.md) | A live item is an RSS fact. The relay owns the real-time path, and the index gives the relay link. No poll, no recording. A client reads live items per feed and across feeds. Supersedes ADR 0021 | Accepted. §6 amended on 2026-10-01: `in_now_view` and `in_upcoming_view` on each row. §6 amended on 2026-10-17: `link` on each row |
 | [0030](0030-podcastindex-importer-durable-attempt-memory.md) | PodcastIndex importer durable attempt memory. A parse error, or a node `413` for a feed with no medium, waits 7 days in the shared skip list | Accepted |
 | [0031](0031-archive-backed-gossip-with-feed-memory.md) | Archive-backed gossip with durable feed memory | Accepted |

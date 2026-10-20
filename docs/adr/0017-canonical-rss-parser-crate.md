@@ -1,7 +1,8 @@
 # ADR 0017: Canonical RSS Parser Crate
 
 ## Status
-Accepted
+Accepted. Amended on 2026-10-20: the crawler calls the parser as a
+library, and the CLI stays for operators and tests.
 
 ## Context
 ADR 0011 chose `fast-xml-parser` in TypeScript for the primary RSS crawler.
@@ -29,8 +30,9 @@ require the same fix in three places.
 
 A standalone Rust library crate provides the canonical RSS/Podcast XML parser.
 The crate is **not a dependency of the stophammer binary** — it is a separate
-project that the TypeScript crawlers invoke via its CLI binary
-(`stophammer-parse`).
+project. `stophammer-crawler` calls it as a library,
+through a path dependency. The CLI binary `stophammer-parse` stays for
+operators and tests.
 
 ### Why Rust, not a shared TypeScript module
 
@@ -83,16 +85,9 @@ post-processing extractors gated on Phase 2 and Phase 3 respectively.
 ### CLI interface: `stophammer-parse`
 
 The binary reads XML from stdin and writes `IngestFeedData` JSON to stdout.
-TypeScript crawlers invoke it as a subprocess:
-
-```typescript
-const proc = Bun.spawn(["stophammer-parse"], { stdin: xmlBytes });
-const feedData = JSON.parse(await new Response(proc.stdout).text());
-```
+An operator uses it to examine one feed.
 
 Optional arguments:
-- `--fallback-guid <guid>` — for the importer, which has GUIDs from the
-  PodcastIndex database for feeds that lack `podcast:guid`
 - `--phases <p1,p2,...>` — restrict which phases to enable
 
 Exit codes: 0 success, 1 parse error (JSON error on stderr), 2 no input.
@@ -120,17 +115,10 @@ retaining the full RSS namespace surface.
 
 ## Consequences
 
-- **Single source of truth** — all three crawlers will share the same parsing
-  logic. A spec change requires updating one crate.
-- **Subprocess overhead** — each feed parse spawns a process (~2 ms on modern
-  hardware). Acceptable for podping (one feed at a time) and the primary
-  crawler (bounded concurrency pool). For the bulk importer's 356K feeds,
-  the overhead is amortised by the HTTP fetch latency that dominates each
-  iteration.
-- **Crawlers must ship the binary** — operators deploying crawlers need the
-  `stophammer-parse` binary on PATH. The release build is a ~1.5 MB static
-  binary (musl, LTO, stripped).
-- **ADR 0011 is not superseded** — the RSS crawler's runtime (Bun), scheduling
-  model, content hash strategy, and `POST /ingest/feed` protocol remain as
-  decided. Only the XML parsing step changes from inline TypeScript to a
-  subprocess call.
+- **Single source of truth** — each crawler mode shares the same parsing logic.
+  A spec change requires updating one crate.
+- **No subprocess** — the crawler calls the parser in its own process.
+  A parser change needs a new build of the crawler.
+- **ADR 0011 is archived** — ADR 0072, ADR 0073 and ADR 0074 supersede
+  its last sections in force. ADR 0073 §5 names the owner of each other
+  section.
