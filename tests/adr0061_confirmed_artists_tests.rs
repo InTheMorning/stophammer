@@ -1,7 +1,5 @@
 // ADR 0061: a publisher read counts its confirmed artists.
 //
-// docs/tasks/adr-0061-task-001-confirmed-artists.md
-//
 // A feed read of a publisher feed gives `confirmed_release_artists`,
 // `confirmed_release_artist_count`, `unconfirmed_release_artists` and
 // `unconfirmed_release_artist_count` (ADR 0061 §1). Each test below is one

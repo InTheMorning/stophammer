@@ -1,7 +1,5 @@
 // ADR 0064 task 003: the relay setting and the feed read.
 //
-// docs/tasks/adr-0064-task-003-node-feed-read.md
-//
 // `GET /v1/feeds/{guid}` gives `live_items`, one row for each stored live
 // event of the feed, sorted by `live_item_guid`. These tests exercise the
 // read side of `src/live.rs` through the ingest route and the feed route.

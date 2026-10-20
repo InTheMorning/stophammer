@@ -1,7 +1,5 @@
 // ADR 0059: an entry that names a feed gives its summary.
 //
-// docs/tasks/adr-0059-task-001-entry-summary-fields.md
-//
 // Each `publisher` and `remote_items` entry, on a feed read and on a track
 // read, gives `remote_feed_title`, `remote_feed_image_url`,
 // `remote_release_artist` and `remote_release_artist_source` of the feed

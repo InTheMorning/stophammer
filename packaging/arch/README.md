@@ -1,7 +1,7 @@
 ## Arch Packaging
 
 This directory contains the first distro-specific packaging target from
-[packaging/README.md](../packaging/README.md).
+[packaging/README.md](../README.md).
 
 Current shape:
 

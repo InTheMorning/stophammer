@@ -1,7 +1,5 @@
 // ADR 0069 §3a: each `publisher` row gives `album_names_rank`.
 //
-// docs/tasks/adr-0069-task-003-rank-and-track-count.md
-//
 // An album can name more than one publisher feed inside
 // `<podcast:publisher>`. The rank is the one-based place of the matching
 // item among the album's own publisher-link items, in `position` order.

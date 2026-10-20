@@ -1,7 +1,5 @@
 // ADR 0044 task 002: each documented response points at its schema.
 //
-// docs/tasks/adr-0044-task-002-responses-point-at-schemas.md
-//
 // The document is read in-process with `openapi::primary_document()`. A test
 // must not run `cargo` itself: a nested build waits on the build lock of the
 // outer `cargo test`.

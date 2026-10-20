@@ -1,7 +1,5 @@
 // ADR 0060: a list feed keeps its items.
 //
-// docs/tasks/adr-0060-task-002-node-list-items.md
-//
 // A `musicL` feed keeps the `itemGuid` and the `title` of each channel
 // `podcast:remoteItem`, and each entry gives the indexed track that it
 // names. The value block of the list is source data that no route gives.

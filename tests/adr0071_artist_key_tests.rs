@@ -1,7 +1,5 @@
 // ADR 0071 §4: the releases of a name row.
 //
-// docs/tasks/adr-0071-task-003-artist-key-filter.md
-//
 // `GET /v1/feeds/by-name?artist_key=<key>` gives the releases that the `name`
 // row with that `key` counts in `release_count`.
 

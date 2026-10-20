@@ -1,8 +1,8 @@
 // ADR 0049 task 006: the role fields on the `publisher` view.
 //
 // `publisher_rel` and `music_rel` carry the raw `rel` of the two items that
-// task 005 matched. `role` and `role_source` follow the table in
-// `docs/tasks/adr-0049-task-006-role-fields.md` "Constraints". The pure
+// task 005 matched. `role` and `role_source` follow the table of ADR 0049
+// section 6. The pure
 // function that derives them, and a unit test for each table row, live in
 // `src/query.rs` (`query::tests`).
 //

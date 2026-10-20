@@ -11,9 +11,9 @@ production probes or verify the production counts.
 
 The [Podcast Index evidence](feed-identity-podcastindex-evidence.md) provides
 external precedents with explicit evidence limits.
-The [remediation plan](../plans/feed-trust-remediation-plan.md) gives the
-tasks for the decisions in [ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
-[ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md).
+[ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
+[ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md) hold the
+decisions.
 
 This analysis examines protection of payment routes, source history, and
 publisher control during recovery from RSS errors. Recommendations below are proposals.
@@ -577,8 +577,8 @@ handlers, and security tests. Four local probes reproduced these results:
 
 The probe file was not kept in the repository, so the probes cannot run
 again as written. The Guards of ADR 0051 require tests for the first two
-conditions. The [remediation plan](../plans/feed-trust-remediation-plan.md)
-lists the other two as defects against ADR 0018.
+conditions. The other two were defects against ADR 0018, which ADR 0056
+removed.
 
 The first two results conflict with ADR 0006's authentication boundary when
 the configured chain permits them. Production exploitability depends on the

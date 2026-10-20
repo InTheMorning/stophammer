@@ -130,3 +130,41 @@ The lead examined these claims, and they are not correct:
 - Agent 5 examined the acceptance criteria of 15 task files, not of all 115.
 - Agent 6 did not examine audit finding F9 against the code. Its F9 statement
   is not used in this record.
+
+## Outcome Of The Cleanup
+
+The operator made the three decisions on 2026-10-20:
+
+- D1: a measurement that an ADR needs moves to the review record of that ADR.
+  Git keeps the other narration.
+- D2: a task file is deleted when its work is deployed.
+- D3: the vision files, the completed plans, the v1 security reports and the
+  checklists of complete ADRs are deleted.
+
+The line numbers in this record refer to the base commit. The cleanup did
+these items:
+
+- T1, T2 and T6: "Where The Work Stands" in `AGENTS.md` gives only the present
+  state. It has no host path and no host procedure.
+- T3 and T9: 16 completed plans are deleted, with `release-0.1.0-plan.md`.
+  The only measurement that an ADR needs is now in
+  `adr-0050-second-pass-measurement.md`, and ADR 0050 links to it. The case
+  table of ADR 0064 moved to `docs/reviews/adr-0064-live-item-cases.md`.
+- T4 and T13: the five vision files are deleted. The mandate now refers to a
+  phase plan in `docs/plans/`. `GEMINI.md` points at `AGENTS.md`.
+- T5: the status of ADR 0045 says that each point is implemented. ADR 0045
+  stays current, because no test enforces its invariants on `AGENTS.md`
+  content.
+- T7: `docs/security-guidelines.md` says that it is advisory and names its
+  owners. The proof section and the resolver section are removed.
+- T8: 104 task files are deleted. The 11 files of the work that is not
+  deployed stay. The test comments that named a deleted task now name the ADR
+  section.
+- T10, T11 and T12: the three v1 reports, 9 checklists and
+  `docs/importer-review-findings.md` are deleted.
+- T14, T15, T17, T18 and T19 are corrected.
+- T16 needs no change. `docs/operations.md` says that the two values are set
+  before the build.
+- T20 needs no change. ADR 0052, ADR 0056, ADR 0057 and ADR 0060 cite the two
+  research files, and `docs/API.md` and `docs/schema-reference.md` cite
+  `docs/schema/artist-source-evidence.md`.

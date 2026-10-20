@@ -19,7 +19,7 @@
 
 ## Executive Summary
 
-This is a follow-up audit to `auth-blackbox-report.md` (v1, 2026-03-12). Significant security improvements have been implemented since v1:
+This is a follow-up audit to the v1 report of 2026-03-12, which git holds. Significant security improvements have been implemented since v1:
 
 1. **CS-01 (RSS verification):** `handle_proofs_assert` now performs a three-phase flow that fetches the feed RSS and verifies `podcast:txt` before issuing tokens.
 2. **CS-02 (constant-time admin token):** Admin token comparison now uses SHA-256 + `subtle::ConstantTimeEq`, closing the v1 timing side-channel.

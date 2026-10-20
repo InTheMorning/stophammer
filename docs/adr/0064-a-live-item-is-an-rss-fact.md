@@ -82,7 +82,7 @@ The operator decided these points on 2026-09-26:
 - A `pending` row with no `end` leaves the view of coming items 1 hour after
   its `start`.
 
-[The case table](../plans/adr-0064-live-item-cases.md) lists each type of live
+[The case table](../reviews/adr-0064-live-item-cases.md) lists each type of live
 item and how the index serves it. [The security
 review](../reviews/adr-0064-live-items-security-review.md) gives the reason for
 each limit.
@@ -276,7 +276,7 @@ a fact.
 - A station on a feed with `medium` `podcast` stays outside the index. Item 10
   of the remaining work plan holds that question.
 - A crawl that starts at once after a podping can read an old copy of the feed
-  from a cache. Item 11 of the remaining work plan holds that question.
+  from a cache. Item 10 of the remaining work plan holds that question.
 - The relay plans a lease for "on air"
   (`splitkit/docs/plans/live-lease-heartbeat-proposal.md`). This ADR does not
   depend on it. When the lease is deployed, the operator adds the host of the

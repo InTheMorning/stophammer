@@ -133,13 +133,12 @@ named publisher feed. ADR 0049 section 5.
 
 ### I want to inspect or repair canonical data
 
-The Phase 1 resolver retirement removed the dedicated resolver, backfill, and
-review binaries. For now, inspect source-truth state through the main HTTP API
-and keep schema/canonical planning in the vision and ADR documents:
+ADR 0032 removed the resolver, backfill and review binaries. Examine the
+source state through the HTTP API:
 
 - [operations.md](operations.md)
-- [v4v-music-metadata-vision.md](vision/v4v-music-metadata-vision.md)
-- [0032-retire-resolver-and-review-runtime.md](adr/0032-retire-resolver-and-review-runtime.md)
+- [ADR 0032](adr/0032-retire-resolver-and-review-runtime.md)
+- [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
 
 ## The Data Model in One Page
 

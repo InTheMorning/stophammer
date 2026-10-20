@@ -6,340 +6,80 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Current priority - 2026-09-23: the MusicIndex API metadata contract.
-
-v4vmm reported four defects in the read API. Stophammer verified each one and
-found each one correct. The client document is
-[the change request](docs/plans/v4vmm-musicindex-api-change-request.md). The
-measurements are in
-[the verification record](docs/reviews/v4vmm-musicindex-api-change-request-verification.md).
-
-Complete and deployed:
-
-- [ADR 0042](docs/adr/0042-query-responses-name-the-field-owner.md). A response
-  that carries a track reports `track_image_url` and `feed_image_url` beside
-  the resolved `image_url`, and `image_url` means the same on every route. A
-  search result carries the values a client needs to show a row.
-- [ADR 0043](docs/adr/0043-feed-publication-date-records-its-source-element.md).
-  `lastBuildDate` no longer supplies a release date, and the API returns
-  `last_build_date` beside it. Migration 0034 adds the column, and
-  [ADR 0046](docs/adr/0046-migration-versions-are-array-positions.md) covers
-  the repair that applies it to a database the runner cannot advance.
-- [ADR 0047](docs/adr/0047-a-corrective-pass-reads-the-index.md). The `refresh`
-  mode reads the feed list of the node, then runs the crawl pipeline over it.
-  The pass has run. Task 002 corrected `GET /v1/feeds/recent`: a feed with a
-  null `newest_item_at` now sorts after each dated feed, at cursor `-1`.
-  Verified on production on 2026-09-24.
-- [ADR 0044](docs/adr/0044-api-contract-declares-its-fields.md), deployed on
-  2026-09-26. Each documented JSON response points at the schema of its type,
-  and a read route gives an envelope object from `envelope_schema` in
-  `src/openapi.rs`. `GET /sync/events` and `POST /sync/reconcile` keep a plain
-  object, because `Event` has no schema. The guards in
-  `tests/adr0044_schema_refs_tests.rs` and
-  `tests/adr0044_contract_guard_tests.rs` enforce the rules.
-- [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md), deployed on
-  2026-09-26. A `podcast:block` at the source URL retires the record, with the
-  reason `source_blocked`. `id="musicindex"` with `no` admits the feed. The
-  operator test with a feed on a host of the operator passed.
-- [ADR 0049](docs/adr/0049-publisher-relationships-are-rss-facts.md), tasks 001
-  to 013, with 004b, 006b and 010b. The publisher view reports each
-  relationship fact by an RSS fact, never by a host rule. `resolve_listed_feed`
-  also accepts the stored `feed_url`, so a new community node resolves a link
-  the same way the primary node does. `rel` is a role set. A comma or white space separates the roles.
-  `GET /v1/publisher-links/stats` gives the link counts.
-
-  The `feed` and `refresh` crawler modes follow a publisher link in three
-  waves. The `gossip` mode follows in two levels, with its own throttle.
-  Deployed on 2026-09-24. After the pass over the publisher feeds, the stats
-  route gave 8,249 listed links: 767 resolved by GUID, 7,316 by URL and 166
-  unresolved. The feeds that failed are listed in `/data/failed_feeds.txt` on
-  the VPS.
-- [ADR 0062](docs/adr/0062-a-podping-is-never-dropped.md), deployed on
-  2026-09-26. The `gossip` mode merges a podping inside the window of its URL,
-  and never drops it.
-- Release 0.1.0, on 2026-09-27. `v0.1.0` promotes the candidate
-  `v0.1.0-rc.3`, as [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md)
-  gives. The three repositories have the tag. The
-  [GitHub release](https://github.com/InTheMorning/stophammer/releases/tag/v0.1.0)
-  holds the assets of [ADR 0063](docs/adr/0063-a-release-publishes-role-packages.md),
-  and GHCR holds the images with the tags `0.1.0`, `0.1`, `0` and `latest`.
-- Release 0.2.0, on 2026-09-27. It promotes `v0.2.0-rc.1`. It holds
-  [ADR 0061](docs/adr/0061-a-publisher-read-counts-its-listed-artists.md):
-  a publisher feed read gives its confirmed and unconfirmed release artists.
-  It also holds ADR 0034 task 001: a node accepts a feed or track event with
-  no `artist_credit_id`. The primary runs the GHCR images of the release.
-- Release 0.3.0, on 2026-10-01. It promotes `v0.3.0-rc.2`, and it holds:
-  - ADR 0034 tasks 002 and 003, which drop the artist credit.
-  - ADR 0056 task 002, ADR 0067 tasks 001 and 002, and the amendment of ADR
-    0064 §6.
-  - A crawler fix of the `gossip` mode (ADR 0062). A crawl task held the feed
-    body through its podping window. Because of this, the gossip crawler
-    stopped from about 2026-09-29 03:00 UTC until the deploy.
-
-  The primary and the gossip crawler run the GHCR images of the release. The
-  primary sets `SOURCE_GONE_HOSTS=wavlake.com`.
-
-  No long replay of the archive has run on the fixed crawler yet. After the
-  next stop of the gossip crawler, check that its memory stays low during the
-  catch-up, and that `dmesg` shows no new kill.
-- Release 0.4.0, on 2026-10-02. It promotes `v0.4.0-rc.1`, and it holds:
-  - ADR 0059 task 002: an entry that names a track gives its title, duration
-    and image.
-  - [ADR 0068](docs/adr/0068-a-publisher-row-gives-its-link-facts.md) task
-    001: with `include=link_facts`, a publisher row of `GET /v1/feeds/recent`
-    gives its link facts.
-  - The amendment of ADR 0049 §6: a `rel` value with no comma is a list
-    separated by white space.
-  - The primary logs each accepted ingest at `info`, and an ignored gone
-    report at `debug`. The release actions run on Node 24.
-
-  The primary and the gossip crawler run the GHCR images of the release.
-- Release 0.4.1, on 2026-10-02. It promotes `v0.4.1-rc.2`. Migration 0048
-  adds two indexes for the route history read of a feed, musicindex.org
-  request 8. On the primary the read takes about as long as a plain feed read.
-  The candidate `v0.4.1-rc.1` was tagged on a commit without the migration.
-- Release 0.5.0, on 2026-10-02. It promotes `v0.5.0-rc.1`, and it holds:
-  - The node signs a source event only when a source fact changes, not when
-    only `observed_at` changes. In the backup of 2026-09-26, 176,771 of
-    370,604 events changed only `observed_at`.
-  - ADR 0058 §1c: a copy row gives `item_guids`, `item_titles` and
-    `image_url`, musicindex.org request 9. Migration 0049 adds the columns.
-    An `ndjson` replay of the cached copy bodies filled all 80 rows.
-  - ADR 0068 §4: the filters `stated_rel` and `two_way_links=none` on the
-    publisher list, musicindex.org request 10.
-  - ADR 0030: a parse error, or a node `413` for a feed with no medium, waits
-    7 days in the shared skip list. A node `429` sends the ingest again.
-  - The ADR 0046 error fires only for a database ahead of the code.
-- Release 0.6.0, on 2026-10-02. It promotes `v0.6.0-rc.1`, and it holds:
-  - ADR 0049 §6: `role` is null when no feed states a `rel`.
-  - [ADR 0069](docs/adr/0069-an-album-confirms-each-credit.md): each
-    publisher row gives `album_names_as`, and a publisher read gives
-    `co_credited_feeds`. An `ndjson` replay of the cached source bodies wrote
-    the `source` of each link: 7,901 links are `podcast_publisher`.
-  - ADR 0062 §8: the archive reconciliation reads BLOB payloads and moves the
-    cursor each minute. A refused connection to the node is sent again. A dead
-    reconciliation loop stops the crawler, and a lag over 15 minutes gives a
-    warning. A deploy stops `gossip` before `primary`.
-  - ADR 0050 §3: a `304` to a request with no conditional header is a fetch
-    error.
-
-  The primary and the gossip crawler run the GHCR images of 0.6.0. A cached
-  body replays with `export-feed-cache-ndjson.py` and the `ndjson` mode, with
-  no fetch: `--copies` for the copy rows, the default for the source URLs.
-- Release 0.7.0, on 2026-10-02. It promotes `v0.7.0-rc.1`, and it follows
-  the publisher link rules of podcast-namespace PR #793, musicindex.org
-  request 11, with
-  [task 014](docs/tasks/adr-0049-task-014-pr793-link-rules.md) of ADR 0049:
-  - ADR 0049 §6a: each `publisher` row gives `role_agreement`. A link whose
-    two sides state different role sets is not a confirmed link, and no count
-    uses it.
-  - ADR 0068 §5: `stated_rels` gives role tokens, a list row gives
-    `agreed_roles`, and `stated_rel=` matches one token.
-  - ADR 0069 §1a: only an album item in `<podcast:publisher>` is a
-    publisher link. `album_names_as` gives `publisher` or null.
-
-  Before the deploy, 194 album items had no publisher mark, because the node
-  had not read their albums since release 0.6.0. 190 are Wavlake albums, and
-  each one in a sample of five gave `404` at Wavlake. Their links stopped
-  counting. The primary and the gossip crawler run the GHCR images of 0.7.0.
-- Release 0.8.0, on 2026-10-08. It promotes `v0.8.0-rc.2`, and it holds:
-  - ADR 0058 §1d, with
-    [task 007](docs/tasks/adr-0058-task-007-copy-remote-items.md): each copy
-    row gives its channel-level entries with the resolved feeds, and
-    `differs_remote_items`, musicindex.org request 12. Migration 0050 adds the
-    column. An `ndjson` replay of the cached copy bodies filled the rows from
-    before the release.
-  - The answer to v4vmm request 5: a search gives each entity one time. The
-    search index kept a row with the bare track GUID of each track from before
-    the feed-scoped track identity. On the first open, the primary rebuilt the
-    index for 10,462 feeds in 29 seconds. The
-    [verification record](docs/reviews/v4vmm-request-5-search-duplicates-verification.md)
-    holds the checks.
-
-  The candidate `v0.8.0-rc.1` did not hold the search repair. The primary and
-  the gossip crawler run the GHCR images of the release.
-- Release 0.9.0, on 2026-10-18. It promotes `v0.9.0-rc.1`, and it holds:
-  - [ADR 0070](docs/adr/0070-a-name-list-gives-each-identity-one-row.md),
-    v4vmm request 6: `GET /v1/feeds/by-name` and `GET /v1/artist-names` give
-    rows in the order of one sort key. Migration 0051 stores the key of each
-    title. The artist list stays in memory (§4a).
-  - The amendment of ADR 0064 §6, musicindex.org request 14: each live row
-    gives `link`.
-  - ADR 0054 §4a, musicindex.org request 15: a link with no scheme that starts
-    with a host name reads as `https`, with a flag. musicindex.org request 16
-    is declined.
-  - A feed that empties its payment routes, its remote items or its track
-    remote items now signs an event. Before, a community node kept the old
-    rows.
-  - The `album_names_as` text of the contract gives `"publisher"` or null.
-
-  The primary and the gossip crawler run the GHCR images of the release. On
-  the primary, the first artist list after a start took about 7 seconds, and a
-  page from the copy takes less than 0.1 second. The time of a build after a
-  change is not measured yet. Measure it when the gossip crawler sends
-  changes.
-- Release 0.10.0, on 2026-10-18. It promotes `v0.10.0-rc.1`. It holds ADR
-  0058 §1e with
-  [task 008](docs/tasks/adr-0058-task-008-copy-item-facts.md), musicindex.org
-  request 13: each copy row gives `item_durations`, `item_enclosure_urls`,
-  `item_pub_dates` and `author`. Migration 0052 adds the columns. An `ndjson`
-  replay of the cached copy bodies filled all 81 rows. The primary and the
-  gossip crawler run the GHCR images of the release.
-- Release 0.11.0, on 2026-10-18. It promotes `v0.11.0-rc.1`, for v4vmm
-  request 7 with
-  [task 003](docs/tasks/adr-0069-task-003-rank-and-track-count.md) of ADR
-  0069. Each `publisher` row gives `album_names_rank` (ADR 0069 §3a), and each
-  `publisher` and `remote_items` entry gives `remote_episode_count` (ADR 0059
-  §1). `remote_release_kind` is declined, because each feed stores
-  `release_kind` `unknown`. On the primary, 6 albums name two publisher
-  feeds, and each gives Sir Libre Records rank 2. The primary and the gossip
-  crawler run the GHCR images of the release.
-- Release 0.12.0, on 2026-10-18. It promotes `v0.12.0-rc.1`, for v4vmm
-  request 8 with
-  [ADR 0071](docs/adr/0071-a-list-row-links-what-it-names.md) tasks 001 to
-  005:
-  - §1: a row gives the GUID beside each feed title, and the contract declares
-    each `include` of a route. Two guards in
-    `tests/adr0071_row_link_guard_tests.rs` enforce it.
-  - §2: with `include=link_facts`, a publisher row of `GET /v1/artist-names`
-    gives its link facts and `first_named_count`.
-  - §3: a release row gives `publisher_feed_guid`, and `include=named_feeds`.
-  - §4: `GET /v1/feeds/by-name` takes `artist_key`.
-  - §5: search takes `type=publisher`. At the first start, the primary added
-    1,774 publisher feeds to the search index in about 7 seconds.
-
-  The primary and the gossip crawler run the GHCR images of the release.
-- [ADR 0064](docs/adr/0064-a-live-item-is-an-rss-fact.md), complete on
-  2026-09-27. A live item is an RSS fact. `GET /v1/feeds/{guid}` gives
-  `live_items`, and `GET /v1/live-items` gives the views `now`, `upcoming` and
-  `all`. `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
-  The amendment of §6 on 2026-10-01 gives each row `in_now_view` and
-  `in_upcoming_view`. It is deployed in release 0.3.0.
-- [ADR 0048](docs/adr/0048-every-track-resolves-to-a-payment-route.md). The V4V
-  gate is track coverage. A feed needs a channel-level `podcast:value` block
-  only when a track declares none. Deployed on 2026-09-24.
-  [The evidence record](docs/reviews/adr-0048-track-value-coverage-evidence.md)
-  holds the measurement that led to it.
-
-The node at `api.musicindex.org` serves the OpenAPI document that commit
-`056199b` makes. `GET /node/info` gives the revision of the running node.
-
-The client requests of v4vmm and musicindex.org follow
-[the client requests work plan](docs/plans/client-requests-work-plan.md). Each
-item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
-
-- Item 5 is
-  [ADR 0059](docs/adr/0059-an-entry-that-names-a-feed-gives-its-summary.md).
-- Item 8 is [ADR 0060](docs/adr/0060-a-list-feed-keeps-its-items.md),
-  Accepted on 2026-09-26. The
-  [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
-  measurement after the deploy and the crawl of the 11 `musicL` feeds.
+Current priority - 2026-10-20: the release of ADR 0072, ADR 0073 and ADR 0074.
 
 The research request of 2026-10-20 follows
 [the compression, splits and GUID plan](docs/plans/compression-splits-guid-phase-plan.md).
 [ADR 0072](docs/adr/0072-a-feed-fetch-accepts-compression.md),
 [ADR 0073](docs/adr/0073-a-value-time-split-keeps-both-forms.md) and
-[ADR 0074](docs/adr/0074-a-feed-without-a-guid-is-invalid.md) are Accepted on
-2026-10-20. Each task of the three is complete and not deployed. The release
-notes must say that community nodes upgrade first (ADR 0073 §3). ADR 0074 §4
-waits for the count of the feeds whose source has no `podcast:guid`. ADR 0011
-is in the archive. ADR 0060 task 004 is complete and not deployed: each skip
-store of the crawler keeps a `musicL` feed.
+[ADR 0074](docs/adr/0074-a-feed-without-a-guid-is-invalid.md) are Accepted.
+Each of their tasks is complete and not deployed. The release notes must say
+that community nodes upgrade first (ADR 0073 §3).
 
-The work that remains follows
-[the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
-which gives the sequence of each open item of an Accepted ADR:
+### Deployed
 
-1. [ADR 0050](docs/adr/0050-the-crawler-revalidates-a-feed.md) is Accepted on
-   2026-09-24. Tasks 001 to 005 are complete and deployed. The crawler sends
-   a conditional GET and keeps the last body, so a corrective pass transfers
-   almost no feed body.
+Release 0.12.0 of 2026-10-18 is the latest release. The primary and the gossip
+crawler run its GHCR images. `GET /node/info` gives the revision of the running
+node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
+release promotes its candidate, and
+[ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md) gives the
+version number.
 
-   The [phase plan](docs/plans/adr-0050-feed-revalidation-phase-plan.md) gives
-   two passes of plan decision 10. Both passes have run. The second pass,
-   which ended on 2026-09-27, got `304` from almost each feed outside Wavlake,
-   and `200` from almost each Wavlake feed. Wavlake builds each feed body again
-   at least each 12 hours with a new `lastBuildDate`, so its `ETag` changes.
-   The pass got 2 `429` answers. The phase plan records the measurement.
+Each ADR in [the index](docs/adr/README.md) with the status Accepted is
+deployed, except the items below. The primary sets
+`SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 
-2. The feed trust work. ADR 0051 and ADR 0053 are Accepted and deployed.
-   ADR 0054 is Accepted and complete. Its tasks are deployed on 2026-09-25,
-   and the gossip check of task 004 found no music host on 2026-09-26.
-   [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
-   Proposed until a crawler or a nominator runs outside the host of the
-   primary, or a leak of `CRAWL_TOKEN` is suspected.
-   [ADR 0056](docs/adr/0056-the-public-proof-flow-is-offline.md) and
-   [ADR 0057](docs/adr/0057-a-feed-can-block-this-index.md) are Accepted.
-   The [remediation plan](docs/plans/feed-trust-remediation-plan.md) gives the
-   sequence.
+### Complete And Not Deployed
 
-   Deployed on 2026-09-25, in one deploy of the primary and the crawler:
+- ADR 0072, ADR 0073 and ADR 0074: each task in `docs/tasks/`.
+- ADR 0060 task 004: each skip store of the crawler keeps a `musicL` feed.
 
-   - ADR 0051 tasks 001 to 004. Only content from the stored source URL
-     changes a record, and the node checks the crawl token first.
-   - ADR 0053 tasks 001 to 007. A block is a signed row that each node
-     applies. A submission with an older `lastBuildDate` changes nothing.
-     `GET /v1/feeds/{guid}/route-history` shows each change of the payment
-     recipients.
-   - ADR 0052 task 001. A record moves to the self link that its source
-     declares.
-   - ADR 0056 task 001. The public proof flow is removed, and each write
-     route needs the admin token.
+### Open Items
 
-   The repair ran on 2026-09-25 from the fetch cache of the `refresh` pass
-   that started on 2026-09-24 at 23:52 UTC. The replay sent 10,202 source
-   bodies. The stale rule rejected 1,403 records, because a mirror had
-   written a newer `lastBuildDate` before ADR 0051. Their stored dates were
-   cleared, and their bodies were sent again. After the repair, 7,713
-   records have `declared_self_url`, and 1,516 records can move on their next
-   crawl.
+- ADR 0074 §4 waits for the count of the feeds whose source has no
+  `podcast:guid`.
+- [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
+  Proposed until a crawler or a nominator runs outside the host of the
+  primary, or a leak of `CRAWL_TOKEN` is suspected.
+- ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
+- ADR 0070 §4a: the time of a build of the artist list after a change is not
+  measured. Measure it when the gossip crawler sends changes.
+- ADR 0062: no long replay of the podping archive has run on the crawler of
+  release 0.3.0 or later. After the next stop of the gossip crawler, examine
+  its memory during the catch-up.
+- The open question of ADR 0050 stays open.
+  [The measurement record](docs/reviews/adr-0050-second-pass-measurement.md)
+  gives the reason.
+- Podcast-namespace PR #793 is open. ADR 0069 §1a follows it.
+  [The guide](docs/publisher-links-guide.md) tells a feed author how to write
+  the links.
+- [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
+  gives the other open items: the four pending GUID changes of ADR 0052, and
+  two research items.
+- A restart of the gossip crawler reads many cold pages of the podping archive
+  in its first seconds. This costs only disk reads, and no decision is open.
 
-   The work that remains:
+### Operating Facts
 
-   - [ADR 0058](docs/adr/0058-a-copy-of-a-feed-is-public.md), Accepted on
-     2026-09-25. The API shows each copy of a feed at a URL that is not its
-     source. The operator keeps the source or relocates the record. Tasks
-     001 to 004 are complete and deployed on 2026-09-25. The two copies of
-     Strange Love albums are resolved with `keep_source`. A relocation
-     through `PATCH /v1/feeds/{guid}` now needs a `reason`. Step 7 of task 005
-     passed on 2026-09-27: after the second `refresh` pass, 80 copy rows have
-     80 `feed_copy_observed` events, one for each copy. ADR 0058 is complete.
-     The [phase plan](docs/plans/adr-0058-feed-copies-phase-plan.md) records
-     the check.
-   - Wavlake does not send podpings for its feeds, and no service sends them
-     for Wavlake by automation. Any person can send one by hand. Thus a
-     Wavlake record moves to its self link mostly through a crawl of the music
-     URL form, or through the cache replay with
-     `export-feed-cache-ndjson.py --self-links`.
-   - [ADR 0052](docs/adr/0052-a-source-moves-its-own-feed.md), Accepted on
-     2026-09-25. Tasks 003 to 007 are complete and deployed on 2026-09-25,
-     the node and then the crawler. A record moves on its self link, on
-     `itunes:new-feed-url`, or on a chain of `301` and `308` redirects from its
-     source URL. The crawler sends each redirect hop. A GUID change at the
-     source URL is pending and public. It applies when the new GUID is the
-     UUIDv5 of the source URL, or after the operator approves it. After the
-     deploy, the four Doerfelverse releases of Elijah Lied are pending in
-     `GET /v1/guid-changes`. The publisher confirmed that their new GUIDs are
-     a tool error. The
-     [phase plan](docs/plans/adr-0052-moves-and-guid-changes-phase-plan.md)
-     gives the sequence.
-   - ADR 0056 task 002 is deployed in release 0.3.0. Migration
-     0046 dropped the two proof tables, which were empty, and changed the
-     trigger `trg_feeds_cleanup_before_delete`.
+- Wavlake sends no podping for its feeds. A Wavlake record moves to its self
+  link mostly through a crawl of the music URL form, or through the cache
+  replay with `export-feed-cache-ndjson.py --self-links` (ADR 0052).
+- A cached body replays with `export-feed-cache-ndjson.py` and the `ndjson`
+  mode, with no fetch. Use `--copies` for the copy rows, and the default for
+  the source URLs.
 
-3. Podcast-namespace PR #793 is open. It puts one `remoteItem` for each party
-   in `<podcast:publisher>`, and it adds `rel`. ADR 0069 §1a follows it,
-   and the bare-item credit is removed. [The guide](docs/publisher-links-guide.md)
-   tells a feed author how to write the links.
-4. The research items of the plan: a station on a feed with `medium`
-   `podcast`, and a read from a cache after a `live` podping.
+### Client Requests
 
-   One question is open: a restart of the gossip crawler reads about 2.4 GB
-   in its first 20 seconds, mostly cold pages of the podping archive. It only
-   costs disk reads.
+The requests of v4vmm and musicindex.org are in
+[the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
+[the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
+request has an answer. v4vmm requests 1 to 8 and musicindex.org requests 1 to
+15 are deployed. musicindex.org request 16 is declined.
+
+### Governance
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
-Accepted. Each superseded ADR is in `docs/adr/archive/`, and
+Accepted and complete. Each superseded ADR is in `docs/adr/archive/`, and
 `tests/adr0045_governance_guards_tests.rs` checks that the ADR files agree with
 [the index](docs/adr/README.md). The shared `project-baseline` skill and the
 two crate `AGENTS.md` files follow it.
@@ -591,8 +331,9 @@ the `reason`.
 
 ### Selected restriction lints (warn)
 
-- `allow_attributes_without_reason`, `clone_on_ref_ptr`,
-  `deref_by_slicing`, `empty_drop`, `empty_enum_variants_with_brackets`,
+- `allow_attributes_without_reason`, `as_pointer_underscore`,
+  `clone_on_ref_ptr`, `deref_by_slicing`, `disallowed_script_idents`,
+  `empty_drop`, `empty_enum_variants_with_brackets`,
   `empty_structs_with_brackets`, `fn_to_numeric_cast_any`,
   `if_then_some_else_none`, `map_err_ignore`,
   `redundant_type_annotations`, `renamed_function_params`,
@@ -710,7 +451,7 @@ These rules apply to every change, regardless of scope.
 - Treat `docs/adr/` as the decision record. If a change contradicts an
   ADR, write a new ADR first (or supersede the old one); do not smuggle
   reversals into unrelated commits.
-- When a `docs/vision/` plan file is in flight, follow its phasing.
+- When a phase plan in `docs/plans/` is in flight, follow its sequence.
 - No "black box" inference: behaviours not described in code, ADR, or
   plan must not appear silently in the implementation.
 
@@ -718,7 +459,7 @@ These rules apply to every change, regardless of scope.
 
 - **ADR-first for architecture.** New subsystems, protocol changes,
   storage-shape changes, or cross-crate boundaries require a short ADR
-  in `docs/adr/000N-<slug>.md` before the implementing PR.
+  in `docs/adr/NNNN-<slug>.md` before the implementing PR.
 - **Zero warnings.** `cargo clippy --all-targets -- -D warnings` and
   `cargo fmt -- --check` must be green on the branch tip.
 - **Surgical context.** Do not read whole files of 1k+ lines when a
@@ -784,9 +525,12 @@ ADR.
   `docs/adr/README.md` is the index of current decisions.
   `docs/adr/archive/` holds each superseded ADR, for research only.
 - `docs/plans/` — in-flight plans, and requests received from a client
-  repository.
-- `docs/reviews/` — verification records and design reviews.
-- `docs/vision/` — in-flight multi-phase plans.
+  repository. Delete a plan when its work is complete. First move each
+  measurement that an ADR needs to `docs/reviews/`.
+- `docs/tasks/` — task packets of work that is not deployed. Delete a packet
+  when its work is deployed. Git holds the packet, and the ADR and the tests
+  hold the result.
+- `docs/reviews/` — verification records, measurements and design reviews.
 - `docs/security/` — security policies and audit trails.
 - `docs/API.md`, `docs/operations.md`, `docs/user-guide.md`,
   `docs/verifier-guide.md`, `docs/schema-reference.md` — canonical

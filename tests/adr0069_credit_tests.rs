@@ -1,9 +1,5 @@
 // ADR 0069: an album confirms each publisher that it names.
 //
-// docs/tasks/adr-0069-task-001-link-provenance.md,
-// docs/tasks/adr-0069-task-002-co-credited-feeds.md and
-// docs/tasks/adr-0049-task-014-pr793-link-rules.md
-//
 // An album names each party with one `remoteItem` inside
 // `<podcast:publisher>`, as podcast-namespace PR #793 gives (ADR 0069 §1a).
 // Each `publisher` row gives `album_names_as`. A publisher read gives

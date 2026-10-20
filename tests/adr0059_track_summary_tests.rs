@@ -1,7 +1,5 @@
 // ADR 0059 §5: an entry that names a track gives its summary.
 //
-// docs/tasks/adr-0059-task-002-track-summary.md
-//
 // A `remote_items` entry with a `remote_track_guid` gives `remote_track_title`,
 // `remote_track_duration_secs` and `remote_track_image_url` of that track. Each
 // is null when the index holds no such track.

@@ -1,7 +1,5 @@
 // ADR 0071 §2: the link facts of an artist list row.
 //
-// docs/tasks/adr-0071-task-002-artist-list-link-facts.md
-//
 // With `include=link_facts`, each `publisher` row of `GET /v1/artist-names`
 // gives the four fields of ADR 0068 and `first_named_count`. The values are
 // the values of the list route of ADR 0068 for the same feed.

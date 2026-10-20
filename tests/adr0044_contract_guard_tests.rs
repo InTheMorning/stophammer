@@ -1,7 +1,5 @@
 // ADR 0044 task 003: each route of the router is in the document.
 //
-// docs/tasks/adr-0044-task-003-contract-guards.md
-//
 // axum gives no list of the routes of a `Router`, so this test reads the
 // router functions from the source. It takes the whole body of each function
 // by brace matching, and the path and the methods of each `.route(...)` call

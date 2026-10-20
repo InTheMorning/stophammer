@@ -1,7 +1,5 @@
 // ADR 0045 task 001: the ADR archive and the two governance guards.
 //
-// docs/tasks/adr-0045-task-001-archive-and-guards.md
-//
 // Guard 1 checks that `AGENTS.md` is tracked by git. A decision and the
 // prose that restates it must move in the same commit, and a file outside
 // version control cannot move with a commit.

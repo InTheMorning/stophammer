@@ -1,9 +1,9 @@
 # ADR 0045: Governance Model And Cross-Repository Contract Ownership
 
 ## Status
-Accepted on 2026-09-27. Points 1 to 5, 7 and 8 are implemented. Point 6, the
-archive, and the two guards of "Guards" are open work in item 14 of the
-remaining accepted work plan.
+Accepted on 2026-09-27. Each point is implemented. `docs/adr/archive/` holds
+each superseded ADR, and `tests/adr0045_governance_guards_tests.rs` holds the
+two guards of "Guards".
 
 ## Date
 2026-09-22

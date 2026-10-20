@@ -1,7 +1,5 @@
 // ADR 0049 task 014: the link rules of podcast-namespace PR #793.
 //
-// docs/tasks/adr-0049-task-014-pr793-link-rules.md
-//
 // ADR 0049 §6a: each `publisher` row gives `role_agreement`, and a link whose
 // two sides state different role sets is not a confirmed link. ADR 0068 §5:
 // the list facts are role tokens, with `agreed_roles`. ADR 0069 §1a: only an

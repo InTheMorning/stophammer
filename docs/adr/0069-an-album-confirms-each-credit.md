@@ -107,7 +107,8 @@ read gives the value of the matching item of the album.
 
 ### 1a. Only an item inside `<podcast:publisher>` is a link
 
-Amended on 2026-10-02, musicindex.org request 11. Podcast-namespace PR #793
+Amended on 2026-10-02, musicindex.org request 11. ADR 0068 §5 changed for
+the same request. Podcast-namespace PR #793
 puts one `remoteItem` for each party inside `<podcast:publisher>`, and an app
 ignores `rel` on an item that is not in a publisher link. So the credit of
 section 1 has no place in the namespace, and no tool writes it. It is removed.

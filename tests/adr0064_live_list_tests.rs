@@ -1,7 +1,5 @@
 // ADR 0064 task 003b: the list of live items.
 //
-// docs/tasks/adr-0064-task-003b-node-list-route.md
-//
 // `GET /v1/live-items` gives the live-event rows of every public feed, with
 // `feed_guid`, in the `view` of ADR 0064 section 6. These tests cover the
 // three views, the raw filters of `view=all`, the `400` cases, paging, and a
@@ -238,7 +236,7 @@ async fn default_view_gives_the_now_rows_only() {
 
 // ---------------------------------------------------------------------------
 // Each row of the case table is in the view the table gives, and not the
-// others (docs/plans/adr-0064-live-item-cases.md).
+// others (docs/reviews/adr-0064-live-item-cases.md).
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

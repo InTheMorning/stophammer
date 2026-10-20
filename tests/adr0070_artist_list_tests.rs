@@ -1,7 +1,5 @@
 // ADR 0070 task 002: the artist list.
 //
-// docs/tasks/adr-0070-task-002-artist-list.md
-//
 // Checks:
 // - `GET /v1/artist-names` gives one `publisher` row for each publisher feed,
 //   even one that no music feed names.

@@ -1,7 +1,5 @@
 // ADR 0054 section 4a, task 005: a link with no scheme reads as `https`.
 //
-// docs/tasks/adr-0054-task-005-host-name-link.md
-//
 // A `website` or `web_page` link row whose stored value names a host name
 // with no scheme reads as `https://` and the value, and the row gives
 // `url_scheme_added`. Each other link row keeps the plain ADR 0054 section 4

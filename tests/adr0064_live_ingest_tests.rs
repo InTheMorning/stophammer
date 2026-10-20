@@ -1,7 +1,5 @@
 // ADR 0064: a live item is an RSS fact.
 //
-// docs/tasks/adr-0064-task-002b-node-ingest-rules.md
-//
 // The ingest keeps a pending, live and ended row alike, applies the ADR 0064
 // section 4 ban and the two row caps, and makes no track, payment route or
 // value time split from a live item. These tests exercise `src/live.rs`

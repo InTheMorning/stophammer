@@ -1,7 +1,5 @@
 // ADR 0058 task 007: a copy row gives its feed list (section 1d).
 //
-// docs/tasks/adr-0058-task-007-copy-remote-items.md
-//
 // A copy keeps its channel-level `remoteItem` entries. The node compares them
 // with the entries of the record by the feed that each one resolves to, so a
 // host that writes its own ID as `feedGuid` does not make a difference

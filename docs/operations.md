@@ -711,34 +711,23 @@ fetch: ok=N not_modified=N rate_limited=N other=N
 `ok` counts `200`, `not_modified` counts `304`, `rate_limited` counts `429`,
 and `other` counts each remaining result, including a failed connection.
 
-Plan decision 10 of the
-[phase plan](plans/adr-0050-feed-revalidation-phase-plan.md) needs two passes
-after the deploy, on the VPS, in the compose directory:
-
-```bash
-docker compose run -d --name <name> stophammer-crawler --force refresh \
-  --concurrency 3 --host-delay-ms 3000
-```
-
-The first pass fills the cache, and its `fetch:` line shows mostly `ok`. Run
-the second pass some hours later. Its `fetch:` line shows mostly
-`not_modified`. Read each pass with this command:
+Read the summary line of a pass that runs in a container with this command:
 
 ```bash
 docker logs <name> 2>&1 | grep '^fetch:'
 ```
 
-A `rate_limited` count near zero in the second pass answers the ADR 0050 open
-question. A `304` then does not count against the Wavlake `429` limit.
+The open question of ADR 0050 is not answered.
+[The measurement record](reviews/adr-0050-second-pass-measurement.md) gives
+the reason.
 
 ### Retired binaries
 
-Resolver, backfill, and review binaries were retired in Phase 1 of the v4v
-music metadata refactor. Use the current source-first API and the vision/ADR
-documents instead:
+ADR 0032 removed the resolver, backfill and review binaries. Use the
+source-first API:
 
-- [v4v-music-metadata-vision.md](vision/v4v-music-metadata-vision.md)
-- [0032-retire-resolver-and-review-runtime.md](adr/0032-retire-resolver-and-review-runtime.md)
+- [ADR 0032](adr/0032-retire-resolver-and-review-runtime.md)
+- [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
 
 ---
 

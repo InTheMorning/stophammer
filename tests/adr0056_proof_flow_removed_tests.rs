@@ -1,9 +1,7 @@
 //! ADR 0056 task 001: the public proof flow is gone.
 //!
-//! These tests are the acceptance criteria of
-//! `docs/tasks/adr-0056-task-001-remove-proof-flow.md`, through the router.
-//! Task 002 (`docs/tasks/adr-0056-task-002-drop-proof-tables.md`) later
-//! dropped `proof_challenges` and `proof_tokens`. The two static checks below
+//! These tests check the removal through the router. Task 002 dropped
+//! `proof_challenges` and `proof_tokens`. The two static checks below
 //! that name these tables reflect that later state.
 
 mod common;

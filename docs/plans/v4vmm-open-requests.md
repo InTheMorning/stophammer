@@ -185,7 +185,6 @@ The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at commit `64052ea`.
-The work plan in `docs/plans/client-requests-work-plan.md` of the Stophammer repository gives the sequence of the work.
 These answers are advisory. The ADR that each answer names is the owner of the rule. The Stophammer operator approved the recommended work on 2026-09-25.
 
 | # | Answer | Work plan item |

@@ -1,7 +1,5 @@
 // ADR 0064: a live item is an RSS fact.
 //
-// docs/tasks/adr-0064-task-002-node-storage.md
-//
 // The node stores the relay link of a live item: `live_value_uri` and
 // `live_value_protocol`. It replicates them in `LiveEventsReplaced`, and it
 // emits that event only when the deduplicated, sorted set of live rows

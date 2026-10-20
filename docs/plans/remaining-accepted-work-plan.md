@@ -23,9 +23,6 @@ are complete.
 Items 9 and 10 at any time. Each needs a measurement and a decision before
 code. Item 8 needs no action by the index.
 
-Releases 0.5.0 and 0.6.0 of 2026-10-02 hold the items of this plan that were
-built.
-
 ## Item 8: The Pending GUID Changes
 
 On 2026-09-25 the four Doerfelverse releases of Elijah Lied became pending in

@@ -1,18 +1,21 @@
 # Security Guidelines
 
-This document captures cross-cutting security and identity-resolution rules
-that should stay stable even as implementation details change.
+This document is advisory. It states no binding rule. It gives security
+guidance that applies to more than one part of the code. These ADRs own the
+rules:
 
-It complements, but does not replace:
+- [ADR 0006](adr/0006-crawlers-as-untrusted-clients.md) for the crawler trust
+  boundary
+- [ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) for the
+  source URL of a record
+- [ADR 0054](adr/0054-a-fetch-reaches-only-public-feed-hosts.md) for the fetch
+  rule
+- [ADR 0056](adr/0056-the-public-proof-flow-is-offline.md) for the write routes
+- [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
+  for the source-first v1 schema
 
-- [ADR 0006](adr/0006-crawlers-as-untrusted-clients.md) for crawler trust
-  boundaries
-- [ADR 0018](adr/archive/0018-proof-of-possession-mutations.md) for
-  proof-of-possession design
-- [operations.md](operations.md) for deployment and operator requirements
-- [schema-reference.md](schema-reference.md) for the current schema, and
-  [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
-  for source-first v1 schema boundaries
+[operations.md](operations.md) gives the deployment and operator requirements,
+and [schema-reference.md](schema-reference.md) gives the current schema.
 
 ## Primary Rule
 
@@ -91,47 +94,6 @@ Rules:
 - do not imply that all derived fields are ingest-synchronous unless they
   really are
 - document when a derived field may be stale between refresh passes
-
-## Identity Resolution
-
-Identity problems should be solved in passes, with the earliest passes making
-only the safest assertions.
-
-Rules:
-
-- normalize observed facts before classifying entities
-- keep exact technical identity separate from higher-level human grouping
-- prefer exact endpoint identity as the conservative anchor
-- allow grouping, classification, and artist linkage to remain provisional;
-  use explicit confidence states (`provisional`, `high_confidence`, `reviewed`,
-  `blocked`) so downstream passes can distinguish settled truth from hypothesis
-- weak heuristics must not become identity keys
-
-Examples of weak heuristics:
-
-- display names alone
-- split percentages alone
-- platform-style labels without supporting context
-
-Examples of stronger signals:
-
-- explicit `fee=true`
-- exact same-feed or same-track evidence
-- operator review and override
-
-## Proof-of-Possession
-
-The implemented proof level must always be documented honestly.
-
-Rules:
-
-- if only RSS proof is implemented, document the assurance gap explicitly
-- machine-readable proof levels should match reality
-- future audio proof must use a binary-safe bounded fetch path with an
-  explicit maximum byte limit to prevent resource exhaustion on the primary
-- audio proof should use format-aware parsing for ID3/FLAC metadata
-- fixed-size raw byte scanning is only a fallback heuristic, not the primary
-  proof mechanism
 
 ## Documentation Discipline
 

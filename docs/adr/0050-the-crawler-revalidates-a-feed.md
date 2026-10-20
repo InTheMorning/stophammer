@@ -151,3 +151,9 @@ fetch for `max-age`, because a podping says that the feed changed.
 ## Open Question
 Does a `304` count against the `429` limit of Wavlake? Decision 6 measures it
 during the first pass that runs with this change.
+
+The second pass of 2026-09-27 could not answer it. Wavlake builds each feed
+body again in 12 hours or less, so its `ETag` changes and almost each
+Wavlake fetch gets `200`.
+[The measurement record](../reviews/adr-0050-second-pass-measurement.md)
+gives the report.

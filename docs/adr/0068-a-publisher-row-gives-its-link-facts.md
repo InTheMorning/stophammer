@@ -102,7 +102,8 @@ publisher rows with the facts took 801 ms of node time.
 
 ### 5. The link facts are role tokens
 
-Amended on 2026-10-02, musicindex.org request 11. A `rel` value is a set of
+Amended on 2026-10-02, musicindex.org request 11. ADR 0069 §1a changed for
+the same request. A `rel` value is a set of
 role tokens (ADR 0049 §6, podcast-namespace PR #793). A feed that states
 `rel="artist host author label producer"` has five roles. A raw value cannot
 be filtered by one of them.

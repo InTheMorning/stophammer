@@ -1,7 +1,5 @@
 // ADR 0064 task 003b: the confirming relay, across both reads.
 //
-// docs/tasks/adr-0064-task-003b-node-list-route.md
-//
 // `live::set_confirming_relay_hosts` takes effect only on its first call
 // (it is a `OnceLock`), so every test that needs a non-empty host list must
 // share one binary and set the list exactly once, before the first read or

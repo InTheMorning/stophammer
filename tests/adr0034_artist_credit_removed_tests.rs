@@ -1,9 +1,7 @@
 //! ADR 0034 §11, task 003: the ingest stops the credit, and the tables go.
 //!
-//! This is the mechanical acceptance suite named by
-//! `docs/tasks/adr-0034-task-003-stop-the-credit.md`. It proves three of the
-//! task's acceptance criteria that `tests/migration_tests.rs` does not
-//! already cover:
+//! It proves three rules of ADR 0034 §11 that `tests/migration_tests.rs`
+//! does not already cover:
 //!
 //! - An ingest of a feed with two tracks emits no `artist_upserted` and no
 //!   `artist_credit_created` event.

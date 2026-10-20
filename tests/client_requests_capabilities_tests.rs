@@ -1,7 +1,5 @@
 // Client requests task 001: capabilities and limits.
 //
-// docs/tasks/client-requests-task-001-capabilities-and-limits.md
-//
 // Three checks:
 // - `GET /v1/node/capabilities` lists the includes each route accepts, and
 //   each listed include gives its key in the route response (v4vmm

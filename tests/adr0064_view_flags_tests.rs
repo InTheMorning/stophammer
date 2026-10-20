@@ -1,7 +1,5 @@
 // ADR 0064 task 005: the view flags on each row.
 //
-// docs/tasks/adr-0064-task-005-view-flags-on-each-row.md
-//
 // Each live row gives `in_now_view` and `in_upcoming_view`, in
 // `GET /v1/live-items` and in `live_items` of `GET /v1/feeds/{guid}`. Each
 // one is true exactly when the view of the same name gives the row at the
@@ -175,7 +173,7 @@ fn flag_rows(page: &stophammer::query::LiveItemsPage) -> HashMap<String, (bool, 
 // Through the list function with a fixed `now`, each row of the case table
 // of `tests/adr0064_live_list_tests.rs` gives `in_now_view` and
 // `in_upcoming_view` that agree with `view=now` and `view=upcoming`
-// membership (docs/plans/adr-0064-live-item-cases.md).
+// membership (docs/reviews/adr-0064-live-item-cases.md).
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

@@ -1,7 +1,5 @@
 // ADR 0068: a publisher row gives its link facts.
 //
-// docs/tasks/adr-0068-task-001-link-facts.md
-//
 // With `include=link_facts`, each publisher row of `GET /v1/feeds/recent`
 // gives `two_way_link_count`, `stated_rels` and `confirmed_release_artists`.
 // Each value is the value that a full read of the same feed gives.

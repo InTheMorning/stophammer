@@ -1,7 +1,5 @@
 // ADR 0071 §5: search finds a publisher feed on request.
 //
-// docs/tasks/adr-0071-task-005-publisher-search.md
-//
 // `GET /v1/search?type=publisher` gives the feeds with the medium
 // `publisher` whose text matches `q`, in the row shape of a feed result,
 // with `entity_type` `publisher`. `type=feed`, `type=track` and a search

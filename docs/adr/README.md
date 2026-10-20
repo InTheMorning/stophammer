@@ -52,6 +52,8 @@ disagree.
 | [0072](0072-a-feed-fetch-accepts-compression.md) | A feed fetch accepts `gzip` and `br`, and sends `Accept`. The snapshot download does not ask for compression. The hash is over the decoded body. A stored `ETag` with `-gzip` or `-br` is sent with its base tag, and a batch pass counts wasted `200` answers. Amends ADR 0050 §2 and §6 | Accepted |
 | [0073](0073-a-value-time-split-keeps-both-forms.md) | A value time split keeps the remote form and the local form of the specification, with the stated values. The `v1` response adds fields and removes none. Supersedes the `remotePercentage` skip of ADR 0011 | Accepted |
 | [0074](0074-a-feed-without-a-guid-is-invalid.md) | A feed body is valid only with a `podcast:guid`. The parser has no fallback GUID, and `import` and `ndjson` send none. Such a body is a crawler parse error with its medium, and the skip rules stay (§3b). The handling of a record with no source GUID waits for a count (§4). Supersedes the GUID section of ADR 0011 | Accepted |
+| [0060](0060-a-list-feed-keeps-its-items.md) | A `musicL` feed keeps `itemGuid`, `title` and its value block. Each entry gives its indexed track. The crawler follows a list, at most 1,000 URLs. Amends ADR 0049 §2 and ADR 0054 §3 | Accepted |
+| [0062](0062-a-podping-is-never-dropped.md) | The gossip mode merges a podping inside the window of its URL, and never drops it. The window is 30 seconds, and doubles to at most 1 hour for a URL whose crawl changes nothing. `live` and `liveEnd` are not delayed. A refused connection to the node is sent again, and a dead cursor loop stops the crawler (§8) | Accepted |
 
 ## HTTP API And Contract
 
@@ -62,6 +64,7 @@ disagree.
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
+| [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image, the artist and the track count of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
 | [0068](0068-a-publisher-row-gives-its-link-facts.md) | A publisher row of `GET /v1/feeds/recent` gives `two_way_link_count`, `stated_rels`, `agreed_roles` and `confirmed_release_artists`, as role tokens over confirmed links (§5). Opt-in with `include=link_facts`. The filters `stated_rel` and `two_way_links=none` keep only matching rows (§4). ADR 0071 adds the facts to the two name lists | Accepted |
 | [0069](0069-an-album-confirms-each-credit.md) | An album names one or more publishers inside `<podcast:publisher>`, and only a two-way link is confirmed. Each publisher row gives `album_names_as` and `album_names_rank` (§3a), and a publisher read gives `co_credited_feeds`. The bare-item credit is removed (§1a) | Accepted |
@@ -81,9 +84,6 @@ disagree.
 | [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
 | [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits. A non-web URL field is kept raw and not served. A link that starts with a host name and has no scheme reads as `https`, with a flag (§4a) | Accepted |
-| [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image, the artist and the track count of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
-| [0060](0060-a-list-feed-keeps-its-items.md) | A `musicL` feed keeps `itemGuid`, `title` and its value block. Each entry gives its indexed track. The crawler follows a list, at most 1,000 URLs. Amends ADR 0049 §2 and ADR 0054 §3 | Accepted |
-| [0062](0062-a-podping-is-never-dropped.md) | The gossip mode merges a podping inside the window of its URL, and never drops it. The window is 30 seconds, and doubles to at most 1 hour for a URL whose crawl changes nothing. `live` and `liveEnd` are not delayed. A refused connection to the node is sent again, and a dead cursor loop stops the crawler (§8) | Accepted |
 | [0058](0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID. A copy row gives its item titles and image (§1c), its feed list compared by the resolved feeds (§1d), and the duration, enclosure URL and date of each item and the channel author (§1e) | Accepted |
 | [0057](0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Accepted |
 | [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host | Accepted |
@@ -124,11 +124,10 @@ rule.
 
 ## Status Needs A Check
 
-On 2026-09-27 the operator decided ADR 0032, ADR 0033 and ADR 0034. No
-recorded status disagrees with the code now.
+No recorded status disagrees with the code now.
 
-Three files also use a different status format. ADR 0035, ADR 0039 and ADR 0040
-give `- Status:` in a list, and the rest use a `## Status` heading.
+Two files use a different status format. ADR 0039 and ADR 0040 give
+`- Status:` in a list, and the rest use a `## Status` heading.
 
 ## ADR Workflow
 

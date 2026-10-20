@@ -1,7 +1,5 @@
 // Client requests task 003: node info revision.
 //
-// docs/tasks/client-requests-task-003-node-info-revision.md
-//
 // GET /node/info gives git_revision and built_at fields.
 
 mod common;

@@ -38,8 +38,6 @@ This wiki is the map of the project, not a replacement for the detailed docs.
   [docs/adr](../adr)
 - security and identity-resolution guidelines:
   [security-guidelines.md](../security-guidelines.md)
-- current source-first refactor notes:
-  [v4v-music-metadata-vision.md](../vision/v4v-music-metadata-vision.md)
 - source-first schema decision:
   [0034-adopt-rebuild-first-source-first-v1-music-schema.md](../adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)
 

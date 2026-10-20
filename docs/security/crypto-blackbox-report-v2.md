@@ -16,7 +16,7 @@
 - `src/main.rs` -- tracing audit
 - `Cargo.toml` -- dependency versions
 
-**Previous report:** `crypto-blackbox-report.md` (v1, 2026-03-12)
+**Previous report:** v1 of 2026-03-12, which git holds
 
 ---
 

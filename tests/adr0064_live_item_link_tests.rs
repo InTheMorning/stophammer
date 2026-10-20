@@ -1,7 +1,5 @@
 // ADR 0064 task 006: each live row gives its link.
 //
-// docs/tasks/adr-0064-task-006-live-item-link.md
-//
 // `GET /v1/feeds/{guid}` gives `live_items`, and `GET /v1/live-items` gives
 // the rows of every public feed. Each row now also gives `link` and
 // `link_scheme_added`, from the stored RSS `<link>` of the live item (ADR

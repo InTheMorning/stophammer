@@ -1,7 +1,5 @@
 // ADR 0070 task 001: the sort key and the release list.
 //
-// docs/tasks/adr-0070-task-001-sort-key-and-release-list.md
-//
 // Checks:
 // - `model::sort_key` trims the white space at the start and at the end,
 //   collapses an internal run of white space, and lowercases by the

@@ -3,8 +3,7 @@
 //!
 //! Feed A has GUID `GA` at URL `UA`. Feed B has GUID `GB` at URL `UB`. Every
 //! test seeds both feeds, then classifies a submission that names neither
-//! GUID's row directly, following the table in
-//! `docs/tasks/adr-0051-task-002-classify-submission.md`.
+//! GUID's row directly, following the table of ADR 0051 section 2.
 
 mod common;
 

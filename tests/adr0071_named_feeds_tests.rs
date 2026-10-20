@@ -1,7 +1,5 @@
 // ADR 0071 §3: the named feeds of a release row.
 //
-// docs/tasks/adr-0071-task-004-named-feeds.md
-//
 // With `include=named_feeds`, each music row of `GET /v1/feeds/recent` and
 // `GET /v1/feeds/by-name` gives one entry for each feed that the release
 // names inside `<podcast:publisher>`, in rank order.

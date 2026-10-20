@@ -1,8 +1,6 @@
 // ADR 0071 task 001: the guards of rules 1a and 1c, and the feed GUID of a
 // release row.
 //
-// docs/tasks/adr-0071-task-001-row-link-guards.md
-//
 // Rule 1a reads the schemas of the OpenAPI document. Rule 1c reads the
 // document and the source of `src/query.rs`: axum gives no list of the
 // query parameters that a handler reads, so the test finds each `.includes(`
