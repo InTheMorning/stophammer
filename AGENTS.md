@@ -33,6 +33,9 @@ deployed, except the items below. The primary sets
 
 - ADR 0072, ADR 0073 and ADR 0074: each task in `docs/tasks/`.
 - ADR 0060 task 004: each skip store of the crawler keeps a `musicL` feed.
+- [ADR 0075](docs/adr/0075-the-primary-is-the-only-peer-bootstrap.md): a
+  community node registers only with the primary. The release notes must say
+  that `TRACKER_URL` is removed.
 
 ### Open Items
 
@@ -357,7 +360,7 @@ Authoritative list comes from `src/lib.rs`. Keep both in sync.
 | `api`          | Axum router, handlers, shared `AppState`             |
 | `apply`        | Idempotent application of signed events to the DB    |
 | `blocks`       | Durable feed blocks: environment seed (ADR 0053)     |
-| `community`    | Community-node sync, push-receive, tracker register  |
+| `community`    | Community-node sync, push-receive, primary register  |
 | `db`           | SQLite schema init, core queries, pragmas            |
 | `db_pool`      | WAL connection pool (1 writer, N readers)            |
 | `event`        | Signed event envelope and serialisation              |
