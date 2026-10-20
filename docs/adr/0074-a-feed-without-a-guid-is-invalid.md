@@ -116,9 +116,9 @@ After the change, each mode records this:
 
 | Body | Recorded outcome | Skip |
 |---|---|---|
-| No `podcast:guid`, medium not `music`, `publisher` or `musicL` | Parse error, with `raw_medium` | No time limit: known non-music medium |
-| No `podcast:guid`, no medium | Parse error, with no `raw_medium` | No time limit: no medium |
-| No `podcast:guid`, medium `music`, `publisher` or `musicL` | Parse error, with `raw_medium` | 7 days, as each parse error (ADR 0030) |
+| No `podcast:guid` or no `<title>`, medium not `music`, `publisher` or `musicL` | Parse error, with `raw_medium` | No time limit: known non-music medium |
+| No `podcast:guid` or no `<title>`, no medium | Parse error, with no `raw_medium` | No time limit: no medium |
+| No `podcast:guid` or no `<title>`, medium `music`, `publisher` or `musicL` | Parse error, with `raw_medium` | 7 days, as each parse error (ADR 0030) |
 | A `podcast:guid` | As today | As today |
 
 A feed that adds its GUID is fetched again after at most 7 days. The skip of
@@ -157,6 +157,12 @@ of the source, and it changes when the feed moves.
 - Each mode accepts the same feed bodies.
 - The `import` mode no longer adds a feed whose source has no `podcast:guid`.
 - Each GUID in a new record is a fact of the source.
+
+## Invariants
+
+- No mode sends feed data with a GUID that the source body does not state.
+- A body that does not parse sends no ingest.
+- Each store records the `raw_medium` of a body with a `<channel>`.
 
 ## Guards
 

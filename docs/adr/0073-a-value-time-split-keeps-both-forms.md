@@ -65,6 +65,8 @@ The parser reads a `podcast:valueTimeSplit` in a `podcast:value` of an item.
   seconds. The parser keeps a fractional value.
 - The parser drops a split with no readable `startTime`, or with no child of
   the two forms.
+- The parser drops a split with children of the two forms, or with two or more
+  `podcast:remoteItem` children. The specification permits neither.
 - The parser drops a split with a `remotePercentage` that is not a number. The
   default of 100 applies only when the source has no attribute.
 - The parser ignores a `split` attribute on the element.
@@ -180,6 +182,13 @@ fails on a null or a fraction. The additive form of §4 breaks no client.
 - Community nodes upgrade before the primary.
 - A crawl of the Satellite Skirmish feed after the deploy writes three
   remote-form rows.
+
+## Invariants
+
+- The index stores the values that the source states. A default or a limit
+  applies only in the response.
+- No `v1` field of `value_time_splits` changes its name or its type.
+- A node applies each event that a node signed before this decision.
 
 ## Guards
 

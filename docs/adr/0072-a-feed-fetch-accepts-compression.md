@@ -99,7 +99,7 @@ This amends ADR 0050 §6.
 A wasted `200` is a `200` answer to a conditional request, with a body whose
 hash is the same as the cached hash. At the end of a batch pass, the crawler
 reports the number of wasted `200` answers for each host. The `gossip` mode
-logs each wasted `200` at `debug`, with the host.
+prints one line for each wasted `200`, with the host.
 
 A host with many wasted `200` answers sends a validator that does not match.
 This shows such a host also when its suffix is not in §5.
@@ -145,6 +145,13 @@ host, and test it again when the host changes.
   same feed.
 - The first fetch after the deploy sends the plain `ETag` from the cache.
   The verification found that both Apache hosts answer `304` to it.
+
+## Invariants
+
+- A compressed and a plain transfer of the same feed give the same content hash.
+- The fetch cache keeps each `ETag` as the server sent it.
+- The 16 MiB limit applies to the decoded bytes.
+- The snapshot download sends no `Accept-Encoding`.
 
 ## Guards
 
