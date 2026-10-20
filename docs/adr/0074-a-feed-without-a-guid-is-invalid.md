@@ -1,8 +1,8 @@
 # ADR 0074: A Feed Without A GUID Is Invalid
 
 ## Status
-Proposed on 2026-10-20. The operator decided the rule of §1 on 2026-10-20. §4
-waits for the count of the affected feeds. It supersedes the section
+Accepted on 2026-10-20. Tasks 001 to 003 give the build of §1 to §3. §4 waits
+for the count of the affected feeds. It supersedes the section
 "`podcast:guid` absent → empty string" of ADR 0011.
 
 ## Date

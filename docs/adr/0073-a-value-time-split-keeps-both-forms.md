@@ -1,7 +1,8 @@
 # ADR 0073: A Value Time Split Keeps Both Forms
 
 ## Status
-Proposed on 2026-10-20, for the research request on value time splits. It
+Accepted on 2026-10-20, for the research request on value time splits. Tasks
+001 to 003 give the build. It
 supersedes the section "`podcast:valueTimeSplit` with `remotePercentage`" of
 ADR 0011.
 

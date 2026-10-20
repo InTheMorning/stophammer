@@ -1,7 +1,8 @@
 # ADR 0072: A Feed Fetch Accepts Compression
 
 ## Status
-Proposed on 2026-10-20, for the research request on crawler compression. It
+Accepted on 2026-10-20, for the research request on crawler compression. Tasks
+001 to 003 give the build. It
 amends ADR 0050 §2 and §6. It supersedes the section "Content hash strategy"
 of ADR 0011.
 

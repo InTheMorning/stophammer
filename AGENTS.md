@@ -235,6 +235,15 @@ item except item 7 is complete and deployed on 2026-09-26. Item 7 is decided.
   [phase plan](docs/plans/adr-0060-list-feeds-phase-plan.md) holds the
   measurement after the deploy and the crawl of the 11 `musicL` feeds.
 
+The research request of 2026-10-20 follows
+[the compression, splits and GUID plan](docs/plans/compression-splits-guid-phase-plan.md).
+[ADR 0072](docs/adr/0072-a-feed-fetch-accepts-compression.md),
+[ADR 0073](docs/adr/0073-a-value-time-split-keeps-both-forms.md) and
+[ADR 0074](docs/adr/0074-a-feed-without-a-guid-is-invalid.md) are Accepted on
+2026-10-20. Their tasks are in progress. ADR 0074 §4 waits for the count of the
+feeds whose source has no `podcast:guid`. When the three are complete, ADR 0011
+moves to the archive.
+
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),
 which gives the sequence of each open item of an Accepted ADR:
