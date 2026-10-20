@@ -1,7 +1,10 @@
 # ADR 0011: RSS Crawler Implementation
 
 ## Status
-Accepted
+Superseded on 2026-10-20. [ADR 0072](../0072-a-feed-fetch-accepts-compression.md),
+[ADR 0073](../0073-a-value-time-split-keeps-both-forms.md) and
+[ADR 0074](../0074-a-feed-without-a-guid-is-invalid.md) supersede its last three
+sections in force. ADR 0073 §5 names the owner of each other section.
 
 ## Context
 ADR 0006 established that crawlers are separate HTTP clients that submit to

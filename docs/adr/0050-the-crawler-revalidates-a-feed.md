@@ -2,7 +2,9 @@
 
 ## Status
 Accepted. Amended on 2026-10-02: §3, a `304` to a request with no conditional
-header is a fetch error.
+header is a fetch error. Amended on 2026-10-20 by ADR 0072: §2, a stored `ETag`
+with a compression suffix is sent with its base tag (ADR 0072 §5), and §6, the
+report counts a wasted `200` (ADR 0072 §6).
 
 ## Date
 2026-09-24

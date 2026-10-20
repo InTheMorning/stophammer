@@ -240,9 +240,11 @@ The research request of 2026-10-20 follows
 [ADR 0072](docs/adr/0072-a-feed-fetch-accepts-compression.md),
 [ADR 0073](docs/adr/0073-a-value-time-split-keeps-both-forms.md) and
 [ADR 0074](docs/adr/0074-a-feed-without-a-guid-is-invalid.md) are Accepted on
-2026-10-20. Their tasks are in progress. ADR 0074 §4 waits for the count of the
-feeds whose source has no `podcast:guid`. When the three are complete, ADR 0011
-moves to the archive.
+2026-10-20. Each task of the three is complete and not deployed. The release
+notes must say that community nodes upgrade first (ADR 0073 §3). ADR 0074 §4
+waits for the count of the feeds whose source has no `podcast:guid`. ADR 0011
+is in the archive. ADR 0060 task 004 is complete and not deployed: each skip
+store of the crawler keeps a `musicL` feed.
 
 The work that remains follows
 [the remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md),

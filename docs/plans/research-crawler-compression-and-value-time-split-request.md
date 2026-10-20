@@ -68,7 +68,7 @@ Some large feeds come from hosts that do not compress.
 An example is a 466,654-byte feed from `stream.wiirdo.com`.
 
 **The hash stays stable.**
-[ADR 0011](../adr/0011-rss-crawler.md) computes the content hash over the response body, and the node uses that hash to find unchanged feeds.
+[ADR 0011](../adr/archive/0011-rss-crawler.md) computes the content hash over the response body, and the node uses that hash to find unchanged feeds.
 This research fetched 114 feeds on all 55 compressing hosts three times: plain, compressed and decoded, then plain again.
 Each plain body stayed the same between the two plain requests.
 The decoded body had the same SHA-256 as the plain body in 114 of 114 feeds.

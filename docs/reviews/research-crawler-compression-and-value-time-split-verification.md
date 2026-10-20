@@ -30,7 +30,7 @@ The checks ran on 2026-10-20. They used these sources:
 | 1d | The fix passes `clippy` and `fmt` | Correct |
 | 1e | The `Accept` header of the fix does not apply to the `gossip` mode | Correct |
 | 1f | Compression causes no incorrect change of the content hash | Correct for the hash. The request did not examine revalidation. See [Compression Stops Some Revalidation](#compression-stops-some-revalidation). |
-| 2a | The parser drops each split with `remotePercentage` | Correct. [ADR 0011](../adr/0011-rss-crawler.md) decides this skip. The request does not cite it. |
+| 2a | The parser drops each split with `remotePercentage` | Correct. [ADR 0011](../adr/archive/0011-rss-crawler.md) decides this skip. The request does not cite it. |
 | 2b | The specification has no `split` attribute on `valueTimeSplit`, and the default share is 100 | Correct |
 | 2c | The parser drops a split with `valueRecipient` children | Correct |
 | 2d | The parser drops a fractional `startTime` | Correct. The specification gives "seconds" and does not limit the value to an integer. |
