@@ -1097,9 +1097,6 @@ pub fn get_payment_routes_for_feed_track(
     rows.collect::<Result<_, _>>().map_err(DbError::from)
 }
 
-// ── get_value_time_splits_for_track ──────────────────────────────────────────
-// Issue-12 PATCH emits events — 2026-03-13
-
 /// The columns of a `value_time_splits` read, in the order of
 /// [`value_time_split_from_row`] (ADR 0073 §2).
 const VALUE_TIME_SPLIT_COLUMNS: &str = "id, source_feed_guid, source_track_guid, position, form, \
@@ -1220,27 +1217,6 @@ fn insert_value_time_split(
         )?;
     }
     Ok(())
-}
-
-/// Returns all value-time splits for `source_track_guid`, in `position`
-/// order, each with its recipients (ADR 0073 §2).
-///
-/// # Errors
-///
-/// Returns [`DbError`] if the SQL query fails.
-pub fn get_value_time_splits_for_track(
-    conn: &Connection,
-    track_guid: &str,
-) -> Result<Vec<ValueTimeSplit>, DbError> {
-    let mut stmt = conn.prepare(&format!(
-        "SELECT {VALUE_TIME_SPLIT_COLUMNS} FROM value_time_splits \
-         WHERE source_track_guid = ?1 ORDER BY position, id"
-    ))?;
-    let mut splits: Vec<ValueTimeSplit> = stmt
-        .query_map(params![track_guid], value_time_split_from_row)?
-        .collect::<Result<_, _>>()?;
-    attach_value_time_split_recipients(conn, &mut splits)?;
-    Ok(splits)
 }
 
 /// Returns the value-time splits of one feed-scoped track, in `position`
@@ -1623,34 +1599,6 @@ pub fn replace_feed_list_value_raw(
                 v.position,
             ],
         )?;
-    }
-    Ok(())
-}
-
-// ── replace_value_time_splits ─────────────────────────────────────────────────
-
-/// Deletes all value-time splits for `source_track_guid`, with their
-/// recipients, and inserts `splits` (ADR 0073 §2).
-///
-/// # Errors
-///
-/// Returns [`DbError`] if any SQL delete or insert fails.
-pub fn replace_value_time_splits(
-    conn: &Connection,
-    source_track_guid: &str,
-    splits: &[ValueTimeSplit],
-) -> Result<(), DbError> {
-    conn.execute(
-        "DELETE FROM value_time_split_recipients WHERE split_id IN \
-         (SELECT id FROM value_time_splits WHERE source_track_guid = ?1)",
-        params![source_track_guid],
-    )?;
-    conn.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
-        params![source_track_guid],
-    )?;
-    for s in splits {
-        insert_value_time_split(conn, None, source_track_guid, s)?;
     }
     Ok(())
 }
