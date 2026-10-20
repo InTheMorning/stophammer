@@ -4,10 +4,10 @@
 //! read-only API with a push-receive endpoint.
 //!
 //! On startup the community node:
-//! 1. Registers itself with the Cloudflare tracker (fire-and-forget).
-//! 2. Registers its push URL with the primary (`POST /sync/register`).
-//! 3. Restores its `last_seq` cursor from the local DB.
-//! 4. Runs a poll-loop fallback: polls the primary only when no push has
+//! 1. Registers its push URL with the primary (`POST /sync/register`). The
+//!    primary is the only peer bootstrap (ADR 0075).
+//! 2. Restores its `last_seq` cursor from the local DB.
+//! 3. Runs a poll-loop fallback: polls the primary only when no push has
 //!    been received for `push_timeout_secs` (default 90s).
 //!
 //! The push handler (`POST /sync/push`) is served on the same port and
@@ -23,7 +23,6 @@ use axum::{
     http::StatusCode,
     routing::post,
 };
-use serde::Serialize;
 
 use crate::{apply, db, db_pool, signing, sync};
 
@@ -61,8 +60,6 @@ const MAX_DRAIN_PAGES: u32 = 100;
 pub struct CommunityConfig {
     /// Base URL of the primary node, e.g. `"http://primary.example.com:8008"`.
     pub primary_url: String,
-    /// Base URL of the tracker, e.g. `"https://stophammer-tracker.workers.dev"`.
-    pub tracker_url: String,
     /// This node's public address, e.g. `"http://mynode.example.com:8008"`.
     pub node_address: String,
     /// Seconds between poll-loop iterations. Default: 300.
@@ -89,14 +86,6 @@ pub struct CommunityState {
     /// Issue-SSE-PUBLISH — 2026-03-14: SSE registry shared with the readonly
     /// router so that events applied via push are published to SSE clients.
     pub sse_registry: Option<Arc<crate::api::SseRegistry>>,
-}
-
-// ── Tracker registration body ────────────────────────────────────────────────
-
-#[derive(Serialize)]
-struct RegisterBody<'a> {
-    pubkey: &'a str,
-    address: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -141,8 +130,8 @@ impl SyncAuth {
 /// Spawn the background sync task. Returns immediately; the task runs until
 /// the process exits.
 ///
-/// `pubkey_hex` is the hex-encoded ed25519 pubkey of this node's key, used
-/// in tracker and primary registration.
+/// `signer` holds the ed25519 key of this node, used in the primary
+/// registration.
 ///
 #[allow(
     clippy::too_many_lines,
@@ -155,7 +144,6 @@ pub async fn run_community_sync(
     last_push_at: Arc<AtomicI64>,
     sse_registry: Option<Arc<crate::api::SseRegistry>>,
 ) {
-    let pubkey_hex = signer.pubkey_hex().to_string();
     let sync_auth = SyncAuth::from_env();
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
@@ -168,16 +156,7 @@ pub async fn run_community_sync(
         }
     };
 
-    // 1. Fire-and-forget tracker registration.
-    register_with_tracker(
-        &client,
-        &config.tracker_url,
-        &pubkey_hex,
-        &config.node_address,
-    )
-    .await;
-
-    // 2. Register push endpoint with the primary.
+    // 1. Register push endpoint with the primary.
     register_with_primary(
         &client,
         &config.primary_url,
@@ -187,7 +166,7 @@ pub async fn run_community_sync(
     )
     .await;
 
-    // 3. Load persisted cursor.
+    // 2. Load persisted cursor.
     // Mutex safety compliant — 2026-03-12
     // Issue-CURSOR-IDENTITY — 2026-03-14
     // Issue-WAL-POOL — 2026-03-14: use reader for cursor lookups
@@ -205,7 +184,7 @@ pub async fn run_community_sync(
     let mut last_seq = initial_seq;
     tracing::info!(primary = %config.primary_url, cursor = last_seq, "community: sync started");
 
-    // 4. Poll-loop fallback with catch-up drain.
+    // 3. Poll-loop fallback with catch-up drain.
     //
     // Issue-CATCHUP-DRAIN — 2026-03-15: the inner drain loop fetches all
     // available pages before sleeping, so a node thousands of events behind
@@ -386,36 +365,6 @@ pub async fn fetch_primary_pubkey(
     }
     tracing::warn!(url = %url, "community: could not fetch primary pubkey; using configured value");
     None
-}
-
-// ── register_with_tracker ────────────────────────────────────────────────────
-
-async fn register_with_tracker(
-    client: &reqwest::Client,
-    tracker_url: &str,
-    pubkey_hex: &str,
-    node_address: &str,
-) {
-    let url = format!("{tracker_url}/nodes/register");
-    let body = RegisterBody {
-        pubkey: pubkey_hex,
-        address: node_address,
-    };
-
-    match client.post(&url).json(&body).send().await {
-        Ok(resp) if resp.status().is_success() => {
-            tracing::info!(tracker = %tracker_url, "community: registered with tracker");
-        }
-        Ok(resp) => {
-            tracing::warn!(
-                tracker = %tracker_url, status = %resp.status(),
-                "community: tracker registration returned non-success; ignored"
-            );
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "community: tracker registration failed (ignoring)");
-        }
-    }
 }
 
 // ── register_with_primary ────────────────────────────────────────────────────

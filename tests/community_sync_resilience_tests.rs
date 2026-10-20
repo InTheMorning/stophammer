@@ -39,7 +39,6 @@ async fn test_community_poll_handles_empty_response() {
 
     let config = stophammer::community::CommunityConfig {
         primary_url: mock_server.uri(),
-        tracker_url: mock_server.uri(),
         node_address: "http://localhost:9999".into(),
         poll_interval_secs: 1,
         push_timeout_secs: 0, // immediately trigger poll
@@ -50,12 +49,7 @@ async fn test_community_poll_handles_empty_response() {
     let lp = Arc::clone(&last_push_at);
     let signer = Arc::new(common::temp_signer("tc03-community-sync"));
 
-    // Also mount tracker and primary register mocks so they don't fail the test.
-    Mock::given(method("POST"))
-        .and(path("/nodes/register"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&mock_server)
-        .await;
+    // Also mount the primary register mock so it does not fail the test.
     Mock::given(method("POST"))
         .and(path("/sync/register"))
         .respond_with(ResponseTemplate::new(200))
@@ -102,12 +96,7 @@ async fn test_community_poll_handles_503_gracefully() {
         .mount(&mock_server)
         .await;
 
-    // Mount tracker and register mocks.
-    Mock::given(method("POST"))
-        .and(path("/nodes/register"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&mock_server)
-        .await;
+    // Mount the register mock.
     Mock::given(method("POST"))
         .and(path("/sync/register"))
         .respond_with(ResponseTemplate::new(200))
@@ -120,7 +109,6 @@ async fn test_community_poll_handles_503_gracefully() {
 
     let config = stophammer::community::CommunityConfig {
         primary_url: mock_server.uri(),
-        tracker_url: mock_server.uri(),
         node_address: "http://localhost:9999".into(),
         poll_interval_secs: 1,
         push_timeout_secs: 0,

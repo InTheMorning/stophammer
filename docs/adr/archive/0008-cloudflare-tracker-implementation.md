@@ -1,7 +1,8 @@
 # ADR 0008: Cloudflare Workers Tracker — Implementation Decisions
 
 ## Status
-Accepted (supersedes ADR-0007)
+Superseded by [ADR 0075](../0075-the-primary-is-the-only-peer-bootstrap.md) on
+2026-10-20. Read this record for history only.
 
 ## Context
 ADR-0007 proposed using Cloudflare Workers with Durable Objects as a tracker and bootstrap layer for stophammer node discovery. This ADR records the concrete implementation decisions made when that layer was built.

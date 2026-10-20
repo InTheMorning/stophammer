@@ -135,12 +135,7 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
         .mount(&mock_server)
         .await;
 
-    // Mount tracker and register stubs.
-    Mock::given(method("POST"))
-        .and(path("/nodes/register"))
-        .respond_with(ResponseTemplate::new(200))
-        .mount(&mock_server)
-        .await;
+    // Mount the register stub.
     Mock::given(method("POST"))
         .and(path("/sync/register"))
         .respond_with(ResponseTemplate::new(200))
@@ -153,7 +148,6 @@ async fn drain_loop_fetches_all_pages_before_sleeping() {
 
     let config = stophammer::community::CommunityConfig {
         primary_url: mock_server.uri(),
-        tracker_url: mock_server.uri(),
         node_address: "http://localhost:9999".into(),
         poll_interval_secs: 300, // long sleep — if drain works we finish in <1s
         push_timeout_secs: 0,    // immediately trigger poll

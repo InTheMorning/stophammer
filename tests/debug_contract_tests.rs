@@ -201,7 +201,6 @@ fn chain_spec_has_debug() {
 fn community_config_has_debug() {
     let config = stophammer::community::CommunityConfig {
         primary_url: "http://localhost:8008".into(),
-        tracker_url: "http://localhost:9009".into(),
         node_address: "http://localhost:7007".into(),
         poll_interval_secs: 300,
         push_timeout_secs: 90,

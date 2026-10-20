@@ -1,7 +1,10 @@
 # ADR 0009: Community Node Mode
 
 ## Status
-Accepted; sequence-signing consequence superseded by [ADR 0036](0036-sign-event-sequence-numbers.md)
+Accepted; sequence-signing consequence superseded by [ADR 0036](0036-sign-event-sequence-numbers.md).
+The tracker registration (context item 3, `tracker_url` and sync loop step 1)
+is superseded by [ADR 0075](0075-the-primary-is-the-only-peer-bootstrap.md) on
+2026-10-20.
 
 Historical note: The authenticated sync-read requirement described by current
 runtime behavior was decided later in ADR 0027. References below to open

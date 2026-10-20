@@ -39,7 +39,6 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 |----------|---------|----------|-------------|
 | `PRIMARY_URL` | -- | **Yes** (community) | Base URL of the primary node (e.g. `https://primary.example.com:8008`). |
 | `PRIMARY_PUBKEY` | auto-discovered | No | Hex-encoded ed25519 pubkey of the primary. If omitted, fetched from `GET {PRIMARY_URL}/node/info` at startup with up to 10 retries. |
-| `TRACKER_URL` | `https://stophammer-tracker.workers.dev` | No | Cloudflare tracker URL for initial bootstrap registration. |
 | `NODE_ADDRESS` | -- | **Yes** (community) | Publicly reachable URL of this node (e.g. `https://my-node.example.com:8008`). The primary pushes events to `{NODE_ADDRESS}/sync/push`. |
 | `POLL_INTERVAL_SECS` | `300` | No | Seconds between fallback poll-loop iterations. |
 | `PUSH_TIMEOUT_SECS` | `90` | No | Seconds of push silence before the fallback poll fires. |
@@ -335,14 +334,13 @@ The community node:
 ### Startup Sequence (Community)
 
 1. Fetch primary's pubkey from `GET {PRIMARY_URL}/node/info` (retries 10x with 2s delay)
-2. Register with the Cloudflare tracker (fire-and-forget)
-3. Register push URL with the primary via `POST {PRIMARY_URL}/sync/register`
+2. Register push URL with the primary via `POST {PRIMARY_URL}/sync/register`
    and sign the registration payload with the community node key. The primary
    requires the submitted URL to end with `/sync/push`, checks that `signed_at`
    is fresh, and verifies same-origin `GET {NODE_ADDRESS}/node/info` returns
    the same `node_pubkey`.
-4. Load persisted sync cursor from local DB
-5. Enter the push-receive + fallback-poll loop
+3. Load persisted sync cursor from local DB
+4. Enter the push-receive + fallback-poll loop
 
 If `PRIMARY_URL` uses plain HTTP, auto-discovery is rejected unless you either
 set `PRIMARY_PUBKEY` explicitly or set `ALLOW_INSECURE_PUBKEY_DISCOVERY=true`

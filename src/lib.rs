@@ -12,7 +12,7 @@
 //! |---|---|
 //! | [`api`] | Axum HTTP router, handlers, and shared application state |
 //! | [`apply`] | Idempotent application of signed events to the local database |
-//! | [`community`] | Community (replica) node sync, push-receive, and tracker registration |
+//! | [`community`] | Community (replica) node sync, push-receive, and primary registration |
 //! | [`db`] | `SQLite` schema, queries, and connection helpers |
 //! | [`event`] | Signed event envelope and serialisation |
 //! | [`fetch_guard`] | SSRF guard: URL validation and DNS-pinned fetches |

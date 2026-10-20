@@ -111,6 +111,7 @@ rule.
 | ADR | Scope | Superseded by |
 |---|---|---|
 | [0007](archive/0007-cloudflare-tracker-bootstrap.md) | Cloudflare Workers as tracker and bootstrap layer | ADR 0008 |
+| [0008](archive/0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation | ADR 0075 |
 | [0012](archive/0012-podping-listener.md) | Podping listener for real-time music feed discovery | The gossip mode in `stophammer-crawler` |
 | [0013](archive/0013-bulk-importer.md) | PodcastIndex bulk importer | ADR 0030 |
 | [0014](archive/0014-artist-resolution-aliases.md) | Artist resolution, alias table, merge operation, admin endpoints | ADR 0032 and ADR 0034 |

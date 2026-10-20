@@ -55,7 +55,6 @@ services:
       BIND:                             0.0.0.0:8008
       PRIMARY_URL:                      http://primary:8008
       NODE_ADDRESS:                     http://community1:8008
-      TRACKER_URL:                      http://primary:8008
       ALLOW_INSECURE_PUBKEY_DISCOVERY:  "true"
       POLL_INTERVAL_SECS:               5
       PUSH_TIMEOUT_SECS:                10
@@ -88,7 +87,6 @@ services:
       BIND:                             0.0.0.0:8008
       PRIMARY_URL:                      http://primary:8008
       NODE_ADDRESS:                     http://community2:8008
-      TRACKER_URL:                      http://primary:8008
       ALLOW_INSECURE_PUBKEY_DISCOVERY:  "true"
       POLL_INTERVAL_SECS:               5
       PUSH_TIMEOUT_SECS:                10

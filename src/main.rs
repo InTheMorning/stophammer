@@ -193,8 +193,6 @@ async fn run_community(
             "PRIMARY_URL env var required in community mode: {err}"
         ))
     })?;
-    let tracker_url = std::env::var("TRACKER_URL")
-        .unwrap_or_else(|_| "https://stophammer-tracker.workers.dev".into());
     let node_address = std::env::var("NODE_ADDRESS").map_err(|err| {
         startup_error(format!(
             "NODE_ADDRESS env var required in community mode: {err}"
@@ -253,7 +251,6 @@ async fn run_community(
 
     let config = community::CommunityConfig {
         primary_url,
-        tracker_url,
         node_address,
         poll_interval_secs,
         push_timeout_secs,

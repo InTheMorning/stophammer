@@ -21,10 +21,9 @@ async fn fetch_primary_pubkey_returns_none_when_unreachable() {
     );
 }
 
-// The main.rs code should call .expect() on the None, producing a panic with:
-//   "FATAL: cannot determine primary node public key. Set PRIMARY_PUBKEY env var
-//    with the hex pubkey of the primary node, or ensure the primary is reachable
-//    at TRACKER_URL."
+// main.rs turns the None into a startup error:
+//   "cannot determine primary node public key. set PRIMARY_PUBKEY or ensure
+//    the primary is reachable at {primary_url}"
 //
 // This is a startup guard and cannot be tested without spawning a child process.
 // The implementation is verified by code review.

@@ -1,7 +1,10 @@
 # ADR 0016: Push-Based Gossip and Tracker Elimination
 
 ## Status
-Accepted
+Accepted. The sections "Cloudflare tracker demoted to optional bootstrap" and
+"Long-term" are superseded by
+[ADR 0075](0075-the-primary-is-the-only-peer-bootstrap.md) on 2026-10-20: the
+primary is the only peer bootstrap.
 
 Historical note: Authenticated access to `GET /sync/events` and `GET /sync/peers`
 was decided later in ADR 0027. The bootstrap language below reflects the
