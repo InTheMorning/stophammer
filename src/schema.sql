@@ -130,21 +130,43 @@ CREATE TABLE IF NOT EXISTS feed_list_value_raw (
 
 CREATE INDEX IF NOT EXISTS idx_feed_list_value_guid ON feed_list_value_raw(feed_guid);
 
+-- A value time split in the remote form or the local form, with the stated
+-- values (ADR 0073 §2, migration 0053).
 CREATE TABLE IF NOT EXISTS value_time_splits (
-    id                  INTEGER PRIMARY KEY,
-    source_feed_guid    TEXT,
-    source_track_guid   TEXT NOT NULL,
-    start_time_secs     INTEGER NOT NULL,
-    duration_secs       INTEGER,
-    remote_feed_guid    TEXT NOT NULL,
-    remote_item_guid    TEXT NOT NULL,
-    split               INTEGER NOT NULL CHECK(split >= 0),
-    created_at          INTEGER NOT NULL,
+    id                     INTEGER PRIMARY KEY,
+    source_feed_guid       TEXT,
+    source_track_guid      TEXT NOT NULL,
+    position               INTEGER NOT NULL DEFAULT 0,
+    form                   TEXT NOT NULL CHECK(form IN ('remote','local')),
+    start_time_secs        REAL NOT NULL,
+    duration_secs          REAL,
+    remote_feed_guid       TEXT,
+    remote_item_guid       TEXT,
+    remote_start_time_secs REAL,
+    remote_percentage      REAL,
+    created_at             INTEGER NOT NULL,
+    CHECK(form = 'local' OR remote_feed_guid IS NOT NULL),
     FOREIGN KEY (source_feed_guid, source_track_guid) REFERENCES tracks(feed_guid, track_guid)
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_vts_source ON value_time_splits(source_feed_guid, source_track_guid);
 CREATE INDEX IF NOT EXISTS idx_vts_track_guid_only ON value_time_splits(source_track_guid);
+
+-- The recipients of a local split, in source order (ADR 0073 §2).
+CREATE TABLE IF NOT EXISTS value_time_split_recipients (
+    id              INTEGER PRIMARY KEY,
+    split_id        INTEGER NOT NULL REFERENCES value_time_splits(id) ON DELETE CASCADE,
+    position        INTEGER NOT NULL,
+    recipient_name  TEXT,
+    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    address         TEXT NOT NULL,
+    custom_key      TEXT NOT NULL DEFAULT '',
+    custom_value    TEXT NOT NULL DEFAULT '',
+    split           INTEGER NOT NULL CHECK(split >= 0),
+    fee             INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+CREATE INDEX IF NOT EXISTS idx_vts_recipients_split ON value_time_split_recipients(split_id);
 
 CREATE TABLE IF NOT EXISTS feed_remote_items_raw (
     id               INTEGER PRIMARY KEY,

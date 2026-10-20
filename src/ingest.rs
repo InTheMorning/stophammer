@@ -7,7 +7,7 @@
 //! crawl token that gates access. [`IngestResponse`] reports whether the
 //! submission was accepted, any verifier warnings, and the IDs of events emitted.
 
-use crate::model::RouteType;
+use crate::model::{RouteType, ValueTimeSplitForm};
 use serde::{Deserialize, Serialize};
 use utoipa::{PartialSchema, ToSchema};
 
@@ -308,15 +308,31 @@ pub struct IngestPaymentRoute {
 
 /// Ingest-time value-time-split entry before a DB row ID is assigned.
 ///
-/// Maps 1-to-1 onto [`model::ValueTimeSplit`]; `id` and `source_track_guid`
-/// are filled in by the ingest handler from the enclosing track context.
+/// Maps onto [`model::ValueTimeSplit`]; `id`, `source_track_guid` and
+/// `position` are filled in by the ingest handler from the enclosing track
+/// context. The fields carry the stated values of ADR 0073 §2. An old
+/// crawler sends no `form`, an integer `start_time_secs` and a `split`. Such
+/// a split is in the remote form, and serde ignores `split`.
 #[derive(Debug, Deserialize)]
 pub struct IngestValueTimeSplit {
-    pub start_time_secs: i64,
-    pub duration_secs: Option<i64>,
-    pub remote_feed_guid: String,
-    pub remote_item_guid: String,
-    pub split: i64,
+    /// The form of the split. The default is `remote` (ADR 0073 §2).
+    #[serde(default)]
+    pub form: ValueTimeSplitForm,
+    pub start_time_secs: f64,
+    pub duration_secs: Option<f64>,
+    #[serde(default)]
+    pub remote_feed_guid: Option<String>,
+    #[serde(default)]
+    pub remote_item_guid: Option<String>,
+    /// The stated `remoteStartTime`, or `None` (ADR 0073 §2).
+    #[serde(default)]
+    pub remote_start_time_secs: Option<f64>,
+    /// The stated `remotePercentage`, or `None` (ADR 0073 §2).
+    #[serde(default)]
+    pub remote_percentage: Option<f64>,
+    /// The recipients of a local split, in source order (ADR 0073 §2).
+    #[serde(default)]
+    pub recipients: Vec<IngestPaymentRoute>,
 }
 
 /// Response returned to the crawler after a `POST /ingest/feed` attempt.

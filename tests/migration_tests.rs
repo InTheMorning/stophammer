@@ -60,6 +60,8 @@ const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
     "DROP TABLE IF EXISTS value_time_splits_legacy_0032;",
     "DROP TABLE IF EXISTS tracks_legacy_0032;",
     "DROP TABLE IF EXISTS live_events_legacy;",
+    // Migration 0053 (ADR 0073 §2): the value_time_splits rebuild.
+    "DROP TABLE value_time_splits_legacy_0053;",
 ];
 
 // ---------------------------------------------------------------------------
@@ -806,6 +808,156 @@ fn open_db_repairs_copy_item_facts_schema_when_0052_was_skipped() {
 }
 
 // ---------------------------------------------------------------------------
+// ADR 0073 §2, task 001: migration 0053 rebuilds value_time_splits with the
+// two forms, and keeps each old row as a remote split.
+// ---------------------------------------------------------------------------
+
+/// One `value_time_splits` row after migration 0053: id, form, position,
+/// start time, duration, remote feed GUID, remote start time and remote
+/// percentage.
+type SplitRow = (
+    i64,
+    String,
+    i64,
+    f64,
+    Option<f64>,
+    Option<String>,
+    Option<f64>,
+    Option<f64>,
+);
+
+#[test]
+fn migration_0053_rebuilds_value_time_splits_and_keeps_an_old_row_as_remote() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir.path().join("value-time-split-forms-migration.db");
+
+    let conn = rusqlite::Connection::open(&db_path).expect("open db");
+    apply_migration_files_through(&conn, "0052_copy_item_facts.sql");
+    assert!(
+        table_has_column(&conn, "value_time_splits", "split"),
+        "value_time_splits must have split before migration 0053"
+    );
+    conn.execute(
+        "INSERT INTO value_time_splits (id, source_track_guid, start_time_secs, duration_secs, \
+         remote_feed_guid, remote_item_guid, split, created_at) \
+         VALUES (7, 'old-track', 60, 30, 'old-remote-feed', 'old-remote-item', 50, 1)",
+        [],
+    )
+    .expect("insert an old split row");
+
+    let sql_0053 = fs::read_to_string("migrations/0053_value_time_split_forms.sql")
+        .expect("read migration 0053");
+    conn.execute_batch(&sql_0053).expect("apply migration 0053");
+
+    assert!(
+        !table_has_column(&conn, "value_time_splits", "split"),
+        "migration 0053 must drop value_time_splits.split"
+    );
+    for column in [
+        "position",
+        "form",
+        "remote_start_time_secs",
+        "remote_percentage",
+    ] {
+        assert!(
+            table_has_column(&conn, "value_time_splits", column),
+            "migration 0053 must add value_time_splits.{column}"
+        );
+    }
+    assert!(
+        table_exists(&conn, "value_time_split_recipients"),
+        "migration 0053 must create value_time_split_recipients"
+    );
+    assert!(
+        !table_exists(&conn, "value_time_splits_legacy_0053"),
+        "migration 0053 must drop its legacy copy"
+    );
+    let trigger_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'trigger' \
+             AND name = 'trg_tracks_cleanup_before_delete'",
+            [],
+            |r| r.get(0),
+        )
+        .expect("migration 0053 must make the track trigger again");
+    assert!(
+        trigger_sql.contains("value_time_split_recipients"),
+        "the track trigger must delete the recipients of each split"
+    );
+
+    let row: SplitRow = conn
+        .query_row(
+            "SELECT id, form, position, start_time_secs, duration_secs, remote_feed_guid, \
+             remote_start_time_secs, remote_percentage FROM value_time_splits",
+            [],
+            |r| {
+                Ok((
+                    r.get(0)?,
+                    r.get(1)?,
+                    r.get(2)?,
+                    r.get(3)?,
+                    r.get(4)?,
+                    r.get(5)?,
+                    r.get(6)?,
+                    r.get(7)?,
+                ))
+            },
+        )
+        .expect("read the kept row");
+    assert_eq!(row.0, 7, "the old row keeps its id");
+    assert_eq!(row.1, "remote", "the old row becomes a remote split");
+    assert_eq!(row.2, 0, "the old row gets position 0");
+    assert!(
+        (row.3 - 60.0).abs() < f64::EPSILON,
+        "the old start time is kept"
+    );
+    assert_eq!(row.4, Some(30.0), "the old duration is kept");
+    assert_eq!(
+        row.5.as_deref(),
+        Some("old-remote-feed"),
+        "the old remote feed GUID is kept"
+    );
+    assert_eq!(row.6, None, "the old row has no remote start time");
+    assert_eq!(row.7, None, "the old row has a null remote percentage");
+}
+
+#[test]
+fn open_db_repairs_value_time_split_forms_when_0053_was_skipped() {
+    let dir = tempfile::tempdir().expect("create temp dir");
+    let db_path = dir
+        .path()
+        .join("legacy-high-watermark-value-time-splits.db");
+
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open legacy db");
+        apply_migration_files_through(&conn, "0052_copy_item_facts.sql");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS schema_migrations (
+                version    INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT OR IGNORE INTO schema_migrations (version, applied_at)
+            VALUES (47, 1);",
+        )
+        .expect("mark high migration watermark");
+        assert!(
+            !table_has_column(&conn, "value_time_splits", "form"),
+            "legacy fixture should start without value_time_splits.form"
+        );
+    }
+
+    let conn = stophammer::db::open_db(&db_path);
+    assert!(
+        table_has_column(&conn, "value_time_splits", "form"),
+        "open_db should repair skipped 0053 value_time_splits.form"
+    );
+    assert!(
+        table_exists(&conn, "value_time_split_recipients"),
+        "open_db should repair skipped 0053 value_time_split_recipients"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // ADR 0049 task 004: migration 0036 is the 30th entry in MIGRATIONS. ADR 0046
 // records that a production database already recorded version 29, one below
 // 30, so the runner applies this migration there without a repair.
@@ -852,23 +1004,24 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // 0045, ADR 0056 task 002 added migration 0046, ADR 0034 task 003 added
     // migration 0047, ADR 0053 task 004 added migration 0048, ADR 0058 task
     // 006 added migration 0049, ADR 0058 task 007 added migration 0050, ADR
-    // 0070 task 001 added migration 0051, and ADR 0058 task 008 added
-    // migration 0052, after this fixture was written. The fixture still
-    // stops at 0035, so open_db also runs 0037 (entry 31), 0038 (entry 32),
-    // 0039 (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36),
-    // 0043 (entry 37), 0044 (entry 38), 0045 (entry 39), 0046 (entry 40)
-    // 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry 44),
-    // 0051 (entry 45) and 0052 (entry 46), sixteen migrations past the 0036
-    // this test names.
+    // 0070 task 001 added migration 0051, ADR 0058 task 008 added migration
+    // 0052, and ADR 0073 task 001 added migration 0053, after this fixture
+    // was written. The fixture still stops at 0035, so open_db also runs
+    // 0037 (entry 31), 0038 (entry 32), 0039 (entry 33), 0040 (entry 34),
+    // 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044 (entry 38),
+    // 0045 (entry 39), 0046 (entry 40) 0047 (entry 41), 0048 (entry 42),
+    // 0049 (entry 43), 0050 (entry 44), 0051 (entry 45), 0052 (entry 46)
+    // and 0053 (entry 47), seventeen migrations past the 0036 this test
+    // names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 46,
-        "the runner must record version 46 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051 and 0052 run"
+        recorded_version, 47,
+        "the runner must record version 47 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052 and 0053 run"
     );
 }
 
@@ -972,22 +1125,23 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // 0060 added migration 0043, ADR 0064 task 002 added migration 0044, ADR
     // 0067 task 001 added migration 0045, ADR 0056 task 002 added migration
     // 0046, ADR 0034 task 003 added migration 0047, ADR 0070 task 001 added
-    // migration 0051, and ADR 0058 task 008 added migration 0052, after this
-    // fixture was written. The fixture stops at 0036, so open_db also runs
-    // 0038 (entry 32), 0039 (entry 33), 0040 (entry 34), 0041 (entry 35),
-    // 0042 (entry 36), 0043 (entry 37), 0044 (entry 38), 0045 (entry 39),
-    // 0046 (entry 40), 0047 (entry 41), 0048 (entry 42), 0049 (entry 43),
-    // 0050 (entry 44), 0051 (entry 45) and 0052 (entry 46), fifteen
-    // migrations past the 0037 this test names.
+    // migration 0051, ADR 0058 task 008 added migration 0052, and ADR 0073
+    // task 001 added migration 0053, after this fixture was written. The
+    // fixture stops at 0036, so open_db also runs 0038 (entry 32), 0039
+    // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
+    // (entry 37), 0044 (entry 38), 0045 (entry 39), 0046 (entry 40), 0047
+    // (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry 44), 0051
+    // (entry 45), 0052 (entry 46) and 0053 (entry 47), sixteen migrations
+    // past the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 46,
-        "the runner must record version 46 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051 and 0052 run"
+        recorded_version, 47,
+        "the runner must record version 47 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052 and 0053 run"
     );
 }
 
@@ -1030,20 +1184,21 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
 
     // ADR 0056 task 002 added migration 0046, ADR 0034 task 003 added
     // migration 0047, ADR 0058 task 007 added migration 0050, ADR 0070 task
-    // 001 added migration 0051, and ADR 0058 task 008 added migration 0052,
-    // after this fixture was written. The fixture stops at 0044, so open_db
-    // also runs 0046 (entry 40), 0047 (entry 41), 0048 (entry 42), 0049
-    // (entry 43), 0050 (entry 44), 0051 (entry 45) and 0052 (entry 46) right
-    // after 0045 (entry 39).
+    // 001 added migration 0051, ADR 0058 task 008 added migration 0052, and
+    // ADR 0073 task 001 added migration 0053, after this fixture was
+    // written. The fixture stops at 0044, so open_db also runs 0046 (entry
+    // 40), 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry
+    // 44), 0051 (entry 45), 0052 (entry 46) and 0053 (entry 47) right after
+    // 0045 (entry 39).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 46,
-        "the runner must record version 46 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
-         0051 and 0052 run"
+        recorded_version, 47,
+        "the runner must record version 47 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
+         0051, 0052 and 0053 run"
     );
 }
 
@@ -1094,20 +1249,21 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
     );
 
     // ADR 0034 task 003 added migration 0047, ADR 0058 task 007 added
-    // migration 0050, ADR 0070 task 001 added migration 0051, and ADR 0058
-    // task 008 added migration 0052, after this fixture was written. The
-    // fixture stops at 0045, so open_db also runs 0047 (entry 41), 0048
-    // (entry 42), 0049 (entry 43), 0050 (entry 44), 0051 (entry 45) and 0052
-    // (entry 46) right after 0046 (entry 40).
+    // migration 0050, ADR 0070 task 001 added migration 0051, ADR 0058 task
+    // 008 added migration 0052, and ADR 0073 task 001 added migration 0053,
+    // after this fixture was written. The fixture stops at 0045, so open_db
+    // also runs 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050
+    // (entry 44), 0051 (entry 45), 0052 (entry 46) and 0053 (entry 47) right
+    // after 0046 (entry 40).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
             r.get(0)
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 46,
-        "the runner must record version 46 after migrations 0046, 0047, 0048, 0049, 0050, 0051 \
-         and 0052 run"
+        recorded_version, 47,
+        "the runner must record version 47 after migrations 0046, 0047, 0048, 0049, 0050, 0051, \
+         0052 and 0053 run"
     );
 
     let trigger_sql: String = conn

@@ -252,18 +252,81 @@ pub fn feed_recipient_set(routes: &[FeedPaymentRoute]) -> Vec<RouteRecipient> {
     routes.iter().map(RouteRecipient::from).collect()
 }
 
+/// The form of a value time split (ADR 0073 §2).
+///
+/// A remote split names a remote item. A local split names its own
+/// recipients. An event signed before ADR 0073 has no form, so the default
+/// is `Remote`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ValueTimeSplitForm {
+    #[default]
+    Remote,
+    Local,
+}
+
+impl ValueTimeSplitForm {
+    /// The text of the form in the `value_time_splits.form` column.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Remote => "remote",
+            Self::Local => "local",
+        }
+    }
+}
+
+/// One recipient of a local value time split (ADR 0073 §2).
+///
+/// The fields have the types of [`PaymentRoute`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValueTimeSplitRecipient {
+    pub recipient_name: Option<String>,
+    pub route_type: RouteType,
+    pub address: String,
+    pub custom_key: Option<String>,
+    pub custom_value: Option<String>,
+    pub split: i64,
+    pub fee: bool,
+}
+
+/// A value time split with the values that its source states (ADR 0073 §2
+/// and §3).
+///
+/// Each field that ADR 0073 adds has `#[serde(default)]`, so an event signed
+/// before ADR 0073 still applies. Such an event can also hold a `split`
+/// field. The model does not deny unknown fields, so serde ignores it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueTimeSplit {
     pub id: Option<i64>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub source_feed_guid: String,
     /// GUID of the track whose playback triggers this split.
     pub source_track_guid: String,
-    pub start_time_secs: i64,
-    pub duration_secs: Option<i64>,
-    pub remote_feed_guid: String,
-    pub remote_item_guid: String,
-    pub split: i64,
+    /// The order of the split in its `podcast:value` (ADR 0073 §2).
+    #[serde(default)]
+    pub position: i64,
+    /// The form of the split (ADR 0073 §2).
+    #[serde(default)]
+    pub form: ValueTimeSplitForm,
+    pub start_time_secs: f64,
+    pub duration_secs: Option<f64>,
+    /// The remote feed GUID. `None` in the local form (ADR 0073 §2).
+    #[serde(default)]
+    pub remote_feed_guid: Option<String>,
+    /// The remote item GUID. It can be `None` (ADR 0073 §2).
+    #[serde(default)]
+    pub remote_item_guid: Option<String>,
+    /// The stated `remoteStartTime`, or `None` (ADR 0073 §2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_start_time_secs: Option<f64>,
+    /// The stated `remotePercentage`, or `None`. The store applies no
+    /// default and no limit (ADR 0073 §2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub remote_percentage: Option<f64>,
+    /// The recipients of a local split, in source order (ADR 0073 §2).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recipients: Vec<ValueTimeSplitRecipient>,
     pub created_at: i64,
 }
 

@@ -623,6 +623,77 @@ pub struct AppState {
     pub skip_ssrf_validation: bool,
 }
 
+/// Maps the ingest splits of one track to the stored splits (ADR 0073 §2).
+///
+/// Each split keeps its stated values. `position` is the index of the split
+/// in the ingest list. This function drops a split that breaks its form: a
+/// remote split with no non-empty `remote_feed_guid` or with a recipient, or
+/// a local split with no recipient or with a non-empty remote GUID (ADR
+/// 0073 §1 and §2). It logs one warning for each dropped split. The other
+/// splits of the track stay.
+fn build_value_time_splits(
+    feed_guid: &str,
+    track_guid: &str,
+    splits: &[ingest::IngestValueTimeSplit],
+    now: i64,
+) -> Vec<model::ValueTimeSplit> {
+    let mut out = Vec::with_capacity(splits.len());
+    for (index, v) in splits.iter().enumerate() {
+        // ADR 0073 §1: a split with children of the two forms is not
+        // permitted, so each form also requires the absence of the other.
+        let non_empty = |value: Option<&str>| value.is_some_and(|text| !text.trim().is_empty());
+        let valid = match v.form {
+            model::ValueTimeSplitForm::Remote => {
+                non_empty(v.remote_feed_guid.as_deref()) && v.recipients.is_empty()
+            }
+            model::ValueTimeSplitForm::Local => {
+                !v.recipients.is_empty()
+                    && !non_empty(v.remote_feed_guid.as_deref())
+                    && !non_empty(v.remote_item_guid.as_deref())
+            }
+        };
+        if !valid {
+            tracing::warn!(
+                feed_guid,
+                track_guid,
+                position = index,
+                form = v.form.as_str(),
+                "ADR 0073 §2: value time split dropped, because it breaks its form"
+            );
+            continue;
+        }
+        let recipients = v
+            .recipients
+            .iter()
+            .map(|r| model::ValueTimeSplitRecipient {
+                recipient_name: r.recipient_name.clone(),
+                route_type: r.route_type.clone(),
+                address: r.address.clone(),
+                custom_key: r.custom_key.clone(),
+                custom_value: r.custom_value.clone(),
+                split: r.split,
+                fee: r.fee,
+            })
+            .collect();
+        out.push(model::ValueTimeSplit {
+            id: None,
+            source_feed_guid: feed_guid.to_string(),
+            source_track_guid: track_guid.to_string(),
+            position: i64::try_from(index).unwrap_or(i64::MAX),
+            form: v.form,
+            start_time_secs: v.start_time_secs,
+            duration_secs: v.duration_secs,
+            remote_feed_guid: v.remote_feed_guid.clone(),
+            remote_item_guid: v.remote_item_guid.clone(),
+            remote_start_time_secs: v.remote_start_time_secs,
+            remote_percentage: v.remote_percentage,
+            recipients,
+            created_at: now,
+        });
+    }
+    out
+}
+
 fn build_source_contributor_claims(
     feed_guid: &str,
     entity_type: &str,
@@ -3453,21 +3524,12 @@ async fn handle_ingest_feed(
                 })
                 .collect();
 
-            let vts: Vec<model::ValueTimeSplit> = track_data
-                .value_time_splits
-                .iter()
-                .map(|v| model::ValueTimeSplit {
-                    id: None,
-                    source_feed_guid: feed_data.feed_guid.clone(),
-                    source_track_guid: track_data.track_guid.clone(),
-                    start_time_secs: v.start_time_secs,
-                    duration_secs: v.duration_secs,
-                    remote_feed_guid: v.remote_feed_guid.clone(),
-                    remote_item_guid: v.remote_item_guid.clone(),
-                    split: v.split,
-                    created_at: now,
-                })
-                .collect();
+            let vts = build_value_time_splits(
+                &feed_data.feed_guid,
+                &track_data.track_guid,
+                &track_data.value_time_splits,
+                now,
+            );
 
             let track_remote_items: Vec<model::TrackRemoteItemRaw> = track_data
                 .remote_items

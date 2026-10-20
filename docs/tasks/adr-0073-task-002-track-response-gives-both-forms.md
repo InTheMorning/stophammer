@@ -57,6 +57,15 @@ stated values. The new include `local_value_time_splits` gives the local form.
   example of each form.
 - **Comments.** Each new item names ADR 0073 §4.
 
+## Orchestrator Decision Of 2026-10-20
+
+The first run stopped at the trigger "a guard needs a change to its own rule".
+`each_example_is_unchanged` in `tests/adr0044_schema_refs_tests.rs` compares
+each example with the snapshot of ADR 0044 task 002. The example of
+`GET /v1/node/capabilities` reads `TRACK_INCLUDES`, so the new include changed
+it. The orchestrator decided: the guard removes `include_params` from that one
+example before the comparison. The snapshot file does not change.
+
 ## Do Not Touch
 
 - The store, the ingest, the event and the apply code of task 001

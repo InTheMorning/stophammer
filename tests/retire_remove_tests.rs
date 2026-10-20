@@ -92,7 +92,7 @@ fn insert_feed_payment_route(conn: &rusqlite::Connection, feed_guid: &str) {
 fn insert_value_time_split(conn: &rusqlite::Connection, track_guid: &str, now: i64) {
     conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, \
-         remote_feed_guid, remote_item_guid, split, created_at) \
+         remote_feed_guid, remote_item_guid, form, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             track_guid,
@@ -100,7 +100,7 @@ fn insert_value_time_split(conn: &rusqlite::Connection, track_guid: &str, now: i
             60,
             "remote-feed-1",
             "remote-item-1",
-            50,
+            "remote",
             now
         ],
     )

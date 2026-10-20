@@ -246,8 +246,8 @@ fn value_time_splits_ordering() {
     let times = [120, 0, 60, 240, 180];
     for (i, &start) in times.iter().enumerate() {
         conn.execute(
-            "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at)
-             VALUES (?1, ?2, 60, ?3, ?4, 50, ?5)",
+            "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at)
+             VALUES (?1, ?2, 60, ?3, ?4, 'remote', ?5)",
             params![&tg, start, format!("remote-feed-{i}"), format!("remote-item-{i}"), now],
         )
         .unwrap();
@@ -261,13 +261,13 @@ fn value_time_splits_ordering() {
              ORDER BY start_time_secs ASC",
         )
         .unwrap();
-    let ordered: Vec<i64> = stmt
+    let ordered: Vec<f64> = stmt
         .query_map(params![&tg], |r| r.get(0))
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(ordered, vec![0, 60, 120, 180, 240]);
+    assert_eq!(ordered, vec![0.0, 60.0, 120.0, 180.0, 240.0]);
 }
 
 // ---------------------------------------------------------------------------

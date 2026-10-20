@@ -106,6 +106,28 @@ the ingest of an old crawler, and applies an old event.
   `ensure_value_time_split_forms_schema` repair in `src/db.rs` (ADR 0046).
 - **Comments.** Each new item names ADR 0073 and its section.
 
+## Orchestrator Decisions Of 2026-10-20
+
+The first run stopped at two escalation triggers. The orchestrator decided:
+
+- **The track trigger.** Migration 0053 drops `trg_tracks_cleanup_before_delete`
+  before it rebuilds `value_time_splits`. After the rebuild, it makes the
+  trigger again with the body of migration 0047, plus one first statement: a
+  delete from `value_time_split_recipients` of each split of the track.
+  `trg_feeds_cleanup_before_delete` does not change.
+- **The tests that use the old columns.** The task changes them:
+  - `tests/sg_schema_tests.rs`, `test_split_check_constraint_value_time_splits`,
+    asserts the superseded `CHECK(split >= 0)`. Replace it with two checks: the
+    `form` check rejects `other`, and `split` on
+    `value_time_split_recipients` rejects -1.
+  - `tests/track_tests.rs`, `track_value_time_splits`, uses the new columns, and
+    reads the times as `f64`.
+  - Each raw SQL insert into `value_time_splits` uses the new columns:
+    `tests/regression_tests.rs`, `tests/db_tests.rs`, `tests/e2e_tests.rs`,
+    `tests/quality_tests.rs`, `tests/apply_tests.rs` and
+    `tests/retire_remove_tests.rs`.
+  - A test keeps its purpose. Change only the columns and the types.
+
 ## Do Not Touch
 
 - `VtsResponse` fields and `TRACK_INCLUDES`. Task 002 changes them.

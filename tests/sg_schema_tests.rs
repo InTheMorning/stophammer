@@ -155,8 +155,10 @@ fn test_split_check_constraint_feed_payment_routes() {
     );
 }
 
+// ADR 0073 §2: the `form` check of `value_time_splits` rejects a value that
+// is not `remote` or `local`.
 #[test]
-fn test_split_check_constraint_value_time_splits() {
+fn test_form_check_constraint_value_time_splits() {
     let conn = common::test_db();
     let now = stophammer::db::unix_now();
     seed_feed(&conn);
@@ -164,13 +166,41 @@ fn test_split_check_constraint_value_time_splits() {
 
     let result = conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, \
-         remote_feed_guid, remote_item_guid, split, created_at) \
-         VALUES ('track-sg-vts', 0, 'rfeed', 'ritem', -1, ?1)",
+         remote_feed_guid, remote_item_guid, form, created_at) \
+         VALUES ('track-sg-vts', 0, 'rfeed', 'ritem', 'other', ?1)",
         params![now],
     );
     assert!(
         result.is_err(),
-        "value_time_splits should reject negative split"
+        "value_time_splits should reject the form 'other'"
+    );
+}
+
+// ADR 0073 §2: `split` on `value_time_split_recipients` has the check of
+// `payment_routes`, so it rejects a negative split.
+#[test]
+fn test_split_check_constraint_value_time_split_recipients() {
+    let conn = common::test_db();
+    let now = stophammer::db::unix_now();
+    seed_feed(&conn);
+    insert_track(&conn, "track-sg-vts", "feed-sg", now);
+
+    conn.execute(
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, form, created_at) \
+         VALUES ('track-sg-vts', 0, 'local', ?1)",
+        params![now],
+    )
+    .expect("insert a local split");
+    let split_id = conn.last_insert_rowid();
+
+    let result = conn.execute(
+        "INSERT INTO value_time_split_recipients (split_id, position, route_type, address, split) \
+         VALUES (?1, 0, 'keysend', 'addr', -1)",
+        params![split_id],
+    );
+    assert!(
+        result.is_err(),
+        "value_time_split_recipients should reject negative split"
     );
 }
 

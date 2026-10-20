@@ -95,8 +95,8 @@ fn ingest_to_query_pipeline() {
 
         // VTS entry per track.
         conn.execute(
-            "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at)
-             VALUES (?1, 0, 60, 'remote-feed-e2e', ?2, 50, ?3)",
+            "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at)
+             VALUES (?1, 0, 60, 'remote-feed-e2e', ?2, 'remote', ?3)",
             params![&tg, format!("remote-item-{i}"), now],
         )
         .unwrap();

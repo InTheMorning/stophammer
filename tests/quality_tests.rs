@@ -52,9 +52,9 @@ fn test_compute_track_quality_all_fields() {
     .unwrap();
 
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, form, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params!["track-1", 0, "remote-feed", "remote-item", 50, now],
+        params!["track-1", 0, "remote-feed", "remote-item", "remote", now],
     )
     .unwrap();
 

@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::model::{
-    Feed, LiveEvent, RouteRecipient, guid_origin_matches, sort_key, web_link_for_read,
-    web_url_or_none,
+    Feed, LiveEvent, RouteRecipient, ValueTimeSplit, ValueTimeSplitForm, guid_origin_matches,
+    sort_key, web_link_for_read, web_url_or_none,
 };
 use crate::{api, db, event, live, medium};
 
@@ -217,6 +217,8 @@ pub const ARTIST_NAME_INCLUDES: &[&str] = &["link_facts"];
 pub const TRACK_INCLUDES: &[&str] = &[
     "payment_routes",
     "value_time_splits",
+    // ADR 0073 §4: the local form of a value time split.
+    "local_value_time_splits",
     "source_links",
     "source_ids",
     "source_contributors",
@@ -647,6 +649,9 @@ struct TrackResponse {
     payment_routes: Option<Vec<RouteResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     value_time_splits: Option<Vec<VtsResponse>>,
+    /// The local form of a value time split (ADR 0073 §4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_value_time_splits: Option<Vec<LocalVtsResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_links: Option<Vec<SourceEntityLinkResponse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -765,6 +770,86 @@ struct VtsResponse {
     remote_feed_guid: String,
     remote_item_guid: String,
     split: i64,
+    /// The stated start time, in seconds (ADR 0073 §4).
+    start_time: f64,
+    /// The stated duration, in seconds. Null when the source states none
+    /// (ADR 0073 §4).
+    duration: Option<f64>,
+    /// The stated `remoteStartTime`, in seconds. Null when the source
+    /// states none (ADR 0073 §4).
+    remote_start_time: Option<f64>,
+    /// The stated `remotePercentage`. Null when the source states none
+    /// (ADR 0073 §4).
+    remote_percentage: Option<f64>,
+}
+
+/// Maps a stored split to the `v1` row (ADR 0073 §4). The row keeps its
+/// old fields and types. Only a remote split gives a row. The old times are
+/// rounded down. `split` is the effective remote percentage: the stated
+/// value limited to 0 to 100, or 100 when the source states none. The added
+/// fields give the stated values, with no default and no limit.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "ADR 0073 §4: the v1 row gives each time rounded down to an integer"
+)]
+fn vts_response_from_split(split: ValueTimeSplit) -> Option<VtsResponse> {
+    if split.form != ValueTimeSplitForm::Remote {
+        return None;
+    }
+    let remote_feed_guid = split.remote_feed_guid?;
+    let remote_percentage = split.remote_percentage;
+    let percentage = remote_percentage.unwrap_or(100.0).clamp(0.0, 100.0);
+    Some(VtsResponse {
+        start_time_secs: split.start_time_secs.floor() as i64,
+        duration_secs: split.duration_secs.map(|d| d.floor() as i64),
+        remote_feed_guid,
+        remote_item_guid: split.remote_item_guid.unwrap_or_default(),
+        split: percentage.floor() as i64,
+        start_time: split.start_time_secs,
+        duration: split.duration_secs,
+        remote_start_time: split.remote_start_time_secs,
+        remote_percentage,
+    })
+}
+
+/// A local-form value time split (ADR 0073 §4). Each recipient has the
+/// fields of a payment route, in source order.
+#[derive(Debug, Serialize, ToSchema)]
+struct LocalVtsResponse {
+    position: i64,
+    start_time: f64,
+    duration: Option<f64>,
+    recipients: Vec<RouteResponse>,
+}
+
+/// Maps a stored split to the local-form `v1` row (ADR 0073 §4). Only a
+/// local split gives a row, with its recipients in source order.
+fn local_vts_response_from_split(split: ValueTimeSplit) -> Option<LocalVtsResponse> {
+    if split.form != ValueTimeSplitForm::Local {
+        return None;
+    }
+    let recipients = split
+        .recipients
+        .into_iter()
+        .map(|r| RouteResponse {
+            recipient_name: r.recipient_name,
+            route_type: serde_json::to_string(&r.route_type)
+                .expect("serializing RouteType cannot fail")
+                .trim_matches('"')
+                .to_string(),
+            address: r.address,
+            custom_key: r.custom_key,
+            custom_value: r.custom_value,
+            split: r.split,
+            fee: r.fee,
+        })
+        .collect();
+    Some(LocalVtsResponse {
+        position: split.position,
+        start_time: split.start_time_secs,
+        duration: split.duration_secs,
+        recipients,
+    })
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1979,6 +2064,7 @@ fn build_track_response(
         release_artist_source: row.release_artist_source,
         payment_routes: None,
         value_time_splits: None,
+        local_value_time_splits: None,
         source_links: None,
         source_ids: None,
         source_contributors: None,
@@ -2042,15 +2128,17 @@ fn build_track_response(
                 let vts: Vec<VtsResponse> =
                     db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
                         .into_iter()
-                        .map(|split| VtsResponse {
-                            start_time_secs: split.start_time_secs,
-                            duration_secs: split.duration_secs,
-                            remote_feed_guid: split.remote_feed_guid,
-                            remote_item_guid: split.remote_item_guid,
-                            split: split.split,
-                        })
+                        .filter_map(vts_response_from_split)
                         .collect();
                 resp.value_time_splits = Some(vts);
+            }
+            "local_value_time_splits" => {
+                let vts: Vec<LocalVtsResponse> =
+                    db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
+                        .into_iter()
+                        .filter_map(local_vts_response_from_split)
+                        .collect();
+                resp.local_value_time_splits = Some(vts);
             }
             "source_links" => {
                 resp.source_links = Some(

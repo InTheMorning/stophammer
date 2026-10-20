@@ -161,30 +161,30 @@ fn track_value_time_splits() {
     // Insert 2 value time splits
     conn.execute(
         "INSERT INTO value_time_splits \
-         (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at) \
+         (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![track_guid, 0, 120, "remote-feed-1", "remote-item-1", 50, now],
+        params![track_guid, 0.0, 120.0, "remote-feed-1", "remote-item-1", "remote", now],
     )
     .unwrap();
 
     conn.execute(
         "INSERT INTO value_time_splits \
-         (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at) \
+         (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![track_guid, 120, 180, "remote-feed-2", "remote-item-2", 50, now],
+        params![track_guid, 120.0, 180.0, "remote-feed-2", "remote-item-2", "remote", now],
     )
     .unwrap();
 
     let mut stmt = conn
         .prepare(
             "SELECT source_track_guid, start_time_secs, duration_secs, \
-             remote_feed_guid, remote_item_guid, split \
+             remote_feed_guid, remote_item_guid, form \
              FROM value_time_splits WHERE source_track_guid = ?1 \
              ORDER BY start_time_secs ASC",
         )
         .unwrap();
 
-    let rows: Vec<(String, i64, Option<i64>, String, String, i64)> = stmt
+    let rows: Vec<(String, f64, Option<f64>, String, String, String)> = stmt
         .query_map(params![track_guid], |r| {
             Ok((
                 r.get(0)?,
@@ -202,14 +202,17 @@ fn track_value_time_splits() {
     assert_eq!(rows.len(), 2, "should return both value time splits");
 
     assert_eq!(rows[0].0, track_guid);
-    assert_eq!(rows[0].1, 0);
-    assert_eq!(rows[0].2, Some(120));
+    assert!(rows[0].1.abs() < f64::EPSILON, "first split starts at 0");
+    assert_eq!(rows[0].2, Some(120.0));
     assert_eq!(rows[0].3, "remote-feed-1");
     assert_eq!(rows[0].4, "remote-item-1");
-    assert_eq!(rows[0].5, 50);
+    assert_eq!(rows[0].5, "remote");
 
-    assert_eq!(rows[1].1, 120);
-    assert_eq!(rows[1].2, Some(180));
+    assert!(
+        (rows[1].1 - 120.0).abs() < f64::EPSILON,
+        "second split starts at 120"
+    );
+    assert_eq!(rows[1].2, Some(180.0));
     assert_eq!(rows[1].3, "remote-feed-2");
     assert_eq!(rows[1].4, "remote-item-2");
 }

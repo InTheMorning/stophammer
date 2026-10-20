@@ -22,8 +22,8 @@ use crate::model::{
     CopySummary, Feed, FeedListValueRaw, FeedPaymentRoute, FeedRemoteItemRaw, LiveEvent,
     PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim, SourceEntityIdClaim,
     SourceEntityLink, SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim,
-    SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, feed_recipient_set,
-    recipient_set, sort_key,
+    SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, ValueTimeSplitForm,
+    ValueTimeSplitRecipient, feed_recipient_set, recipient_set, sort_key,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -270,6 +270,9 @@ const MIGRATIONS: &[&str] = &[
     // date of each item, and the channel author, to feed_copies (ADR 0058
     // §1e, task 008)
     include_str!("../migrations/0052_copy_item_facts.sql"),
+    // Migration 53: store both forms of a value time split, with the stated
+    // values, and the recipients of a local split (ADR 0073 §2, task 001)
+    include_str!("../migrations/0053_value_time_split_forms.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -706,6 +709,28 @@ fn ensure_copy_item_facts_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Rebuilds `value_time_splits` with the two forms of ADR 0073 §2 when
+/// migration 0053 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it (ADR 0046). This
+/// repair tests for the `form` column. When the column is absent, it runs
+/// the SQL of migration 0053 in one transaction. Migration 0053 comes after
+/// migration 0047 (ADR 0034 §11), so no pre-`run_migrations` guard is
+/// needed. ADR 0073 §2, task 001 owns the columns.
+fn ensure_value_time_split_forms_schema(conn: &mut Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "value_time_splits", "form")? {
+        return Ok(());
+    }
+
+    let tx = conn.transaction()?;
+    tx.execute_batch(include_str!(
+        "../migrations/0053_value_time_split_forms.sql"
+    ))?;
+    tx.commit()?;
+    Ok(())
+}
+
 fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbError> {
     if table_has_column(conn, "source_contributor_claims", "npub")? {
         return Ok(());
@@ -792,6 +817,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_move_declaration_schema(&conn)?;
     ensure_feed_title_sort_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
+    ensure_value_time_split_forms_schema(&mut conn)?;
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
@@ -1074,7 +1100,130 @@ pub fn get_payment_routes_for_feed_track(
 // ── get_value_time_splits_for_track ──────────────────────────────────────────
 // Issue-12 PATCH emits events — 2026-03-13
 
-/// Returns all value-time splits for `source_track_guid`.
+/// The columns of a `value_time_splits` read, in the order of
+/// [`value_time_split_from_row`] (ADR 0073 §2).
+const VALUE_TIME_SPLIT_COLUMNS: &str = "id, source_feed_guid, source_track_guid, position, form, \
+     start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, \
+     remote_start_time_secs, remote_percentage, created_at";
+
+/// The SQL that deletes the recipients of each split of one track (ADR 0073
+/// §2). `?1` is the feed GUID and `?2` is the track GUID. Run it before each
+/// delete of the splits of a track. Do not depend on the cascade only,
+/// because a connection can run with foreign keys off.
+const DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL: &str = "DELETE FROM value_time_split_recipients \
+     WHERE split_id IN (SELECT id FROM value_time_splits \
+     WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL))";
+
+/// Maps one row of [`VALUE_TIME_SPLIT_COLUMNS`] to a split with no
+/// recipients. [`attach_value_time_split_recipients`] adds them.
+fn value_time_split_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ValueTimeSplit> {
+    let form_text: String = row.get(4)?;
+    let form = match form_text.as_str() {
+        "local" => ValueTimeSplitForm::Local,
+        _ => ValueTimeSplitForm::Remote,
+    };
+    Ok(ValueTimeSplit {
+        id: row.get(0)?,
+        source_feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
+        source_track_guid: row.get(2)?,
+        position: row.get(3)?,
+        form,
+        start_time_secs: row.get(5)?,
+        duration_secs: row.get(6)?,
+        remote_feed_guid: row.get(7)?,
+        remote_item_guid: row.get(8)?,
+        remote_start_time_secs: row.get(9)?,
+        remote_percentage: row.get(10)?,
+        recipients: Vec::new(),
+        created_at: row.get(11)?,
+    })
+}
+
+/// Reads the recipients of each split, in `position` order (ADR 0073 §2).
+fn attach_value_time_split_recipients(
+    conn: &Connection,
+    splits: &mut [ValueTimeSplit],
+) -> Result<(), DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT recipient_name, route_type, address, NULLIF(custom_key, ''), \
+         NULLIF(custom_value, ''), split, fee \
+         FROM value_time_split_recipients WHERE split_id = ?1 ORDER BY position, id",
+    )?;
+    for split in splits.iter_mut() {
+        let Some(split_id) = split.id else {
+            continue;
+        };
+        let rows = stmt.query_map(params![split_id], |row| {
+            let rt_str: String = row.get(1)?;
+            let fee_i: i64 = row.get(6)?;
+            Ok(ValueTimeSplitRecipient {
+                recipient_name: row.get(0)?,
+                route_type: route_type_from_db(&rt_str, "value_time_split_recipients"),
+                address: row.get(2)?,
+                custom_key: row.get(3)?,
+                custom_value: row.get(4)?,
+                split: row.get(5)?,
+                fee: fee_i != 0,
+            })
+        })?;
+        split.recipients = rows.collect::<Result<_, _>>()?;
+    }
+    Ok(())
+}
+
+/// Inserts one split and its recipients (ADR 0073 §2). The values are
+/// stored as stated, with no default and no limit.
+fn insert_value_time_split(
+    conn: &Connection,
+    source_feed_guid: Option<&str>,
+    source_track_guid: &str,
+    s: &ValueTimeSplit,
+) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, position, form, \
+         start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, \
+         remote_start_time_secs, remote_percentage, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![
+            source_feed_guid,
+            source_track_guid,
+            s.position,
+            s.form.as_str(),
+            s.start_time_secs,
+            s.duration_secs,
+            s.remote_feed_guid,
+            s.remote_item_guid,
+            s.remote_start_time_secs,
+            s.remote_percentage,
+            s.created_at,
+        ],
+    )?;
+    let split_id = conn.last_insert_rowid();
+    for (position, r) in s.recipients.iter().enumerate() {
+        let route_type = serde_json::to_string(&r.route_type)?;
+        let route_type = route_type.trim_matches('"');
+        conn.execute(
+            "INSERT INTO value_time_split_recipients (split_id, position, recipient_name, \
+             route_type, address, custom_key, custom_value, split, fee) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                split_id,
+                i64::try_from(position).unwrap_or(i64::MAX),
+                r.recipient_name,
+                route_type,
+                r.address,
+                r.custom_key.as_deref().unwrap_or(""),
+                r.custom_value.as_deref().unwrap_or(""),
+                r.split,
+                i64::from(r.fee),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
+/// Returns all value-time splits for `source_track_guid`, in `position`
+/// order, each with its recipients (ADR 0073 §2).
 ///
 /// # Errors
 ///
@@ -1083,56 +1232,38 @@ pub fn get_value_time_splits_for_track(
     conn: &Connection,
     track_guid: &str,
 ) -> Result<Vec<ValueTimeSplit>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, source_feed_guid, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
-         remote_item_guid, split, created_at \
-         FROM value_time_splits WHERE source_track_guid = ?1",
-    )?;
-    let rows = stmt.query_map(params![track_guid], |row| {
-        Ok(ValueTimeSplit {
-            id: row.get(0)?,
-            source_feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-            source_track_guid: row.get(2)?,
-            start_time_secs: row.get(3)?,
-            duration_secs: row.get(4)?,
-            remote_feed_guid: row.get(5)?,
-            remote_item_guid: row.get(6)?,
-            split: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?;
-    let mut result = Vec::new();
-    for row in rows {
-        result.push(row?);
-    }
-    Ok(result)
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {VALUE_TIME_SPLIT_COLUMNS} FROM value_time_splits \
+         WHERE source_track_guid = ?1 ORDER BY position, id"
+    ))?;
+    let mut splits: Vec<ValueTimeSplit> = stmt
+        .query_map(params![track_guid], value_time_split_from_row)?
+        .collect::<Result<_, _>>()?;
+    attach_value_time_split_recipients(conn, &mut splits)?;
+    Ok(splits)
 }
 
+/// Returns the value-time splits of one feed-scoped track, in `position`
+/// order, each with its recipients (ADR 0073 §2).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
 pub fn get_value_time_splits_for_feed_track(
     conn: &Connection,
     feed_guid: &str,
     track_guid: &str,
 ) -> Result<Vec<ValueTimeSplit>, DbError> {
-    let mut stmt = conn.prepare(
-        "SELECT id, source_feed_guid, source_track_guid, start_time_secs, duration_secs, remote_feed_guid, \
-         remote_item_guid, split, created_at \
-         FROM value_time_splits \
-         WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
-    )?;
-    let rows = stmt.query_map(params![feed_guid, track_guid], |row| {
-        Ok(ValueTimeSplit {
-            id: row.get(0)?,
-            source_feed_guid: row.get::<_, Option<String>>(1)?.unwrap_or_default(),
-            source_track_guid: row.get(2)?,
-            start_time_secs: row.get(3)?,
-            duration_secs: row.get(4)?,
-            remote_feed_guid: row.get(5)?,
-            remote_item_guid: row.get(6)?,
-            split: row.get(7)?,
-            created_at: row.get(8)?,
-        })
-    })?;
-    rows.collect::<Result<_, _>>().map_err(DbError::from)
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {VALUE_TIME_SPLIT_COLUMNS} FROM value_time_splits \
+         WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL) \
+         ORDER BY position, id"
+    ))?;
+    let mut splits: Vec<ValueTimeSplit> = stmt
+        .query_map(params![feed_guid, track_guid], value_time_split_from_row)?
+        .collect::<Result<_, _>>()?;
+    attach_value_time_split_recipients(conn, &mut splits)?;
+    Ok(splits)
 }
 
 // ── upsert_feed ───────────────────────────────────────────────────────────────
@@ -1498,7 +1629,8 @@ pub fn replace_feed_list_value_raw(
 
 // ── replace_value_time_splits ─────────────────────────────────────────────────
 
-/// Deletes all value-time splits for `source_track_guid` and inserts `splits`.
+/// Deletes all value-time splits for `source_track_guid`, with their
+/// recipients, and inserts `splits` (ADR 0073 §2).
 ///
 /// # Errors
 ///
@@ -1509,28 +1641,26 @@ pub fn replace_value_time_splits(
     splits: &[ValueTimeSplit],
 ) -> Result<(), DbError> {
     conn.execute(
+        "DELETE FROM value_time_split_recipients WHERE split_id IN \
+         (SELECT id FROM value_time_splits WHERE source_track_guid = ?1)",
+        params![source_track_guid],
+    )?;
+    conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?1",
         params![source_track_guid],
     )?;
     for s in splits {
-        conn.execute(
-            "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, \
-             remote_feed_guid, remote_item_guid, split, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![
-                s.source_track_guid,
-                s.start_time_secs,
-                s.duration_secs,
-                s.remote_feed_guid,
-                s.remote_item_guid,
-                s.split,
-                s.created_at,
-            ],
-        )?;
+        insert_value_time_split(conn, None, source_track_guid, s)?;
     }
     Ok(())
 }
 
+/// Deletes the value-time splits of one feed-scoped track, with their
+/// recipients, and inserts `splits` (ADR 0073 §2).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if any SQL delete or insert fails.
 pub fn replace_value_time_splits_for_feed_track(
     conn: &Connection,
     source_feed_guid: &str,
@@ -1538,29 +1668,20 @@ pub fn replace_value_time_splits_for_feed_track(
     splits: &[ValueTimeSplit],
 ) -> Result<(), DbError> {
     conn.execute(
+        DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
+        params![source_feed_guid, source_track_guid],
+    )?;
+    conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
         params![source_feed_guid, source_track_guid],
     )?;
     for s in splits {
-        conn.execute(
-            "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, start_time_secs, duration_secs, \
-             remote_feed_guid, remote_item_guid, split, created_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![
-                if s.source_feed_guid.is_empty() {
-                    source_feed_guid
-                } else {
-                    s.source_feed_guid.as_str()
-                },
-                source_track_guid,
-                s.start_time_secs,
-                s.duration_secs,
-                s.remote_feed_guid,
-                s.remote_item_guid,
-                s.split,
-                s.created_at,
-            ],
-        )?;
+        let feed_guid = if s.source_feed_guid.is_empty() {
+            source_feed_guid
+        } else {
+            s.source_feed_guid.as_str()
+        };
+        insert_value_time_split(conn, Some(feed_guid), source_track_guid, s)?;
     }
     Ok(())
 }
@@ -2525,7 +2646,8 @@ pub fn replace_source_platform_claims_for_feed(
 
 /// Cascade-deletes a track and all child rows, respecting FK constraints.
 ///
-/// Deletes in order: `value_time_splits`, `payment_routes`,
+/// Deletes in order: `value_time_split_recipients`, `value_time_splits`,
+/// `payment_routes`,
 /// `entity_quality`, then the `tracks` row itself.
 ///
 /// Idempotent: calling with a non-existent `track_guid` is a no-op.
@@ -2561,6 +2683,10 @@ pub(crate) fn delete_track_sql(
     feed_guid: &str,
     track_guid: &str,
 ) -> Result<(), DbError> {
+    conn.execute(
+        DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
+        params![feed_guid, track_guid],
+    )?;
     conn.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
         params![feed_guid, track_guid],
@@ -2618,10 +2744,20 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         .collect::<Result<Vec<_>, _>>()?;
 
     conn.execute(
+        "DELETE FROM value_time_split_recipients WHERE split_id IN \
+         (SELECT id FROM value_time_splits WHERE source_feed_guid = ?1)",
+        params![feed_guid],
+    )?;
+    conn.execute(
         "DELETE FROM value_time_splits WHERE source_feed_guid = ?1",
         params![feed_guid],
     )?;
     for track_guid in &track_guids {
+        conn.execute(
+            "DELETE FROM value_time_split_recipients WHERE split_id IN \
+             (SELECT id FROM value_time_splits WHERE source_track_guid = ?2 AND source_feed_guid IS NULL)",
+            params![feed_guid, track_guid],
+        )?;
         conn.execute(
             "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND source_feed_guid IS NULL",
             params![feed_guid, track_guid],
@@ -2866,6 +3002,10 @@ pub fn delete_track_with_event(
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
+    tx.execute(
+        DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
+        params![feed_guid, track_guid],
+    )?;
     tx.execute(
         "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
         params![feed_guid, track_guid],
@@ -6639,31 +6779,22 @@ pub fn ingest_transaction(
             )?;
         }
 
-        // replace value time splits
+        // replace value time splits, with their recipients (ADR 0073 §2)
+        tx.execute(
+            DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
+            params![track.feed_guid, track.track_guid],
+        )?;
         tx.execute(
             "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
             params![track.feed_guid, track.track_guid],
         )?;
         for s in splits {
-            tx.execute(
-                "INSERT INTO value_time_splits (source_feed_guid, source_track_guid, start_time_secs, duration_secs, \
-                 remote_feed_guid, remote_item_guid, split, created_at) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    if s.source_feed_guid.is_empty() {
-                        track.feed_guid.as_str()
-                    } else {
-                        s.source_feed_guid.as_str()
-                    },
-                    &track.track_guid,
-                    s.start_time_secs,
-                    s.duration_secs,
-                    s.remote_feed_guid,
-                    s.remote_item_guid,
-                    s.split,
-                    s.created_at,
-                ],
-            )?;
+            let split_feed_guid = if s.source_feed_guid.is_empty() {
+                track.feed_guid.as_str()
+            } else {
+                s.source_feed_guid.as_str()
+            };
+            insert_value_time_split(&tx, Some(split_feed_guid), &track.track_guid, s)?;
         }
 
         // replace track remote items

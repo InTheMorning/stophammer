@@ -194,6 +194,25 @@ fn each_json_response_names_its_fields() {
     }
 }
 
+/// Removes `include_params` from the example of `GET /v1/node/capabilities`.
+///
+/// That example reads the include lists from the live constants of
+/// `src/query.rs`, so a new include changes it. ADR 0073 task 002 added the
+/// first new track include after the snapshot. Each other key of the example
+/// stays in the comparison.
+fn without_live_include_lists(route: &str, now: &Value, then: &Value) -> (Value, Value) {
+    let mut now = now.clone();
+    let mut then = then.clone();
+    if route == "get /v1/node/capabilities" {
+        for example in [&mut now, &mut then] {
+            if let Some(object) = example.as_object_mut() {
+                object.remove("include_params");
+            }
+        }
+    }
+    (now, then)
+}
+
 #[test]
 fn each_example_is_unchanged() {
     let doc = document();
@@ -211,6 +230,7 @@ fn each_example_is_unchanged() {
                     .get("example");
             if let (Some(now), Some(then)) = (now, then) {
                 compared += 1;
+                let (now, then) = without_live_include_lists(&route, now, then);
                 assert_eq!(
                     now, then,
                     "ADR 0044 task 002: the example of {route} {status} changed"

@@ -145,8 +145,8 @@ fn direct_feed_delete_cleans_legacy_child_rows() {
     )
     .expect("insert track route");
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
-         VALUES ('track-delete-a', 0, 'remote-feed', 'remote-item', 100, ?1)",
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, form, created_at) \
+         VALUES ('track-delete-a', 0, 'remote-feed', 'remote-item', 'remote', ?1)",
         params![now],
     )
     .expect("insert value time split");
@@ -208,8 +208,8 @@ fn direct_track_delete_cleans_legacy_child_rows() {
     )
     .expect("insert payment route");
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, split, created_at) \
-         VALUES ('track-track-delete', 0, 'remote-feed', 'remote-item', 100, ?1)",
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, remote_feed_guid, remote_item_guid, form, created_at) \
+         VALUES ('track-track-delete', 0, 'remote-feed', 'remote-item', 'remote', ?1)",
         params![now],
     )
     .expect("insert value time split");
@@ -833,14 +833,14 @@ fn value_time_split_replace() {
 
     // Insert two VTS entries.
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at)
-         VALUES (?1, 0, 60, 'remote-feed-1', 'remote-item-1', 50, ?2)",
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at)
+         VALUES (?1, 0, 60, 'remote-feed-1', 'remote-item-1', 'remote', ?2)",
         params![&tg, now],
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at)
-         VALUES (?1, 60, 120, 'remote-feed-2', 'remote-item-2', 50, ?2)",
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at)
+         VALUES (?1, 60, 120, 'remote-feed-2', 'remote-item-2', 'remote', ?2)",
         params![&tg, now],
     )
     .unwrap();
@@ -861,8 +861,8 @@ fn value_time_split_replace() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, split, created_at)
-         VALUES (?1, 0, 180, 'remote-feed-3', 'remote-item-3', 100, ?2)",
+        "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, remote_feed_guid, remote_item_guid, form, created_at)
+         VALUES (?1, 0, 180, 'remote-feed-3', 'remote-item-3', 'remote', ?2)",
         params![&tg, now],
     )
     .unwrap();

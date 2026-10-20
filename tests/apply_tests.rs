@@ -132,9 +132,17 @@ fn apply_track_upserted() {
     // Insert a value time split.
     conn.execute(
         "INSERT INTO value_time_splits (source_track_guid, start_time_secs, duration_secs, \
-         remote_feed_guid, remote_item_guid, split, created_at) \
+         remote_feed_guid, remote_item_guid, form, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params!["track-1", 30, 60, "remote-feed-1", "remote-item-1", 50, now],
+        params![
+            "track-1",
+            30,
+            60,
+            "remote-feed-1",
+            "remote-item-1",
+            "remote",
+            now
+        ],
     )
     .unwrap();
 

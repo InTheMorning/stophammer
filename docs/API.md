@@ -1695,7 +1695,7 @@ relay means the event is dead: the stream ended, or the relay never held it.
 Canonical track lookup by parent `feed_guid` plus raw source `track_guid`.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
+- **Include options:** `payment_routes`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
 
 **Response (`200 OK`):** same shape as `GET /v1/tracks/{guid}`.
 
@@ -1714,7 +1714,7 @@ publish the same `track_guid`, the endpoint returns `409 Conflict` with
 canonical feed-scoped URLs for the caller to retry.
 
 - **Authentication:** None
-- **Include options:** `payment_routes`, `value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
+- **Include options:** `payment_routes`, `value_time_splits`, `local_value_time_splits`, `source_links`, `source_ids`, `source_contributors`, `source_release_claims`, `source_enclosures`, `source_transcripts`, `remote_items`, `publisher`
 
 **Response (`200 OK`):**
 
@@ -1751,7 +1751,29 @@ canonical feed-scoped URLs for the caller to retry.
         "duration_secs": 60,
         "remote_feed_guid": "uuid",
         "remote_item_guid": "uuid",
-        "split": 50
+        "split": 50,
+        "start_time": 0.0,
+        "duration": 60.0,
+        "remote_start_time": null,
+        "remote_percentage": 50.0
+      }
+    ],
+    "local_value_time_splits": [
+      {
+        "position": 0,
+        "start_time": 90.0,
+        "duration": 30.0,
+        "recipients": [
+          {
+            "recipient_name": "Co-host",
+            "route_type": "node",
+            "address": "02abc...lightning-pubkey",
+            "custom_key": null,
+            "custom_value": null,
+            "split": 50,
+            "fee": false
+          }
+        ]
       }
     ],
     "source_links": [
@@ -1838,6 +1860,18 @@ canonical feed-scoped URLs for the caller to retry.
 
 Notes:
 
+- `value_time_splits` lists only a row with `remote_feed_guid`. A local
+  split gives no row here. `start_time_secs` and `duration_secs` give the
+  stated value, cut down to an integer. `remote_item_guid` is `""` when
+  the source gives none. `split` is the percentage that applies: 0 to 100,
+  or 100 when the source gives none.
+- The added fields `start_time`, `duration`, `remote_start_time` and
+  `remote_percentage` give the stated values, with no default and no limit.
+  A null value means the source gives none (ADR 0073 section 4).
+- `local_value_time_splits` lists only a row with `recipients`. Each row
+  gives `position`, `start_time`, `duration` and `recipients`, a list of
+  payment routes. The list keeps the sequence of the source (ADR 0073
+  section 4).
 - `source_contributors` is preserved RSS-truth evidence from Podcast Namespace
   `person` extraction and related source parsing.
 - If a track has no track-level contributor claims of its own, the API falls
@@ -1993,7 +2027,7 @@ index (ADR 0071 section 5).
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
-    "track": ["payment_routes", "value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
+    "track": ["payment_routes", "value_time_splits", "local_value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
     "feed_list": ["link_facts", "named_feeds"],
     "artist_list": ["link_facts"]
   }
