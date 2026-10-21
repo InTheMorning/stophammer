@@ -2,7 +2,8 @@
 
 ## Status
 
-Open - 2026-09-25. This document consolidates each open request from the
+Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 are closed, and
+requests 17 and 18 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -30,22 +31,24 @@ names the requests that the two clients share.
 
 | # | Request | Kind | Priority |
 |---|---|---|---|
-| 1 | Summary fields on each `remote_items` entry | API field addition | Wanted |
-| 2 | `itemGuid` and `title` on remote items | API field addition | Wanted |
-| 3 | Summary fields on search results | API field addition | Wanted |
-| 4 | A stated maximum for `limit` | Contract correction | Small |
-| 5 | Track summary fields on each list entry | API field addition | Wanted |
-| 6 | The deployed revision in release images | Regression | Small |
-| 7 | Link and role facts on publisher feed rows | API field addition | Wanted |
-| 8 | An index for the route history read | Performance | Wanted |
-| 9 | Track titles and an image on each copy row | API field addition | Wanted |
-| 10 | Link fact filters on the publisher feed list | API parameter addition | Wanted |
-| 11 | Publisher link rules of namespace PR #793 | Contract change | Wanted |
-| 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Wanted |
+| 1 | Summary fields on each `remote_items` entry | API field addition | Deployed on 2026-09-26 (ADR 0059) |
+| 2 | `itemGuid` and `title` on remote items | API field addition | Deployed on 2026-09-26 (ADR 0060) |
+| 3 | Summary fields on search results | API field addition | Deployed on 2026-09-26 |
+| 4 | A stated maximum for `limit` | Contract correction | Deployed on 2026-09-26 |
+| 5 | Track summary fields on each list entry | API field addition | Deployed in release 0.4.0 |
+| 6 | The deployed revision in release images | Regression | Deployed in release 0.3.0 |
+| 7 | Link and role facts on publisher feed rows | API field addition | Deployed in release 0.4.0 for the list, and in release 0.13.0 for search (ADR 0076 §3) |
+| 8 | An index for the route history read | Performance | Deployed in release 0.4.1 |
+| 9 | Track titles and an image on each copy row | API field addition | Deployed by release 0.7.0 (ADR 0058 §1c) |
+| 10 | Link fact filters on the publisher feed list | API parameter addition | Deployed in release 0.5.0 |
+| 11 | Publisher link rules of namespace PR #793 | Contract change | Deployed in release 0.7.0 on 2026-10-02 |
+| 12 | The feed list of a copy of a publisher feed or a playlist | API field addition | Deployed in release 0.8.0 on 2026-10-08 |
 | 13 | Item facts on each copy row | API field addition | Deployed in release 0.10.0 on 2026-10-18 |
 | 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
+| 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
+| 18 | Summary fields on each remote value time split | API field addition | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -512,6 +515,61 @@ one for each role. The page must merge the rows to show one Nostr handle
 **Decision.** The client groups the contributor rows by `npub`. The rows
 already give each fact that a merged row gives. A second shape of the same
 facts adds work to the index and gives no new fact.
+
+### 17. The Image Of The Indexed Feed On Each Copies Row And Live Row
+
+Added on 2026-10-21. Evidence: read-only GET requests to the live API at
+revision `71aa360` (release 0.13.2) on 2026-10-21.
+
+**What happens.** A row of `GET /v1/copies` gives `feed_guid`, `feed_url`,
+`title`, `copy_count`, `copies_over_limit` and `newest_first_seen`. A row of
+`GET /v1/live-items` gives `feed_guid` and the facts of the live item. Neither
+row gives the image of the indexed feed that `feed_guid` names. A live row also
+gives no title of that feed.
+
+**What it costs.** The Browse items Copies and Live show a cover for each row
+(musicindex ADR 0015). The search site reads each named feed only to get its
+image (`indexedFeedImage`). A page of 20 rows thus sends 20 more requests.
+
+**Request.** Add these fields to each row of the two lists, for the indexed
+feed that `feed_guid` names:
+
+| Route | Field | Value |
+|---|---|---|
+| `/v1/copies` | `feed_image_url` | The channel image URL of the indexed feed. Null when it states none |
+| `/v1/live-items` | `feed_title` | The `<title>` of the feed |
+| `/v1/live-items` | `feed_image_url` | The channel image URL of the feed. Null when it states none |
+
+This is the rule of ADR 0059 §1: an entry that names a feed gives the title
+and the image of that feed. The image is the image of the indexed feed, not
+the image of a copy. So the request does not change the advice of request 9
+about the image of a copy.
+
+### 18. Summary Fields On Each Remote Value Time Split
+
+Added on 2026-10-21. Evidence: the contract at `/openapi.json` of the live API
+at revision `71aa360` on 2026-10-21, and Stophammer ADR 0073.
+
+**What happens.** With `include=value_time_splits`, a track read gives each
+split of the remote form. Each row gives `remote_feed_guid`,
+`remote_item_guid`, the times and the percentage. It gives no title, no artist
+and no image of the named feed or the named track.
+
+**What it costs.** The track page shows each split as a row that opens the
+named track (musicindex ADR 0019). To show the title, the page reads each
+named track: at most 12 requests for one track page.
+
+**Request.** Add the summary fields of ADR 0059 §1 and §5 to each remote split
+row:
+
+| Field | Value |
+|---|---|
+| `remote_feed_title`, `remote_feed_image_url`, `remote_release_artist`, `remote_release_artist_source` | The values of the feed that `remote_feed_guid` names. Null when the node does not hold it |
+| `remote_track_guid` | The `track_guid` of the indexed item that `remote_feed_guid` and `remote_item_guid` name. Null when the node does not hold it, or when `remote_item_guid` is empty |
+| `remote_track_title`, `remote_track_duration_secs`, `remote_track_image_url` | The values of that track. Null when `remote_track_guid` is null |
+
+These are the names that a `remote_items` entry already uses. Each value is a
+value that the named feed or track states.
 
 ## Stophammer Answers - 2026-09-25
 
