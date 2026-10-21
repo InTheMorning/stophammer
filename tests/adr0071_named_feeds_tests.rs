@@ -135,6 +135,8 @@ fn lists(position: i64, album: &str, rel: Option<&str>) -> Value {
 /// - `album-ghost` names `ghost`, a feed that the node does not hold, then
 ///   `label-a`.
 /// - `album-none` names no feed.
+/// - `album-oneway` names `label-c`, a held feed that does not list
+///   `album-oneway` back.
 async fn stored() -> Arc<stophammer::api::AppState> {
     let st = state(common::test_db_arc());
     ingest_as(
@@ -159,6 +161,14 @@ async fn stored() -> Arc<stophammer::api::AppState> {
     ingest_as(&st, "album-none", "music", "Artist D", json!([])).await;
     ingest_as(
         &st,
+        "album-oneway",
+        "music",
+        "Artist E",
+        json!([names(0, "label-c", None)]),
+    )
+    .await;
+    ingest_as(
+        &st,
         "label-a",
         "publisher",
         "Label A",
@@ -176,6 +186,7 @@ async fn stored() -> Arc<stophammer::api::AppState> {
         json!([lists(0, "album-two", None)]),
     )
     .await;
+    ingest_as(&st, "label-c", "publisher", "Label C", json!([])).await;
     st
 }
 
@@ -228,6 +239,7 @@ async fn an_album_gives_each_named_feed_in_rank_order() {
                 "album_names_rank",
                 "role",
                 "role_agreement",
+                "two_way_validated",
             ] {
                 assert_eq!(
                     entry[field], same[field],
@@ -237,6 +249,14 @@ async fn an_album_gives_each_named_feed_in_rank_order() {
         }
         assert_eq!(entries[0]["role"], "label", "{route}: {r}");
         assert_eq!(entries[0]["role_agreement"], "both", "{route}: {r}");
+        assert_eq!(
+            entries[0]["two_way_validated"], true,
+            "{route}: ADR 0076 §1: label-a also lists album-two, a confirmed link: {r}"
+        );
+        assert_eq!(
+            entries[1]["two_way_validated"], true,
+            "{route}: ADR 0076 §1: artist-b also lists album-two, a confirmed link: {r}"
+        );
     }
 }
 
@@ -259,8 +279,39 @@ async fn a_feed_that_the_node_does_not_hold_gives_a_null_title() {
             "{route}: ADR 0071 §3 gives a null title for a feed that the node does not hold: {r}"
         );
         assert_eq!(
+            entries[0]["two_way_validated"], false,
+            "{route}: ADR 0076 §1: a feed the node does not hold gives \
+             two_way_validated false: {r}"
+        );
+        assert_eq!(
             entries[1]["album_names_rank"], 2,
             "{route}: the held feed keeps rank 2: {r}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_held_feed_that_does_not_list_the_album_back_gives_two_way_validated_false() {
+    let st = stored().await;
+    for route in ROUTES {
+        let r = row(
+            &st,
+            &format!("{route}?limit=200&include=named_feeds"),
+            "album-oneway",
+        )
+        .await;
+        let entries = r["named_feeds"]
+            .as_array()
+            .expect("named_feeds is an array");
+        assert_eq!(entries[0]["publisher_feed_guid"], "label-c", "{route}: {r}");
+        assert!(
+            !entries[0]["remote_feed_title"].is_null(),
+            "{route}: label-c is a held feed, so its title is not null: {r}"
+        );
+        assert_eq!(
+            entries[0]["two_way_validated"], false,
+            "{route}: ADR 0076 §1: label-c does not list album-oneway back, \
+             so the link is not confirmed: {r}"
         );
     }
 }

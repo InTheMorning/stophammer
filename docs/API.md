@@ -1167,7 +1167,13 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
   silently omits the others. ADR 0047 owns that use.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
-- **Query parameters:** common pagination/include params plus optional `medium`
+- **Query parameters:** common pagination/include params plus optional
+  `medium` and `named_feed_guid`.
+- **`named_feed_guid`:** Keeps only the music releases with a `named_feeds`
+  entry for this GUID, at each rank, confirmed or not. Includes a release
+  that names a feed the node does not hold. Needs `medium=music`, and
+  conflicts with `artist_key`. A GUID that no release names gives an empty
+  list. ADR 0076 section 2.
 - **Include `link_facts`:** each publisher row gives five more fields. A row
   of another medium gives none of them. Without the include, no row gives
   them. ADR 0068 owns this include, and ADR 0071 section 2 adds
@@ -1201,6 +1207,7 @@ it from these facts.
 | `album_names_rank` | The rank of the item among the publisher items of the release (ADR 0069 §3a) |
 | `role` | The role set of the link (ADR 0049 §6) |
 | `role_agreement` | The agreement of the two sides on the role set (ADR 0049 §6a) |
+| `two_way_validated` | `true` when the album names the feed and the feed lists the album (ADR 0049). A confirmed link also has a `role_agreement` that is not `"conflict"` (ADR 0076 §1) |
 
 **Filters (ADR 0068 §4):** with `medium=publisher`, two filters keep only some
 rows. Each filter gives the four fields above on each row.
@@ -1220,7 +1227,7 @@ with `has_more` true. Follow the cursor until `has_more` is false.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none` |
+| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key` |
 
 ---
 
@@ -1242,12 +1249,17 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   collation. The node keeps a leading article such as "The", and it keeps
   punctuation and an accent.
 - **Query parameters:** common pagination params plus optional `include`,
-  `medium`, `from` and `artist_key`.
+  `medium`, `from`, `artist_key` and `named_feed_guid`.
 - **`artist_key`:** Keeps only the music releases that the `name` row of
   `GET /v1/artist-names` with this `key` counts in `release_count`. The node
   reads the set from the copy in memory of that list, so the count and the
   list agree. A key with no `name` row gives an empty list. With a `medium`
   other than `music`, the route gives `400`. ADR 0071 section 4.
+- **`named_feed_guid`:** Keeps only the music releases with a `named_feeds`
+  entry for this GUID, at each rank, confirmed or not. Includes a release
+  that names a feed the node does not hold. Needs `medium=music`, and
+  conflicts with `artist_key`. A GUID that no release names gives an empty
+  list. ADR 0076 section 2.
 - **Include `link_facts`:** each publisher row gives the five fields of
   `GET /v1/feeds/recent` with the same include (ADR 0068, ADR 0071 section
   1c).
@@ -1266,7 +1278,7 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | `artist_key` with a `medium` other than `music` |
+| 400  | `artist_key` with a `medium` other than `music`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key` |
 
 ---
 
@@ -1953,6 +1965,13 @@ needs no call for each hit. ADR 0042 owns these fields.
 - A summary field that is missing does not show if the value is missing in
   the full record.
 
+- **Include `link_facts`:** each `publisher` row gives `two_way_link_count`,
+  `stated_rels`, `agreed_roles`, `confirmed_release_artists` and
+  `first_named_count`. The node calculates each value with the functions of
+  `GET /v1/feeds/by-name?medium=publisher&include=link_facts`, over the same
+  feed. A `feed` row and a `track` row give none of them. Without the
+  include, a `publisher` row gives none of them. ADR 0076 section 3.
+
 - **Authentication:** None
 
 **Query parameters:**
@@ -1963,6 +1982,7 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `type` | string | feed/track | Filter by entity type: `feed`, `track`, `publisher` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
+| `include` | string | none | Comma-separated include list. Supports `link_facts` |
 
 **Response (`200 OK`):**
 
@@ -1994,12 +2014,26 @@ needs no call for each hit. ADR 0042 owns these fields.
       "pub_date": 1710288000,
       "track_artist": "Artist Name",
       "duration_secs": 240
+    },
+    {
+      "entity_type": "publisher",
+      "entity_id": "publisher-feed-guid",
+      "rank": -1.1,
+      "quality_score": 0,
+      "title": "Publisher Name",
+      "two_way_link_count": 3,
+      "stated_rels": ["label"],
+      "agreed_roles": ["label"],
+      "confirmed_release_artists": ["Artist Name"],
+      "first_named_count": 2
     }
   ],
   "pagination": { "cursor": "cursor-token", "has_more": true },
   "meta": { "api_version": "v1", "node_pubkey": "..." }
 }
 ```
+
+The last row needs `type=publisher&include=link_facts`.
 
 | Code | Meaning |
 |------|---------|
@@ -2029,12 +2063,15 @@ index (ADR 0071 section 5).
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
     "track": ["payment_routes", "value_time_splits", "local_value_time_splits", "source_links", "source_ids", "source_contributors", "source_release_claims", "source_enclosures", "source_transcripts", "remote_items", "publisher"],
     "feed_list": ["link_facts", "named_feeds"],
-    "artist_list": ["link_facts"]
+    "artist_list": ["link_facts"],
+    "search": ["link_facts"]
   }
 }
 ```
 
 `feed_list` gives the include names of `GET /v1/feeds/recent` (ADR 0068).
+
+`search` gives the include names of `GET /v1/search` (ADR 0076 section 3).
 
 `name_lists` marks `GET /v1/feeds/by-name` and `GET /v1/artist-names` (ADR
 0070 section 6).

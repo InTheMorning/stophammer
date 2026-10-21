@@ -311,7 +311,8 @@
       "publisher_feed_guid",
       "remote_feed_title",
       "role",
-      "role_agreement"
+      "role_agreement",
+      "two_way_validated"
     ]
   },
   "NodeInfoResponse": {
@@ -483,6 +484,8 @@
   },
   "SearchResponseItem": {
     "properties": [
+      "agreed_roles",
+      "confirmed_release_artists",
       "duration_secs",
       "entity_id",
       "entity_type",
@@ -490,15 +493,18 @@
       "feed_guid",
       "feed_image_url",
       "feed_title",
+      "first_named_count",
       "href",
       "pub_date",
       "quality_score",
       "rank",
       "release_artist",
       "release_artist_source",
+      "stated_rels",
       "title",
       "track_artist",
-      "track_image_url"
+      "track_image_url",
+      "two_way_link_count"
     ]
   },
   "SourceContributorClaimResponse": {

@@ -35,6 +35,8 @@ deployed, except the items below. The primary sets
 - ADR 0060 task 004: each skip store of the crawler keeps a `musicL` feed.
   A test enforces each rule of ADR 0060 and ADR 0072. Move both to the
   archive after the release that deploys them.
+- ADR 0076: each task in `docs/tasks/`. The v4vmm operator checks its two
+  visual criteria after the release.
 - [ADR 0075](docs/adr/0075-the-primary-is-the-only-peer-bootstrap.md): a
   community node registers only with the primary. The release notes must say
   that `TRACKER_URL` is removed.
@@ -81,7 +83,7 @@ The requests of v4vmm and musicindex.org are in
 request has an answer. v4vmm requests 1 to 8 and musicindex.org requests 1 to
 15 are deployed. musicindex.org request 16 is declined. v4vmm request 9 is
 Accepted as [ADR 0076](docs/adr/0076-a-named-feed-entry-states-its-confirmation.md).
-Its tasks 001 to 003 are open, and no release holds them.
+Its tasks 001 to 003 are complete and not deployed.
 
 ### Governance
 

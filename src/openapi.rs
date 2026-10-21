@@ -164,7 +164,8 @@ fn spec_value(mode: DocMode) -> Value {
                     include_query_param(query::FEED_LIST_INCLUDES),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("stated_rel", "string", None, false, "With `medium=publisher`: keep only the rows with this role token in `stated_rels`. The value is lowercased (ADR 0068 sections 4 and 5). Gives the link facts."),
-                    query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts.")
+                    query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts."),
+                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2).")
                 ],
                 None,
                 json!({
@@ -201,7 +202,8 @@ fn spec_value(mode: DocMode) -> Value {
                     include_query_param(query::FEED_LIST_INCLUDES),
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
-                    query_param("artist_key", "string", None, false, "Keeps only the music releases that the `name` row of `GET /v1/artist-names` with this `key` counts in `release_count` (ADR 0071 section 4). Needs `medium=music`. A key with no `name` row gives an empty list.")
+                    query_param("artist_key", "string", None, false, "Keeps only the music releases that the `name` row of `GET /v1/artist-names` with this `key` counts in `release_count` (ADR 0071 section 4). Needs `medium=music`. A key with no `name` row gives an empty list."),
+                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2).")
                 ],
                 None,
                 json!({
@@ -525,7 +527,8 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("q", "string", None, true, "Search query (FTS5 syntax)."),
                     query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
-                    query_param("cursor", "string", None, false, "Opaque keyset pagination cursor.")
+                    query_param("cursor", "string", None, false, "Opaque keyset pagination cursor."),
+                    include_query_param(query::SEARCH_INCLUDES)
                 ],
                 None,
                 json!({

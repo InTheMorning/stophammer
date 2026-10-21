@@ -114,6 +114,11 @@ pub struct ListQuery {
     /// ADR 0071 §4: `GET /v1/feeds/by-name` gives only the releases that the
     /// `name` row with this `key` counts. Ignored by every other route.
     artist_key: Option<String>,
+    /// ADR 0076 §2: `GET /v1/feeds/by-name` and `GET /v1/feeds/recent` give
+    /// only the music releases with a `named_feeds` entry for this GUID, at
+    /// each rank, confirmed or not. Needs `medium=music`, and conflicts with
+    /// `artist_key`.
+    named_feed_guid: Option<String>,
 }
 
 impl ListQuery {
@@ -135,6 +140,16 @@ pub struct SearchQuery {
     kind: Option<String>,
     limit: Option<i64>,
     cursor: Option<String>,
+    /// ADR 0076 §3: `link_facts` on a `publisher` row.
+    include: Option<String>,
+}
+
+impl SearchQuery {
+    fn includes(&self, field: &str) -> bool {
+        self.include
+            .as_deref()
+            .is_some_and(|s| s.split(',').any(|f| f.trim() == field))
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -212,6 +227,9 @@ pub const FEED_LIST_INCLUDES: &[&str] = &["link_facts", "named_feeds"];
 
 /// The include names `GET /v1/artist-names` accepts. ADR 0071 §2.
 pub const ARTIST_NAME_INCLUDES: &[&str] = &["link_facts"];
+
+/// The include names `GET /v1/search` accepts. ADR 0076 §3.
+pub const SEARCH_INCLUDES: &[&str] = &["link_facts"];
 
 /// The include names `GET /v1/tracks/{guid}` accepts.
 pub const TRACK_INCLUDES: &[&str] = &[
@@ -739,6 +757,29 @@ struct SearchResponseItem {
     track_artist: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     duration_secs: Option<i64>,
+    /// The count of confirmed album links of a `publisher` row. The field
+    /// is only on a `publisher` row, with `include=link_facts`. The node
+    /// calculates it with [`link_facts`] over [`load_publisher`], as a list
+    /// row does. ADR 0076 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    two_way_link_count: Option<i64>,
+    /// The role tokens of the `publisher_rel` values of the confirmed rows.
+    /// The field is only on the row with `two_way_link_count`. ADR 0076 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stated_rels: Option<Vec<String>>,
+    /// The role tokens that the two sides of a confirmed row agree on. The
+    /// field is only on the row with `two_way_link_count`. ADR 0076 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    agreed_roles: Option<Vec<String>>,
+    /// The confirmed release artists of the row. The field is only on the
+    /// row with `two_way_link_count`. ADR 0076 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    confirmed_release_artists: Option<Vec<String>>,
+    /// The count of confirmed links with the album that names this feed
+    /// first. The field is only on the row with `two_way_link_count`. ADR
+    /// 0076 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    first_named_count: Option<i64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1057,6 +1098,10 @@ struct NamedFeedEntry {
     role: Option<String>,
     /// The agreement of the two sides on the role set. ADR 0049 §6a.
     role_agreement: Option<String>,
+    /// `true` when the album names the feed and the feed lists the album. A
+    /// confirmed link also has a `role_agreement` that is not `conflict`.
+    /// ADR 0049, ADR 0076 §1.
+    two_way_validated: bool,
 }
 
 impl NamedFeedEntry {
@@ -1073,6 +1118,7 @@ impl NamedFeedEntry {
                 album_names_rank: row.album_names_rank,
                 role: row.role,
                 role_agreement: row.role_agreement,
+                two_way_validated: row.two_way_validated,
             })
             .collect();
         entries.sort_by_key(|entry| (entry.album_names_rank.is_none(), entry.album_names_rank));
@@ -4038,6 +4084,46 @@ impl LinkFactFilter {
     }
 }
 
+/// ADR 0076 §2: the `400` that `GET /v1/feeds/by-name` and `GET
+/// /v1/feeds/recent` give when `named_feed_guid` conflicts with `medium` or
+/// with `artist_key`. Each message names the conflict. Gives `Ok(())` when
+/// `params` carries no `named_feed_guid`, or no conflict.
+fn check_named_feed_guid(params: &ListQuery, medium: &str) -> Result<(), api::ApiError> {
+    if params.named_feed_guid.is_none() {
+        return Ok(());
+    }
+    if medium != "music" {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "named_feed_guid needs medium=music (ADR 0076 section 2)".into(),
+            www_authenticate: None,
+        });
+    }
+    if params.artist_key.is_some() {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "named_feed_guid conflicts with artist_key (ADR 0076 section 2)".into(),
+            www_authenticate: None,
+        });
+    }
+    Ok(())
+}
+
+/// The `only_guids` JSON array for `named_feed_guid` (ADR 0076 §2): the
+/// feeds with a `named_feeds` entry for that GUID. [`by_name_feed_rows`] and
+/// [`recent_feed_rows`] take this same encoded form for `artist_key`.
+fn named_feed_guid_only_guids(
+    conn: &rusqlite::Connection,
+    named_feed_guid: &str,
+) -> Result<String, api::ApiError> {
+    let guids = db::get_feeds_naming_feed(conn, named_feed_guid)?;
+    serde_json::to_string(&guids).map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("named feed guid set encoding error: {e}"),
+        www_authenticate: None,
+    })
+}
+
 /// Decodes a cursor of `GET /v1/feeds/recent`.
 fn parse_recent_cursor(cursor: &str) -> Result<RecentCursor, api::ApiError> {
     let decoded = decode_cursor(cursor)?;
@@ -4064,10 +4150,14 @@ fn parse_recent_cursor(cursor: &str) -> Result<RecentCursor, api::ApiError> {
 
 /// Reads at most `count` rows of `GET /v1/feeds/recent` after `after`, in
 /// the sequence of the route.
+///
+/// `only_guids` is null, or a JSON array of the feed GUIDs to keep (ADR 0076
+/// §2, the same condition [`by_name_feed_rows`] has for ADR 0071 §4).
 fn recent_feed_rows(
     conn: &rusqlite::Connection,
     medium: &str,
     after: Option<RecentCursor>,
+    only_guids: Option<&str>,
     count: i64,
 ) -> Result<Vec<FeedRow>, api::ApiError> {
     let (cursor_ts, cursor_guid) = after.map_or((None, None), |(ts, guid)| (Some(ts), Some(guid)));
@@ -4079,34 +4169,38 @@ fn recent_feed_rows(
          FROM feeds \
          WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
            AND (?2 IS NULL OR (COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3)) \
+           AND (?5 IS NULL OR feed_guid IN (SELECT value FROM json_each(?5))) \
          ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
          LIMIT ?4",
     )?;
     let rows = stmt
-        .query_map(params![medium, cursor_ts, cursor_guid, count], |row| {
-            Ok(FeedRow {
-                feed_guid: row.get(0)?,
-                feed_url: row.get(1)?,
-                title: row.get(2)?,
-                raw_medium: row.get(3)?,
-                release_artist: row.get(4)?,
-                release_artist_sort: row.get(5)?,
-                release_date: row.get(6)?,
-                release_kind: row.get(7)?,
-                description: row.get(8)?,
-                image_url: row.get(9)?,
-                publisher_text: row.get(10)?,
-                language: row.get(11)?,
-                explicit_int: row.get(12)?,
-                episode_count: row.get(13)?,
-                newest_item_at: row.get(14)?,
-                oldest_item_at: row.get(15)?,
-                created_at: row.get(16)?,
-                updated_at: row.get(17)?,
-                last_build_date: row.get(18)?,
-                release_artist_source: row.get(19)?,
-            })
-        })?
+        .query_map(
+            params![medium, cursor_ts, cursor_guid, count, only_guids],
+            |row| {
+                Ok(FeedRow {
+                    feed_guid: row.get(0)?,
+                    feed_url: row.get(1)?,
+                    title: row.get(2)?,
+                    raw_medium: row.get(3)?,
+                    release_artist: row.get(4)?,
+                    release_artist_sort: row.get(5)?,
+                    release_date: row.get(6)?,
+                    release_kind: row.get(7)?,
+                    description: row.get(8)?,
+                    image_url: row.get(9)?,
+                    publisher_text: row.get(10)?,
+                    language: row.get(11)?,
+                    explicit_int: row.get(12)?,
+                    episode_count: row.get(13)?,
+                    newest_item_at: row.get(14)?,
+                    oldest_item_at: row.get(15)?,
+                    created_at: row.get(16)?,
+                    updated_at: row.get(17)?,
+                    last_build_date: row.get(18)?,
+                    release_artist_source: row.get(19)?,
+                })
+            },
+        )?
         .collect::<Result<_, _>>()?;
     Ok(rows)
 }
@@ -4127,7 +4221,10 @@ fn filtered_recent_rows(
     let mut kept: Vec<FeedRow> = Vec::new();
     let mut examined = 0_usize;
     loop {
-        let batch = recent_feed_rows(conn, medium, after.clone(), LINK_FACT_FILTER_BATCH)?;
+        // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and this
+        // filter needs `medium=publisher` (ADR 0068 §4), so the two never
+        // apply at the same time. `only_guids` is always null here.
+        let batch = recent_feed_rows(conn, medium, after.clone(), None, LINK_FACT_FILTER_BATCH)?;
         let at_end = batch.len() < usize::try_from(LINK_FACT_FILTER_BATCH).unwrap_or(usize::MAX);
         for row in batch {
             examined += 1;
@@ -4273,6 +4370,15 @@ async fn handle_get_recent_feeds(
         // compares one lowered column against one lowered bind.
         let medium = params.medium.as_deref().unwrap_or("music").to_lowercase();
 
+        // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and
+        // conflicts with `artist_key`. Each message names the conflict.
+        check_named_feed_guid(&params, &medium)?;
+        let only_guids = params
+            .named_feed_guid
+            .as_deref()
+            .map(|guid| named_feed_guid_only_guids(&conn, guid))
+            .transpose()?;
+
         let filter = LinkFactFilter::from_params(&params, &medium)?;
         let mut after = params
             .cursor
@@ -4283,7 +4389,13 @@ async fn handle_get_recent_feeds(
         let (items, has_more, next_after) = if let Some(filter) = &filter {
             filtered_recent_rows(&conn, &medium, after, limit, filter)?
         } else {
-            let rows = recent_feed_rows(&conn, &medium, after.take(), limit + 1)?;
+            let rows = recent_feed_rows(
+                &conn,
+                &medium,
+                after.take(),
+                only_guids.as_deref(),
+                limit + 1,
+            )?;
             let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
             let items: Vec<FeedRow> = rows
                 .into_iter()
@@ -4457,26 +4569,37 @@ async fn handle_get_feeds_by_name(
             None
         };
 
+        // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and
+        // conflicts with `artist_key`. Each message names the conflict.
+        check_named_feed_guid(&params, &medium)?;
+
         // ADR 0071 §4: `artist_key` keeps the releases that the `name` row
         // with that key counts. The set comes from the same copy in memory as
-        // `release_count`, so the count and the list agree.
-        let only_guids = match params.artist_key.as_deref() {
-            None => None,
-            Some(_) if medium != "music" => {
-                return Err(api::ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "artist_key needs medium=music".into(),
-                    www_authenticate: None,
-                });
-            }
-            Some(key) => {
-                let list = state2.artist_name_cache.get_or_build(&conn)?;
-                let guids = list.name_releases.get(key).cloned().unwrap_or_default();
-                Some(serde_json::to_string(&guids).map_err(|e| api::ApiError {
-                    status: StatusCode::INTERNAL_SERVER_ERROR,
-                    message: format!("artist_key set encoding error: {e}"),
-                    www_authenticate: None,
-                })?)
+        // `release_count`, so the count and the list agree. ADR 0076 §2:
+        // `named_feed_guid` keeps the releases with a `named_feeds` entry
+        // for that GUID. The check above keeps the two filters apart, so at
+        // most one of them builds `only_guids`.
+        let only_guids = if let Some(guid) = params.named_feed_guid.as_deref() {
+            Some(named_feed_guid_only_guids(&conn, guid)?)
+        } else {
+            match params.artist_key.as_deref() {
+                None => None,
+                Some(_) if medium != "music" => {
+                    return Err(api::ApiError {
+                        status: StatusCode::BAD_REQUEST,
+                        message: "artist_key needs medium=music".into(),
+                        www_authenticate: None,
+                    });
+                }
+                Some(key) => {
+                    let list = state2.artist_name_cache.get_or_build(&conn)?;
+                    let guids = list.name_releases.get(key).cloned().unwrap_or_default();
+                    Some(serde_json::to_string(&guids).map_err(|e| api::ApiError {
+                        status: StatusCode::INTERNAL_SERVER_ERROR,
+                        message: format!("artist_key set encoding error: {e}"),
+                        www_authenticate: None,
+                    })?)
+                }
             }
         };
 
@@ -4965,6 +5088,9 @@ async fn handle_search(
     tracing::info!(q = ?q, kind = ?kind, "search query received");
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
+    // ADR 0076 §3: the link facts of a `publisher` row, only with the
+    // include.
+    let include_link_facts = params.includes("link_facts");
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Parse keyset cursor: base64(f64_bits_as_decimal \0 rowid_as_decimal).
@@ -5120,6 +5246,28 @@ async fn handle_search(
                         summary = feed_search_summary(&conn, &entity_id)?;
                     }
 
+                    // ADR 0076 §3: a `publisher` row gives its link facts
+                    // with the include, calculated as a list row does. A
+                    // `feed` row and a `track` row give none of them.
+                    let (
+                        two_way_link_count,
+                        stated_rels,
+                        agreed_roles,
+                        confirmed_release_artists,
+                        first_named_count,
+                    ) = if include_link_facts && r.entity_type == "publisher" {
+                        let facts = link_facts(&load_publisher(&conn, &entity_id)?);
+                        (
+                            Some(facts.two_way_link_count),
+                            Some(facts.stated_rels),
+                            Some(facts.agreed_roles),
+                            Some(facts.confirmed_release_artists),
+                            Some(facts.first_named_count),
+                        )
+                    } else {
+                        (None, None, None, None, None)
+                    };
+
                     Ok(SearchResponseItem {
                         entity_type: r.entity_type,
                         entity_id,
@@ -5139,6 +5287,11 @@ async fn handle_search(
                         episode_count: summary.episode_count,
                         track_artist: summary.track_artist,
                         duration_secs: summary.duration_secs,
+                        two_way_link_count,
+                        stated_rels,
+                        agreed_roles,
+                        confirmed_release_artists,
+                        first_named_count,
                     })
                 })
                 .collect()
@@ -5181,6 +5334,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
     include_params.insert("feed_list", FEED_LIST_INCLUDES.to_vec());
     // ADR 0071 §2: the include names of `GET /v1/artist-names`.
     include_params.insert("artist_list", ARTIST_NAME_INCLUDES.to_vec());
+    // ADR 0076 §3: the include names of `GET /v1/search`.
+    include_params.insert("search", SEARCH_INCLUDES.to_vec());
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),

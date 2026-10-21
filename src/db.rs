@@ -5650,6 +5650,106 @@ pub fn get_publisher_album_release_artists(
     Ok(albums)
 }
 
+// ── named feed filter (ADR 0076 §2) ─────────────────────────────────────────
+
+/// Returns the `feed_guid` of each feed with a remote item that names
+/// `named_feed_guid`: `medium = "publisher"`, `source = "podcast_publisher"`
+/// (ADR 0069 §1a), and a resolution equal to `named_feed_guid`.
+///
+/// The resolution follows [`resolve_listed_feed`], the function that builds
+/// a `music_to_publisher` row of the `publisher` view. This result thus
+/// agrees with the `named_feeds` entries of ADR 0071 §3. When the node holds
+/// no feed for `named_feed_guid`, a declared `remote_feed_guid` equal to it
+/// also matches: that is the `publisher_feed_guid` a `named_feeds` entry
+/// gives for a feed the node does not hold (ADR 0076 §1, the row "The node
+/// does not hold the named feed").
+///
+/// This mirrors the two-step search of
+/// [`get_publisher_album_release_artists`]: the GUID step, then the URL step
+/// over the URLs observed for `named_feed_guid`, each confirmed with
+/// [`resolve_listed_feed`]. A feed that the GUID step names, and that the
+/// URL step also names, counts one time. The order of the result is not
+/// defined. Sort it before use.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails.
+pub fn get_feeds_naming_feed(
+    conn: &Connection,
+    named_feed_guid: &str,
+) -> Result<Vec<String>, DbError> {
+    let mut matched_feed_guids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    // GUID step: SEARCH feed_remote_items_raw USING INDEX
+    // idx_feed_remote_items_guid (remote_feed_guid=?).
+    let mut guid_stmt = conn.prepare(
+        "SELECT feed_guid, remote_feed_guid, remote_feed_url \
+         FROM feed_remote_items_raw \
+         WHERE medium = 'publisher' AND source = 'podcast_publisher' \
+           AND remote_feed_guid = ?1",
+    )?;
+    let guid_candidates = guid_stmt.query_map(params![named_feed_guid], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    })?;
+    for candidate in guid_candidates {
+        let (feed_guid, remote_feed_guid, remote_feed_url) = candidate?;
+        let resolution = resolve_listed_feed(conn, &remote_feed_guid, remote_feed_url.as_deref())?;
+        // Resolved to `named_feed_guid`, or not held at all: either way the
+        // `publisher` view names `named_feed_guid` (ADR 0076 §1). Resolved
+        // to a different held feed: that feed is named, not this one.
+        let names_it = resolution
+            .feed_guid()
+            .is_none_or(|resolved| resolved == named_feed_guid);
+        if names_it {
+            matched_feed_guids.insert(feed_guid);
+        }
+    }
+
+    // URL step: only when the node holds `named_feed_guid`. A feed the node
+    // does not hold has no observed URL to search, and the GUID step above
+    // already keeps a declared GUID that matches it literally.
+    if let Some(feed) = get_feed(conn, named_feed_guid)? {
+        let mut observed_urls: std::collections::HashSet<String> = {
+            let mut stmt =
+                conn.prepare("SELECT url FROM feed_url_observations WHERE feed_guid = ?1")?;
+            stmt.query_map(params![named_feed_guid], |row| row.get(0))?
+                .collect::<Result<_, _>>()?
+        };
+        observed_urls.insert(feed.feed_url);
+
+        for url in &observed_urls {
+            let mut url_stmt = conn.prepare(
+                "SELECT feed_guid, remote_feed_guid, remote_feed_url \
+                 FROM feed_remote_items_raw \
+                 WHERE medium = 'publisher' AND source = 'podcast_publisher' \
+                   AND remote_feed_url = ?1",
+            )?;
+            let url_candidates = url_stmt.query_map(params![url], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                ))
+            })?;
+            for candidate in url_candidates {
+                let (feed_guid, remote_feed_guid, remote_feed_url) = candidate?;
+                let resolution =
+                    resolve_listed_feed(conn, &remote_feed_guid, remote_feed_url.as_deref())?;
+                if resolution.feed_guid() == Some(named_feed_guid) {
+                    matched_feed_guids.insert(feed_guid);
+                }
+            }
+        }
+    }
+
+    Ok(matched_feed_guids.into_iter().collect())
+}
+
 // ── publisher link statistics (ADR 0049 §8) ─────────────────────────────────
 
 /// The counts [`get_publisher_link_stats`] returns, one per resolution kind.
