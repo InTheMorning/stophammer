@@ -1,6 +1,9 @@
 # ADR 0060: A List Feed Keeps Its Items
 
 ## Status
+Archived on 2026-10-21, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-09-26
 
 ## Date
@@ -13,7 +16,7 @@ element gives `feedGuid`, which is required, and `feedUrl`, `itemGuid`,
 `medium` and `title`, which are optional. When an element gives `itemGuid`, it
 names one track, and the feed is a track playlist.
 
-[The musicL research](../reviews/musicl-support-research.md) found these facts
+[The musicL research](../../reviews/musicl-support-research.md) found these facts
 on 2026-09-25:
 
 - Podcast Index holds 11 `musicL` feeds. 6 are track playlists of 8 to 383
@@ -33,7 +36,7 @@ source data.
 
 musicindex.org request 2 asks for `itemGuid` and `title` on each
 `remote_items` entry, and for the indexed track that they name. The request is
-in [the musicindex.org requests](../plans/musicindex-open-requests.md).
+in [the musicindex.org requests](../../plans/musicindex-open-requests.md).
 
 ADR 0040 makes the track identity the pair of `feed_guid` and the raw
 `track_guid`. The raw `track_guid` is the `guid` of the item. Thus the pair of

@@ -6,19 +6,12 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Current priority - 2026-10-20: the release of ADR 0072, ADR 0073 and ADR 0074.
-
-The research request of 2026-10-20 follows
-[the compression, splits and GUID plan](docs/plans/compression-splits-guid-phase-plan.md).
-[ADR 0072](docs/adr/0072-a-feed-fetch-accepts-compression.md),
-[ADR 0073](docs/adr/0073-a-value-time-split-keeps-both-forms.md) and
-[ADR 0074](docs/adr/0074-a-feed-without-a-guid-is-invalid.md) are Accepted.
-Each of their tasks is complete and not deployed. The release notes must say
-that community nodes upgrade first (ADR 0073 §3).
+No release is open. Release 0.13.0 of 2026-10-21 delivered ADR 0072 to
+ADR 0076, the research request of 2026-10-20 and v4vmm request 9.
 
 ### Deployed
 
-Release 0.12.0 of 2026-10-18 is the latest release. The primary and the gossip
+Release 0.13.0 of 2026-10-21 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -31,15 +24,11 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- ADR 0072, ADR 0073 and ADR 0074: each task in `docs/tasks/`.
-- ADR 0060 task 004: each skip store of the crawler keeps a `musicL` feed.
-  A test enforces each rule of ADR 0060 and ADR 0072. Move both to the
-  archive after the release that deploys them.
-- ADR 0076: each task in `docs/tasks/`. The v4vmm operator checks its two
-  visual criteria after the release.
-- [ADR 0075](docs/adr/0075-the-primary-is-the-only-peer-bootstrap.md): a
-  community node registers only with the primary. The release notes must say
-  that `TRACKER_URL` is removed.
+- The rate limiter keys a client by `X-Real-IP` when `TRUST_PROXY=true`, and
+  removes idle keys. `docker-compose.yml` publishes 8008 and 8089 on
+  `127.0.0.1` only. The release notes must say that the operator sets
+  `TRUST_PROXY=true` in `primary.compose.env`, and pulls `docker-compose.yml`
+  on the host, in the same deploy.
 
 ### Open Items
 
@@ -49,6 +38,8 @@ deployed, except the items below. The primary sets
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - ADR 0070 §4a: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
+- ADR 0076: the v4vmm operator checks its two visual criteria on release
+  0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of
   release 0.3.0 or later. After the next stop of the gossip crawler, examine
   its memory during the catch-up.
@@ -78,10 +69,9 @@ deployed, except the items below. The primary sets
 The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
-request has an answer. v4vmm requests 1 to 8 and musicindex.org requests 1 to
-15 are deployed. musicindex.org request 16 is declined. v4vmm request 9 is
-Accepted as [ADR 0076](docs/adr/0076-a-named-feed-entry-states-its-confirmation.md).
-Its tasks 001 to 003 are complete and not deployed.
+v4vmm requests 1 to 9 and musicindex.org requests 1 to 15 are deployed.
+musicindex.org request 16 is declined. v4vmm request 10, about the search query
+text, is a draft. The v4vmm operator examines it before Stophammer answers.
 
 ### Governance
 
@@ -211,8 +201,7 @@ The `feed`, `refresh`, `gossip` and `import` modes keep a fetch cache (ADR
 
 `feed`, `refresh` and `gossip` follow a publisher link, and the albums of a
 `musicL` list. The tests of the archived ADR 0049 section 2 own the publisher
-rule. ADR 0060 sections
-5 and 6 own the list rule. `feed` and `refresh` follow in three waves: the input feeds,
+rule. The tests of the archived ADR 0060 sections 5 and 6 own the list rule. `feed` and `refresh` follow in three waves: the input feeds,
 the feeds they name, and the album list of a publisher found through an
 album. `gossip` follows in two levels, with its own throttle.
 

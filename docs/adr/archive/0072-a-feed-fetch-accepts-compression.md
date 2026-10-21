@@ -1,6 +1,9 @@
 # ADR 0072: A Feed Fetch Accepts Compression
 
 ## Status
+Archived on 2026-10-21, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-10-20, for the research request on crawler compression. Tasks
 001 to 003 give the build. It
 amends ADR 0050 §2 and §6. It supersedes the section "Content hash strategy"
@@ -11,12 +14,12 @@ of ADR 0011.
 
 ## Context
 
-[The research request](../plans/research-crawler-compression-and-value-time-split-request.md)
+[The research request](../../plans/research-crawler-compression-and-value-time-split-request.md)
 of 2026-10-20 found that a feed fetch sends no `Accept-Encoding` header. The
 crawler declares `reqwest` without the `gzip` and `brotli` features, so it
 cannot decode a compressed body. A feed request also sends no `Accept` header.
 
-[The verification record](../reviews/research-crawler-compression-and-value-time-split-verification.md)
+[The verification record](../../reviews/research-crawler-compression-and-value-time-split-verification.md)
 confirmed these facts on stophammer-crawler `b142c79`. The two tests of the
 request fail on that revision and pass with the fix.
 

@@ -2,7 +2,11 @@
 
 ## Status
 
-Open - 2026-10-20. This request comes from the research repository at
+Deployed - 2026-10-21 in release 0.13.0. Section 1 is decided in
+[ADR 0072](../adr/archive/0072-a-feed-fetch-accepts-compression.md), and
+section 2 in [ADR 0073](../adr/0073-a-value-time-split-keeps-both-forms.md).
+
+Received - 2026-10-20. This request comes from the research repository at
 `~/build/musicindex-research`. That repository has no Git remote. Its index is
 `AGENTS.md`. The background is `research_notes/aggregation/podcast-index-pipeline.md`
 in that repository.
