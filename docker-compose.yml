@@ -30,7 +30,10 @@ services:
     volumes:
       - primary-data:/data
     ports:
-      - "8008:8008"
+      # Host loopback only: nginx proxies the public API here. The crawler
+      # reaches the primary on the Compose network. Publishing on all
+      # interfaces would let a client skip nginx, its TLS and X-Real-IP.
+      - "127.0.0.1:8008:8008"
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8008/health"]
       interval: 10s
@@ -82,7 +85,9 @@ services:
       podping-listener-init:
         condition: service_completed_successfully
     ports:
-      - "8089:8089"
+      # Host loopback only: the gossip crawler reads the stream on the
+      # Compose network, and no client outside the host needs it.
+      - "127.0.0.1:8089:8089"
 
   crawler-init:
     logging: *default-logging

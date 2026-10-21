@@ -50,7 +50,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 |----------|---------|-------------|
 | `RATE_LIMIT_RPS` | `50` | Requests per second per IP (token bucket refill rate). |
 | `RATE_LIMIT_BURST` | `100` | Maximum burst size per IP. |
-| `TRUST_PROXY` | `false` | Set to `true` when behind a reverse proxy. Uses `X-Forwarded-For` for client IP extraction. When `false` (default), `X-Forwarded-For` is ignored to prevent IP spoofing. |
+| `TRUST_PROXY` | `false` | Set to `true` when behind a reverse proxy that sets `X-Real-IP $remote_addr`. The rate limiter then keys each client by `X-Real-IP`. It never reads `X-Forwarded-For`, because the client writes its first value. Set it only when the node listens on loopback. When `false` (default), the key is the TCP peer address. An IPv6 key is its /64 prefix. |
 
 ### Security
 
@@ -209,6 +209,13 @@ the listener's node key, peer cache, `archive.db`, and the SSE stream that
 `gossip` consumes at `http://podping-listener:8089/events`.
 One-shot `podping-listener-init` and `crawler-init` services fix named-volume ownership
 before the long-running non-root containers start.
+
+The stack publishes `primary` on `127.0.0.1:8008` and `podping-listener` on
+`127.0.0.1:8089`. A client outside the host reaches the API only through the
+reverse proxy. Set `TRUST_PROXY=true` in `primary.compose.env`, and make the
+proxy set `X-Real-IP $remote_addr`. A Compose override file adds to a `ports`
+list and does not replace it, so a change of a published port goes in
+`docker-compose.yml`.
 
 The listener keeps `ARCHIVE_RETENTION_DAYS` of podpings in `archive.db`, 30 by
 default. After an outage, the `gossip` crawler replays the archive from its
@@ -402,7 +409,7 @@ Plain HTTP is acceptable only for:
 
 ### Reverse Proxy Alternative
 
-If you prefer nginx or Caddy in front of the node, leave `TLS_DOMAIN` unset and set `TRUST_PROXY=true` so the node reads `X-Forwarded-For` correctly.
+If you prefer nginx or Caddy in front of the node, leave `TLS_DOMAIN` unset and set `TRUST_PROXY=true` so the node reads `X-Real-IP` from the proxy.
 
 Example primary setup behind nginx:
 
@@ -435,6 +442,7 @@ server {
         proxy_http_version 1.1;
 
         proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto https;
         proxy_set_header X-Forwarded-Host $host;
@@ -448,8 +456,9 @@ server {
 
 Notes:
 - Keep `TLS_DOMAIN` unset when nginx terminates TLS.
-- Set `TRUST_PROXY=true` so Stophammer uses `X-Forwarded-For` instead of the
-  nginx loopback address for rate limiting and request logging.
+- Set `TRUST_PROXY=true` so Stophammer uses `X-Real-IP` instead of the
+  nginx loopback address for rate limiting. Without it, all clients share one
+  rate limit.
 - Binding Stophammer to `127.0.0.1:8008` keeps the plain-HTTP upstream private
   to the same host.
 - The same pattern works for community nodes; proxy to the community node's
@@ -893,7 +902,7 @@ The node is returning 429 responses. Increase limits:
 RATE_LIMIT_RPS=100 RATE_LIMIT_BURST=200 ./stophammer
 ```
 
-Or if behind a proxy, ensure `TRUST_PROXY=true` so rate limiting uses the real client IP, not the proxy IP.
+Or if behind a proxy, set `TRUST_PROXY=true` and make the proxy set `X-Real-IP $remote_addr`. Then rate limiting uses the real client IP, not the proxy IP.
 
 ### Database mutex poisoned
 

@@ -391,43 +391,101 @@ fn v2_sse_no_cross_pollination() {
 }
 
 // ============================================================================
-// NEW ATTACK SURFACE: Rate limiter — X-Forwarded-For spoofing
+// Rate limiter key — Finding-SEC-2026-10-21 — 2026-10-21
 //
-// FINDING: VULNERABLE (when not behind a trusted reverse proxy)
-//
-// The rate limiter (main.rs apply_rate_limit) extracts the client IP from:
-//   1. X-Forwarded-For header (first hop: s.split(',').next())
-//   2. ConnectInfo<SocketAddr> (fallback)
-//   3. "unknown" (ultimate fallback)
-//
-// If the server is directly exposed (no reverse proxy), an attacker can
-// spoof X-Forwarded-For with any IP to bypass rate limiting entirely.
-// Each request uses a different spoofed IP, getting a fresh bucket.
-//
-// Mitigation: only trust X-Forwarded-For when behind a known proxy, or
-// use ConnectInfo exclusively when no trusted proxy is configured.
+// `api::rate_limit_key` reads `X-Real-IP` only when `TRUST_PROXY` is set. It
+// never reads `X-Forwarded-For`, because the client writes the first value of
+// that header. An IPv6 client is keyed by its /64 prefix.
 // ============================================================================
 
-#[test]
-fn v2_rate_limiter_xff_spoofing() {
-    // The rate limiter uses the string IP as the key. An attacker who
-    // controls the X-Forwarded-For header can use a different "IP" on
-    // each request, getting a separate rate limit bucket for each.
-    let limiter = stophammer::api::build_rate_limiter(1, 1);
-
-    // First request as "real" IP: passes
-    assert!(limiter.check_key(&"10.0.0.1".to_string()).is_ok());
-    // Second request as same IP: limited
-    assert!(limiter.check_key(&"10.0.0.1".to_string()).is_err());
-
-    // Attacker spoofs different X-Forwarded-For on each request:
-    for i in 0..100 {
-        let spoofed_ip = format!("spoofed-{i}");
-        assert!(
-            limiter.check_key(&spoofed_ip).is_ok(),
-            "XFF SPOOFING: spoofed IP {spoofed_ip} gets its own fresh bucket"
+fn headers(pairs: &[(&str, &str)]) -> axum::http::HeaderMap {
+    let mut map = axum::http::HeaderMap::new();
+    for (name, value) in pairs {
+        map.insert(
+            axum::http::HeaderName::from_bytes(name.as_bytes()).expect("valid header name"),
+            value.parse().expect("valid header value"),
         );
     }
+    map
+}
+
+#[test]
+fn v2_rate_limit_key_ignores_x_forwarded_for() {
+    let peer = Some("172.18.0.1".parse().expect("valid ip"));
+    let spoofed = headers(&[("x-forwarded-for", "203.0.113.9, 198.51.100.7")]);
+
+    assert_eq!(
+        stophammer::api::rate_limit_key(&spoofed, peer, true),
+        "172.18.0.1",
+        "X-Forwarded-For must not select the key, even with TRUST_PROXY"
+    );
+    assert_eq!(
+        stophammer::api::rate_limit_key(&spoofed, peer, false),
+        "172.18.0.1",
+        "X-Forwarded-For must not select the key without TRUST_PROXY"
+    );
+}
+
+#[test]
+fn v2_rate_limit_key_reads_x_real_ip_only_behind_proxy() {
+    let peer = Some("172.18.0.1".parse().expect("valid ip"));
+    let proxied = headers(&[("x-real-ip", "198.51.100.7")]);
+
+    assert_eq!(
+        stophammer::api::rate_limit_key(&proxied, peer, true),
+        "198.51.100.7",
+        "with TRUST_PROXY, X-Real-IP from the proxy is the key"
+    );
+    assert_eq!(
+        stophammer::api::rate_limit_key(&proxied, peer, false),
+        "172.18.0.1",
+        "without TRUST_PROXY, a direct client cannot select the key"
+    );
+}
+
+#[test]
+fn v2_rate_limit_key_rejects_arbitrary_x_real_ip() {
+    let peer = Some("172.18.0.1".parse().expect("valid ip"));
+    let junk = headers(&[("x-real-ip", "spoofed-1")]);
+
+    assert_eq!(
+        stophammer::api::rate_limit_key(&junk, peer, true),
+        "172.18.0.1",
+        "an X-Real-IP that is not an address falls back to the peer"
+    );
+}
+
+#[test]
+fn v2_rate_limit_key_groups_ipv6_by_prefix() {
+    let none = headers(&[]);
+    let a = stophammer::api::rate_limit_key(
+        &none,
+        Some("2001:db8:1:2:aaaa::1".parse().expect("valid ip")),
+        false,
+    );
+    let b = stophammer::api::rate_limit_key(
+        &none,
+        Some("2001:db8:1:2:bbbb::2".parse().expect("valid ip")),
+        false,
+    );
+    assert_eq!(a, "2001:db8:1:2::/64", "an IPv6 key is its /64 prefix");
+    assert_eq!(a, b, "two addresses in one /64 share one key");
+}
+
+#[test]
+fn v2_rate_limiter_forgets_idle_keys() {
+    let limiter = stophammer::api::build_rate_limiter(1000, 1);
+    for i in 0..100 {
+        assert!(limiter.check_key(&format!("198.51.100.{i}")).is_ok());
+    }
+    assert_eq!(limiter.len(), 100, "each new key adds one entry");
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    limiter.retain_recent();
+    assert!(
+        limiter.is_empty(),
+        "retain_recent must remove each key whose bucket is full again"
+    );
 }
 
 // ============================================================================
@@ -435,7 +493,7 @@ fn v2_rate_limiter_xff_spoofing() {
 //
 // FINDING: VULNERABLE (availability)
 //
-// When neither X-Forwarded-For nor ConnectInfo is available, the rate
+// When neither X-Real-IP nor ConnectInfo is available, the rate
 // limiter uses the string "unknown" as the key. All requests without
 // an identified IP share a single bucket. This means:
 //   1. Legitimate requests without IP headers are unfairly grouped

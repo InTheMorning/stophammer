@@ -551,6 +551,43 @@ pub fn build_rate_limiter(rps: u32, burst: u32) -> IpRateLimiter {
     RateLimiter::keyed(quota)
 }
 
+/// Interval at which the serving layer removes idle keys from the limiter.
+pub const RATE_LIMIT_SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Returns the rate-limit key of one request.
+///
+/// With `trust_proxy`, the key comes from `X-Real-IP`. The reverse proxy
+/// writes that header from the address of its own peer, so a client cannot
+/// set it. The first value of `X-Forwarded-For` comes from the client, and
+/// this function never reads it. A missing or unparseable `X-Real-IP` falls
+/// back to the TCP peer.
+///
+/// An IPv6 address is reduced to its /64 prefix, because one host usually
+/// holds a full /64 and can change its address in it for each request.
+///
+/// Finding-SEC-2026-10-21 rate-limit key spoofing — 2026-10-21
+#[must_use]
+pub fn rate_limit_key(
+    headers: &HeaderMap,
+    peer: Option<std::net::IpAddr>,
+    trust_proxy: bool,
+) -> String {
+    let forwarded = trust_proxy
+        .then(|| headers.get("x-real-ip"))
+        .flatten()
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.trim().parse::<std::net::IpAddr>().ok());
+
+    match forwarded.or(peer) {
+        Some(std::net::IpAddr::V6(v6)) => {
+            let prefix = u128::from(v6) & !((1u128 << 64) - 1);
+            format!("{}/64", std::net::Ipv6Addr::from(prefix))
+        }
+        Some(ip @ std::net::IpAddr::V4(_)) => ip.to_string(),
+        None => "unknown".to_string(),
+    }
+}
+
 // ── Availability limits ────────────────────────────────────────────────────
 
 /// Maximum request body size (bytes). Applied globally via `DefaultBodyLimit`.

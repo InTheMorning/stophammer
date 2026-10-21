@@ -315,11 +315,8 @@ async fn run_community(
 /// Rate limiting is applied here (not inside `build_router`) so that
 /// `tower::ServiceExt::oneshot` tests are not affected by the middleware.
 ///
-/// Client IP extraction strategy:
-/// - If `TRUST_PROXY=true`, use `X-Forwarded-For` (first hop) with
-///   `ConnectInfo<SocketAddr>` fallback.
-/// - Otherwise (default), use only `ConnectInfo<SocketAddr>`, ignoring
-///   `X-Forwarded-For` to prevent spoofing by direct clients.
+/// `api::rate_limit_key` gives the key of each request. A background task
+/// removes idle keys, so that the number of keys cannot grow without limit.
 fn apply_rate_limit(router: axum::Router) -> axum::Router {
     use std::sync::Arc;
 
@@ -328,6 +325,17 @@ fn apply_rate_limit(router: axum::Router) -> axum::Router {
     let trust_proxy = std::env::var("TRUST_PROXY")
         .map(|v| v == "true" || v == "1")
         .unwrap_or(false);
+
+    // Finding-SEC-2026-10-21 rate-limit key growth — 2026-10-21
+    let sweeper = Arc::clone(&limiter);
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(api::RATE_LIMIT_SWEEP_INTERVAL);
+        loop {
+            tick.tick().await;
+            sweeper.retain_recent();
+            sweeper.shrink_to_fit();
+        }
+    });
 
     router.layer(axum::middleware::from_fn(
         move |request: axum::http::Request<axum::body::Body>, next: axum::middleware::Next| {
@@ -338,28 +346,11 @@ fn apply_rate_limit(router: axum::Router) -> axum::Router {
                     return next.run(request).await;
                 }
 
-                let ip = if trust_proxy {
-                    // Behind a trusted reverse proxy: use X-Forwarded-For.
-                    request
-                        .headers()
-                        .get("x-forwarded-for")
-                        .and_then(|v| v.to_str().ok())
-                        .and_then(|s| s.split(',').next())
-                        .map(|s| s.trim().to_string())
-                        .or_else(|| {
-                            request
-                                .extensions()
-                                .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                                .map(|ci| ci.0.ip().to_string())
-                        })
-                        .unwrap_or_else(|| "unknown".to_string())
-                } else {
-                    // Direct exposure: ignore X-Forwarded-For (prevents spoofing).
-                    request
-                        .extensions()
-                        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-                        .map_or_else(|| "unknown".to_string(), |ci| ci.0.ip().to_string())
-                };
+                let peer = request
+                    .extensions()
+                    .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+                    .map(|ci| ci.0.ip());
+                let ip = api::rate_limit_key(request.headers(), peer, trust_proxy);
 
                 match limiter.check_key(&ip) {
                     Ok(()) => next.run(request).await,
