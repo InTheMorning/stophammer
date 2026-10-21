@@ -8,7 +8,7 @@ rules:
   boundary
 - [ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) for the
   source URL of a record
-- [ADR 0054](adr/0054-a-fetch-reaches-only-public-feed-hosts.md) for the fetch
+- [ADR 0054](adr/archive/0054-a-fetch-reaches-only-public-feed-hosts.md) for the fetch
   rule
 - [ADR 0056](adr/0056-the-public-proof-flow-is-offline.md) for the write routes
 - [ADR 0034](adr/0034-adopt-rebuild-first-source-first-v1-music-schema.md)

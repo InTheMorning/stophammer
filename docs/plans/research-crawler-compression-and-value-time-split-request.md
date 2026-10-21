@@ -43,7 +43,7 @@ Thus a feed request sends no `Accept-Encoding` header, and the crawler cannot de
 The request also sends no `Accept` header.
 
 The design expects compression now.
-[ADR 0054](../adr/0054-a-fetch-reaches-only-public-feed-hosts.md) §2 says that the 16 MiB limit "applies after decompression".
+[ADR 0054](../adr/archive/0054-a-fetch-reaches-only-public-feed-hosts.md) §2 says that the 16 MiB limit "applies after decompression".
 The code comment at `crawl.rs:302` says that each chunk is "already decoded".
 The two statements are not correct with the current features.
 

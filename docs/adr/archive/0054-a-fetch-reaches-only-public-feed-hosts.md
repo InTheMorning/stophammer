@@ -1,6 +1,9 @@
 # ADR 0054: A Fetch Reaches Only Public Feed Hosts
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-09-25
 
 Amended on 2026-10-17 for musicindex.org request 15. Section 4a reads a link

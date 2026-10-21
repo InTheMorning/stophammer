@@ -3,7 +3,7 @@
 This guide tells a feed author and a feed tool how to link music albums to the
 artists and labels that release them. It also tells how musicindex.org reads
 the links. It is advisory. The rules belong to
-[ADR 0049](adr/0049-publisher-relationships-are-rss-facts.md),
+[ADR 0049](adr/archive/0049-publisher-relationships-are-rss-facts.md),
 [ADR 0061](adr/0061-a-publisher-read-counts-its-listed-artists.md),
 [ADR 0068](adr/0068-a-publisher-row-gives-its-link-facts.md) and
 [ADR 0069](adr/0069-an-album-confirms-each-credit.md).

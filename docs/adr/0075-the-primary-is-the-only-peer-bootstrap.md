@@ -4,7 +4,7 @@
 Accepted on 2026-10-20. Supersedes
 [ADR 0008](archive/0008-cloudflare-tracker-implementation.md). It also
 supersedes the sections "Cloudflare tracker demoted to optional bootstrap" and
-"Long-term" of [ADR 0016](0016-push-gossip-tracker-elimination.md), and the
+"Long-term" of [ADR 0016](archive/0016-push-gossip-tracker-elimination.md), and the
 tracker registration of [ADR 0009](0009-community-node-mode.md).
 
 ## Date

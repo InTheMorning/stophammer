@@ -492,7 +492,7 @@ restore deleted state or make two separate transitions atomic.
 [ADR 0040](../adr/0040-store-track-identity-as-feed-scoped.md) also makes a
 feed GUID change a change to every track's composite identity.
 
-[ADR 0049](../adr/0049-publisher-relationships-are-rss-facts.md) owns URL
+[ADR 0049](../adr/archive/0049-publisher-relationships-are-rss-facts.md) owns URL
 observations and relationship resolution. A separate record of rejected claims
 must not enter its accepted resolution path without a deliberate decision.
 

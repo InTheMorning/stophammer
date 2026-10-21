@@ -1,9 +1,12 @@
 # ADR 0049: Publisher Relationships Are RSS Facts
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
-On 2026-09-27 [ADR 0061](0061-a-publisher-read-counts-its-listed-artists.md)
+On 2026-09-27 [ADR 0061](../0061-a-publisher-read-counts-its-listed-artists.md)
 §5 made a rule of the present behavior of §4. The `publisher` view of an album
 gives only the publishers that the album names.
 
@@ -23,9 +26,9 @@ a comma or white space as the separator.
 ## Context
 The v4vmm client asks Stophammer to report publisher relationships as the facts
 that RSS states. The client document is
-[the publisher relationship request](../plans/v4vmm-publisher-relationship-request.md).
+[the publisher relationship request](../../plans/v4vmm-publisher-relationship-request.md).
 The client evidence is
-[the publisher feed research](../reviews/v4vmm-publisher-feed-artist-research.md).
+[the publisher feed research](../../reviews/v4vmm-publisher-feed-artist-research.md).
 The operator gave four decisions on 2026-09-23. The request records them.
 
 An album names its publisher in `<podcast:publisher><podcast:remoteItem

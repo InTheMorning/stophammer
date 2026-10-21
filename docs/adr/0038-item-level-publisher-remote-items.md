@@ -136,7 +136,7 @@ publisher-text policy.
 
 ##### Wavlake caveat (ADR 0035)
 
-> Superseded by [ADR 0049](0049-publisher-relationships-are-rss-facts.md).
+> Superseded by [ADR 0049](archive/0049-publisher-relationships-are-rss-facts.md).
 > This section and the Wavlake statements in Consequences state no rule.
 
 ADR 0035 fixes `feeds.publisher = "Wavlake"` for any feed whose canonical

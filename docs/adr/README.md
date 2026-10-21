@@ -24,7 +24,6 @@ disagree.
 |---|---|---|
 | [0002](0002-rust-static-binary-core.md) | Rust for the core node binary | Accepted |
 | [0003](0003-sqlite-wal-primary-store.md) | SQLite with WAL mode as the primary store | Accepted |
-| [0023](0023-schema-migrations.md) | Versioned schema migrations | Accepted |
 | [0024](0024-sqlite-wal-connection-pool.md) | SQLite WAL connection pool | Accepted |
 | [0025](0025-source-claims-and-canonical-music-layers.md) | Source claims and canonical music layers. The canonical layers are superseded by ADR 0034 | Accepted in part |
 | [0034](0034-adopt-rebuild-first-source-first-v1-music-schema.md) | Rebuild-first source-first v1 music schema. Search and quality stay. The compatibility artist credit leaves in two releases, §11 | Accepted |
@@ -46,7 +45,6 @@ disagree.
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Search holds publisher feeds only for `type=publisher` (ADR 0071 §5). Wavlake caveat superseded by ADR 0049 | Accepted |
 | [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304`. A `304` to a request with no conditional header is a fetch error (§3) | Accepted |
-| [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. A role is confirmed only when both sides state the same set, and a link whose sides differ is not confirmed (§6a). Replaces the Wavlake exception of ADR 0035 | Accepted |
 | [0072](0072-a-feed-fetch-accepts-compression.md) | A feed fetch accepts `gzip` and `br`, and sends `Accept`. The snapshot download does not ask for compression. The hash is over the decoded body. A stored `ETag` with `-gzip` or `-br` is sent with its base tag, and a batch pass counts wasted `200` answers. Amends ADR 0050 §2 and §6 | Accepted |
 | [0073](0073-a-value-time-split-keeps-both-forms.md) | A value time split keeps the remote form and the local form of the specification, with the stated values. The `v1` response adds fields and removes none. Supersedes the `remotePercentage` skip of ADR 0011 | Accepted |
 | [0074](0074-a-feed-without-a-guid-is-invalid.md) | A feed body is valid only with a `podcast:guid`. The parser has no fallback GUID, and `import` and `ndjson` send none. Such a body is a crawler parse error with its medium, and the skip rules stay (§3b). The handling of a record with no source GUID waits for a count (§4). Supersedes the GUID section of ADR 0011 | Accepted |
@@ -77,7 +75,6 @@ disagree.
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
 | [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
-| [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits. A non-web URL field is kept raw and not served. A link that starts with a host name and has no scheme reads as `https`, with a flag (§4a) | Accepted |
 | [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host | Accepted |
 | [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
 | [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content. Waits for a crawler outside the primary host, or a suspected token leak | Proposed |
@@ -87,7 +84,6 @@ disagree.
 | ADR | Scope | Status |
 |---|---|---|
 | [0009](0009-community-node-mode.md) | Community node mode. Sequence-signing consequence superseded by ADR 0036, tracker registration by ADR 0075 | Accepted in part |
-| [0016](0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination. The tracker sections are superseded by ADR 0075 | Accepted in part |
 | [0075](0075-the-primary-is-the-only-peer-bootstrap.md) | The primary is the only peer bootstrap. A community node registers only with the primary. Supersedes ADR 0008 | Accepted |
 | [0066](0066-a-version-number-tells-what-to-upgrade.md) | Semantic versions. PATCH for fixes, MINOR for additions and, before 1.0, for breaks. The notes say when community nodes upgrade first | Accepted |
 | [0065](0065-a-release-promotes-its-candidate.md) | Only a candidate builds, and only on a commit that passed CI. A release tag publishes the files and images of its candidate on the same commits | Accepted |
@@ -122,6 +118,10 @@ test enforces each of its rules. Read them for research, not for a live rule.
 | [0028](archive/0028-require-dedicated-sync-token.md) | A dedicated sync token is required | Tests: `tests/sync_register_auth_tests.rs`, `tests/sync_reconcile_auth_tests.rs` and the `SyncAuth` tests in `src/community.rs` |
 | [0044](archive/0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Tests: `tests/adr0044_schema_refs_tests.rs`, `tests/adr0044_contract_guard_tests.rs` and `tests/adr0044_field_removal_tests.rs` |
 | [0048](archive/0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Tests: `tests/adr0048_track_coverage_tests.rs` |
+| [0016](archive/0016-push-gossip-tracker-elimination.md) | Push-based gossip. Tracker elimination. The tracker sections are superseded by ADR 0075 | ADR 0075 for the tracker sections. Tests: `tests/adr0016_peer_rules_tests.rs`, `tests/push_delivery_retry_tests.rs` and the unit tests of `src/community.rs` |
+| [0023](archive/0023-schema-migrations.md) | Versioned schema migrations | Tests: `tests/migration_tests.rs`, `tests/adr0023_migration_hash_tests.rs` and `tests/adr0023_open_db_order_tests.rs` |
+| [0049](archive/0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. A role is confirmed only when both sides state the same set, and a link whose sides differ is not confirmed (§6a). Replaces the Wavlake exception of ADR 0035 | Tests: the `tests/adr0049_*` files, `stophammer-crawler/src/follow.rs` and `stophammer-crawler/src/modes/refresh.rs` |
+| [0054](archive/0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits. A non-web URL field is kept raw and not served. A link that starts with a host name and has no scheme reads as `https`, with a flag (§4a) | Tests: `tests/adr0054_*`, `tests/ssrf_redirect_tests.rs`, and `stophammer-crawler/src/fetch_guard.rs`, `src/crawl.rs` and `src/follow.rs` |
 
 ## Status Needs A Check
 

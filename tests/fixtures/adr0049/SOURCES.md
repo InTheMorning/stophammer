@@ -1,7 +1,7 @@
 # ADR 0049 Task 002: Fixture Sources
 
 This file records each fetch for the real-feed fixtures in this directory.
-[ADR 0049](../../../docs/adr/0049-publisher-relationships-are-rss-facts.md)
+[ADR 0049](../../../docs/adr/archive/0049-publisher-relationships-are-rss-facts.md)
 §9 names these feeds. The parser commit for each `.feed_data.json` file is
 `c18b70d14fe04d610981009f454477382f7dcb62`.
 

@@ -208,7 +208,8 @@ The `feed`, `refresh`, `gossip` and `import` modes keep a fetch cache (ADR
 0050).
 
 `feed`, `refresh` and `gossip` follow a publisher link, and the albums of a
-`musicL` list. ADR 0049 section 2 owns the publisher rule. ADR 0060 sections
+`musicL` list. The tests of the archived ADR 0049 section 2 own the publisher
+rule. ADR 0060 sections
 5 and 6 own the list rule. `feed` and `refresh` follow in three waves: the input feeds,
 the feeds they name, and the album list of a publisher found through an
 album. `gossip` follows in two levels, with its own throttle.

@@ -1,9 +1,12 @@
 # ADR 0016: Push-Based Gossip and Tracker Elimination
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted. The sections "Cloudflare tracker demoted to optional bootstrap" and
 "Long-term" are superseded by
-[ADR 0075](0075-the-primary-is-the-only-peer-bootstrap.md) on 2026-10-20: the
+[ADR 0075](../0075-the-primary-is-the-only-peer-bootstrap.md) on 2026-10-20: the
 primary is the only peer bootstrap. Amended on 2026-10-20: the eviction
 threshold is 10 consecutive failures (`db::MAX_PEER_FAILURES`), not 5.
 `push_eviction_after_threshold` and `push_not_evicted_at_old_threshold` in

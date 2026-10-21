@@ -130,7 +130,14 @@ async fn run_primary(
             .writer()
             .lock()
             .map_err(|_poison| startup_error("db mutex poisoned at startup"))?;
-        let map = db::push_subscribers_at_start(&conn).unwrap_or_default();
+        let map = db::push_subscribers_at_start(&conn).unwrap_or_else(|err| {
+            tracing::error!(
+                error = %err,
+                "could not read the push peers at start; the push cache stays empty until each \
+                 peer registers again (ADR 0016)"
+            );
+            std::collections::HashMap::new()
+        });
         drop(conn);
         std::sync::Arc::new(std::sync::RwLock::new(map))
     };

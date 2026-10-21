@@ -700,7 +700,7 @@ All query endpoints are read-only and available on both primary and community no
 A query response does not carry a `javascript:`, `data:`, or other non-web
 URL. The node checks each URL field it read from RSS. A value with a scheme
 other than `http` or `https` becomes `null`.
-[ADR 0054](adr/0054-a-fetch-reaches-only-public-feed-hosts.md) section 4
+[ADR 0054](adr/archive/0054-a-fetch-reaches-only-public-feed-hosts.md) section 4
 owns this rule. The raw value stays in the database.
 
 This rule has one difference for a `source_links` row of the type `website`

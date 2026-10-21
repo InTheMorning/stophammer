@@ -135,7 +135,7 @@ confirming relay. Each read gives `confirming_relay: true` or `false`.
 - The node compares the stored rows and the new rows in the order of
   `live_item_guid`. An unchanged set of rows emits no `LiveEventsReplaced`.
 - `content_link` and a `uri` that is a URL go through the web URL rule of
-  [ADR 0054](0054-a-fetch-reaches-only-public-feed-hosts.md) §4. The ingest
+  [ADR 0054](archive/0054-a-fetch-reaches-only-public-feed-hosts.md) §4. The ingest
   warns about a value that is not `http` or `https`, and a read gives no such
   value.
 - A `musicL` feed gives no live row. A `publisher` feed gives live rows as a
