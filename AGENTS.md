@@ -6,13 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.13.1 of 2026-10-21 is a security release with
-only fixes. Release 0.13.0 of the same day delivered ADR 0072 to ADR 0076, the
+No release is open. Releases 0.13.1 and 0.13.2 of 2026-10-21 are security
+releases with only fixes. Release 0.13.0 of the same day delivered ADR 0072 to ADR 0076, the
 research request of 2026-10-20 and v4vmm request 9.
 
 ### Deployed
 
-Release 0.13.1 of 2026-10-21 is the latest release. The primary and the gossip
+Release 0.13.2 of 2026-10-21 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -25,12 +25,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- Release 0.13.2: an API error response no longer gives the SQLite or JSON
-  error text, and the log keeps it. Each Compose service drops each
-  capability, and `primary` and `gossip` have a read-only root file system.
-  Each GitHub Action is pinned by commit SHA, and each workflow has a
-  read-only token unless a job states more. The podping listener fork has the
-  TLS updates of 0.13.1, and the listener image is pinned by digest.
+Nothing.
 
 ### Open Items
 
@@ -64,6 +59,11 @@ deployed, except the items below. The primary sets
   `docker-compose.yml` publishes 8008 and 8089 on `127.0.0.1` only. CI runs
   `cargo deny check advisories`, and `deny.toml` gives the reason for each
   ignore.
+- Each Compose service drops each Linux capability, and `primary` and `gossip`
+  have a read-only root file system. A `docker compose run --user root` of
+  `primary` adds `CHOWN`, `DAC_OVERRIDE` and `FOWNER` with `--cap-add`.
+- `.env` on the host pins the podping listener image by digest. Each GitHub
+  Action is pinned by commit SHA.
 - Wavlake sends no podping for its feeds. A Wavlake record moves to its self
   link mostly through a crawl of the music URL form, or through the cache
   replay with `export-feed-cache-ndjson.py --self-links` (ADR 0052).
