@@ -76,7 +76,8 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
 
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      # No Rust cache: a release build starts from a clean tree, so a cache
+      # cannot carry a changed artifact into a published tarball.
 
       # /node/info gives the commit and the build time that build.rs reads
       # from these two variables. A build without them gives null.
