@@ -1890,11 +1890,20 @@ impl IntoResponse for ApiError {
 }
 
 // Mutex safety compliant — 2026-03-12
+// Finding-SEC-2026-10-21 database error text — 2026-10-21
+// A SQLite or JSON error can name a table, a column or a constraint. The log
+// keeps the detail, and the client gets only the class of the error.
 impl From<db::DbError> for ApiError {
     fn from(e: db::DbError) -> Self {
         let message = match e {
-            db::DbError::Rusqlite(inner) => format!("database error: {inner}"),
-            db::DbError::Json(inner) => format!("json error: {inner}"),
+            db::DbError::Rusqlite(inner) => {
+                tracing::error!(error = %inner, "database error");
+                "database error".to_string()
+            }
+            db::DbError::Json(inner) => {
+                tracing::error!(error = %inner, "json error");
+                "json error".to_string()
+            }
             db::DbError::Poisoned => "database mutex poisoned".to_string(),
             db::DbError::Other(msg) => msg,
         };

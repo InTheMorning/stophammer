@@ -49,6 +49,29 @@ fn poisoned_db_error_converts_to_500() {
 
 // ── Issue #5: apply_single_event propagates poisoned mutex ──────────────────
 
+// ── Finding-SEC-2026-10-21: a database error gives no schema detail ─────────
+
+#[test]
+fn sqlite_error_response_names_no_table() {
+    use stophammer::api::ApiError;
+
+    let conn = rusqlite::Connection::open_in_memory().expect("in-memory db");
+    let inner = conn
+        .execute("SELECT secret_column FROM secret_table", [])
+        .expect_err("query of a missing table must fail");
+    assert!(
+        inner.to_string().contains("secret_table"),
+        "the SQLite error itself names the table: got '{inner}'"
+    );
+
+    let err: ApiError = db::DbError::Rusqlite(inner).into();
+    assert_eq!(err.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(
+        err.message, "database error",
+        "the response must not repeat the SQLite error text"
+    );
+}
+
 #[tokio::test]
 async fn apply_single_event_with_poisoned_mutex_returns_error() {
     use stophammer::apply;
