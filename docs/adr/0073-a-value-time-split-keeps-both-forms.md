@@ -2,9 +2,9 @@
 
 ## Status
 Accepted on 2026-10-20, for the research request on value time splits. Tasks
-001 to 003 give the build. It
-supersedes the section "`podcast:valueTimeSplit` with `remotePercentage`" of
-ADR 0011.
+001 to 003 give the build. Task 004 deletes two functions that no code
+calls, and adds no rule. It supersedes the section
+"`podcast:valueTimeSplit` with `remotePercentage`" of ADR 0011.
 
 ## Date
 2026-10-20
