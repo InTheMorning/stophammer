@@ -64,6 +64,7 @@ disagree.
 | [0069](0069-an-album-confirms-each-credit.md) | An album names one or more publishers inside `<podcast:publisher>`, and only a two-way link is confirmed. Each publisher row gives `album_names_as` and `album_names_rank` (§3a), and a publisher read gives `co_credited_feeds`. The bare-item credit is removed (§1a) | Accepted |
 | [0070](0070-a-name-list-gives-each-identity-one-row.md) | `GET /v1/feeds/by-name` and `GET /v1/artist-names` give lists in name order, with one sort key in `sort_name`. The artist list gives one row for each publisher feed and one for each name of the name level, and merges no row by text. The node keeps the artist list in memory, and builds it again after a change, at most one time in 30 seconds (§4a). v4vmm request 6 | Accepted |
 | [0071](0071-a-list-row-links-what-it-names.md) | A list row links what it names: a feed title has its GUID, a count names its list, and a route declares each include (§1). The artist list gives link facts and `first_named_count`, a release row gives `named_feeds`, `by-name` takes `artist_key`, and search takes `type=publisher`. v4vmm request 8 | Accepted |
+| [0076](0076-a-named-feed-entry-states-its-confirmation.md) | A `named_feeds` entry gives `two_way_validated`. `by-name` and `recent` take `named_feed_guid`, and search takes `include=link_facts` for a `publisher` row. Amends ADR 0071 §3 and ADR 0068 §5. v4vmm request 9 | Proposed |
 
 ## Identity, Signing And Security
 
