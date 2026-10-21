@@ -333,6 +333,15 @@ async fn detox_album_two_way_validates_through_a_feed_url_resolution() {
         serde_json::json!("feed_url")
     );
     assert_eq!(row["two_way_validated"], serde_json::json!(true));
+    assert_eq!(
+        row["reciprocal_declared"],
+        serde_json::json!(true),
+        "ADR 0049 §4: a feed_url resolution counts for reciprocal_declared"
+    );
+    assert!(
+        row["publisher_link_observed_at"].is_i64(),
+        "ADR 0049 §4: a feed_url resolution gives the time of its URL observation: {row}"
+    );
 }
 
 #[tokio::test]
@@ -371,6 +380,15 @@ async fn detox_album_alone_at_the_other_url_gives_unresolved() {
         serde_json::json!("unresolved")
     );
     assert_eq!(row["two_way_validated"], serde_json::json!(false));
+    assert_eq!(
+        row["reciprocal_declared"],
+        serde_json::json!(false),
+        "ADR 0049 §4: an unresolved link is not reciprocal"
+    );
+    assert!(
+        row["publisher_link_observed_at"].is_null(),
+        "ADR 0049 §4: publisher_link_observed_at is null unless the resolution is feed_url: {row}"
+    );
 }
 
 #[tokio::test]
@@ -422,6 +440,11 @@ async fn rssblue_publisher_and_album_resolve_by_guid() {
     assert_eq!(
         publisher_row_for_album["publisher_link_resolution"],
         serde_json::json!("guid")
+    );
+    assert!(
+        publisher_row_for_album["publisher_link_observed_at"].is_null(),
+        "ADR 0049 §4: a guid resolution gives a null publisher_link_observed_at: \
+         {publisher_row_for_album}"
     );
 
     let album_body = get_feed_with_publisher(app, album_guid).await;

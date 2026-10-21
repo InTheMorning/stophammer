@@ -357,3 +357,34 @@ async fn an_accepted_ingest_pushes_its_events_to_each_registered_peer() {
         "ADR 0016: an accepted ingest pushes its events to each registered peer"
     );
 }
+
+#[test]
+fn the_push_cache_at_start_holds_each_active_peer_from_the_database() {
+    let db = common::test_db_arc();
+    let threshold = stophammer::db::MAX_PEER_FAILURES;
+    seed_peer(
+        &db,
+        "adr0016-start-active",
+        "https://active.example/sync/push",
+        0,
+    );
+    seed_peer(
+        &db,
+        "adr0016-start-evicted",
+        "https://evicted.example/sync/push",
+        threshold,
+    );
+
+    let cache = stophammer::db::push_subscribers_at_start(&db.lock().expect("lock db"))
+        .expect("read the push cache");
+
+    assert_eq!(
+        cache.get("adr0016-start-active").map(String::as_str),
+        Some("https://active.example/sync/push"),
+        "ADR 0016: the cache at start holds each active peer with its push URL"
+    );
+    assert!(
+        !cache.contains_key("adr0016-start-evicted"),
+        "ADR 0016: the cache at start holds no peer at the failure threshold"
+    );
+}

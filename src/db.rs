@@ -5964,6 +5964,22 @@ pub struct PeerNode {
     pub consecutive_failures: i64,
 }
 
+/// Gives the push cache of the primary at start: the push URL of each peer
+/// with fewer than `MAX_PEER_FAILURES` consecutive failures, by its public
+/// key (ADR 0016).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SQL query fails.
+pub fn push_subscribers_at_start(
+    conn: &Connection,
+) -> Result<std::collections::HashMap<String, String>, DbError> {
+    Ok(get_push_peers(conn)?
+        .into_iter()
+        .map(|peer| (peer.node_pubkey, peer.node_url))
+        .collect())
+}
+
 /// Returns all peers with `consecutive_failures < MAX_PEER_FAILURES`.
 ///
 /// # Errors

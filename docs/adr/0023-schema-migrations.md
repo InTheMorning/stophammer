@@ -74,3 +74,6 @@ If a migration fails, the transaction rolls back and the version is not recorded
   `tests/fixtures/migration_sha256.txt`.
 - `tests/migration_tests.rs` checks the idempotent run, the single run of
   each version and the rollback of a failed migration.
+- `tests/adr0023_open_db_order_tests.rs` checks that `open_db` applies the
+  PRAGMAs before the repairs and `run_migrations`, and that an opened
+  database has WAL mode, foreign keys and `synchronous = NORMAL`.

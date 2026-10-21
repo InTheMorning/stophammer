@@ -45,8 +45,9 @@ render it.
 ### 1. The rule for a fetch target
 
 This ADR owns one rule for each process that fetches a URL from RSS or from
-a podping. Today these are the crawler, sync registration and the relocation
-check. ADR 0055 adds the verification worker.
+a podping. Today these are the crawler and sync registration. ADR 0056
+removed the relocation check, because an operator relocation fetches nothing.
+ADR 0055 adds the verification worker.
 
 A fetch is permitted only when all of these are true:
 
@@ -191,3 +192,7 @@ section 5 as a test. A failure message names ADR 0054 section 1.
 
 - `a_cap_reports_the_number_of_urls_that_it_does_not_follow` in
   `stophammer-crawler/src/follow.rs` checks the report of section 3.
+- `a_public_url_that_redirects_to_loopback_is_rejected_at_the_hop` in
+  `stophammer-crawler/src/crawl.rs` checks the rule at each redirect hop of
+  section 1. `pinned_redirect_to_loopback_blocked` in
+  `tests/ssrf_redirect_tests.rs` checks it for the node.

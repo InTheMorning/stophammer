@@ -321,5 +321,7 @@ The fixtures come from these feeds:
 
 - `tests/adr0049_url_observation_tests.rs` checks section 1, with
   `a_failed_fetch_report_keeps_the_observation`.
+- `tests/adr0049_resolver_tests.rs` checks the fields of section 4, with
+  `reciprocal_declared` and `publisher_link_observed_at`.
 - The other `tests/adr0049_*` files, `stophammer-crawler/src/follow.rs` and
   `stophammer-crawler/src/modes/refresh.rs` check sections 2 to 9.

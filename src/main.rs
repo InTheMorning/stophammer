@@ -130,12 +130,8 @@ async fn run_primary(
             .writer()
             .lock()
             .map_err(|_poison| startup_error("db mutex poisoned at startup"))?;
-        let peers = db::get_push_peers(&conn).unwrap_or_default();
+        let map = db::push_subscribers_at_start(&conn).unwrap_or_default();
         drop(conn);
-        let map: std::collections::HashMap<String, String> = peers
-            .into_iter()
-            .map(|p| (p.node_pubkey, p.node_url))
-            .collect();
         std::sync::Arc::new(std::sync::RwLock::new(map))
     };
 
@@ -198,14 +194,14 @@ async fn run_community(
             "NODE_ADDRESS env var required in community mode: {err}"
         ))
     })?;
-    let poll_interval_secs: u64 = std::env::var("POLL_INTERVAL_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(300);
-    let push_timeout_secs: i64 = std::env::var("PUSH_TIMEOUT_SECS")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(90);
+    let poll_interval_secs = community::parse_or_default(
+        std::env::var("POLL_INTERVAL_SECS").ok().as_deref(),
+        community::DEFAULT_POLL_INTERVAL_SECS,
+    );
+    let push_timeout_secs = community::parse_or_default(
+        std::env::var("PUSH_TIMEOUT_SECS").ok().as_deref(),
+        community::DEFAULT_PUSH_TIMEOUT_SECS,
+    );
     let sync_token = community::load_sync_auth_from_env();
     let admin_token = std::env::var("ADMIN_TOKEN").unwrap_or_default();
 

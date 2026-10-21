@@ -110,3 +110,7 @@ for new deployments where the primary URL is not yet publicly known.
   peer list threshold, the time of the last push, the quiet fallback poll and
   the fan-out after an ingest.
 - `tests/push_delivery_retry_tests.rs` checks the eviction threshold of 10.
+- The unit tests of `src/community.rs` check the defaults 90 and 300 of
+  `PUSH_TIMEOUT_SECS` and `POLL_INTERVAL_SECS`.
+- `the_push_cache_at_start_holds_each_active_peer_from_the_database` checks
+  the cache that the primary seeds at start.

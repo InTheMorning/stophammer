@@ -26,6 +26,21 @@ use axum::{
 
 use crate::{apply, db, db_pool, signing, sync};
 
+/// Seconds between two iterations of the fallback poll loop when
+/// `POLL_INTERVAL_SECS` is unset or not a number (ADR 0016).
+pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 300;
+
+/// Seconds with no push before the fallback poll runs, when
+/// `PUSH_TIMEOUT_SECS` is unset or not a number (ADR 0016).
+pub const DEFAULT_PUSH_TIMEOUT_SECS: i64 = 90;
+
+/// Parses an optional environment value, and gives `default` when the value
+/// is absent or does not parse.
+#[must_use]
+pub fn parse_or_default<T: std::str::FromStr>(value: Option<&str>, default: T) -> T {
+    value.and_then(|v| v.parse().ok()).unwrap_or(default)
+}
+
 /// Seconds between retry attempts when polling for the primary's pubkey.
 ///
 /// The primary may still be starting when the community node boots.
@@ -527,7 +542,28 @@ async fn handle_sync_push(
 
 #[cfg(test)]
 mod tests {
-    use super::SyncAuth;
+    use super::{
+        DEFAULT_POLL_INTERVAL_SECS, DEFAULT_PUSH_TIMEOUT_SECS, SyncAuth, parse_or_default,
+    };
+
+    #[test]
+    fn the_poll_defaults_are_the_values_of_adr_0016() {
+        assert_eq!(
+            DEFAULT_PUSH_TIMEOUT_SECS, 90,
+            "ADR 0016: the fallback poll runs after 90 seconds with no push"
+        );
+        assert_eq!(
+            DEFAULT_POLL_INTERVAL_SECS, 300,
+            "ADR 0016: the poll loop sleeps 300 seconds between iterations"
+        );
+    }
+
+    #[test]
+    fn an_absent_or_bad_value_gives_the_default() {
+        assert_eq!(parse_or_default(None, DEFAULT_POLL_INTERVAL_SECS), 300);
+        assert_eq!(parse_or_default(Some("x"), DEFAULT_PUSH_TIMEOUT_SECS), 90);
+        assert_eq!(parse_or_default(Some("15"), DEFAULT_PUSH_TIMEOUT_SECS), 15);
+    }
 
     fn headers_of(auth: &SyncAuth) -> reqwest::header::HeaderMap {
         let client = reqwest::Client::new();
