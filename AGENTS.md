@@ -6,8 +6,9 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.13.0 of 2026-10-21 delivered ADR 0072 to
-ADR 0076, the research request of 2026-10-20 and v4vmm request 9.
+Current priority - 2026-10-21: security release 0.13.1. It holds only fixes,
+so by ADR 0066 it raises PATCH. Release 0.13.0 of 2026-10-21 delivered
+ADR 0072 to ADR 0076, the research request of 2026-10-20 and v4vmm request 9.
 
 ### Deployed
 
@@ -27,8 +28,13 @@ deployed, except the items below. The primary sets
 - The rate limiter keys a client by `X-Real-IP` when `TRUST_PROXY=true`, and
   removes idle keys. `docker-compose.yml` publishes 8008 and 8089 on
   `127.0.0.1` only. The release notes must say that the operator sets
-  `TRUST_PROXY=true` in `primary.compose.env`, and pulls `docker-compose.yml`
-  on the host, in the same deploy.
+  `TRUST_PROXY=true` in `primary.compose.env` in the deploy of 0.13.1. The
+  port change is already live on the host.
+- Release 0.13.1 updates rustls, rustls-webpki, webpki-roots, h2, aws-lc-sys
+  and tar past their RustSec advisories, and removes the unused quick-xml.
+  Each runtime image uses Alpine 3.24, pinned by digest. CI runs
+  `cargo deny check advisories`, and `deny.toml` gives the reason for each
+  ignore.
 
 ### Open Items
 

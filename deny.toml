@@ -45,7 +45,18 @@ license-files = [
 # Fail on any published security advisory with no known fix.
 
 [advisories]
-ignore = []
+# Each ignore names an advisory with no fixed version, and why the index
+# accepts it. Never ignore a vulnerability advisory. Remove an entry when a
+# fixed version or a replacement is available.
+ignore = [
+    # paste is unmaintained. It is a proc-macro of ratatui 0.29, and it runs
+    # only at compile time. Remove when ratatui no longer uses it.
+    { id = "RUSTSEC-2024-0436", reason = "compile-time proc-macro of ratatui; no fixed version" },
+    # rustls-pemfile is unmaintained. src/tls.rs and axum-server 0.7 read PEM
+    # files of the node with it. The replacement is the PemObject API of
+    # rustls-pki-types. Remove when the node and axum-server use it.
+    { id = "RUSTSEC-2025-0134", reason = "reads local PEM files only; no fixed version" },
+]
 
 # ── Bans ──────────────────────────────────────────────────────────────────────
 # Warn on duplicate versions of the same crate; error on explicitly banned ones.

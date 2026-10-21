@@ -1,6 +1,6 @@
 [package]
 name        = "stophammer"
-version     = "0.13.0"
+version     = "0.13.1"
 edition     = "2024"
 license     = "AGPL-3.0-only"
 description = "Decentralised music feed index with value-for-value verification"
@@ -29,7 +29,6 @@ rcgen          = { version = "0.13", features = ["pem"] }
 axum-server    = { version = "0.7", features = ["tls-rustls"] }
 time           = { version = "0.3", features = ["formatting", "local-offset", "macros"] }
 subtle         = "2"
-quick-xml      = "0.36"
 roxmltree      = "0.20"
 siphasher      = "1"
 governor       = "0.7"
