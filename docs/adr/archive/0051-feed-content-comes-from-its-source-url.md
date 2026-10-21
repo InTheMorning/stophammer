@@ -1,6 +1,9 @@
 # ADR 0051: Feed Content Comes From Its Source URL
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-09-25. Deployed on 2026-09-25.
 
 ## Date
@@ -48,8 +51,8 @@ Two more gaps let a configuration remove authentication:
   passes the check (`src/main.rs:83`).
 
 The evidence and the scenario analysis are in
-[the conflict evidence](../reviews/feed-identity-conflict-evidence.md) and
-[the security audit](../reviews/security-audit-2026-09-24-feed-trust.md).
+[the conflict evidence](../../reviews/feed-identity-conflict-evidence.md) and
+[the security audit](../../reviews/security-audit-2026-09-24-feed-trust.md).
 
 ### Two attackers
 

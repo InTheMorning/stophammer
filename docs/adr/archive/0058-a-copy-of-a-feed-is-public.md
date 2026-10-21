@@ -1,6 +1,9 @@
 # ADR 0058: A Copy Of A Feed Is Public
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-09-25. Amended on 2026-10-02 with section 1c and the
 fields of a copy row in section 3 (musicindex.org request 9). Amended on
 2026-10-03 with section 1d (musicindex.org request 12). Amended on

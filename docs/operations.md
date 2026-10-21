@@ -14,7 +14,7 @@ This guide covers deploying, configuring, monitoring, and maintaining Stophammer
 | `DB_PATH` | `stophammer.db` | No | Path to the SQLite database file. Use a persistent volume in Docker. |
 | `KEY_PATH` | `signing.key` | No | Path to the ed25519 signing key. Generated on first start if absent. **Back this up.** |
 | `BIND` | `0.0.0.0:8008` | No | Socket address to bind. Format: `ip:port`. |
-| `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). The node checks it before it reads the database, before `VERIFIER_CHAIN`, and before the content-hash shortcut ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). The value must not be empty or white space only. The primary node does not start when the value fails this check. |
+| `CRAWL_TOKEN` | -- | **Yes** (primary) | Shared secret for crawler authentication. Compared in constant time (SHA-256). The node checks it before it reads the database, before `VERIFIER_CHAIN`, and before the content-hash shortcut ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4). The value must not be empty or white space only. The primary node does not start when the value fails this check. |
 | `ADMIN_TOKEN` | `""` (empty) | No | Token for write-side admin endpoints (`X-Admin-Token` header). It is not accepted on sync endpoints. |
 | `SYNC_TOKEN` | unset | No | Dedicated token for sync endpoints (`GET /sync/events`, `GET /sync/peers`, `POST /sync/register`, `POST /sync/reconcile`) via `X-Sync-Token`. If unset, those sync endpoints return 403. |
 | `RUST_LOG` | `stophammer=info` | No | Tracing filter directive. Examples: `stophammer=debug`, `stophammer=trace`, `stophammer::api=debug,stophammer=info`. |
@@ -62,7 +62,7 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `VERIFIER_CHAIN` | `content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). `feed_blocklist` is not a chain name ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). See the [Verifier Guide](verifier-guide.md). |
+| `VERIFIER_CHAIN` | `content_hash,medium_music,feed_guid,v4v_payment,enclosure_type` | Comma-separated ordered list of quality verifiers to run on ingest. Primary only. `crawl_token` is not a correct name here. The node always checks the crawl token first ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4). `feed_blocklist` is not a chain name ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). See the [Verifier Guide](verifier-guide.md). |
 | `BLOCKED_FEED_GUIDS` | empty | Optional comma-separated GUID list. At primary startup, the node seeds a `feed_blocks` row for each value with no existing row ([ADR 0053](adr/0053-a-correction-stays-applied.md) section 2). Removing a value from this list removes no block. The block stays until an operator deletes it through `DELETE /v1/blocks/{block_id}`. |
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated URL list. The node seeds this list by the same procedure as `BLOCKED_FEED_GUIDS`. |
 | `CONFIRMING_RELAY_HOSTS` | empty | Optional comma-separated host list. A live item's `podcast:liveValue` link is a confirming relay when its `uri` is an `https` URL on one of these hosts. The host compare does not see a difference between capital and small letters ([ADR 0064](adr/0064-a-live-item-is-an-rss-fact.md) section 3). The node reads this list one time, at start. A primary node and a community node each read it. |
@@ -291,7 +291,7 @@ NODE_MODE=primary  (or omit — primary is the default)
 
 The primary node:
 - Accepts `POST /ingest/feed` from crawlers
-- Checks the crawl token first, then runs the verifier chain on each submission ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4)
+- Checks the crawl token first, then runs the verifier chain on each submission ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4)
 - Signs accepted events with its ed25519 key
 - Fans out new events to all registered community nodes via `POST /sync/push`
 - Serves the full API (read, write, admin, sync)

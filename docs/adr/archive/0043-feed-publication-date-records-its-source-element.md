@@ -1,6 +1,9 @@
 # ADR 0043: A Feed Publication Date Records Its Source Element
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
 Amended 2026-09-22: the API also returns `last_build_date` on the feed.
@@ -14,7 +17,7 @@ The operator decided this when the work started. An added field stays inside
 The v4vmm desktop client reported that a feed build time can become a release
 date. Stophammer checked the statement and found it correct. The effect is much
 larger than the client estimated. The evidence is in
-[the verification record](../reviews/v4vmm-musicindex-api-change-request-verification.md).
+[the verification record](../../reviews/v4vmm-musicindex-api-change-request-verification.md).
 
 `stophammer-parser/src/profile.rs:184` reads `lastBuildDate` into
 `FeedField::PubDate`. The rule engine at `src/engine.rs:98` keeps the first

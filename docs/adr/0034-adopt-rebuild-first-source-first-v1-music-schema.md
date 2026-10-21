@@ -247,7 +247,7 @@ changed or open:
 - **Search and quality stay.** `search_index`, `search_entities` and
   `entity_quality` now hold only feeds and tracks, the source objects of
   section 2. They back `GET /v1/search`, and
-  [ADR 0042](0042-query-responses-name-the-field-owner.md) sets rules for its
+  [ADR 0042](archive/0042-query-responses-name-the-field-owner.md) sets rules for its
   results. So section 4 no longer drops them, and section 9 no longer defers
   search.
 - **The compatibility artist credit is open work.** The ingest still makes one

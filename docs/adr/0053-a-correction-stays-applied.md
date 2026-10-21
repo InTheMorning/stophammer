@@ -170,3 +170,6 @@ again, and the stale body that replaces a newer body.
   submission there through the primary. The result is the same on both nodes.
 - A test submits an older `last_build_date` with `force_reingest`. The
   response is `stale_submission`, and the routes do not change.
+- `a_recipient_change_logs_a_warning_with_the_feed_guid` and
+  `a_name_only_change_logs_no_warning` in
+  `tests/adr0053_route_history_tests.rs` check the `warn` log of section 4.

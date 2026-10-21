@@ -8,7 +8,7 @@ This guide explains how the verifier chain works and how to create custom verifi
 
 The verifier chain is an ordered set of quality checks. The primary node runs it on each `POST /ingest/feed` submission, after it checks the crawl token. Each verifier reads the incoming feed data and gives a pass, a warning, or a reject.
 
-The crawl token check comes first. It is not a member of this chain. `VerifierChain::new` holds the token apart from the configurable list. `VerifierChain::authenticate` checks the token before the node reads the database, before the chain runs, and before the content-hash shortcut. No `VERIFIER_CHAIN` value can add, remove or reorder this check ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4).
+The crawl token check comes first. It is not a member of this chain. `VerifierChain::new` holds the token apart from the configurable list. `VerifierChain::authenticate` checks the token before the node reads the database, before the chain runs, and before the content-hash shortcut. No `VERIFIER_CHAIN` value can add, remove or reorder this check ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4).
 
 The chain is the core quality gate: it is the reason Stophammer's index
 primarily contains verified V4V music feeds, while still allowing selected
@@ -119,7 +119,7 @@ Warning messages are formatted as `[verifier_name] message` automatically by the
 
 ## How to Configure via VERIFIER_CHAIN
 
-The `VERIFIER_CHAIN` environment variable controls which quality verifiers run and in what order. It is a comma-separated list of verifier names. `crawl_token` is not a correct name here ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4). The node always checks the crawl token first. `build_chain` panics if the list names it.
+The `VERIFIER_CHAIN` environment variable controls which quality verifiers run and in what order. It is a comma-separated list of verifier names. `crawl_token` is not a correct name here ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4). The node always checks the crawl token first. `build_chain` panics if the list names it.
 
 ```bash
 # Default (all built-ins in recommended order)
@@ -211,7 +211,7 @@ No other files need to change. The chain order and which verifiers run is contro
 
 ### crawl_token (authentication, not a chain entry)
 
-`crawl_token` is not a name in `VERIFIER_CHAIN`. `build_chain` panics if the list names it ([ADR 0051](adr/0051-feed-content-comes-from-its-source-url.md) section 4).
+`crawl_token` is not a name in `VERIFIER_CHAIN`. `build_chain` panics if the list names it ([ADR 0051](adr/archive/0051-feed-content-comes-from-its-source-url.md) section 4).
 
 - **File:** `src/verifiers/crawl_token.rs`
 - **Effect:** Rejects a submission with an incorrect crawl token

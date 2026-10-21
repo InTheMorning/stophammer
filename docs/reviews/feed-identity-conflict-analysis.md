@@ -11,7 +11,7 @@ production probes or verify the production counts.
 
 The [Podcast Index evidence](feed-identity-podcastindex-evidence.md) provides
 external precedents with explicit evidence limits.
-[ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
+[ADR 0051](../adr/archive/0051-feed-content-comes-from-its-source-url.md) to
 [ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md) hold the
 decisions.
 

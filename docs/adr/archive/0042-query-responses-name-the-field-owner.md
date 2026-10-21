@@ -1,6 +1,9 @@
 # ADR 0042: Query Responses Name The Owner Of Each Field
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
 ## Date
@@ -9,7 +12,7 @@ Accepted
 ## Context
 The v4vmm desktop client reported two defects in the read API. Stophammer
 checked the two statements and found each one correct. The evidence is in
-[the verification record](../reviews/v4vmm-musicindex-api-change-request-verification.md).
+[the verification record](../../reviews/v4vmm-musicindex-api-change-request-verification.md).
 
 `SearchResponseItem` at `src/query.rs:306` returns `entity_type`, `entity_id`,
 `rank`, `quality_score`, `feed_guid` and `href`. It returns no title. A client

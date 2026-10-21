@@ -8,7 +8,7 @@ rule and changes no runtime behavior.
 Related records: [local incident](feed-identity-conflict-evidence.md) and
 [scenario analysis](feed-identity-conflict-analysis.md).
 
-[ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
+[ADR 0051](../adr/archive/0051-feed-content-comes-from-its-source-url.md) to
 [ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md)
 use the local security review. Their verification, authentication, proof,
 repair, and resource-limit rules are not Podcast Index guarantees.

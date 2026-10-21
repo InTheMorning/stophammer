@@ -1,6 +1,9 @@
 # ADR 0057: A Feed Can Block This Index
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted on 2026-09-25
 
 ## Date
@@ -37,7 +40,7 @@ signal that the source gives.
 In the April snapshot of 7,538 feeds, no feed had a `yes` block, 154 feeds had
 an unbounded `no`, and no feed had `itunes:block`. No crate reads either tag
 as a typed field. The evidence and the sources are in
-[the removal research](../reviews/feed-removal-and-wavlake-forms-research.md).
+[the removal research](../../reviews/feed-removal-and-wavlake-forms-research.md).
 
 ## Decision
 

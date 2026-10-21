@@ -594,3 +594,163 @@ async fn a_keysend_custom_value_only_change_adds_a_new_entry() {
         "the new set must carry the new custom value"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The warn log (ADR 0053 section 4)
+// ---------------------------------------------------------------------------
+
+/// The text of each `warn` event in this test binary. The ingest writes in a
+/// blocking task, so the subscriber is global. Each test reads only the lines
+/// of its own feed GUID.
+fn captured_warnings() -> Arc<Mutex<Vec<u8>>> {
+    static BUFFER: std::sync::OnceLock<Arc<Mutex<Vec<u8>>>> = std::sync::OnceLock::new();
+    Arc::clone(BUFFER.get_or_init(|| {
+        let buffer = Arc::new(Mutex::new(Vec::new()));
+        let writer_buffer = Arc::clone(&buffer);
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::WARN)
+            .with_ansi(false)
+            .with_writer(move || CaptureWriter(Arc::clone(&writer_buffer)))
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("no other global subscriber in this test binary");
+        buffer
+    }))
+}
+
+struct CaptureWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CaptureWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().expect("capture lock").extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+fn warning_lines_for(buffer: &Arc<Mutex<Vec<u8>>>, feed_guid: &str) -> Vec<String> {
+    let bytes = buffer.lock().expect("capture lock").clone();
+    String::from_utf8_lossy(&bytes)
+        .lines()
+        .filter(|line| line.contains(feed_guid))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// A change of the feed recipients and of the track recipients each logs one
+/// `warn` line with the feed GUID. The first ingest logs nothing.
+#[tokio::test]
+async fn a_recipient_change_logs_a_warning_with_the_feed_guid() {
+    let buffer = captured_warnings();
+    let crawl_token = "adr0053-route-history-token-log-1";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(state);
+
+    let feed_guid = "adr0053-route-history-log-feed-1";
+    let track_guid = format!("{feed_guid}-track-01");
+    let canonical_url = "https://example.com/adr0053-route-history-log-1.xml";
+
+    let v1 = feed_data_with_feed_route(
+        feed_guid,
+        "Route Log Feed",
+        &track_guid,
+        "Artist",
+        "a@ln.example",
+        100,
+        "t@ln.example",
+    );
+    let (status, body) = ingest(
+        app.clone(),
+        &ingest_payload(canonical_url, canonical_url, crawl_token, "rh-log-1", &v1),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["accepted"], true,
+        "the first ingest must succeed: {body:?}"
+    );
+    assert!(
+        warning_lines_for(&buffer, feed_guid).is_empty(),
+        "ADR 0053 section 4: a new feed has no old set, so it logs nothing"
+    );
+
+    let v2 = feed_data_with_feed_route(
+        feed_guid,
+        "Route Log Feed",
+        &track_guid,
+        "Artist",
+        "b@ln.example",
+        100,
+        "u@ln.example",
+    );
+    let (status, body) = ingest(
+        app,
+        &ingest_payload(canonical_url, canonical_url, crawl_token, "rh-log-2", &v2),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(
+        body["accepted"], true,
+        "the second ingest must succeed: {body:?}"
+    );
+
+    let lines = warning_lines_for(&buffer, feed_guid);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("WARN") && line.contains("feed payment recipients changed")),
+        "ADR 0053 section 4: a feed recipient change logs at warn with the feed GUID: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|line| line.contains("WARN")
+            && line.contains("track payment recipients changed")
+            && line.contains(&track_guid)),
+        "ADR 0053 section 4: a track recipient change logs at warn with the feed GUID: {lines:?}"
+    );
+}
+
+/// A change of the recipient name only is not a change of recipients, so it
+/// logs nothing.
+#[tokio::test]
+async fn a_name_only_change_logs_no_warning() {
+    let buffer = captured_warnings();
+    let crawl_token = "adr0053-route-history-token-log-2";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(state);
+
+    let feed_guid = "adr0053-route-history-log-feed-2";
+    let track_guid = format!("{feed_guid}-track-01");
+    let canonical_url = "https://example.com/adr0053-route-history-log-2.xml";
+
+    for (name, hash) in [("Artist", "rh-log-3"), ("Renamed Artist", "rh-log-4")] {
+        let data = feed_data_with_feed_route(
+            feed_guid,
+            "Route Log Feed",
+            &track_guid,
+            name,
+            "a@ln.example",
+            100,
+            "t@ln.example",
+        );
+        let (status, body) = ingest(
+            app.clone(),
+            &ingest_payload(canonical_url, canonical_url, crawl_token, hash, &data),
+        )
+        .await;
+        assert_eq!(status, 200);
+        assert_eq!(body["accepted"], true, "the ingest must succeed: {body:?}");
+    }
+
+    let lines = warning_lines_for(&buffer, feed_guid);
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("payment recipients changed")),
+        "ADR 0053 section 4: a name-only change is not a recipient change: {lines:?}"
+    );
+}

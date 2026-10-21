@@ -4,7 +4,10 @@
 Accepted. The sections "Cloudflare tracker demoted to optional bootstrap" and
 "Long-term" are superseded by
 [ADR 0075](0075-the-primary-is-the-only-peer-bootstrap.md) on 2026-10-20: the
-primary is the only peer bootstrap.
+primary is the only peer bootstrap. Amended on 2026-10-20: the eviction
+threshold is 10 consecutive failures (`db::MAX_PEER_FAILURES`), not 5.
+`push_eviction_after_threshold` and `push_not_evicted_at_old_threshold` in
+`tests/push_delivery_retry_tests.rs` enforce it.
 
 Historical note: Authenticated access to `GET /sync/events` and `GET /sync/peers`
 was decided later in ADR 0027. The bootstrap language below reflects the
@@ -39,7 +42,7 @@ goroutine-style tasks — a slow peer cannot block other peers or the ingest res
 
 Peers are tracked in a new `peer_nodes` table (added to `schema.sql`). An in-memory
 `push_subscribers` cache (seeded at startup from the DB) avoids a DB read per ingest.
-Consecutive delivery failures are counted; a peer is evicted from the cache after 5
+Consecutive delivery failures are counted; a peer is evicted from the cache after 10
 failures (the DB row is kept; re-registration via `POST /sync/register` resets the
 counter and re-populates the cache).
 
@@ -64,7 +67,7 @@ preserving the old behaviour exactly.
 
 The primary accumulates a peer list via `POST /sync/register` (called by community
 nodes on startup). `GET /sync/peers` on the primary returns the current active peer
-list (consecutive\_failures < 5). Any new community node that knows the primary URL
+list (consecutive\_failures < 10). Any new community node that knows the primary URL
 can call `GET /sync/peers` instead of the Cloudflare tracker.
 
 ### Cloudflare tracker demoted to optional bootstrap
@@ -89,7 +92,7 @@ derive the full peer list from `GET /sync/peers` and never needs the tracker aga
 **Negative / trade-offs:**
 - Primary must maintain an outbound HTTP connection pool for fan-out. Under large
   peer counts this increases primary memory and connection overhead.
-- Peers with 5 consecutive failures are silently evicted from the cache. They must
+- Peers with 10 consecutive failures are silently evicted from the cache. They must
   re-register. A future improvement could expose a health dashboard.
 - `PRIMARY_PUBKEY` must be configured correctly on community nodes; mismatched keys
   cause all pushed events to be rejected with a log line but no alert.

@@ -45,7 +45,6 @@ disagree.
 | [0033](0033-music-first-import-cursor-and-conditional-snapshot-refresh.md) | Music-first import cursor and conditional snapshot refresh. A refresh keeps its disk | Accepted |
 | [0047](0047-a-corrective-pass-reads-the-index.md) | A corrective pass takes its corpus from the node's feed list | Accepted |
 | [0038](0038-item-level-publisher-remote-items.md) | Item-level `remoteItem` extraction and non-music filter. `/v1/feeds/recent` keeps `medium`, music by default. Search holds publisher feeds only for `type=publisher` (ADR 0071 §5). Wavlake caveat superseded by ADR 0049 | Accepted |
-| [0043](0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Accepted |
 | [0048](0048-every-track-resolves-to-a-payment-route.md) | The V4V gate is track coverage, not a feed-level block | Accepted |
 | [0050](0050-the-crawler-revalidates-a-feed.md) | The crawler sends a conditional GET, keeps the last body, and uses it after a `304`. A `304` to a request with no conditional header is a fetch error (§3) | Accepted |
 | [0049](0049-publisher-relationships-are-rss-facts.md) | A publisher relationship is a set of RSS facts. The crawler follows publisher links, and the node resolves a back-link by GUID or by an observed URL. A role is confirmed only when both sides state the same set, and a link whose sides differ is not confirmed (§6a). Replaces the Wavlake exception of ADR 0035 | Accepted |
@@ -62,7 +61,6 @@ disagree.
 | [0022](0022-fts5-search-architecture.md) | FTS5 contentless search with a companion table | Accepted |
 | [0037](0037-defer-public-sse-route.md) | The public SSE route is deferred | Accepted |
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
-| [0042](0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Accepted |
 | [0044](0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Accepted |
 | [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image, the artist and the track count of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
 | [0061](0061-a-publisher-read-counts-its-listed-artists.md) | A publisher read gives its confirmed and unconfirmed artists. An album shows only the publishers it names. The index derives no artist or label kind | Accepted |
@@ -77,15 +75,12 @@ disagree.
 |---|---|---|
 | [0004](0004-signed-event-log.md) | Nostr-style ed25519 signed event log. Sequence-number signing superseded by ADR 0036 | Accepted in part |
 | [0026](0026-signed-peer-registration.md) | Signed peer registration | Accepted |
-| [0027](0027-authenticate-sync-read-endpoints.md) | Authenticate sync read endpoints | Accepted |
+| [0027](0027-authenticate-sync-read-endpoints.md) | Authenticate sync read endpoints. The `X-Admin-Token` fallback is superseded by ADR 0028 | Accepted in part |
 | [0028](0028-require-dedicated-sync-token.md) | A dedicated sync token is required | Accepted |
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
-| [0051](0051-feed-content-comes-from-its-source-url.md) | Only content from the stored source URL changes a feed record. Authentication is first and cannot be removed | Accepted |
 | [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
 | [0054](0054-a-fetch-reaches-only-public-feed-hosts.md) | Each fetch of a URL from RSS or a podping reaches only public addresses, with body, redirect and follow limits. A non-web URL field is kept raw and not served. A link that starts with a host name and has no scheme reads as `https`, with a flag (§4a) | Accepted |
-| [0058](0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID. A copy row gives its item titles and image (§1c), its feed list compared by the resolved feeds (§1d), and the duration, enclosure URL and date of each item and the channel author (§1e) | Accepted |
-| [0057](0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Accepted |
 | [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host | Accepted |
 | [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
 | [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content. Waits for a crawler outside the primary host, or a suspected token leak | Proposed |
@@ -103,12 +98,12 @@ disagree.
 | [0019](0019-tls-acme-let-s-encrypt.md) | TLS through ACME and Let's Encrypt. Three-tier node model | Accepted |
 | [0032](0032-retire-resolver-and-review-runtime.md) | Retire the resolver and the review runtime | Accepted |
 
-## Superseded
+## Archived
 
-These files are in `docs/adr/archive/`. Read them for research, not for a live
-rule.
+These files are in `docs/adr/archive/`. A later ADR supersedes each one, or a
+test enforces each of its rules. Read them for research, not for a live rule.
 
-| ADR | Scope | Superseded by |
+| ADR | Scope | Superseded by, or the tests that own its rules |
 |---|---|---|
 | [0007](archive/0007-cloudflare-tracker-bootstrap.md) | Cloudflare Workers as tracker and bootstrap layer | ADR 0008 |
 | [0008](archive/0008-cloudflare-tracker-implementation.md) | Cloudflare Workers tracker implementation | ADR 0075 |
@@ -122,6 +117,11 @@ rule.
 | [0021](archive/0021-live-events.md) | Live event support | ADR 0064 |
 | [0035](archive/0035-add-track-level-publisher-text.md) | Track-level publisher text | ADR 0049 for the Wavlake clause. Tests enforce the rest: `tests/api_canonical_query_tests.rs` and `tests/adr0049_text_field_tests.rs` |
 | [0011](archive/0011-rss-crawler.md) | RSS crawler implementation | ADR 0072, ADR 0073 and ADR 0074. ADR 0073 §5 names the owner of each other section |
+| [0042](archive/0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Tests: `tests/adr0042_field_owner_tests.rs` |
+| [0043](archive/0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Tests: `tests/adr0043_release_date_tests.rs` and `stophammer-parser/tests/basic.rs` |
+| [0051](archive/0051-feed-content-comes-from-its-source-url.md) | Only content from the stored source URL changes a feed record. Authentication is first and cannot be removed | Tests: `tests/adr0051_classify_tests.rs`, `tests/adr0051_source_url_tests.rs` and the crawler `src/crawl.rs` |
+| [0057](archive/0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Tests: `tests/adr0057_podcast_block_tests.rs` and `stophammer-parser/tests/blocks.rs` |
+| [0058](archive/0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID. A copy row gives its item titles and image (§1c), its feed list compared by the resolved feeds (§1d), and the duration, enclosure URL and date of each item and the channel author (§1e) | Tests: the seven `tests/adr0058_*` files |
 
 ## Status Needs A Check
 

@@ -33,6 +33,8 @@ deployed, except the items below. The primary sets
 
 - ADR 0072, ADR 0073 and ADR 0074: each task in `docs/tasks/`.
 - ADR 0060 task 004: each skip store of the crawler keeps a `musicL` feed.
+  A test enforces each rule of ADR 0060 and ADR 0072. Move both to the
+  archive after the release that deploys them.
 - [ADR 0075](docs/adr/0075-the-primary-is-the-only-peer-bootstrap.md): a
   community node registers only with the primary. The release notes must say
   that `TRACKER_URL` is removed.
@@ -82,8 +84,9 @@ request has an answer. v4vmm requests 1 to 8 and musicindex.org requests 1 to
 ### Governance
 
 [ADR 0045](docs/adr/0045-governance-model-and-contract-ownership.md) is
-Accepted and complete. Each superseded ADR is in `docs/adr/archive/`, and
-`tests/adr0045_governance_guards_tests.rs` checks that the ADR files agree with
+Accepted and complete. `docs/adr/archive/` holds each superseded ADR, and
+each ADR whose rules a test enforces. `tests/adr0045_governance_guards_tests.rs`
+checks that the ADR files agree with
 [the index](docs/adr/README.md). The shared `project-baseline` skill and the
 two crate `AGENTS.md` files follow it.
 
@@ -526,7 +529,8 @@ ADR.
 
 - `docs/adr/` — architecture decision records (numbered).
   `docs/adr/README.md` is the index of current decisions.
-  `docs/adr/archive/` holds each superseded ADR, for research only.
+  `docs/adr/archive/` holds each superseded ADR, and each ADR whose rules a
+  test enforces, for research only.
 - `docs/plans/` — in-flight plans, and requests received from a client
   repository. Delete a plan when its work is complete. First move each
   measurement that an ADR needs to `docs/reviews/`.

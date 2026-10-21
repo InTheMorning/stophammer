@@ -3,7 +3,7 @@
 Date: 2026-09-24. Branch: `claude-audit`. Base commit: `85093b9`.
 
 This record is advisory. It states no binding rule.
-[ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
+[ADR 0051](../adr/archive/0051-feed-content-comes-from-its-source-url.md) to
 [ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md) decide its
 recommendations. [The conflict analysis](feed-identity-conflict-analysis.md)
 records more defects in the proof flow and in the ingest transaction.

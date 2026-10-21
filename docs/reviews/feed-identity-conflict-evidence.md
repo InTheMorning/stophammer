@@ -7,7 +7,7 @@ interpretation after the security review. Existing ADRs already govern crawler
 trust, proof scope, redirects, and URL observations.
 The [analysis](feed-identity-conflict-analysis.md) separates those requirements
 from defects and unresolved recovery choices.
-[ADR 0051](../adr/0051-feed-content-comes-from-its-source-url.md) to
+[ADR 0051](../adr/archive/0051-feed-content-comes-from-its-source-url.md) to
 [ADR 0055](../adr/0055-the-primary-fetches-what-it-signs.md) propose the remediation.
 
 ## The Question
