@@ -25,7 +25,12 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+- Release 0.13.2: an API error response no longer gives the SQLite or JSON
+  error text, and the log keeps it. Each Compose service drops each
+  capability, and `primary` and `gossip` have a read-only root file system.
+  Each GitHub Action is pinned by commit SHA, and each workflow has a
+  read-only token unless a job states more. The podping listener fork has the
+  TLS updates of 0.13.1, and the listener image is pinned by digest.
 
 ### Open Items
 
@@ -49,10 +54,6 @@ Nothing.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
-- Security work that remains after release 0.13.1: pin the podping listener
-  image by digest, add hardening options to each container, pin each GitHub
-  Action by commit SHA, and remove the database error text from API
-  responses.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
