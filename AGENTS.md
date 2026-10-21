@@ -79,9 +79,9 @@ The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
 request has an answer. v4vmm requests 1 to 8 and musicindex.org requests 1 to
-15 are deployed. musicindex.org request 16 is declined. v4vmm request 9 has an
-answer, and [ADR 0076](docs/adr/0076-a-named-feed-entry-states-its-confirmation.md)
-is Proposed for it.
+15 are deployed. musicindex.org request 16 is declined. v4vmm request 9 is
+Accepted as [ADR 0076](docs/adr/0076-a-named-feed-entry-states-its-confirmation.md).
+Its tasks 001 to 003 are open, and no release holds them.
 
 ### Governance
 

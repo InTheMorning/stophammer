@@ -1,8 +1,9 @@
 # ADR 0076: A Named Feed Entry States Its Confirmation
 
 ## Status
-Proposed on 2026-10-21, for v4vmm request 9. It amends ADR 0071 §3 and the
-section "Search is not in scope" of ADR 0068 (section 5).
+Accepted on 2026-10-21, for v4vmm request 9. It amends ADR 0071 §3 and the
+section "Search is not in scope" of ADR 0068 (section 5). Tasks 001 to 003
+give the build.
 
 ## Date
 2026-10-21

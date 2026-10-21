@@ -3,7 +3,8 @@
 ## Status
 Accepted on 2026-10-18, for v4vmm request 8. It amends ADR 0038 Decision B and
 the section "Search is not in scope" of ADR 0068 (section 5). Tasks 001 to 005
-give the build.
+give the build. Amended on 2026-10-21 by ADR 0076: a `named_feeds` entry
+also gives `two_way_validated` (§3).
 
 ## Date
 2026-10-18
@@ -114,6 +115,7 @@ values of that row:
 | `album_names_rank` | ADR 0069 §3a |
 | `role` | ADR 0049 §6 |
 | `role_agreement` | ADR 0049 §6a |
+| `two_way_validated` | ADR 0049. Added by ADR 0076 §1 |
 
 The list is empty when the album names no publisher feed. A row of another
 medium does not give `named_feeds`.

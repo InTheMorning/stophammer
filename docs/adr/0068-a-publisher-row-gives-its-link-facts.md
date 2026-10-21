@@ -10,7 +10,9 @@ facts are role tokens, musicindex.org request 11.
 
 Amended on 2026-10-18 by ADR 0071. `GET /v1/artist-names` and
 `GET /v1/feeds/by-name` give the link facts of section 1 with
-`include=link_facts`. Search finds a publisher feed with `type=publisher`.
+`include=link_facts`. Search finds a publisher feed with `type=publisher`. Amended on 2026-10-21 by
+ADR 0076 §3: a `publisher` search row gives the link facts with
+`include=link_facts`.
 
 ## Date
 2026-10-01
@@ -156,6 +158,9 @@ row has the medium `music`. The operator removed the search part on
 On 2026-10-18, ADR 0071 §5 put the publisher feeds in the search index, as
 the type `publisher`. A search row still gives no link facts. A client reads
 them from a list row or from a read of the feed.
+
+On 2026-10-21, ADR 0076 §3 gave the link facts on a `publisher` search row,
+with `include=link_facts`. A `feed` row and a `track` row give no link facts.
 
 ## Consequences
 
