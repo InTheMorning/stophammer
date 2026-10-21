@@ -6,13 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Current priority - 2026-10-21: security release 0.13.1. It holds only fixes,
-so by ADR 0066 it raises PATCH. Release 0.13.0 of 2026-10-21 delivered
-ADR 0072 to ADR 0076, the research request of 2026-10-20 and v4vmm request 9.
+No release is open. Release 0.13.1 of 2026-10-21 is a security release with
+only fixes. Release 0.13.0 of the same day delivered ADR 0072 to ADR 0076, the
+research request of 2026-10-20 and v4vmm request 9.
 
 ### Deployed
 
-Release 0.13.0 of 2026-10-21 is the latest release. The primary and the gossip
+Release 0.13.1 of 2026-10-21 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -25,16 +25,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- The rate limiter keys a client by `X-Real-IP` when `TRUST_PROXY=true`, and
-  removes idle keys. `docker-compose.yml` publishes 8008 and 8089 on
-  `127.0.0.1` only. The release notes must say that the operator sets
-  `TRUST_PROXY=true` in `primary.compose.env` in the deploy of 0.13.1. The
-  port change is already live on the host.
-- Release 0.13.1 updates rustls, rustls-webpki, webpki-roots, h2, aws-lc-sys
-  and tar past their RustSec advisories, and removes the unused quick-xml.
-  Each runtime image uses Alpine 3.24, pinned by digest. CI runs
-  `cargo deny check advisories`, and `deny.toml` gives the reason for each
-  ignore.
+Nothing.
 
 ### Open Items
 
@@ -58,11 +49,20 @@ deployed, except the items below. The primary sets
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
+- Security work that remains after release 0.13.1: pin the podping listener
+  image by digest, add hardening options to each container, pin each GitHub
+  Action by commit SHA, and remove the database error text from API
+  responses.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
 ### Operating Facts
 
+- The primary keys its rate limit by `X-Real-IP` with `TRUST_PROXY=true`, and
+  uses the defaults of 50 requests a second and a burst of 100 for each client.
+  `docker-compose.yml` publishes 8008 and 8089 on `127.0.0.1` only. CI runs
+  `cargo deny check advisories`, and `deny.toml` gives the reason for each
+  ignore.
 - Wavlake sends no podping for its feeds. A Wavlake record moves to its self
   link mostly through a crawl of the music URL form, or through the cache
   replay with `export-feed-cache-ndjson.py --self-links` (ADR 0052).
