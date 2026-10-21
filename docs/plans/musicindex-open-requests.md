@@ -3,7 +3,7 @@
 ## Status
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 are closed, and
-requests 17 and 18 are open. This document consolidates each open request from the
+requests 17 to 19 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -49,6 +49,7 @@ names the requests that the two clients share.
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
 | 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
 | 18 | Summary fields on each remote value time split | API field addition | Wanted |
+| 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -570,6 +571,42 @@ row:
 
 These are the names that a `remote_items` entry already uses. Each value is a
 value that the named feed or track states.
+
+### 19. The Value Time Splits Of A Feed That Did Not Change After ADR 0073
+
+Added on 2026-10-21. Evidence: read-only GET requests to the live API at
+revision `71aa360` and the RSS file of "Autumn Rust"
+(`9e72a512-c678-5621-8fd6-dfc7cd11a846`) on 2026-10-21.
+
+**What happens.** The RSS file at
+`https://serve.podhome.fm/rss/9e72a512-c678-5621-8fd6-dfc7cd11a846` has one
+item, "Autumn Rust, Boost Recap", with 8 `podcast:valueTimeSplit` elements.
+The first one is:
+
+```xml
+<podcast:valueTimeSplit startTime="1" duration="86399" remotePercentage="95">
+  <podcast:remoteItem feedGuid="9e72a512-c678-5621-8fd6-dfc7cd11a846" itemGuid="efe2226c-5390-4178-8950-8eab2d76bfbf" />
+</podcast:valueTimeSplit>
+```
+
+The track read of `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` with
+`include=value_time_splits,local_value_time_splits` gives an empty list for
+each include. The feed gives `updated_at` 1790971365, 2026-10-02 20:02:45 UTC.
+That is before the release that carries ADR 0073.
+
+Stophammer ADR 0073, "Consequences", says that a crawl of the Satellite
+Skirmish feed after the deploy writes three remote-form rows. The archived
+ADR 0072 says that the node checks the content hash of each body. We do not
+know if the node skips a body with the same hash. If it does, a feed that
+does not change never gets its splits.
+
+**What it costs.** The track page shows the splits of a track (musicindex ADR
+0019). For this feed it shows none, and the operator cannot check the view.
+
+**Request.** Examine why this feed gives no split. If the node skips an
+unchanged body, read again each feed with a `podcast:valueTimeSplit` in its
+stored body. Use the parser of ADR 0073. Alternatively, record
+in ADR 0073 when such a feed gets its splits.
 
 ## Stophammer Answers - 2026-09-25
 
