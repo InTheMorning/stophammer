@@ -2,8 +2,8 @@
 
 ## Status
 
-Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 are closed, and
-requests 17 to 19 are open. This document consolidates each open request from the
+Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 and 19 are closed,
+and requests 17 and 18 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -49,7 +49,7 @@ names the requests that the two clients share.
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
 | 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
 | 18 | Summary fields on each remote value time split | API field addition | Wanted |
-| 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Wanted |
+| 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for two feeds |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -695,6 +695,17 @@ The Stophammer operator decided request 13 on 2026-10-18. The text of the reques
 | # | Answer |
 |---|---|
 | 13 | Accepted as ADR 0058 §1e. Each copy row gives `item_durations`, `item_enclosure_urls`, `item_pub_dates` and `author`. They follow §1c: display values, out of the summary digest, and an event when one changes. Each enclosure URL passes the web URL rule of ADR 0054 §4, because the publisher of a copy can be an attacker. A different enclosure URL is not a difference of §2. In the backup of 2026-09-26, 225 of 2,022 indexed tracks with more than one event had changed their URL on their own feed, for example with an analytics prefix. After the deploy, a replay of the cached copy bodies fills the rows from before the release. A release record gives the release |
+
+## Stophammer Answers - 2026-10-21
+
+Stophammer examined request 19 against the live API at revision `71aa360`, the
+RSS file of "Autumn Rust", the source, and the backup of 2026-10-21. The report
+is correct. These answers are advisory. ADR 0073 owns the split rule, and the
+archived ADR 0072 §4 owns the content hash.
+
+| # | Answer |
+|---|---|
+| 19 | Confirmed. The node skips a body with the same hash. The `content_hash` verifier returns `NO_CHANGE`, and the node then writes no track and no split. The SHA-256 of the "Autumn Rust" body on 2026-10-21 is the hash that the node recorded on 2026-10-02. Also, the feed server answers the conditional GET with a `304`, so a usual crawl sends no body. The parser of ADR 0073 reads all 8 splits of the body. A forced pass of the crawler on 2026-10-21 at 23:54 UTC read the two feeds again. The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` now gives 8 remote-form splits, and the track `f475f98b-8ed4-4b06-8038-53727b9100d6` of "The Satellite Skirmish" gives 3. Five splits of "Autumn Rust" name a feed and no item, so `remote_item_guid` is `""` (ADR 0073 §4). The index holds none of the three named items. A change to the parser does not cause a new read of an unchanged feed. Other feeds can have splits in an unchanged body. A forced `refresh` pass of all feeds finds them. It has not run |
 
 ## Requests That v4vmm Also Makes
 
