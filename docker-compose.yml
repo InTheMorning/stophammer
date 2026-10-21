@@ -8,9 +8,30 @@ x-logging: &default-logging
     max-size: "20m"
     max-file: "3"
 
+# Each long-running service gets no new privileges and no Linux capability.
+# Each one runs as a user that is not root, so it needs none.
+x-hardened: &hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+# An init service runs as root only to give a volume to its service user.
+# chown -R needs these three capabilities and no others.
+x-init-hardened: &init-hardened
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  cap_add:
+    - CHOWN
+    - DAC_OVERRIDE
+    - FOWNER
+
 services:
   podping-listener-init:
     logging: *default-logging
+    <<: *init-hardened
     image: alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
     user: "0:0"
     command: ["sh", "-lc", "mkdir -p /data && chown -R 1000:1000 /data"]
@@ -20,6 +41,11 @@ services:
 
   primary:
     logging: *default-logging
+    <<: *hardened
+    # The service writes only to its volume at /data and to /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
     image: ${STOPHAMMER_INDEXER_IMAGE:-stophammer-indexer}
     build:
       context: .
@@ -43,6 +69,7 @@ services:
 
   live-relay:
     logging: *default-logging
+    <<: *hardened
     # MusicIndex live metadata relay.
     # Upstream: https://github.com/InTheMorning/Live-Metadata-Relay
     # Deployed by ./deploy-live-relay.sh, which builds a static musl binary
@@ -74,8 +101,11 @@ services:
 
   podping-listener:
     logging: *default-logging
+    <<: *hardened
     hostname: podping
-    image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/suorcd/gossip-listener:latest}
+    # The fork image that GHCR builds from InTheMorning/podping-gossipwatcher,
+    # pinned by digest. A changed tag cannot reach a host.
+    image: ${STOPHAMMER_PODPING_IMAGE:-ghcr.io/inthemorning/podping-gossipwatcher:sha-fbe881b@sha256:dacbd2c83fcb1b47a7c82adfa9e8b7b4f046ecfff66d04e3c7a12f50fe05b61d}
     restart: unless-stopped
     env_file:
       - ./packaging/env/podping-listener.compose.env
@@ -91,6 +121,7 @@ services:
 
   crawler-init:
     logging: *default-logging
+    <<: *init-hardened
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     build:
       context: ./stophammer-crawler
@@ -103,6 +134,7 @@ services:
 
   stophammer-crawler:
     logging: *default-logging
+    <<: *hardened
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     entrypoint: ["stophammer-crawler"]
@@ -119,6 +151,11 @@ services:
 
   gossip:
     logging: *default-logging
+    <<: *hardened
+    # The service writes only to its volume at /data and to /tmp.
+    read_only: true
+    tmpfs:
+      - /tmp
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
       - /bin/sh
@@ -155,6 +192,7 @@ services:
 
   import-wavlake:
     logging: *default-logging
+    <<: *hardened
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:
@@ -194,6 +232,7 @@ services:
 
   import:
     logging: *default-logging
+    <<: *hardened
     profiles: ["tools"]
     image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
     command:

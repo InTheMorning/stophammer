@@ -217,6 +217,13 @@ proxy set `X-Real-IP $remote_addr`. A Compose override file adds to a `ports`
 list and does not replace it, so a change of a published port goes in
 `docker-compose.yml`.
 
+Each long-running service has `no-new-privileges` and drops each Linux
+capability. `primary` and `gossip` also have a read-only root file system, and
+write only to `/data` and to a `/tmp` tmpfs. The two init services keep only
+`CHOWN`, `DAC_OVERRIDE` and `FOWNER`, which `chown -R` needs. A
+`docker compose run --user root` of `primary` must add the same three
+capabilities with `--cap-add` to write in `/data`.
+
 The listener keeps `ARCHIVE_RETENTION_DAYS` of podpings in `archive.db`, 30 by
 default. After an outage, the `gossip` crawler replays the archive from its
 cursor. If the cursor is older than the oldest podping that is left, the
