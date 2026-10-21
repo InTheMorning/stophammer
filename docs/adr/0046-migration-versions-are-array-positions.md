@@ -108,3 +108,5 @@ This fault reached three migrations. It earns a test.
   the migration count, and true at or below it.
 - `open_db_repairs_feed_last_build_date_when_0034_was_skipped` proves the
   repair path, beside the two equivalent tests for 0032 and 0033.
+- `tests/adr0046_runner_report_tests.rs` checks rule 3: the `tracing::error!`
+  at start, and no error for a correct database.

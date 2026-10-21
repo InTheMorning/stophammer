@@ -144,3 +144,5 @@ The cancellation and the item-level proof were reproduced on 2026-09-24.
   each answers `404`.
 - A test sends each write route with only a bearer header, and each answers
   `403`.
+- `each_write_route_refuses_with_no_www_authenticate_header` in
+  `tests/adr0056_proof_flow_removed_tests.rs` checks section 2.

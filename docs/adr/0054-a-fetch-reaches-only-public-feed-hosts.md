@@ -188,3 +188,6 @@ list of cases gives the same result. Rejected.
 The rule has no incident. The code has the gap, and the node fetch had the
 same class of defect before the guard of `src/proof.rs:883`. Each crate runs the cases of
 section 5 as a test. A failure message names ADR 0054 section 1.
+
+- `a_cap_reports_the_number_of_urls_that_it_does_not_follow` in
+  `stophammer-crawler/src/follow.rs` checks the report of section 3.

@@ -524,3 +524,43 @@ async fn handle_sync_push(
         duplicate: summary.duplicate,
     }))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::SyncAuth;
+
+    fn headers_of(auth: &SyncAuth) -> reqwest::header::HeaderMap {
+        let client = reqwest::Client::new();
+        auth.apply(client.get("http://primary.invalid/sync/events"))
+            .build()
+            .expect("build request")
+            .headers()
+            .clone()
+    }
+
+    #[test]
+    fn a_configured_sync_token_is_sent_as_the_only_credential() {
+        let headers = headers_of(&SyncAuth {
+            sync_token: Some("sync-secret".to_string()),
+        });
+        assert_eq!(
+            headers.get("X-Sync-Token").map(|v| v.to_str().ok()),
+            Some(Some("sync-secret")),
+            "ADR 0028: a community node sends SYNC_TOKEN as X-Sync-Token"
+        );
+        assert_eq!(
+            headers.len(),
+            1,
+            "ADR 0028: the sync token is the only credential"
+        );
+    }
+
+    #[test]
+    fn no_sync_token_sends_no_credential() {
+        let headers = headers_of(&SyncAuth { sync_token: None });
+        assert!(
+            headers.is_empty(),
+            "ADR 0028: with no SYNC_TOKEN, a community node sends no credential"
+        );
+    }
+}

@@ -100,3 +100,7 @@ replacement earns tests for each branch.
 - A feed with a valid feed-level block and a track whose declared block has no
   valid recipient is refused. This is unchanged from the present rule.
 - A feed with no tracks and no feed-level block is refused.
+- `a_track_route_with_an_address_and_a_zero_split_is_refused`,
+  `a_track_route_with_a_positive_split_and_no_address_is_refused` and
+  `a_musicl_feed_stays_exempt` in `tests/adr0048_track_coverage_tests.rs`
+  check rules 1 and 5.

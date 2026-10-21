@@ -103,3 +103,10 @@ The Cloudflare tracker worker (`stophammer-tracker`) can be deprecated once all
 known community nodes have upgraded and `GET /sync/peers` is deployed. The tracker
 codebase should be archived rather than deleted, as it may be useful as a bootstrap
 for new deployments where the primary URL is not yet publicly known.
+
+## Guards
+
+- `tests/adr0016_peer_rules_tests.rs` checks the registration reset, the
+  peer list threshold, the time of the last push, the quiet fallback poll and
+  the fan-out after an ingest.
+- `tests/push_delivery_retry_tests.rs` checks the eviction threshold of 10.

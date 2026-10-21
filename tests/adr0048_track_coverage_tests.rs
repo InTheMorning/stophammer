@@ -165,3 +165,44 @@ fn a_publisher_feed_stays_exempt() {
         "ADR 0048 rule 5: the publisher and musicL exemption is unchanged"
     );
 }
+
+#[test]
+fn a_track_route_with_an_address_and_a_zero_split_is_refused() {
+    let mut feed = detox_album();
+    feed["feed_payment_routes"] = json!([valid_route()]);
+    let mut route = valid_route();
+    route["split"] = json!(0);
+    feed["tracks"][0]["payment_routes"] = json!([route]);
+
+    assert!(
+        matches!(verify(&feed), VerifyResult::Fail(_)),
+        "ADR 0048 rule 1: a valid recipient needs a positive split, not only an address"
+    );
+}
+
+#[test]
+fn a_track_route_with_a_positive_split_and_no_address_is_refused() {
+    let mut feed = detox_album();
+    feed["feed_payment_routes"] = json!([valid_route()]);
+    let mut route = valid_route();
+    route["address"] = json!("");
+    feed["tracks"][0]["payment_routes"] = json!([route]);
+
+    assert!(
+        matches!(verify(&feed), VerifyResult::Fail(_)),
+        "ADR 0048 rule 1: a valid recipient needs a non-empty address, not only a split"
+    );
+}
+
+#[test]
+fn a_musicl_feed_stays_exempt() {
+    let mut feed = detox_album();
+    feed["raw_medium"] = json!("musicL");
+    feed["feed_payment_routes"] = json!([]);
+    feed["tracks"][0]["payment_routes"] = json!([]);
+
+    assert!(
+        matches!(verify(&feed), VerifyResult::Pass),
+        "ADR 0048 rule 5: a musicL feed is exempt from the coverage gate"
+    );
+}

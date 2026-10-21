@@ -106,3 +106,6 @@ test.
   `each_readonly_router_route_is_in_readonly_document` in
   `tests/adr0044_contract_guard_tests.rs`.
 - The document that `gen_openapi` prints parses as a correct OpenAPI document.
+- `tests/adr0044_field_removal_tests.rs` checks rule 4. It fails when a property
+  or an enum value of `tests/fixtures/v1-schema-fields.json` is gone from the
+  document. After you add a field, add its name to that fixture.

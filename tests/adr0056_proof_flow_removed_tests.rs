@@ -456,3 +456,62 @@ async fn openapi_document_has_no_proofs_path() {
         "openapi document still lists a /v1/proofs/ path: {paths:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// A write route answers 403 with no `WWW-Authenticate` header (ADR 0056 §2).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn each_write_route_refuses_with_no_www_authenticate_header() {
+    let routes: [(&str, &str, Option<serde_json::Value>); 4] = [
+        ("DELETE", "/v1/feeds/adr0056-feed", None),
+        (
+            "PATCH",
+            "/v1/feeds/adr0056-feed",
+            Some(serde_json::json!({ "feed_url": "https://evil.example.com/feed.xml" })),
+        ),
+        (
+            "DELETE",
+            "/v1/feeds/adr0056-feed/tracks/adr0056-track",
+            None,
+        ),
+        (
+            "PATCH",
+            "/v1/tracks/adr0056-track",
+            Some(serde_json::json!({ "enclosure_url": "https://evil.example.com/track.mp3" })),
+        ),
+    ];
+    for (method, uri, body) in routes {
+        for bearer in [false, true] {
+            let db = common::test_db_arc();
+            {
+                let conn = db.lock().expect("lock db");
+                seed_feed_with_track(&conn);
+            }
+            let app = stophammer::api::build_router(test_app_state(Arc::clone(&db)));
+
+            let mut builder = Request::builder().method(method).uri(uri);
+            if bearer {
+                builder = builder.header("Authorization", "Bearer x");
+            }
+            let req = match &body {
+                Some(body) => builder
+                    .header("Content-Type", "application/json")
+                    .body(json_body(body)),
+                None => builder.body(axum::body::Body::empty()),
+            }
+            .expect("build request");
+
+            let resp = app.oneshot(req).await.expect("call handler");
+            assert_eq!(
+                resp.status(),
+                403,
+                "ADR 0056 §2: {method} {uri} with bearer={bearer} must answer 403"
+            );
+            assert!(
+                resp.headers().get("WWW-Authenticate").is_none(),
+                "ADR 0056 §2: {method} {uri} with bearer={bearer} must send no WWW-Authenticate"
+            );
+        }
+    }
+}

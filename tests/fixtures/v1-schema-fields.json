@@ -1,0 +1,677 @@
+{
+  "AmbiguousTrackGuidBody": {
+    "properties": [
+      "candidates",
+      "code",
+      "error",
+      "track_guid"
+    ]
+  },
+  "AmbiguousTrackGuidCandidate": {
+    "properties": [
+      "feed_guid",
+      "href"
+    ]
+  },
+  "ArtistNameRow": {
+    "properties": [
+      "agreed_roles",
+      "confirmed_release_artists",
+      "feed_guid",
+      "first_named_count",
+      "image_url",
+      "key",
+      "kind",
+      "name",
+      "release_count",
+      "sort_name",
+      "stated_rels",
+      "two_way_link_count"
+    ]
+  },
+  "ArtistTrackItem": {
+    "properties": [
+      "created_at",
+      "duration_secs",
+      "feed_guid",
+      "feed_image_url",
+      "feed_title",
+      "image_url",
+      "pub_date",
+      "release_artist",
+      "release_artist_source",
+      "title",
+      "track_artist",
+      "track_artist_sort",
+      "track_guid",
+      "track_image_url",
+      "track_number"
+    ]
+  },
+  "BlockConflictBody": {
+    "properties": [
+      "block_id"
+    ]
+  },
+  "CapabilitiesResponse": {
+    "properties": [
+      "api_version",
+      "capabilities",
+      "entity_types",
+      "include_params",
+      "node_pubkey"
+    ]
+  },
+  "CoCreditedFeedResponse": {
+    "properties": [
+      "album_count",
+      "feed_guid",
+      "roles",
+      "title"
+    ]
+  },
+  "CopyRecordResponse": {
+    "properties": [
+      "copies_over_limit",
+      "copy_count",
+      "feed_guid",
+      "feed_url",
+      "newest_first_seen",
+      "title"
+    ]
+  },
+  "CopyRemoteItemResponse": {
+    "properties": [
+      "feed_guid",
+      "feed_url",
+      "item_guid",
+      "medium",
+      "remote_episode_count",
+      "remote_feed_image_url",
+      "remote_feed_title",
+      "remote_release_artist",
+      "remote_release_artist_source",
+      "resolved_feed_guid"
+    ]
+  },
+  "ErrorBody": {
+    "properties": [
+      "error"
+    ]
+  },
+  "FeedBlock": {
+    "properties": [
+      "block_id",
+      "blocked_at",
+      "kind",
+      "reason",
+      "value"
+    ]
+  },
+  "FeedBlockKind": {
+    "enum": [
+      "guid",
+      "url"
+    ]
+  },
+  "FeedCopiesResponse": {
+    "properties": [
+      "copies_over_limit",
+      "data",
+      "meta",
+      "pagination"
+    ]
+  },
+  "FeedCopyResolutionResponse": {
+    "properties": [
+      "current",
+      "decision",
+      "reason",
+      "resolved_at"
+    ]
+  },
+  "FeedCopyResponse": {
+    "properties": [
+      "author",
+      "differs_recipients",
+      "differs_remote_items",
+      "differs_tracks",
+      "feed_recipients",
+      "first_seen",
+      "guid_origin",
+      "image_url",
+      "item_durations",
+      "item_enclosure_urls",
+      "item_guids",
+      "item_pub_dates",
+      "item_titles",
+      "last_seen",
+      "open",
+      "remote_items",
+      "resolution",
+      "title",
+      "track_recipients",
+      "url"
+    ]
+  },
+  "FeedRemoteItemResponse": {
+    "properties": [
+      "medium",
+      "position",
+      "rel",
+      "remote_episode_count",
+      "remote_feed_guid",
+      "remote_feed_image_url",
+      "remote_feed_title",
+      "remote_feed_url",
+      "remote_item_guid",
+      "remote_item_title",
+      "remote_release_artist",
+      "remote_release_artist_source",
+      "remote_track_duration_secs",
+      "remote_track_guid",
+      "remote_track_image_url",
+      "remote_track_title",
+      "source"
+    ]
+  },
+  "FeedResponse": {
+    "properties": [
+      "agreed_roles",
+      "co_credited_feeds",
+      "confirmed_release_artist_count",
+      "confirmed_release_artists",
+      "copy_count",
+      "created_at",
+      "description",
+      "distinct_release_artist_count",
+      "distinct_release_artists",
+      "episode_count",
+      "explicit",
+      "feed_guid",
+      "feed_url",
+      "first_named_count",
+      "image_url",
+      "language",
+      "last_build_date",
+      "live_items",
+      "named_feeds",
+      "newest_item_at",
+      "oldest_item_at",
+      "payment_routes",
+      "pending_guid_change",
+      "publisher",
+      "publisher_feed_guid",
+      "publisher_feed_title",
+      "publisher_text",
+      "raw_medium",
+      "release_artist",
+      "release_artist_sort",
+      "release_artist_source",
+      "release_date",
+      "release_kind",
+      "remote_items",
+      "sort_name",
+      "source_contributors",
+      "source_ids",
+      "source_links",
+      "source_platforms",
+      "source_release_claims",
+      "stated_rels",
+      "title",
+      "tracks",
+      "two_way_link_count",
+      "unconfirmed_release_artist_count",
+      "unconfirmed_release_artists",
+      "updated_at"
+    ]
+  },
+  "FeedSupersededBody": {
+    "properties": [
+      "error",
+      "superseded_by"
+    ]
+  },
+  "GuidChangeDecisionResponse": {
+    "properties": [
+      "event_id"
+    ]
+  },
+  "GuidChangeResponse": {
+    "properties": [
+      "decision",
+      "first_seen",
+      "last_seen",
+      "new_guid",
+      "old_guid",
+      "source_url"
+    ]
+  },
+  "IngestResponse": {
+    "properties": [
+      "accepted",
+      "events_emitted",
+      "no_change",
+      "reason",
+      "source_url",
+      "warnings"
+    ]
+  },
+  "ListBlocksResponse": {
+    "properties": [
+      "blocks"
+    ]
+  },
+  "LiveItemListResponse": {
+    "properties": [
+      "confirming_relay",
+      "content_link",
+      "feed_guid",
+      "in_now_view",
+      "in_upcoming_view",
+      "link",
+      "link_scheme_added",
+      "live_item_guid",
+      "live_value_protocol",
+      "live_value_uri",
+      "scheduled_end",
+      "scheduled_start",
+      "status",
+      "title"
+    ]
+  },
+  "LiveItemResponse": {
+    "properties": [
+      "confirming_relay",
+      "content_link",
+      "in_now_view",
+      "in_upcoming_view",
+      "link",
+      "link_scheme_added",
+      "live_item_guid",
+      "live_value_protocol",
+      "live_value_uri",
+      "scheduled_end",
+      "scheduled_start",
+      "status",
+      "title"
+    ]
+  },
+  "LocalVtsResponse": {
+    "properties": [
+      "duration",
+      "position",
+      "recipients",
+      "start_time"
+    ]
+  },
+  "NamedFeedEntry": {
+    "properties": [
+      "album_names_rank",
+      "publisher_feed_guid",
+      "remote_feed_title",
+      "role",
+      "role_agreement"
+    ]
+  },
+  "NodeInfoResponse": {
+    "properties": [
+      "built_at",
+      "git_revision",
+      "node_pubkey"
+    ]
+  },
+  "Pagination": {
+    "properties": [
+      "cursor",
+      "has_more"
+    ]
+  },
+  "PeerEntry": {
+    "properties": [
+      "last_push_at",
+      "node_pubkey",
+      "node_url"
+    ]
+  },
+  "PeerResponse": {
+    "properties": [
+      "last_push_at",
+      "node_pubkey",
+      "node_url"
+    ]
+  },
+  "PeersResponse": {
+    "properties": [
+      "nodes"
+    ]
+  },
+  "PendingGuidChangeResponse": {
+    "properties": [
+      "decision",
+      "first_seen",
+      "last_seen",
+      "new_guid"
+    ]
+  },
+  "PublisherDetailResponse": {
+    "properties": [
+      "feeds",
+      "publisher_text",
+      "tracks"
+    ]
+  },
+  "PublisherFeedSummary": {
+    "properties": [
+      "episode_count",
+      "feed_guid",
+      "feed_url",
+      "image_url",
+      "raw_medium",
+      "title"
+    ]
+  },
+  "PublisherLinkStatsResponse": {
+    "properties": [
+      "listed_links",
+      "resolved_by_feed_url",
+      "resolved_by_guid",
+      "unresolved"
+    ]
+  },
+  "PublisherResponse": {
+    "properties": [
+      "album_names_as",
+      "album_names_rank",
+      "direction",
+      "music_feed_guid",
+      "music_feed_url",
+      "music_names_publisher",
+      "music_rel",
+      "publisher_feed_guid",
+      "publisher_feed_url",
+      "publisher_link_observed_at",
+      "publisher_link_resolution",
+      "publisher_lists_music",
+      "publisher_rel",
+      "reciprocal_declared",
+      "reciprocal_medium",
+      "remote_episode_count",
+      "remote_feed_guid",
+      "remote_feed_image_url",
+      "remote_feed_medium",
+      "remote_feed_title",
+      "remote_feed_url",
+      "remote_release_artist",
+      "remote_release_artist_source",
+      "role",
+      "role_agreement",
+      "role_source",
+      "two_way_validated"
+    ]
+  },
+  "PublisherSearchItem": {
+    "properties": [
+      "feed_count",
+      "publisher_text",
+      "track_count"
+    ]
+  },
+  "PublisherTrackSummary": {
+    "properties": [
+      "duration_secs",
+      "feed_guid",
+      "feed_image_url",
+      "image_url",
+      "title",
+      "track_guid",
+      "track_image_url",
+      "track_number"
+    ]
+  },
+  "RegisterResponse": {
+    "properties": [
+      "ok"
+    ]
+  },
+  "ResolveCopyResponse": {
+    "properties": [
+      "event_ids"
+    ]
+  },
+  "ResponseMeta": {
+    "properties": [
+      "api_version",
+      "node_pubkey"
+    ]
+  },
+  "RouteHistoryEntry": {
+    "properties": [
+      "changed_at",
+      "event_id",
+      "new_recipients",
+      "old_recipients",
+      "seq",
+      "subject",
+      "track_guid"
+    ]
+  },
+  "RouteHistorySubject": {
+    "enum": [
+      "feed",
+      "track"
+    ]
+  },
+  "RouteRecipient": {
+    "properties": [
+      "address",
+      "custom_key",
+      "custom_value",
+      "split"
+    ]
+  },
+  "RouteResponse": {
+    "properties": [
+      "address",
+      "custom_key",
+      "custom_value",
+      "fee",
+      "recipient_name",
+      "route_type",
+      "split"
+    ]
+  },
+  "SearchResponseItem": {
+    "properties": [
+      "duration_secs",
+      "entity_id",
+      "entity_type",
+      "episode_count",
+      "feed_guid",
+      "feed_image_url",
+      "feed_title",
+      "href",
+      "pub_date",
+      "quality_score",
+      "rank",
+      "release_artist",
+      "release_artist_source",
+      "title",
+      "track_artist",
+      "track_image_url"
+    ]
+  },
+  "SourceContributorClaimResponse": {
+    "properties": [
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "group_name",
+      "href",
+      "img",
+      "name",
+      "npub",
+      "observed_at",
+      "position",
+      "role",
+      "role_norm",
+      "source"
+    ]
+  },
+  "SourceEntityIdResponse": {
+    "properties": [
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "observed_at",
+      "position",
+      "scheme",
+      "source",
+      "value"
+    ]
+  },
+  "SourceEntityLinkResponse": {
+    "properties": [
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "link_type",
+      "observed_at",
+      "position",
+      "source",
+      "url",
+      "url_scheme_added"
+    ]
+  },
+  "SourceItemEnclosureResponse": {
+    "properties": [
+      "bytes",
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "is_primary",
+      "mime_type",
+      "observed_at",
+      "position",
+      "rel",
+      "source",
+      "title",
+      "url"
+    ]
+  },
+  "SourceItemTranscriptResponse": {
+    "properties": [
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "language",
+      "mime_type",
+      "observed_at",
+      "position",
+      "rel",
+      "source",
+      "url"
+    ]
+  },
+  "SourcePlatformClaimResponse": {
+    "properties": [
+      "extraction_path",
+      "observed_at",
+      "owner_name",
+      "platform_key",
+      "source",
+      "url"
+    ]
+  },
+  "SourceReleaseClaimResponse": {
+    "properties": [
+      "claim_type",
+      "claim_value",
+      "entity_id",
+      "entity_type",
+      "extraction_path",
+      "observed_at",
+      "position",
+      "source"
+    ]
+  },
+  "TrackRemoteItemResponse": {
+    "properties": [
+      "medium",
+      "position",
+      "rel",
+      "remote_episode_count",
+      "remote_feed_guid",
+      "remote_feed_image_url",
+      "remote_feed_title",
+      "remote_feed_url",
+      "remote_release_artist",
+      "remote_release_artist_source",
+      "source"
+    ]
+  },
+  "TrackResponse": {
+    "properties": [
+      "created_at",
+      "description",
+      "duration_secs",
+      "enclosure_bytes",
+      "enclosure_type",
+      "enclosure_url",
+      "explicit",
+      "feed_guid",
+      "feed_image_url",
+      "feed_title",
+      "image_url",
+      "language",
+      "local_value_time_splits",
+      "payment_routes",
+      "pub_date",
+      "publisher",
+      "publisher_text",
+      "release_artist",
+      "release_artist_source",
+      "remote_items",
+      "source_contributors",
+      "source_enclosures",
+      "source_ids",
+      "source_links",
+      "source_release_claims",
+      "source_transcripts",
+      "title",
+      "track_artist",
+      "track_artist_sort",
+      "track_guid",
+      "track_image_url",
+      "track_number",
+      "updated_at",
+      "value_time_splits"
+    ]
+  },
+  "TrackSummary": {
+    "properties": [
+      "duration_secs",
+      "feed_image_url",
+      "image_url",
+      "pub_date",
+      "publisher_text",
+      "title",
+      "track_guid",
+      "track_image_url",
+      "track_number"
+    ]
+  },
+  "VtsResponse": {
+    "properties": [
+      "duration",
+      "duration_secs",
+      "remote_feed_guid",
+      "remote_item_guid",
+      "remote_percentage",
+      "remote_start_time",
+      "split",
+      "start_time",
+      "start_time_secs"
+    ]
+  }
+}

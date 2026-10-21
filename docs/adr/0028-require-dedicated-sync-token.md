@@ -49,3 +49,12 @@ This ADR narrows ADR 0027 by removing the admin-token compatibility branch.
   replication to work.
 - Old deployments that relied on `ADMIN_TOKEN` for sync must update their
   configuration before upgrading.
+
+## Guards
+
+- `tests/sync_register_auth_tests.rs` checks that `GET /sync/events`,
+  `GET /sync/peers` and `POST /sync/register` refuse `X-Admin-Token`, and
+  that `src/community.rs` holds no `X-Admin-Token`.
+- `tests/sync_reconcile_auth_tests.rs` checks `POST /sync/reconcile`.
+- The unit tests of `SyncAuth` in `src/community.rs` check that a community
+  node sends only `X-Sync-Token`.

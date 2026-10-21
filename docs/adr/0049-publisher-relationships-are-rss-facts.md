@@ -316,3 +316,10 @@ The fixtures come from these feeds:
   client that compares `feed_url` with a listed `feedUrl` gets a false result
   for 22 of the 30 DETOX albums. The `publisher` view gives the correct
   relationship.
+
+## Guards
+
+- `tests/adr0049_url_observation_tests.rs` checks section 1, with
+  `a_failed_fetch_report_keeps_the_observation`.
+- The other `tests/adr0049_*` files, `stophammer-crawler/src/follow.rs` and
+  `stophammer-crawler/src/modes/refresh.rs` check sections 2 to 9.

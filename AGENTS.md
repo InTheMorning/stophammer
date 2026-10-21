@@ -403,8 +403,10 @@ Binaries live in `src/bin/`. Current binaries:
 
 1. Create `migrations/000N_<description>.sql` using the next sequence
    number. File names are stable once committed.
-2. Migrations are additive and idempotent. Never rewrite a merged
-   migration — add a new one.
+2. Migrations are additive and idempotent. Add the line `<file> <sha256>`
+   of the new file at the end of `tests/fixtures/migration_sha256.txt`.
+   `tests/adr0023_migration_hash_tests.rs` fails when a committed migration
+   changes, and its message gives the line to add (ADR 0023).
 3. Keep `src/schema.sql` consistent with the union of all migrations
    (used for fresh bootstraps).
 4. A migration version is its position in the `MIGRATIONS` array, not its
@@ -426,7 +428,9 @@ Binaries live in `src/bin/`. Current binaries:
    response schema at the registered type with `$ref`.
 5. Check the document with `cargo run --bin gen_openapi`. Then run
    `cargo test`. The guards of ADR 0044 fail when the path or the schema is
-   missing.
+   missing. Add each new property or enum value to
+   `tests/fixtures/v1-schema-fields.json`, so that its removal fails
+   `tests/adr0044_field_removal_tests.rs`.
 6. Add an integration test in `tests/`.
 7. Document in `docs/API.md`.
 

@@ -254,3 +254,64 @@ async fn sync_register_admin_token_rejected_when_sync_token_configured() {
         "POST /sync/register with X-Admin-Token must return 403 when SYNC_TOKEN is configured (use X-Sync-Token instead)"
     );
 }
+
+// ── ADR 0028: the two sync reads refuse X-Admin-Token ───────────────────────
+
+async fn sync_read_status(
+    route: &str,
+    sync_token: Option<&str>,
+    header: (&str, &str),
+) -> http::StatusCode {
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), "admin-secret", sync_token);
+    let app = stophammer::api::build_router(state);
+    let req = Request::builder()
+        .method("GET")
+        .uri(route)
+        .header(header.0, header.1)
+        .body(axum::body::Body::empty())
+        .expect("build request");
+    app.oneshot(req).await.expect("call handler").status()
+}
+
+#[tokio::test]
+async fn sync_reads_refuse_the_admin_token_with_no_sync_token_configured() {
+    for route in ["/sync/events", "/sync/peers"] {
+        assert_eq!(
+            sync_read_status(route, None, ("X-Admin-Token", "admin-secret")).await,
+            403,
+            "ADR 0028: GET {route} must refuse X-Admin-Token when SYNC_TOKEN is unset"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sync_reads_refuse_the_admin_token_with_a_sync_token_configured() {
+    for route in ["/sync/events", "/sync/peers"] {
+        assert_eq!(
+            sync_read_status(
+                route,
+                Some("sync-secret"),
+                ("X-Admin-Token", "admin-secret")
+            )
+            .await,
+            403,
+            "ADR 0028: GET {route} must never accept X-Admin-Token"
+        );
+        assert_eq!(
+            sync_read_status(route, Some("sync-secret"), ("X-Sync-Token", "sync-secret")).await,
+            200,
+            "ADR 0028: GET {route} must accept the configured X-Sync-Token"
+        );
+    }
+}
+
+#[test]
+fn the_community_module_never_sends_the_admin_token() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/community.rs");
+    let source = std::fs::read_to_string(&path).expect("read src/community.rs");
+    assert!(
+        !source.contains("X-Admin-Token"),
+        "ADR 0028: a community node uses only SYNC_TOKEN. Remove X-Admin-Token from src/community.rs"
+    );
+}

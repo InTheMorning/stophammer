@@ -536,3 +536,55 @@ async fn feed_url_observations_replicate_identically_from_the_event_log() {
         "the feed_url_observations table must be identical after replaying the event log"
     );
 }
+
+// ---------------------------------------------------------------------------
+// ADR 0049 §1: a failed fetch does not delete an observation.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_failed_fetch_report_keeps_the_observation() {
+    let crawl_token = "adr0049-url-obs-token";
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), crawl_token);
+    let app = stophammer::api::build_router(state);
+    let feed_guid = "failed-fetch-feed";
+    let url = "https://example.com/failed-fetch.xml";
+
+    ingest(
+        app.clone(),
+        &ingest_payload(
+            url,
+            url,
+            crawl_token,
+            "hash-failed-fetch-1",
+            &synthetic_feed_data(feed_guid, "Failed Fetch Feed"),
+        ),
+    )
+    .await;
+    assert_eq!(
+        observation_guid(&db, url).as_deref(),
+        Some(feed_guid),
+        "the accepted ingest must record an observation"
+    );
+
+    for (http_status, hash) in [
+        (503, "hash-failed-fetch-503"),
+        (404, "hash-failed-fetch-404"),
+        (410, "hash-failed-fetch-410"),
+    ] {
+        let report = serde_json::json!({
+            "canonical_url": url,
+            "source_url": url,
+            "crawl_token": crawl_token,
+            "http_status": http_status,
+            "content_hash": hash,
+            "feed_data": null,
+        });
+        let _ = ingest_response(app.clone(), &report).await;
+        assert_eq!(
+            observation_guid(&db, url).as_deref(),
+            Some(feed_guid),
+            "ADR 0049 §1: a failed fetch ({http_status}) must not delete the observation"
+        );
+    }
+}

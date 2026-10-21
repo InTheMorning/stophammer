@@ -66,3 +66,11 @@ If a migration fails, the transaction rolls back and the version is not recorded
 - `src/schema.sql` is retained as a reference but is no longer executed at startup. Future schema changes must be added as new migration files appended to the `MIGRATIONS` array.
 - SQLite does not support transactional DDL for all operations (e.g., `ALTER TABLE` with column renames has limitations). Future migrations that require non-transactional DDL will need to document their failure-recovery strategy in comments within the migration file.
 - Rollback (downgrade) migrations are not supported. If a migration must be reversed, a new forward migration must be written. This is consistent with the append-only event log philosophy (ADR 0004).
+
+## Guards
+
+- `tests/adr0023_migration_hash_tests.rs` fails when a committed migration
+  file changes, or when a new file has no line in
+  `tests/fixtures/migration_sha256.txt`.
+- `tests/migration_tests.rs` checks the idempotent run, the single run of
+  each version and the rollback of a failed migration.
