@@ -22,7 +22,7 @@ three different readers:
 | Other changes: a fix, crawler behavior, packaging | The operator of the primary |
 
 A new event type needs each community node upgraded before the primary emits
-it. [ADR 0044](0044-api-contract-declares-its-fields.md) already makes a
+it. [ADR 0044](archive/0044-api-contract-declares-its-fields.md) already makes a
 breaking change of `v1` need a new path version.
 
 ## Decision

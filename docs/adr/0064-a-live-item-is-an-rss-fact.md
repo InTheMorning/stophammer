@@ -191,7 +191,7 @@ the rows of that feed. The index removes no row because of its age.
   rule.
 - A read gives no row of a feed that is not public.
 
-[ADR 0044](0044-api-contract-declares-its-fields.md) owns the contract of the
+[ADR 0044](archive/0044-api-contract-declares-its-fields.md) owns the contract of the
 two responses.
 
 ### 7. The views are the only rule that the index adds

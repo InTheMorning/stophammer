@@ -2,7 +2,7 @@
 
 ## Purpose
 
-[ADR 0048](../adr/0048-every-track-resolves-to-a-payment-route.md) states that
+[ADR 0048](../adr/archive/0048-every-track-resolves-to-a-payment-route.md) states that
 the measurement belongs to its acceptance and not to its statement. This record
 holds that measurement.
 

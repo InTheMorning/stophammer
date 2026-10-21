@@ -1,6 +1,9 @@
 # ADR 0048: Every Track Resolves To A Payment Route
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
 ## Date
@@ -33,7 +36,7 @@ The corrective pass of ADR 0047 made the effect visible. Feeds the index
 already holds are refused on re-ingest, so they keep the incorrect release date
 that ADR 0043 exists to fix.
 
-[The evidence record](../reviews/adr-0048-track-value-coverage-evidence.md)
+[The evidence record](../../reviews/adr-0048-track-value-coverage-evidence.md)
 holds the measurement. Four of four sampled refused feeds cover each track with
 a valid item-level block. 227 of 7,491 accepted feeds hold a track that
 declares no block, so the fallback stays necessary. The record does not give

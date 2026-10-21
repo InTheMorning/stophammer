@@ -234,7 +234,7 @@ of Decision B for this route does not apply. With no parameter, the route gives
 only `music` feeds. Another medium is an explicit request of the client, so a
 container never enters the default list. A removal of the parameter would be a
 breaking change of `v1` under
-[ADR 0044](0044-api-contract-declares-its-fields.md).
+[ADR 0044](archive/0044-api-contract-declares-its-fields.md).
 
 The other parts of Decision A and Decision B are implemented on this date.
 

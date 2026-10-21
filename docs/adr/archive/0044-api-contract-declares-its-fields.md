@@ -1,6 +1,9 @@
 # ADR 0044: The API Contract Declares Its Fields
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
 Amended 2026-09-23: the field-declaration rule covers a response that a
@@ -15,7 +18,7 @@ routes that need the sync token. That obligation served no client.
 The v4vmm desktop client reported that a renamed response field disappears
 without an error. Stophammer checked the statement and found it correct. The
 cause is not the one the client assumed. The evidence is in
-[the verification record](../reviews/v4vmm-musicindex-api-change-request-verification.md).
+[the verification record](../../reviews/v4vmm-musicindex-api-change-request-verification.md).
 
 The client believed that the contract marks fields optional. The live contract
 marks no field at all.

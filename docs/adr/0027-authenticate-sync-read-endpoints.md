@@ -2,7 +2,7 @@
 
 ## Status
 Accepted in part. The fallback to `X-Admin-Token` is superseded by
-[ADR 0028](0028-require-dedicated-sync-token.md): each sync endpoint needs
+[ADR 0028](archive/0028-require-dedicated-sync-token.md): each sync endpoint needs
 `SYNC_TOKEN`.
 
 Date: 2026-03-18

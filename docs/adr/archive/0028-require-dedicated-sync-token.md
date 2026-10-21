@@ -1,6 +1,9 @@
 # ADR 0028: Require Dedicated Sync Token
 
 ## Status
+Archived on 2026-10-20, because a test enforces each rule of this
+decision. The tests own the rules now. Read this record for history only.
+
 Accepted
 
 Date: 2026-03-18
