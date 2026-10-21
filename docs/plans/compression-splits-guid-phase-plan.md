@@ -23,8 +23,6 @@ of 2026-10-20 and
 
 ## Non-Goals
 
-- ADR 0074 §4, the records that have no source GUID. It waits for the count of
-  `.idea/guid/README.md`.
 - The recipients of a split in the route history of ADR 0053.
 - A parse warning channel in the parser.
 - `zstd` and `deflate`.

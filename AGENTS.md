@@ -43,8 +43,6 @@ deployed, except the items below. The primary sets
 
 ### Open Items
 
-- ADR 0074 §4 waits for the count of the feeds whose source has no
-  `podcast:guid`.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.

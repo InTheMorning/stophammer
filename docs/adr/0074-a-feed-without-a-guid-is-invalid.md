@@ -1,8 +1,8 @@
 # ADR 0074: A Feed Without A GUID Is Invalid
 
 ## Status
-Accepted on 2026-10-20. Tasks 001 to 003 give the build of §1 to §3. §4 waits
-for the count of the affected feeds. It supersedes the section
+Accepted on 2026-10-20. Tasks 001 to 003 give the build of §1 to §3. §4 is
+decided on 2026-10-21 and needs no build. It supersedes the section
 "`podcast:guid` absent → empty string" of ADR 0011.
 
 ## Date
@@ -78,9 +78,8 @@ music feed as a feed with no medium.
 `FeedGuidVerifier` on the node rejects a GUID that is not a UUID. It cannot
 tell a GUID from the source from a fallback GUID.
 
-The number of indexed feeds whose source has no `podcast:guid` is not measured.
-The fetch cache of the crawler holds the last body of each fetched feed (ADR
-0050 §1), so a count from it is possible.
+On 2026-10-20, the number of indexed feeds with no `podcast:guid` in the source
+was not measured. §4 gives the count of 2026-10-21.
 
 ## Decision
 
@@ -131,13 +130,20 @@ The rule that skips a feed with no medium belongs to the medium gate of the
 node. The crawler applies it only to choose a skip. The node keeps its
 verifier chain, and `FeedGuidVerifier` stays.
 
-### 4. A record that has no source GUID
+### 4. A record that has no source GUID stays
 
-Not decided. This waits for the count. The two options are:
+The node keeps each record with a source that has no `podcast:guid`. No crawl
+changes such a record, because each mode gives a parse error for its body
+(§3a). The node does not retire it, and it adds no new rule for it.
 
-- Keep the record. It does not change, because no crawl can update it.
-- Retire the record on its next crawl, with a reason such as `no_podcast_guid`.
-  ADR 0057 and ADR 0067 retire a feed with the same procedure.
+On 2026-10-21, no record had an RSS body with no `podcast:guid` in the fetch
+cache. Two records had a cached body that is not RSS. The cache cannot show if
+those two feeds give a GUID.
+[The count record](../reviews/adr-0074-feeds-without-guid-count.md) gives the
+method and the limits.
+
+When the source adds a `podcast:guid` at the same URL, ADR 0052 §4 applies. The
+node records a pending GUID change and makes no second record.
 
 ## Alternatives Considered
 
@@ -159,6 +165,8 @@ of the source, and it changes when the feed moves.
 - Each mode accepts the same feed bodies.
 - The `import` mode no longer adds a feed whose source has no `podcast:guid`.
 - Each GUID in a new record is a fact of the source.
+- A record from before this decision can hold a GUID that its source does not
+  give. Such a record stays unchanged until its source gives a GUID.
 
 ## Invariants
 
