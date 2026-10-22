@@ -3,7 +3,7 @@
 ## Status
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 and 19 are closed,
-and requests 17 and 18 are open. This document consolidates each open request from the
+and requests 17, 18 and 20 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -50,6 +50,7 @@ names the requests that the two clients share.
 | 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
 | 18 | Summary fields on each remote value time split | API field addition | Wanted |
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
+| 20 | No copy of two feeds whose old album files stay public | Data question | Wanted |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -607,6 +608,55 @@ does not change never gets its splits.
 unchanged body, read again each feed with a `podcast:valueTimeSplit` in its
 stored body. Use the parser of ADR 0073. Alternatively, record
 in ADR 0073 when such a feed gets its splits.
+
+### 20. No Copy Of Two Feeds Whose Old Album Files Stay Public
+
+Added on 2026-10-21. Evidence: read-only GET requests on 2026-10-21 to the
+live API at revision `71aa360` and to the RSS files below. Also, the public
+pages of Podcast Index feeds 7026851 and 7689614.
+
+**What happens.** Two feed GUIDs each have a Podhome file and an older album
+file on `music.behindthesch3m3s.com`. Each pair gives the same
+`podcast:guid` and `podcast:medium` `music`:
+
+| GUID | URL | Items | `lastBuildDate` |
+|---|---|---|---|
+| `9e72a512-c678-5621-8fd6-dfc7cd11a846` "Autumn Rust" | `https://serve.podhome.fm/rss/9e72a512-c678-5621-8fd6-dfc7cd11a846` (source) | 1 | 6 Feb 2026 |
+| same | `https://music.behindthesch3m3s.com/wp-content/uploads/Sat_Skirmish/autumnrust/mp3s/album_feed/feed.xml` | 75 | 18 Jan 2025 |
+| `b39fc3b2-2742-5944-a800-e87c42a093a3` "The Satellite Skirmish" | `https://serve.podhome.fm/rss/b39fc3b2-2742-5944-a800-e87c42a093a3` (source) | 1 | 6 Feb 2026 |
+| same | `https://music.behindthesch3m3s.com/wp-content/uploads/Sat_Skirmish/the_satellite_skirmish_album.xml` | 31 | none |
+| same | `https://music.behindthesch3m3s.com/wp-content/uploads/Sat_Skirmish/oldfeed/the_satellite_skirmish_album.xml` | 29 | none |
+
+Each Podhome file declares `itunes:new-feed-url` and `atom:link rel="self"`
+with its own URL. The album files declare neither. Thus, by ADR 0052, the
+Podhome file is the source and each album file is a mirror. We agree with
+that result.
+
+`GET /v1/feeds/{guid}/copies` gives no row for either GUID, and
+`GET /v1/guid-changes` does not name them. Podcast Index has two feeds with the
+title "Autumn Rust": 7689614 with Podhome art, and 7026851 with art on
+`music.behindthesch3m3s.com`. We could not read the feed URL of 7026851,
+because the public page needs a proof-of-work header.
+
+**What it costs.** The boost recap of each Podhome file has value time splits
+that name album tracks by `itemGuid`. Only the album files hold those tracks:
+
+| Split of track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` | Named item | Only in |
+|---|---|---|
+| 0:01 to the end, 95% | `efe2226c-5390-4178-8950-8eab2d76bfbf` "The Doerfels - Islamorada" | Autumn Rust album file |
+| 47:39 to the end, 95% | `9db6d76b-fe9e-4914-bcc4-c429e0d75d6b` "The HeyCitizen Experience - Love Song 4 U" | Satellite Skirmish album files |
+| 1:55:54 to the end, 95% | `79901278-8f46-4efa-a602-98627b8f6949` Matt the Tall, "Wayfaring Stranger" | Autumn Rust album file |
+
+The search site shows each of these rows as "Track not indexed". Without a copy
+row, the page also cannot show the copy warning of musicindex ADR 0009. The
+copy view of musicindex ADR 0013 cannot show the 75 and 31 album tracks.
+
+**Request.** Examine why the node has no copy row for these URLs. For example,
+the crawler may not list them, or they may answer `304`. If the rules of ADR
+0058 apply to them, record each album file as a copy of its GUID.
+
+This request does not ask the node to change the source or to index the album
+tracks as tracks. The publisher decides which file is the feed.
 
 ## Stophammer Answers - 2026-09-25
 
