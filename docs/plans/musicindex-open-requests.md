@@ -49,7 +49,7 @@ names the requests that the two clients share.
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
 | 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
 | 18 | Summary fields on each remote value time split | API field addition | Wanted |
-| 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for two feeds |
+| 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -705,7 +705,7 @@ archived ADR 0072 §4 owns the content hash.
 
 | # | Answer |
 |---|---|
-| 19 | Confirmed. The node skips a body with the same hash. The `content_hash` verifier returns `NO_CHANGE`, and the node then writes no track and no split. The SHA-256 of the "Autumn Rust" body on 2026-10-21 is the hash that the node recorded on 2026-10-02. Also, the feed server answers the conditional GET with a `304`, so a usual crawl sends no body. The parser of ADR 0073 reads all 8 splits of the body. A forced pass of the crawler on 2026-10-21 at 23:54 UTC read the two feeds again. The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` now gives 8 remote-form splits, and the track `f475f98b-8ed4-4b06-8038-53727b9100d6` of "The Satellite Skirmish" gives 3. Five splits of "Autumn Rust" name a feed and no item, so `remote_item_guid` is `""` (ADR 0073 §4). The index holds none of the three named items. A change to the parser does not cause a new read of an unchanged feed. Other feeds can have splits in an unchanged body. A forced `refresh` pass of all feeds finds them. It has not run |
+| 19 | Confirmed. The node skips a body with the same hash. The `content_hash` verifier returns `NO_CHANGE`, and the node then writes no track and no split. The SHA-256 of the "Autumn Rust" body on 2026-10-21 is the hash that the node recorded on 2026-10-02. Also, the feed server answers the conditional GET with a `304`, so a usual crawl sends no body. The parser of ADR 0073 reads all 8 splits of the body. A forced pass of the crawler on 2026-10-21 at 23:54 UTC read the two feeds again. The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` now gives 8 remote-form splits, and the track `f475f98b-8ed4-4b06-8038-53727b9100d6` of "The Satellite Skirmish" gives 3. Then a search of the bodies in the crawler fetch cache found two more feeds with splits: "The Satellite Spotlight" (`9e3cea98-d04d-5190-88b3-46ee6030d4ea`) with 14 and "Polar Embrace" (`2a3a5f81-8325-521b-b168-07ff09b15435`) with 13. A second forced pass read them again. On 2026-10-22, the live API gives each of the 38 splits of the four feeds. Five splits of "Autumn Rust" name a feed and no item, so `remote_item_guid` is `""` (ADR 0073 §4). The index holds none of the three named items. A change to the parser does not cause a new read of an unchanged feed. The fetch cache does not hold a feed that only an `ndjson` replay gave to the index. Such a feed can have splits in an unchanged body. A forced `refresh` pass of all feeds finds it. It has not run |
 
 ## Requests That v4vmm Also Makes
 
