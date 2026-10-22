@@ -2,8 +2,8 @@
 
 ## Status
 
-Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15 and 19 are closed,
-and requests 17, 18 and 20 are open. This document consolidates each open request from the
+Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
+closed, and requests 17 and 18 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -50,7 +50,7 @@ names the requests that the two clients share.
 | 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
 | 18 | Summary fields on each remote value time split | API field addition | Wanted |
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
-| 20 | No copy of two feeds whose old album files stay public | Data question | Wanted |
+| 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -748,14 +748,16 @@ The Stophammer operator decided request 13 on 2026-10-18. The text of the reques
 
 ## Stophammer Answers - 2026-10-21
 
-Stophammer examined request 19 against the live API at revision `71aa360`, the
-RSS file of "Autumn Rust", the source, and the backup of 2026-10-21. The report
-is correct. These answers are advisory. ADR 0073 owns the split rule, and the
-archived ADR 0072 §4 owns the content hash.
+Stophammer examined requests 19 and 20 against the live API at revision
+`71aa360`, the RSS files that each request names, the source, and the backup of
+2026-10-21. Each report is correct. These answers are advisory. ADR 0073 owns
+the split rule. The archived ADR 0072 §4 owns the content hash, and the
+archived ADR 0058 owns the copy rows.
 
 | # | Answer |
 |---|---|
 | 19 | Confirmed. The node skips a body with the same hash. The `content_hash` verifier returns `NO_CHANGE`, and the node then writes no track and no split. The SHA-256 of the "Autumn Rust" body on 2026-10-21 is the hash that the node recorded on 2026-10-02. Also, the feed server answers the conditional GET with a `304`, so a usual crawl sends no body. The parser of ADR 0073 reads all 8 splits of the body. A forced pass of the crawler on 2026-10-21 at 23:54 UTC read the two feeds again. The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` now gives 8 remote-form splits, and the track `f475f98b-8ed4-4b06-8038-53727b9100d6` of "The Satellite Skirmish" gives 3. Then a search of the bodies in the crawler fetch cache found two more feeds with splits: "The Satellite Spotlight" (`9e3cea98-d04d-5190-88b3-46ee6030d4ea`) with 14 and "Polar Embrace" (`2a3a5f81-8325-521b-b168-07ff09b15435`) with 13. A second forced pass read them again. On 2026-10-22, the live API gives each of the 38 splits of the four feeds. Five splits of "Autumn Rust" name a feed and no item, so `remote_item_guid` is `""` (ADR 0073 §4). The index holds none of the three named items. A change to the parser does not cause a new read of an unchanged feed. The fetch cache does not hold a feed that only an `ndjson` replay gave to the index. Such a feed can have splits in an unchanged body. A forced `refresh` pass of all feeds finds it. It has not run |
+| 20 | Confirmed. No crawler sent the album files after 2026-04-20. On 2026-04-19 and 2026-04-20, two passes sent each album file and then each Podhome file, and the Podhome file stayed the source. ADR 0058 came later, and it records a copy only when a crawler sends a body from the copy URL. `refresh` reads only the URL that the node holds for each GUID, and no link in the Podhome files names an album file. The album host sends no podping, and the cursor of `import` does not go back. The `oldfeed/` URL never reached the node. A `feed` pass of the three album URLs on 2026-10-22 at 00:35 UTC recorded each one as a copy. "Autumn Rust" gives one copy row with 73 items: the album file has 73 items on 2026-10-22, not 75. "The Satellite Skirmish" gives two rows, with 31 and 29 items. Each row gives `differs_tracks` true, and the `oldfeed/` row also gives `differs_recipients` true. The Podhome files stay the source. No crawler reads these album files again, so a later change to them makes no event. This is a limit of ADR 0058, and a change to it needs a new decision |
 
 ## Requests That v4vmm Also Makes
 
