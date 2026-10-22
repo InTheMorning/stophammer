@@ -1548,6 +1548,11 @@ an open copy only after a person asks for it.
 
 `last_seen` is local to the primary. A community node answers `null`.
 
+A row shows the copy at `last_seen`. The node reads a copy URL only when a
+crawler sends it: from a podping, from a link that a crawler follows, or from
+`import`. `refresh` does not read a copy URL. A later change to a copy that
+none of these paths reaches makes no change to its row.
+
 ---
 
 ### GET /v1/copies

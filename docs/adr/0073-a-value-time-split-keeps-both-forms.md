@@ -4,7 +4,8 @@
 Accepted on 2026-10-20, for the research request on value time splits. Tasks
 001 to 003 give the build. Task 004 deletes two functions that no code
 calls, and adds no rule. It supersedes the section
-"`podcast:valueTimeSplit` with `remotePercentage`" of ADR 0011.
+"`podcast:valueTimeSplit` with `remotePercentage`" of ADR 0011. ADR 0077
+amends its "Consequences" section on 2026-10-22.
 
 ## Date
 2026-10-20
@@ -181,8 +182,12 @@ fails on a null or a fraction. The additive form of §4 breaks no client.
 - The change touches the parser, the crawler ingest, the node ingest, the
   event payload, the store, the apply step of a community node and the API.
 - Community nodes upgrade before the primary.
-- A crawl of the Satellite Skirmish feed after the deploy writes three
-  remote-form rows.
+- A feed body that did not change after the deploy gives no split until a
+  forced pass reads it (ADR 0077). The refill pass of this ADR is a `feed`
+  pass with `--force` of each feed with `valueTimeSplit` in its body in the
+  fetch cache. The check is the include `value_time_splits` of a track of
+  each feed. ADR 0077 §3 records the pass of 2026-10-21. After it, the Satellite
+  Skirmish feed gives three remote-form rows.
 
 ## Invariants
 
