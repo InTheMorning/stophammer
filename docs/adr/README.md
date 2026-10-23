@@ -54,7 +54,8 @@ disagree.
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0022](0022-fts5-search-architecture.md) | FTS5 contentless search with a companion table | Accepted |
+| [0022](0022-fts5-search-architecture.md) | FTS5 contentless search with a companion table. ADR 0078 amends its columns and its update step | Accepted |
+| [0078](0078-a-search-index-row-holds-only-searchable-text.md) | The index holds only `name`, `title` and `description`, with `contentless_delete=1`. A retire deletes each row type of the feed, a publisher hit gives the quality of its feed, and each word of `q` is an FTS5 phrase. One rebuild at the first open. Amends ADR 0022 | Proposed |
 | [0037](0037-defer-public-sse-route.md) | The public SSE route is deferred | Accepted |
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image, the artist and the track count of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
