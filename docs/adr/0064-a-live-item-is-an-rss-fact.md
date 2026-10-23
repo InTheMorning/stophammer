@@ -38,7 +38,7 @@ the code and the deployment give these facts:
 2. No crawler mode has a poll interval. The `gossip` mode crawls a URL when a
    podping arrives. [ADR 0062](0062-a-podping-is-never-dropped.md) does not
    delay a podping with the reason `live` or `liveEnd`.
-3. The live metadata relay, `musicindex-live-relay` in the `splitkit`
+3. The live metadata relay, the `musicindex-live-relay`
    repository, serves `/v1/liveitems/*`. It holds the real-time state of a
    stream and its payment routes. A feed names its relay event with
    `<podcast:liveValue uri="EVENT_ID" protocol="socket.io"/>`. The parser does
@@ -278,7 +278,7 @@ a fact.
 - A crawl that starts at once after a podping can read an old copy of the feed
   from a cache. Item 10 of the remaining work plan holds that question.
 - The relay plans a lease for "on air"
-  (`splitkit/docs/plans/live-lease-heartbeat-proposal.md`). This ADR does not
+  (`musicindex-live-relay/docs/plans/live-lease-heartbeat-proposal.md`). This ADR does not
   depend on it. When the lease is deployed, the operator adds the host of the
   relay to `CONFIRMING_RELAY_HOSTS`.
 

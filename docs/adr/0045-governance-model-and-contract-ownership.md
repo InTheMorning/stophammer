@@ -14,7 +14,7 @@ reported four defects in that contract. ADR 0042, ADR 0043 and ADR 0044 hold
 the decisions that came from those reports.
 
 The two repositories do not share a governance shape. v4vmm ADR 0061 defines a
-current-state model. `musicindex-live-publisher` and `splitkit` adopt that ADR
+current-state model. `musicindex-live-publisher` and `musicindex-live-relay` adopt that ADR
 by reference from their own `AGENTS.md`. Stophammer does not.
 
 | Item | v4vmm | Stophammer at `a220f44` |
