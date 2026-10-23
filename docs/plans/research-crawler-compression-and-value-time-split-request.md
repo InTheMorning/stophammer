@@ -6,6 +6,9 @@ Deployed - 2026-10-21 in release 0.13.0. Section 1 is decided in
 [ADR 0072](../adr/archive/0072-a-feed-fetch-accepts-compression.md), and
 section 2 in [ADR 0073](../adr/0073-a-value-time-split-keeps-both-forms.md).
 
+Addendum received - 2026-10-22. The [addendum](#addendum-observations-after-release-0130) gives
+three observations after the deploy. It asks for no change.
+
 Received - 2026-10-20. This request comes from the research repository at
 `~/build/musicindex-research`. That repository has no Git remote. Its index is
 `AGENTS.md`. The background is `research_notes/aggregation/podcast-index-pipeline.md`
@@ -200,3 +203,81 @@ To run the crawler tests:
 1. Apply `crawler-claim-tests.diff` in `stophammer-crawler`.
 2. Run `cargo test claim_`. The two tests fail.
 3. Apply `crawler-minimal-fix.diff`, then run `cargo test`. All tests pass.
+
+## Addendum: Observations After Release 0.13.0
+
+Date: 2026-10-22. This addendum asks for no change. It gives evidence for the
+decisions of ADR 0072 and ADR 0073, and one question about scope.
+
+The evidence is in `sources/captures/2026-10-22-homegrown-hits/` in the
+research repository.
+
+### A. ADR 0072 §5 holds on 24 hosts
+
+This research sent conditional requests with `Accept-Encoding: gzip, br` to
+one feed on each of the 55 sampled hosts that compress
+(`etag-encoding-suffix-check.json`).
+
+| Measurement | Result |
+| --- | ---: |
+| Hosts that send an `ETag` with `-gzip` | 24 |
+| Of these, hosts that answer `200` to their own stored `ETag` | 22 |
+| Of these, hosts that answer `304` to the tag without the suffix | 22 |
+| Hosts that answer `304` to the two-tag list of §5 | 24 of 24 |
+| Hosts that answer `304` to the list with `If-Modified-Since` | 24 of 24 |
+| Index feeds on the 22 hosts, in the backup of 2026-10-21 | 238 |
+
+The record of ADR 0072 names two hosts with 155 feeds. The wider sample has
+20 more hosts with 83 more feeds. The list form gave `304` on each of them.
+
+`If-Modified-Since` does not help without §5. With a stored `-gzip` tag and a
+matching `If-Modified-Since`, an Apache host answers `200`, because
+`If-None-Match` takes precedence. This research saw that on
+`feed.homegrownhits.xyz`.
+
+### B. The parser keeps each permitted split of a live feed
+
+On 2026-10-23 at 01:57Z, `https://feed.homegrownhits.xyz/feed.xml` was live
+(`podcast:liveItem status="live"`). It had 1,887 `valueTimeSplit` elements in
+155 items, each with `remotePercentage`. 1,751 kept splits have a fractional
+`startTime`. The feed uses the old GitHub namespace URI.
+
+`stophammer-parse` at commit `e9f894c` gave 1,873 splits: 1,868 remote and 5
+local. Each of the 14 dropped elements breaks a rule of ADR 0073 §1.
+
+| Cause in the feed | Elements |
+| --- | ---: |
+| A `valueTimeSplit` nested in another `valueTimeSplit` | 10 |
+| A `startTime` that is not a number, for example `1039.9516000000097.152` | 2 |
+| No `remoteItem` and no `valueRecipient` | 1 |
+| The attribute `feedGuide` in place of `feedGuid` | 1 |
+
+A count for each item gave the same result as the rules. The parser output is
+`feed-2026-10-23T0157Z.parsed.json`.
+
+### C. Question: shows with `medium=podcast`
+
+This feed has `podcast:medium` set to `podcast`. `MediumMusicVerifier`
+(ADR 0005) accepts only `music`, `publisher` and `musicL`, so the node rejects
+the feed. The backup of 2026-10-21 does not hold it.
+
+Its splits point to music in the index:
+
+| Measurement | Result |
+| --- | ---: |
+| Remote splits | 1,868 |
+| Distinct remote feeds | 621 |
+| Remote feeds in the index | 574 |
+| Splits that point to a track in the index | 1,738 |
+
+Thus this one show states when it played 1,738 indexed tracks. The
+`value_time_splits` table holds only splits from feeds that the node accepts.
+The 356-feed sample of section 2 had 3 splits, in one music feed. This one show has 1,887.
+
+Stophammer can decide if such a show is a source of facts about indexed
+tracks. This research makes no request for that decision.
+
+The live value channel of the show also names each track. A block of type
+`music` has `feedGuid`, `itemGuid`, `startTime` and `duration`
+(`recording/events.jsonl`). That channel is outside the scope of this request.
+
