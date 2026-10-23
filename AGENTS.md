@@ -49,6 +49,9 @@ Nothing.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
+- [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
+  gives four search index defects and a list of search changes. It is
+  received, and no decision is recorded.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
