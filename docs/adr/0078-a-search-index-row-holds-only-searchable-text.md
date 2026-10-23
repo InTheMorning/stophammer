@@ -19,7 +19,7 @@ are also observed on the live API or in an SQLite test.
 | # | Defect | Cause |
 |---|---|---|
 | S1 | After a change of a title, an artist or a description, the words from before the change stay in the index. The bm25 statistics also become incorrect | `populate_search_index` sends the new text in the FTS5 `'delete'` command (`src/search.rs:139-145`). A contentless table needs the text that it indexed, and no table keeps that text |
-| S2 | A retired publisher feed stays in the index | The two retire paths delete only the row of the type `feed` (`src/api.rs:4803`, `src/apply.rs:307`). A publisher feed has a row of the type `publisher` (ADR 0071 §5). The delete also sends `""` as `name` |
+| S2 | A retired feed can stay in the index | The admin retire and the apply of `FeedRetired` delete only the row of the type `feed` (`src/api.rs:4803`, `src/apply.rs:307`). A publisher feed has a row of the type `publisher` (ADR 0071 §5). The retire of ADR 0057 (`podcast:block`, `src/api.rs:2886`) and the retire of ADR 0067 (gone source, `src/api.rs:2196`) delete no search row. Both call `delete_feed_with_event`, and `delete_feed_sql` (`src/db.rs:2687`) deletes no search row. A search then gives the feed GUID with a null title |
 | S3 | The internal columns match words. `q=track` matches each track, and `q=music` matches each music feed | `entity_type` and `entity_id` are indexed columns, and `tags` holds `raw_medium` |
 | S4 | Each publisher hit gives `quality_score` 0 | `src/db.rs:1419` stores the score with the type `feed`. The search joins `entity_quality` on the type of the hit, `publisher` |
 
@@ -39,6 +39,19 @@ repository).
 
 The rebuild of the index on 2026-09-26 took 3.7 s
 (`docs/reviews/v4vmm-request-5-search-duplicates-verification.md`).
+
+A security review of this proposal on 2026-10-23 found three more facts. Each
+fact was tested in SQLite 3.53.4, not in the bundled 3.45.0:
+
+- A NUL character in a quoted phrase gives the FTS5 error `unterminated string`.
+- A `DELETE` by rowid on the present table definition gives
+  `cannot DELETE from contentless fts5 table`. `open_db` runs
+  `ensure_search_index_track_identity` and `ensure_search_index_publisher_feeds`
+  at each open, and both write to the index.
+- `delete-all` works on a table with `contentless_delete=1`.
+
+The apply loop of a community node stops at an error, waits, and tries the same
+event again (`src/community.rs:229`).
 
 ## Decision
 
@@ -80,10 +93,24 @@ This corrects S1.
 
 ### 3. A retire deletes each row of the feed
 
-When a feed is retired, each path deletes the index rows of the types `feed`
-and `publisher` for that feed. It also deletes the rows of its tracks. An error
-of a delete fails the retire. Each other write in its transaction has the same
-rule. No path discards the result of a delete.
+The feed delete that each retire path uses, `delete_feed_sql`, deletes the
+index rows of the types `feed` and `publisher` for that feed. It also deletes
+the index rows of the tracks of the feed. It does this in the same transaction
+as the other deletes of the feed. No retire path deletes index rows of its own.
+
+This applies to each path that retires a feed:
+
+- the admin retire, `DELETE /v1/feeds/{guid}`,
+- the retire of ADR 0057 for `podcast:block`,
+- the retire of ADR 0067 for a gone source,
+- the retire of an old GUID by a GUID change of ADR 0052,
+- the apply of `FeedRetired` on a community node.
+
+An error of a delete fails the retire, as an error of each other delete in the
+transaction does. No path discards the result of a delete. After §2, a delete
+by rowid fails only when the database fails, and then the other deletes of the
+transaction also fail. So this rule adds no new cause to stop the apply loop of
+a community node.
 
 This corrects S2.
 
@@ -97,7 +124,8 @@ This corrects S4.
 
 ### 5. The text of `q` is words
 
-The node divides `q` at white space. It puts each word in double quotes as one
+The node first removes each control character from `q`, for example NUL. Then
+it divides `q` at white space. It puts each word in double quotes as one
 FTS5 phrase, and it doubles each double quote in the word. The phrases join
 with the implicit AND of FTS5. Thus no character of `q` is an FTS5 operator, a
 column filter or a prefix.
@@ -115,11 +143,20 @@ decision on the other items of v4vmm request 10 owns those.
 ### 6. One rebuild at the first open
 
 On the first open of a release with this decision, the node replaces the
-table and fills it one time from the source tables. The repair keys on the
+table and fills it one time from the source tables. The replacement and the
+fill are one transaction. Thus a stop during the repair leaves the old table,
+and the next open runs the repair again.
+
+The repair runs before each other repair in `open_db` that writes the index.
+On the old table, a `DELETE` by rowid fails, so a different sequence stops the
+open. The repair keys on the
 definition of `search_index` in `sqlite_master`. A definition without
 `contentless_delete` causes the repair. A second open does nothing. The repair
 follows ADR 0046, so it also runs when the migration runner skips the
 migration.
+
+The fill reads only the feeds that the node holds. Thus it also removes each
+row that a retire of §3 left in the index before the deploy.
 
 A community node runs the same repair. No event payload changes, so the
 primary and the community nodes can upgrade in each sequence.
@@ -178,18 +215,24 @@ Each criterion is mechanical. A test in `tests/` proves it.
    gives the entity one time.
 3. §2: after the change, the bm25 rank of an unchanged entity equals its rank in
    a new index that holds the same rows.
-4. §3: a test retires a publisher feed by the API path and by the apply path.
-   After each retire, `search_entities` has no row for that feed. A search for
-   its title or artist gives no hit.
-5. §3: a retire path that receives an error from a delete gives that error.
+4. §3: a test retires a music feed and a publisher feed by each path of §3.
+   After each retire, `search_entities` has no row for the feed or its tracks.
+   A search for its title, its artist or a track title gives no hit.
+5. §3: a retire that receives an error from a delete gives that error, and the
+   transaction writes no row.
 6. §4: the `quality_score` of a `publisher` hit equals the score of the `feed`
    quality row of that feed.
 7. §1: `q=track`, `q=feed` and `q=music` give no hit for an entity that does
    not have the word in its text.
 8. §5: `q` values with an apostrophe, a double quote, a colon, `*`, `-`, `(`,
-   `AND`, `NEAR` and `title:foo` each give `200`.
+   `AND`, `NEAR`, `title:foo` and a NUL character each give `200`.
 9. §5: a `400` of `GET /v1/search` gives no text from SQLite.
 10. §6: a database with the old definition opens with the new definition and
-    the same number of `search_entities` rows. A second open runs no repair.
+    one `search_entities` row for each entity that the source tables hold. A
+    second open runs no repair.
+11. §6: a database with the old definition and a bare-GUID track row opens with
+    no error. This proves the sequence of the repairs.
+12. §6: a database with the old definition and a stale row of a retired feed
+    opens with no row for that feed.
 
 No criterion is visual.
