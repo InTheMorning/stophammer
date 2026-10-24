@@ -2928,8 +2928,11 @@ async fn handle_ingest_feed(
                 // held URL. The check runs before the ADR 0057 block rule, in
                 // the same writer section as `classify_submission`. The
                 // comparison is exact string equality (ADR 0051 section 1).
-                // The ingest transaction deletes the hold on admission.
+                // Only an active hold rejects: a released hold has
+                // `released_at` set (ADR 0079 section 3). The ingest
+                // transaction deletes the hold row on admission.
                 if let Some(hold) = db::get_retired_source_hold(&conn, &feed_data.feed_guid)?
+                    && hold.released_at.is_none()
                     && hold.source_url != req.source_url
                     && hold.source_url != req.canonical_url
                 {
@@ -5129,8 +5132,9 @@ async fn handle_list_blocks(
     Ok(Json(ListBlocksResponse { blocks }))
 }
 
-// ADR 0079 section 3: the operator releases the hold of one GUID. The table is
-// local to the primary, so the release signs no event.
+// ADR 0079 section 3: the operator releases the active hold of one GUID. The
+// release sets `released_at` and keeps the row. The table is local to the
+// primary, so the release signs no event.
 async fn handle_delete_retired_source_hold(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -5143,8 +5147,11 @@ async fn handle_delete_retired_source_hold(
         let Some(hold) = db::get_retired_source_hold(conn, &guid2)? else {
             return Ok(None);
         };
-        db::delete_retired_source_hold(conn, &guid2)?;
-        Ok(Some(hold))
+        if db::release_retired_source_hold(conn, &guid2, db::unix_now())? {
+            Ok(Some(hold))
+        } else {
+            Ok(None)
+        }
     })
     .await?;
 
@@ -5159,7 +5166,7 @@ async fn handle_delete_retired_source_hold(
         }
         None => Err(ApiError {
             status: StatusCode::NOT_FOUND,
-            message: "no retired source hold for this GUID".into(),
+            message: "no active retired source hold for this GUID".into(),
             www_authenticate: None,
         }),
     }

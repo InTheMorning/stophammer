@@ -195,6 +195,29 @@ Notes:
 - `ON DELETE CASCADE` removes the row when the feed is deleted or retired
 - an ingest that writes a body for the record deletes the row
 
+### `retired_source_holds`
+Purpose: the last source URL of a record that a retire with no block removed
+(ADR 0079 section 1).
+Key columns:
+- `feed_guid` (primary key, lower case)
+- `source_url`
+- `reason`
+- `retired_at`
+- `released_at` (null for an active hold)
+
+Notes:
+- local to the primary
+- makes no event
+- `delete_feed_with_event` writes the row. A retire with a block, a GUID change
+  retire and the apply of `FeedRetired` write no row.
+- while `released_at` is null, a new feed for the GUID from a URL that is not
+  `source_url` gets the reason `retired_source_conflict` (ADR 0079 section 2)
+- an ingest that admits the record deletes the row
+- `DELETE /v1/retired-source-holds/{guid}` sets `released_at` and keeps the row
+  (ADR 0079 section 3)
+- at each start, the primary writes a row for each earlier retire that has no
+  row, active or released (ADR 0079 section 4)
+
 ## Internal Compatibility and Search Tables
 
 ### `artists`
@@ -225,6 +248,17 @@ Purpose: cached quality scores for internal entity/search workflows.
 
 ### `search_index`
 Purpose: FTS5 search index backing `/v1/search`.
+Columns:
+- `name`
+- `title`
+- `description`
+
+Notes:
+- the table keeps a copy of its text. It is not contentless (ADR 0078 section 1)
+- the table holds no entity type, entity ID or medium. `search_entities` maps
+  each rowid to its entity (ADR 0022)
+- a delete is a `DELETE` by rowid. `delete_feed_sql` and `delete_track_sql`
+  delete the rows of a feed and its tracks (ADR 0078 sections 2 and 3)
 
 ### `search_entities`
 Purpose: companion lookup table for `search_index` row-to-entity resolution.

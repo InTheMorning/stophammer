@@ -927,3 +927,29 @@ Use `TLS_ACME_STAGING=true` for testing to avoid rate limits.
 ### Search errors
 
 `GET /v1/search` reads `q` as words (ADR 0078 §5). It gives 400 with the message "q has no word" when `q` has no word. The 400 message "invalid search query" is rare. The log line "search query rejected by FTS5" holds the SQLite text.
+
+### Ingest gives `retired_source_conflict`
+
+A retire with no block keeps a hold on the GUID of the record (ADR 0079). Only
+the last source URL of the record can bring the GUID back. A new feed for the
+GUID from a different URL gets `retired_source_conflict`, and the node writes
+no row. The primary logs one warning with `feed_guid`, `held_url`,
+`source_url` and `canonical_url`.
+
+To admit the GUID from the new URL, release the hold:
+
+```bash
+curl -X DELETE -H "X-Admin-Token: $ADMIN_TOKEN" \
+  https://<primary>/v1/retired-source-holds/<feed-guid>
+```
+
+The answer is `204` when the node releases the hold, and `404` when the GUID
+has no active hold. The node keeps the row with the time of the release, so a
+restart does not write the hold again. The release signs no event.
+
+### Search index rebuild at the first start
+
+The first open after the release of ADR 0078 replaces `search_index` and fills
+it from the source tables. The log line "db: replaced the search index with the
+text columns of ADR 0078" gives the feed count and the time. A second open
+does not rebuild the index.

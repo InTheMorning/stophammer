@@ -565,7 +565,7 @@ async fn a_release_admits_a_different_url_as_a_new_feed() {
 }
 
 #[tokio::test]
-async fn a_release_gives_204_deletes_the_row_and_signs_no_event() {
+async fn a_release_gives_204_keeps_the_row_and_signs_no_event() {
     let r = retired(Retire::SourceGone, "release-row").await;
     let upper = r.guid.to_uppercase();
     let uri = format!("/v1/retired-source-holds/{upper}");
@@ -573,7 +573,12 @@ async fn a_release_gives_204_deletes_the_row_and_signs_no_event() {
 
     let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
     assert_eq!(status, 204, "ADR 0079 §3: the release must give 204");
-    assert_eq!(hold_rows(&r.db, &r.guid), 0, "the release deletes the row");
+    assert_eq!(hold_rows(&r.db, &r.guid), 1, "ADR 0079 §3: the row stays");
+    let held = hold_of(&r.db, &r.guid).expect("the released row exists");
+    assert!(
+        held.released_at.is_some(),
+        "ADR 0079 §3: the release must set released_at"
+    );
     assert_eq!(
         event_total(&r.db),
         events_before,
@@ -581,7 +586,117 @@ async fn a_release_gives_204_deletes_the_row_and_signs_no_event() {
     );
 
     let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
-    assert_eq!(status, 404, "a second release must give 404");
+    assert_eq!(
+        status, 404,
+        "ADR 0079 §3: a second release must give 404, because no active hold exists"
+    );
+}
+
+// ADR 0079 §3 and §4: the fill at the next start must not write the released
+// hold again.
+#[tokio::test]
+async fn the_fill_after_a_release_writes_no_row_and_the_guid_stays_released() {
+    let r = retired(Retire::AdminNoBlock, "release-fill").await;
+    let uri = format!("/v1/retired-source-holds/{}", r.guid);
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
+    assert_eq!(status, 204, "ADR 0079 §3: the release must give 204");
+
+    assert_eq!(
+        fill(&r.db),
+        0,
+        "ADR 0079 §4: the fill must skip a GUID with a released row"
+    );
+    let held = hold_of(&r.db, &r.guid).expect("the released row exists");
+    assert!(
+        held.released_at.is_some(),
+        "ADR 0079 §3: the GUID must stay released after the fill"
+    );
+
+    let other = "https://other.example.net/release-fill.xml";
+    let body = ingest(
+        r.app.clone(),
+        &payload(other, other, "hash-other", &feed_data(&r.guid, false)),
+    )
+    .await;
+    assert_eq!(
+        body["accepted"], true,
+        "ADR 0079 §3: a released GUID must admit a different URL: {body:?}"
+    );
+}
+
+// ADR 0079 §1 and §3: a later retire with no block of a re-admitted record
+// writes a new active hold.
+#[tokio::test]
+async fn a_retire_after_a_release_and_a_return_writes_a_new_active_hold() {
+    let r = retired(Retire::AdminNoBlock, "release-again").await;
+    let uri = format!("/v1/retired-source-holds/{}", r.guid);
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
+    assert_eq!(status, 204, "ADR 0079 §3: the release must give 204");
+
+    let other = "https://other.example.net/release-again.xml";
+    let body = ingest(
+        r.app.clone(),
+        &payload(other, other, "hash-other", &feed_data(&r.guid, false)),
+    )
+    .await;
+    assert_eq!(body["accepted"], true, "the record returns: {body:?}");
+    assert_eq!(
+        hold_rows(&r.db, &r.guid),
+        0,
+        "ADR 0079 §3: the admission deletes the released row"
+    );
+
+    let (status, _) = send(
+        r.app.clone(),
+        "DELETE",
+        &format!("/v1/feeds/{}?block=false", r.guid),
+        true,
+        None,
+    )
+    .await;
+    assert_eq!(status, 204, "the second admin retire must succeed");
+    let held = hold_of(&r.db, &r.guid).expect("the new hold exists");
+    assert!(
+        held.released_at.is_none(),
+        "ADR 0079 §1: the new retire must write an active hold"
+    );
+    assert_eq!(held.source_url, other, "the new hold keeps the new URL");
+}
+
+// ADR 0079 §1 and ADR 0046: the open adds released_at when migration 0056
+// did not run.
+#[test]
+fn the_open_adds_released_at_when_the_migration_is_skipped() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("skipped-release.db");
+    drop(stophammer::db::open_db(&path));
+    let column_count = |path: &std::path::Path| -> i64 {
+        let conn = rusqlite::Connection::open(path).expect("open raw connection");
+        conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('retired_source_holds') \
+             WHERE name = 'released_at'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read table_info")
+    };
+    assert_eq!(
+        column_count(&path),
+        1,
+        "ADR 0079 §1: a fresh database must have one released_at column"
+    );
+    {
+        let conn = rusqlite::Connection::open(&path).expect("open raw connection");
+        conn.execute_batch("ALTER TABLE retired_source_holds DROP COLUMN released_at;")
+            .expect("drop the column");
+    }
+    assert_eq!(column_count(&path), 0, "the fixture lacks the column");
+    drop(stophammer::db::open_db(&path));
+    assert_eq!(
+        column_count(&path),
+        1,
+        "ADR 0079 §1 and ADR 0046: open_db must add released_at when migration 0056 did not run"
+    );
 }
 
 #[tokio::test]

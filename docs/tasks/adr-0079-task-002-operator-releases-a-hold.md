@@ -7,6 +7,10 @@ Owner: [ADR 0079](../adr/0079-a-retired-guid-returns-only-from-its-source.md)
 Repository: `stophammer`. The operator commits. This task starts after task
 001.
 
+This task is built. On 2026-10-24, the amended ADR 0079 §3 changed the release:
+it sets `released_at` and keeps the row (migration 0056). The ADR gives the
+present rule, and the text below gives the first build.
+
 ## Goal
 
 `DELETE /v1/retired-source-holds/{guid}` deletes the hold of one GUID, with the

@@ -5,6 +5,10 @@ Accepted on 2026-10-23, after the review of ADR 0078. Tasks 001 to 003 give
 the build. It amends ADR 0057 §4 and ADR 0067 §4. A retired feed comes back as a
 new feed only through its last source URL.
 
+Amended on 2026-10-24, before the deploy. A release marks the hold and keeps
+the row. The review found that a release that deletes the row lets the fill of
+§4 write the hold again at the next start.
+
 ## Date
 2026-10-23
 
@@ -64,6 +68,9 @@ transaction:
 | `source_url` | The source URL of the record at the retire |
 | `reason` | The reason of the `FeedRetired` event |
 | `retired_at` | The time of the retire |
+| `released_at` | Null. The time of the operator release of §3 |
+
+A hold with a null `released_at` is active. A released hold has a value.
 
 This applies to the three paths of the context. A retire that writes a block of
 ADR 0053 writes no hold, because the block already rejects the GUID and the
@@ -81,9 +88,9 @@ the rule after the check of ADR 0053 and before the block rule of ADR 0057:
 
 | Condition | Result |
 |---|---|
-| No hold has the GUID | The normal `NewFeed` case |
-| A hold has the GUID, and `source_url` or `canonical_url` of the submission is the held URL | The normal `NewFeed` case. When the node admits the record, it deletes the hold in the same transaction |
-| A hold has the GUID, and neither URL is the held URL | Write nothing. Reason `retired_source_conflict`. Log at `warn` level with the GUID, the held URL and the submitted URLs |
+| No active hold has the GUID | The normal `NewFeed` case. When the node admits the record, it deletes a released hold in the same transaction |
+| An active hold has the GUID, and `source_url` or `canonical_url` of the submission is the held URL | The normal `NewFeed` case. When the node admits the record, it deletes the hold in the same transaction |
+| An active hold has the GUID, and neither URL is the held URL | Write nothing. Reason `retired_source_conflict`. Log at `warn` level with the GUID, the held URL and the submitted URLs |
 
 The comparison uses the exact stored string, as ADR 0051 §1 does. A redirect
 from the held URL to a CDN thus passes, as it does for a record.
@@ -97,9 +104,11 @@ time.
 
 ### 3. The operator can release a hold
 
-`DELETE /v1/retired-source-holds/{guid}` deletes the hold of one GUID. It needs
-the admin token (ADR 0056). After the release, the next submission of the GUID
-from each URL is the normal `NewFeed` case. The operator uses it when the
+`DELETE /v1/retired-source-holds/{guid}` releases the active hold of one GUID.
+It sets `released_at` and keeps the row. It needs the admin token (ADR 0056).
+A GUID with no active hold gives `404`. After the release, the next submission
+of the GUID from each URL is the normal `NewFeed` case. A later retire with no
+block writes a new active hold. The operator uses it when the
 publisher moved the feed to a different URL while the feed was retired.
 
 ### 4. The primary fills the holds of earlier retires
@@ -114,8 +123,9 @@ that meets all of these conditions:
 
 The held URL is the `feed.feed_url` of the last `feed_upserted` event of the GUID
 before that retire. A GUID with no such event gets no hold, and the primary logs
-it at `warn` level. The fill writes no row for a GUID that already has a hold, so
-a second start writes nothing.
+it at `warn` level. The fill writes no row for a GUID that already has a hold,
+active or released. Thus a second start writes nothing, and a start after a
+release does not write the hold again.
 
 ## Alternatives Considered
 
@@ -163,7 +173,8 @@ can calculate from the public event.
 
 - A retire that writes no block of ADR 0053 writes a hold.
 - A submission for a held GUID from a URL that is not the held URL writes no row.
-- Only the admission from the held URL and the operator release delete a hold.
+- Only the admission of the record deletes a hold. The operator release marks
+  the hold and keeps the row.
 
 ## Checks
 
@@ -183,6 +194,7 @@ Each criterion is mechanical. A test in `tests/` proves it.
 5. §2: a submission from the held URL that keeps the block tag gets
    `source_blocked`, and the hold stays.
 6. §3: after the release, a submission from a different URL admits the feed.
+   After a release and before that admission, a fill of §4 writes no row.
    The route without the admin token gives `401` or `403`, as each other admin
    route does.
 7. §4: a database with a `feed_retired` event and no record for a GUID gets one

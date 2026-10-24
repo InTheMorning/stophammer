@@ -310,6 +310,8 @@ compares each value after trim, with no case sensitivity.
 
 When an update submission has a matching tag, the node retires the record.
 The node signs `FeedRetired` with `podcast_block`. No row is added to `feed_blocks`.
+The primary keeps a hold on the GUID for the source URL. Only that URL can
+bring the GUID back (ADR 0079 section 2).
 When a new feed submission has a matching tag, the node makes no feed record.
 No block rule applies to mirrors, record conflicts, or GUID changes.
 
@@ -348,7 +350,9 @@ the first, retires the record.
 
 The node signs `FeedRetired` with `reason` set to `source_gone`. It writes no
 row to `feed_blocks`. An ingest of a body for the record clears the count. So
-the feed can come back on a crawl after that.
+the feed can come back on a crawl after that. The primary keeps a hold on the
+GUID for the source URL, so only that URL can bring the GUID back (ADR 0079
+section 2).
 
 | Value | Meaning | The crawler should |
 |-------|---------|---------------------|
@@ -367,7 +371,7 @@ change a record.
 | `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Not retry this URL. It can fetch the source URL |
 | `record_conflict` | The submission names a GUID held by one record, from a URL held by a different record | Not retry. An operator must select the next step |
 | `guid_change_pending` | A held source URL declares a new GUID. See below | Not retry. ADR 0052 owns the next step |
-| `retired_source_conflict` | The GUID is held for its last source URL (ADR 0079 section 2) | Not retry this URL. It can fetch the held source URL |
+| `retired_source_conflict` | The GUID has an active hold for its last source URL (ADR 0079 section 2) | Not retry this URL. It can fetch the held source URL |
 
 `source_conflict` and `record_conflict` write no row to the database.
 `source_conflict` is different from `record_conflict`: the node records the
@@ -2350,7 +2354,7 @@ In the same transaction, this also blocks the feed GUID and the stored feed URL 
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `block` | boolean | `true` | When `false`, retires with no block |
+| `block` | boolean | `true` | When `false`, retires with no block. The primary then keeps a hold on the GUID for the stored feed URL (ADR 0079 section 1) |
 
 **Response:** `204 No Content`
 
@@ -2473,10 +2477,11 @@ Removes a block row. Signs one `FeedUnblocked` event.
 
 ### DELETE /v1/retired-source-holds/{guid}
 
-Releases the hold of one retired GUID (ADR 0079 section 3). After the release,
-a submission of the GUID from a different URL is admitted as a new feed. The
-GUID is compared in lower case. The release signs no event, because the table
-is local to the primary.
+Releases the active hold of one retired GUID (ADR 0079 section 3). The release
+keeps the row and sets its release time. After the release, a submission of the
+GUID from a different URL is admitted as a new feed. The GUID is compared in
+lower case. The release signs no event, because the table is local to the
+primary.
 
 - **Authentication:** Admin token only (`X-Admin-Token`)
 - **Available on:** Primary only
@@ -2487,7 +2492,7 @@ is local to the primary.
 |------|---------|
 | 204  | Hold released |
 | 403  | Missing or invalid admin token |
-| 404  | No hold for this GUID |
+| 404  | No active hold for this GUID |
 
 ---
 

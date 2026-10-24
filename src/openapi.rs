@@ -919,14 +919,14 @@ fn spec_value(mode: DocMode) -> Value {
             json!({
                 "delete": operation(
                     "Release a retired source hold",
-                    "Deletes the retired source hold of one feed GUID (ADR 0079 section 3). The GUID is compared in lower case. The release signs no event, because the table is local to the primary.",
+                    "Releases the active retired source hold of one feed GUID (ADR 0079 section 3). The release keeps the row and sets its release time. The GUID is compared in lower case. The release signs no event, because the table is local to the primary.",
                     "Feeds",
                     vec![path_param("guid", "string", "Feed GUID.")],
                     None,
                     json!({
                         "204": no_content_response("Hold released."),
                         "403": error_response("Missing or invalid admin token."),
-                        "404": error_response("No hold for this GUID.")
+                        "404": error_response("No active hold for this GUID.")
                     }),
                     Some(admin_only_security())
                 )

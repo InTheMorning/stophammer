@@ -279,6 +279,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 55: the hold of a retire that writes no block (ADR 0079 §1,
     // task 001)
     include_str!("../migrations/0055_retired_source_holds.sql"),
+    // Migration 56: a release keeps the hold row and sets released_at (ADR
+    // 0079 §1 and §3)
+    include_str!("../migrations/0056_retired_source_hold_release.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -725,6 +728,21 @@ fn ensure_retired_source_holds_schema(conn: &Connection) -> Result<(), DbError> 
     Ok(())
 }
 
+/// Adds `released_at` to `retired_source_holds` when migration 0056 could not
+/// run.
+///
+/// A database whose watermark already reached the position of migration 0056
+/// never runs it (ADR 0046). This repair adds the column when it is absent
+/// (ADR 0079 §1 and §3). It runs after [`ensure_retired_source_holds_schema`],
+/// so the table exists.
+fn ensure_retired_source_hold_release_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "retired_source_holds", "released_at")? {
+        return Ok(());
+    }
+    conn.execute_batch("ALTER TABLE retired_source_holds ADD COLUMN released_at INTEGER;")?;
+    Ok(())
+}
+
 /// Rebuilds `value_time_splits` with the two forms of ADR 0073 §2 when
 /// migration 0053 could not run.
 ///
@@ -834,6 +852,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_copy_item_facts_schema(&conn)?;
     ensure_value_time_split_forms_schema(&mut conn)?;
     ensure_retired_source_holds_schema(&conn)?;
+    ensure_retired_source_hold_release_schema(&conn)?;
     ensure_search_index_text_columns(&mut conn)?;
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
@@ -2928,13 +2947,15 @@ pub fn delete_feed_with_event(
     };
     delete_feed_sql(&tx, feed_guid)?;
     if let Some(source_url) = hold_source_url {
-        // ADR 0079 §1: the reason is the reason of the FeedRetired event.
+        // ADR 0079 §1 and §3: a new retire writes an active hold, also over a
+        // released one. The reason is the reason of the FeedRetired event.
         let reason = serde_json::from_str::<crate::event::FeedRetiredPayload>(payload_json)?
             .reason
             .unwrap_or_default();
         tx.execute(
             "INSERT OR REPLACE INTO retired_source_holds \
-             (feed_guid, source_url, reason, retired_at) VALUES (?1, ?2, ?3, ?4)",
+             (feed_guid, source_url, reason, retired_at, released_at) \
+             VALUES (?1, ?2, ?3, ?4, NULL)",
             params![feed_guid.to_lowercase(), source_url, reason, created_at],
         )?;
     }
@@ -5498,6 +5519,9 @@ pub struct RetiredSourceHold {
     pub reason: String,
     /// The time of the retire.
     pub retired_at: i64,
+    /// The time of the release, or `None` while the hold is active (ADR 0079
+    /// section 3).
+    pub released_at: Option<i64>,
 }
 
 /// Returns the `retired_source_holds` row of `feed_guid`, or `None` when the
@@ -5512,7 +5536,7 @@ pub fn get_retired_source_hold(
 ) -> Result<Option<RetiredSourceHold>, DbError> {
     Ok(conn
         .query_row(
-            "SELECT feed_guid, source_url, reason, retired_at \
+            "SELECT feed_guid, source_url, reason, retired_at, released_at \
              FROM retired_source_holds WHERE feed_guid = ?1",
             params![feed_guid.to_lowercase()],
             |row| {
@@ -5521,24 +5545,32 @@ pub fn get_retired_source_hold(
                     source_url: row.get(1)?,
                     reason: row.get(2)?,
                     retired_at: row.get(3)?,
+                    released_at: row.get(4)?,
                 })
             },
         )
         .optional()?)
 }
 
-/// Deletes the `retired_source_holds` row of `feed_guid`. The GUID is compared
-/// in lower case. Returns `true` when a row was deleted (ADR 0079 section 3).
+/// Releases the active hold of `feed_guid`: sets `released_at` and keeps the
+/// row. The GUID is compared in lower case. Returns `true` when an active hold
+/// changed, and `false` when the GUID has no row or its hold is already
+/// released (ADR 0079 section 3).
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if the delete fails.
-pub fn delete_retired_source_hold(conn: &Connection, feed_guid: &str) -> Result<bool, DbError> {
-    let deleted = conn.execute(
-        "DELETE FROM retired_source_holds WHERE feed_guid = ?1",
-        params![feed_guid.to_lowercase()],
+/// Returns [`DbError`] if the update fails.
+pub fn release_retired_source_hold(
+    conn: &Connection,
+    feed_guid: &str,
+    released_at: i64,
+) -> Result<bool, DbError> {
+    let changed = conn.execute(
+        "UPDATE retired_source_holds SET released_at = ?2 \
+         WHERE feed_guid = lower(?1) AND released_at IS NULL",
+        params![feed_guid, released_at],
     )?;
-    Ok(deleted > 0)
+    Ok(changed > 0)
 }
 
 /// The reasons of a retire that frees a GUID with no block (ADR 0079 section 1).
@@ -5550,8 +5582,9 @@ const HOLD_RETIRE_REASONS: [&str; 3] = ["podcast_block", "source_gone", "admin r
 /// For each GUID, the last `feed_retired` event gives the reason and the time.
 /// The held URL is `feed.feed_url` of the last `feed_upserted` event of the
 /// GUID before that retire. A GUID gets no hold when it has a record, a GUID
-/// block or a hold, or when its reason is not in the list of section 1 of
-/// ADR 0079. A GUID with no earlier `feed_upserted` event gets no hold, and
+/// block or a hold row, or when its reason is not in the list of section 1 of
+/// ADR 0079. A released hold keeps its row, so a released GUID gets no new hold
+/// (ADR 0079 section 3). A GUID with no earlier `feed_upserted` event gets no hold, and
 /// the function logs a warning. A second call writes no row. The primary calls
 /// this function at start. A community node does not.
 ///
@@ -6729,8 +6762,8 @@ pub fn ingest_transaction(
         params![feed.feed_guid],
     )?;
 
-    // 3a3. ADR 0079 §2: the admission of a held GUID from its held URL
-    // deletes the hold in the same transaction.
+    // 3a3. ADR 0079 §2 and §3: the admission of a GUID deletes its hold row,
+    // active or released, in the same transaction.
     tx.execute(
         "DELETE FROM retired_source_holds WHERE feed_guid = ?1",
         params![feed.feed_guid.to_lowercase()],
