@@ -6,14 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.14.0 is open. It holds ADR 0078 and ADR 0079, and each
-`Cargo.toml` gives its version. Releases 0.13.1 and 0.13.2 of 2026-10-21 are
-security releases with only fixes. Release 0.13.0 of the same day delivered ADR
-0072 to ADR 0076, the research request of 2026-10-20 and v4vmm request 9.
+No release is open. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and ADR
+0079, and item 1 of v4vmm request 10. Releases 0.13.1 and 0.13.2 of 2026-10-21
+are security releases with only fixes.
 
 ### Deployed
 
-Release 0.13.2 of 2026-10-21 is the latest release. The primary and the gossip
+Release 0.14.0 of 2026-10-24 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -26,16 +25,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- [ADR 0078](docs/adr/0078-a-search-index-row-holds-only-searchable-text.md):
-  tasks 001 to 004 are committed. The first open after the deploy rebuilds the
-  search index. On a copy of the backup of 2026-10-21, the rebuild took 2.9 s.
-- [ADR 0079](docs/adr/0079-a-retired-guid-returns-only-from-its-source.md):
-  tasks 001 to 003 are committed. At the first start, the primary fills the
-  holds of the earlier retires. On a copy of the same backup, the fill wrote one
-  hold in 52 ms. Until the deploy, a GUID that a retire with no block frees can
-  be claimed from a different URL.
-- [The phase plan](docs/plans/search-index-and-retired-source-phase-plan.md)
-  and its task packets in `docs/tasks/` stay until the deploy of the two ADRs.
+Nothing.
 
 ### Open Items
 
@@ -89,10 +79,9 @@ deployed, except the items below. The primary sets
 The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
-v4vmm requests 1 to 9 and musicindex.org requests 1 to 15 are deployed.
-musicindex.org request 16 is declined. ADR 0078 answers item 1 of v4vmm
-request 10, about the search query text, and it is not deployed. Items 2 to 6
-of request 10, and request 11, are drafts. The v4vmm operator examines them
+v4vmm requests 1 to 9, item 1 of v4vmm request 10 (ADR 0078), and
+musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
+declined. Items 2 to 6 of v4vmm request 10, and request 11, are drafts. The v4vmm operator examines them
 before Stophammer answers.
 
 ### Governance
