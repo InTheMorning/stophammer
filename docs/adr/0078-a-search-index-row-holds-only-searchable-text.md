@@ -1,9 +1,13 @@
 # ADR 0078: A Search Index Row Holds Only Searchable Text
 
 ## Status
-Proposed on 2026-10-23, for the research request on the search index and item 1
-of v4vmm request 10. It amends ADR 0022: the columns of `search_index`, and
-step 2 of "Insert/update". The rest of ADR 0022 stays.
+Accepted on 2026-10-23, for the research request on the search index and item 1
+of v4vmm request 10. Tasks 001 to 004 give the build. It amends ADR 0022: the columns of `search_index`, the
+contentless mode, and step 2 of "Insert/update". The rest of ADR 0022 stays.
+
+Amended on 2026-10-23, during task 001. The table keeps a copy of its text, and
+it does not use `contentless_delete=1`. The fact that causes this change is in
+the last paragraph of the context.
 
 ## Date
 2026-10-23
@@ -53,20 +57,30 @@ fact was tested in SQLite 3.53.4, not in the bundled 3.45.0:
 The apply loop of a community node stops at an error, waits, and tries the same
 event again (`src/community.rs:229`).
 
+Task 001 found one more fact. On a table with `contentless_delete=1`, a
+`DELETE` and an insert at the same rowid make the bm25 rank of a different row
+incorrect. A test on four rows gave −0.588 after two updates, and −0.000001 in
+a new table with the same rows. `optimize` does not correct it. The fault occurs
+in the bundled SQLite 3.45.0, and in 3.51.1 and 3.53.2, the newest SQLite that a
+`libsqlite3-sys` crate bundles. SQLite 3.54.0 gives the correct rank. An FTS5
+table that keeps its text gives the correct rank in each of these versions.
+
+In the backup of 2026-10-21, the database is 1.26 GB and the index is 11 MB. The
+titles and the descriptions of the feeds and the tracks are 2.5 MB.
+
 ## Decision
 
 ### 1. The index holds only searchable text
 
-`search_index` has three columns: `name`, `title` and `description`. It stays
-contentless, with `tokenize='unicode61'`, and it adds `contentless_delete=1`:
+`search_index` has three columns: `name`, `title` and `description`. It keeps
+`tokenize='unicode61'`. It is not contentless: FTS5 keeps a copy of the text of
+each row.
 
 ```sql
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
     name,
     title,
     description,
-    content='',
-    contentless_delete=1,
     tokenize='unicode61'
 );
 ```
@@ -82,7 +96,8 @@ This corrects S3.
 
 A delete of an index row is a `DELETE` by rowid. An update deletes the row and
 then inserts the new text at the same rowid. No write sends the old text to
-FTS5. The guard of ADR 0022 on `search_entities` stays, and the companion row
+FTS5. FTS5 reads the old text from its copy, so the delete removes each old word
+and keeps the bm25 statistics correct. The guard of ADR 0022 on `search_entities` stays, and the companion row
 changes in the same transaction as the index row.
 
 `populate_search_index` and `delete_from_search_index` stay the only writers of
@@ -143,17 +158,20 @@ decision on the other items of v4vmm request 10 owns those.
 ### 6. One rebuild at the first open
 
 On the first open of a release with this decision, the node replaces the
-table and fills it one time from the source tables. The replacement and the
-fill are one transaction. Thus a stop during the repair leaves the old table,
-and the next open runs the repair again.
+table and fills it one time from the source tables. The fill is one
+transaction.
 
 The repair runs before each other repair in `open_db` that writes the index.
 On the old table, a `DELETE` by rowid fails, so a different sequence stops the
-open. The repair keys on the
-definition of `search_index` in `sqlite_master`. A definition without
-`contentless_delete` causes the repair. A second open does nothing. The repair
-follows ADR 0046, so it also runs when the migration runner skips the
-migration.
+open. The repair runs when one of these conditions is true:
+
+- The definition of `search_index` in `sqlite_master` has `content=''`.
+- `search_entities` has no row, and the node holds a feed.
+
+The second condition covers a stop after the migration replaces the table and
+before the fill. The next open then fills the empty table. A second open after
+a complete repair does nothing. The repair follows ADR 0046, so it also runs
+when the migration runner skips the migration.
 
 The fill reads only the feeds that the node holds. Thus it also removes each
 row that a retire of §3 left in the index before the deploy.
@@ -163,11 +181,18 @@ primary and the community nodes can upgrade in each sequence.
 
 ## Alternatives Considered
 
-### A content table
+### A contentless table with `contentless_delete=1`
 
-A content table keeps a copy of each text, so a delete can send the old text.
-It doubles the size of the index, and ADR 0022 rejected it for that reason.
-`contentless_delete=1` gives the same correction with no copy.
+This removes the old words with no copy of the text. It makes the bm25 rank
+incorrect after each update in each bundled SQLite (see the context). The copy
+costs approximately 3 MB, which is less than 1% of the database.
+
+### An external content table that reads the source tables
+
+FTS5 can read the old text from a view of `feeds` and `tracks`. The source row
+then must not change before its index row is deleted. Each writer of `feeds`
+and `tracks` must keep that sequence, and a wrong sequence gives the defect S1
+again.
 
 ### A periodic rebuild
 
@@ -190,6 +215,8 @@ as parameters, not as syntax.
 
 - One rebuild runs at the first open after the deploy. The rebuild of
   2026-09-26 took 3.7 s.
+- The index keeps a copy of its text. In the backup of 2026-10-21, this adds
+  approximately 3 MB.
 - `q=track`, `q=feed` and `q=music` match only the text of the entity. A search
   for a medium word no longer finds each feed of that medium.
 - A cursor from before the deploy can give a different page, because the bm25
@@ -209,7 +236,7 @@ as parameters, not as syntax.
 Each criterion is mechanical. A test in `tests/` proves it.
 
 1. §1: the definition of `search_index` in `sqlite_master` has the three
-   columns and `contentless_delete=1`.
+   columns, and it has no `content=''` and no `contentless_delete`.
 2. §2: a test changes the title of a feed and of a track. Then a search for a
    word that only the old title had gives no hit. A search for a word of the new title
    gives the entity one time.

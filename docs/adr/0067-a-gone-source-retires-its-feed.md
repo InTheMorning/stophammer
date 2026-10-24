@@ -1,7 +1,8 @@
 # ADR 0067: A Gone Source Retires Its Feed
 
 ## Status
-Accepted on 2026-09-27
+Accepted on 2026-09-27. ADR 0079 amends §4 on 2026-10-23: the feed comes
+back only through its last source URL, or after an operator release.
 
 ## Date
 2026-09-27

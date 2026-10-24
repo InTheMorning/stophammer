@@ -2,7 +2,7 @@
 
 ## Status
 
-Answered in part - 2026-10-23. ADR 0078 (Proposed) answers the four defects
+Answered in part - 2026-10-23. ADR 0078 (Accepted) answers the four defects
 and the first change of priority 1. The other changes have no decision.
 
 Received - 2026-10-23. This request comes from the research repository at

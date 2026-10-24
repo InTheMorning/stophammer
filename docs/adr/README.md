@@ -54,8 +54,8 @@ disagree.
 
 | ADR | Scope | Status |
 |---|---|---|
-| [0022](0022-fts5-search-architecture.md) | FTS5 contentless search with a companion table. ADR 0078 amends its columns and its update step | Accepted |
-| [0078](0078-a-search-index-row-holds-only-searchable-text.md) | The index holds only `name`, `title` and `description`, with `contentless_delete=1`. A retire deletes each row type of the feed, a publisher hit gives the quality of its feed, and each word of `q` is an FTS5 phrase. One rebuild at the first open. Amends ADR 0022 | Proposed |
+| [0022](0022-fts5-search-architecture.md) | FTS5 search with a companion table. ADR 0078 amends its columns, its update step and its contentless mode | Accepted |
+| [0078](0078-a-search-index-row-holds-only-searchable-text.md) | The index holds only `name`, `title` and `description`, and keeps a copy of that text. A retire deletes each row type of the feed, a publisher hit gives the quality of its feed, and each word of `q` is an FTS5 phrase. One rebuild at the first open. Amends ADR 0022 | Accepted |
 | [0037](0037-defer-public-sse-route.md) | The public SSE route is deferred | Accepted |
 | [0039](0039-feed-scoped-track-identity-routes.md) | Feed-scoped public track identity routes | Accepted |
 | [0059](0059-an-entry-that-names-a-feed-gives-its-summary.md) | Each `publisher` and `remote_items` entry gives the title, the image, the artist and the track count of the feed it names, as `remote_*` fields | Accepted. §5 amended on 2026-10-01: an entry that names a track gives its summary |
@@ -76,7 +76,8 @@ disagree.
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
 | [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
-| [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host | Accepted |
+| [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host. ADR 0079 amends §4 | Accepted |
+| [0079](0079-a-retired-guid-returns-only-from-its-source.md) | A retire with no block keeps a hold of the GUID and its source URL on the primary. A held GUID returns only from that URL, else `retired_source_conflict`. The operator can release a hold. Amends ADR 0057 §4 and ADR 0067 §4 | Accepted |
 | [0056](0056-the-public-proof-flow-is-offline.md) | The public proof flow is removed. Each write route needs the admin token. Supersedes ADR 0018 | Accepted |
 | [0055](0055-the-primary-fetches-what-it-signs.md) | Crawlers nominate URLs. A primary-controlled fetch worker is the only source of ingest content. Waits for a crawler outside the primary host, or a suspected token leak | Proposed |
 
@@ -114,7 +115,7 @@ test enforces each of its rules. Read them for research, not for a live rule.
 | [0042](archive/0042-query-responses-name-the-field-owner.md) | A query response field names its owner | Tests: `tests/adr0042_field_owner_tests.rs` |
 | [0043](archive/0043-feed-publication-date-records-its-source-element.md) | A feed publication date records its source element | Tests: `tests/adr0043_release_date_tests.rs` and `stophammer-parser/tests/basic.rs` |
 | [0051](archive/0051-feed-content-comes-from-its-source-url.md) | Only content from the stored source URL changes a feed record. Authentication is first and cannot be removed | Tests: `tests/adr0051_classify_tests.rs`, `tests/adr0051_source_url_tests.rs` and the crawler `src/crawl.rs` |
-| [0057](archive/0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex` | Tests: `tests/adr0057_podcast_block_tests.rs` and `stophammer-parser/tests/blocks.rs` |
+| [0057](archive/0057-a-feed-can-block-this-index.md) | A `podcast:block` at the source URL retires the feed, with no durable block. The slug of this index is `musicindex`. ADR 0079 amends §4 | Tests: `tests/adr0057_podcast_block_tests.rs` and `stophammer-parser/tests/blocks.rs` |
 | [0058](archive/0058-a-copy-of-a-feed-is-public.md) | A mirror body with different tracks or payment routes is a public copy. The operator keeps the source or relocates. A relocation clears `last_build_date` and `declared_self_url`. At most 20 rows for each GUID. A copy row gives its item titles and image (§1c), its feed list compared by the resolved feeds (§1d), and the duration, enclosure URL and date of each item and the channel author (§1e) | Tests: the seven `tests/adr0058_*` files |
 | [0028](archive/0028-require-dedicated-sync-token.md) | A dedicated sync token is required | Tests: `tests/sync_register_auth_tests.rs`, `tests/sync_reconcile_auth_tests.rs` and the `SyncAuth` tests in `src/community.rs` |
 | [0044](archive/0044-api-contract-declares-its-fields.md) | The API contract declares its fields. A `v1` rename needs a version | Tests: `tests/adr0044_schema_refs_tests.rs`, `tests/adr0044_contract_guard_tests.rs` and `tests/adr0044_field_removal_tests.rs` |

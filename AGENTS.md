@@ -49,11 +49,16 @@ Nothing.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
+- [ADR 0078](docs/adr/0078-a-search-index-row-holds-only-searchable-text.md)
+  and [ADR 0079](docs/adr/0079-a-retired-guid-returns-only-from-its-source.md)
+  are Accepted and not built.
+  [The phase plan](docs/plans/search-index-and-retired-source-phase-plan.md)
+  gives the sequence of their tasks in `docs/tasks/`. Until ADR 0079 is
+  deployed, a GUID that a retire with no block frees can be claimed from a
+  different URL.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
-  gives four search index defects and a list of search changes.
-  [ADR 0078](docs/adr/0078-a-search-index-row-holds-only-searchable-text.md)
-  is Proposed. It corrects the four defects and v4vmm request 10 item 1. No
-  decision is recorded for the other changes.
+  gives a list of search changes. ADR 0078 answers its four defects and the
+  phrase change. No decision is recorded for the other changes.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
