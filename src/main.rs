@@ -153,6 +153,9 @@ async fn run_primary(
         let seeded = blocks::seed_blocks(&mut conn, &entries, &signer, db::unix_now())
             .map_err(|err| startup_error(format!("failed to seed feed blocks: {err}")))?;
         tracing::info!(seeded, "seeded feed blocks from environment");
+        // ADR 0079 §4: write a hold for each GUID that an earlier retire freed.
+        db::fill_retired_source_holds(&mut conn)
+            .map_err(|err| startup_error(format!("failed to fill retired source holds: {err}")))?;
     }
 
     let push_client = reqwest::Client::builder()

@@ -620,3 +620,137 @@ fn the_contract_has_the_release_route_and_the_reason() {
         "ADR 0079 §2: the ingest description must list retired_source_conflict"
     );
 }
+
+// ADR 0079 §4: the fill of the holds of earlier retires. The fixtures write
+// events straight into the log, as a database from before the hold has them.
+
+fn log_upserted(db: &Db, guid: &str, url: &str, seq: i64) {
+    let payload = serde_json::json!({"feed": {"feed_guid": guid, "feed_url": url}});
+    log_event(db, "feed_upserted", guid, &payload.to_string(), seq);
+}
+
+fn log_retired(db: &Db, guid: &str, reason: &str, seq: i64) {
+    let payload = serde_json::json!({"feed_guid": guid, "reason": reason});
+    log_event(db, "feed_retired", guid, &payload.to_string(), seq);
+}
+
+fn log_event(db: &Db, event_type: &str, guid: &str, payload_json: &str, seq: i64) {
+    let conn = db.lock().expect("lock db");
+    conn.execute(
+        "INSERT INTO events (event_id, event_type, payload_json, subject_guid, signed_by, \
+         signature, seq, created_at, warnings_json) VALUES (?1, ?2, ?3, ?4, 'k', 's', ?5, ?6, '[]')",
+        rusqlite::params![
+            format!("evt-{seq}"),
+            event_type,
+            payload_json,
+            guid,
+            seq,
+            1_000 + seq
+        ],
+    )
+    .expect("insert event");
+}
+
+fn fill(db: &Db) -> usize {
+    let mut conn = db.lock().expect("lock db");
+    stophammer::db::fill_retired_source_holds(&mut conn).expect("fill the holds")
+}
+
+fn hold_of(db: &Db, guid: &str) -> Option<stophammer::db::RetiredSourceHold> {
+    let conn = db.lock().expect("lock db");
+    stophammer::db::get_retired_source_hold(&conn, guid).expect("read the hold")
+}
+
+// Check 7: a retire with no record of the GUID gets a hold with the URL of
+// the earlier feed_upserted event.
+#[test]
+fn the_fill_writes_a_hold_with_the_url_of_the_upserted_event() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "Fill-A", "https://a.example/feed.xml", 1);
+    log_retired(&db, "Fill-A", "podcast_block", 2);
+    assert_eq!(fill(&db), 1, "ADR 0079 §4: one hold");
+    let hold = hold_of(&db, "fill-a").expect("the hold exists");
+    assert_eq!(hold.source_url, "https://a.example/feed.xml");
+    assert_eq!(hold.reason, "podcast_block");
+    assert_eq!(hold.retired_at, 1_002, "the time of the retire event");
+}
+
+#[test]
+fn a_second_fill_writes_no_row() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "fill-b", "https://b.example/feed.xml", 1);
+    log_retired(&db, "fill-b", "source_gone", 2);
+    assert_eq!(fill(&db), 1, "the first fill writes the hold");
+    assert_eq!(fill(&db), 0, "the second fill writes nothing");
+    assert_eq!(hold_rows(&db, "fill-b"), 1, "one row stays");
+}
+
+#[test]
+fn a_guid_with_a_later_upserted_event_gets_no_hold() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "fill-c", "https://c.example/feed.xml", 1);
+    log_retired(&db, "fill-c", "podcast_block", 2);
+    {
+        let conn = db.lock().expect("lock db");
+        conn.execute(
+            "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, raw_medium, \
+             explicit, episode_count, created_at, updated_at) \
+             VALUES ('fill-c', 'https://c.example/feed.xml', 'T', 't', 'music', 0, 0, 1, 1)",
+            [],
+        )
+        .expect("insert feed");
+    }
+    log_upserted(&db, "fill-c", "https://c.example/feed.xml", 3);
+    assert_eq!(fill(&db), 0, "ADR 0079 §4: a record exists, so no hold");
+    assert_eq!(hold_rows(&db, "fill-c"), 0, "no hold row");
+}
+
+#[test]
+fn a_guid_block_gets_no_hold() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "fill-d", "https://d.example/feed.xml", 1);
+    log_retired(&db, "fill-d", "podcast_block", 2);
+    {
+        let conn = db.lock().expect("lock db");
+        conn.execute(
+            "INSERT INTO feed_blocks (block_id, kind, value, reason, blocked_at) \
+             VALUES ('b1', 'guid', 'fill-d', 'test', 1)",
+            [],
+        )
+        .expect("insert block");
+    }
+    assert_eq!(fill(&db), 0, "ADR 0079 §4: a GUID block stops the hold");
+    assert_eq!(hold_rows(&db, "fill-d"), 0, "no hold row");
+}
+
+#[test]
+fn a_guid_superseded_retire_gets_no_hold() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "fill-e", "https://e.example/feed.xml", 1);
+    log_retired(&db, "fill-e", "guid_superseded", 2);
+    assert_eq!(fill(&db), 0, "ADR 0079 §1: this reason gets no hold");
+    assert_eq!(hold_rows(&db, "fill-e"), 0, "no hold row");
+}
+
+#[test]
+fn a_retire_with_no_earlier_upserted_event_gets_no_hold() {
+    let db = common::test_db_arc();
+    log_retired(&db, "fill-f", "admin retired via API", 1);
+    log_upserted(&db, "fill-f", "https://f.example/feed.xml", 2);
+    assert_eq!(fill(&db), 0, "ADR 0079 §4: no earlier URL, so no hold");
+    assert_eq!(hold_rows(&db, "fill-f"), 0, "no hold row");
+}
+
+#[test]
+fn the_hold_has_the_url_of_the_later_upserted_event() {
+    let db = common::test_db_arc();
+    log_upserted(&db, "fill-g", "https://g.example/old.xml", 1);
+    log_upserted(&db, "fill-g", "https://g.example/new.xml", 2);
+    log_retired(&db, "fill-g", "admin retired via API", 3);
+    assert_eq!(fill(&db), 1, "one hold");
+    let hold = hold_of(&db, "fill-g").expect("the hold exists");
+    assert_eq!(
+        hold.source_url, "https://g.example/new.xml",
+        "ADR 0079 §4: the later upserted event gives the URL"
+    );
+}

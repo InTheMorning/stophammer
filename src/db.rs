@@ -5541,6 +5541,106 @@ pub fn delete_retired_source_hold(conn: &Connection, feed_guid: &str) -> Result<
     Ok(deleted > 0)
 }
 
+/// The reasons of a retire that frees a GUID with no block (ADR 0079 section 1).
+const HOLD_RETIRE_REASONS: [&str; 3] = ["podcast_block", "source_gone", "admin retired via API"];
+
+/// Writes a hold for each GUID that a retire with no block freed before the
+/// hold existed (ADR 0079 section 4).
+///
+/// For each GUID, the last `feed_retired` event gives the reason and the time.
+/// The held URL is `feed.feed_url` of the last `feed_upserted` event of the
+/// GUID before that retire. A GUID gets no hold when it has a record, a GUID
+/// block or a hold, or when its reason is not in the list of section 1 of
+/// ADR 0079. A GUID with no earlier `feed_upserted` event gets no hold, and
+/// the function logs a warning. A second call writes no row. The primary calls
+/// this function at start. A community node does not.
+///
+/// Returns the number of holds written.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a query fails, or if the payload of a retire or of a
+/// `feed_upserted` event does not parse. In that case the transaction writes
+/// nothing.
+pub fn fill_retired_source_holds(conn: &mut Connection) -> Result<usize, DbError> {
+    #[derive(serde::Deserialize)]
+    struct UpsertedFeed {
+        feed_url: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct UpsertedPayload {
+        feed: UpsertedFeed,
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    let retires: Vec<(String, i64, i64, String)> = {
+        let mut stmt = tx.prepare(
+            "SELECT e.subject_guid, e.seq, e.created_at, e.payload_json FROM events e \
+             WHERE e.event_type = 'feed_retired' \
+               AND e.seq = (SELECT MAX(r.seq) FROM events r \
+                            WHERE r.event_type = 'feed_retired' \
+                              AND r.subject_guid = e.subject_guid) \
+             ORDER BY e.seq",
+        )?;
+        stmt.query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
+        .collect::<Result<_, _>>()?
+    };
+
+    let mut written = 0_usize;
+    for (guid, retire_seq, retired_at, payload_json) in retires {
+        let reason =
+            serde_json::from_str::<crate::event::FeedRetiredPayload>(&payload_json)?.reason;
+        let Some(reason) = reason.filter(|r| HOLD_RETIRE_REASONS.contains(&r.as_str())) else {
+            continue;
+        };
+        let lower = guid.to_lowercase();
+        let blocked_or_present: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM feeds WHERE feed_guid IN (?1, ?2)) \
+                 OR EXISTS(SELECT 1 FROM feed_blocks WHERE kind = 'guid' AND value = ?2) \
+                 OR EXISTS(SELECT 1 FROM retired_source_holds WHERE feed_guid = ?2)",
+            params![guid, lower],
+            |row| row.get(0),
+        )?;
+        if blocked_or_present {
+            continue;
+        }
+        let upserted: Option<String> = tx
+            .query_row(
+                "SELECT payload_json FROM events \
+                 WHERE event_type = 'feed_upserted' AND subject_guid = ?1 AND seq < ?2 \
+                 ORDER BY seq DESC LIMIT 1",
+                params![guid, retire_seq],
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(upserted) = upserted else {
+            tracing::warn!(
+                feed_guid = %guid,
+                "ADR 0079 §4: a retire has no earlier feed_upserted event, so the GUID gets no hold"
+            );
+            continue;
+        };
+        let source_url = serde_json::from_str::<UpsertedPayload>(&upserted)?
+            .feed
+            .feed_url;
+        written += tx.execute(
+            "INSERT OR IGNORE INTO retired_source_holds \
+             (feed_guid, source_url, reason, retired_at) VALUES (?1, ?2, ?3, ?4)",
+            params![lower, source_url, reason, retired_at],
+        )?;
+    }
+    tx.commit()?;
+    tracing::info!(
+        written,
+        elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        "ADR 0079 §4: filled the holds of earlier retires"
+    );
+    Ok(written)
+}
+
 /// Returns the `source_gone_answers` row of `feed_guid`, or `None` when the
 /// primary has not yet counted a gone answer for it.
 ///
