@@ -5086,6 +5086,14 @@ async fn handle_search(
     let q = params.q.clone();
     let kind = params.kind.clone();
     tracing::info!(q = ?q, kind = ?kind, "search query received");
+    // ADR 0078 §5: a `q` with no word gives 400 before any query runs.
+    if crate::search::fts5_query_from_words(&q).is_empty() {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "q has no word".into(),
+            www_authenticate: None,
+        });
+    }
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
     // ADR 0076 §3: the link facts of a `publisher` row, only with the
@@ -5173,8 +5181,8 @@ async fn handle_search(
         message: format!("internal task panic: {e}"),
         www_authenticate: None,
     })?
-    // Issue-21 FTS5 sanitize — 2026-03-13
-    // Catch FTS5 parse errors and return 400 instead of 500.
+    // ADR 0078 §5: an FTS5 error gives 400 with a fixed message. The log
+    // keeps the SQLite text.
     .map_err(|e| {
         let msg = e.to_string();
         if msg.contains("unsupported search type filter:") {
@@ -5184,9 +5192,10 @@ async fn handle_search(
                 www_authenticate: None,
             }
         } else if msg.contains("fts5: syntax error") || msg.contains("fts5:") {
+            tracing::warn!(error = %msg, "search query rejected by FTS5");
             api::ApiError {
                 status: StatusCode::BAD_REQUEST,
-                message: format!("invalid search query: {msg}"),
+                message: "invalid search query".into(),
                 www_authenticate: None,
             }
         } else {

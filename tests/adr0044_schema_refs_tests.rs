@@ -219,6 +219,12 @@ fn each_example_is_unchanged() {
     for (route, op) in operations(&doc) {
         let (method, path) = route.split_once(' ').expect("method and path");
         for (status, response) in op["responses"].as_object().expect("responses") {
+            // ADR 0078 §5 changes the 400 example of `get /v1/search`: the
+            // message no longer holds SQLite text. The frozen snapshot keeps
+            // the old text.
+            if route == "get /v1/search" && status == "400" {
+                continue;
+            }
             let now = response
                 .get("content")
                 .and_then(|c| c.get("application/json"))

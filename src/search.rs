@@ -189,31 +189,18 @@ pub fn delete_from_search_index(
     Ok(())
 }
 
-// Issue-21 FTS5 sanitize — 2026-03-13
-/// Strips FTS5 special operators and syntax characters from user input to
-/// prevent malformed queries from causing parse errors.
+/// Makes an FTS5 query of quoted phrases from the words of `input`.
 ///
-/// Removes: `"`, `(`, `)`, `*`, `-`, `^`, `{`, `}`, and the keywords
-/// `AND`, `OR`, `NOT`, `NEAR`.
-/// The result is safe to pass directly into an FTS5 `MATCH` clause as a
-/// simple implicit-AND token list.
+/// ADR 0078 §5: the node removes each control character, divides the rest at
+/// white space, and puts each word in double quotes. A double quote in a word
+/// is doubled. No character of `input` is then an FTS5 operator, a column
+/// filter or a prefix. The result is empty when `input` has no word.
 #[must_use]
-pub fn sanitize_fts5_query(input: &str) -> String {
-    // Strip syntax characters.
-    // `-` is the FTS5 negation prefix operator; a bare `-` or `foo-bar`
-    // causes a parse error or unintended negation → HTTP 500.
-    let cleaned: String = input
-        .chars()
-        .map(|c| match c {
-            '"' | '(' | ')' | '*' | '-' | '^' | '{' | '}' => ' ',
-            _ => c,
-        })
-        .collect();
-
-    // Strip FTS5 boolean/proximity keywords (whole-word, case-sensitive).
+pub fn fts5_query_from_words(input: &str) -> String {
+    let cleaned: String = input.chars().filter(|c| !c.is_control()).collect();
     cleaned
         .split_whitespace()
-        .filter(|word| !matches!(*word, "AND" | "OR" | "NOT" | "NEAR"))
+        .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
         .collect::<Vec<_>>()
         .join(" ")
 }
@@ -229,9 +216,9 @@ pub fn sanitize_fts5_query(input: &str) -> String {
 /// are returned. The effective rank is the quality-adjusted BM25 score used
 /// as the primary ORDER BY key; `rowid` is the tiebreaker.
 ///
-/// The query is sanitized via [`sanitize_fts5_query`] before being passed to
-/// FTS5. If the sanitized query is empty, an empty result set is returned
-/// without hitting the database.
+/// The query is made by [`fts5_query_from_words`] before it goes to FTS5. If
+/// `query` has no word, the function returns an empty result set without a
+/// database query.
 ///
 /// # Errors
 ///
@@ -245,11 +232,10 @@ pub fn search(
     cursor_rank: Option<f64>,
     cursor_rowid: Option<i64>,
 ) -> Result<Vec<SearchResult>, DbError> {
-    // Issue-21 FTS5 sanitize — 2026-03-13
-    let safe_query = sanitize_fts5_query(query);
+    let safe_query = fts5_query_from_words(query);
     tracing::info!(original_query = ?query, safe_query = ?safe_query, entity_type_filter = ?entity_type_filter, "search called");
     if safe_query.trim().is_empty() {
-        tracing::warn!("search query is empty after sanitization");
+        tracing::warn!("search query has no word");
         return Ok(Vec::new());
     }
 

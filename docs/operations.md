@@ -924,6 +924,6 @@ Check that:
 
 Use `TLS_ACME_STAGING=true` for testing to avoid rate limits.
 
-### FTS5 search errors
+### Search errors
 
-If search queries return 400 with "invalid search query", the query contains FTS5 syntax errors. FTS5 uses its own query language; bare special characters like `*`, `"`, `OR` may cause parse failures. Sanitize user input before passing to `GET /v1/search`.
+`GET /v1/search` reads `q` as words (ADR 0078 §5). It gives 400 with the message "q has no word" when `q` has no word. The 400 message "invalid search query" is rare. The log line "search query rejected by FTS5" holds the SQLite text.

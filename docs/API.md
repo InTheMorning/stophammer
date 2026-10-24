@@ -1931,7 +1931,7 @@ Notes:
 
 ### GET /v1/search
 
-Full-text search using SQLite FTS5. The index holds music feeds, their
+Full-text search. A hit contains each word of `q`. The index holds music feeds, their
 tracks, and publisher feeds.
 
 - **Constraint:** A feed with `raw_medium = 'music'` is indexed as `feed`,
@@ -1983,7 +1983,7 @@ needs no call for each hit. ADR 0042 owns these fields.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `q` | string | **required** | Search query (FTS5 syntax) |
+| `q` | string | **required** | Search words. A hit contains each word. `q` has no operator, column filter or prefix. A `q` with no word gives 400 |
 | `type` | string | feed/track | Filter by entity type: `feed`, `track`, `publisher` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
@@ -2043,7 +2043,7 @@ The last row needs `type=publisher&include=link_facts`.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | Invalid FTS5 query syntax |
+| 400  | `q` has no word, or a parameter is not valid |
 
 ---
 

@@ -521,10 +521,10 @@ fn spec_value(mode: DocMode) -> Value {
         json!({
             "get": operation(
                 "Search feeds and tracks",
-                "Full-text search using SQLite FTS5.",
+                "Full-text search. Each hit contains each word of `q`.",
                 "Search",
                 vec![
-                    query_param("q", "string", None, true, "Search query (FTS5 syntax)."),
+                    query_param("q", "string", None, true, "Search words. A hit contains each word. The node reads no operator, column filter or prefix in `q`."),
                     query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor."),
@@ -567,7 +567,7 @@ fn spec_value(mode: DocMode) -> Value {
                             }
                         ]))
                     ),
-                    "400": error_response("Invalid FTS5 query syntax.")
+                    "400": error_response("The query has no word, or a parameter is not valid.")
                 }),
                 None
             )
