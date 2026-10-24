@@ -1,7 +1,5 @@
 // ADR 0073 §4: the track response gives both forms of a value time split.
 //
-// docs/tasks/adr-0073-task-002-track-response-gives-both-forms.md
-//
 // `include=value_time_splits` keeps each old field with its type, and adds
 // the stated values. `include=local_value_time_splits` gives the local
 // form, with its recipients.

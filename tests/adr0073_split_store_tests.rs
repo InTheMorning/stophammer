@@ -1,8 +1,6 @@
 // ADR 0073 §2 and §3: the node stores, signs and applies both forms of a
 // value time split, with the stated values.
 //
-// docs/tasks/adr-0073-task-001-node-stores-both-forms.md
-//
 // A remote split names a remote item. A local split names its recipients.
 // The store keeps each stated value with no default and no limit. A node
 // accepts the ingest of an old crawler, and applies an old event.
