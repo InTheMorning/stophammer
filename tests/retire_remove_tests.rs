@@ -162,7 +162,6 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) {
         "",
         "Test Album",
         "A test feed",
-        "",
     )
     .unwrap();
     stophammer::search::populate_search_index(
@@ -172,7 +171,6 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) {
         "",
         "Song One",
         "A test track",
-        "",
     )
     .unwrap();
     stophammer::search::populate_search_index(
@@ -182,7 +180,6 @@ fn populate_feed_with_tracks(conn: &rusqlite::Connection) {
         "",
         "Song Two",
         "A test track",
-        "",
     )
     .unwrap();
 }

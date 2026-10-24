@@ -1252,22 +1252,10 @@ fn guid_change_transition(
             &tx,
             "track",
             &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-            "",
-            &track.title,
-            track.description.as_deref().unwrap_or(""),
-            "",
         );
     }
     if let Some(feed) = &old_feed {
-        let _ = crate::search::delete_from_search_index(
-            &tx,
-            "feed",
-            &feed.feed_guid,
-            "",
-            &feed.title,
-            feed.description.as_deref().unwrap_or(""),
-            feed.raw_medium.as_deref().unwrap_or(""),
-        );
+        let _ = crate::search::delete_from_search_index(&tx, "feed", &feed.feed_guid);
     }
 
     db::delete_feed_sql(&tx, old_guid).map_err(ApiError::from)?;
@@ -4794,21 +4782,9 @@ async fn handle_retire_feed(
                     &conn,
                     "track",
                     &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                    "",
-                    &track.title,
-                    track.description.as_deref().unwrap_or(""),
-                    "",
                 );
             }
-            let _ = crate::search::delete_from_search_index(
-                &conn,
-                "feed",
-                &feed.feed_guid,
-                "",
-                &feed.title,
-                feed.description.as_deref().unwrap_or(""),
-                feed.raw_medium.as_deref().unwrap_or(""),
-            );
+            let _ = crate::search::delete_from_search_index(&conn, "feed", &feed.feed_guid);
 
             // Build and sign a FeedRetired event.
             let now = db::unix_now();
@@ -4927,10 +4903,6 @@ async fn handle_remove_track(
                 &conn,
                 "track",
                 &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                "",
-                &track.title,
-                track.description.as_deref().unwrap_or(""),
-                "",
             );
 
             // Build and sign a TrackRemoved event.

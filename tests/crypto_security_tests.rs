@@ -506,13 +506,13 @@ fn fts5_rowid_collision_overwrites_not_crashes() {
 
     // Insert entity A
     stophammer::search::populate_search_index(
-        &conn, "feed", "entity-a", "Name A", "Title A", "Desc A", "tag-a",
+        &conn, "feed", "entity-a", "Name A", "Title A", "Desc A",
     )
     .expect("first insert should succeed");
 
     // Insert entity B with possibly different rowid (we just verify no crash)
     stophammer::search::populate_search_index(
-        &conn, "feed", "entity-b", "Name B", "Title B", "Desc B", "tag-b",
+        &conn, "feed", "entity-b", "Name B", "Title B", "Desc B",
     )
     .expect("second insert should succeed regardless of rowid collision");
 }

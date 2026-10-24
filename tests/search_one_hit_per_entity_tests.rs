@@ -126,7 +126,6 @@ async fn opening_a_database_with_bare_guid_track_rows_gives_each_track_one_time(
             "One Hit Artist",
             "The Arbiter",
             "",
-            "",
         )
         .expect("write a bare-GUID search row");
         stophammer::quality::store_quality(&conn, "track", TRACK_GUID, 10)

@@ -191,8 +191,7 @@ fn search_index_population() {
         "feed-fts",
         "FTS Artist",
         "Test Feed",
-        "A searchable feed",
-        "electronic",
+        "A searchable feed electronic",
     )
     .unwrap();
 
@@ -202,8 +201,7 @@ fn search_index_population() {
         "track-fts",
         "FTS Artist",
         "Test Track",
-        "A searchable track",
-        "rock",
+        "A searchable track rock",
     )
     .unwrap();
 
@@ -432,8 +430,8 @@ fn unicode_search() {
 
     // Insert into FTS5 search_index (contentless -- use rowid for lookups).
     conn.execute(
-        "INSERT INTO search_index (rowid, entity_type, entity_id, name, title, description, tags)
-         VALUES (1, 'feed', 'feed-uni', 'Unicode Artist', ?1, '', 'world')",
+        "INSERT INTO search_index (rowid, name, title, description)
+         VALUES (1, 'Unicode Artist', ?1, '')",
         params![unicode_title],
     )
     .unwrap();
@@ -516,9 +514,9 @@ fn empty_db_queries() {
 
     // FTS5 on empty index returns no results.
     let mut stmt = conn
-        .prepare("SELECT entity_id FROM search_index WHERE search_index MATCH 'anything'")
+        .prepare("SELECT rowid FROM search_index WHERE search_index MATCH 'anything'")
         .unwrap();
-    let fts_results: Vec<String> = stmt
+    let fts_results: Vec<i64> = stmt
         .query_map([], |r| r.get(0))
         .unwrap()
         .collect::<Result<_, _>>()

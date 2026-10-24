@@ -62,6 +62,8 @@ const ALLOWED_DROP_TABLE_LINES: &[&str] = &[
     "DROP TABLE IF EXISTS live_events_legacy;",
     // Migration 0053 (ADR 0073 §2): the value_time_splits rebuild.
     "DROP TABLE value_time_splits_legacy_0053;",
+    // Migration 0054 (ADR 0078 §1, §6): the replacement of `search_index`.
+    "DROP TABLE IF EXISTS search_index;",
 ];
 
 // ---------------------------------------------------------------------------
@@ -1011,7 +1013,7 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
     // 0041 (entry 35), 0042 (entry 36), 0043 (entry 37), 0044 (entry 38),
     // 0045 (entry 39), 0046 (entry 40) 0047 (entry 41), 0048 (entry 42),
     // 0049 (entry 43), 0050 (entry 44), 0051 (entry 45), 0052 (entry 46)
-    // and 0053 (entry 47), seventeen migrations past the 0036 this test
+    // 0053 (entry 47) and 0054 (entry 48), eighteen migrations past the 0036 this test
     // names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
@@ -1019,9 +1021,9 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 47,
-        "the runner must record version 47 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052 and 0053 run"
+        recorded_version, 48,
+        "the runner must record version 48 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053 and 0054 run"
     );
 }
 
@@ -1131,7 +1133,7 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
     // (entry 33), 0040 (entry 34), 0041 (entry 35), 0042 (entry 36), 0043
     // (entry 37), 0044 (entry 38), 0045 (entry 39), 0046 (entry 40), 0047
     // (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry 44), 0051
-    // (entry 45), 0052 (entry 46) and 0053 (entry 47), sixteen migrations
+    // (entry 45), 0052 (entry 46), 0053 (entry 47) and 0054 (entry 48), seventeen migrations
     // past the 0037 this test names.
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
@@ -1139,9 +1141,9 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 47,
-        "the runner must record version 47 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052 and 0053 run"
+        recorded_version, 48,
+        "the runner must record version 48 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053 and 0054 run"
     );
 }
 
@@ -1188,7 +1190,7 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
     // ADR 0073 task 001 added migration 0053, after this fixture was
     // written. The fixture stops at 0044, so open_db also runs 0046 (entry
     // 40), 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050 (entry
-    // 44), 0051 (entry 45), 0052 (entry 46) and 0053 (entry 47) right after
+    // 44), 0051 (entry 45), 0052 (entry 46), 0053 (entry 47) and 0054 (entry 48) right after
     // 0045 (entry 39).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
@@ -1196,9 +1198,9 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 47,
-        "the runner must record version 47 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
-         0051, 0052 and 0053 run"
+        recorded_version, 48,
+        "the runner must record version 48 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
+         0051, 0052, 0053 and 0054 run"
     );
 }
 
@@ -1253,7 +1255,7 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
     // 008 added migration 0052, and ADR 0073 task 001 added migration 0053,
     // after this fixture was written. The fixture stops at 0045, so open_db
     // also runs 0047 (entry 41), 0048 (entry 42), 0049 (entry 43), 0050
-    // (entry 44), 0051 (entry 45), 0052 (entry 46) and 0053 (entry 47) right
+    // (entry 44), 0051 (entry 45), 0052 (entry 46), 0053 (entry 47) and 0054 (entry 48) right
     // after 0046 (entry 40).
     let recorded_version: i64 = conn
         .query_row("SELECT MAX(version) FROM schema_migrations", [], |r| {
@@ -1261,9 +1263,9 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 47,
-        "the runner must record version 47 after migrations 0046, 0047, 0048, 0049, 0050, 0051, \
-         0052 and 0053 run"
+        recorded_version, 48,
+        "the runner must record version 48 after migrations 0046, 0047, 0048, 0049, 0050, 0051, \
+         0052, 0053 and 0054 run"
     );
 
     let trigger_sql: String = conn

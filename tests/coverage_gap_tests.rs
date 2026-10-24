@@ -191,7 +191,6 @@ fn test_search_app_state() -> Arc<stophammer::api::AppState> {
             "podcast cursor test",
             "",
             "",
-            "",
         )
         .unwrap();
     }

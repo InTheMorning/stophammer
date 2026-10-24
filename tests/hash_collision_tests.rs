@@ -35,17 +35,9 @@ fn collision_detected_skips_second_entity() {
     .unwrap();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            target_rowid,
-            incumbent_type,
-            incumbent_id,
-            "Alpha Feed",
-            "Alpha Title",
-            "desc-a",
-            "rock"
-        ],
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES(?1, ?2, ?3, ?4)",
+        params![target_rowid, "Alpha Feed", "Alpha Title", "desc-a"],
     )
     .unwrap();
 
@@ -59,7 +51,6 @@ fn collision_detected_skips_second_entity() {
         "Beta Track",
         "Beta Title",
         "desc-b",
-        "jazz",
     );
     assert!(result.is_ok(), "collision should not produce an error");
 
@@ -100,19 +91,11 @@ fn collision_detected_skips_second_entity() {
 fn same_entity_idempotent() {
     let conn = common::test_db();
 
-    search::populate_search_index(
-        &conn,
-        "feed",
-        "f1",
-        "Original Name",
-        "Original Title",
-        "",
-        "",
-    )
-    .unwrap();
+    search::populate_search_index(&conn, "feed", "f1", "Original Name", "Original Title", "")
+        .unwrap();
 
     // Second call with updated text — must succeed, not be treated as collision.
-    search::populate_search_index(&conn, "feed", "f1", "Updated Name", "Updated Title", "", "")
+    search::populate_search_index(&conn, "feed", "f1", "Updated Name", "Updated Title", "")
         .unwrap();
 
     // The companion table must still map to the same entity.
@@ -157,23 +140,14 @@ fn collision_preserves_first_entity_search() {
     )
     .unwrap();
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            target_rowid,
-            incumbent_type,
-            incumbent_id,
-            "UniqueAlphaName",
-            "",
-            "",
-            ""
-        ],
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES(?1, ?2, ?3, ?4)",
+        params![target_rowid, "UniqueAlphaName", "", ""],
     )
     .unwrap();
 
     // Trigger collision for the collider.
-    let _ =
-        search::populate_search_index(&conn, collider_type, collider_id, "BetaTrack", "", "", "");
+    let _ = search::populate_search_index(&conn, collider_type, collider_id, "BetaTrack", "", "");
 
     // The incumbent must still be searchable by its name.
     let results = search::search(&conn, "UniqueAlphaName", None, 10, None, None).unwrap();

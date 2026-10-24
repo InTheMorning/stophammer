@@ -297,22 +297,10 @@ fn apply_single_event_inner(
                         conn,
                         "track",
                         &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                        "",
-                        &track.title,
-                        track.description.as_deref().unwrap_or(""),
-                        "",
                     ); // best-effort: index entry may not exist
                 }
                 // Remove the feed's search index entry.
-                let _ = crate::search::delete_from_search_index(
-                    conn,
-                    "feed",
-                    &feed.feed_guid,
-                    "",
-                    &feed.title,
-                    feed.description.as_deref().unwrap_or(""),
-                    feed.raw_medium.as_deref().unwrap_or(""),
-                );
+                let _ = crate::search::delete_from_search_index(conn, "feed", &feed.feed_guid);
                 // Cascade-delete the feed and all child rows (using inner
                 // _sql variant that works on &Connection within our tx).
                 db::delete_feed_sql(conn, &p.feed_guid)?;
@@ -327,10 +315,6 @@ fn apply_single_event_inner(
                     conn,
                     "track",
                     &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                    "",
-                    &track.title,
-                    track.description.as_deref().unwrap_or(""),
-                    "",
                 ); // best-effort
                 // Cascade-delete the track and its child rows (using inner
                 // _sql variant that works on &Connection within our tx).

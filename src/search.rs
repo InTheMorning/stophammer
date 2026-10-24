@@ -1,7 +1,6 @@
-//! Full-text search over the contentless FTS5 `search_index` table.
+//! Full-text search over the FTS5 `search_index` table.
 //!
-//! The FTS5 table uses `content=''`, which means it is a contentless index:
-//! data is stored for MATCH queries but cannot be read back with SELECT.
+//! The FTS5 table holds only `name`, `title` and `description` (ADR 0078 §1).
 //! We manage rowids ourselves using a deterministic hash of
 //! `entity_type + entity_id`.
 
@@ -52,8 +51,8 @@ pub struct SearchResult {
 // SP-01 stable FTS5 hash — 2026-03-13
 /// Computes a deterministic positive `i64` rowid from entity type and id.
 ///
-/// FTS5 with `content=''` requires us to manage rowids ourselves so that
-/// updates and deletes can target the correct row.
+/// We manage the FTS5 rowids ourselves so that updates and deletes can
+/// target the correct row.
 ///
 /// Uses `SipHash-2-4` with fixed zero keys and raw byte input (not the `Hash`
 /// trait) so the result is stable across Rust toolchain versions.
@@ -71,10 +70,11 @@ pub fn rowid_for(entity_type: &str, entity_id: &str) -> i64 {
 /// Inserts or replaces a row in the `search_index` FTS5 table and its
 /// companion `search_entities` lookup table.
 ///
-/// Because the FTS5 table is contentless we first delete any existing row for
-/// this entity (by rowid) and then insert a fresh one. The companion table
-/// `search_entities` is maintained in lockstep so that search results can be
-/// resolved back to `(entity_type, entity_id)` via a JOIN on rowid.
+/// ADR 0078 §1 and §2: the index holds only `name`, `title` and `description`.
+/// An update runs a `DELETE` by rowid and then inserts the new text at the same
+/// rowid. No write sends old text to FTS5. The companion table
+/// `search_entities` changes in lockstep, so that a search result resolves to
+/// `(entity_type, entity_id)` with a JOIN on rowid.
 ///
 /// If a hash collision is detected (the computed rowid already belongs to a
 /// *different* entity), the colliding entity is **skipped** from FTS5 and
@@ -83,7 +83,8 @@ pub fn rowid_for(entity_type: &str, entity_id: &str) -> i64 {
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if the FTS5 insert or companion-table upsert fails.
+/// Returns [`DbError`] if the FTS5 delete or insert, or the companion-table
+/// upsert, fails.
 // Issue-FTS5-CONTENT — 2026-03-14
 // Issue-HASH-COLLISION — 2026-03-14
 pub fn populate_search_index(
@@ -93,7 +94,6 @@ pub fn populate_search_index(
     name: &str,
     title: &str,
     description: &str,
-    tags: &str,
 ) -> Result<(), DbError> {
     let rowid = rowid_for(entity_type, entity_id);
 
@@ -101,7 +101,6 @@ pub fn populate_search_index(
     let name = truncate_fts_field(name);
     let title = truncate_fts_field(title);
     let description = truncate_fts_field(description);
-    let tags = truncate_fts_field(tags);
 
     // Issue-HASH-COLLISION — 2026-03-14
     // Before touching FTS5 or the companion table, check whether the rowid is
@@ -131,31 +130,17 @@ pub fn populate_search_index(
         return Ok(());
     }
 
-    // Issue-FTS5-CONTENT — 2026-03-14
-    // Only delete the existing FTS5 entry if one actually exists.  Issuing a
-    // contentless FTS5 delete for a non-existent row corrupts the internal
-    // term-frequency statistics and causes `rank`/`bm25()` to return NULL.
-    // We use the companion `search_entities` table as the source of truth.
+    // ADR 0078 §2: delete the old row by rowid. FTS5 keeps a copy of the
+    // text, so the delete needs no old text. The `search_entities` row is the guard: a delete of a row that the index
+    // does not hold is skipped.
     if existing.is_some() {
-        conn.execute(
-            "INSERT INTO search_index(search_index, rowid, entity_type, entity_id, name, title, description, tags) \
-             VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![rowid, entity_type, entity_id, &*name, &*title, &*description, &*tags],
-        )?;
+        conn.execute("DELETE FROM search_index WHERE rowid = ?1", params![rowid])?;
     }
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
-            rowid,
-            entity_type,
-            entity_id,
-            &*name,
-            &*title,
-            &*description,
-            &*tags
-        ],
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES(?1, ?2, ?3, ?4)",
+        params![rowid, &*name, &*title, &*description],
     )?;
 
     // Issue-FTS5-CONTENT — 2026-03-14
@@ -172,36 +157,28 @@ pub fn populate_search_index(
 /// Removes the search index entry for the given entity from both the FTS5
 /// table and the companion `search_entities` lookup table.
 ///
+/// ADR 0078 §2: the delete is a `DELETE` by rowid and needs no old text.
+///
 /// # Errors
 ///
-/// Returns [`DbError`] if the FTS5 delete command or companion delete fails.
+/// Returns [`DbError`] if the FTS5 delete or the companion delete fails.
 // Issue-FTS5-CONTENT — 2026-03-14
 pub fn delete_from_search_index(
     conn: &Connection,
     entity_type: &str,
     entity_id: &str,
-    name: &str,
-    title: &str,
-    description: &str,
-    tags: &str,
 ) -> Result<(), DbError> {
     let rowid = rowid_for(entity_type, entity_id);
 
-    // Issue-FTS5-CONTENT — 2026-03-14
-    // Only issue the FTS5 delete if the row actually exists.  Issuing a
-    // contentless FTS5 delete for a non-existent row corrupts the internal
-    // term-frequency statistics (same guard as in populate_search_index).
+    // ADR 0078 §2: issue the FTS5 delete only if the `search_entities` row
+    // shows that the index holds the row.
     let exists: bool = conn.query_row(
         "SELECT EXISTS(SELECT 1 FROM search_entities WHERE rowid = ?1)",
         params![rowid],
         |row| row.get(0),
     )?;
     if exists {
-        conn.execute(
-            "INSERT INTO search_index(search_index, rowid, entity_type, entity_id, name, title, description, tags) \
-             VALUES('delete', ?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![rowid, entity_type, entity_id, name, title, description, tags],
-        )?;
+        conn.execute("DELETE FROM search_index WHERE rowid = ?1", params![rowid])?;
     }
 
     conn.execute(
@@ -277,8 +254,8 @@ pub fn search(
     }
 
     // Issue-SEARCH-KEYSET — 2026-03-14
-    // The FTS5 table is contentless (content=''), so column values cannot be
-    // read back.  We use a subquery to obtain rowid + bm25() rank from FTS5
+    // The FTS5 table holds no entity identity (ADR 0078 §1).  We use a
+    // subquery to obtain rowid + bm25() rank from FTS5
     // (the bm25() function is only valid in queries where FTS5 is the primary
     // table with a MATCH clause), then JOIN the companion `search_entities`
     // table in the outer query to resolve (entity_type, entity_id).

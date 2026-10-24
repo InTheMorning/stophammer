@@ -132,7 +132,6 @@ fn fts5_handles_oversized_description_without_error() {
         "searchablename",
         "searchabletitle",
         &huge_description,
-        "",
     );
 
     assert!(
@@ -171,7 +170,6 @@ fn fts5_truncates_large_field_to_limit() {
         "",
         "Truncation Test",
         &big_description,
-        "",
     );
 
     assert!(result.is_ok(), "should not error on oversized field");
@@ -278,7 +276,6 @@ fn fts5_truncation_respects_char_boundaries() {
         "",
         "UTF-8 Test",
         &desc,
-        "",
     );
 
     assert!(

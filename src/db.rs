@@ -273,6 +273,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 53: store both forms of a value time split, with the stated
     // values, and the recipients of a local split (ADR 0073 §2, task 001)
     include_str!("../migrations/0053_value_time_split_forms.sql"),
+    // Migration 54: the search index holds only name, title and description,
+    // in a normal FTS5 table (ADR 0078 §1 and §6, task 001)
+    include_str!("../migrations/0054_search_index_text_columns.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -756,8 +759,7 @@ fn ensure_source_contributor_npub_schema(conn: &Connection) -> Result<(), DbErro
 /// Returns [`DbError`] if the file cannot be opened, the startup PRAGMAs
 /// cannot be applied, or migrations fail.
 // SP-01 stable FTS5 hash — 2026-03-13
-// Note: The FTS5 table uses content='' (contentless), so the 'rebuild' command
-// is not available. Hash stability is enforced by using SipHash-2-4 with fixed
+// Note: Hash stability is enforced by using SipHash-2-4 with fixed
 // keys in search::rowid_for. If the hash ever changes, the index must be
 // dropped and re-populated from the source tables.
 // HIGH-02 impl AsRef<Path> param — 2026-03-13
@@ -818,10 +820,69 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_title_sort_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
     ensure_value_time_split_forms_schema(&mut conn)?;
+    ensure_search_index_text_columns(&mut conn)?;
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
     Ok(conn)
+}
+
+/// Replaces the old `search_index` table and fills the new table from the
+/// source tables.
+///
+/// ADR 0078 §1 and §6, task 001. The repair runs when one of these is true:
+/// the definition of `search_index` in `sqlite_master` has `content=''`, or
+/// `search_entities` has no row and `feeds` has a row. The second condition
+/// covers a stop after migration 0054 replaced the table and before the fill.
+/// In one transaction, the repair drops the table, creates it, deletes each
+/// row of `search_entities` and fills the index for each feed. A stop during
+/// the repair leaves the old state, and the next open runs the repair again.
+/// A second open after a complete repair runs no repair. This repair runs
+/// before each other repair that writes the index, because a `DELETE` by
+/// rowid fails on the old table.
+fn ensure_search_index_text_columns(conn: &mut Connection) -> Result<(), DbError> {
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE name = 'search_index'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let has_old_definition = sql.is_some_and(|text| text.contains("content=''"));
+    let needs_fill: bool = conn.query_row(
+        "SELECT NOT EXISTS(SELECT 1 FROM search_entities) \
+         AND EXISTS(SELECT 1 FROM feeds)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_old_definition && !needs_fill {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    tx.execute_batch(
+        "DROP TABLE IF EXISTS search_index; \
+         CREATE VIRTUAL TABLE search_index USING fts5( \
+             name, title, description, tokenize='unicode61' \
+         ); \
+         DELETE FROM search_entities;",
+    )?;
+    let feed_guids: Vec<String> = tx
+        .prepare("SELECT feed_guid FROM feeds")?
+        .query_map([], |row| row.get(0))?
+        .collect::<Result<_, _>>()?;
+    for feed_guid in &feed_guids {
+        sync_source_read_models_for_feed(&tx, feed_guid)?;
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        feeds = feed_guids.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: replaced the search index with the text columns of ADR 0078"
+    );
+    Ok(())
 }
 
 /// Rebuilds the search index when it holds a track row keyed by a bare track
@@ -830,9 +891,8 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
 /// Since tracks became feed-scoped, each search and quality row of a track is
 /// keyed by [`canonical_track_entity_id`]. The rows written before that change
 /// keep the bare GUID, and no write replaces them, so one track can match a
-/// search two times. The index is contentless: a row can only be deleted with
-/// its original text, and no table keeps that text. Thus the repair clears the
-/// whole index and fills it again from the source tables. A database with no
+/// search two times. Thus the repair clears the whole index with a `DELETE`
+/// and fills it again from the source tables (ADR 0078 §2). A database with no
 /// bare-GUID track row skips the repair, so it runs one time.
 fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbError> {
     let has_bare_track_rows: bool = conn.query_row(
@@ -847,10 +907,7 @@ fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbErr
 
     let started = std::time::Instant::now();
     let tx = conn.transaction()?;
-    tx.execute(
-        "INSERT INTO search_index(search_index) VALUES('delete-all')",
-        [],
-    )?;
+    tx.execute("DELETE FROM search_index", [])?;
     tx.execute("DELETE FROM search_entities", [])?;
     let stale_quality_rows = tx.execute(
         "DELETE FROM entity_quality \
@@ -1400,18 +1457,9 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
                 feed.release_artist.as_deref().unwrap_or(""),
                 &feed.title,
                 feed.description.as_deref().unwrap_or(""),
-                feed.raw_medium.as_deref().unwrap_or(""),
             )?;
         } else {
-            crate::search::delete_from_search_index(
-                conn,
-                entity_type,
-                &feed.feed_guid,
-                feed.release_artist.as_deref().unwrap_or(""),
-                &feed.title,
-                feed.description.as_deref().unwrap_or(""),
-                feed.raw_medium.as_deref().unwrap_or(""),
-            )?;
+            crate::search::delete_from_search_index(conn, entity_type, &feed.feed_guid)?;
         }
     }
 
@@ -1427,17 +1475,12 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
                 track.track_artist.as_deref().unwrap_or(""),
                 &track.title,
                 track.description.as_deref().unwrap_or(""),
-                "",
             )?;
         } else {
             crate::search::delete_from_search_index(
                 conn,
                 "track",
                 &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                track.track_artist.as_deref().unwrap_or(""),
-                &track.title,
-                track.description.as_deref().unwrap_or(""),
-                "",
             )?;
         }
         let track_score = crate::quality::compute_track_quality_for_feed_track(
@@ -6908,10 +6951,6 @@ pub fn ingest_transaction(
                 &tx,
                 "track",
                 &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                "",
-                &track.title,
-                track.description.as_deref().unwrap_or(""),
-                "",
             );
             // Cascade-delete the track and its child rows.
             delete_track_sql(&tx, &feed.feed_guid, removed_guid)?;

@@ -199,7 +199,7 @@ fn search_function_returns_results_for_valid_query() {
     let conn = common::test_db();
 
     // Insert data into search_index AND entity_quality so the JOIN works.
-    stophammer::search::populate_search_index(&conn, "artist", "a1", "Radiohead", "", "", "")
+    stophammer::search::populate_search_index(&conn, "artist", "a1", "Radiohead", "", "")
         .expect("populate search index");
 
     // Use the sanitize function directly — the query should be unchanged.

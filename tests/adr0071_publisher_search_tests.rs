@@ -264,7 +264,7 @@ async fn the_repair_adds_publisher_feeds_with_no_search_row_and_a_second_open_ad
         // Simulate a database that predates ADR 0071 §5: it has no
         // `search_entities` row for either publisher feed.
         for guid in ["pub-repair-1", "pub-repair-2"] {
-            stophammer::search::delete_from_search_index(&conn, "publisher", guid, "", "", "", "")
+            stophammer::search::delete_from_search_index(&conn, "publisher", guid)
                 .expect("remove the publisher row");
         }
         let missing: i64 = conn

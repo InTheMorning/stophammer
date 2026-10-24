@@ -22,8 +22,8 @@ fn search_by_name() {
     let conn = common::test_db();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (1, 'artist', 'a1', 'Radiohead', '', '', '')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (1, 'Radiohead', '', '')",
         [],
     )
     .unwrap();
@@ -51,8 +51,8 @@ fn search_by_title() {
     let conn = common::test_db();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (1, 'feed', 'f1', '', 'OK Computer', '', '')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (1, '', 'OK Computer', '')",
         [],
     )
     .unwrap();
@@ -82,16 +82,16 @@ fn search_type_filter() {
 
     // Insert an artist with "sonic" in the name column
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (1, 'artist', 'a1', 'Sonic Youth', '', '', '')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (1, 'Sonic Youth', '', '')",
         [],
     )
     .unwrap();
 
     // Insert a feed with "sonic" in the title column
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (2, 'feed', 'f1', '', 'Sonic Highways', '', '')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (2, '', 'Sonic Highways', '')",
         [],
     )
     .unwrap();
@@ -108,18 +108,22 @@ fn search_type_filter() {
         .unwrap();
     assert_eq!(all_rows.len(), 2, "both rows contain 'sonic'");
 
-    // With column filter: only entity_type='artist' matches
+    // With column filter (ADR 0078 §1): only the `name` column matches
     let mut stmt_filtered = conn
         .prepare("SELECT rowid FROM search_index WHERE search_index MATCH ?1")
         .unwrap();
 
     let filtered_rows: Vec<i64> = stmt_filtered
-        .query_map(params!["entity_type:artist"], |r| r.get(0))
+        .query_map(params!["name:sonic"], |r| r.get(0))
         .unwrap()
         .collect::<Result<_, _>>()
         .unwrap();
 
-    assert_eq!(filtered_rows.len(), 1, "only the artist row should match");
+    assert_eq!(
+        filtered_rows.len(),
+        1,
+        "only the row with sonic in the name column should match"
+    );
     assert_eq!(filtered_rows[0], 1);
 }
 
@@ -149,7 +153,7 @@ fn search_no_results() {
 }
 
 // ---------------------------------------------------------------------------
-// 5. search_multiple_results — insert 3 artist rows with "rock" in tags,
+// 5. search_multiple_results — insert 3 artist rows with "rock" in description,
 //    verify all 3 rowids returned
 // ---------------------------------------------------------------------------
 
@@ -158,22 +162,22 @@ fn search_multiple_results() {
     let conn = common::test_db();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (1, 'artist', 'a1', 'Band One', '', '', 'rock alternative')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (1, 'Band One', '', 'rock alternative')",
         [],
     )
     .unwrap();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (2, 'artist', 'a2', 'Band Two', '', '', 'rock punk')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (2, 'Band Two', '', 'rock punk')",
         [],
     )
     .unwrap();
 
     conn.execute(
-        "INSERT INTO search_index(rowid, entity_type, entity_id, name, title, description, tags) \
-         VALUES (3, 'artist', 'a3', 'Band Three', '', '', 'rock metal')",
+        "INSERT INTO search_index(rowid, name, title, description) \
+         VALUES (3, 'Band Three', '', 'rock metal')",
         [],
     )
     .unwrap();
@@ -191,7 +195,7 @@ fn search_multiple_results() {
     assert_eq!(
         rows.len(),
         3,
-        "all 3 artists with 'rock' in tags should be returned"
+        "all 3 artists with 'rock' in description should be returned"
     );
 
     let mut sorted = rows;
@@ -241,9 +245,9 @@ fn keyset_pagination() {
 
     // Insert 3 entities that all match "podcast". Use populate_search_index
     // so the companion search_entities table is maintained in lockstep.
-    search::populate_search_index(&conn, "feed", "f1", "podcast alpha", "", "", "").unwrap();
-    search::populate_search_index(&conn, "feed", "f2", "podcast beta", "", "", "").unwrap();
-    search::populate_search_index(&conn, "feed", "f3", "podcast gamma", "", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f1", "podcast alpha", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f2", "podcast beta", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f3", "podcast gamma", "", "").unwrap();
 
     // Page 1: limit=2+1 (fetch one extra to detect has_more)
     let page1 = search::search(&conn, "podcast", None, 3, None, None).unwrap();
@@ -301,9 +305,9 @@ fn keyset_cursor_stable_after_insert() {
     let conn = common::test_db();
 
     // Start with 3 entities matching "music"
-    search::populate_search_index(&conn, "feed", "f1", "music alpha", "", "", "").unwrap();
-    search::populate_search_index(&conn, "feed", "f2", "music beta", "", "", "").unwrap();
-    search::populate_search_index(&conn, "feed", "f3", "music gamma", "", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f1", "music alpha", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f2", "music beta", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f3", "music gamma", "", "").unwrap();
 
     // Fetch page 1 with limit=2
     let page1 = search::search(&conn, "music", None, 2, None, None).unwrap();
@@ -312,7 +316,7 @@ fn keyset_cursor_stable_after_insert() {
     let page1_ids: Vec<&str> = page1.iter().map(|r| r.entity_id.as_str()).collect();
 
     // Simulate an insertion between page fetches
-    search::populate_search_index(&conn, "feed", "f4", "music delta", "", "", "").unwrap();
+    search::populate_search_index(&conn, "feed", "f4", "music delta", "", "").unwrap();
 
     // Build cursor from last result of page 1
     let last = &page1[1];

@@ -535,20 +535,19 @@ CREATE TABLE IF NOT EXISTS entity_quality (
 -- FTS5 SEARCH (virtual table, no STRICT mode)
 -- ---------------------------------------------------------------------------
 
+-- ADR 0078 §1: the index holds only searchable text. FTS5 keeps a copy of the
+-- text, so a DELETE by rowid removes the old words. search_entities maps a
+-- rowid to its entity.
 CREATE VIRTUAL TABLE IF NOT EXISTS search_index USING fts5(
-    entity_type,
-    entity_id,
     name,
     title,
     description,
-    tags,
-    content='',
     tokenize='unicode61'
 );
 
 -- Issue-FTS5-CONTENT — 2026-03-14
--- Companion table for the contentless FTS5 index.  Because search_index uses
--- content='', column values cannot be read back via SELECT.  This table maps
+-- Companion table for the FTS5 index (ADR 0078 §1).  The index holds only
+-- searchable text.  This table maps
 -- each FTS5 rowid to the (entity_type, entity_id) pair so that search results
 -- can be resolved through a JOIN on rowid.
 CREATE TABLE IF NOT EXISTS search_entities (
