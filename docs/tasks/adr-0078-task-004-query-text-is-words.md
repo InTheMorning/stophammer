@@ -82,8 +82,10 @@ Mechanical. Each is a test in `tests/adr0078_query_words_tests.rs`.
   `haleen'`, `a"b`, `"unclosed`, `title:foo`, `artist:foo`, `cut*`, `-cut`,
   `(cut)`, `^cut`, `AND`, `NEAR`, `cut OR band`, a value with a NUL character,
   and `'` alone.
-- `q=title:foo` does not filter the `title` column. A feed with `foo` in its
-  description and not in its title is a hit.
+- `q=title:foo` does not filter the `title` column. The tokenizer reads the
+  phrase `"title:foo"` as the adjacent words `title foo`. A feed with
+  `title foo` in its description is a hit. A feed with only `foo` in its
+  description is not a hit.
 - A `q` of only white space, and a `q` of only control characters, give `400`
   with the message `q has no word`.
 - Check 9: no `400` body of `GET /v1/search` contains `SQLite` or `fts5`.

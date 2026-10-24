@@ -497,7 +497,7 @@ fn siphash_nul_separator_prevents_prefix_collision() {
     );
 }
 
-/// Verify that FTS5 contentless index handles rowid collision gracefully:
+/// Verify that the FTS5 index handles rowid collision gracefully:
 /// if two entities collide, the second overwrites the first in the index.
 /// This is a data-quality issue, not a security breach.
 #[test]

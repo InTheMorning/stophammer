@@ -4,12 +4,12 @@ use rusqlite::params;
 use stophammer::search;
 
 // ---------------------------------------------------------------------------
-// FTS5 contentless mode notes:
+// FTS5 index notes:
 //
-// With `content=''` the FTS5 table stores tokens for MATCH but column values
-// read back as NULL.  We therefore verify search results by checking that the
-// expected rowid(s) are returned by a MATCH query.  Production code stores
-// entity_type + entity_id in the `entity_quality` table and JOINs on rowid.
+// The FTS5 table holds only name, title and description (ADR 0078 §1).  We
+// therefore verify search results by checking that the expected rowid(s) are
+// returned by a MATCH query.  Production code maps each rowid to entity_type +
+// entity_id in the `search_entities` table and JOINs on rowid.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------

@@ -26,7 +26,8 @@ ADR 0078 and ADR 0079 own the rules.
   `ensure_search_index_track_identity` and
   `ensure_search_index_publisher_feeds`.
 - The repair keys on the `sql` of `search_index` in `sqlite_master`, not on the
-  migration version.
+  migration version. It also runs when `search_entities` has no row and the
+  node holds a feed (ADR 0078 §6).
 - The drop, the create, the delete of `search_entities` and the fill are in one
   transaction.
 - No caller sends the medium or the old text to the index.

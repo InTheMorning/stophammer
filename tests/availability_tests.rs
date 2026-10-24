@@ -141,7 +141,6 @@ fn fts5_handles_oversized_description_without_error() {
     );
 
     // Verify the index entry was created by doing a FTS5 MATCH query directly.
-    // (The contentless FTS5 table's content columns return NULL, but MATCH works.)
     let match_count: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM search_index WHERE search_index MATCH 'searchablename'",

@@ -89,8 +89,10 @@ The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
 v4vmm requests 1 to 9 and musicindex.org requests 1 to 15 are deployed.
-musicindex.org request 16 is declined. v4vmm request 10, about the search query
-text, is a draft. The v4vmm operator examines it before Stophammer answers.
+musicindex.org request 16 is declined. ADR 0078 answers item 1 of v4vmm
+request 10, about the search query text, and it is not deployed. Items 2 to 6
+of request 10, and request 11, are drafts. The v4vmm operator examines them
+before Stophammer answers.
 
 ### Governance
 

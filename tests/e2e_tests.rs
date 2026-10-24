@@ -168,9 +168,9 @@ fn ingest_to_query_pipeline() {
 // 2. FTS5 search index population
 //
 // Issue-FTS5-CONTENT — 2026-03-14
-// The search_index uses content='' (contentless FTS5).  Column values cannot
-// be read back via SELECT on the FTS5 table itself.  The companion table
-// `search_entities` maps each FTS5 rowid to (entity_type, entity_id).
+// The search_index holds only name, title and description (ADR 0078 §1).
+// The companion table `search_entities` maps each FTS5 rowid to
+// (entity_type, entity_id).
 // We use `populate_search_index` (which maintains both tables) and then
 // verify that `search::search()` returns correct entity metadata.
 // ---------------------------------------------------------------------------
@@ -237,7 +237,7 @@ fn search_index_population() {
 
     // Issue-FTS5-CONTENT — 2026-03-14
     // Verify that search::search() returns correct entity_type and entity_id
-    // by joining through search_entities (not reading contentless FTS5 columns).
+    // by joining through search_entities (the FTS5 table holds no entity identity).
     let results = stophammer::search::search(&conn, "electronic", None, 10, None, None).unwrap();
     assert_eq!(results.len(), 1, "only one entity has 'electronic'");
     assert_eq!(results[0].entity_type, "feed");
@@ -319,7 +319,7 @@ fn quality_score_integration() {
     assert_eq!(score_q2, 30);
 
     // Test search ranking with quality scores using the feeds table directly
-    // (contentless FTS5 does not store column values, so we rank via feeds + quality).
+    // (the FTS5 table holds no entity identity, so we rank via feeds + quality).
     let mut stmt = conn
         .prepare(
             "SELECT f.feed_guid, eq.score
@@ -428,7 +428,7 @@ fn unicode_search() {
         unicode_title,
     );
 
-    // Insert into FTS5 search_index (contentless -- use rowid for lookups).
+    // Insert into FTS5 search_index (use rowid for lookups).
     conn.execute(
         "INSERT INTO search_index (rowid, name, title, description)
          VALUES (1, 'Unicode Artist', ?1, '')",
