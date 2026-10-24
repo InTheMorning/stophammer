@@ -353,3 +353,125 @@ fn an_old_definition_with_a_stale_row_of_a_deleted_feed_opens_with_no_row() {
         "the stale feed must not match"
     );
 }
+
+// ── Task 003: a publisher hit gives the quality of its feed ────────────────
+
+/// Writes one publisher feed and its `feed` quality row (ADR 0078 §4).
+fn put_publisher(conn: &Connection, guid: &str, title: &str, score: i64) {
+    db::upsert_feed(
+        conn,
+        &feed(guid, title, "Some Artist", "plain text", "publisher"),
+    )
+    .expect("write publisher feed");
+    db::sync_source_read_models_for_feed(conn, guid).expect("sync read models");
+    conn.execute(
+        "INSERT OR REPLACE INTO entity_quality (entity_type, entity_id, score, computed_at) \
+         VALUES ('feed', ?1, ?2, 1000000)",
+        params![guid, score],
+    )
+    .expect("write feed quality row");
+}
+
+#[test]
+fn a_publisher_hit_gives_the_score_of_the_feed_quality_row() {
+    let conn = common::test_db();
+    put_publisher(&conn, "pub-q1", "Quartzword Collective", 70);
+
+    let found =
+        search::search(&conn, "quartzword", Some("publisher"), 10, None, None).expect("search");
+    assert_eq!(found.len(), 1, "ADR 0078 §4: one publisher hit: {found:?}");
+    assert_eq!(found[0].entity_type, "publisher");
+    assert_eq!(
+        found[0].quality_score, 70,
+        "ADR 0078 §4: the publisher hit must give the score of the feed quality row"
+    );
+
+    let publisher_rows: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM entity_quality WHERE entity_type = 'publisher'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("count publisher quality rows");
+    assert_eq!(
+        publisher_rows, 0,
+        "ADR 0078 §4: no quality row of the type publisher"
+    );
+}
+
+#[test]
+fn the_cursor_gives_each_publisher_feed_one_time_in_the_effective_rank_sequence() {
+    let conn = common::test_db();
+    put_publisher(&conn, "pub-a", "Zirconword Alpha", 10);
+    put_publisher(&conn, "pub-b", "Zirconword Bravo", 50);
+    put_publisher(&conn, "pub-c", "Zirconword Charlie", 90);
+
+    let all =
+        search::search(&conn, "zirconword", Some("publisher"), 10, None, None).expect("search all");
+    assert_eq!(all.len(), 3, "three publisher hits: {all:?}");
+    for hit in &all {
+        let expected = match hit.entity_id.as_str() {
+            "pub-a" => 10,
+            "pub-b" => 50,
+            _ => 90,
+        };
+        assert_eq!(
+            hit.quality_score, expected,
+            "ADR 0078 §4: score of {}",
+            hit.entity_id
+        );
+    }
+
+    let mut seen = Vec::new();
+    let mut cursor: Option<(f64, i64)> = None;
+    for _ in 0..5 {
+        let page = search::search(
+            &conn,
+            "zirconword",
+            Some("publisher"),
+            1,
+            cursor.map(|c| c.0),
+            cursor.map(|c| c.1),
+        )
+        .expect("search page");
+        let Some(hit) = page.first() else { break };
+        seen.push(hit.entity_id.clone());
+        cursor = Some((hit.effective_rank, hit.rowid));
+    }
+    let expected: Vec<String> = all.iter().map(|h| h.entity_id.clone()).collect();
+    assert_eq!(
+        seen, expected,
+        "ADR 0078 §4: the pages of the cursor give each feed once, in the sequence of the effective rank"
+    );
+}
+
+#[test]
+fn the_quality_of_a_feed_hit_and_of_a_track_hit_does_not_change() {
+    let conn = common::test_db();
+    put_album(&conn, "alb-q", "Vermilionword Album", "Vermilionword Song");
+    let track_id: String = conn
+        .query_row(
+            "SELECT entity_id FROM search_entities WHERE entity_type = 'track'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read the track entity id");
+    conn.execute(
+        "INSERT OR REPLACE INTO entity_quality (entity_type, entity_id, score, computed_at) \
+         VALUES ('feed', 'alb-q', 40, 1), ('track', ?1, 25, 1)",
+        params![track_id],
+    )
+    .expect("write quality rows");
+
+    let found = search::search(&conn, "vermilionword", None, 10, None, None).expect("search");
+    let feed_hit = found
+        .iter()
+        .find(|h| h.entity_type == "feed")
+        .expect("feed hit");
+    let track_hit = found
+        .iter()
+        .find(|h| h.entity_type == "track")
+        .expect("track hit");
+    assert_eq!(feed_hit.quality_score, 40, "feed hit quality");
+    assert_eq!(track_hit.quality_score, 25, "track hit quality");
+}

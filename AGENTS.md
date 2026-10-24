@@ -25,7 +25,9 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+- [ADR 0078](docs/adr/0078-a-search-index-row-holds-only-searchable-text.md):
+  tasks 001 to 004 are committed. The first open after the deploy rebuilds the
+  search index. On a copy of the backup of 2026-10-21, the rebuild took 2.9 s.
 
 ### Open Items
 
@@ -49,11 +51,10 @@ Nothing.
 - [The remaining accepted work plan](docs/plans/remaining-accepted-work-plan.md)
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
-- [ADR 0078](docs/adr/0078-a-search-index-row-holds-only-searchable-text.md)
-  and [ADR 0079](docs/adr/0079-a-retired-guid-returns-only-from-its-source.md)
-  are Accepted and not built.
+- [ADR 0079](docs/adr/0079-a-retired-guid-returns-only-from-its-source.md)
+  is Accepted and not built.
   [The phase plan](docs/plans/search-index-and-retired-source-phase-plan.md)
-  gives the sequence of their tasks in `docs/tasks/`. Until ADR 0079 is
+  gives the sequence of its tasks in `docs/tasks/`. Until ADR 0079 is
   deployed, a GUID that a retire with no block frees can be claimed from a
   different URL.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)

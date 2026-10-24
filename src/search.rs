@@ -261,6 +261,9 @@ pub fn search(
     // Positional parameters: ?1 = MATCH query
     // When cursor is present: ?2 = cursor_rank, ?3 = cursor_rowid
     // Type filter and limit params shift accordingly.
+    // ADR 0078 §4: a publisher feed has one quality row, of the type `feed`.
+    // The join below reads that row for a `publisher` hit.  The select list,
+    // the order and the keyset filter all use the same `q.score`.
     let eff_rank_expr = "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0))";
 
     let mut where_parts = Vec::new();
@@ -298,7 +301,8 @@ pub fn search(
                FROM search_index WHERE search_index MATCH ?1) m \
          JOIN search_entities e ON e.rowid = m.rowid \
          LEFT JOIN entity_quality q \
-           ON q.entity_type = e.entity_type AND q.entity_id = e.entity_id \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+          AND q.entity_id = e.entity_id \
          {where_clause}\
          ORDER BY eff_rank ASC, m.rowid ASC \
          LIMIT ?{limit_param_idx}"
