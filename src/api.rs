@@ -2920,6 +2920,36 @@ async fn handle_ingest_feed(
                 }
             }
             db::SubmissionClass::NewFeed => {
+                // ADR 0079 section 2: a held GUID is admitted only from the
+                // held URL. The check runs before the ADR 0057 block rule, in
+                // the same writer section as `classify_submission`. The
+                // comparison is exact string equality (ADR 0051 section 1).
+                // The ingest transaction deletes the hold on admission.
+                if let Some(hold) = db::get_retired_source_hold(&conn, &feed_data.feed_guid)?
+                    && hold.source_url != req.source_url
+                    && hold.source_url != req.canonical_url
+                {
+                    tracing::warn!(
+                        feed_guid = feed_data.feed_guid.as_str(),
+                        held_url = hold.source_url.as_str(),
+                        source_url = req.source_url.as_str(),
+                        canonical_url = req.canonical_url.as_str(),
+                        "ADR 0079 section 2: NewFeed case, retired GUID submitted from a URL that is not the held URL"
+                    );
+                    return Ok((
+                        ingest::IngestResponse {
+                            accepted: false,
+                            no_change: false,
+                            reason: Some("retired_source_conflict".to_string()),
+                            events_emitted: vec![],
+                            warnings: vec![],
+                            source_url: None,
+                        },
+                        vec![],
+                        vec![],
+                    ));
+                }
+
                 // ADR 0057 section 3: a new feed with a matching block writes
                 // nothing. The answer is `accepted: false`, `reason:
                 // "source_blocked"`, with an empty `events_emitted`.

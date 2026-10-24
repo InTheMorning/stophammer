@@ -276,6 +276,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 54: the search index holds only name, title and description,
     // in a normal FTS5 table (ADR 0078 §1 and §6, task 001)
     include_str!("../migrations/0054_search_index_text_columns.sql"),
+    // Migration 55: the hold of a retire that writes no block (ADR 0079 §1,
+    // task 001)
+    include_str!("../migrations/0055_retired_source_holds.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -712,6 +715,16 @@ fn ensure_copy_item_facts_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Creates `retired_source_holds` when migration 0055 could not run.
+///
+/// A database whose watermark already reached the position of migration 0055
+/// never runs it (ADR 0046). The SQL of the migration has `IF NOT EXISTS`, so
+/// this repair runs it at each open (ADR 0079 §1).
+fn ensure_retired_source_holds_schema(conn: &Connection) -> Result<(), DbError> {
+    conn.execute_batch(include_str!("../migrations/0055_retired_source_holds.sql"))?;
+    Ok(())
+}
+
 /// Rebuilds `value_time_splits` with the two forms of ADR 0073 §2 when
 /// migration 0053 could not run.
 ///
@@ -820,6 +833,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_title_sort_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
     ensure_value_time_split_forms_schema(&mut conn)?;
+    ensure_retired_source_holds_schema(&conn)?;
     ensure_search_index_text_columns(&mut conn)?;
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
@@ -2900,7 +2914,30 @@ pub fn delete_feed_with_event(
     blocks: &[FeedBlock],
 ) -> Result<Vec<Event>, DbError> {
     let tx = conn.transaction()?;
+    // ADR 0079 §1: a retire with no block keeps a hold. Read the source URL
+    // of the record before the delete removes it.
+    let hold_source_url = if blocks.is_empty() {
+        tx.query_row(
+            "SELECT feed_url FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?
+    } else {
+        None
+    };
     delete_feed_sql(&tx, feed_guid)?;
+    if let Some(source_url) = hold_source_url {
+        // ADR 0079 §1: the reason is the reason of the FeedRetired event.
+        let reason = serde_json::from_str::<crate::event::FeedRetiredPayload>(payload_json)?
+            .reason
+            .unwrap_or_default();
+        tx.execute(
+            "INSERT OR REPLACE INTO retired_source_holds \
+             (feed_guid, source_url, reason, retired_at) VALUES (?1, ?2, ?3, ?4)",
+            params![feed_guid.to_lowercase(), source_url, reason, created_at],
+        )?;
+    }
 
     let et_str = event_type_str(&EventType::FeedRetired)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -5450,6 +5487,46 @@ pub fn feed_guid_for_source_url(
     Ok(feed_indexed_by_stored_url(conn, source_url)?.map(|(feed_guid, _created_at)| feed_guid))
 }
 
+/// A row of `retired_source_holds` (ADR 0079 section 1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetiredSourceHold {
+    /// The GUID of the retired record, in lower case.
+    pub feed_guid: String,
+    /// The source URL of the record at the retire.
+    pub source_url: String,
+    /// The reason of the `FeedRetired` event.
+    pub reason: String,
+    /// The time of the retire.
+    pub retired_at: i64,
+}
+
+/// Returns the `retired_source_holds` row of `feed_guid`, or `None` when the
+/// GUID has no hold. The GUID is compared in lower case (ADR 0079 section 1).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn get_retired_source_hold(
+    conn: &Connection,
+    feed_guid: &str,
+) -> Result<Option<RetiredSourceHold>, DbError> {
+    Ok(conn
+        .query_row(
+            "SELECT feed_guid, source_url, reason, retired_at \
+             FROM retired_source_holds WHERE feed_guid = ?1",
+            params![feed_guid.to_lowercase()],
+            |row| {
+                Ok(RetiredSourceHold {
+                    feed_guid: row.get(0)?,
+                    source_url: row.get(1)?,
+                    reason: row.get(2)?,
+                    retired_at: row.get(3)?,
+                })
+            },
+        )
+        .optional()?)
+}
+
 /// Returns the `source_gone_answers` row of `feed_guid`, or `None` when the
 /// primary has not yet counted a gone answer for it.
 ///
@@ -6536,6 +6613,13 @@ pub fn ingest_transaction(
     tx.execute(
         "DELETE FROM source_gone_answers WHERE feed_guid = ?1",
         params![feed.feed_guid],
+    )?;
+
+    // 3a3. ADR 0079 §2: the admission of a held GUID from its held URL
+    // deletes the hold in the same transaction.
+    tx.execute(
+        "DELETE FROM retired_source_holds WHERE feed_guid = ?1",
+        params![feed.feed_guid.to_lowercase()],
     )?;
 
     // 3b. Replace feed-level payment routes

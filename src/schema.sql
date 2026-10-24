@@ -413,6 +413,16 @@ CREATE TABLE IF NOT EXISTS source_gone_answers (
     last_status   INTEGER NOT NULL
 ) STRICT;
 
+-- The hold of a retire that writes no block (ADR 0079 section 1). Local to
+-- the primary and makes no event, so a community node holds no row. A
+-- submission for a held GUID is admitted only from `source_url`.
+CREATE TABLE IF NOT EXISTS retired_source_holds (
+    feed_guid   TEXT PRIMARY KEY,
+    source_url  TEXT NOT NULL,
+    reason      TEXT NOT NULL,
+    retired_at  INTEGER NOT NULL
+) STRICT;
+
 -- A block on one feed GUID or one exact feed URL (ADR 0053 Section 1). A
 -- signed FeedBlocked event writes a row here; a signed FeedUnblocked event
 -- removes one.
