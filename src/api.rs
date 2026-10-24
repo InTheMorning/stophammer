@@ -1240,23 +1240,8 @@ fn guid_change_transition(
     signer: &signing::NodeSigner,
     now: i64,
 ) -> Result<Vec<SignedEventRow>, ApiError> {
-    // Reads happen before the transaction, under the caller's writer lock,
-    // mirroring handle_retire_feed.
-    let old_feed = db::get_feed_by_guid(conn, old_guid).map_err(ApiError::from)?;
-    let old_tracks = db::get_tracks_for_feed(conn, old_guid).map_err(ApiError::from)?;
-
+    // ADR 0078 §3: `delete_feed_sql` deletes the index rows in the transaction.
     let tx = conn.transaction().map_err(db::DbError::from)?;
-
-    for track in &old_tracks {
-        let _ = crate::search::delete_from_search_index(
-            &tx,
-            "track",
-            &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-        );
-    }
-    if let Some(feed) = &old_feed {
-        let _ = crate::search::delete_from_search_index(&tx, "feed", &feed.feed_guid);
-    }
 
     db::delete_feed_sql(&tx, old_guid).map_err(ApiError::from)?;
     let retired_payload = event::FeedRetiredPayload {
@@ -4729,10 +4714,6 @@ struct RetireParams {
     block: Option<bool>,
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "event signing, SSE publish, and fan-out all live in one handler"
-)]
 async fn handle_retire_feed(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -4772,19 +4753,6 @@ async fn handle_retire_feed(
                 message: format!("feed {guid2} not found"),
                 www_authenticate: None,
             })?;
-
-            // Fetch tracks to remove from search index.
-            let tracks = db::get_tracks_for_feed(&conn, &guid2)?;
-
-            // Remove search index entries (best-effort).
-            for track in &tracks {
-                let _ = crate::search::delete_from_search_index(
-                    &conn,
-                    "track",
-                    &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                );
-            }
-            let _ = crate::search::delete_from_search_index(&conn, "feed", &feed.feed_guid);
 
             // Build and sign a FeedRetired event.
             let now = db::unix_now();
@@ -4891,19 +4859,12 @@ async fn handle_remove_track(
             check_admin_token(&headers, &state2.admin_token)?;
 
             // Look up the track — 404 if not found.
-            let track =
-                db::get_track_for_feed(&conn, &guid2, &track_guid2)?.ok_or_else(|| ApiError {
-                    status: StatusCode::NOT_FOUND,
-                    message: format!("track {track_guid2} not found"),
-                    www_authenticate: None,
-                })?;
-
-            // Remove search index entry (best-effort).
-            let _ = crate::search::delete_from_search_index(
-                &conn,
-                "track",
-                &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-            );
+            // ADR 0078 §3: `delete_track_with_event` deletes the index row.
+            db::get_track_for_feed(&conn, &guid2, &track_guid2)?.ok_or_else(|| ApiError {
+                status: StatusCode::NOT_FOUND,
+                message: format!("track {track_guid2} not found"),
+                www_authenticate: None,
+            })?;
 
             // Build and sign a TrackRemoved event.
             let now = db::unix_now();

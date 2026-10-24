@@ -2674,6 +2674,12 @@ pub(crate) fn delete_track_sql(
     feed_guid: &str,
     track_guid: &str,
 ) -> Result<(), DbError> {
+    // ADR 0078 §3: delete the index row of the track in the same transaction.
+    crate::search::delete_from_search_index(
+        conn,
+        "track",
+        &canonical_track_entity_id(feed_guid, track_guid),
+    )?;
     conn.execute(
         DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
         params![feed_guid, track_guid],
@@ -2733,6 +2739,18 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     let track_guids = stmt
         .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
+
+    // ADR 0078 §3: delete the index rows of the feed, of its publisher entry
+    // and of its tracks before the feed row.
+    crate::search::delete_from_search_index(conn, "feed", feed_guid)?;
+    crate::search::delete_from_search_index(conn, "publisher", feed_guid)?;
+    for track_guid in &track_guids {
+        crate::search::delete_from_search_index(
+            conn,
+            "track",
+            &canonical_track_entity_id(feed_guid, track_guid),
+        )?;
+    }
 
     conn.execute(
         "DELETE FROM value_time_split_recipients WHERE split_id IN \
@@ -2993,30 +3011,8 @@ pub fn delete_track_with_event(
 ) -> Result<(i64, String, String), DbError> {
     let tx = conn.transaction()?;
 
-    tx.execute(
-        DELETE_FEED_TRACK_SPLIT_RECIPIENTS_SQL,
-        params![feed_guid, track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM value_time_splits WHERE source_track_guid = ?2 AND (source_feed_guid = ?1 OR source_feed_guid IS NULL)",
-        params![feed_guid, track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM payment_routes WHERE feed_guid = ?1 AND track_guid = ?2",
-        params![feed_guid, track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM entity_quality WHERE entity_type = 'track' AND entity_id IN (?1, ?2)",
-        params![canonical_track_entity_id(feed_guid, track_guid), track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM track_remote_items_raw WHERE track_guid = ?2 AND (feed_guid = ?1 OR feed_guid IS NULL)",
-        params![feed_guid, track_guid],
-    )?;
-    tx.execute(
-        "DELETE FROM tracks WHERE feed_guid = ?1 AND track_guid = ?2",
-        params![feed_guid, track_guid],
-    )?;
+    // ADR 0078 §3: `delete_track_sql` also deletes the index row of the track.
+    delete_track_sql(&tx, feed_guid, track_guid)?;
 
     let et_str = event_type_str(&crate::event::EventType::TrackRemoved)?;
     let warnings_json = serde_json::to_string(warnings)?;
@@ -6943,16 +6939,10 @@ pub fn ingest_transaction(
         if new_guids.contains(removed_guid.as_str()) {
             continue;
         }
-        // Look up the track to get search-index fields before deleting.
         let track_opt = get_track_for_feed(&tx, &feed.feed_guid, removed_guid)?;
-        if let Some(track) = track_opt {
-            // Remove the track's search index entry (best-effort).
-            let _ = crate::search::delete_from_search_index(
-                &tx,
-                "track",
-                &canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-            );
-            // Cascade-delete the track and its child rows.
+        if track_opt.is_some() {
+            // Cascade-delete the track, its child rows and its index row
+            // (ADR 0078 §3).
             delete_track_sql(&tx, &feed.feed_guid, removed_guid)?;
         }
         // Build a TrackRemoved event row.

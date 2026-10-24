@@ -287,35 +287,20 @@ fn apply_single_event_inner(
             )?;
         }
         event::EventPayload::FeedRetired(p) => {
-            // Look up the feed to get search-index fields. If already gone, no-op.
+            // If the feed is already gone, this is a no-op.
             let feed_opt = db::get_feed_by_guid(conn, &p.feed_guid)?;
-            if let Some(feed) = feed_opt {
-                // Fetch all tracks to remove their search index entries.
-                let tracks = db::get_tracks_for_feed(conn, &p.feed_guid)?;
-                for track in &tracks {
-                    let _ = crate::search::delete_from_search_index(
-                        conn,
-                        "track",
-                        &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                    ); // best-effort: index entry may not exist
-                }
-                // Remove the feed's search index entry.
-                let _ = crate::search::delete_from_search_index(conn, "feed", &feed.feed_guid);
+            if feed_opt.is_some() {
+                // ADR 0078 §3: `delete_feed_sql` also deletes the index rows.
                 // Cascade-delete the feed and all child rows (using inner
                 // _sql variant that works on &Connection within our tx).
                 db::delete_feed_sql(conn, &p.feed_guid)?;
             }
         }
         event::EventPayload::TrackRemoved(p) => {
-            // Look up the track to get search-index fields. If already gone, no-op.
+            // If the track is already gone, this is a no-op.
             let track_opt = db::get_track_for_feed(conn, &p.feed_guid, &p.track_guid)?;
-            if let Some(track) = track_opt {
-                // Remove the track's search index entry.
-                let _ = crate::search::delete_from_search_index(
-                    conn,
-                    "track",
-                    &db::canonical_track_entity_id(&track.feed_guid, &track.track_guid),
-                ); // best-effort
+            if track_opt.is_some() {
+                // ADR 0078 §3: `delete_track_sql` also deletes the index row.
                 // Cascade-delete the track and its child rows (using inner
                 // _sql variant that works on &Connection within our tx).
                 db::delete_track_sql(conn, &p.feed_guid, &p.track_guid)?;
