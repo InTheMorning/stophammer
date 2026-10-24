@@ -748,7 +748,7 @@ fn spec_value(mode: DocMode) -> Value {
                     )),
                     json!({
                         "200": json_response(
-                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A `guid_change_pending` or `guid_change_rejected` reason (ADR 0052 section 4) means the source URL declares a GUID other than the one the record holds. A GUID-change transition (ADR 0052 section 5), run either for the UUIDv5 of the source URL or for an operator approval, names its old and new GUID in `warnings`: `GUID changed from <old> to <new> (ADR 0052 UUIDv5)` or `(ADR 0052 approved)`. A `source_blocked` reason (ADR 0057 sections 2 and 3) means the source URL matches a `podcast:block` tag that applies to this index. A request with no `feed_data` and an `http_status` of `404` or `410` reports a gone source URL (ADR 0067). A counted report gets the reason `source_gone_observed` on its first answer, or `source_gone` on a second answer 24 hours or more after the first, which retires the record. Each other gone report gets `source_gone_ignored` and changes nothing.",
+                            "Ingest result. A `source_conflict` reason (ADR 0051 section 5) also carries `source_url`, the stored source URL of the held record. A `guid_change_pending` or `guid_change_rejected` reason (ADR 0052 section 4) means the source URL declares a GUID other than the one the record holds. A GUID-change transition (ADR 0052 section 5), run either for the UUIDv5 of the source URL or for an operator approval, names its old and new GUID in `warnings`: `GUID changed from <old> to <new> (ADR 0052 UUIDv5)` or `(ADR 0052 approved)`. A `source_blocked` reason (ADR 0057 sections 2 and 3) means the source URL matches a `podcast:block` tag that applies to this index. A request with no `feed_data` and an `http_status` of `404` or `410` reports a gone source URL (ADR 0067). A counted report gets the reason `source_gone_observed` on its first answer, or `source_gone` on a second answer 24 hours or more after the first, which retires the record. Each other gone report gets `source_gone_ignored` and changes nothing. A `retired_source_conflict` reason means the GUID is held for its last source URL (ADR 0079 section 2).",
                             json!({ "$ref": "#/components/schemas/IngestResponse" }),
                             json!({
                                 "accepted": true,
@@ -909,6 +909,24 @@ fn spec_value(mode: DocMode) -> Value {
                         "204": no_content_response("Block removed."),
                         "403": error_response("Missing or invalid admin token."),
                         "404": error_response("Block not found.")
+                    }),
+                    Some(admin_only_security())
+                )
+            }),
+        );
+        paths.insert(
+            "/v1/retired-source-holds/{guid}".into(),
+            json!({
+                "delete": operation(
+                    "Release a retired source hold",
+                    "Deletes the retired source hold of one feed GUID (ADR 0079 section 3). The GUID is compared in lower case. The release signs no event, because the table is local to the primary.",
+                    "Feeds",
+                    vec![path_param("guid", "string", "Feed GUID.")],
+                    None,
+                    json!({
+                        "204": no_content_response("Hold released."),
+                        "403": error_response("Missing or invalid admin token."),
+                        "404": error_response("No hold for this GUID.")
                     }),
                     Some(admin_only_security())
                 )

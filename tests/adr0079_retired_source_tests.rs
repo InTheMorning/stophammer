@@ -542,3 +542,81 @@ fn the_open_creates_the_hold_table_when_the_migration_is_skipped() {
         "ADR 0079 §1 and ADR 0046: open_db must create retired_source_holds when migration 0055 did not run"
     );
 }
+
+// ADR 0079 §3: the release route. Check 6 and the contract rows.
+#[tokio::test]
+async fn a_release_admits_a_different_url_as_a_new_feed() {
+    let r = retired(Retire::AdminNoBlock, "release-new").await;
+    let uri = format!("/v1/retired-source-holds/{}", r.guid);
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
+    assert_eq!(status, 204, "ADR 0079 §3: the release must give 204");
+
+    let other = "https://other.example.net/release.xml";
+    let body = ingest(
+        r.app.clone(),
+        &payload(other, other, "hash-other", &feed_data(&r.guid, false)),
+    )
+    .await;
+    assert_eq!(
+        body["accepted"], true,
+        "ADR 0079 §3: after the release a different URL must be admitted: {body:?}"
+    );
+    assert_eq!(feeds_rows(&r.db, &r.guid), 1, "the feed is a new feed");
+}
+
+#[tokio::test]
+async fn a_release_gives_204_deletes_the_row_and_signs_no_event() {
+    let r = retired(Retire::SourceGone, "release-row").await;
+    let upper = r.guid.to_uppercase();
+    let uri = format!("/v1/retired-source-holds/{upper}");
+    let events_before = event_total(&r.db);
+
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
+    assert_eq!(status, 204, "ADR 0079 §3: the release must give 204");
+    assert_eq!(hold_rows(&r.db, &r.guid), 0, "the release deletes the row");
+    assert_eq!(
+        event_total(&r.db),
+        events_before,
+        "ADR 0079 §3: the release must sign no event"
+    );
+
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, true, None).await;
+    assert_eq!(status, 404, "a second release must give 404");
+}
+
+#[tokio::test]
+async fn a_release_needs_the_admin_token() {
+    let r = retired(Retire::AdminNoBlock, "release-auth").await;
+    let uri = format!("/v1/retired-source-holds/{}", r.guid);
+
+    let (status, _) = send(r.app.clone(), "DELETE", &uri, false, None).await;
+    assert_eq!(status, 403, "no admin token must give 403");
+
+    let request = Request::builder()
+        .method("DELETE")
+        .uri(&uri)
+        .header("X-Admin-Token", "wrong-token")
+        .body(Body::empty())
+        .expect("build request");
+    let resp = r.app.clone().oneshot(request).await.expect("send request");
+    assert_eq!(resp.status().as_u16(), 403, "a wrong token must give 403");
+    assert_eq!(hold_rows(&r.db, &r.guid), 1, "the row stays");
+}
+
+#[test]
+fn the_contract_has_the_release_route_and_the_reason() {
+    let spec = serde_json::to_value(stophammer::openapi::primary_document())
+        .expect("serialize the document");
+    assert!(
+        spec["paths"]["/v1/retired-source-holds/{guid}"]["delete"].is_object(),
+        "ADR 0079 §3: the OpenAPI document must give the delete method of the release route"
+    );
+    let ingest_description =
+        spec["paths"]["/ingest/feed"]["post"]["responses"]["200"]["description"]
+            .as_str()
+            .expect("ingest description");
+    assert!(
+        ingest_description.contains("retired_source_conflict"),
+        "ADR 0079 §2: the ingest description must list retired_source_conflict"
+    );
+}

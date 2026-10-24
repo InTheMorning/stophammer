@@ -356,7 +356,7 @@ the feed can come back on a crawl after that.
 | `source_gone` | A second accepted report, 24 hours or more after the first. The record is retired | Stop crawling this URL |
 | `source_gone_ignored` | The node did not accept the report. The URL is not a stored source URL. Or a redirect carried it. Or the report is a `404` from a host that is not listed | Nothing to do |
 
-**Three reasons to reject a submission (ADR 0051 section 2):**
+**Four reasons to reject a submission (ADR 0051 section 2 and ADR 0079 section 2):**
 
 The node checks each submission against the source URL of its record. The
 source URL is the stored `feed_url`. Only content from the source URL can
@@ -367,6 +367,7 @@ change a record.
 | `source_conflict` | The body came from a URL that is not the source URL of the held GUID | Not retry this URL. It can fetch the source URL |
 | `record_conflict` | The submission names a GUID held by one record, from a URL held by a different record | Not retry. An operator must select the next step |
 | `guid_change_pending` | A held source URL declares a new GUID. See below | Not retry. ADR 0052 owns the next step |
+| `retired_source_conflict` | The GUID is held for its last source URL (ADR 0079 section 2) | Not retry this URL. It can fetch the held source URL |
 
 `source_conflict` and `record_conflict` write no row to the database.
 `source_conflict` is different from `record_conflict`: the node records the
@@ -2467,6 +2468,26 @@ Removes a block row. Signs one `FeedUnblocked` event.
 | 204  | Block removed |
 | 403  | Missing or invalid admin token |
 | 404  | Block not found |
+
+---
+
+### DELETE /v1/retired-source-holds/{guid}
+
+Releases the hold of one retired GUID (ADR 0079 section 3). After the release,
+a submission of the GUID from a different URL is admitted as a new feed. The
+GUID is compared in lower case. The release signs no event, because the table
+is local to the primary.
+
+- **Authentication:** Admin token only (`X-Admin-Token`)
+- **Available on:** Primary only
+
+**Response:** `204 No Content`
+
+| Code | Meaning |
+|------|---------|
+| 204  | Hold released |
+| 403  | Missing or invalid admin token |
+| 404  | No hold for this GUID |
 
 ---
 

@@ -5527,6 +5527,20 @@ pub fn get_retired_source_hold(
         .optional()?)
 }
 
+/// Deletes the `retired_source_holds` row of `feed_guid`. The GUID is compared
+/// in lower case. Returns `true` when a row was deleted (ADR 0079 section 3).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the delete fails.
+pub fn delete_retired_source_hold(conn: &Connection, feed_guid: &str) -> Result<bool, DbError> {
+    let deleted = conn.execute(
+        "DELETE FROM retired_source_holds WHERE feed_guid = ?1",
+        params![feed_guid.to_lowercase()],
+    )?;
+    Ok(deleted > 0)
+}
+
 /// Returns the `source_gone_answers` row of `feed_guid`, or `None` when the
 /// primary has not yet counted a gone answer for it.
 ///

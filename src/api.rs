@@ -2066,6 +2066,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(handle_create_block).get(handle_list_blocks),
         )
         .route("/v1/blocks/{block_id}", delete(handle_delete_block))
+        .route(
+            "/v1/retired-source-holds/{guid}",
+            delete(handle_delete_retired_source_hold),
+        )
         .route("/health", get(|| async { "ok" }))
         .merge(query::query_routes())
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
@@ -5123,6 +5127,42 @@ async fn handle_list_blocks(
     blocks.sort_by_key(|b| b.blocked_at);
 
     Ok(Json(ListBlocksResponse { blocks }))
+}
+
+// ADR 0079 section 3: the operator releases the hold of one GUID. The table is
+// local to the primary, so the release signs no event.
+async fn handle_delete_retired_source_hold(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(guid): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    check_admin_token(&headers, &state.admin_token)?;
+
+    let guid2 = guid.clone();
+    let released = spawn_db_mut(state.db.clone(), move |conn| {
+        let Some(hold) = db::get_retired_source_hold(conn, &guid2)? else {
+            return Ok(None);
+        };
+        db::delete_retired_source_hold(conn, &guid2)?;
+        Ok(Some(hold))
+    })
+    .await?;
+
+    match released {
+        Some(hold) => {
+            tracing::info!(
+                feed_guid = %hold.feed_guid,
+                source_url = %hold.source_url,
+                "operator released a retired source hold (ADR 0079 section 3)"
+            );
+            Ok(StatusCode::NO_CONTENT)
+        }
+        None => Err(ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "no retired source hold for this GUID".into(),
+            www_authenticate: None,
+        }),
+    }
 }
 
 async fn handle_delete_block(
