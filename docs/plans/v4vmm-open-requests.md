@@ -28,7 +28,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
-| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078, deployed in release 0.14.0 on 2026-10-24, except phrases. Items 2 to 7: the v4vmm operator answered them on 2026-10-24. Ready for a Stophammer ADR |
+| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078 and ADR 0080, phrases deployed in release 0.15.0 on 2026-10-25. Items 2 to 7: ADR 0080, deployed in release 0.15.0 on 2026-10-25 |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. The v4vmm operator asked for it on 2026-10-23 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
@@ -547,6 +547,19 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Release 0.15.0 - 2026-10-25
+
+Release 0.15.0 delivers items 1 to 7 of request 10 (Stophammer ADR 0080). `GET /node/info` gives `git_revision` `c9351f3`. The checks on the live API on 2026-10-25:
+
+- `GET /v1/node/capabilities` gives `search_filters` for `feed`, `track` and `publisher`. `host` and `not_host` apply to each type. `min_duration` and `max_duration` apply only to `track`.
+- `GET /v1/search?q="night drive"` gives `200`. The first hit has the phrase in its description.
+- `GET /v1/search?type=feed&host=wavlake.com&limit=2` gives two rows with `rank` 0, newest first. Its cursor gives a second page with different rows. The same cursor on a search with `q` gives `400` with `invalid cursor format`.
+- `GET /v1/search?type=feed&kind=album` gives `200` with no rows. Stophammer stores `unknown` as the kind of each feed, so only `kind=unknown` matches now.
+- `GET /v1/search?q=jsmovie&type=feed&min_duration=1` gives `400` with `{"code":"unsupported_filter","filter":"min_duration"}`.
+- `GET /v1/search?q=jsmovie&genre=x` gives `400` with `unsupported_filter` and `filter` `genre`. A parameter that Stophammer does not know now gives this error. Before this release, Stophammer ignored it.
+- `GET /v1/search?not_title=remix` gives `400` with `missing_positive_term`.
+- After a restart, the first search with no `q` can be slow, because the database pages are not in memory. On 2026-10-25, the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took approximately 195 ms.
 
 ## Stophammer Answers - 2026-10-21
 

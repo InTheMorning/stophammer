@@ -6,14 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.15.0 is open. It holds ADR 0080, and each `Cargo.toml` gives its
-version. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and ADR 0079, and item
-1 of v4vmm request 10. Releases 0.13.1 and 0.13.2 of 2026-10-21
-are security releases with only fixes.
+No release is open. Release 0.15.0 of 2026-10-25 delivered ADR 0080, and items
+1 to 7 of v4vmm request 10. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and
+ADR 0079.
 
 ### Deployed
 
-Release 0.14.0 of 2026-10-24 is the latest release. The primary and the gossip
+Release 0.15.0 of 2026-10-25 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -26,11 +25,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- [ADR 0080](docs/adr/0080-a-search-takes-phrases-and-field-filters.md):
-  phrases in `q`, the search filters, the error codes, `feeds.feed_host` with
-  migration 0057, and a search with no `q`. Tasks 001 to 005 are complete. The
-  release is MINOR (ADR 0066), and a community node can upgrade in each
-  sequence.
+Nothing.
 
 ### Open Items
 
@@ -57,6 +52,11 @@ deployed, except the items below. The primary sets
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change. No decision is recorded for the other changes.
+- ADR 0080 §6: after a restart of the primary, the first search with no `q`
+  can be slow, because the database pages are not in memory. On 2026-10-25,
+  the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
+  approximately 195 ms. Such a track search sorts each matching row with no
+  index. Measure it again when a client reports a slow search.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
@@ -84,10 +84,9 @@ deployed, except the items below. The primary sets
 The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
-v4vmm requests 1 to 9, item 1 of v4vmm request 10 (ADR 0078), and
+v4vmm requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
-declined. ADR 0080 answers items 1 to 7 of v4vmm request 10, and is not deployed.
-Request 11 is a draft. The v4vmm operator examines it before Stophammer answers.
+declined. Request 11 is a draft. The v4vmm operator examines it before Stophammer answers.
 
 ### Governance
 
