@@ -1,12 +1,13 @@
 # ADR 0080: A Search Takes Phrases And Field Filters
 
 ## Status
-Proposed on 2026-10-24, for items 1 to 7 of v4vmm request 10. The v4vmm
-operator answered items 2 to 7 on 2026-10-24, and decided on the same day that
-Stophammer drafts this ADR now.
+Accepted on 2026-10-24, for items 1 to 7 of v4vmm request 10. The v4vmm
+operator answered items 2 to 7 on 2026-10-24. The operator answered the three
+questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
+005 give the build.
 
-When it is accepted, it amends ADR 0078 §5: the text of `q` can hold phrases.
-The rest of ADR 0078 stays.
+It amends ADR 0078 §5: the text of `q` can hold phrases. The rest of ADR 0078
+stays.
 
 ## Date
 2026-10-24
@@ -269,18 +270,15 @@ such rows.
 - Request 11 stays separate. A date filter is more useful when a feed hit also
   gives its date.
 
-## Open Questions
+## Operator Answers - 2026-10-24
 
-1. **`host` on `type=publisher`.** The operator answer for item 2 lets a
-   publisher search take only `artist` and `title`. Item 7 came after it. This
-   ADR proposes that `host` and `not_host` also apply to a publisher, because a
-   publisher feed has a `feed_url`.
-2. **The order of a publisher search with no `q`.** 1,773 of 1,774 publisher
-   feeds have no `newest_item_at`. With §6, such a search gives them in rowid
-   order. An order by title, as `GET /v1/feeds/by-name` gives, is the other
-   possibility.
-3. **The limit of 10 exclusions.** The limit keeps the cost of one request
-   small. The operator can give a different limit.
+1. **`host` on `type=publisher`.** Yes. `host` and `not_host` apply to a
+   publisher, because a publisher feed has a `feed_url`. The operator answer
+   for item 2 came before item 7.
+2. **The order of a publisher search with no `q`.** The rule of §6 applies.
+   1,773 of 1,774 publisher feeds have no `newest_item_at`, so such a search
+   gives most of them in rowid order.
+3. **The limit of exclusions.** 10, as §3 states.
 
 ## Checks
 

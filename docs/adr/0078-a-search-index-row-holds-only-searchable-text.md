@@ -9,6 +9,9 @@ Amended on 2026-10-23, during task 001. The table keeps a copy of its text, and
 it does not use `contentless_delete=1`. The fact that causes this change is in
 the last paragraph of the context.
 
+Amended on 2026-10-24 by ADR 0080 §1. The text of `q` can hold phrases in
+double quotes. The rest of §5 stays.
+
 ## Date
 2026-10-23
 
