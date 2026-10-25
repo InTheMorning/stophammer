@@ -83,10 +83,12 @@ Nothing.
 
 The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
-[the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
-v4vmm requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
+[the musicindex.org requests](docs/plans/musicindex-open-requests.md). v4vmm
+requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
-declined. Request 11 is a draft. The v4vmm operator examines it before Stophammer answers.
+declined, and requests 19 and 20 are closed. The proposed sections 6 and 7 of
+ADR 0059 answer musicindex.org requests 17 and 18. v4vmm request 11 is a draft.
+The v4vmm operator examines it before Stophammer answers.
 
 ### Governance
 
