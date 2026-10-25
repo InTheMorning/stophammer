@@ -1785,6 +1785,15 @@ canonical feed-scoped URLs for the caller to retry.
         "duration_secs": 60,
         "remote_feed_guid": "uuid",
         "remote_item_guid": "uuid",
+        "remote_feed_title": "Album Title",
+        "remote_feed_image_url": "https://example.com/album.jpg",
+        "remote_release_artist": "Artist Name",
+        "remote_release_artist_source": "itunes_author",
+        "remote_episode_count": 10,
+        "remote_track_guid": "uuid",
+        "remote_track_title": "Track Title",
+        "remote_track_duration_secs": 245,
+        "remote_track_image_url": null,
         "split": 50,
         "start_time": 0.0,
         "duration": 60.0,
@@ -1902,6 +1911,18 @@ Notes:
 - The added fields `start_time`, `duration`, `remote_start_time` and
   `remote_percentage` give the stated values, with no default and no limit.
   A null value means the source gives none (ADR 0073 section 4).
+- Each `value_time_splits` row also gives the summary of the feed that it
+  names: `remote_feed_title`, `remote_feed_image_url`,
+  `remote_release_artist`, `remote_release_artist_source` and
+  `remote_episode_count`. It gives the summary of the track that it names:
+  `remote_track_guid`, `remote_track_title`, `remote_track_duration_secs`
+  and `remote_track_image_url`. These fields have the same meaning as the
+  fields of a `remote_items` entry (ADR 0059 section 7).
+- The node finds the feed of a split by `remote_feed_guid` only. A feed that
+  is not indexed gives null in each of
+  the nine fields. A `remote_item_guid` of `""` gives null in the four track
+  fields. A track that is not indexed also gives null in them. An image is a
+  web URL, or null.
 - `local_value_time_splits` lists only a row with `recipients`. Each row
   gives `position`, `start_time`, `duration` and `recipients`, a list of
   payment routes. The list keeps the sequence of the source (ADR 0073

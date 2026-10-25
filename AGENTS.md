@@ -25,13 +25,14 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+ADR 0059 §6 and §7 answer musicindex.org requests 17 and 18. A copies row and
+a live row give the image of their feed. A remote value time split gives the
+summary of its feed and its track.
+[The summary rows plan](docs/plans/summary-rows-phase-plan.md) gives the tasks.
+The next release holds them.
 
 ### Open Items
 
-- ADR 0059 §6 and §7, accepted on 2026-10-25, are not built.
-  [The summary rows plan](docs/plans/summary-rows-phase-plan.md) gives the
-  work.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.

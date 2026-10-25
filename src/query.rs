@@ -994,6 +994,32 @@ struct VtsResponse {
     duration_secs: Option<i64>,
     remote_feed_guid: String,
     remote_item_guid: String,
+    /// The title of the named feed, or null when the node holds no feed with
+    /// `remote_feed_guid`. ADR 0059 §7.
+    remote_feed_title: Option<String>,
+    /// The image URL of the named feed, through `web_url_or_none`, or null
+    /// when the node holds no such feed. ADR 0059 §7.
+    remote_feed_image_url: Option<String>,
+    /// The release artist of the named feed, or null when the node holds no
+    /// such feed. ADR 0059 §7.
+    remote_release_artist: Option<String>,
+    /// The release artist source of the named feed, or null when the node
+    /// holds no such feed. ADR 0059 §7.
+    remote_release_artist_source: Option<String>,
+    /// The `episode_count` of the named feed, or null when the node holds no
+    /// such feed. ADR 0059 §7.
+    remote_episode_count: Option<i64>,
+    /// The `track_guid` of the indexed track that the split names, or null
+    /// when no such track is indexed or `remote_item_guid` is empty. ADR 0059
+    /// §7.
+    remote_track_guid: Option<String>,
+    /// The stored `title` of that track, or null. ADR 0059 §7.
+    remote_track_title: Option<String>,
+    /// The stored duration of that track in seconds, or null. ADR 0059 §7.
+    remote_track_duration_secs: Option<i64>,
+    /// The stored image of that track, through `web_url_or_none`, or null.
+    /// ADR 0059 §7.
+    remote_track_image_url: Option<String>,
     split: i64,
     /// The stated start time, in seconds (ADR 0073 §4).
     start_time: f64,
@@ -1012,29 +1038,54 @@ struct VtsResponse {
 /// old fields and types. Only a remote split gives a row. The old times are
 /// rounded down. `split` is the effective remote percentage: the stated
 /// value limited to 0 to 100, or 100 when the source states none. The added
-/// fields give the stated values, with no default and no limit.
+/// fields give the stated values, with no default and no limit. The row
+/// also gives the summary of the named feed and of the named track, read by
+/// GUID only (ADR 0059 §7). A feed that is not indexed gives null in each
+/// summary field. An empty `remote_item_guid` gives null in each track field.
 #[expect(
     clippy::cast_possible_truncation,
     reason = "ADR 0073 §4: the v1 row gives each time rounded down to an integer"
 )]
-fn vts_response_from_split(split: ValueTimeSplit) -> Option<VtsResponse> {
+fn vts_response_from_split(
+    conn: &rusqlite::Connection,
+    split: ValueTimeSplit,
+) -> Result<Option<VtsResponse>, api::ApiError> {
     if split.form != ValueTimeSplitForm::Remote {
-        return None;
+        return Ok(None);
     }
-    let remote_feed_guid = split.remote_feed_guid?;
+    let Some(remote_feed_guid) = split.remote_feed_guid else {
+        return Ok(None);
+    };
+    let remote_item_guid = split.remote_item_guid.unwrap_or_default();
+    let feed = named_feed_summary(conn, Some(&remote_feed_guid))?;
+    // A feed that is not indexed has no title. The feed row always has one.
+    let track = if feed.title.is_some() && !remote_item_guid.is_empty() {
+        named_track_summary(conn, &remote_feed_guid, &remote_item_guid)?
+    } else {
+        NamedTrackSummary::default()
+    };
     let remote_percentage = split.remote_percentage;
     let percentage = remote_percentage.unwrap_or(100.0).clamp(0.0, 100.0);
-    Some(VtsResponse {
+    Ok(Some(VtsResponse {
         start_time_secs: split.start_time_secs.floor() as i64,
         duration_secs: split.duration_secs.map(|d| d.floor() as i64),
         remote_feed_guid,
-        remote_item_guid: split.remote_item_guid.unwrap_or_default(),
+        remote_item_guid,
+        remote_feed_title: feed.title,
+        remote_feed_image_url: feed.image_url,
+        remote_release_artist: feed.release_artist,
+        remote_release_artist_source: feed.release_artist_source,
+        remote_episode_count: feed.episode_count,
+        remote_track_guid: track.guid,
+        remote_track_title: track.title,
+        remote_track_duration_secs: track.duration_secs,
+        remote_track_image_url: track.image_url,
         split: percentage.floor() as i64,
         start_time: split.start_time_secs,
         duration: split.duration_secs,
         remote_start_time: split.remote_start_time_secs,
         remote_percentage,
-    })
+    }))
 }
 
 /// A local-form value time split (ADR 0073 §4). Each recipient has the
@@ -2355,11 +2406,14 @@ fn build_track_response(
                 resp.payment_routes = Some(routes);
             }
             "value_time_splits" => {
-                let vts: Vec<VtsResponse> =
+                let mut vts: Vec<VtsResponse> = Vec::new();
+                for split in
                     db::get_value_time_splits_for_feed_track(conn, &feed_guid, &track_guid)?
-                        .into_iter()
-                        .filter_map(vts_response_from_split)
-                        .collect();
+                {
+                    if let Some(row) = vts_response_from_split(conn, split)? {
+                        vts.push(row);
+                    }
+                }
                 resp.value_time_splits = Some(vts);
             }
             "local_value_time_splits" => {
@@ -2631,6 +2685,41 @@ fn remote_item_summary(
     named_feed_summary(conn, resolution.feed_guid())
 }
 
+/// The summary of the track that an entry names. ADR 0059 §5.
+#[derive(Debug, Default)]
+struct NamedTrackSummary {
+    guid: Option<String>,
+    title: Option<String>,
+    duration_secs: Option<i64>,
+    image_url: Option<String>,
+}
+
+/// Reads the summary of the track `item_guid` of `feed_guid` with one point
+/// read. Each field is null when no such track is indexed. The image is the
+/// stored image of the item, through `web_url_or_none`. ADR 0059 §5.
+fn named_track_summary(
+    conn: &rusqlite::Connection,
+    feed_guid: &str,
+    item_guid: &str,
+) -> Result<NamedTrackSummary, api::ApiError> {
+    let track = conn
+        .query_row(
+            "SELECT track_guid, title, duration_secs, image_url FROM tracks \
+             WHERE feed_guid = ?1 AND track_guid = ?2",
+            params![feed_guid, item_guid],
+            |row| {
+                Ok(NamedTrackSummary {
+                    guid: Some(row.get::<_, String>(0)?),
+                    title: Some(row.get::<_, String>(1)?),
+                    duration_secs: row.get::<_, Option<i64>>(2)?,
+                    image_url: web_url_or_none(row.get::<_, Option<String>>(3)?.as_deref()),
+                })
+            },
+        )
+        .optional()?;
+    Ok(track.unwrap_or_default())
+}
+
 fn feed_remote_item_response(
     conn: &rusqlite::Connection,
     item: crate::model::FeedRemoteItemRaw,
@@ -2646,33 +2735,9 @@ fn feed_remote_item_response(
     // ADR 0059 §5: the same lookup that finds the track gives its summary,
     // so the summary adds no query (ADR 0059 §4).
     let track = match (resolution.feed_guid(), item.remote_item_guid.as_deref()) {
-        (Some(feed_guid), Some(item_guid)) => conn
-            .query_row(
-                "SELECT track_guid, title, duration_secs, image_url FROM tracks \
-                 WHERE feed_guid = ?1 AND track_guid = ?2",
-                params![feed_guid, item_guid],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, Option<i64>>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                    ))
-                },
-            )
-            .optional()?,
-        _ => None,
+        (Some(feed_guid), Some(item_guid)) => named_track_summary(conn, feed_guid, item_guid)?,
+        _ => NamedTrackSummary::default(),
     };
-    let (remote_track_guid, remote_track_title, remote_track_duration_secs, remote_track_image_url) =
-        match track {
-            Some((guid, title, duration, image)) => (
-                Some(guid),
-                Some(title),
-                duration,
-                web_url_or_none(image.as_deref()),
-            ),
-            None => (None, None, None, None),
-        };
 
     Ok(FeedRemoteItemResponse {
         position: item.position,
@@ -2690,10 +2755,10 @@ fn feed_remote_item_response(
         remote_episode_count: summary.episode_count,
         remote_item_guid: item.remote_item_guid,
         remote_item_title: item.remote_item_title,
-        remote_track_guid,
-        remote_track_title,
-        remote_track_duration_secs,
-        remote_track_image_url,
+        remote_track_guid: track.guid,
+        remote_track_title: track.title,
+        remote_track_duration_secs: track.duration_secs,
+        remote_track_image_url: track.image_url,
     })
 }
 
