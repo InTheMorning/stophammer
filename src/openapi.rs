@@ -521,10 +521,10 @@ fn spec_value(mode: DocMode) -> Value {
         json!({
             "get": operation(
                 "Search feeds and tracks",
-                "Full-text search. Each hit contains each word of `q`.",
+                "Full-text search. Each hit contains each word and each phrase of `q`.",
                 "Search",
                 vec![
-                    query_param("q", "string", None, true, "Search words. A hit contains each word. The node reads no operator, column filter or prefix in `q`."),
+                    query_param("q", "string", None, true, "Search words and phrases. A phrase is text in double quotes, and its words must be in sequence. A hit contains each word and each phrase. The node reads no operator, column filter or prefix in `q`."),
                     query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor."),

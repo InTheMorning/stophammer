@@ -189,20 +189,49 @@ pub fn delete_from_search_index(
     Ok(())
 }
 
-/// Makes an FTS5 query of quoted phrases from the words of `input`.
+/// Divides `input` into quoted FTS5 phrases, in the sequence of the input.
 ///
-/// ADR 0078 §5: the node removes each control character, divides the rest at
-/// white space, and puts each word in double quotes. A double quote in a word
-/// is doubled. No character of `input` is then an FTS5 operator, a column
-/// filter or a prefix. The result is empty when `input` has no word.
+/// ADR 0080 §1 and ADR 0078 §5: the node removes each control character. Text
+/// between two double quotes is one phrase. Each other word is one phrase. A
+/// double quote with no second double quote after it is part of its word, and
+/// the node doubles it. No character of `input` is then an FTS5 operator, a
+/// column filter or a prefix.
+#[must_use]
+pub fn fts5_phrases(input: &str) -> Vec<String> {
+    let cleaned: String = input.chars().filter(|c| !c.is_control()).collect();
+    let mut phrases = Vec::new();
+    let mut rest = cleaned.as_str();
+    while let Some(open) = rest.find('"') {
+        let after = &rest[open + 1..];
+        let Some(close) = after.find('"') else {
+            break;
+        };
+        push_words(&mut phrases, &rest[..open]);
+        let words: Vec<&str> = after[..close].split_whitespace().collect();
+        if !words.is_empty() {
+            phrases.push(format!("\"{}\"", words.join(" ")));
+        }
+        rest = &after[close + 1..];
+    }
+    push_words(&mut phrases, rest);
+    phrases
+}
+
+/// Adds each word of `text` to `phrases` as one quoted phrase.
+fn push_words(phrases: &mut Vec<String>, text: &str) {
+    phrases.extend(
+        text.split_whitespace()
+            .map(|word| format!("\"{}\"", word.replace('"', "\"\""))),
+    );
+}
+
+/// Makes an FTS5 query of quoted phrases from the words and phrases of `input`.
+///
+/// ADR 0080 §1 and ADR 0078 §5: the query is the phrases of [`fts5_phrases`],
+/// joined with one space. The result is empty when `input` has no word.
 #[must_use]
 pub fn fts5_query_from_words(input: &str) -> String {
-    let cleaned: String = input.chars().filter(|c| !c.is_control()).collect();
-    cleaned
-        .split_whitespace()
-        .map(|word| format!("\"{}\"", word.replace('"', "\"\"")))
-        .collect::<Vec<_>>()
-        .join(" ")
+    fts5_phrases(input).join(" ")
 }
 
 /// Searches the FTS5 index using a `MATCH` query, ordered by BM25 rank

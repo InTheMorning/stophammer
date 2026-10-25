@@ -57,8 +57,8 @@ async fn get_search(db: &Arc<Mutex<rusqlite::Connection>>, q: &str) -> (u16, Str
 fn query_from_words_quotes_each_word() {
     assert_eq!(
         stophammer::search::fts5_query_from_words("a \"b\""),
-        "\"a\" \"\"\"b\"\"\"",
-        "ADR 0078 §5: a double quote in a word is doubled"
+        "\"a\" \"b\"",
+        "ADR 0080 §1: text in double quotes is one phrase"
     );
     assert_eq!(
         stophammer::search::fts5_query_from_words("  cut   band "),

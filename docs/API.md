@@ -1936,8 +1936,10 @@ Notes:
 
 ### GET /v1/search
 
-Full-text search. A hit contains each word of `q`. The index holds music feeds, their
-tracks, and publisher feeds.
+Full-text search. A hit contains each word and each phrase of `q`. A phrase is
+text in double quotes, and its words must be in sequence. A double quote with no
+second double quote after it is part of its word. The index holds music feeds,
+their tracks, and publisher feeds.
 
 - **Constraint:** A feed with `raw_medium = 'music'` is indexed as `feed`,
   and its tracks are indexed as `track`. A feed with `raw_medium =
