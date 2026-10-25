@@ -1990,10 +1990,10 @@ needs no call for each hit. ADR 0042 owns these fields.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `q` | string | **required** | Search words. A hit contains each word. `q` has no operator, column filter or prefix. A `q` with no word gives 400 |
+| `q` | string | none | Search words and phrases. A hit contains each word. `q` has no operator, column filter or prefix. A request with no word in `q` needs one positive filter, and gives the rows newest first. Otherwise it gives 400 |
 | `type` | string | feed/track | Filter by entity type: `feed`, `track`, `publisher` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
-| `cursor` | string | none | Keyset pagination cursor |
+| `cursor` | string | none | Keyset pagination cursor. A cursor of a search with `q` gives 400 on a search with no `q`, and the reverse |
 | `include` | string | none | Comma-separated include list. Supports `link_facts` |
 | `artist` | text | none | Each word and phrase must be in the artist. Types `feed`, `track` and `publisher` |
 | `title` | text | none | Each word and phrase must be in the title. Types `feed`, `track` and `publisher` |
@@ -2036,8 +2036,25 @@ needs no call for each hit. ADR 0042 owns these fields.
   `type=track` each apply it.
 - A parameter that the node does not know gives `400`. Remove an extra
   parameter, for example a cache key, from the request.
-- A request with no word in `q` gives `missing_positive_term`, also when it has
-  a filter.
+- A request with no word in `q` and no positive filter gives
+  `missing_positive_term`. A positive filter is any filter that is not a `not_`
+  parameter.
+
+**A search with no `q` (ADR 0080 section 6):**
+
+- A request with no word and no phrase in `q`, and one or more positive
+  filters, gives the rows of the index that match. The rules of the index and
+  of each filter do not change.
+- The rows are newest first. The date of a `feed` row and of a `publisher` row
+  is the newest item date of the feed. The date of a `track` row is its
+  `pub_date`. A request with no `type` gives feeds and tracks in one list.
+- A row with no date comes after each row with a date. Rows with the same date,
+  or with no date, come in rowid order. Most publisher feeds have no date, so a
+  search of `type=publisher` gives most of them in rowid order.
+- `rank` is 0 on each row.
+- The cursor holds the date and the rowid. It is valid only for a search with no
+  `q`. A cursor of a search with `q` gives `400` with `invalid cursor format`
+  on a search with no `q`, and the reverse.
 
 A `400` for a filter has this body. `filter` gives the name of the parameter,
 and is absent for `missing_positive_term`.

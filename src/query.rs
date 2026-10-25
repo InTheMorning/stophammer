@@ -5407,9 +5407,9 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
         list.push(crate::search::TextFilter { field, phrases });
     }
 
-    // Check 4: no word in `q`. ADR 0080 task 002: a request with no word in
-    // `q` gives this code even with a filter. A later task changes this.
-    if crate::search::fts5_query_from_words(&q).is_empty() {
+    // Check 4: no word in `q`. ADR 0080 §4 and §6: a request with a positive
+    // filter runs as a search with no `q`. Any other request gives this code.
+    if crate::search::fts5_query_from_words(&q).is_empty() && !filters.has_positive() {
         return Err(Box::new(api::search_filter_error_response(
             "missing_positive_term",
             None,
@@ -5446,38 +5446,58 @@ async fn handle_search(
     // include.
     let include_link_facts = params.includes("link_facts");
 
+    // ADR 0080 §6: a request with no word in `q` is a search by date.
+    let by_date = crate::search::fts5_query_from_words(&q).is_empty();
+
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Parse keyset cursor: base64(f64_bits_as_decimal \0 rowid_as_decimal).
     // The f64 rank is encoded via `f64::to_bits()` for a lossless round-trip.
+    // ADR 0080 §6: the cursor of a search by date is `d<date>\0<rowid>`, where
+    // `<date>` is empty for a row with no date. The `d` tells the two forms
+    // apart, and each form gives 400 on the other search.
+    let mut date_cursor: Option<(Option<i64>, i64)> = None;
     let (cursor_rank, cursor_rowid) = if let Some(ref cursor_str) = params.cursor {
         let decoded = decode_cursor(cursor_str)?;
         let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
-        if parts.len() != 2 {
+        if parts.len() != 2 || parts[0].starts_with('d') != by_date {
             return Err(api::ApiError {
                 status: StatusCode::BAD_REQUEST,
                 message: "invalid cursor format".into(),
                 www_authenticate: None,
             });
         }
-        let rank_bits: u64 = parts[0].parse().map_err(|_err| api::ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "invalid cursor rank".into(),
-            www_authenticate: None,
-        })?;
         let rowid: i64 = parts[1].parse().map_err(|_err| api::ApiError {
             status: StatusCode::BAD_REQUEST,
             message: "invalid cursor rowid".into(),
             www_authenticate: None,
         })?;
-        let rank = f64::from_bits(rank_bits);
-        if rank.is_nan() || rank.is_infinite() {
-            return Err(api::ApiError {
+        if by_date {
+            let date = match parts[0].trim_start_matches('d') {
+                "" => None,
+                text => Some(text.parse::<i64>().map_err(|_err| api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor timestamp".into(),
+                    www_authenticate: None,
+                })?),
+            };
+            date_cursor = Some((date, rowid));
+            (None, None)
+        } else {
+            let rank_bits: u64 = parts[0].parse().map_err(|_err| api::ApiError {
                 status: StatusCode::BAD_REQUEST,
-                message: "invalid cursor rank: non-finite value".into(),
+                message: "invalid cursor rank".into(),
                 www_authenticate: None,
-            });
+            })?;
+            let rank = f64::from_bits(rank_bits);
+            if rank.is_nan() || rank.is_infinite() {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor rank: non-finite value".into(),
+                    www_authenticate: None,
+                });
+            }
+            (Some(rank), Some(rowid))
         }
-        (Some(rank), Some(rowid))
     } else {
         (None, None)
     };
@@ -5486,7 +5506,21 @@ async fn handle_search(
     // Issue-WAL-POOL — 2026-03-14: use reader pool for search
     let results = tokio::task::spawn_blocking(move || {
         let conn = pool.reader()?;
-        match kind.as_deref() {
+        if by_date {
+            return match kind.as_deref() {
+                None | Some("feed" | "track" | "publisher") => crate::search::search_by_date(
+                    &conn,
+                    &filters,
+                    kind.as_deref(),
+                    limit + 1,
+                    date_cursor,
+                ),
+                Some(other) => Err(db::DbError::Other(format!(
+                    "unsupported search type filter: {other}"
+                ))),
+            };
+        }
+        let found = match kind.as_deref() {
             Some("feed" | "track" | "publisher") => crate::search::search_filtered(
                 &conn,
                 &q,
@@ -5521,7 +5555,14 @@ async fn handle_search(
                 merged.truncate(usize::try_from(limit + 1).unwrap_or(usize::MAX));
                 Ok(merged)
             }
-        }
+        };
+        // A search with `q` has no date. Only the cursor of a search by date
+        // reads it.
+        found.map(|rows| {
+            rows.into_iter()
+                .map(|result| crate::search::DatedSearchResult { result, date: None })
+                .collect()
+        })
     })
     .await
     .map_err(|e| api::ApiError {
@@ -5555,11 +5596,17 @@ async fn handle_search(
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Encode keyset cursor from the last result's (effective_rank, rowid).
+    // ADR 0080 §6: a search by date encodes the date and the rowid instead.
     let next_cursor = if has_more {
         let limit_usize = usize::try_from(limit).unwrap_or(0);
         results.get(limit_usize.saturating_sub(1)).map(|r| {
-            let rank_bits = r.effective_rank.to_bits();
-            encode_cursor(&format!("{}\0{}", rank_bits, r.rowid))
+            if by_date {
+                let date = r.date.map_or_else(String::new, |d| d.to_string());
+                encode_cursor(&format!("d{date}\0{}", r.result.rowid))
+            } else {
+                let rank_bits = r.result.effective_rank.to_bits();
+                encode_cursor(&format!("{}\0{}", rank_bits, r.result.rowid))
+            }
         })
     } else {
         None
@@ -5568,6 +5615,7 @@ async fn handle_search(
     let limited_results: Vec<_> = results
         .into_iter()
         .take(usize::try_from(limit).unwrap_or(0))
+        .map(|r| r.result)
         .collect();
     let pool = state.db.clone();
     let data =

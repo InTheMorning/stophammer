@@ -25,7 +25,11 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+- [ADR 0080](docs/adr/0080-a-search-takes-phrases-and-field-filters.md):
+  phrases in `q`, the search filters, the error codes, `feeds.feed_host` with
+  migration 0057, and a search with no `q`. Tasks 001 to 005 are complete. The
+  release is MINOR (ADR 0066), and a community node can upgrade in each
+  sequence.
 
 ### Open Items
 
@@ -52,10 +56,6 @@ Nothing.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change. No decision is recorded for the other changes.
-- [ADR 0080](docs/adr/0080-a-search-takes-phrases-and-field-filters.md) is
-  Accepted for items 1 to 7 of v4vmm request 10, and is not built.
-  [The search filters plan](docs/plans/search-filters-phase-plan.md) gives the
-  sequence of its five task packets in `docs/tasks/`.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
@@ -85,7 +85,7 @@ The requests of v4vmm and musicindex.org are in
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
 v4vmm requests 1 to 9, item 1 of v4vmm request 10 (ADR 0078), and
 musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
-declined. ADR 0080 answers items 1 to 7 of v4vmm request 10, and is not built.
+declined. ADR 0080 answers items 1 to 7 of v4vmm request 10, and is not deployed.
 Request 11 is a draft. The v4vmm operator examines it before Stophammer answers.
 
 ### Governance

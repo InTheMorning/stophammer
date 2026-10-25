@@ -524,10 +524,10 @@ fn spec_value(mode: DocMode) -> Value {
                 "Full-text search. Each hit contains each word and each phrase of `q`.",
                 "Search",
                 vec![
-                    query_param("q", "string", None, true, "Search words and phrases. A phrase is text in double quotes, and its words must be in sequence. A hit contains each word and each phrase. The node reads no operator, column filter or prefix in `q`."),
+                    query_param("q", "string", None, false, "Search words and phrases. A phrase is text in double quotes, and its words must be in sequence. A hit contains each word and each phrase. The node reads no operator, column filter or prefix in `q`. A request with no word and no phrase in `q` gives the rows that match its filters, newest first, with `rank` 0. It needs one positive filter (ADR 0080 section 6)."),
                     query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
-                    query_param("cursor", "string", None, false, "Opaque keyset pagination cursor."),
+                    query_param("cursor", "string", None, false, "Opaque keyset pagination cursor. A cursor is valid only for a search of its own form: with `q`, or with no `q`. The other form gives 400."),
                     include_query_param(query::SEARCH_INCLUDES)
                 ]
                 .into_iter()

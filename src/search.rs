@@ -293,6 +293,13 @@ pub struct ValueFilters {
 }
 
 impl SearchFilters {
+    /// Whether the request has a positive filter: a text filter, a value filter
+    /// or `host`. An exclusion is not one (ADR 0080 §4 and §6).
+    #[must_use]
+    pub fn has_positive(&self) -> bool {
+        !self.include.is_empty() || self.values.has_positive()
+    }
+
     /// The number of exclusions: each `not_` text filter and each `not_host`
     /// (ADR 0080 §3).
     #[must_use]
@@ -302,6 +309,42 @@ impl SearchFilters {
 }
 
 impl ValueFilters {
+    /// Whether a filter other than `not_host` is set (ADR 0080 §4).
+    fn has_positive(&self) -> bool {
+        self.kinds.is_some()
+            || self.tracks.is_some()
+            || self.min_tracks.is_some()
+            || self.max_tracks.is_some()
+            || self.after.is_some()
+            || self.before_end.is_some()
+            || self.min_duration.is_some()
+            || self.max_duration.is_some()
+            || self.host.is_some()
+    }
+
+    /// The `LEFT JOIN` clauses of the feed and the track of the hit.
+    ///
+    /// They are present only for a filter that reads them, unless `always` is
+    /// set. `CASE` keeps `json_extract` away from the ID of a feed.
+    fn joins(&self, always: bool) -> String {
+        let mut joins = String::new();
+        if always || self.needs_feed() {
+            joins.push_str(
+                "LEFT JOIN feeds f ON f.feed_guid = \
+                   CASE e.entity_type WHEN 'track' THEN json_extract(e.entity_id, '$[0]') \
+                   ELSE e.entity_id END ",
+            );
+        }
+        if always || self.needs_track() {
+            joins.push_str(
+                "LEFT JOIN tracks t ON e.entity_type = 'track' AND t.feed_guid = f.feed_guid \
+                   AND t.track_guid = CASE e.entity_type WHEN 'track' \
+                     THEN json_extract(e.entity_id, '$[1]') END ",
+            );
+        }
+        joins
+    }
+
     /// Whether a condition reads the track row of the hit.
     fn needs_track(&self) -> bool {
         self.after.is_some()
@@ -374,21 +417,63 @@ impl TextFilter {
     /// The row of `search_index` that this filter reads, as an SQL
     /// expression, and the columns it reads in that row (ADR 0080 §2).
     ///
+    /// `own_row` is the expression of the row of the hit itself: `m.rowid` in a
+    /// search with `q`, and `e.rowid` in a search with no `q` (ADR 0080 §6). An
+    /// empty `entity_type` is a search with no `type`, which has feed and
+    /// track rows.
+    ///
     /// Returns `None` when the entity type does not apply the field.
-    fn target(&self, entity_type: &str) -> Option<(&'static str, &'static str)> {
-        const OWN_ROW: &str = "m.rowid";
+    fn target(&self, entity_type: &str, own_row: &str) -> Option<(String, &'static str)> {
         // ADR 0080 §2: the row of the feed of a track.
         const FEED_ROW: &str = "(SELECT fe.rowid FROM search_entities fe \
              WHERE fe.entity_type = 'feed' \
              AND fe.entity_id = json_extract(e.entity_id, '$[0]'))";
+        let own = own_row.to_owned();
         match (self.field, entity_type) {
             (TextField::Release, "publisher") => None,
-            (TextField::Release, "track") => Some((FEED_ROW, "title")),
+            (TextField::Release, "track") => Some((FEED_ROW.to_owned(), "title")),
+            (TextField::Release, "") => Some((
+                format!("CASE e.entity_type WHEN 'track' THEN {FEED_ROW} ELSE {own_row} END"),
+                "title",
+            )),
             (TextField::Release | TextField::Title, _) | (TextField::Artist, "publisher") => {
-                Some((OWN_ROW, "title"))
+                Some((own, "title"))
             }
-            (TextField::Artist, _) => Some((OWN_ROW, "name")),
-            (TextField::Any, _) => Some((OWN_ROW, "{name title description}")),
+            (TextField::Artist, _) => Some((own, "name")),
+            (TextField::Any, _) => Some((own, "{name title description}")),
+        }
+    }
+
+    /// Pushes the condition of each text filter and each exclusion of
+    /// `filters` (ADR 0080 §2 and §3). Each value is a bound parameter.
+    fn push_conditions(
+        filters: &SearchFilters,
+        entity_type: &str,
+        own_row: &str,
+        values: &mut Vec<Value>,
+        where_parts: &mut Vec<String>,
+    ) {
+        for (filter, excluded) in filters
+            .include
+            .iter()
+            .map(|f| (f, false))
+            .chain(filters.exclude.iter().map(|f| (f, true)))
+        {
+            let Some((row, columns)) = filter.target(entity_type, own_row) else {
+                continue;
+            };
+            values.push(Value::Text(filter.expression(columns)));
+            let membership = format!(
+                "{row} IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
+                values.len()
+            );
+            // The feed of a track can be missing from the index. `COALESCE`
+            // keeps such a track under an exclusion.
+            where_parts.push(if excluded {
+                format!("COALESCE({membership}, 0) = 0")
+            } else {
+                membership
+            });
         }
     }
 
@@ -509,29 +594,13 @@ pub fn search_filtered(
 
     // ADR 0080 §2 and §3: a text filter is a condition on the index row, never
     // part of the `MATCH` above.  Each value is a bound parameter.
-    let entity_type = entity_type_filter.unwrap_or("");
-    for (filter, excluded) in filters
-        .include
-        .iter()
-        .map(|f| (f, false))
-        .chain(filters.exclude.iter().map(|f| (f, true)))
-    {
-        let Some((row, columns)) = filter.target(entity_type) else {
-            continue;
-        };
-        values.push(Value::Text(filter.expression(columns)));
-        let membership = format!(
-            "{row} IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
-            values.len()
-        );
-        // The feed of a track can be missing from the index. `COALESCE` keeps
-        // such a track under an exclusion.
-        where_parts.push(if excluded {
-            format!("COALESCE({membership}, 0) = 0")
-        } else {
-            membership
-        });
-    }
+    TextFilter::push_conditions(
+        filters,
+        entity_type_filter.unwrap_or(""),
+        "m.rowid",
+        &mut values,
+        &mut where_parts,
+    );
 
     // ADR 0080 §2: a value filter is a condition on the feed or the track of
     // the hit.  Each value is a bound parameter.
@@ -548,22 +617,8 @@ pub fn search_filtered(
     };
 
     // ADR 0080 §2: join the feed and the track only for a filter that reads
-    // them.  `CASE` keeps `json_extract` away from the ID of a feed.
-    let mut value_joins = String::new();
-    if vf.needs_feed() {
-        value_joins.push_str(
-            "LEFT JOIN feeds f ON f.feed_guid = \
-               CASE e.entity_type WHEN 'track' THEN json_extract(e.entity_id, '$[0]') \
-               ELSE e.entity_id END ",
-        );
-    }
-    if vf.needs_track() {
-        value_joins.push_str(
-            "LEFT JOIN tracks t ON e.entity_type = 'track' AND t.feed_guid = f.feed_guid \
-               AND t.track_guid = CASE e.entity_type WHEN 'track' \
-                 THEN json_extract(e.entity_id, '$[1]') END ",
-        );
-    }
+    // them.
+    let value_joins = vf.joins(false);
 
     let sql = format!(
         "SELECT e.entity_type, e.entity_id, m.fts_rank, \
@@ -599,5 +654,116 @@ pub fn search_filtered(
         .query_map(rusqlite::params_from_iter(values), map_row)?
         .collect::<Result<Vec<_>, _>>()?;
 
+    Ok(rows)
+}
+
+/// A row of a search with no `q`, with its date (ADR 0080 §6).
+#[derive(Debug)]
+pub struct DatedSearchResult {
+    /// The row. `rank` and `effective_rank` are 0.
+    pub result: SearchResult,
+    /// `newest_item_at` of a feed or a publisher, `pub_date` of a track.
+    pub date: Option<i64>,
+}
+
+/// Searches the index rows with filters and no `q`, newest first (ADR 0080 §6).
+///
+/// The order is `date DESC NULLS LAST, rowid ASC`. `entity_type_filter` of
+/// `None` reads feed and track rows in one query.
+///
+/// `cursor` is the position of the last row of the previous page: its date
+/// and its rowid. The page starts after that position.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn search_by_date(
+    conn: &Connection,
+    filters: &SearchFilters,
+    entity_type_filter: Option<&str>,
+    limit: i64,
+    cursor: Option<(Option<i64>, i64)>,
+) -> Result<Vec<DatedSearchResult>, DbError> {
+    tracing::info!(entity_type_filter = ?entity_type_filter, "search with no q called");
+    let date_expr = "CASE e.entity_type WHEN 'track' THEN t.pub_date ELSE f.newest_item_at END";
+    let mut values: Vec<Value> = Vec::new();
+    let mut where_parts = Vec::new();
+
+    if let Some(entity_type) = entity_type_filter {
+        values.push(Value::Text(entity_type.to_owned()));
+        where_parts.push(format!("e.entity_type = ?{}", values.len()));
+    } else {
+        where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
+    }
+
+    // A row with no date comes after each dated row, so a cursor with a date
+    // also admits each row with no date.
+    match cursor {
+        Some((Some(date), rowid)) => {
+            values.push(Value::Integer(date));
+            let p1 = values.len();
+            values.push(Value::Integer(rowid));
+            let p2 = values.len();
+            where_parts.push(format!(
+                "({date_expr} < ?{p1} OR {date_expr} IS NULL \
+                  OR ({date_expr} = ?{p1} AND e.rowid > ?{p2}))"
+            ));
+        }
+        Some((None, rowid)) => {
+            values.push(Value::Integer(rowid));
+            where_parts.push(format!(
+                "({date_expr} IS NULL AND e.rowid > ?{})",
+                values.len()
+            ));
+        }
+        None => {}
+    }
+
+    TextFilter::push_conditions(
+        filters,
+        entity_type_filter.unwrap_or(""),
+        "e.rowid",
+        &mut values,
+        &mut where_parts,
+    );
+    filters
+        .values
+        .push_conditions(&mut values, &mut where_parts);
+
+    values.push(Value::Integer(limit));
+    let limit_param_idx = values.len();
+
+    // The date order reads the feed and the track of each hit.
+    let value_joins = filters.values.joins(true);
+    let sql = format!(
+        "SELECT e.entity_type, e.entity_id, COALESCE(q.score, 0) AS quality_score, \
+                {date_expr} AS row_date, e.rowid \
+         FROM search_entities e \
+         LEFT JOIN entity_quality q \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+          AND q.entity_id = e.entity_id \
+         {value_joins}\
+         WHERE {} \
+         ORDER BY row_date DESC NULLS LAST, e.rowid ASC \
+         LIMIT ?{limit_param_idx}",
+        where_parts.join(" AND ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(values), |row| {
+            Ok(DatedSearchResult {
+                result: SearchResult {
+                    entity_type: row.get(0)?,
+                    entity_id: row.get(1)?,
+                    rank: 0.0,
+                    quality_score: row.get(2)?,
+                    effective_rank: 0.0,
+                    rowid: row.get(4)?,
+                },
+                date: row.get(3)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
