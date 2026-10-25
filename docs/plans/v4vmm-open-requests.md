@@ -28,7 +28,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 7 | The named feed rank and the release kind facts in each publisher relationship entry | API field addition | Deployed in release 0.11.0 on 2026-10-18, without `remote_release_kind` |
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
-| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078, deployed in release 0.14.0 on 2026-10-24. Items 2 to 6: draft - 2026-10-23. The v4vmm operator reviews them first |
+| 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078, deployed in release 0.14.0 on 2026-10-24, except phrases. Items 2 to 7: the v4vmm operator answered them on 2026-10-24. Ready for a Stophammer ADR |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. The v4vmm operator asked for it on 2026-10-23 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
@@ -284,6 +284,25 @@ v4vmm ADR 0087 gives the search field of v4vmm a set of fields, for example `art
 
 The parameter names are a proposal. Stophammer selects the names in its own ADR.
 Request 11 asks for the date and the named feeds of each feed hit. The two requests are separate, but a filter by date is more useful when the hit also shows its date.
+
+7. A filter by host, to include or exclude the feeds of one hosting service, for example `host=wavlake.com` and `not_host=wavlake.com`. The v4vmm operator asked for it on 2026-10-24.
+   The host is the domain of `feed_url`. A host value matches that domain and each subdomain, so `wavlake.com` matches `feeds.wavlake.com`. Stophammer stores no host column today, so a stored and indexed column is a proposal. A track takes the host of its feed.
+
+**Operator answers - 2026-10-24.** The v4vmm operator reviewed items 2 to 7:
+
+- **Item 1, phrases.** Release 0.14.0 puts quotes around each word of `q` (`fts5_query_from_words`, `src/search.rs:199-206`). Thus each text gives `200`, but a phrase in double quotes, for example `"night drive"`, matches its words in any order. The phrase part of item 1 is still open.
+- **Item 2, `kind`.** Stophammer stores `unknown` as the release kind of most feeds, and it infers no kind until the Podcasting 2.0 namespace gives guidance. Thus:
+  - `kind` matches the stated `release_kind` only. `kind=unknown` matches a feed with no stated kind.
+  - New filters `tracks`, `min_tracks` and `max_tracks` match the track count of a feed, or of the feed of a track.
+  - The client keeps the kind rule of musicindex ADR 0020 R-WORD-1. For `kind:single` it sends `kind=single`, and `kind=unknown&tracks=1`. For `kind:album` it sends `kind=album`, and `kind=unknown&min_tracks=2`. For `kind:ep` it sends `kind=ep` only.
+- **Item 2, the other filters.** Accepted as written: `artist`, `title`, `release`, `after`, `before`, `min_duration` and `max_duration` on `type=feed` and `type=track`. On `type=publisher`, `artist` and `title` match the name of the publisher. Each other filter gives the error of item 4.
+- **Item 3.** Accepted as written: `not_q` for the words and the phrases, and `not_artist`, `not_title`, `not_release` and `not_host` for the text filters. Each can repeat. A query with exclusions and no positive term gives `400` with the code `missing_positive_term`.
+- **Item 4.** Accepted as written: `400` with the code `unsupported_filter` and the name of the filter.
+- **Item 5.** A search with filters and no `q` runs on `GET /v1/search`. Its rows are newest first: `newest_item_at` for a feed, `pub_date` for a track. Its cursor is the date and the rowid.
+- **Item 6.** Accepted as written.
+- **Item 7.** Requested as above.
+
+musicindex.org will also send these filters. On 2026-10-24 the operator decided that the website uses the query text of v4vmm ADR 0087. No musicindex ADR records this yet.
 
 **What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change.
 v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. Until Stophammer supports a filter, a v4vmm query with that field shows no Index rows and names the field.
