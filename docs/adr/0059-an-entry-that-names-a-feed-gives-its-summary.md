@@ -10,11 +10,11 @@ needs one request for each entry to show the title of the track.
 Amended on 2026-10-18, v4vmm request 7: section 1 adds
 `remote_episode_count`.
 
-Amendment proposed on 2026-10-25, musicindex.org requests 17 and 18. Section 6
-adds the image and the title of the indexed feed to each row of
+Amended on 2026-10-25, accepted the same day, musicindex.org requests 17 and
+18. Section 6 adds the image and the title of the indexed feed to each row of
 `GET /v1/copies` and `GET /v1/live-items`. Section 7 adds the summary of
-sections 1 and 5 to each remote value time split. The amendment is not
-accepted. "Open Questions" gives the decisions that the operator makes.
+sections 1 and 5 to each remote value time split. "Operator Answers -
+2026-10-25" gives the decisions of the operator.
 
 ## Date
 2026-09-25
@@ -116,7 +116,7 @@ lookup.
 
 ### 6. A list row gives the image of its feed
 
-Proposed on 2026-10-25, musicindex.org request 17. Each row of these two lists
+Added on 2026-10-25, musicindex.org request 17. Each row of these two lists
 gets these fields, for the feed that `feed_guid` of the row names:
 
 | Route | Field | Value |
@@ -137,7 +137,7 @@ gets these fields, for the feed that `feed_guid` of the row names:
 
 ### 7. A remote value time split gives its summary
 
-Proposed on 2026-10-25, musicindex.org request 18. Each row of
+Added on 2026-10-25, musicindex.org request 18. Each row of
 `include=value_time_splits` on a track read gets the fields of section 1 and
 section 5:
 
@@ -222,17 +222,14 @@ two forms of one row, and a client must know both. Rejected.
   and null in each track field. A split that names a feed that is not indexed
   gives null in each summary field.
 
-## Open Questions
+## Operator Answers - 2026-10-25
 
-The operator answers each question before the amendment is accepted.
+The operator accepted each proposal on 2026-10-25.
 
-1. Does a split give `remote_episode_count`? Request 18 does not ask for it.
-   Proposed: yes, so that a split and a `remote_items` entry give one set of
-   names.
-2. Is `feed_image_url` the name on a copy row? Proposed: yes. The request asks
-   for it, and a feed hit of `GET /v1/search` gives the channel image with the
-   same name.
-3. Does this ADR own sections 6 and 7, or a new ADR? Proposed: this ADR,
-   because sections 1 and 5 state the rule, and the two requests only add rows
-   to it. ADR 0064 §6, ADR 0073 §4 and the archived ADR 0058 §3 keep the other
-   fields of each row.
+1. A split gives `remote_episode_count`, although request 18 does not ask for
+   it. A split and a `remote_items` entry give one set of names.
+2. A copy row gives the image as `feed_image_url`. A feed hit of
+   `GET /v1/search` gives the channel image with the same name.
+3. This ADR owns sections 6 and 7, because sections 1 and 5 state the rule.
+   ADR 0064 §6, ADR 0073 §4 and the archived ADR 0058 §3 keep the other fields
+   of each row.

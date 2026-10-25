@@ -3,7 +3,8 @@
 ## Status
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
-closed, and requests 17 and 18 are open. This document consolidates each open request from the
+closed. Updated on 2026-10-25: ADR 0059 §6 and §7 accept requests 17 and 18,
+which are not deployed. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -47,8 +48,8 @@ names the requests that the two clients share.
 | 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
-| 17 | The image of the indexed feed on each copies row and live row | API field addition | Wanted |
-| 18 | Summary fields on each remote value time split | API field addition | Wanted |
+| 17 | The image of the indexed feed on each copies row and live row | API field addition | Accepted on 2026-10-25 as ADR 0059 §6 |
+| 18 | Summary fields on each remote value time split | API field addition | Accepted on 2026-10-25 as ADR 0059 §7 |
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 | 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
 
@@ -758,6 +759,16 @@ archived ADR 0058 owns the copy rows.
 |---|---|
 | 19 | Confirmed. The node skips a body with the same hash. The `content_hash` verifier returns `NO_CHANGE`, and the node then writes no track and no split. The SHA-256 of the "Autumn Rust" body on 2026-10-21 is the hash that the node recorded on 2026-10-02. Also, the feed server answers the conditional GET with a `304`, so a usual crawl sends no body. The parser of ADR 0073 reads all 8 splits of the body. A forced pass of the crawler on 2026-10-21 at 23:54 UTC read the two feeds again. The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` now gives 8 remote-form splits, and the track `f475f98b-8ed4-4b06-8038-53727b9100d6` of "The Satellite Skirmish" gives 3. Then a search of the bodies in the crawler fetch cache found two more feeds with splits: "The Satellite Spotlight" (`9e3cea98-d04d-5190-88b3-46ee6030d4ea`) with 14 and "Polar Embrace" (`2a3a5f81-8325-521b-b168-07ff09b15435`) with 13. A second forced pass read them again. On 2026-10-22, the live API gives each of the 38 splits of the four feeds. Five splits of "Autumn Rust" name a feed and no item, so `remote_item_guid` is `""` (ADR 0073 §4). The index holds none of the three named items. A change to the parser does not cause a new read of an unchanged feed. The fetch cache does not hold a feed that only an `ndjson` replay gave to the index. Such a feed can have splits in an unchanged body. A forced `refresh` pass of all feeds finds it. It has not run |
 | 20 | Confirmed. No crawler sent the album files after 2026-04-20. On 2026-04-19 and 2026-04-20, two passes sent each album file and then each Podhome file, and the Podhome file stayed the source. ADR 0058 came later, and it records a copy only when a crawler sends a body from the copy URL. `refresh` reads only the URL that the node holds for each GUID, and no link in the Podhome files names an album file. The album host sends no podping, and the cursor of `import` does not go back. The `oldfeed/` URL never reached the node. A `feed` pass of the three album URLs on 2026-10-22 at 00:35 UTC recorded each one as a copy. "Autumn Rust" gives one copy row with 73 items: the album file has 73 items on 2026-10-22, not 75. "The Satellite Skirmish" gives two rows, with 31 and 29 items. Each row gives `differs_tracks` true, and the `oldfeed/` row also gives `differs_recipients` true. The Podhome files stay the source. No crawler reads these album files again, so a later change to them makes no event. This is a limit of ADR 0058, and a change to it needs a new decision |
+
+## Stophammer Answers - 2026-10-25
+
+The Stophammer operator accepted requests 17 and 18 on 2026-10-25. ADR 0059
+owns the rule, and these answers are advisory.
+
+| # | Answer |
+|---|---|
+| 17 | Accepted as ADR 0059 §6, with the names of the request. A row of `/v1/copies` gives `feed_image_url`. A row of `/v1/live-items` gives `feed_title` and `feed_image_url`. Each value is of the indexed feed that `feed_guid` names, not of a copy. Each field is null when the node holds no such feed, and each image passes the web URL rule of ADR 0054 §4. A copy gives its own image only on `GET /v1/feeds/{guid}/copies` |
+| 18 | Accepted as ADR 0059 §7. Each row of `include=value_time_splits` gives the feed fields and the track fields that a `remote_items` entry gives, with the same names. This includes `remote_episode_count`, which the request does not ask for. A split gives no URL, so the node finds its feed by `remote_feed_guid` only. When `remote_item_guid` is `""`, each track field is null. `include=local_value_time_splits` does not change |
 
 ## Requests That v4vmm Also Makes
 
