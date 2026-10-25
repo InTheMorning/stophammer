@@ -76,6 +76,7 @@
       "copies_over_limit",
       "copy_count",
       "feed_guid",
+      "feed_image_url",
       "feed_url",
       "newest_first_seen",
       "title"
@@ -268,6 +269,8 @@
       "confirming_relay",
       "content_link",
       "feed_guid",
+      "feed_image_url",
+      "feed_title",
       "in_now_view",
       "in_upcoming_view",
       "link",

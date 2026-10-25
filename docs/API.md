@@ -1578,6 +1578,7 @@ above zero. ADR 0058 owns this route.
       "feed_guid": "feed-guid",
       "feed_url": "https://example.com/feed.xml",
       "title": "Victim Feed",
+      "feed_image_url": "https://example.com/cover.jpg",
       "copy_count": 1,
       "copies_over_limit": 0,
       "newest_first_seen": 1710300000
@@ -1592,8 +1593,12 @@ above zero. ADR 0058 owns this route.
 |------|---------|
 | 200  | Success |
 
-`copy_count` is the number of open copies of the record. `newest_first_seen`
-is null when the record has no open copy, and is listed only because its
+`feed_image_url` is the channel image of the indexed feed, never the image of a
+copy. It is null when the feed has no image or the image is not an `http` or
+`https` URL. ADR 0059 section 6 owns this field.
+
+`copy_count` is the number of open copies of the record. `newest_first_seen` is
+null when the record has no open copy, and is listed only because its
 `copies_over_limit` is above zero.
 
 ---
@@ -1671,6 +1676,8 @@ Gives the live-event rows of every public feed. Each row also names its
   "data": [
     {
       "feed_guid": "feed-guid",
+      "feed_title": "Feed Title",
+      "feed_image_url": "https://example.com/cover.jpg",
       "live_item_guid": "live-item-guid",
       "title": "Tonight's Listening Party",
       "status": "live",
@@ -1697,9 +1704,14 @@ Gives the live-event rows of every public feed. Each row also names its
 | 400  | An unknown `view`, an unknown filter value, a raw filter with a `view` other than `all`, or an invalid `cursor` |
 
 Each row has the shape of a `live_items` entry of `GET /v1/feeds/{guid}`
-(section 4), plus `feed_guid`. `confirming_relay` is `true` when
-`live_value_uri` names an `https` URL on a host of `CONFIRMING_RELAY_HOSTS`
-(ADR 0064 section 3). `in_now_view` and `in_upcoming_view` are `true` when the
+(section 4), plus `feed_guid`, `feed_title` and `feed_image_url`.
+`feed_title` and `feed_image_url` are of the indexed feed that `feed_guid`
+names. Each is null when the node holds no such feed. `feed_image_url` is also
+null when the image is not an `http` or `https` URL. The `title` of the row
+stays the title of the live item. ADR 0059 section 6 owns these fields.
+
+`confirming_relay` is `true` when `live_value_uri` names an `https` URL on a
+host of `CONFIRMING_RELAY_HOSTS` (ADR 0064 section 3). `in_now_view` and `in_upcoming_view` are `true` when the
 view of the same name gives this row at the time of the read. `status` stays
 the value the feed gives. `link` is the RSS `<link>` of the live item, with
 `link_scheme_added` set by the same rule as the single-feed read.

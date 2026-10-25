@@ -781,6 +781,10 @@ struct CopyRecordResponse {
     feed_guid: String,
     feed_url: String,
     title: String,
+    /// The channel image of the indexed feed, never the image of a copy. Null
+    /// when the feed has no image or the image is not a web URL (ADR 0059
+    /// section 6).
+    feed_image_url: Option<String>,
     /// The number of open copies of this record.
     copy_count: i64,
     /// Local to the primary. `0` on a community node.
@@ -3714,6 +3718,7 @@ async fn handle_list_copy_records(
                 feed_guid,
                 feed_url: feed.feed_url,
                 title: feed.title,
+                feed_image_url: web_url_or_none(feed.image_url.as_deref()),
                 copy_count,
                 copies_over_limit,
                 newest_first_seen,
@@ -4021,6 +4026,13 @@ fn live_event_matches(
 )]
 pub struct LiveItemListResponse {
     feed_guid: String,
+    /// The title of the indexed feed that `feed_guid` names. Null when the
+    /// node holds no such feed (ADR 0059 section 6).
+    feed_title: Option<String>,
+    /// The channel image of the indexed feed that `feed_guid` names. Null when
+    /// the node holds no such feed or the image is not a web URL (ADR 0059
+    /// section 6).
+    feed_image_url: Option<String>,
     live_item_guid: String,
     title: String,
     status: String,
@@ -4059,8 +4071,11 @@ fn live_item_list_response(
 ) -> Result<LiveItemListResponse, api::ApiError> {
     let link = live_item_link_for_feed_item(conn, &event.feed_guid, &event.live_item_guid)?;
     let row = live_item_response(event, hosts, now, link.as_deref());
+    let feed = named_feed_summary(conn, Some(&event.feed_guid))?;
     Ok(LiveItemListResponse {
         feed_guid: event.feed_guid.clone(),
+        feed_title: feed.title,
+        feed_image_url: feed.image_url,
         live_item_guid: row.live_item_guid,
         title: row.title,
         status: row.status,
