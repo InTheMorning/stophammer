@@ -29,7 +29,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 8 | Each list row and each search row is complete | API rule and field additions | Deployed in release 0.12.0 on 2026-10-18 |
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
 | 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078 and ADR 0080, phrases deployed in release 0.15.0 on 2026-10-25. Items 2 to 7: ADR 0080, deployed in release 0.15.0 on 2026-10-25 |
-| 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. The v4vmm operator asked for it on 2026-10-23 |
+| 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -335,6 +335,10 @@ The row gives no `newest_item_at`. `SearchResponseItem` has `pub_date`, but `fee
 
 The `include` parameter of `GET /v1/search` supports only `link_facts`. `GET /v1/feeds/recent` supports `link_facts` and `named_feeds`. On the same day, `GET /v1/feeds/recent?limit=1&include=named_feeds` gave `newest_item_at` and a `named_feeds` list with `publisher_feed_guid`, `album_names_rank`, `role`, `role_agreement` and `two_way_validated`.
 
+On 2026-10-25 at 12:13 UTC, the deployed release 0.15.0 gave the same row for `GET /v1/search?q=jsmovie&type=feed&limit=1`, with no `newest_item_at` and no `pub_date`.
+`GET /v1/search?q=jsmovie&type=feed&limit=1&include=named_feeds` gave `200` and the same row, with no `named_feeds`. Stophammer ignores this `include` value and gives no error.
+Since release 0.15.0, an unknown search parameter gives `400` with `unsupported_filter`. An unknown `include` value does not.
+
 Thus a feed search hit does not follow the rule of request 8 item 1. A client must read each hit again to date it or to key it by its artist feed.
 
 **Why v4vmm needs it.** v4vmm ADR 0086 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 6).
@@ -352,6 +356,11 @@ The weakest part: only the saved searches need it. The toolbar search of v4vmm s
 2. `include=named_feeds` on `GET /v1/search`, with the items that `GET /v1/feeds/recent?include=named_feeds` gives, on each `type=feed` hit.
 
 The field names are a proposal. Stophammer selects the names in its own ADR.
+
+**When v4vmm sends it.** The v4vmm operator decided on 2026-10-25:
+
+- v4vmm sends this request after the operator walks the open checks of ADR 0084 packet 012 (saved searches) and ADR 0086 packet 005 (their window groups). The walk can change the need.
+- If the operator sends it before that walk, v4vmm asks only for item 1. Item 2 waits until the walk shows that the artist text is not a sufficient group key.
 
 **What v4vmm does with it.** v4vmm ADR 0086 packet 005 groups the Library singles of a saved search. Its chain reads the release date of each row, so an Index hit groups when item 1 is deployed.
 Item 2 lets the hit use the artist feed key of New releases. Without item 2, an Index hit has only the text of its artist. When Stophammer deploys item 1 or item 2, v4vmm replaces the stored contract in the same change as the decode change (v4vmm ADR 0075 section 6).
