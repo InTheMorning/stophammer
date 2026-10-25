@@ -6,7 +6,8 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.15.0 of 2026-10-25 delivered ADR 0080, and items
+Release 0.16.0 is open. It holds ADR 0059 §6 and §7, and each `Cargo.toml`
+gives its version. Release 0.15.0 of 2026-10-25 delivered ADR 0080, and items
 1 to 7 of v4vmm request 10. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and
 ADR 0079.
 
@@ -29,7 +30,7 @@ ADR 0059 §6 and §7 answer musicindex.org requests 17 and 18. A copies row and
 a live row give the image of their feed. A remote value time split gives the
 summary of its feed and its track.
 [The summary rows plan](docs/plans/summary-rows-phase-plan.md) gives the tasks.
-The next release holds them.
+Release 0.16.0 holds them.
 
 ### Open Items
 
