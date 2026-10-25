@@ -1406,14 +1406,19 @@ fn search_filter_params() -> Vec<Value> {
             } else {
                 "It cannot repeat."
             };
+            let kind = match filter.name {
+                "kind" => "List of `album`, `ep`, `single` and `unknown`, with commas. The kinds are an OR. `unknown` also matches a feed with no kind. The ingest sets `unknown` for each feed now.".to_owned(),
+                "tracks" | "min_tracks" | "max_tracks" => "Integer from 0. Compared with the track count of the feed. Each limit is included.".to_owned(),
+                "after" | "before" => "Day in the form `YYYY-MM-DD`, in UTC. Compared with the newest item date of a feed, or the date of a track. `after` matches from 00:00:00 of the day. `before` matches to 23:59:59 of the day. A row with no date does not match.".to_owned(),
+                "min_duration" | "max_duration" => "Integer number of seconds from 0. Compared with the duration of a track. Each limit is included. A track with no duration does not match.".to_owned(),
+                _ => "Text filter of ADR 0080. Words and phrases, as in `q`.".to_owned(),
+            };
             query_param(
                 filter.name,
                 "string",
                 None,
                 false,
-                &format!(
-                    "Text filter of ADR 0080. Words and phrases, as in `q`. Applies to the types {types}. {repeat}"
-                ),
+                &format!("{kind} ADR 0080 section 2. Applies to the types {types}. {repeat}"),
             )
         })
         .collect()

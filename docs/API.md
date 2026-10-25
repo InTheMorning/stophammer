@@ -2000,6 +2000,10 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track` |
 | `not_artist`, `not_title`, `not_release` | text | none | Remove each row that matches the value, in the field of the positive parameter |
 | `not_q` | text | none | Remove each row that has each word and phrase in `name`, `title` or `description` |
+| `kind` | list | none | Release kinds of the feed: `album`, `ep`, `single` and `unknown`, with commas. The kinds are an OR. Types `feed` and `track` |
+| `tracks`, `min_tracks`, `max_tracks` | integer | none | Track count of the feed, from 0. Each limit is included. Types `feed` and `track` |
+| `after`, `before` | date | none | A day as `YYYY-MM-DD` in UTC. Types `feed` and `track` |
+| `min_duration`, `max_duration` | integer | none | Duration of a track in seconds, from 0. Each limit is included. Type `track` |
 
 **Filters (ADR 0080 sections 2 to 4):**
 
@@ -2009,6 +2013,16 @@ needs no call for each hit. ADR 0042 owns these fields.
 - On a `track`, `artist` reads the track artist, and `release` reads the title
   of the feed of the track. On a `publisher`, `artist` and `title` read the
   publisher title.
+- A value filter (ADR 0080 section 2) reads the stored feed of the hit, or the
+  stored track of a `track` hit. `kind` reads the kind of the feed. The ingest
+  sets `unknown` as the kind of each feed now, so `kind=unknown` matches each
+  feed. `unknown` also matches a feed with no kind.
+- `after` and `before` read the newest item date of a feed and the date of a
+  track. `after` matches from 00:00:00 of its day. `before` matches to 23:59:59
+  of its day. A row with no date, or a track with no duration, does not match.
+- A value filter selects rows and does not change `rank`. A limit that is
+  later or larger than its pair, for example `after` later than `before`,
+  gives `200` with no rows.
 - A positive filter cannot repeat. Each `not_` parameter can repeat, and each
   value is one exclusion. A request has at most 10 exclusions.
 - A request with no `type` accepts a filter only when `type=feed` and
@@ -2028,7 +2042,7 @@ and is absent for `missing_positive_term`.
 | Code | Cause |
 |------|-------|
 | `unsupported_filter` | The type of the request does not apply the filter, or the node does not know the parameter |
-| `invalid_filter` | A positive filter repeats, a value has no word, or the request has more than 10 exclusions |
+| `invalid_filter` | A positive filter repeats, a value has no word or is not in its form, or the request has more than 10 exclusions |
 | `missing_positive_term` | The request has no word and no phrase in `q` |
 
 **Response (`200 OK`):**
@@ -2114,8 +2128,8 @@ index (ADR 0071 section 5).
     "search": ["link_facts"]
   },
   "search_filters": {
-    "feed": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q"],
-    "track": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q"],
+    "feed": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before"],
+    "track": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before", "min_duration", "max_duration"],
     "publisher": ["artist", "not_artist", "title", "not_title", "not_q"]
   }
 }

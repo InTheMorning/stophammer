@@ -264,6 +264,79 @@ pub struct TextFilter {
 pub struct SearchFilters {
     pub include: Vec<TextFilter>,
     pub exclude: Vec<TextFilter>,
+    pub values: ValueFilters,
+}
+
+/// The value filters of a search (ADR 0080 §2): the kind, the track count, the
+/// dates and the duration.
+///
+/// Each field that is set is a condition in the outer `WHERE` of the search
+/// SQL. Each limit is included.
+#[derive(Clone, Debug, Default)]
+pub struct ValueFilters {
+    /// `kind`: the release kinds of the feed. The kinds are an OR.
+    pub kinds: Option<Vec<String>>,
+    /// `tracks`: the exact `episode_count` of the feed.
+    pub tracks: Option<i64>,
+    pub min_tracks: Option<i64>,
+    pub max_tracks: Option<i64>,
+    /// `after`: the first second that matches, as Unix seconds in UTC.
+    pub after: Option<i64>,
+    /// `before`: the first second after the last day that matches.
+    pub before_end: Option<i64>,
+    pub min_duration: Option<i64>,
+    pub max_duration: Option<i64>,
+}
+
+impl ValueFilters {
+    /// Whether a condition reads the track row of the hit.
+    fn needs_track(&self) -> bool {
+        self.after.is_some()
+            || self.before_end.is_some()
+            || self.min_duration.is_some()
+            || self.max_duration.is_some()
+    }
+
+    /// Whether a condition reads the feed row of the hit.
+    fn needs_feed(&self) -> bool {
+        self.needs_track()
+            || self.kinds.is_some()
+            || self.tracks.is_some()
+            || self.min_tracks.is_some()
+            || self.max_tracks.is_some()
+    }
+
+    /// Pushes one condition and its bound values for each filter that is set.
+    /// A parameter number follows the length of `values`.
+    fn push_conditions(&self, values: &mut Vec<Value>, where_parts: &mut Vec<String>) {
+        if let Some(kinds) = &self.kinds {
+            let mut parts = Vec::new();
+            for kind in kinds {
+                values.push(Value::Text(kind.clone()));
+                parts.push(format!("f.release_kind = ?{}", values.len()));
+            }
+            // ADR 0080 §2: `unknown` also matches a feed with no kind.
+            if kinds.iter().any(|k| k == "unknown") {
+                parts.push("f.release_kind IS NULL".to_owned());
+            }
+            where_parts.push(format!("({})", parts.join(" OR ")));
+        }
+        let mut push_limit = |column: &str, op: &str, limit: Option<i64>| {
+            if let Some(limit) = limit {
+                values.push(Value::Integer(limit));
+                where_parts.push(format!("{column} {op} ?{}", values.len()));
+            }
+        };
+        let date_column =
+            "CASE e.entity_type WHEN 'track' THEN t.pub_date ELSE f.newest_item_at END";
+        push_limit("f.episode_count", "=", self.tracks);
+        push_limit("f.episode_count", ">=", self.min_tracks);
+        push_limit("f.episode_count", "<=", self.max_tracks);
+        push_limit(date_column, ">=", self.after);
+        push_limit(date_column, "<", self.before_end);
+        push_limit("t.duration_secs", ">=", self.min_duration);
+        push_limit("t.duration_secs", "<=", self.max_duration);
+    }
 }
 
 impl TextFilter {
@@ -429,6 +502,11 @@ pub fn search_filtered(
         });
     }
 
+    // ADR 0080 §2: a value filter is a condition on the feed or the track of
+    // the hit.  Each value is a bound parameter.
+    let vf = &filters.values;
+    vf.push_conditions(&mut values, &mut where_parts);
+
     values.push(Value::Integer(limit));
     let limit_param_idx = values.len();
 
@@ -437,6 +515,24 @@ pub fn search_filtered(
     } else {
         format!("WHERE {} ", where_parts.join(" AND "))
     };
+
+    // ADR 0080 §2: join the feed and the track only for a filter that reads
+    // them.  `CASE` keeps `json_extract` away from the ID of a feed.
+    let mut value_joins = String::new();
+    if vf.needs_feed() {
+        value_joins.push_str(
+            "LEFT JOIN feeds f ON f.feed_guid = \
+               CASE e.entity_type WHEN 'track' THEN json_extract(e.entity_id, '$[0]') \
+               ELSE e.entity_id END ",
+        );
+    }
+    if vf.needs_track() {
+        value_joins.push_str(
+            "LEFT JOIN tracks t ON e.entity_type = 'track' AND t.feed_guid = f.feed_guid \
+               AND t.track_guid = CASE e.entity_type WHEN 'track' \
+                 THEN json_extract(e.entity_id, '$[1]') END ",
+        );
+    }
 
     let sql = format!(
         "SELECT e.entity_type, e.entity_id, m.fts_rank, \
@@ -449,6 +545,7 @@ pub fn search_filtered(
          LEFT JOIN entity_quality q \
            ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
           AND q.entity_id = e.entity_id \
+         {value_joins}\
          {where_clause}\
          ORDER BY eff_rank ASC, m.rowid ASC \
          LIMIT ?{limit_param_idx}"

@@ -288,7 +288,91 @@ pub const SEARCH_FILTERS: &[SearchFilterSpec] = &[
         name: "not_q",
         types: &["feed", "track", "publisher"],
     },
+    SearchFilterSpec {
+        name: "kind",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "tracks",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "min_tracks",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "max_tracks",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "after",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "before",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "min_duration",
+        types: &["track"],
+    },
+    SearchFilterSpec {
+        name: "max_duration",
+        types: &["track"],
+    },
 ];
+
+/// The release kinds that `kind` accepts. ADR 0080 §2.
+const SEARCH_KINDS: [&str; 4] = ["album", "ep", "single", "unknown"];
+
+/// Reads an integer from 0 to `i64::MAX` in decimal digits. ADR 0080 §2.
+fn parse_filter_integer(value: &str) -> Option<i64> {
+    if value.is_empty() || !value.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    value.parse().ok()
+}
+
+/// Reads a day in the form `YYYY-MM-DD` and gives Unix seconds of 00:00:00 UTC
+/// of that day. ADR 0080 §2.
+fn parse_filter_day(value: &str) -> Option<i64> {
+    let bytes = value.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return None;
+    }
+    let digits = |range: std::ops::Range<usize>| -> Option<&str> {
+        let part = value.get(range)?;
+        part.bytes().all(|b| b.is_ascii_digit()).then_some(part)
+    };
+    let year: i32 = digits(0..4)?.parse().ok()?;
+    let month = time::Month::try_from(digits(5..7)?.parse::<u8>().ok()?).ok()?;
+    let day: u8 = digits(8..10)?.parse().ok()?;
+    let date = time::Date::from_calendar_date(year, month, day).ok()?;
+    Some(date.midnight().assume_utc().unix_timestamp())
+}
+
+/// The value filters of `GET /v1/search`. ADR 0080 §2.
+const SEARCH_VALUE_FILTERS: [&str; 8] = [
+    "kind",
+    "tracks",
+    "min_tracks",
+    "max_tracks",
+    "after",
+    "before",
+    "min_duration",
+    "max_duration",
+];
+
+/// The seconds of one UTC day. ADR 0080 §2: `before` includes its whole day.
+const SECONDS_PER_DAY: i64 = 86_400;
+
+/// Reads the list of `kind`: release kinds with commas. ADR 0080 §2.
+fn parse_filter_kinds(value: &str) -> Option<Vec<String>> {
+    value
+        .split(',')
+        .map(|kind| SEARCH_KINDS.contains(&kind).then(|| kind.to_owned()))
+        .collect()
+}
 
 /// The most exclusions one search request can hold. ADR 0080 §3.
 const SEARCH_EXCLUSION_MAX: usize = 10;
@@ -5217,7 +5301,7 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
         }
     }
 
-    // Check 3: a repeated positive filter, a value with no word, or the 11th
+    // Check 3: a repeated positive filter, a value in the wrong form, or the 11th
     // exclusion.
     let mut filters = crate::search::SearchFilters::default();
     let mut seen: Vec<&str> = Vec::new();
@@ -5240,6 +5324,32 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
                 name,
                 format!("a request has at most {SEARCH_EXCLUSION_MAX} exclusions"),
             ));
+        }
+        // ADR 0080 §2: a value filter has its own form of value.
+        if SEARCH_VALUE_FILTERS.contains(&name.as_str()) {
+            let values = &mut filters.values;
+            let parsed = match name.as_str() {
+                "kind" => parse_filter_kinds(value).map(|k| values.kinds = Some(k)),
+                "after" => parse_filter_day(value).map(|d| values.after = Some(d)),
+                "before" => {
+                    parse_filter_day(value).map(|d| values.before_end = Some(d + SECONDS_PER_DAY))
+                }
+                _ => parse_filter_integer(value).map(|n| match name.as_str() {
+                    "tracks" => values.tracks = Some(n),
+                    "min_tracks" => values.min_tracks = Some(n),
+                    "max_tracks" => values.max_tracks = Some(n),
+                    "min_duration" => values.min_duration = Some(n),
+                    _ => values.max_duration = Some(n),
+                }),
+            };
+            if parsed.is_none() {
+                return Err(filter_error(
+                    "invalid_filter",
+                    name,
+                    format!("{name} has a value in the wrong form"),
+                ));
+            }
+            continue;
         }
         let phrases = crate::search::fts5_phrases(value);
         if phrases.is_empty() {
