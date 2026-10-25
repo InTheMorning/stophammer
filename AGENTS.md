@@ -52,6 +52,9 @@ Nothing.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change. No decision is recorded for the other changes.
+- [ADR 0080](docs/adr/0080-a-search-takes-phrases-and-field-filters.md) is
+  Proposed for items 1 to 7 of v4vmm request 10. The operator examines it and
+  its three open questions before a build starts.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
@@ -81,8 +84,8 @@ The requests of v4vmm and musicindex.org are in
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). Each
 v4vmm requests 1 to 9, item 1 of v4vmm request 10 (ADR 0078), and
 musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
-declined. Items 2 to 6 of v4vmm request 10, and request 11, are drafts. The v4vmm operator examines them
-before Stophammer answers.
+declined. ADR 0080 is the proposed answer to items 1 to 7 of v4vmm request 10.
+Request 11 is a draft. The v4vmm operator examines it before Stophammer answers.
 
 ### Governance
 
