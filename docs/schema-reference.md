@@ -26,6 +26,7 @@ Key columns:
 - `feed_url`
 - `title`
 - `title_sort`
+- `feed_host`
 - `raw_medium`
 - `release_artist`
 - `release_artist_source`
@@ -47,6 +48,12 @@ Notes:
   signed `FeedUpserted` event does not carry this value. `GET
   /v1/feeds/by-name` orders by this column, then by `feed_guid`. Migration
   0051 adds the column.
+- `feed_host` is the host of `feed_url`, in lower case, with no trailing dot
+  (ADR 0080 section 5). The empty text means that the URL has no host. The
+  node derives the value from `feed_url` at each write, and the fill at open
+  sets it on each row where it is null. The signed `FeedUpserted` event does
+  not carry this value. The column has no index. The `host` and `not_host`
+  filters of `GET /v1/search` read it. Migration 0057 adds the column.
 - `publisher` means publisher by default. It has no host exception. ADR 0049
   section 5.
 - `release_artist_source` is nullable. It names the value that

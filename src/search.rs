@@ -268,7 +268,7 @@ pub struct SearchFilters {
 }
 
 /// The value filters of a search (ADR 0080 §2): the kind, the track count, the
-/// dates and the duration.
+/// dates, the duration and the host.
 ///
 /// Each field that is set is a condition in the outer `WHERE` of the search
 /// SQL. Each limit is included.
@@ -286,6 +286,19 @@ pub struct ValueFilters {
     pub before_end: Option<i64>,
     pub min_duration: Option<i64>,
     pub max_duration: Option<i64>,
+    /// `host`: the host of the feed, or a parent domain of it (ADR 0080 §5).
+    pub host: Option<String>,
+    /// `not_host`: each host to remove. A feed with the empty host stays.
+    pub not_hosts: Vec<String>,
+}
+
+impl SearchFilters {
+    /// The number of exclusions: each `not_` text filter and each `not_host`
+    /// (ADR 0080 §3).
+    #[must_use]
+    pub fn exclusion_count(&self) -> usize {
+        self.exclude.len() + self.values.not_hosts.len()
+    }
 }
 
 impl ValueFilters {
@@ -304,6 +317,8 @@ impl ValueFilters {
             || self.tracks.is_some()
             || self.min_tracks.is_some()
             || self.max_tracks.is_some()
+            || self.host.is_some()
+            || !self.not_hosts.is_empty()
     }
 
     /// Pushes one condition and its bound values for each filter that is set.
@@ -336,6 +351,22 @@ impl ValueFilters {
         push_limit(date_column, "<", self.before_end);
         push_limit("t.duration_secs", ">=", self.min_duration);
         push_limit("t.duration_secs", "<=", self.max_duration);
+        // ADR 0080 §5: the host or a subdomain of it. The empty host never
+        // matches `host`. `COALESCE` keeps a row with a null or empty host
+        // under `not_host`.
+        let host_match = |values: &mut Vec<Value>, host: &str| {
+            values.push(Value::Text(host.to_owned()));
+            let n = values.len();
+            format!("(f.feed_host = ?{n} OR substr(f.feed_host, -length(?{n}) - 1) = '.' || ?{n})")
+        };
+        if let Some(host) = &self.host {
+            let condition = host_match(values, host);
+            where_parts.push(condition);
+        }
+        for host in &self.not_hosts {
+            let condition = host_match(values, host);
+            where_parts.push(format!("COALESCE({condition}, 0) = 0"));
+        }
     }
 }
 

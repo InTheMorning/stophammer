@@ -5340,8 +5340,9 @@ fn relocate_feed(
     }
 
     tx.execute(
-        "UPDATE feeds SET feed_url = ?1, last_build_date = NULL WHERE feed_guid = ?2",
-        params![new_url, feed_guid],
+        "UPDATE feeds SET feed_url = ?1, last_build_date = NULL, feed_host = ?3 \
+         WHERE feed_guid = ?2",
+        params![new_url, feed_guid, db::feed_host_of(new_url)],
     )?;
     // ADR 0058 section 5: cleared in the same transaction as feed_url, so
     // the next body from new_url applies with no stale rule and records its

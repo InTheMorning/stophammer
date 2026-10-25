@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS feeds (
     declared_new_feed_url TEXT,
     podcast_locked INTEGER,
     locked_owner TEXT,
-    title_sort TEXT
+    title_sort TEXT,
+    feed_host TEXT
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feeds_newest ON feeds(newest_item_at DESC);

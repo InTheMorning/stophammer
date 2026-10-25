@@ -2004,6 +2004,8 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `tracks`, `min_tracks`, `max_tracks` | integer | none | Track count of the feed, from 0. Each limit is included. Types `feed` and `track` |
 | `after`, `before` | date | none | A day as `YYYY-MM-DD` in UTC. Types `feed` and `track` |
 | `min_duration`, `max_duration` | integer | none | Duration of a track in seconds, from 0. Each limit is included. Type `track` |
+| `host` | host | none | The host of the feed URL, or a subdomain of it. `wavlake.com` matches `feeds.wavlake.com` and not `notwavlake.com`. Types `feed`, `track` and `publisher` |
+| `not_host` | host | none | Remove each row whose feed host matches the value. A feed with no host stays. Types `feed`, `track` and `publisher` |
 
 **Filters (ADR 0080 sections 2 to 4):**
 
@@ -2023,6 +2025,11 @@ needs no call for each hit. ADR 0042 owns these fields.
 - A value filter selects rows and does not change `rank`. A limit that is
   later or larger than its pair, for example `after` later than `before`,
   gives `200` with no rows.
+- `host` and `not_host` read the host of the `feed_url` of the feed (ADR 0080
+  section 5). The value is a host name or an address, with no scheme, path,
+  port or user. A track reads the host of its feed. The case and a trailing
+  dot do not matter. A feed whose URL has no host does not match `host`, and
+  `not_host` keeps it.
 - A positive filter cannot repeat. Each `not_` parameter can repeat, and each
   value is one exclusion. A request has at most 10 exclusions.
 - A request with no `type` accepts a filter only when `type=feed` and
@@ -2128,9 +2135,9 @@ index (ADR 0071 section 5).
     "search": ["link_facts"]
   },
   "search_filters": {
-    "feed": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before"],
-    "track": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before", "min_duration", "max_duration"],
-    "publisher": ["artist", "not_artist", "title", "not_title", "not_q"]
+    "feed": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before", "host", "not_host"],
+    "track": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q", "kind", "tracks", "min_tracks", "max_tracks", "after", "before", "min_duration", "max_duration", "host", "not_host"],
+    "publisher": ["artist", "not_artist", "title", "not_title", "not_q", "host", "not_host"]
   }
 }
 ```

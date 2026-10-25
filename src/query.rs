@@ -320,6 +320,14 @@ pub const SEARCH_FILTERS: &[SearchFilterSpec] = &[
         name: "max_duration",
         types: &["track"],
     },
+    SearchFilterSpec {
+        name: "host",
+        types: &["feed", "track", "publisher"],
+    },
+    SearchFilterSpec {
+        name: "not_host",
+        types: &["feed", "track", "publisher"],
+    },
 ];
 
 /// The release kinds that `kind` accepts. ADR 0080 §2.
@@ -352,7 +360,7 @@ fn parse_filter_day(value: &str) -> Option<i64> {
 }
 
 /// The value filters of `GET /v1/search`. ADR 0080 §2.
-const SEARCH_VALUE_FILTERS: [&str; 8] = [
+const SEARCH_VALUE_FILTERS: [&str; 10] = [
     "kind",
     "tracks",
     "min_tracks",
@@ -361,7 +369,33 @@ const SEARCH_VALUE_FILTERS: [&str; 8] = [
     "before",
     "min_duration",
     "max_duration",
+    "host",
+    "not_host",
 ];
+
+/// Reads the value of `host` and `not_host`: a host name or an address. ADR
+/// 0080 §2 and §5.
+///
+/// The value is not a URL. It has no `/` and no `@`, and it has a `:` only
+/// between `[` and `]`. Gives the host in lower case, with no trailing dot.
+fn parse_filter_host(value: &str) -> Option<String> {
+    let mut in_brackets = false;
+    for c in value.chars() {
+        match c {
+            '/' | '@' => return None,
+            '[' => in_brackets = true,
+            ']' => in_brackets = false,
+            ':' if !in_brackets => return None,
+            _ => {}
+        }
+    }
+    if value.is_empty() {
+        return None;
+    }
+    let host = url::Host::parse(value).ok()?.to_string().to_lowercase();
+    let host = host.trim_end_matches('.');
+    (!host.is_empty()).then(|| host.to_owned())
+}
 
 /// The seconds of one UTC day. ADR 0080 §2: `before` includes its whole day.
 const SECONDS_PER_DAY: i64 = 86_400;
@@ -5318,7 +5352,7 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
                 ));
             }
             seen.push(spec.name);
-        } else if filters.exclude.len() >= SEARCH_EXCLUSION_MAX {
+        } else if filters.exclusion_count() >= SEARCH_EXCLUSION_MAX {
             return Err(filter_error(
                 "invalid_filter",
                 name,
@@ -5330,6 +5364,8 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
             let values = &mut filters.values;
             let parsed = match name.as_str() {
                 "kind" => parse_filter_kinds(value).map(|k| values.kinds = Some(k)),
+                "host" => parse_filter_host(value).map(|h| values.host = Some(h)),
+                "not_host" => parse_filter_host(value).map(|h| values.not_hosts.push(h)),
                 "after" => parse_filter_day(value).map(|d| values.after = Some(d)),
                 "before" => {
                     parse_filter_day(value).map(|d| values.before_end = Some(d + SECONDS_PER_DAY))

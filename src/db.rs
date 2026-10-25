@@ -282,6 +282,8 @@ const MIGRATIONS: &[&str] = &[
     // Migration 56: a release keeps the hold row and sets released_at (ADR
     // 0079 §1 and §3)
     include_str!("../migrations/0056_retired_source_hold_release.sql"),
+    // Migration 57: store the host of each feed URL (ADR 0080 §5, task 004)
+    include_str!("../migrations/0057_feed_host.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -685,6 +687,20 @@ fn ensure_feed_title_sort_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Adds `feeds.feed_host` when migration 0057 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. ADR 0080 §5 owns
+/// the column.
+fn ensure_feed_host_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "feeds", "feed_host")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE feeds ADD COLUMN feed_host TEXT;")?;
+    Ok(())
+}
+
 /// Adds the ADR 0058 §1e item-fact columns to `feed_copies` when migration
 /// 0052 could not run.
 ///
@@ -849,6 +865,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_declared_self_url_schema(&conn)?;
     ensure_feed_move_declaration_schema(&conn)?;
     ensure_feed_title_sort_schema(&conn)?;
+    ensure_feed_host_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
     ensure_value_time_split_forms_schema(&mut conn)?;
     ensure_retired_source_holds_schema(&conn)?;
@@ -857,6 +874,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
+    ensure_feed_host_filled(&mut conn)?;
     Ok(conn)
 }
 
@@ -1044,6 +1062,58 @@ fn ensure_feed_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
         feeds = rows.len(),
         elapsed_ms = started.elapsed().as_millis(),
         "db: filled feeds.title_sort from title"
+    );
+    Ok(())
+}
+
+/// Gives the host of a feed URL: lower case, with no trailing dot.
+///
+/// ADR 0080 §5. A URL that does not parse, or that has no host, gives the
+/// empty text. The empty text means "no host".
+#[must_use]
+pub fn feed_host_of(feed_url: &str) -> String {
+    url::Url::parse(feed_url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_lowercase))
+        .map(|host| host.trim_end_matches('.').to_owned())
+        .unwrap_or_default()
+}
+
+/// Fills `feeds.feed_host` for each row where it is null.
+///
+/// ADR 0080 §5. The fill runs in one transaction. A URL with no host gets the
+/// empty text, so the next start does not read the row again. A database with
+/// no null `feed_host` skips the repair. Each writer of `feed_url` sets
+/// `feed_host` in the same statement, so no write after the first run leaves
+/// a row null again.
+fn ensure_feed_host_filled(conn: &mut Connection) -> Result<(), DbError> {
+    let has_null_feed_host: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM feeds WHERE feed_host IS NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_null_feed_host {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    let rows: Vec<(String, String)> = tx
+        .prepare("SELECT feed_guid, feed_url FROM feeds WHERE feed_host IS NULL")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    {
+        let mut stmt = tx.prepare("UPDATE feeds SET feed_host = ?1 WHERE feed_guid = ?2")?;
+        for (feed_guid, feed_url) in &rows {
+            stmt.execute(params![feed_host_of(feed_url), feed_guid])?;
+        }
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        feeds = rows.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: filled feeds.feed_host from feed_url"
     );
     Ok(())
 }
@@ -1344,9 +1414,9 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date, release_artist_source, title_sort) \
+         last_build_date, release_artist_source, title_sort, feed_host) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
-         ?21, ?22, ?23) \
+         ?21, ?22, ?23, ?24) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -1368,7 +1438,8 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
            raw_medium       = excluded.raw_medium, \
            last_build_date  = excluded.last_build_date, \
            release_artist_source = excluded.release_artist_source, \
-           title_sort       = excluded.title_sort",
+           title_sort       = excluded.title_sort, \
+           feed_host        = excluded.feed_host",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -1398,6 +1469,9 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             // encodes this column, and a historical event cannot write a
             // stale or missing key over a correct one.
             sort_key(&feed.title),
+            // ADR 0080 §5: the host comes from `feed_url` at each write. `Feed`
+            // carries no `feed_host` field.
+            feed_host_of(&feed.feed_url),
         ],
     )?;
     Ok(())
@@ -6700,9 +6774,9 @@ pub fn ingest_transaction(
         "INSERT INTO feeds (feed_guid, feed_url, title, title_lower, description, image_url, \
          publisher, language, explicit, itunes_type, release_artist, release_artist_sort, release_date, \
          release_kind, episode_count, newest_item_at, oldest_item_at, created_at, updated_at, raw_medium, \
-         last_build_date, release_artist_source, title_sort) \
+         last_build_date, release_artist_source, title_sort, feed_host) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, \
-         ?21, ?22, ?23) \
+         ?21, ?22, ?23, ?24) \
          ON CONFLICT(feed_guid) DO UPDATE SET \
            feed_url         = excluded.feed_url, \
            title            = excluded.title, \
@@ -6724,7 +6798,8 @@ pub fn ingest_transaction(
            raw_medium       = excluded.raw_medium, \
            last_build_date  = excluded.last_build_date, \
            release_artist_source = excluded.release_artist_source, \
-           title_sort       = excluded.title_sort",
+           title_sort       = excluded.title_sort, \
+           feed_host        = excluded.feed_host",
         params![
             feed.feed_guid,
             feed.feed_url,
@@ -6751,6 +6826,9 @@ pub fn ingest_transaction(
             // ADR 0070 §1: derived from `title` at each write, not read
             // from `feed`. See the note in `upsert_feed`.
             sort_key(&feed.title),
+            // ADR 0080 §5: the host comes from `feed_url` at each write. `Feed`
+            // carries no `feed_host` field.
+            feed_host_of(&feed.feed_url),
         ],
     )?;
 
