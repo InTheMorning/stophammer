@@ -304,6 +304,20 @@ Request 11 asks for the date and the named feeds of each feed hit. The two reque
 
 musicindex.org will also send these filters. On 2026-10-24 the operator decided that the website uses the query text of v4vmm ADR 0087. No musicindex ADR records this yet.
 
+**Stophammer can start its ADR.** On 2026-10-24 the operator decided that Stophammer drafts its ADR for items 1 to 7 now. The other repositories wait for the research mockups.
+
+**The data.** Paths from the root of each repository:
+
+| Data | Path |
+| --- | --- |
+| The query text, the fields and the live results | `../v4vmm/docs/adr/0087-search-fields-and-live-results.md` |
+| The kind rule of the apps | `../musicindex/docs/adr/0020-cross-app-interface-rules.md`, R-WORD-1 |
+| The search field and the pause of 300 ms | `../musicindex/docs/adr/0026-cross-app-controls-and-feedback.md`, R-SEARCH-1 |
+| A parser of the query text, and the field list | `../musicindex-research/research_notes/ui-design/mockups/kit/search.js` |
+| The search in the website and v4vmm mockups | `../musicindex-research/research_notes/ui-design/mockups/musicindex.html` and `v4vmm.html` |
+| The search report of 2026-10-23 | `../musicindex-research/reports/2026-10-23-search-code-sharing-and-stophammer.md` |
+| The search request of the website | `../musicindex/docs/plans/research-ui-shell-and-search-request.md` |
+
 **What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change.
 v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. Until Stophammer supports a filter, a v4vmm query with that field shows no Index rows and names the field.
 
