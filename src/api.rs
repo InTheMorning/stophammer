@@ -100,6 +100,35 @@ pub struct AmbiguousTrackGuidBody {
     pub candidates: Vec<AmbiguousTrackGuidCandidate>,
 }
 
+/// The `400` body of `GET /v1/search` for a filter (ADR 0080 §4).
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SearchFilterErrorBody {
+    pub error: String,
+    /// `unsupported_filter`, `invalid_filter` or `missing_positive_term`.
+    pub code: &'static str,
+    /// The name of the parameter. Absent for `missing_positive_term`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+}
+
+/// Makes the `400` response of ADR 0080 §4.
+#[must_use]
+pub fn search_filter_error_response(
+    code: &'static str,
+    filter: Option<&str>,
+    error: impl Into<String>,
+) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(SearchFilterErrorBody {
+            error: error.into(),
+            code,
+            filter: filter.map(str::to_owned),
+        }),
+    )
+        .into_response()
+}
+
 #[must_use]
 pub fn canonical_track_href(feed_guid: &str, track_guid: &str) -> String {
     format!("/v1/feeds/{feed_guid}/tracks/{track_guid}")
@@ -6052,6 +6081,7 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<AmbiguousTrackGuidBody>(&mut schemas);
     register_schema::<BlockConflictBody>(&mut schemas);
     register_schema::<ErrorBody>(&mut schemas);
+    register_schema::<SearchFilterErrorBody>(&mut schemas);
     register_schema::<GuidChangeDecisionResponse>(&mut schemas);
     register_schema::<NodeInfoResponse>(&mut schemas);
     register_schema::<ListBlocksResponse>(&mut schemas);

@@ -1995,6 +1995,41 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor |
 | `include` | string | none | Comma-separated include list. Supports `link_facts` |
+| `artist` | text | none | Each word and phrase must be in the artist. Types `feed`, `track` and `publisher` |
+| `title` | text | none | Each word and phrase must be in the title. Types `feed`, `track` and `publisher` |
+| `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track` |
+| `not_artist`, `not_title`, `not_release` | text | none | Remove each row that matches the value, in the field of the positive parameter |
+| `not_q` | text | none | Remove each row that has each word and phrase in `name`, `title` or `description` |
+
+**Filters (ADR 0080 sections 2 to 4):**
+
+- A text filter has words and phrases with the rules of `q`. A filter matches
+  whole words. `artist=jsmo` does not match `jSmovie`. A filter selects rows
+  and does not change `rank`.
+- On a `track`, `artist` reads the track artist, and `release` reads the title
+  of the feed of the track. On a `publisher`, `artist` and `title` read the
+  publisher title.
+- A positive filter cannot repeat. Each `not_` parameter can repeat, and each
+  value is one exclusion. A request has at most 10 exclusions.
+- A request with no `type` accepts a filter only when `type=feed` and
+  `type=track` each apply it.
+- A parameter that the node does not know gives `400`. Remove an extra
+  parameter, for example a cache key, from the request.
+- A request with no word in `q` gives `missing_positive_term`, also when it has
+  a filter.
+
+A `400` for a filter has this body. `filter` gives the name of the parameter,
+and is absent for `missing_positive_term`.
+
+```json
+{"error": "release is not supported for type=publisher", "code": "unsupported_filter", "filter": "release"}
+```
+
+| Code | Cause |
+|------|-------|
+| `unsupported_filter` | The type of the request does not apply the filter, or the node does not know the parameter |
+| `invalid_filter` | A positive filter repeats, a value has no word, or the request has more than 10 exclusions |
+| `missing_positive_term` | The request has no word and no phrase in `q` |
 
 **Response (`200 OK`):**
 
@@ -2077,6 +2112,11 @@ index (ADR 0071 section 5).
     "feed_list": ["link_facts", "named_feeds"],
     "artist_list": ["link_facts"],
     "search": ["link_facts"]
+  },
+  "search_filters": {
+    "feed": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q"],
+    "track": ["artist", "not_artist", "title", "not_title", "release", "not_release", "not_q"],
+    "publisher": ["artist", "not_artist", "title", "not_title", "not_q"]
   }
 }
 ```
@@ -2084,6 +2124,9 @@ index (ADR 0071 section 5).
 `feed_list` gives the include names of `GET /v1/feeds/recent` (ADR 0068).
 
 `search` gives the include names of `GET /v1/search` (ADR 0076 section 3).
+
+`search_filters` gives the filter names of `GET /v1/search` for each type (ADR
+0080 section 7). The handler and this list read one table.
 
 `name_lists` marks `GET /v1/feeds/by-name` and `GET /v1/artist-names` (ADR
 0070 section 6).

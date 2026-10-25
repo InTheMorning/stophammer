@@ -59,7 +59,8 @@
       "capabilities",
       "entity_types",
       "include_params",
-      "node_pubkey"
+      "node_pubkey",
+      "search_filters"
     ]
   },
   "CoCreditedFeedResponse": {
@@ -480,6 +481,13 @@
       "recipient_name",
       "route_type",
       "split"
+    ]
+  },
+  "SearchFilterErrorBody": {
+    "properties": [
+      "code",
+      "error",
+      "filter"
     ]
   },
   "SearchResponseItem": {

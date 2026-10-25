@@ -529,7 +529,10 @@ fn spec_value(mode: DocMode) -> Value {
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor."),
                     include_query_param(query::SEARCH_INCLUDES)
-                ],
+                ]
+                .into_iter()
+                .chain(search_filter_params())
+                .collect(),
                 None,
                 json!({
                     "200": json_response(
@@ -567,7 +570,15 @@ fn spec_value(mode: DocMode) -> Value {
                             }
                         ]))
                     ),
-                    "400": error_response("The query has no word, or a parameter is not valid.")
+                    "400": json_response(
+                        "The query has no word, or a parameter is not valid. A filter error has a `code` (ADR 0080 section 4).",
+                        json!({ "$ref": "#/components/schemas/SearchFilterErrorBody" }),
+                        json!({
+                            "error": "release is not supported for type=publisher",
+                            "code": "unsupported_filter",
+                            "filter": "release"
+                        })
+                    )
                 }),
                 None
             )
@@ -594,7 +605,8 @@ fn spec_value(mode: DocMode) -> Value {
                             "include_params": {
                                 "feed": query::FEED_INCLUDES,
                                 "track": query::TRACK_INCLUDES
-                            }
+                            },
+                            "search_filters": search_filters_example()
                         })
                     )
                 }),
@@ -1372,6 +1384,56 @@ fn query_param(
         "description": description,
         "schema": Value::Object(schema)
     })
+}
+
+/// One query parameter for each name of `query::SEARCH_FILTERS`.
+///
+/// ADR 0080 §7: the description of each parameter names the types that apply
+/// it and says whether it can repeat. The table is the one that the handler
+/// reads.
+fn search_filter_params() -> Vec<Value> {
+    query::SEARCH_FILTERS
+        .iter()
+        .map(|filter| {
+            let types = filter
+                .types
+                .iter()
+                .map(|t| format!("`{t}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let repeat = if filter.repeats() {
+                "It can repeat, and each value is one exclusion."
+            } else {
+                "It cannot repeat."
+            };
+            query_param(
+                filter.name,
+                "string",
+                None,
+                false,
+                &format!(
+                    "Text filter of ADR 0080. Words and phrases, as in `q`. Applies to the types {types}. {repeat}"
+                ),
+            )
+        })
+        .collect()
+}
+
+/// The `search_filters` example of `GET /v1/node/capabilities`: the filter
+/// names of each type, from `query::SEARCH_FILTERS`.
+fn search_filters_example() -> Value {
+    let by_type: serde_json::Map<String, Value> = ["feed", "track", "publisher"]
+        .into_iter()
+        .map(|entity_type| {
+            let names: Vec<&str> = query::SEARCH_FILTERS
+                .iter()
+                .filter(|f| f.applies_to(entity_type))
+                .map(|f| f.name)
+                .collect();
+            (entity_type.to_owned(), json!(names))
+        })
+        .collect();
+    Value::Object(by_type)
 }
 
 /// An `include` query parameter that declares the names in `names`.

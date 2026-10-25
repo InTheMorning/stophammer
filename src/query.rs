@@ -18,7 +18,7 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Path, Query, State},
+    extract::{Path, Query, RawQuery, State},
     http::StatusCode,
     response::{IntoResponse, Response},
 };
@@ -133,18 +133,20 @@ impl ListQuery {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub struct SearchQuery {
+/// The parameters of `GET /v1/search` after the checks of ADR 0080 §4.
+#[derive(Debug)]
+struct SearchRequest {
     q: String,
-    #[serde(rename = "type")]
     kind: Option<String>,
     limit: Option<i64>,
     cursor: Option<String>,
     /// ADR 0076 §3: `link_facts` on a `publisher` row.
     include: Option<String>,
+    /// ADR 0080 §2 and §3: the text filters and the exclusions.
+    filters: crate::search::SearchFilters,
 }
 
-impl SearchQuery {
+impl SearchRequest {
     fn includes(&self, field: &str) -> bool {
         self.include
             .as_deref()
@@ -230,6 +232,66 @@ pub const ARTIST_NAME_INCLUDES: &[&str] = &["link_facts"];
 
 /// The include names `GET /v1/search` accepts. ADR 0076 §3.
 pub const SEARCH_INCLUDES: &[&str] = &["link_facts"];
+
+/// One filter parameter of `GET /v1/search`: its name and the entity types
+/// that apply it. ADR 0080 §7.
+#[derive(Clone, Copy, Debug)]
+pub struct SearchFilterSpec {
+    pub name: &'static str,
+    pub types: &'static [&'static str],
+}
+
+impl SearchFilterSpec {
+    /// Whether `entity_type` applies this filter.
+    #[must_use]
+    pub fn applies_to(&self, entity_type: &str) -> bool {
+        self.types.contains(&entity_type)
+    }
+
+    /// Whether the parameter can repeat. Each `not_` parameter can (ADR 0080
+    /// §3). A positive filter cannot.
+    #[must_use]
+    pub fn repeats(&self) -> bool {
+        self.name.starts_with("not_")
+    }
+}
+
+/// The filter parameters `GET /v1/search` accepts. ADR 0080 §7: the handler,
+/// `search_filters` of `GET /v1/node/capabilities` and `/openapi.json` read
+/// this one table.
+pub const SEARCH_FILTERS: &[SearchFilterSpec] = &[
+    SearchFilterSpec {
+        name: "artist",
+        types: &["feed", "track", "publisher"],
+    },
+    SearchFilterSpec {
+        name: "not_artist",
+        types: &["feed", "track", "publisher"],
+    },
+    SearchFilterSpec {
+        name: "title",
+        types: &["feed", "track", "publisher"],
+    },
+    SearchFilterSpec {
+        name: "not_title",
+        types: &["feed", "track", "publisher"],
+    },
+    SearchFilterSpec {
+        name: "release",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "not_release",
+        types: &["feed", "track"],
+    },
+    SearchFilterSpec {
+        name: "not_q",
+        types: &["feed", "track", "publisher"],
+    },
+];
+
+/// The most exclusions one search request can hold. ADR 0080 §3.
+const SEARCH_EXCLUSION_MAX: usize = 10;
 
 /// The include names `GET /v1/tracks/{guid}` accepts.
 pub const TRACK_INCLUDES: &[&str] = &[
@@ -5078,22 +5140,160 @@ async fn handle_get_artist_names(
 
 // ── GET /v1/search ──────────────────────────────────────────────────────────
 
+/// Reads the parameters of `GET /v1/search` from the raw query and applies the
+/// checks of ADR 0080 §4 in their sequence. The first error is the result.
+fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
+    const SINGLE: [&str; 5] = ["q", "type", "limit", "cursor", "include"];
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(raw.as_bytes())
+        .into_owned()
+        .collect();
+    let plain = |message: String| {
+        Box::new(
+            api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message,
+                www_authenticate: None,
+            }
+            .into_response(),
+        )
+    };
+    let filter_error = |code: &'static str, name: &str, message: String| {
+        Box::new(api::search_filter_error_response(code, Some(name), message))
+    };
+
+    let single = |name: &str| -> Result<Option<String>, Box<Response>> {
+        let mut values = pairs.iter().filter(|(n, _)| n == name).map(|(_, v)| v);
+        let first = values.next().cloned();
+        if values.next().is_some() {
+            return Err(plain(format!("duplicate parameter `{name}`")));
+        }
+        Ok(first)
+    };
+    let q = single("q")?.unwrap_or_default();
+    let kind = single("type")?;
+    let cursor = single("cursor")?;
+    let include = single("include")?;
+    let limit = single("limit")?
+        .map(|v| {
+            v.parse::<i64>()
+                .map_err(|_err| plain("limit is not an integer".into()))
+        })
+        .transpose()?;
+
+    // Check 1: a name that the node does not know.
+    for (name, _) in &pairs {
+        if !SINGLE.contains(&name.as_str()) && !SEARCH_FILTERS.iter().any(|f| f.name == name) {
+            return Err(filter_error(
+                "unsupported_filter",
+                name,
+                format!("{name} is not a parameter of this node"),
+            ));
+        }
+    }
+
+    // Check 2: a filter that the type of the request does not apply. A
+    // request with no `type` needs `feed` and `track` to apply it. A value of
+    // `type` that is not an entity type gives its own error later.
+    let types: &[&str] = match kind.as_deref() {
+        None => &["feed", "track"],
+        Some("feed") => &["feed"],
+        Some("track") => &["track"],
+        Some("publisher") => &["publisher"],
+        Some(_) => &[],
+    };
+    for (name, _) in &pairs {
+        if let Some(spec) = SEARCH_FILTERS.iter().find(|f| f.name == name)
+            && !types.iter().all(|t| spec.applies_to(t))
+        {
+            let scope = kind.as_deref().map_or_else(
+                || "a request with no type".to_owned(),
+                |k| format!("type={k}"),
+            );
+            return Err(filter_error(
+                "unsupported_filter",
+                name,
+                format!("{name} is not supported for {scope}"),
+            ));
+        }
+    }
+
+    // Check 3: a repeated positive filter, a value with no word, or the 11th
+    // exclusion.
+    let mut filters = crate::search::SearchFilters::default();
+    let mut seen: Vec<&str> = Vec::new();
+    for (name, value) in &pairs {
+        let Some(spec) = SEARCH_FILTERS.iter().find(|f| f.name == name) else {
+            continue;
+        };
+        if !spec.repeats() {
+            if seen.contains(&spec.name) {
+                return Err(filter_error(
+                    "invalid_filter",
+                    name,
+                    format!("{name} can appear one time"),
+                ));
+            }
+            seen.push(spec.name);
+        } else if filters.exclude.len() >= SEARCH_EXCLUSION_MAX {
+            return Err(filter_error(
+                "invalid_filter",
+                name,
+                format!("a request has at most {SEARCH_EXCLUSION_MAX} exclusions"),
+            ));
+        }
+        let phrases = crate::search::fts5_phrases(value);
+        if phrases.is_empty() {
+            return Err(filter_error(
+                "invalid_filter",
+                name,
+                format!("{name} has no word"),
+            ));
+        }
+        let (field, list) = match name.as_str() {
+            "artist" => (crate::search::TextField::Artist, &mut filters.include),
+            "title" => (crate::search::TextField::Title, &mut filters.include),
+            "release" => (crate::search::TextField::Release, &mut filters.include),
+            "not_artist" => (crate::search::TextField::Artist, &mut filters.exclude),
+            "not_title" => (crate::search::TextField::Title, &mut filters.exclude),
+            "not_release" => (crate::search::TextField::Release, &mut filters.exclude),
+            _ => (crate::search::TextField::Any, &mut filters.exclude),
+        };
+        list.push(crate::search::TextFilter { field, phrases });
+    }
+
+    // Check 4: no word in `q`. ADR 0080 task 002: a request with no word in
+    // `q` gives this code even with a filter. A later task changes this.
+    if crate::search::fts5_query_from_words(&q).is_empty() {
+        return Err(Box::new(api::search_filter_error_response(
+            "missing_positive_term",
+            None,
+            "q has no word",
+        )));
+    }
+
+    Ok(SearchRequest {
+        q,
+        kind,
+        limit,
+        cursor,
+        include,
+        filters,
+    })
+}
+
 // Issue-SEARCH-KEYSET — 2026-03-14
 async fn handle_search(
     State(state): State<Arc<api::AppState>>,
-    Query(params): Query<SearchQuery>,
-) -> Result<impl IntoResponse, api::ApiError> {
+    RawQuery(raw): RawQuery,
+) -> Result<Response, api::ApiError> {
+    let params = match parse_search_request(raw.as_deref().unwrap_or("")) {
+        Ok(params) => params,
+        Err(response) => return Ok(*response),
+    };
     let q = params.q.clone();
     let kind = params.kind.clone();
+    let filters = params.filters.clone();
     tracing::info!(q = ?q, kind = ?kind, "search query received");
-    // ADR 0078 §5: a `q` with no word gives 400 before any query runs.
-    if crate::search::fts5_query_from_words(&q).is_empty() {
-        return Err(api::ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "q has no word".into(),
-            www_authenticate: None,
-        });
-    }
     // Issue-NEGATIVE-LIMIT — 2026-03-15
     let limit = params.limit.unwrap_or(20).clamp(1, SEARCH_LIMIT_MAX);
     // ADR 0076 §3: the link facts of a `publisher` row, only with the
@@ -5141,9 +5341,10 @@ async fn handle_search(
     let results = tokio::task::spawn_blocking(move || {
         let conn = pool.reader()?;
         match kind.as_deref() {
-            Some("feed" | "track" | "publisher") => crate::search::search(
+            Some("feed" | "track" | "publisher") => crate::search::search_filtered(
                 &conn,
                 &q,
+                &filters,
                 kind.as_deref(),
                 limit + 1,
                 cursor_rank,
@@ -5155,9 +5356,10 @@ async fn handle_search(
             None => {
                 let mut merged = Vec::new();
                 for entity_type in ["feed", "track"] {
-                    merged.extend(crate::search::search(
+                    merged.extend(crate::search::search_filtered(
                         &conn,
                         &q,
+                        &filters,
                         Some(entity_type),
                         limit + 1,
                         cursor_rank,
@@ -5319,7 +5521,8 @@ async fn handle_search(
             has_more,
         },
         meta: meta(&state),
-    }))
+    })
+    .into_response())
 }
 
 // ── GET /v1/node/capabilities ───────────────────────────────────────────────
@@ -5331,6 +5534,8 @@ struct CapabilitiesResponse {
     capabilities: Vec<&'static str>,
     entity_types: Vec<&'static str>,
     include_params: HashMap<&'static str, Vec<&'static str>>,
+    /// ADR 0080 §7: the filter names of `GET /v1/search` for each type.
+    search_filters: BTreeMap<&'static str, Vec<&'static str>>,
 }
 
 async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl IntoResponse {
@@ -5345,6 +5550,19 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
     include_params.insert("artist_list", ARTIST_NAME_INCLUDES.to_vec());
     // ADR 0076 §3: the include names of `GET /v1/search`.
     include_params.insert("search", SEARCH_INCLUDES.to_vec());
+    // ADR 0080 §7: the filter names of `GET /v1/search`, from `SEARCH_FILTERS`,
+    // the table that the handler reads.
+    let search_filters = ["feed", "track", "publisher"]
+        .into_iter()
+        .map(|entity_type| {
+            let names = SEARCH_FILTERS
+                .iter()
+                .filter(|f| f.applies_to(entity_type))
+                .map(|f| f.name)
+                .collect();
+            (entity_type, names)
+        })
+        .collect();
     Json(CapabilitiesResponse {
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
@@ -5356,6 +5574,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         // its title.
         entity_types: vec!["feed", "track", "publisher"],
         include_params,
+        search_filters,
     })
 }
 

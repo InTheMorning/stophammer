@@ -192,12 +192,14 @@ fn each_json_response_names_its_fields() {
     }
 }
 
-/// Removes `include_params` from the example of `GET /v1/node/capabilities`.
+/// Removes `include_params` and `search_filters` from the example of
+/// `GET /v1/node/capabilities`.
 ///
-/// That example reads the include lists from the live constants of
-/// `src/query.rs`, so a new include changes it. ADR 0073 task 002 added the
-/// first new track include after the snapshot. Each other key of the example
-/// stays in the comparison.
+/// That example reads the include lists and the filter table from the live
+/// constants of `src/query.rs`, so a new include or a new filter changes it.
+/// ADR 0073 task 002 added the first new track include after the snapshot.
+/// ADR 0080 §7 added `search_filters`. Each other key of the example stays in
+/// the comparison.
 fn without_live_include_lists(route: &str, now: &Value, then: &Value) -> (Value, Value) {
     let mut now = now.clone();
     let mut then = then.clone();
@@ -205,6 +207,7 @@ fn without_live_include_lists(route: &str, now: &Value, then: &Value) -> (Value,
         for example in [&mut now, &mut then] {
             if let Some(object) = example.as_object_mut() {
                 object.remove("include_params");
+                object.remove("search_filters");
             }
         }
     }

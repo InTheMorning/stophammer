@@ -7,6 +7,7 @@
 use std::borrow::Cow;
 use std::hash::Hasher;
 
+use rusqlite::types::Value;
 use rusqlite::{Connection, OptionalExtension, params};
 use siphasher::sip::SipHasher24;
 
@@ -234,6 +235,93 @@ pub fn fts5_query_from_words(input: &str) -> String {
     fts5_phrases(input).join(" ")
 }
 
+/// A field that a text filter reads (ADR 0080 §2 and §3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TextField {
+    /// `artist`: the column `name`, and on a publisher the column `title`.
+    Artist,
+    /// `title`: the column `title`.
+    Title,
+    /// `release`: the title of the feed. Unsupported on a publisher.
+    Release,
+    /// `not_q`: the columns `name`, `title` and `description`.
+    Any,
+}
+
+/// One text filter or one exclusion: a field and its FTS5 phrases.
+#[derive(Clone, Debug)]
+pub struct TextFilter {
+    pub field: TextField,
+    /// The phrases of [`fts5_phrases`]. Each one must be in the field.
+    pub phrases: Vec<String>,
+}
+
+/// The text filters and the exclusions of a search (ADR 0080 §2 and §3).
+///
+/// Each text filter is a condition in the outer `WHERE` of the search SQL.
+/// None of them is part of the `MATCH` of `q`, so the rank does not change.
+#[derive(Clone, Debug, Default)]
+pub struct SearchFilters {
+    pub include: Vec<TextFilter>,
+    pub exclude: Vec<TextFilter>,
+}
+
+impl TextFilter {
+    /// The row of `search_index` that this filter reads, as an SQL
+    /// expression, and the columns it reads in that row (ADR 0080 §2).
+    ///
+    /// Returns `None` when the entity type does not apply the field.
+    fn target(&self, entity_type: &str) -> Option<(&'static str, &'static str)> {
+        const OWN_ROW: &str = "m.rowid";
+        // ADR 0080 §2: the row of the feed of a track.
+        const FEED_ROW: &str = "(SELECT fe.rowid FROM search_entities fe \
+             WHERE fe.entity_type = 'feed' \
+             AND fe.entity_id = json_extract(e.entity_id, '$[0]'))";
+        match (self.field, entity_type) {
+            (TextField::Release, "publisher") => None,
+            (TextField::Release, "track") => Some((FEED_ROW, "title")),
+            (TextField::Release | TextField::Title, _) | (TextField::Artist, "publisher") => {
+                Some((OWN_ROW, "title"))
+            }
+            (TextField::Artist, _) => Some((OWN_ROW, "name")),
+            (TextField::Any, _) => Some((OWN_ROW, "{name title description}")),
+        }
+    }
+
+    /// The FTS5 expression of this filter: the column before each phrase.
+    fn expression(&self, columns: &str) -> String {
+        self.phrases
+            .iter()
+            .map(|phrase| format!("{columns} : {phrase}"))
+            .collect::<Vec<_>>()
+            .join(" AND ")
+    }
+}
+
+/// Searches the FTS5 index with no text filter. See [`search_filtered`].
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the FTS5 MATCH query fails.
+pub fn search(
+    conn: &Connection,
+    query: &str,
+    entity_type_filter: Option<&str>,
+    limit: i64,
+    cursor_rank: Option<f64>,
+    cursor_rowid: Option<i64>,
+) -> Result<Vec<SearchResult>, DbError> {
+    search_filtered(
+        conn,
+        query,
+        &SearchFilters::default(),
+        entity_type_filter,
+        limit,
+        cursor_rank,
+        cursor_rowid,
+    )
+}
+
 /// Searches the FTS5 index using a `MATCH` query, ordered by BM25 rank
 /// weighted by an optional quality score from `entity_quality`.
 ///
@@ -249,13 +337,19 @@ pub fn fts5_query_from_words(input: &str) -> String {
 /// `query` has no word, the function returns an empty result set without a
 /// database query.
 ///
+/// ADR 0080 §2 and §3: `filters` adds one condition to the outer `WHERE` for
+/// each text filter and each exclusion. A filter selects rows and does not
+/// change the rank. A filter that the entity type does not apply is ignored,
+/// because the handler already refused it.
+///
 /// # Errors
 ///
 /// Returns [`DbError`] if the FTS5 MATCH query fails.
 // Issue-SEARCH-KEYSET — 2026-03-14
-pub fn search(
+pub fn search_filtered(
     conn: &Connection,
     query: &str,
+    filters: &SearchFilters,
     entity_type_filter: Option<&str>,
     limit: i64,
     cursor_rank: Option<f64>,
@@ -284,36 +378,59 @@ pub fn search(
     //
     // The effective_rank expression must be repeated in the WHERE clause
     // because SQL does not allow referencing SELECT aliases in WHERE.
-    let has_cursor = cursor_rank.is_some() && cursor_rowid.is_some();
-    let has_type_filter = entity_type_filter.is_some();
-
-    // Positional parameters: ?1 = MATCH query
-    // When cursor is present: ?2 = cursor_rank, ?3 = cursor_rowid
-    // Type filter and limit params shift accordingly.
+    // ?1 = MATCH query.  Each later value is pushed to `values` in the same
+    // sequence as its `?N` in the SQL text, so the two cannot drift apart.
     // ADR 0078 §4: a publisher feed has one quality row, of the type `feed`.
     // The join below reads that row for a `publisher` hit.  The select list,
     // the order and the keyset filter all use the same `q.score`.
     let eff_rank_expr = "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0))";
 
+    let mut values: Vec<Value> = vec![Value::Text(safe_query)];
     let mut where_parts = Vec::new();
-    let mut next_param: u8 = 2;
 
-    if has_cursor {
+    if let (Some(rank), Some(rowid)) = (cursor_rank, cursor_rowid) {
+        values.push(Value::Real(rank));
+        let p1 = values.len();
+        values.push(Value::Integer(rowid));
+        let p2 = values.len();
         where_parts.push(format!(
-            "({eff_rank_expr} > ?{p1} OR ({eff_rank_expr} = ?{p1} AND m.rowid > ?{p2}))",
-            p1 = next_param,
-            p2 = next_param + 1,
+            "({eff_rank_expr} > ?{p1} OR ({eff_rank_expr} = ?{p1} AND m.rowid > ?{p2}))"
         ));
-        next_param += 2;
     }
 
-    let type_param_idx = next_param;
-    if has_type_filter {
-        where_parts.push(format!("e.entity_type = ?{type_param_idx}"));
-        next_param += 1;
+    if let Some(entity_type) = entity_type_filter {
+        values.push(Value::Text(entity_type.to_owned()));
+        where_parts.push(format!("e.entity_type = ?{}", values.len()));
     }
 
-    let limit_param_idx = next_param;
+    // ADR 0080 §2 and §3: a text filter is a condition on the index row, never
+    // part of the `MATCH` above.  Each value is a bound parameter.
+    let entity_type = entity_type_filter.unwrap_or("");
+    for (filter, excluded) in filters
+        .include
+        .iter()
+        .map(|f| (f, false))
+        .chain(filters.exclude.iter().map(|f| (f, true)))
+    {
+        let Some((row, columns)) = filter.target(entity_type) else {
+            continue;
+        };
+        values.push(Value::Text(filter.expression(columns)));
+        let membership = format!(
+            "{row} IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
+            values.len()
+        );
+        // The feed of a track can be missing from the index. `COALESCE` keeps
+        // such a track under an exclusion.
+        where_parts.push(if excluded {
+            format!("COALESCE({membership}, 0) = 0")
+        } else {
+            membership
+        });
+    }
+
+    values.push(Value::Integer(limit));
+    let limit_param_idx = values.len();
 
     let where_clause = if where_parts.is_empty() {
         String::new()
@@ -350,30 +467,9 @@ pub fn search(
         })
     };
 
-    // Issue-SEARCH-KEYSET — 2026-03-14
-    // Build parameter list dynamically based on which optional clauses are
-    // active.  SQLite positional params (?N) are 1-based.
-    let filter = entity_type_filter.unwrap_or("");
-    let rows: Vec<SearchResult> = match (has_cursor, has_type_filter) {
-        (true, true) => {
-            let cr = cursor_rank.unwrap_or(0.0);
-            let crid = cursor_rowid.unwrap_or(0);
-            stmt.query_map(params![safe_query, cr, crid, filter, limit], map_row)?
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        (true, false) => {
-            let cr = cursor_rank.unwrap_or(0.0);
-            let crid = cursor_rowid.unwrap_or(0);
-            stmt.query_map(params![safe_query, cr, crid, limit], map_row)?
-                .collect::<Result<Vec<_>, _>>()?
-        }
-        (false, true) => stmt
-            .query_map(params![safe_query, filter, limit], map_row)?
-            .collect::<Result<Vec<_>, _>>()?,
-        (false, false) => stmt
-            .query_map(params![safe_query, limit], map_row)?
-            .collect::<Result<Vec<_>, _>>()?,
-    };
+    let rows: Vec<SearchResult> = stmt
+        .query_map(rusqlite::params_from_iter(values), map_row)?
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(rows)
 }
