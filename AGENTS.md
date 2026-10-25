@@ -6,8 +6,9 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and ADR
-0079, and item 1 of v4vmm request 10. Releases 0.13.1 and 0.13.2 of 2026-10-21
+Release 0.15.0 is open. It holds ADR 0080, and each `Cargo.toml` gives its
+version. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and ADR 0079, and item
+1 of v4vmm request 10. Releases 0.13.1 and 0.13.2 of 2026-10-21
 are security releases with only fixes.
 
 ### Deployed
