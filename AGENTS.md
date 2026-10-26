@@ -6,14 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.16.0 is open. It holds ADR 0059 §6 and §7, and each `Cargo.toml`
-gives its version. Release 0.15.0 of 2026-10-25 delivered ADR 0080, and items
-1 to 7 of v4vmm request 10. Release 0.14.0 of 2026-10-24 delivered ADR 0078 and
-ADR 0079.
+No release is open. Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and
+§7, and musicindex.org requests 17 and 18. Release 0.15.0 of 2026-10-25
+delivered ADR 0080, and items 1 to 7 of v4vmm request 10.
 
 ### Deployed
 
-Release 0.15.0 of 2026-10-25 is the latest release. The primary and the gossip
+Release 0.16.0 of 2026-10-25 is the latest release. The primary and the gossip
 crawler run its GHCR images. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -26,11 +25,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-ADR 0059 §6 and §7 answer musicindex.org requests 17 and 18. A copies row and
-a live row give the image of their feed. A remote value time split gives the
-summary of its feed and its track.
-[The summary rows plan](docs/plans/summary-rows-phase-plan.md) gives the tasks.
-Release 0.16.0 holds them.
+Nothing.
 
 ### Open Items
 
@@ -90,9 +85,8 @@ The requests of v4vmm and musicindex.org are in
 [the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). v4vmm
 requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
-musicindex.org requests 1 to 15 are deployed. musicindex.org request 16 is
-declined, and requests 19 and 20 are closed. Sections 6 and 7 of ADR 0059 answer
-musicindex.org requests 17 and 18, which are not deployed. v4vmm request 11 is a draft.
+musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
+request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers.
 
 ### Governance

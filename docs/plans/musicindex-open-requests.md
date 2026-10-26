@@ -3,8 +3,8 @@
 ## Status
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
-closed. Updated on 2026-10-25: ADR 0059 §6 and §7 accept requests 17 and 18,
-which are not deployed. This document consolidates each open request from the
+closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
+0059 §6 and §7). This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -48,8 +48,8 @@ names the requests that the two clients share.
 | 14 | The advertised page of each live item | API field addition | Deployed in release 0.9.0 on 2026-10-18 |
 | 15 | A website link that has no scheme | Contract change | Deployed in release 0.9.0 on 2026-10-18 |
 | 16 | One Nostr row for each `npub` of a feed | API field addition | Declined on 2026-10-17 |
-| 17 | The image of the indexed feed on each copies row and live row | API field addition | Accepted on 2026-10-25 as ADR 0059 §6 |
-| 18 | Summary fields on each remote value time split | API field addition | Accepted on 2026-10-25 as ADR 0059 §7 |
+| 17 | The image of the indexed feed on each copies row and live row | API field addition | Deployed in release 0.16.0 on 2026-10-25 (ADR 0059 §6) |
+| 18 | Summary fields on each remote value time split | API field addition | Deployed in release 0.16.0 on 2026-10-25 (ADR 0059 §7) |
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 | 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
 
@@ -780,6 +780,29 @@ for their priority.
 | 1 | Album summary fields in each publisher relationship entry | The publisher page reads each album separately: a maximum of 24, six at a time, and a "Show all" control for the remainder (`ALBUM_PAGE_SIZE` and `FEED_FETCH_CONCURRENCY`, lines 1881 and 1882). With the fields, one request per publisher |
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
 | 4 | Field renames are breaking changes | The deploy of 2026-09-25 removed `/v1/proofs/challenge` and `/v1/proofs/assert` with no version change. musicindex.org used neither route. On 2026-09-25 the published `api.json` still lists both. The next regeneration removes them |
+
+## Release 0.16.0 - 2026-10-25
+
+Release 0.16.0 deployed requests 17 and 18. Stophammer read the live API at
+revision `1a7d6a1` on 2026-10-25:
+
+- `GET /v1/copies?limit=5` gives `feed_image_url` on each row. "The Satellite
+  Skirmish" and "Autumn Rust" give the Podhome image of the indexed feed, not
+  the image of an album copy.
+- `GET /v1/live-items?view=all&limit=5` gives `feed_title` "100% Retro - Live
+  24/7 (MegaCRON!)" and its image on each row. `title` stays the title of the
+  live item.
+- The track `ec043f9d-1b46-4637-ab60-6528594a43fc` of "Polar Embrace" gives 6
+  remote splits. Three give `remote_feed_title` "Polar Embrace", with the title
+  and the duration of each named track. The three splits with
+  `remote_item_guid` `""` give their feed fields and null track fields.
+- The track `f0e12a75-5ec9-4abb-81d9-f918eeb474bc` of "Autumn Rust" gives the
+  title of the named feed on each of its 8 splits. The three named items give
+  `remote_track_guid` null, because only the album copies hold them (request
+  20).
+
+The rows of request 18 also give `remote_episode_count`. musicindex.org can
+remove `indexedFeedImage` and the read of each named track.
 
 ## Release 0.10.0 - 2026-10-18
 
