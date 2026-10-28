@@ -100,6 +100,13 @@ These files describe the deployment assets:
 - [packaging/systemd](../packaging/systemd)
 - [packaging/env](../packaging/env)
 
+Three scripts deploy from a local checkout to one VPS: `deploy.sh`,
+`deploy-live-relay.sh` and `deploy-podping-listener.sh`. Each script reads
+`VPS`, the SSH target, and `VPS_DIR`, the Stophammer folder on the VPS. It reads
+them from the environment, or from `deploy.env` at the repository root. Git
+ignores `deploy.env`. Copy [deploy.env.example](../deploy.env.example) to
+`deploy.env` and set the two values.
+
 ### Deploy a release with Compose
 
 Pin the GHCR images in `.env` adjacent to `docker-compose.yml`, then pull and
