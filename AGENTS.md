@@ -6,7 +6,8 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and
+Release 0.17.0 is open. It holds ADR 0081, and each `Cargo.toml` gives its
+version. Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and
 §7, and musicindex.org requests 17 and 18. Release 0.15.0 of 2026-10-25
 delivered ADR 0080, and items 1 to 7 of v4vmm request 10.
 
