@@ -6,15 +6,15 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.17.0 is open. It holds ADR 0081, and each `Cargo.toml` gives its
-version. Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and
-§7, and musicindex.org requests 17 and 18. Release 0.15.0 of 2026-10-25
-delivered ADR 0080, and items 1 to 7 of v4vmm request 10.
+No release is open. Release 0.17.0 of 2026-10-31 delivered ADR 0081.
+Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and §7, and
+musicindex.org requests 17 and 18.
 
 ### Deployed
 
-Release 0.16.0 of 2026-10-25 is the latest release. The primary and the gossip
-crawler run its GHCR images. `GET /node/info` gives the revision of the running
+Release 0.17.0 of 2026-10-31 is the latest release. The primary, the gossip
+crawler and the `podcastindex` pass run its GHCR images. A timer starts the
+pass at an interval of 3 hours (ADR 0081 §1). `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
 [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md) gives the
@@ -26,18 +26,16 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- [ADR 0081](docs/adr/0081-a-daily-pass-reads-the-podcastindex-music-list.md)
-  has the status Accepted since 2026-10-31. The `podcastindex` mode is
-  committed in `stophammer-crawler`, and no crawler release holds it.
-  [The phase plan](docs/plans/podcastindex-music-list-phase-plan.md) and
-  tasks 001 to 007 in `docs/tasks/` give the build, and
-  [the review record](docs/reviews/podcastindex-music-list-review-checklist.md)
-  gives its results. Tasks 008 to 010 give the release 0.17.0, the deploy and
-  the record. The first production pass runs with `--dry-run`, and the
-  operator compares its numbers with the Context of the ADR.
+Nothing.
 
 ### Open Items
 
+- [ADR 0082](docs/adr/0082-a-funding-link-is-a-source-link.md) has the
+  status Accepted since 2026-10-31, and nothing of it is built. It keeps each
+  `podcast:funding` tag as a `source_links` row with a `label`.
+  [The phase plan](docs/plans/funding-links-phase-plan.md) and tasks 001 to
+  003 in `docs/tasks/` give the build. Tasks 004 and 005 give the release
+  0.18.0, the deploy and the refill pass of ADR 0077.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
@@ -66,9 +64,10 @@ deployed, except the items below. The primary sets
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
   approximately 195 ms. Such a track search sorts each matching row with no
   index. Measure it again when a client reports a slow search.
-- ADR 0081 §10: after the deploy, each pass measures the feeds that `import`
-  finds and the daily pass does not. After 28 days, the result decides the
-  schedule of `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
+- ADR 0081 §10: each pass measures the feeds that `import` finds and the
+  `podcastindex` pass does not. The first pass with the pipeline ran on
+  2026-10-31. On 2026-11-28, after 28 days, the result decides the schedule of
+  `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
   gives the steps.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
@@ -85,9 +84,11 @@ deployed, except the items below. The primary sets
   `primary` adds `CHOWN`, `DAC_OVERRIDE` and `FOWNER` with `--cap-add`.
 - `.env` on the host pins the podping listener image by digest. Each GitHub
   Action is pinned by commit SHA.
-- Wavlake sends no podping for its feeds. A Wavlake record moves to its self
-  link mostly through a crawl of the music URL form, or through the cache
-  replay with `export-feed-cache-ndjson.py --self-links` (ADR 0052).
+- Wavlake sends no podping for its feeds. The `podcastindex` pass finds a new
+  Wavlake feed of the PodcastIndex music list within 3 hours (ADR 0081). A
+  Wavlake record moves to its self link mostly through a crawl of the music
+  URL form, or through the cache replay with
+  `export-feed-cache-ndjson.py --self-links` (ADR 0052).
 - A cached body replays with `export-feed-cache-ndjson.py` and the `ndjson`
   mode, with no fetch. Use `--copies` for the copy rows, and the default for
   the source URLs.
@@ -221,7 +222,7 @@ CRAWL_TOKEN=xxx \
   INGEST_URL=http://localhost:8008/ingest/feed \
   cargo run -- refresh [--concurrency 5] [--force]
 
-# Daily pass over the PodcastIndex music list (ADR 0081)
+# Pass over the PodcastIndex music list, each 3 hours (ADR 0081)
 CRAWL_TOKEN=xxx \
   INGEST_URL=http://localhost:8008/ingest/feed \
   PODCASTINDEX_API_KEY=xxx PODCASTINDEX_API_SECRET=xxx \

@@ -303,7 +303,7 @@ The Wavlake-specific import pass has its own one-shot service and env file:
 docker compose run --rm import-wavlake
 ```
 
-The daily pass over the PodcastIndex music list (ADR 0081) has its own
+The pass over the PodcastIndex music list (ADR 0081) has its own
 one-shot service. Follow these steps:
 
 1. Copy `packaging/env/crawler-podcastindex.compose.env.example` to
@@ -322,7 +322,9 @@ one-shot service. Follow these steps:
    `podcastindex: rows=8601 held=8403 candidates=198 waiting=142 sent=56
    accepted=56 rejected=0 import_gap=none`. A failed candidate waits 7 days.
 4. Remove `PODCASTINDEX_DRY_RUN`, and start the timer
-   `stophammer-podcastindex.timer`, or schedule the Compose command each day.
+   `stophammer-podcastindex.timer`, or schedule the Compose command. ADR 0081
+   §1 gives the interval of 3 hours. A pass must not start while `import`
+   runs, because the two modes write `import_state.db`.
 
 `import` keeps its schedule until the measurement of ADR 0081 §10 is
 complete.

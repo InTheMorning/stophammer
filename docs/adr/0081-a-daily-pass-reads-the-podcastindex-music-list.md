@@ -1,11 +1,18 @@
-# ADR 0081: A Daily Pass Reads The PodcastIndex Music List
+# ADR 0081: A Crawler Pass Reads The PodcastIndex Music List
 
 ## Status
 Accepted on 2026-10-31. The operator accepted the proposed values of the five
 questions of the proposal. "Open Questions" gives each answer.
-[The phase plan](../plans/podcastindex-music-list-phase-plan.md) and tasks 001
-to 007 in `docs/tasks/` give the build. Tasks 008 to 011 give the release, the
-deploy and the measurement of §10.
+
+Amended on 2026-10-31, before the first scheduled pass. The operator starts a
+pass at an interval of 3 hours, not one time each day (§1). The file name
+keeps the word "daily" of the first title.
+
+Release 0.17.0 of 2026-10-31 holds the mode.
+[The measurement record](../reviews/adr-0081-first-pass-measurement.md) gives
+the first passes in production.
+[Task 011](../tasks/adr-0081-task-011-import-gap-decision.md) gives the
+measurement of §10.
 
 ## Date
 2026-10-31
@@ -97,7 +104,9 @@ that "Developer credentials may not be embedded in open source projects."
 ### 1. A crawler mode reads the music list
 
 `stophammer-crawler` gets a mode `podcastindex`. One run does one pass and
-stops. The operator runs the pass one time each day.
+stops. A timer of the operator starts a pass at an interval of 3 hours. A pass
+must not start while `import` runs, because the two modes write
+`import_state.db`.
 
 A pass sends one API request: `GET /api/1.0/podcasts/bymedium?medium=music`.
 It sends no request to another PodcastIndex endpoint.
@@ -231,7 +240,8 @@ None. The operator answered the five questions of the proposal on
 
 1. The name of the mode is `podcastindex`.
 2. A schedule of the operator starts each pass, as for `import`. One run does
-   one pass and stops (§1).
+   one pass and stops (§1). The amendment of 2026-10-31 sets the interval to
+   3 hours.
 3. The wait of §5 is 7 days.
 4. The limits of §6 are 1,000 rows, 20,000 rows and 2,000 candidates.
 5. The measurement of §10 runs 28 days. No count for "almost none" is set
@@ -241,11 +251,12 @@ None. The operator answered the five questions of the proposal on
 
 ## Consequences
 
-- A new music feed in PodcastIndex comes into the index within one day, also
-  from a host that sends no podping. On 2026-10-31, a pass would have found the
+- A new feed of the PodcastIndex music list comes into the index within 3
+  hours, also from a host that sends no podping. On 2026-10-31, a pass would have found the
   24 Wavlake albums and the 7 older feeds of the Context.
-- The pass sends one API request and approximately 10 MB each day. A candidate
-  that fails costs at most one fetch in 7 days. On 2026-10-31, 142 candidates
+- A pass sends one API request and gets approximately 10 MB. At 8 passes each
+  day, the mode sends 8 requests and gets approximately 80 MB each day. A
+  candidate that fails costs at most one fetch in 7 days. On 2026-10-31, 142 candidates
   failed, so the tries again cost approximately 20 fetches each day.
 - The operator registers an API key with PodcastIndex, and keeps the key and
   the secret in the environment of the mode.
@@ -257,8 +268,9 @@ None. The operator answered the five questions of the proposal on
   `Authorization` header. The crate already uses `sha2` of the same family.
 - The mode has a `--dry-run` flag. It does the comparison and the log of §8,
   and sends no URL to the pipeline. The first production run uses it.
-- Tasks 001 to 007 in `docs/tasks/` give the build. Each value of the answers
-  above is a named constant in `stophammer-crawler`.
+- Each value of the answers above is a named constant in
+  `stophammer-crawler`. The interval is not a constant. The timer of the
+  operator sets it.
 - `import` keeps its schedule until the measurement of §10 is complete.
 
 ## Verification

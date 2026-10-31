@@ -7,8 +7,8 @@ for the `import` mode.
 
 Repository: `stophammer`. The operator runs the queries on the VPS and
 commits. The agent examines the rows and writes the record and the ADR. This
-task starts 28 days after the first pass with the pipeline. A first pass on
-2026-11-01 gives 2026-11-29.
+task starts 28 days after the first pass with the pipeline. The first pass
+ran on 2026-10-31, so the task starts on 2026-11-28.
 
 ## Goal
 
@@ -149,8 +149,10 @@ python3 "$HOME/.agents/skills/asd-ste100/scripts/ste_lint.py" --check --no-heuri
 
 Stop and report to the operator, with no workaround, when:
 
-- `import_gap_passes` has fewer than 20 rows in the window. The passes did
-  not run each day, and the window must extend.
+- Fewer than 20 days of the window have a row in `import_gap_passes`. A timer
+  starts a pass each 3 hours (ADR 0081 §1), so a normal window has
+  approximately 224 rows. The passes did not run, and the window must
+  extend.
 - A counted row is a feed that the node does not hold, although `import`
   accepted it. That is a defect of the node or of the crawler, not a gap.
 - The output of a statement is not available.

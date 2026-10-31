@@ -2,7 +2,9 @@
 Description=Run Stophammer podcastindex pass on a schedule
 
 [Timer]
-OnCalendar=daily
+# ADR 0081 §1: a pass each 3 hours. 01:30 keeps the pass away from the
+# daily import at 00:00, because the two modes write import_state.db.
+OnCalendar=*-*-* 01/3:30:00
 Persistent=true
 Unit=stophammer-podcastindex.service
 
