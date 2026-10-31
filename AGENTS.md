@@ -25,7 +25,14 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+- [ADR 0081](docs/adr/0081-a-daily-pass-reads-the-podcastindex-music-list.md)
+  has the status Accepted since 2026-10-31. The `podcastindex` mode is
+  committed in `stophammer-crawler`, and no crawler release holds it.
+  [The phase plan](docs/plans/podcastindex-music-list-phase-plan.md) and
+  tasks 001 to 007 in `docs/tasks/` give the build, and
+  [the review record](docs/reviews/podcastindex-music-list-review-checklist.md)
+  gives its results. The first production pass runs with `--dry-run`, and the
+  operator compares its numbers with the Context of the ADR.
 
 ### Open Items
 
@@ -57,14 +64,6 @@ Nothing.
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
   approximately 195 ms. Such a track search sorts each matching row with no
   index. Measure it again when a client reports a slow search.
-- [ADR 0081](docs/adr/0081-a-daily-pass-reads-the-podcastindex-music-list.md)
-  is Proposed. The operator answers its five open questions before the
-  status changes.
-  [The phase plan](docs/plans/podcastindex-music-list-phase-plan.md) and
-  tasks 001 to 007 in `docs/tasks/` give the build. The build is complete in
-  the working trees of `stophammer` and `stophammer-crawler` on 2026-10-31,
-  and [the review record](docs/reviews/podcastindex-music-list-review-checklist.md)
-  gives its results. It is not deployed.
 - ADR 0081 §10: after the deploy, each pass measures the feeds that `import`
   finds and the daily pass does not. After 28 days, the result decides the
   schedule of `import`.

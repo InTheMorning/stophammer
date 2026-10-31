@@ -1,11 +1,10 @@
 # ADR 0081: A Daily Pass Reads The PodcastIndex Music List
 
 ## Status
-Proposed on 2026-10-31. The operator answers the questions in "Open
-Questions" before the status changes.
+Accepted on 2026-10-31. The operator accepted the proposed values of the five
+questions of the proposal. "Open Questions" gives each answer.
 [The phase plan](../plans/podcastindex-music-list-phase-plan.md) and tasks 001
-to 007 in `docs/tasks/` give the build. They take the proposed values of the
-open questions until the operator answers.
+to 007 in `docs/tasks/` give the build.
 
 ## Date
 2026-10-31
@@ -226,14 +225,18 @@ decides.
 
 ## Open Questions
 
-1. Is `podcastindex` the name of the mode?
-2. Does a schedule of the operator start the pass, as for `import`? Or does the
-   mode wait 24 hours between passes in one process?
-3. Is 7 days the correct wait in §5?
-4. Are the limits of §6 correct: 1,000 rows, 20,000 rows and 2,000
-   candidates?
-5. Is 28 days the correct length of the measurement in §10? Which count is
-   "almost none"?
+None. The operator answered the five questions of the proposal on
+2026-10-31:
+
+1. The name of the mode is `podcastindex`.
+2. A schedule of the operator starts each pass, as for `import`. One run does
+   one pass and stops (§1).
+3. The wait of §5 is 7 days.
+4. The limits of §6 are 1,000 rows, 20,000 rows and 2,000 candidates.
+5. The measurement of §10 runs 28 days. No count for "almost none" is set
+   before the measurement. The operator judges the rows of `import_gap_rows`
+   after the 28 days, and the new ADR of §10 records the count and the
+   judgment.
 
 ## Consequences
 
@@ -253,8 +256,8 @@ decides.
   `Authorization` header. The crate already uses `sha2` of the same family.
 - The mode has a `--dry-run` flag. It does the comparison and the log of §8,
   and sends no URL to the pipeline. The first production run uses it.
-- A task packet in `docs/tasks/` gives the build after the operator answers the
-  open questions.
+- Tasks 001 to 007 in `docs/tasks/` give the build. Each value of the answers
+  above is a named constant in `stophammer-crawler`.
 - `import` keeps its schedule until the measurement of §10 is complete.
 
 ## Verification

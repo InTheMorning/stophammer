@@ -90,7 +90,7 @@ needs the key on the VPS.
 
 ## Merge Recommendation
 
-After the six tasks pass, the orchestrator records:
+After the seven tasks pass, the orchestrator records:
 
 1. the result of the gate in each crate,
 2. the result of the `--dry-run` manual check on the VPS and its numbers,

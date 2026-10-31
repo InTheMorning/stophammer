@@ -26,16 +26,17 @@ which owns each rule.
 
 ## Assumptions
 
-- ADR 0081 is Accepted before a task starts. A task does not start on a
-  Proposed ADR.
-- The open questions take the proposed values:
+- The operator accepted ADR 0081 on 2026-10-31, with the proposed values of
+  the open questions:
   - the mode is `podcastindex`,
   - a schedule of the operator starts each pass,
   - a failed candidate waits 7 days,
   - the limits are 1,000 rows, 20,000 rows and 2,000 candidates,
   - the measurement runs 28 days.
 
-  A different answer changes the named constant in the task that holds it.
+  The tasks ran on the same day, before the operator accepted the ADR, with
+  these values.
+  The code holds each value as a named constant, and no constant changes.
 - The API response has the shape that the probe runs of 2026-10-31 saw: a
   JSON object with `status`, `feeds` and `count`, and each row with `id`,
   `url` and `podcastGuid`.
