@@ -1183,6 +1183,9 @@ struct SourceEntityLinkResponse {
     /// section 4a). Always false for a `link_type` other than `website` or
     /// `web_page`.
     url_scheme_added: bool,
+    /// The node value of a `podcast:funding` tag (ADR 0082 section 4).
+    /// Null for each other `link_type`.
+    label: Option<String>,
     source: String,
     extraction_path: String,
     observed_at: i64,
@@ -2554,6 +2557,7 @@ fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLin
     // the stored value names a host name.
     let (url, url_scheme_added) = match link.link_type.as_str() {
         "website" | "web_page" => web_link_for_read(&link.url),
+        // ADR 0082 section 4: a `funding` row follows section 4 only.
         _ => (web_url_or_none(Some(&link.url)), false),
     };
     SourceEntityLinkResponse {
@@ -2563,6 +2567,7 @@ fn entity_link_response(link: crate::model::SourceEntityLink) -> SourceEntityLin
         link_type: link.link_type,
         url,
         url_scheme_added,
+        label: link.label,
         source: link.source,
         extraction_path: link.extraction_path,
         observed_at: link.observed_at,

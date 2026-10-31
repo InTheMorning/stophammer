@@ -267,6 +267,8 @@ pub struct IngestLink {
     pub url: String,
     #[serde(default)]
     pub extraction_path: String,
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

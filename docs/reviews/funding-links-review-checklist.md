@@ -7,11 +7,13 @@ The ADR owns each rule. This list only names what to examine. The plan is
 
 ## Each Task
 
+Reviewed on 2026-10-31, on the working tree before the commit.
+
 | Task | Pass or fail | Required fixes | Merge |
 |---|---|---|---|
-| 001, the parser | | | |
-| 002, the storage and the events | | | |
-| 003, the response and the documents | | | |
+| 001, the parser | Pass | None. The crawler gate also passed against the changed parser: 341 tests, clippy and fmt. | Yes |
+| 002, the storage and the events | Pass | None. The packet missed the `MIGRATIONS` list, a second insert in `ingest_transaction` and the version assertions of `migration_tests`. The agent changed each one. | Yes |
+| 003, the response and the documents | Pass, with one fix by the orchestrator | The `docs/API.md` sentence on `entity.podcast:funding` named only a track. It now names a track or a live item, because the feed include lists live item rows too. | Yes |
 
 ## Rules Of The ADR
 
@@ -59,10 +61,13 @@ The ADR owns each rule. This list only names what to examine. The plan is
 
 ## Merge Recommendation
 
-After the three tasks pass, the orchestrator records:
+The three tasks passed on 2026-10-31. The orchestrator records:
 
-1. the result of the gate in each crate,
-2. whether the parser and the node can release together as 0.18.0
-   (ADR 0066 §3), and
-3. the count of cache bodies with the tag, when the operator gives it before
-   the release.
+1. The gate is green in each crate. The parser passes its 65 tests, and the
+   crawler passes its 341 tests against the changed parser. The node passes
+   its full test run, clippy and fmt. `gen_openapi` gives `label` in
+   `SourceEntityLinkResponse`.
+2. The parser and the node can release together as 0.18.0 (ADR 0066 §3). The
+   crawler changes only its version and its parser dependency.
+3. The count of cache bodies with the tag is not known before the release.
+   Task 005 gives it.

@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS source_entity_links (
     source          TEXT NOT NULL,
     extraction_path TEXT NOT NULL,
     observed_at     INTEGER NOT NULL,
+    label           TEXT,
     UNIQUE(feed_guid, entity_type, entity_id, link_type, url)
 ) STRICT;
 

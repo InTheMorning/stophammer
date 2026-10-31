@@ -284,6 +284,8 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0056_retired_source_hold_release.sql"),
     // Migration 57: store the host of each feed URL (ADR 0080 §5, task 004)
     include_str!("../migrations/0057_feed_host.sql"),
+    // Migration 58: store the label of a source link (ADR 0082 §2, task 002)
+    include_str!("../migrations/0058_source_link_label.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -2386,7 +2388,7 @@ pub fn get_source_entity_links_for_feed(
 ) -> Result<Vec<SourceEntityLink>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
-         extraction_path, observed_at \
+         extraction_path, observed_at, label \
          FROM source_entity_links WHERE feed_guid = ?1 \
          ORDER BY entity_type, entity_id, position, link_type, url, id",
     )?;
@@ -2403,6 +2405,7 @@ pub fn get_source_entity_links_for_feed(
             source: row.get(7)?,
             extraction_path: row.get(8)?,
             observed_at: row.get(9)?,
+            label: row.get(10)?,
         })
     })?;
 
@@ -2426,8 +2429,8 @@ pub fn replace_source_entity_links_for_feed(
     for link in dedupe_source_entity_links(links) {
         conn.execute(
             "INSERT INTO source_entity_links \
-             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at, label) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 &link.feed_guid,
                 &link.entity_type,
@@ -2438,6 +2441,7 @@ pub fn replace_source_entity_links_for_feed(
                 &link.source,
                 &link.extraction_path,
                 link.observed_at,
+                &link.label,
             ],
         )?;
     }
@@ -3640,6 +3644,7 @@ fn source_entity_links_changed(existing: &[SourceEntityLink], new: &[SourceEntit
                 || a.url != b.url
                 || a.source != b.source
                 || a.extraction_path != b.extraction_path
+                || a.label != b.label
         })
 }
 
@@ -6988,8 +6993,8 @@ pub fn ingest_transaction(
     for link in &source_entity_links {
         tx.execute(
             "INSERT INTO source_entity_links \
-             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (feed_guid, entity_type, entity_id, position, link_type, url, source, extraction_path, observed_at, label) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 &link.feed_guid,
                 &link.entity_type,
@@ -7000,6 +7005,7 @@ pub fn ingest_transaction(
                 &link.source,
                 &link.extraction_path,
                 link.observed_at,
+                &link.label,
             ],
         )?;
     }
@@ -7927,7 +7933,7 @@ pub fn get_source_entity_links_for_entity(
 ) -> Result<Vec<SourceEntityLink>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
-         extraction_path, observed_at \
+         extraction_path, observed_at, label \
          FROM source_entity_links \
          WHERE entity_type = ?1 AND entity_id = ?2 \
          ORDER BY position, link_type, url, id",
@@ -7944,6 +7950,7 @@ pub fn get_source_entity_links_for_entity(
             source: row.get(7)?,
             extraction_path: row.get(8)?,
             observed_at: row.get(9)?,
+            label: row.get(10)?,
         })
     })?;
     let mut result = Vec::new();
@@ -7961,7 +7968,7 @@ pub fn get_source_entity_links_for_feed_entity(
 ) -> Result<Vec<SourceEntityLink>, DbError> {
     let mut stmt = conn.prepare(
         "SELECT id, feed_guid, entity_type, entity_id, position, link_type, url, source, \
-         extraction_path, observed_at \
+         extraction_path, observed_at, label \
          FROM source_entity_links \
          WHERE feed_guid = ?1 AND entity_type = ?2 AND entity_id = ?3 \
          ORDER BY position, link_type, url, id",
@@ -7978,6 +7985,7 @@ pub fn get_source_entity_links_for_feed_entity(
             source: row.get(7)?,
             extraction_path: row.get(8)?,
             observed_at: row.get(9)?,
+            label: row.get(10)?,
         })
     })?;
     rows.collect::<Result<_, _>>().map_err(DbError::from)

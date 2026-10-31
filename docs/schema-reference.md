@@ -153,6 +153,10 @@ Notes:
 
 ### `source_entity_links`
 Purpose: preserved typed links such as websites, self-feed links, and release pages.
+Notes:
+- `label` holds the node value of a `podcast:funding` tag (ADR 0082 section 2).
+  It is null for each other link type.
+- a funding row has the `link_type` `funding` and the `source` `podcast_funding`
 
 ### `source_release_claims`
 Purpose: preserved release-like claims from feeds, tracks, and live items.

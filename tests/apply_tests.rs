@@ -1012,6 +1012,7 @@ fn apply_source_entity_links_replaced() {
             source: "rss_link".into(),
             extraction_path: "feed.link".into(),
             observed_at: now,
+            label: None,
         }],
     };
     let payload_json = serde_json::to_string(&payload_inner).expect("serialize payload");

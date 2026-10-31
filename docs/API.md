@@ -712,6 +712,15 @@ This rule has one difference for a `source_links` row of the type `website`
 or `web_page`. A stored value with no scheme that names a host name reads
 as `https://` and the value. The row then gives `url_scheme_added` as
 `true`. ADR 0054 section 4a owns this rule.
+A `funding` row follows section 4 only. [ADR 0082](adr/0082-a-funding-link-is-a-source-link.md)
+section 4 owns this rule.
+
+A `source_links` row gives `label`. For a `podcast:funding` tag, `label` holds
+the node value of the tag. For each other link type, `label` is `null`. The
+row has the `link_type` `funding` and the `source` `podcast_funding`. The
+`extraction_path` is `feed.podcast:funding` for a feed, and
+`entity.podcast:funding` for a track or a live item. ADR 0082 section 1 owns the link type.
+ADR 0082 section 2 owns the label and the source.
 
 ### Common query parameters
 
@@ -789,8 +798,21 @@ Returns a single feed by its `podcast:guid`.
         "link_type": "website",
         "url": "https://artist.example.com",
         "url_scheme_added": false,
+        "label": null,
         "source": "rss_link",
         "extraction_path": "feed.link",
+        "observed_at": 1710288000
+      },
+      {
+        "entity_type": "feed",
+        "entity_id": "uuid",
+        "position": 1,
+        "link_type": "funding",
+        "url": "https://artist.example.com/donate",
+        "url_scheme_added": false,
+        "label": "Support the artist",
+        "source": "podcast_funding",
+        "extraction_path": "feed.podcast:funding",
         "observed_at": 1710288000
       }
     ],
@@ -1827,6 +1849,7 @@ canonical feed-scoped URLs for the caller to retry.
         "link_type": "web_page",
         "url": "https://artist.example.com/song",
         "url_scheme_added": false,
+        "label": null,
         "source": "rss_link",
         "extraction_path": "entity.link",
         "observed_at": 1710288000

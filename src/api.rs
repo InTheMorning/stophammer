@@ -1391,6 +1391,7 @@ mod tests {
             link_type: "website".into(),
             url: "https://example.com/artist".into(),
             extraction_path: "feed.atom:link[@rel='alternate']".into(),
+            label: None,
         }];
 
         let claims = build_source_entity_links("feed-1", "feed", "feed-1", &links, 123);
@@ -1469,6 +1470,7 @@ mod tests {
             link_type: "website".into(),
             url: "https://wavlake.com/dj-omegaman".into(),
             extraction_path: "feed.link".into(),
+            label: None,
         });
 
         assert_eq!(
@@ -1518,6 +1520,7 @@ mod tests {
             link_type: "website".into(),
             url: "https://wavlake.com/dj-omegaman".into(),
             extraction_path: "feed.link".into(),
+            label: None,
         });
 
         let claims = build_source_platform_claims(
@@ -1605,9 +1608,15 @@ fn build_source_entity_links(
                 position: link.position,
                 link_type: link.link_type.clone(),
                 url: link.url.clone(),
-                source: "rss_link".to_string(),
+                source: if link.link_type == "funding" {
+                    "podcast_funding"
+                } else {
+                    "rss_link"
+                }
+                .to_string(),
                 extraction_path,
                 observed_at: now,
+                label: link.label.clone(),
             }
         })
         .collect()

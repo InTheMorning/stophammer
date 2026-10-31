@@ -552,6 +552,7 @@
       "entity_id",
       "entity_type",
       "extraction_path",
+      "label",
       "link_type",
       "observed_at",
       "position",

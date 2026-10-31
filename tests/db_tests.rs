@@ -1467,6 +1467,7 @@ fn source_entity_links_replace_round_trip() {
             source: "rss_link".into(),
             extraction_path: "feed.link".into(),
             observed_at: common::now(),
+            label: None,
         },
         stophammer::model::SourceEntityLink {
             id: None,
@@ -1479,6 +1480,7 @@ fn source_entity_links_replace_round_trip() {
             source: "rss_link".into(),
             extraction_path: "track.link".into(),
             observed_at: common::now(),
+            label: None,
         },
     ];
 
@@ -1508,6 +1510,7 @@ fn source_entity_links_replace_dedupes_duplicate_unique_keys() {
         source: "rss_link".into(),
         extraction_path: "feed.link".into(),
         observed_at: common::now(),
+        label: None,
     };
 
     stophammer::db::replace_source_entity_links_for_feed(&conn, &feed_guid, &[link.clone(), link])

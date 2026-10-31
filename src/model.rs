@@ -447,6 +447,11 @@ pub struct SourceEntityLink {
     pub source: String,
     pub extraction_path: String,
     pub observed_at: i64,
+    /// Text that the feed gives for the link (ADR 0082 §2). A stored payload
+    /// has no field, so it reads as `None`. A payload with no label keeps its
+    /// bytes, because `None` is not serialized.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
