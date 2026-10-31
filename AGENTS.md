@@ -6,9 +6,9 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.17.0 of 2026-10-31 delivered ADR 0081.
-Release 0.16.0 of 2026-10-25 delivered ADR 0059 §6 and §7, and
-musicindex.org requests 17 and 18.
+Release 0.18.0 is open. It holds ADR 0082, and each `Cargo.toml` gives its
+version. Release 0.17.0 of 2026-10-31 delivered ADR 0081. Release 0.16.0 of
+2026-10-25 delivered ADR 0059 §6 and §7, and musicindex.org requests 17 and 18.
 
 ### Deployed
 
@@ -26,16 +26,15 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-Nothing.
+- [ADR 0082](docs/adr/0082-a-funding-link-is-a-source-link.md) is built in
+  the parser and the node, and release 0.18.0 holds it. It keeps each
+  `podcast:funding` tag as a `source_links` row with a `label`. The held feeds
+  get their funding rows through the refill pass of ADR 0077, after the deploy.
+  [The phase plan](docs/plans/funding-links-phase-plan.md) and tasks 004 and
+  005 in `docs/tasks/` give the release, the deploy and the pass.
 
 ### Open Items
 
-- [ADR 0082](docs/adr/0082-a-funding-link-is-a-source-link.md) has the
-  status Accepted since 2026-10-31, and nothing of it is built. It keeps each
-  `podcast:funding` tag as a `source_links` row with a `label`.
-  [The phase plan](docs/plans/funding-links-phase-plan.md) and tasks 001 to
-  003 in `docs/tasks/` give the build. Tasks 004 and 005 give the release
-  0.18.0, the deploy and the refill pass of ADR 0077.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
