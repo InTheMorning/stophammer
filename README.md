@@ -116,6 +116,7 @@ cp packaging/env/crawler-feed.compose.env.example packaging/env/crawler-feed.com
 cp packaging/env/crawler-gossip.compose.env.example packaging/env/crawler-gossip.compose.env
 cp packaging/env/crawler-import.compose.env.example packaging/env/crawler-import.compose.env
 cp packaging/env/crawler-import-wavlake.compose.env.example packaging/env/crawler-import-wavlake.compose.env
+cp packaging/env/crawler-podcastindex.compose.env.example packaging/env/crawler-podcastindex.compose.env
 ```
 
 Primary configuration usually needs:

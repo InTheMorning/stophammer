@@ -1,0 +1,10 @@
+[Unit]
+Description=Run Stophammer podcastindex pass on a schedule
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=stophammer-podcastindex.service
+
+[Install]
+WantedBy=timers.target

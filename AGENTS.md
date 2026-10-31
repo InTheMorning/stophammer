@@ -59,11 +59,15 @@ Nothing.
   index. Measure it again when a client reports a slow search.
 - [ADR 0081](docs/adr/0081-a-daily-pass-reads-the-podcastindex-music-list.md)
   is Proposed. The operator answers its five open questions before the
-  build starts.
+  status changes.
   [The phase plan](docs/plans/podcastindex-music-list-phase-plan.md) and
-  tasks 001 to 006 in `docs/tasks/` give the build. After the build, its §10
-  measures for 28 days if `import` finds music feeds that the daily pass does
-  not. The result decides the schedule of `import`.
+  tasks 001 to 007 in `docs/tasks/` give the build. The build is complete in
+  the working trees of `stophammer` and `stophammer-crawler` on 2026-10-31,
+  and [the review record](docs/reviews/podcastindex-music-list-review-checklist.md)
+  gives its results. It is not deployed.
+- ADR 0081 §10: after the deploy, each pass measures the feeds that `import`
+  finds and the daily pass does not. After 28 days, the result decides the
+  schedule of `import`.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
@@ -214,13 +218,19 @@ cargo run -- feed <urls.txt
 CRAWL_TOKEN=xxx \
   INGEST_URL=http://localhost:8008/ingest/feed \
   cargo run -- refresh [--concurrency 5] [--force]
+
+# Daily pass over the PodcastIndex music list (ADR 0081)
+CRAWL_TOKEN=xxx \
+  INGEST_URL=http://localhost:8008/ingest/feed \
+  PODCASTINDEX_API_KEY=xxx PODCASTINDEX_API_SECRET=xxx \
+  cargo run -- podcastindex [--dry-run] [--concurrency 5]
 ```
 
-There are five modes: `feed`, `import`, `ndjson`, `gossip` and `refresh`. There
-is no `podping` mode. The `gossip` mode consumes the stream that carries podping
-notifications. `stophammer-crawler/AGENTS.md` holds the rules for that crate.
-The `feed`, `refresh`, `gossip` and `import` modes keep a fetch cache (ADR
-0050).
+There are six modes: `feed`, `import`, `ndjson`, `gossip`, `refresh` and
+`podcastindex`. There is no `podping` mode. The `gossip` mode consumes the
+stream that carries podping notifications. `stophammer-crawler/AGENTS.md` holds
+the rules for that crate. The `feed`, `refresh`, `gossip`, `import` and
+`podcastindex` modes keep a fetch cache (ADR 0050).
 
 `feed`, `refresh` and `gossip` follow a publisher link, and the albums of a
 `musicL` list. The tests of the archived ADR 0049 section 2 own the publisher

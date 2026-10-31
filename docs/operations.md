@@ -202,6 +202,7 @@ The compose file intentionally uses runnable sample env files:
 - [crawler-gossip.compose.env.example](../packaging/env/crawler-gossip.compose.env.example)
 - [crawler-import.compose.env.example](../packaging/env/crawler-import.compose.env.example)
 - [crawler-import-wavlake.compose.env.example](../packaging/env/crawler-import-wavlake.compose.env.example)
+- [crawler-podcastindex.compose.env.example](../packaging/env/crawler-podcastindex.compose.env.example)
 
 Additional Docker-specific templates are also shipped for custom compose
 services that are not part of the default root stack:
@@ -286,6 +287,7 @@ Shipped long-running units:
 Shipped example one-shot units:
 
 - `stophammer-import.service` + `stophammer-import.timer`
+- `stophammer-podcastindex.service` + `stophammer-podcastindex.timer`
 - `stophammer-crawl.service` + `stophammer-crawl.timer`
 
 The Docker Compose stack also includes a one-shot `import` service. Edit
@@ -300,6 +302,30 @@ The Wavlake-specific import pass has its own one-shot service and env file:
 ```bash
 docker compose run --rm import-wavlake
 ```
+
+The daily pass over the PodcastIndex music list (ADR 0081) has its own
+one-shot service. Follow these steps:
+
+1. Copy `packaging/env/crawler-podcastindex.compose.env.example` to
+   `packaging/env/crawler-podcastindex.compose.env`. Put the PodcastIndex
+   values of `PODCASTINDEX_API_KEY` and `PODCASTINDEX_API_SECRET` in that
+   file. Git ignores it. For systemd, use
+   `/etc/stophammer/crawler-podcastindex.env`.
+2. Set `PODCASTINDEX_DRY_RUN=1` for the first run. Then run:
+
+   ```bash
+   docker compose run --rm podcastindex
+   ```
+
+   The dry run sends no URL to the pipeline.
+3. Read the report line on standard error. Its form is
+   `podcastindex: rows=8601 held=8403 candidates=198 waiting=142 sent=56
+   accepted=56 rejected=0 import_gap=none`. A failed candidate waits 7 days.
+4. Remove `PODCASTINDEX_DRY_RUN`, and start the timer
+   `stophammer-podcastindex.timer`, or schedule the Compose command each day.
+
+`import` keeps its schedule until the measurement of ADR 0081 §10 is
+complete.
 
 The oneshot import/crawl units are examples only. They are not intended to be
 enabled by default in the first packaging milestone.

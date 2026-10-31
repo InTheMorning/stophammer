@@ -52,6 +52,13 @@ _install_bundle_tree() {
         target="/usr/bin/${rel#bin/}"
         install -Dm755 "${path}" "${pkgdir}${target}"
         ;;
+      env/crawler-podcastindex.env.example)
+        # ADR 0081 §2: the file holds the PodcastIndex API secret. systemd
+        # reads EnvironmentFile as root, so root-only access is enough.
+        target="/etc/stophammer/${rel#env/}"
+        target="${target%.example}"
+        install -Dm600 "${path}" "${pkgdir}${target}"
+        ;;
       env/*.env.example)
         target="/etc/stophammer/${rel#env/}"
         target="${target%.example}"
@@ -120,6 +127,7 @@ package_stophammer-crawler() {
   backup=(
     'etc/stophammer/crawler-gossip.env'
     'etc/stophammer/crawler-import.env'
+    'etc/stophammer/crawler-podcastindex.env'
     'etc/stophammer/crawler-feed.env'
   )
   install='stophammer-crawler.install'

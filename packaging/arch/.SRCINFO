@@ -31,4 +31,5 @@ pkgname = stophammer-crawler
 	optdepends = stophammer-indexer: local ingest target for crawler services
 	backup = etc/stophammer/crawler-gossip.env
 	backup = etc/stophammer/crawler-import.env
+	backup = etc/stophammer/crawler-podcastindex.env
 	backup = etc/stophammer/crawler-feed.env

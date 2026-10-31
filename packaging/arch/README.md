@@ -27,6 +27,7 @@ Notes:
   - `community.env`
   - `crawler-gossip.env`
   - `crawler-import.env`
+  - `crawler-podcastindex.env`
   - `crawler-feed.env`
 
 Local build:

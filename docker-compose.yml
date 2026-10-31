@@ -270,6 +270,39 @@ services:
       primary:
         condition: service_healthy
 
+  podcastindex:
+    logging: *default-logging
+    <<: *hardened
+    profiles: ["tools"]
+    image: ${STOPHAMMER_CRAWLER_IMAGE:-stophammer-crawler}
+    command:
+      - /bin/sh
+      - -lc
+      - >
+        set -- stophammer-crawler;
+        if [ "$${FORCE_REINGEST:-0}" = "1" ]; then set -- "$$@" --force; fi;
+        if [ "$${NO_REVALIDATE:-0}" = "1" ]; then set -- "$$@" --no-revalidate; fi;
+        set -- "$$@" podcastindex
+        --state "$${IMPORT_STATE_DB:-/data/import_state.db}"
+        --skip-db "$${FEED_SKIP_DB:-/data/feed_skip.db}"
+        --feed-cache "$${FEED_CACHE_DB:-/data/feed_cache.db}";
+        if [ -n "$${FAILED_FEEDS_OUTPUT:-}" ]; then set -- "$$@" --failed-feeds-output "$$FAILED_FEEDS_OUTPUT"; fi;
+        if [ -n "$${PODCASTINDEX_API_BASE:-}" ]; then set -- "$$@" --api-base "$$PODCASTINDEX_API_BASE"; fi;
+        if [ -n "$${CONCURRENCY:-}" ]; then set -- "$$@" --concurrency "$$CONCURRENCY"; fi;
+        if [ -n "$${HOST_DELAY_MS:-}" ]; then set -- "$$@" --host-delay-ms "$$HOST_DELAY_MS"; fi;
+        if [ "$${PODCASTINDEX_DRY_RUN:-0}" = "1" ]; then set -- "$$@" --dry-run; fi;
+        exec "$@"
+    restart: "no"
+    env_file:
+      - ./packaging/env/crawler-podcastindex.compose.env
+    volumes:
+      - crawler-data:/data
+    depends_on:
+      crawler-init:
+        condition: service_completed_successfully
+      primary:
+        condition: service_healthy
+
 volumes:
   primary-data:
   crawler-data:

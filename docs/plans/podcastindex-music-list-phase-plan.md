@@ -80,6 +80,10 @@ also changes files of `stophammer`.
    reads the pass start time that task 004 stores.
 6. **Task 006, the packaging and the documents.** It starts after task 004.
    It can run at the same time as task 005.
+7. **Task 007, the node list read waits after a `429`.** Added on 2026-10-31
+   after the manual check of task 004 found the `429`. It changes only
+   `src/modes/refresh.rs`, and it can run at the same time as tasks 005 and
+   006.
 
 ## Interim Behavior
 
@@ -118,6 +122,9 @@ also changes files of `stophammer`.
 - **The URL normalization.** A match by URL after the removal of `www.` can
   join two different feeds on hosts where `www.` is a different site. The GUID
   match runs first, and the probe found no such case on 2026-10-31.
+- **The rate limit of the node.** The node answers `429` after a burst of
+  100 requests. The list read sent 106 pages in less than one second against
+  a local node. Task 007 adds the wait.
 - **A redirect.** The pipeline follows redirects, and `CrawlReport.final_url`
   can differ from the candidate URL. The attempt row keys on the candidate
   URL that the mode sent, never on `final_url`.

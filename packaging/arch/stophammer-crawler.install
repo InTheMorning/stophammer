@@ -9,6 +9,7 @@ Next steps:
 
 Optional one-shot/timer units:
   - stophammer-import.service / stophammer-import.timer
+  - stophammer-podcastindex.service / stophammer-podcastindex.timer
   - stophammer-crawl.service / stophammer-crawl.timer
 
 If you use archive-backed gossip, ensure the service user can read the archive DB.

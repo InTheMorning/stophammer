@@ -2,10 +2,13 @@
 @ROOT@/packaging/systemd/stophammer-gossip.service|systemd/stophammer-gossip.service
 @ROOT@/packaging/systemd/stophammer-import.service|systemd/stophammer-import.service
 @ROOT@/packaging/systemd/stophammer-import.timer|systemd/stophammer-import.timer
+@ROOT@/packaging/systemd/stophammer-podcastindex.service|systemd/stophammer-podcastindex.service
+@ROOT@/packaging/systemd/stophammer-podcastindex.timer|systemd/stophammer-podcastindex.timer
 @ROOT@/packaging/systemd/stophammer-crawl.service|systemd/stophammer-crawl.service
 @ROOT@/packaging/systemd/stophammer-crawl.timer|systemd/stophammer-crawl.timer
 @ROOT@/packaging/env/crawler-gossip.env.example|env/crawler-gossip.env.example
 @ROOT@/packaging/env/crawler-import.env.example|env/crawler-import.env.example
+@ROOT@/packaging/env/crawler-podcastindex.env.example|env/crawler-podcastindex.env.example
 @ROOT@/packaging/env/crawler-feed.env.example|env/crawler-feed.env.example
 @ROOT@/packaging/sysusers.d/stophammer-crawler.conf|sysusers.d/stophammer-crawler.conf
 @ROOT@/packaging/tmpfiles.d/stophammer-crawler.conf|tmpfiles.d/stophammer-crawler.conf

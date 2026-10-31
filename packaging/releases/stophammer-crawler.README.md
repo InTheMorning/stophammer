@@ -23,5 +23,7 @@ Optional example one-shot units are also included:
 
 - `stophammer-import.service`
 - `stophammer-import.timer`
+- `stophammer-podcastindex.service`
+- `stophammer-podcastindex.timer`
 - `stophammer-crawl.service`
 - `stophammer-crawl.timer`

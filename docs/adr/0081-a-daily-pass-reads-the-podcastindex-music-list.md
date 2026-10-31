@@ -4,7 +4,7 @@
 Proposed on 2026-10-31. The operator answers the questions in "Open
 Questions" before the status changes.
 [The phase plan](../plans/podcastindex-music-list-phase-plan.md) and tasks 001
-to 006 in `docs/tasks/` give the build. They take the proposed values of the
+to 007 in `docs/tasks/` give the build. They take the proposed values of the
 open questions until the operator answers.
 
 ## Date
@@ -124,6 +124,11 @@ source of the data that the node stores (ADR 0006, ADR 0030).
 The mode reads the feeds that the node holds from
 `GET /v1/feeds/recent?medium=all`, as `refresh` does (ADR 0047). A page that
 fails stops the pass, and the mode sends no URL to the pipeline.
+
+A `429` from the node is not a failed page at once. The reader waits for the `Retry-After`
+seconds, or 1 second, and sends the page again. It does this at most 5 times.
+On 2026-10-31, a pass against a local node read 106 pages in less than one
+second. A second pass 2 seconds later got a `429`.
 
 A list row is held when one of these conditions is true:
 

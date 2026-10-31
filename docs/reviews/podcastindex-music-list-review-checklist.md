@@ -8,14 +8,29 @@ examine. The plan is
 
 ## Each Task
 
+Reviewed on 2026-10-31, on the working tree before the commit.
+
 | Task | Pass or fail | Required fixes | Merge |
 |---|---|---|---|
-| 001, the API client | | | |
-| 002, the comparison | | | |
-| 003, the attempts and the wait | | | |
-| 004, the pass and the CLI | | | |
-| 005, the measurement | | | |
-| 006, the packaging and the documents | | | |
+| 001, the API client | Pass | None. A module-level `dead_code` allow was interim, and task 004 removed it. | Yes |
+| 002, the comparison | Pass | None. Same interim allow, removed by task 004. | Yes |
+| 003, the attempts and the wait | Pass | None. `record` and `last_attempts` give `rusqlite::Result`, which the packet left open. | Yes |
+| 004, the pass and the CLI | Pass | The pass start was written before the list read. Task 005 moved it after the measurement. `run_waves` has an `#[expect(too_many_arguments)]` on a private function. | Yes |
+| 005, the measurement | Pass, after one change | The measurement ran before `check_limits`, so a short list recorded a wrong count. The agent moved it after `check_limits` and added the test. | Yes |
+| 006, the packaging and the documents | Pass, with one fix by the orchestrator | The PKGBUILD installed the env file with mode 644. It now installs `crawler-podcastindex.env` with mode 600. The two visual criteria stay open for the operator. | Yes |
+| 007, the wait after a `429` | Pass | None. Added after the manual check of task 004 found the `429`. | Yes |
+
+The manual check ran on 2026-10-31. It used a mock API with 1,000 rows and a
+local node on the backup of 2026-10-25:
+
+- A dry run gave `rows=1000 held=0 candidates=1000 waiting=0`.
+- A pass with the pipeline sent 1,000 URLs and recorded 1,000 `fetch_error`
+  rows.
+- The next dry run gave `waiting=1000`.
+- Two passes in a row made the reader wait 1 s after a `429` and complete.
+
+The check against the production API and the production node is open. It
+needs the key on the VPS.
 
 ## Rules Of The ADR
 

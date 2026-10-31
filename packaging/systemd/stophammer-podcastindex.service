@@ -1,0 +1,26 @@
+[Unit]
+Description=Stophammer one-shot PodcastIndex music list pass
+After=network-online.target stophammer-primary.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=stophammer-crawler
+Group=stophammer-crawler
+EnvironmentFile=/etc/stophammer/crawler-podcastindex.env
+ExecStart=/bin/sh -lc 'set -- /usr/bin/stophammer-crawler; if [ "${FORCE_REINGEST:-0}" = "1" ]; then set -- "$@" --force; fi; if [ "${NO_REVALIDATE:-0}" = "1" ]; then set -- "$@" --no-revalidate; fi; set -- "$@" podcastindex --state "${IMPORT_STATE_DB:-/var/lib/stophammer-crawler/import_state.db}" --skip-db "${FEED_SKIP_DB:-/var/lib/stophammer-crawler/feed_skip.db}" --feed-cache "${FEED_CACHE_DB:-/var/lib/stophammer-crawler/feed_cache.db}"; if [ -n "${FAILED_FEEDS_OUTPUT:-}" ]; then set -- "$@" --failed-feeds-output "$FAILED_FEEDS_OUTPUT"; fi; if [ -n "${PODCASTINDEX_API_BASE:-}" ]; then set -- "$@" --api-base "$PODCASTINDEX_API_BASE"; fi; if [ -n "${CONCURRENCY:-}" ]; then set -- "$@" --concurrency "$CONCURRENCY"; fi; if [ -n "${HOST_DELAY_MS:-}" ]; then set -- "$@" --host-delay-ms "$HOST_DELAY_MS"; fi; if [ "${PODCASTINDEX_DRY_RUN:-0}" = "1" ]; then set -- "$@" --dry-run; fi; exec "$@"'
+WorkingDirectory=/var/lib/stophammer-crawler
+StateDirectory=stophammer-crawler
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectControlGroups=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+LockPersonality=true
+ReadWritePaths=/var/lib/stophammer-crawler
+
+[Install]
+WantedBy=multi-user.target
