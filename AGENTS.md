@@ -57,6 +57,11 @@ Nothing.
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
   approximately 195 ms. Such a track search sorts each matching row with no
   index. Measure it again when a client reports a slow search.
+- [ADR 0081](docs/adr/0081-a-daily-pass-reads-the-podcastindex-music-list.md)
+  is Proposed. The operator answers its five open questions before a task
+  packet gives the build. After the build, its §10 measures for 28 days if
+  `import` finds music feeds that the daily pass does not. The result decides
+  the schedule of `import`.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
