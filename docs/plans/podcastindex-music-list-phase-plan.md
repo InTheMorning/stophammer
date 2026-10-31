@@ -85,6 +85,16 @@ also changes files of `stophammer`.
    after the manual check of task 004 found the `429`. It changes only
    `src/modes/refresh.rs`, and it can run at the same time as tasks 005 and
    006.
+8. **Task 008, the release candidate.** The three repositories get the version
+   0.17.0 (ADR 0066 §3), and the operator tags `v0.17.0-rc.1`.
+9. **Task 009, the deploy and the first production pass.** A dry run on the
+   VPS gives the numbers of §8. Then a pass with the pipeline runs, and a
+   schedule starts one pass each day. The operator promotes `v0.17.0`.
+10. **Task 010, the record of the deploy.** `AGENTS.md` describes the present,
+    a measurement record keeps the numbers, and this plan and tasks 001 to 010
+    are deleted.
+11. **Task 011, the §10 measurement.** It starts 28 days after the first pass
+    with the pipeline. The decision follows the two branches of §10.
 
 ## Interim Behavior
 
@@ -102,7 +112,9 @@ also changes files of `stophammer`.
   the crawler leaves the tables in place, and `import` does not fail on them.
 - The node, its schema and `GET /v1/feeds/recent` do not change.
 - `POST /ingest/feed` gets the same request body as from the `feed` mode.
-- The crawler release is MINOR (ADR 0066). The node has no release.
+- The release is MINOR (ADR 0066 §4). The three repositories get the version
+  0.17.0 together (ADR 0066 §3). The node and the parser change only their
+  version.
 
 ## Risk Areas
 
@@ -156,6 +168,6 @@ also changes files of `stophammer`.
 
 The orchestrator reviews each diff against
 [the review checklist](../reviews/podcastindex-music-list-review-checklist.md).
-A release record gives the crawler release. After the deploy, the
-orchestrator deletes this plan and the task packets, and `AGENTS.md` keeps the
-§10 measurement in "Open Items" until the operator decides.
+Task 008 gives the release, and task 009 gives the deploy. Task 010 deletes
+this plan, the checklist and task packets 001 to 010. `AGENTS.md` keeps the
+§10 measurement in "Open Items" until task 011 is complete.

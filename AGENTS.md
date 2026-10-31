@@ -31,7 +31,8 @@ deployed, except the items below. The primary sets
   [The phase plan](docs/plans/podcastindex-music-list-phase-plan.md) and
   tasks 001 to 007 in `docs/tasks/` give the build, and
   [the review record](docs/reviews/podcastindex-music-list-review-checklist.md)
-  gives its results. The first production pass runs with `--dry-run`, and the
+  gives its results. Tasks 008 to 010 give the release 0.17.0, the deploy and
+  the record. The first production pass runs with `--dry-run`, and the
   operator compares its numbers with the Context of the ADR.
 
 ### Open Items
@@ -66,7 +67,8 @@ deployed, except the items below. The primary sets
   index. Measure it again when a client reports a slow search.
 - ADR 0081 §10: after the deploy, each pass measures the feeds that `import`
   finds and the daily pass does not. After 28 days, the result decides the
-  schedule of `import`.
+  schedule of `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
+  gives the steps.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 

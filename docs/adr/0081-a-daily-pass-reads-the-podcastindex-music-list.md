@@ -4,7 +4,8 @@
 Accepted on 2026-10-31. The operator accepted the proposed values of the five
 questions of the proposal. "Open Questions" gives each answer.
 [The phase plan](../plans/podcastindex-music-list-phase-plan.md) and tasks 001
-to 007 in `docs/tasks/` give the build.
+to 007 in `docs/tasks/` give the build. Tasks 008 to 011 give the release, the
+deploy and the measurement of §10.
 
 ## Date
 2026-10-31
