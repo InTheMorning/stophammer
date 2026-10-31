@@ -3,6 +3,9 @@
 ## Status
 Proposed on 2026-10-31. The operator answers the questions in "Open
 Questions" before the status changes.
+[The phase plan](../plans/podcastindex-music-list-phase-plan.md) and tasks 001
+to 006 in `docs/tasks/` give the build. They take the proposed values of the
+open questions until the operator answers.
 
 ## Date
 2026-10-31
@@ -141,7 +144,7 @@ The mode keeps one row for each candidate that it sent to the pipeline, in a
 table `music_list_attempts` of `import_state.db`. The row holds the
 PodcastIndex ID, the URL, the outcome, the reason and the time of the last try.
 
-A candidate that got a rejection, a parse error or a fetch error waits 7 days.
+A candidate with an outcome other than `accepted` or `no_change` waits 7 days.
 Then the next pass tries it again. No outcome stops the tries for all time,
 because a feed and a verifier rule can change after a try (Context, cause 2).
 
@@ -198,13 +201,13 @@ Each pass measures this gap:
 1. The pass reads the rows of `import_feed_memory` with the outcome `accepted`
    and a `last_attempted_at` after the start of the previous pass.
 2. It counts each row whose `podcastindex_id` is not in the list of this pass.
-3. The log gives the count. The table `import_gap_counts` of
-   `import_state.db` keeps the time of the pass, the count, and the ID and URL
-   of each counted row.
+3. The log gives the count. Two tables of `import_state.db` keep the result:
+   `import_gap_passes` keeps the time and the count of each pass, and
+   `import_gap_rows` keeps the ID and the URL of each counted row.
 
 These rows are results of `import` fetches, so §7 permits them.
 
-After 28 days of passes, the operator examines `import_gap_counts`:
+After 28 days of passes, the operator examines the two tables:
 
 - When the counted rows are none or almost none, a new ADR stops the schedule
   of `import` and amends ADR 0030 and ADR 0033. `import` stays available as a
@@ -241,6 +244,10 @@ decides.
   gets a list that is not normal.
 - The change spans two repositories. This repository holds the ADR. The
   `stophammer-crawler` commit names it.
+- `stophammer-crawler` adds the `sha1` crate of RustCrypto for the
+  `Authorization` header. The crate already uses `sha2` of the same family.
+- The mode has a `--dry-run` flag. It does the comparison and the log of §8,
+  and sends no URL to the pipeline. The first production run uses it.
 - A task packet in `docs/tasks/` gives the build after the operator answers the
   open questions.
 - `import` keeps its schedule until the measurement of §10 is complete.
