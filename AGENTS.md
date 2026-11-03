@@ -58,6 +58,9 @@ deployed, except the items below. The primary sets
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change. No decision is recorded for the other changes.
+- [The research request of 2026-11-03](docs/plans/research-lookalike-feeds-and-first-seen-request.md)
+  gives four changes for the operator copy queue. They use the PodcastIndex
+  lookalike pairs and first-seen times. No decision is recorded.
 - ADR 0080 §6: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
