@@ -572,3 +572,11 @@ CREATE TABLE IF NOT EXISTS search_entities (
 
 CREATE INDEX IF NOT EXISTS idx_search_entities_entity
     ON search_entities(entity_type, entity_id);
+
+-- The URLs that a record left by a move (ADR 0083 section 4). Local to the
+-- primary. No event carries the rows, so a community node holds none.
+CREATE TABLE IF NOT EXISTS feed_left_urls (
+    feed_guid TEXT NOT NULL,
+    url       TEXT NOT NULL,
+    PRIMARY KEY (feed_guid, url)
+) STRICT;

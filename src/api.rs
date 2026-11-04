@@ -5360,6 +5360,9 @@ fn relocate_feed(
     // ADR 0052 section 2, task 006: a stale new-feed-url declaration must
     // not point back at a URL the record just left.
     db::clear_declared_new_feed_url(tx, feed_guid)?;
+    // ADR 0083 section 4: an operator relocation starts a new history, so it
+    // deletes each left URL of the GUID.
+    db::clear_left_urls(tx, feed_guid)?;
 
     let feed = db::get_feed_by_guid(tx, feed_guid)?
         .ok_or_else(|| db::DbError::Other(format!("feed {feed_guid} vanished after relocation")))?;

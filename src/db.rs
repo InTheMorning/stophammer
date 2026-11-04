@@ -286,6 +286,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("../migrations/0057_feed_host.sql"),
     // Migration 58: store the label of a source link (ADR 0082 §2, task 002)
     include_str!("../migrations/0058_source_link_label.sql"),
+    // Migration 59: store the URLs that a record left by a move (ADR 0083 §4,
+    // task 002)
+    include_str!("../migrations/0059_feed_left_urls.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -2960,6 +2963,11 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
     )?;
     conn.execute(
         "DELETE FROM feed_copy_overflow WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    // ADR 0083 section 4: a feed delete also removes the left URLs of the GUID.
+    conn.execute(
+        "DELETE FROM feed_left_urls WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
@@ -7471,6 +7479,67 @@ pub fn set_feed_move_declarations(
 pub fn clear_declared_new_feed_url(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
     conn.execute(
         "UPDATE feeds SET declared_new_feed_url = NULL WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    Ok(())
+}
+
+// ── feed_left_urls (ADR 0083 section 4) ─────────────────────────────────────
+
+/// Returns the URLs that the record of `feed_guid` left by a move, in
+/// ascending order (ADR 0083 section 4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the SELECT statement fails.
+pub fn get_left_urls(conn: &Connection, feed_guid: &str) -> Result<Vec<String>, DbError> {
+    let mut stmt =
+        conn.prepare("SELECT url FROM feed_left_urls WHERE feed_guid = ?1 ORDER BY url")?;
+    let rows = stmt.query_map(params![feed_guid], |r| r.get::<_, String>(0))?;
+    let mut urls = Vec::new();
+    for row in rows {
+        urls.push(row?);
+    }
+    Ok(urls)
+}
+
+/// Adds `url` to the left URLs of `feed_guid`. A URL that is already held
+/// gives no second row (ADR 0083 section 4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the INSERT statement fails.
+pub fn add_left_url(conn: &Connection, feed_guid: &str, url: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR IGNORE INTO feed_left_urls (feed_guid, url) VALUES (?1, ?2)",
+        params![feed_guid, url],
+    )?;
+    Ok(())
+}
+
+/// Removes `url` from the left URLs of `feed_guid`. The other rows stay
+/// (ADR 0083 section 4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the DELETE statement fails.
+pub fn remove_left_url(conn: &Connection, feed_guid: &str, url: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_left_urls WHERE feed_guid = ?1 AND url = ?2",
+        params![feed_guid, url],
+    )?;
+    Ok(())
+}
+
+/// Removes each left URL of `feed_guid`. An operator relocation and a feed
+/// delete use it (ADR 0083 section 4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the DELETE statement fails.
+pub fn clear_left_urls(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+    conn.execute(
+        "DELETE FROM feed_left_urls WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
     Ok(())
