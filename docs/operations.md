@@ -107,6 +107,24 @@ them from the environment, or from `deploy.env` at the repository root. Git
 ignores `deploy.env`. Copy [deploy.env.example](../deploy.env.example) to
 `deploy.env` and set the two values.
 
+### Make a release
+
+`scripts/create-release.sh VERSION` makes a candidate or a release of the three
+repositories. It shows its steps and asks before the first change. A second run
+with the same VERSION continues after the last completed step.
+
+A VERSION such as `0.18.1-rc.1` is a candidate. The script sets the version in
+each `Cargo.toml` and `Cargo.lock`, and pushes `main` of each repository. It
+waits for CI, pushes the tags, and waits for the release workflow.
+
+A VERSION such as `0.18.1` promotes the newest candidate of that version (ADR
+0065). The script tags the commit of the candidate in each repository, and waits
+for the release workflow. It makes no commit.
+
+`./deploy.sh --release VERSION --create --backup` runs the script, and then
+deploys the images. ADR 0066 section 4 gives the check that selects the version.
+The script does not change `AGENTS.md` and does not write the release notes.
+
 ### Deploy a release with Compose
 
 Pin the GHCR images in `.env` adjacent to `docker-compose.yml`, then pull and

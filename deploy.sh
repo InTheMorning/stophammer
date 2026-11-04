@@ -12,6 +12,8 @@
 #   ./deploy.sh --no-cache   # build without Docker layer cache (crawler only)
 #   ./deploy.sh --release 0.9.0-rc.1 --backup
 #                            # deploy the GHCR images of a release, no build
+#   ./deploy.sh --release 0.9.0-rc.1 --create --backup
+#                            # make that candidate or release first, then deploy
 #
 set -euo pipefail
 
@@ -38,7 +40,7 @@ NODE_URL="https://api.musicindex.org"
 usage() {
     cat >&2 <<'EOF'
 usage: deploy.sh [all|indexer|crawler] [--rebuild] [--backup] [--no-cache]
-       deploy.sh [all|indexer|crawler] --release VERSION [--backup]
+       deploy.sh [all|indexer|crawler] --release VERSION [--create [--yes]] [--backup]
 
   all         build and deploy both images (default)
   indexer     build and deploy only the primary image
@@ -61,6 +63,11 @@ usage: deploy.sh [all|indexer|crawler] [--rebuild] [--backup] [--no-cache]
               primary before gossip. The local tag vVERSION must exist. After
               the deploy, the script compares git_revision of /node/info with
               the commit of that tag. --rebuild and --no-cache are refused.
+  --create    with --release: run scripts/create-release.sh VERSION first. It
+              sets the version, pushes main, waits for CI, pushes the tags and
+              waits for the release workflow in the three repositories. A
+              VERSION with no hyphen promotes its newest candidate.
+  --yes       with --create: do not ask before the first change.
 
 The script reads VPS (the SSH target) and VPS_DIR (the Stophammer folder
 on the VPS) from the environment, or from deploy.env. Git ignores
@@ -74,6 +81,8 @@ backup=0
 no_cache=0
 target_set=0
 release=""
+create=0
+assume_yes=0
 
 while [[ $# -gt 0 ]]; do
     arg="$1"
@@ -104,6 +113,12 @@ while [[ $# -gt 0 ]]; do
             release="$1"
             shift
             ;;
+        --create)
+            create=1
+            ;;
+        --yes)
+            assume_yes=1
+            ;;
         -h|--help)
             usage
             exit 0
@@ -128,6 +143,22 @@ deploy_indexer=0
 deploy_crawler=0
 [[ "$what" == "all" || "$what" == "indexer" ]] && deploy_indexer=1
 [[ "$what" == "all" || "$what" == "crawler" ]] && deploy_crawler=1
+
+# --- Release mode: make the release when asked ---
+
+if [[ "${create}" -eq 1 || "${assume_yes}" -eq 1 ]]; then
+    if [[ -z "${release}" ]]; then
+        echo >&2 "error: --create and --yes need --release VERSION."
+        exit 1
+    fi
+    if [[ "${create}" -eq 0 ]]; then
+        echo >&2 "error: --yes needs --create."
+        exit 1
+    fi
+    yes_flag=()
+    [[ "${assume_yes}" -eq 1 ]] && yes_flag=(--yes)
+    "${LOCAL_DIR}/scripts/create-release.sh" "${release}" "${yes_flag[@]}"
+fi
 
 # --- Release mode: check the version and its local tag ---
 
