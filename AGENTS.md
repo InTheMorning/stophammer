@@ -61,6 +61,13 @@ deployed, except the items below. The primary sets
 - [The research request of 2026-11-03](docs/plans/research-lookalike-feeds-and-first-seen-request.md)
   gives four changes for the operator copy queue. They use the PodcastIndex
   lookalike pairs and first-seen times. No decision is recorded.
+- [The research request of 2026-11-04](docs/plans/research-feed-move-confirmation-request.md)
+  gives three changes for feed moves.
+  [ADR 0083](docs/adr/0083-a-feed-move-refuses-a-loop.md) is Proposed and
+  answers two of them with a different rule. It waits for a measurement of the
+  self links of 35 moved feeds from the research. Task 001 of ADR 0083 in
+  `docs/tasks/` starts when the result arrives. No decision is recorded for the
+  tag of a mirror in the copy queue.
 - ADR 0080 §6: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
