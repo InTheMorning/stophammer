@@ -2341,8 +2341,30 @@ struct MoveTarget {
     trigger: &'static str,
 }
 
-/// ADR 0052 sections 1 and 2, task 006: the one test for a source-triggered
-/// move.
+/// The answer of [`move_target`].
+enum MoveDecision {
+    /// No trigger matches. The submission is not a move.
+    NoTrigger,
+    /// A trigger matches, and the record moves.
+    Move(MoveTarget),
+    /// A trigger matches, but ADR 0083 section 2 refuses the move.
+    /// `target_url` is the URL of the refused move, and `held_url` is the URL
+    /// that the body names.
+    Refused {
+        target_url: String,
+        held_url: String,
+    },
+}
+
+impl MoveDecision {
+    /// `true` when the record moves.
+    const fn is_move(&self) -> bool {
+        matches!(self, Self::Move(_))
+    }
+}
+
+/// ADR 0052 sections 1 and 2, task 006, and ADR 0083 section 2: the one test
+/// for a source-triggered move.
 ///
 /// A submission moves the record on the first of these that matches:
 ///
@@ -2356,9 +2378,23 @@ struct MoveTarget {
 ///   `308`, and `canonical_url` is not the stored source URL: trigger
 ///   `permanent redirect`, target `canonical_url`.
 ///
-/// Returns the move target and its trigger, or `None`. Both the read phase
-/// and the write phase of `handle_ingest_feed` call this function, so the
-/// two phases use one rule and cannot disagree.
+/// The function finds the trigger first. For a mirror submission, ADR 0083
+/// section 2 then examines `body` in this sequence, and the first match
+/// decides. A held URL is the stored source URL or a left URL, and an own URL
+/// is never a held URL. Each comparison is exact string equality.
+///
+/// 1. The tag of `body` names an own URL: the record moves.
+/// 2. The tag of `body` names a held URL: [`MoveDecision::Refused`].
+/// 3. The move is a return to a left URL, and the self link of `body` names a
+///    held URL: [`MoveDecision::Refused`].
+/// 4. In each other condition, the record moves.
+///
+/// A submission with no trigger gives [`MoveDecision::NoTrigger`], never a
+/// refusal. The update case (permanent redirect) applies none of these rules
+/// (ADR 0083 section 5).
+///
+/// Both the read phase and the write phase of `handle_ingest_feed` call this
+/// function, so the two phases use one rule and cannot disagree.
 ///
 /// # Errors
 ///
@@ -2369,28 +2405,69 @@ fn move_target(
     source_url: &str,
     canonical_url: &str,
     redirects: &[ingest::RedirectHop],
-) -> Result<Option<MoveTarget>, ApiError> {
+    body: &ingest::IngestFeedData,
+) -> Result<MoveDecision, ApiError> {
+    let is_own = |url: &str| url == source_url || url == canonical_url;
     match db::classify_submission(conn, feed_guid, source_url, canonical_url)? {
-        db::SubmissionClass::Mirror { .. } => {
-            if let Some(new_feed_url) = db::get_declared_new_feed_url(conn, feed_guid)?
-                .filter(|declared| declared == source_url || declared == canonical_url)
+        db::SubmissionClass::Mirror {
+            source_url: stored_source_url,
+        } => {
+            let target = if let Some(new_feed_url) =
+                db::get_declared_new_feed_url(conn, feed_guid)?.filter(|declared| is_own(declared))
             {
-                return Ok(Some(MoveTarget {
+                MoveTarget {
                     new_feed_url,
                     trigger: "new-feed-url",
-                }));
+                }
+            } else if let Some(new_feed_url) =
+                db::get_declared_self_url(conn, feed_guid)?.filter(|declared| is_own(declared))
+            {
+                MoveTarget {
+                    new_feed_url,
+                    trigger: "self link",
+                }
+            } else {
+                return Ok(MoveDecision::NoTrigger);
+            };
+
+            // ADR 0083 section 2, rule 1: the tag names an own URL.
+            let tag = body.new_feed_url.as_deref();
+            if tag.is_some_and(is_own) {
+                return Ok(MoveDecision::Move(target));
             }
-            let self_link = db::get_declared_self_url(conn, feed_guid)?
-                .filter(|declared| declared == source_url || declared == canonical_url);
-            Ok(self_link.map(|new_feed_url| MoveTarget {
-                new_feed_url,
-                trigger: "self link",
-            }))
+            let left_urls = db::get_left_urls(conn, feed_guid)?;
+            let is_held = |url: &str| {
+                !is_own(url) && (url == stored_source_url || left_urls.iter().any(|l| l == url))
+            };
+            // Rule 2: the tag names a held URL.
+            if let Some(held_url) = tag.filter(|url| is_held(url)) {
+                return Ok(MoveDecision::Refused {
+                    target_url: target.new_feed_url,
+                    held_url: held_url.to_string(),
+                });
+            }
+            // Rule 3: a return whose self link names a held URL.
+            let is_return = left_urls.iter().any(|l| is_own(l));
+            if is_return
+                && let Some(link) = body
+                    .links
+                    .iter()
+                    .find(|link| link.link_type == "self_feed")
+                    .map(|link| link.url.as_str())
+                    .filter(|url| is_held(url))
+            {
+                return Ok(MoveDecision::Refused {
+                    target_url: target.new_feed_url,
+                    held_url: link.to_string(),
+                });
+            }
+            // Rule 4.
+            Ok(MoveDecision::Move(target))
         }
         db::SubmissionClass::Update => {
             let Some(stored_source_url) = db::get_feed(conn, feed_guid)?.map(|feed| feed.feed_url)
             else {
-                return Ok(None);
+                return Ok(MoveDecision::NoTrigger);
             };
             if source_url != stored_source_url
                 || redirects.is_empty()
@@ -2399,16 +2476,16 @@ fn move_target(
                     .iter()
                     .all(|hop| hop.status == 301 || hop.status == 308)
             {
-                return Ok(None);
+                return Ok(MoveDecision::NoTrigger);
             }
-            Ok(Some(MoveTarget {
+            Ok(MoveDecision::Move(MoveTarget {
                 new_feed_url: canonical_url.to_string(),
                 trigger: "permanent redirect",
             }))
         }
         db::SubmissionClass::RecordConflict
         | db::SubmissionClass::GuidChange { .. }
-        | db::SubmissionClass::NewFeed => Ok(None),
+        | db::SubmissionClass::NewFeed => Ok(MoveDecision::NoTrigger),
     }
 }
 
@@ -2644,8 +2721,9 @@ async fn handle_ingest_feed(
                     &req.source_url,
                     &req.canonical_url,
                     &req.redirects,
+                    feed_data,
                 )?
-                .is_some()
+                .is_move()
             {
                 req.force_reingest = true;
             }
@@ -2946,12 +3024,13 @@ async fn handle_ingest_feed(
                 // the stored source URL moves the record. `move_target` is
                 // the one test for this; the read phase above calls the
                 // same function, so the two places cannot disagree.
-                if let Some(target) = move_target(
+                if let MoveDecision::Move(target) = move_target(
                     &conn,
                     &feed_data.feed_guid,
                     &req.source_url,
                     &req.canonical_url,
                     &req.redirects,
+                    feed_data,
                 )? {
                     warnings.push(format!(
                         "moved from {} to {} (ADR 0052 {})",
@@ -3027,16 +3106,34 @@ async fn handle_ingest_feed(
                 // never `source_entity_links` (ADR 0052 Guards): a mirror
                 // body cannot supply this evidence. `move_target` is the one
                 // test for this; the read phase above calls the same
-                // function, so the two places cannot disagree.
-                let target = move_target(
+                // function, so the two places cannot disagree. ADR 0083
+                // section 2 can refuse a move that a trigger started.
+                let decision = move_target(
                     &conn,
                     &feed_data.feed_guid,
                     &req.source_url,
                     &req.canonical_url,
                     &req.redirects,
+                    feed_data,
                 )?;
+                let mut refusal_warnings: Vec<String> = Vec::new();
+                if let MoveDecision::Refused {
+                    target_url,
+                    held_url,
+                } = &decision
+                {
+                    tracing::warn!(
+                        feed_guid = feed_data.feed_guid.as_str(),
+                        target_url = target_url.as_str(),
+                        held_url = held_url.as_str(),
+                        "ADR 0083 section 2: a move was refused because the body names a held URL"
+                    );
+                    refusal_warnings.push(format!(
+                        "move to {target_url} refused: the body names {held_url} (ADR 0083)"
+                    ));
+                }
 
-                if let Some(target) = target {
+                if let MoveDecision::Move(target) = decision {
                     warnings.push(format!(
                         "moved from {source_url} to {} (ADR 0052 {})",
                         target.new_feed_url, target.trigger
@@ -3104,7 +3201,7 @@ async fn handle_ingest_feed(
                             no_change: false,
                             reason: Some("source_conflict".to_string()),
                             events_emitted: event_ids,
-                            warnings: vec![],
+                            warnings: refusal_warnings,
                             source_url: Some(source_url),
                         },
                         fanout_events,
@@ -3857,33 +3954,36 @@ async fn handle_ingest_feed(
             &state2.signer,
         )?;
 
-        // 11a. ADR 0052 sections 1 and 2, task 006: only an ingest in the
-        // update or new-feed case records the move declarations a source
-        // body makes for itself: the self link, the `itunes:new-feed-url`
-        // value, and the `podcast:locked` fact. A move of any trigger starts
-        // as a mirror or an update submission, so it never writes these
-        // columns; the values already on the record are what decided the
-        // move.
+        // 11a. ADR 0052 sections 1 and 2, task 006, and ADR 0083 sections 3
+        // and 4: an ingest in the update or new-feed case, and a move, record
+        // the declarations that a source body makes for itself: the self
+        // link, the `itunes:new-feed-url` value, and the `podcast:locked`
+        // fact. A move writes them from the body at the new URL, so the next
+        // hop needs no changed body. A mirror body with no move returns
+        // before this step and writes neither column. A move also adds the
+        // old URL to the left URLs of the record, and removes the new URL.
         //
         // The write runs right after `ingest_transaction`, under the same
         // writer lock, rather than through a new parameter on that function.
         // The lock already serializes every writer, so this UPDATE cannot
         // interleave with another ingest; adding the write here keeps
         // `ingest_transaction`'s already-large parameter list unchanged.
-        if record_move.is_none() {
-            let declared_self_url = feed_data
-                .links
-                .iter()
-                .find(|link| link.link_type == "self_feed")
-                .map(|link| link.url.as_str());
-            db::set_declared_self_url(&conn, feed_guid_str, declared_self_url)?;
-            db::set_feed_move_declarations(
-                &conn,
-                feed_guid_str,
-                feed_data.new_feed_url.as_deref(),
-                feed_data.locked,
-                feed_data.locked_owner.as_deref(),
-            )?;
+        let declared_self_url = feed_data
+            .links
+            .iter()
+            .find(|link| link.link_type == "self_feed")
+            .map(|link| link.url.as_str());
+        db::set_declared_self_url(&conn, feed_guid_str, declared_self_url)?;
+        db::set_feed_move_declarations(
+            &conn,
+            feed_guid_str,
+            feed_data.new_feed_url.as_deref(),
+            feed_data.locked,
+            feed_data.locked_owner.as_deref(),
+        )?;
+        if let Some((old_feed_url, new_feed_url, _)) = &record_move {
+            db::add_left_url(&conn, feed_guid_str, old_feed_url)?;
+            db::remove_left_url(&conn, feed_guid_str, new_feed_url)?;
         }
 
         // ADR 0052 sections 1 and 2: a move updates the record to the new
