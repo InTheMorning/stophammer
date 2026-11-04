@@ -80,7 +80,10 @@ candidate=0
 tag="v${version}"
 
 for repo in "${REPOS[@]}"; do
-    [[ -d "${repo}/.git" ]] || die "${repo} is not a Git repository. Clone it first."
+    # A submodule has a .git file, not a directory, so only Git can answer.
+    top="$(git -C "${repo}" rev-parse --show-toplevel 2>/dev/null || true)"
+    [[ -n "${top}" && "${top}" == "$(cd "${repo}" && pwd -P)" ]] \
+        || die "${repo} is not a Git repository. Clone it first."
 done
 
 github_repo="$(git -C "${ROOT}" config --get remote.origin.url | sed -E 's#^.*github\.com[:/]##; s#\.git$##')"
