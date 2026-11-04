@@ -19,9 +19,8 @@ The check of ADR 0066 §4 gives the version. This change adds no route, field,
 parameter, setting or event type. It has one migration and a new warning text. So
 item 3 of that check applies, and the change raises PATCH.
 
-Release 0.18.0 holds ADR 0082. It does not wait for ADR 0083. When this task starts
-and release 0.18.0 is not promoted, the operator decides if the change goes in that
-release or follows it.
+The tag `v0.18.0` is at commit `a34be18`, so release 0.18.0 does not hold ADR 0083.
+The next version after 0.18.0 holds it.
 
 ADR 0083 §4 requires no refill pass. A declaration column gets its value at the
 next update or move. The left URLs start empty. No feed needs a new crawl.
