@@ -22,27 +22,31 @@
 #   RELAY_SRC_DIR=~/src/Live-Metadata-Relay ./deploy-live-relay.sh
 #   RELAY_IMAGE=musicindex-live-relay:test ./deploy-live-relay.sh
 #   RELAY_SKIP_VERIFY=1 ./deploy-live-relay.sh
+#   NODE_URL=https://node.example.org ./deploy-live-relay.sh
 #
 set -euo pipefail
 
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
-# The repository holds no host and no folder of the VPS. A value in the
-# environment has priority over the ignored file deploy.env.
+# The repository holds no value of one deployment. A value in the environment
+# has priority over the ignored file deploy.env.
 VPS="${VPS:-}"
 VPS_DIR="${VPS_DIR:-}"
+NODE_URL="${NODE_URL:-}"
 if [[ -f "${LOCAL_DIR}/deploy.env" ]]; then
     env_vps="${VPS}"
     env_vps_dir="${VPS_DIR}"
+    env_node_url="${NODE_URL}"
     # shellcheck source=/dev/null
     source "${LOCAL_DIR}/deploy.env"
     VPS="${env_vps:-${VPS:-}}"
     VPS_DIR="${env_vps_dir:-${VPS_DIR:-}}"
+    NODE_URL="${env_node_url:-${NODE_URL:-}}"
 fi
 
 RELAY_SRC_DIR="${RELAY_SRC_DIR:-$(dirname "${LOCAL_DIR}")/musicindex-live-relay}"
 RELAY_IMAGE="${RELAY_IMAGE:-musicindex-live-relay:local}"
 RELAY_REPO="${RELAY_REPO:-https://github.com/InTheMorning/Live-Metadata-Relay}"
-PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL:-https://api.musicindex.org/v1/liveitems/health}"
+PUBLIC_HEALTH_URL="${PUBLIC_HEALTH_URL-${NODE_URL:+${NODE_URL}/v1/liveitems/health}}"
 MUSL_TARGET="x86_64-unknown-linux-musl"
 RELAY_STATE_DIR="/var/lib/musicindex-live-relay"
 
@@ -59,7 +63,9 @@ Environment overrides:
   VPS_DIR            remote Stophammer checkout
   RELAY_SRC_DIR      local Live-Metadata-Relay checkout
   RELAY_IMAGE        image tag to build and run
-  PUBLIC_HEALTH_URL  URL checked after deploy; empty or RELAY_SKIP_VERIFY=1 skips
+  NODE_URL           public address of the primary, also read from deploy.env
+  PUBLIC_HEALTH_URL  URL checked after deploy, by default under NODE_URL; empty
+                     or RELAY_SKIP_VERIFY=1 skips
   RELAY_SKIP_VERIFY  set to 1 to skip the post-deploy public health check
 
 Options:

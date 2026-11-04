@@ -105,7 +105,12 @@ Three scripts deploy from a local checkout to one VPS: `deploy.sh`,
 `VPS`, the SSH target, and `VPS_DIR`, the Stophammer folder on the VPS. It reads
 them from the environment, or from `deploy.env` at the repository root. Git
 ignores `deploy.env`. Copy [deploy.env.example](../deploy.env.example) to
-`deploy.env` and set the two values.
+`deploy.env` and set the values.
+
+`deploy.sh --release` also needs `NODE_URL`, the public address of the primary,
+to check `/node/info`. `deploy-live-relay.sh` uses `NODE_URL` for its health
+check, and skips the check when no address is set. `GHCR_PREFIX` is optional. Its
+default comes from the owner of the `origin` remote.
 
 ### Make a release
 

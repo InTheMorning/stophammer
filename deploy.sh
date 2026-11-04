@@ -18,24 +18,33 @@
 set -euo pipefail
 
 LOCAL_DIR="$(cd "$(dirname "$0")" && pwd)"
-# The repository holds no host and no folder of the VPS. A value in the
-# environment has priority over the ignored file deploy.env.
+# The repository holds no value of one deployment. A value in the environment
+# has priority over the ignored file deploy.env.
 VPS="${VPS:-}"
 VPS_DIR="${VPS_DIR:-}"
+NODE_URL="${NODE_URL:-}"
+GHCR_PREFIX="${GHCR_PREFIX:-}"
 if [[ -f "${LOCAL_DIR}/deploy.env" ]]; then
     env_vps="${VPS}"
     env_vps_dir="${VPS_DIR}"
+    env_node_url="${NODE_URL}"
+    env_ghcr_prefix="${GHCR_PREFIX}"
     # shellcheck source=/dev/null
     source "${LOCAL_DIR}/deploy.env"
     VPS="${env_vps:-${VPS:-}}"
     VPS_DIR="${env_vps_dir:-${VPS_DIR:-}}"
+    NODE_URL="${env_node_url:-${NODE_URL:-}}"
+    GHCR_PREFIX="${env_ghcr_prefix:-${GHCR_PREFIX:-}}"
 fi
 
 INDEXER_IMAGE="stophammer-indexer"
 CRAWLER_IMAGE="stophammer-crawler"
 MUSL_TARGET="x86_64-unknown-linux-musl"
-GHCR_PREFIX="ghcr.io/inthemorning"
-NODE_URL="https://api.musicindex.org"
+# The release workflow publishes each image under the owner of the repository.
+if [[ -z "${GHCR_PREFIX}" ]]; then
+    origin_owner="$(git -C "${LOCAL_DIR}" config --get remote.origin.url | sed -E 's#^.*github\.com[:/]##; s#/.*$##')"
+    GHCR_PREFIX="ghcr.io/${origin_owner,,}"
+fi
 
 usage() {
     cat >&2 <<'EOF'
@@ -69,9 +78,15 @@ usage: deploy.sh [all|indexer|crawler] [--rebuild] [--backup] [--no-cache]
               VERSION with no hyphen promotes its newest candidate.
   --yes       with --create: do not ask before the first change.
 
-The script reads VPS (the SSH target) and VPS_DIR (the Stophammer folder
-on the VPS) from the environment, or from deploy.env. Git ignores
-deploy.env. deploy.env.example shows the format.
+The script reads these values from the environment, or from deploy.env. Git
+ignores deploy.env. deploy.env.example shows the format.
+
+  VPS          the SSH target
+  VPS_DIR      the Stophammer folder on the VPS
+  NODE_URL     the public address of the primary. --release needs it to check
+               /node/info, unless the deploy holds only the crawler
+  GHCR_PREFIX  the image registry path. The default comes from the owner of the
+               origin remote
 EOF
 }
 
@@ -143,6 +158,14 @@ deploy_indexer=0
 deploy_crawler=0
 [[ "$what" == "all" || "$what" == "indexer" ]] && deploy_indexer=1
 [[ "$what" == "all" || "$what" == "crawler" ]] && deploy_crawler=1
+
+# --- Release mode: stop before each change when a value is missing ---
+
+if [[ -n "${release}" && "${deploy_indexer}" -eq 1 && -z "${NODE_URL}" ]]; then
+    echo >&2 "error: --release needs NODE_URL to check /node/info after the deploy."
+    echo >&2 "       Set it in deploy.env or in the environment."
+    exit 1
+fi
 
 # --- Release mode: make the release when asked ---
 
