@@ -373,11 +373,11 @@ change a record.
 | `guid_change_pending` | A held source URL declares a new GUID. See below | Not retry. ADR 0052 owns the next step |
 | `retired_source_conflict` | The GUID has an active hold for its last source URL (ADR 0079 section 2) | Not retry this URL. It can fetch the held source URL |
 
-`source_conflict` and `record_conflict` write no row to the database.
-`source_conflict` is different from `record_conflict`: the node records the
-submitted URL as an observation of the GUID (ADR 0049 section 1). This
-observation does not change the record. `guid_change_pending` writes a
-pending row. See the next section.
+`record_conflict` writes no row to the database. `source_conflict` is
+different: the node records the submitted URL as an observation of the GUID
+(ADR 0049 section 1), and it writes a copy row (ADR 0058). The observation and
+the copy row do not change the record. `guid_change_pending` writes a pending
+row. See the next section.
 
 **A source URL can change its declared GUID (ADR 0052 sections 4 and 5):**
 
@@ -427,8 +427,10 @@ Three triggers move a record. Each move answers with `accepted: true` and
 | `permanent redirect` | A submission arrives from the stored source URL, with one or more `redirects` hops, and each hop is `301` or `308`. `canonical_url` is not the stored source URL |
 
 A source ingest stores the declared self URL and the declared
-`new_feed_url`. Only an update submission and a new-feed submission write
-these two values. A mirror submission does not write them.
+`new_feed_url`. An update submission, a new-feed submission and a move write
+these two values. A move writes them from the body at the new URL, with the
+`podcast:locked` fact. A mirror submission that does not move the record writes
+none of them (ADR 0083 section 3).
 
 The stored `feed_url` becomes the new URL, and the node applies the body as
 an update, in the same transaction as the move. ADR 0056 removed the proof
@@ -437,6 +439,34 @@ the move then reads as a mirror, and gets `source_conflict`.
 
 A self link or a `new_feed_url` value in a mirror body does not start a
 move. Only a value a source ingest stored counts.
+
+**A move refuses a loop (ADR 0083 section 2):**
+
+ADR 0083 owns the refusal. A move by `self link` or `new-feed-url` can be
+refused. A held URL is the stored source URL, or a URL that the record left by
+an earlier move. The node examines the body in this sequence:
+
+1. The tag of the body names its own URL: the record moves.
+2. The tag of the body names a held URL: the node refuses the move.
+3. The move goes to a URL that the record left, and the self link of the body
+   names a held URL: the node refuses the move.
+4. In each other condition, the record moves.
+
+A self link does not refuse a first move to a URL. After a refusal, the record
+stays at its source URL. The answer is `source_conflict`, and the node writes
+the usual copy row. The response carries this warning:
+
+```text
+move to <URL> refused: the body names <held URL> (ADR 0083)
+```
+
+The refusal warning appears only with a new body hash. A mirror body with an
+unchanged hash can still get `no_change`. A `permanent redirect` move is never
+refused.
+
+A chain of URLs moves one hop in each pass. The source URL of the next pass is
+the last URL of the previous pass. An accepted move keeps its warning
+`moved from <old URL> to <new URL> (ADR 0052 <trigger>)`.
 
 A redirect hop with status `302` or `307` does not start a move. The node
 applies the body and keeps the source URL.

@@ -190,6 +190,21 @@ Notes:
   `feeds.feed_url` directly, so a node without the seed still resolves the
   same link. Task 004b.
 
+### `feed_left_urls`
+Purpose: the URLs that a record left by a move (ADR 0083 section 4).
+Key columns:
+- `feed_guid`
+- `url`
+
+Notes:
+- local to the primary
+- makes no event, so a community node holds no row
+- a move adds the old URL and removes the new URL
+- an operator relocation and a feed delete remove the rows of the GUID
+- `PATCH /v1/feeds/{guid}` and the `relocate` decision of
+  `POST /v1/feeds/{guid}/copies/resolve` clear the rows through `relocate_feed`
+- the refusal of a loop in ADR 0083 section 2 reads this table
+
 ### `source_gone_answers`
 Purpose: the count of a gone answer (`404` or `410`) from the stored source
 URL of a record (ADR 0067 section 2).

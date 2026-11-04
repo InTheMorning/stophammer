@@ -58,7 +58,8 @@ hop, and the new source URL then starts the next hop.
 
 A move writes `feeds.declared_self_url` and `feeds.declared_new_feed_url` from
 the body at the new URL, under the writer lock of the ingest, as an update does.
-Thus the next hop needs no changed body. Mirror bodies that do not move the record still write neither
+The same write stores the `podcast:locked` fact of that body. Thus the next hop
+needs no changed body. Mirror bodies that do not move the record still write neither
 column.
 
 ### 4. The left URLs
