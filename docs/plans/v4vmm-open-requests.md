@@ -30,6 +30,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
 | 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078 and ADR 0080, phrases deployed in release 0.15.0 on 2026-10-25. Items 2 to 7: ADR 0080, deployed in release 0.15.0 on 2026-10-25 |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
+| 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -365,6 +366,29 @@ The field names are a proposal. Stophammer selects the names in its own ADR.
 **What v4vmm does with it.** v4vmm ADR 0086 packet 005 groups the Library singles of a saved search. Its chain reads the release date of each row, so an Index hit groups when item 1 is deployed.
 Item 2 lets the hit use the artist feed key of New releases. Without item 2, an Index hit has only the text of its artist. When Stophammer deploys item 1 or item 2, v4vmm replaces the stored contract in the same change as the decode change (v4vmm ADR 0075 section 6).
 
+### 12. A Track Gives Its Season, And The Index Keeps The License
+
+**What happens.** On 2026-11-04, the v4vmm orchestrator read the contract of release 0.18.1 (`git_revision` `61e8762`) and the source at the same commit.
+
+- `podcast:season` and `itunes:season`: the parser reads them (`TrackField::Season` in `stophammer-parser/src/profile.rs`), and the `tracks` table stores `season`. No schema of the contract declares `season`.
+- `podcast:license`: the parser does not read it, the node stores no license, and no route gives one. The specification permits a text and a `url` on a channel and on an item.
+
+Studio writes both elements. Studio ADR 0080 writes `podcast:season` as a disc, with an Experimental mark.
+
+**Why v4vmm needs it.** v4vmm ADR 0080 Decision 11 writes the RSS license to a file. v4vmm reads it from the RSS document, so it has no value for an Index track until the curator downloads the track.
+v4vmm ADR 0080 Decision 14 writes no season to a file until Studio removes the Experimental mark.
+
+The weakest part: no v4vmm screen needs either value today. Only the file tags need the license, and v4vmm reads it from RSS. Item 1 is thus only for a later decision.
+
+**Request.**
+
+1. Give `season` on the track response, with the value that the node stores. No refill pass is necessary, because the node holds the value. The node does not store the `name` attribute of `podcast:season`. A field for it needs a refill pass (Stophammer ADR 0077), so this request does not ask for it.
+2. Keep each `podcast:license` of a channel and of an item, with its text and its `url`, and give them on the feed and track responses. ADR 0077 then requires a refill pass. The rule of the archived ADR 0054 section 4 applies to the `url`.
+
+The field names are a proposal. Stophammer selects the names in its own ADR.
+
+**What v4vmm does with it.** v4vmm packet ADR 0080 task 010 reads the license from RSS, and does not wait. When Stophammer deploys item 2, v4vmm decodes the value as a separate source (v4vmm ADR 0075 Decision I).
+
 
 **The retention of a publisher resolution.** When an album feed changes or disappears, what happens to its stored back-link resolution and its `publisher_link_observed_at`?
 The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 0049 does not state it.
@@ -556,6 +580,13 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Release 0.18.1 - Checked By v4vmm On 2026-11-04
+
+- `info.version` of `/openapi.json` gives `0.18.1`. `GET /node/info` gives `git_revision` `61e8762`.
+- `SourceEntityLinkResponse` declares `label` and `url_scheme_added` (Stophammer ADR 0082).
+- `GET /v1/feeds/{guid}?include=source_links` gives one `funding` row for each of three Studio corpus feeds: `phafe-music-the-singles`, `jimmyv4v-music-jimmy-v-music` and `behindthesch3m3s-music-pixel-palace`. This check does not prove that the refill pass of ADR 0082 is complete.
+- v4vmm does not decode `label` on this date. v4vmm ADR 0080 packet 006 adds it.
 
 ## Release 0.15.0 - 2026-10-25
 
