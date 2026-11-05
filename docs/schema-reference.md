@@ -221,6 +221,7 @@ Notes:
 - local to the primary
 - makes no event, so a community node holds no row
 - a record with no row has no arrival tag and a count of zero
+- migration 0061 gives a row to each record with a left URL, with its stored tag
 - after a relocation, `arrival_pending` is 1 until the first body from the new
   source gives the arrival tag
 - a move stores the tag of the body at the new URL as the arrival tag, in the

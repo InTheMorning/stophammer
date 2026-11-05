@@ -50,7 +50,7 @@ link.
   URL. The body at that URL refuses nothing.
 - **A return needs each of these:**
   1. The trigger is the tag of the current source. A self link cannot start a return.
-  2. The body at the left URL has a tag that names an own URL.
+  2. The body at the left URL has a tag that names that left URL.
   3. The tag of the current source is not the arrival tag.
   4. No cooldown of section 5 is active.
 
@@ -74,13 +74,15 @@ changed body. A mirror body that does not move the record writes neither column.
 ### 4. The stored history
 
 Two tables hold the history of a record. They are local to the primary, as the
-declaration columns are, and no event carries them. They start empty, because the
-event log holds changes from before ADR 0051 that are not moves. Their values do not
-come from a body that the index serves, so ADR 0077 requires no refill pass.
+declaration columns are, and no event carries them. They hold no move from before
+candidate `v0.18.1-rc.1`, because the event log holds changes from before ADR 0051
+that are not moves. Their values do not come from a body that the index serves, so
+ADR 0077 requires no refill pass.
 
 - `feed_left_urls` holds the left URLs.
 - `feed_move_state` holds the arrival tag, the number of returns and the time of the
-  last return.
+  last return. Migration 0061 gives a row to each record that the earlier candidate
+  moved, with its stored tag as the arrival tag.
 
 A move adds the old URL, removes the new URL and stores the arrival tag, in the
 ingest transaction. An update whose tag differs from the arrival tag clears the
@@ -189,8 +191,20 @@ loop can change the payment routes of a record again and again.
   stop at a URL that a publisher error named. The source URL named it, and the operator can
   relocate the record.
 - A publisher who controls the URLs can still move a record back and forth with correct
-  tags or redirects. The cooldown limits the rate to a few moves each week. It does not stop
-  this, because a source controls its own feed (ADR 0056).
+  tags or redirects. After a count of zero, the cooldown permits up to 8 returns in the first
+  week, and then one return each week. It does not stop this, because a source controls its
+  own feed (ADR 0056).
+- A stale tag or self link at the current source can move a record to a URL that it never
+  left. This keeps a correct first move safe from refusal, and it already exists under
+  ADR 0052. A move from before candidate `v0.18.1-rc.1` has no left URL row, so its old URL
+  counts as a new URL.
+- A body behind a temporary redirect writes the declarations, as an update does. So a source
+  host that redirects to a different URL lets that URL state the next trigger. This keeps a
+  move possible for a feed behind a CDN, and the source host chose the redirect.
+- The declarations are written after the ingest transaction. A crash between the two keeps
+  the earlier values until the next changed body.
+- A stored time in the future, from a clock error, can make a wait longer than 7 days. An
+  operator relocation ends the wait.
 - **A limit that no rule closes:** the current source can state a return by a real edit of
   its tag, and the old URL can then pass to a different party. To the node, this is a correct
   return.
@@ -213,6 +227,8 @@ These amend ADR 0052 when this ADR is accepted:
   `feeds.declared_self_url` and `feeds.declared_new_feed_url`.
 - A self link never starts a return.
 - A return never goes to a URL whose body has no tag that names that URL.
+- A move to a URL that is not a left URL is never a return, whatever URL the submission
+  started from.
 
 ## Guards
 
@@ -239,6 +255,8 @@ prove it through `POST /ingest/feed`. This ADR has no visual criterion.
 | A permanent redirect to a left URL during a wait | Applies the content, keeps the source URL, gives the warning |
 | The operator relocates, and a tag at the new source then names the old URL with a tag at that URL | Stays at the new source, until that tag changes and names it again |
 | A body at an unnamed URL | `source_conflict`, no warning |
+| A submission from a left URL that redirects to a new named URL | 1 move to the new URL |
+| A return whose body names a URL other than the URL of the return | Stays at the current source |
 
 The ADR 0052 guards "An `itunes:new-feed-url` value in a mirror body moves nothing" and "A self
 link in a mirror body moves nothing" stay. A mirror body never gives a trigger.

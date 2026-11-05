@@ -207,3 +207,36 @@ async fn delete_feed_removes_the_left_urls_of_that_guid() {
         "a feed delete must keep the rows of a different GUID"
     );
 }
+
+#[test]
+fn migration_0061_gives_an_arrival_tag_to_a_record_with_left_urls() {
+    let db = common::test_db_arc();
+    let state = test_app_state(Arc::clone(&db), "token");
+    let rt = tokio::runtime::Runtime::new().expect("runtime");
+    rt.block_on(ingest(&state, "token", "moved", "https://fill.example/b"));
+    rt.block_on(ingest(&state, "token", "still", "https://fill.example/c"));
+    let conn = db.lock().expect("lock");
+    conn.execute(
+        "UPDATE feeds SET declared_new_feed_url = 'https://fill.example/a' WHERE feed_guid = 'moved'",
+        [],
+    )
+    .expect("set the tag");
+    stophammer::db::add_left_url(&conn, "moved", "https://fill.example/a").expect("add");
+    conn.execute_batch(include_str!("../migrations/0061_feed_move_state_fill.sql"))
+        .expect("run the migration");
+    assert_eq!(
+        stophammer::db::get_move_state(&conn, "moved")
+            .expect("state")
+            .arrival_tag
+            .as_deref(),
+        Some("https://fill.example/a"),
+        "the stored tag must become the arrival tag (ADR 0083 section 4)"
+    );
+    assert_eq!(
+        stophammer::db::get_move_state(&conn, "still")
+            .expect("state")
+            .arrival_tag,
+        None,
+        "a record with no left URL must get no arrival tag"
+    );
+}

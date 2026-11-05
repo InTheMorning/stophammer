@@ -2390,7 +2390,7 @@ fn refused_move_warning(target_url: &str) -> String {
 /// For a mirror submission, ADR 0083 section 2 then decides. A move to a
 /// URL that is not a left URL goes on. A move to a left URL is a return. A
 /// return goes on only when the trigger is `new-feed-url`, the tag of `body`
-/// is an own URL, the declared tag is not the arrival tag, and no cooldown is
+/// names the URL of the return, the declared tag is not the arrival tag, and no cooldown is
 /// active. Otherwise the answer is [`MoveDecision::Refused`]. A permanent
 /// redirect to a left URL uses only the cooldown (ADR 0083 section 6), and
 /// gives [`MoveDecision::WaitingRedirect`] during a wait. Each comparison is
@@ -2439,14 +2439,14 @@ fn move_target(
             // ADR 0083 section 2: a move to a URL that is not a left URL
             // goes on.
             let left_urls = db::get_left_urls(conn, feed_guid)?;
-            if !left_urls.iter().any(|left| is_own(left)) {
+            if !left_urls.contains(&target.new_feed_url) {
                 return Ok(MoveDecision::Move(target));
             }
             // A return needs a tag at each end, a tag that is not the
             // arrival tag, and no cooldown.
             let state = db::get_move_state(conn, feed_guid)?;
             let now = db::unix_now();
-            let tag_at_new_url = body.new_feed_url.as_deref().is_some_and(is_own);
+            let tag_at_new_url = body.new_feed_url.as_deref() == Some(target.new_feed_url.as_str());
             let declared_is_arrival = state.arrival_tag.as_deref() == Some(&target.new_feed_url);
             let waiting = db::return_cooldown_end(state.return_count, state.last_return_at, now)
                 .is_some_and(|end| end > now);

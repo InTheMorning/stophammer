@@ -859,3 +859,61 @@ async fn after_a_relocation_a_stale_tag_at_the_new_source_cannot_bring_the_recor
     assert_eq!(moves(&resp), 1, "the real statement must move: {resp:?}");
     assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
 }
+
+#[tokio::test]
+async fn a_move_to_a_new_url_goes_on_when_the_submission_starts_at_a_left_url() {
+    let b = Bench::new();
+    run(
+        &b,
+        &[
+            (UA, Some(UB), None),
+            (UB, Some(UB), None),
+            (UB, Some(UC), None),
+        ],
+    )
+    .await;
+    assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
+    // A is a left URL, and it redirects to C, which the record never left.
+    let resp = b
+        .post(&serde_json::json!({
+            "canonical_url": UC,
+            "source_url": UA,
+            "crawl_token": CRAWL_TOKEN,
+            "http_status": 200,
+            "content_hash": "hash-left-source",
+            "redirects": [{ "url": UC, "status": 302 }],
+            "feed_data": body_data(GUID, Some(UC), &serde_json::json!([])),
+        }))
+        .await;
+    assert_eq!(moves(&resp), 1, "the move to C must go on: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UC, "the record must be at C");
+}
+
+#[tokio::test]
+async fn a_return_needs_a_tag_that_names_the_url_of_the_return() {
+    let b = Bench::new();
+    run(
+        &b,
+        &[
+            (UA, Some(UB), None),
+            (UB, Some(UB), None),
+            (UB, Some(UA), None),
+        ],
+    )
+    .await;
+    assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
+    // C redirects to A, and the body names C, not A.
+    let resp = b
+        .post(&serde_json::json!({
+            "canonical_url": UA,
+            "source_url": UC,
+            "crawl_token": CRAWL_TOKEN,
+            "http_status": 200,
+            "content_hash": "hash-tag-names-c",
+            "redirects": [{ "url": UA, "status": 302 }],
+            "feed_data": body_data(GUID, Some(UC), &serde_json::json!([])),
+        }))
+        .await;
+    assert_eq!(moves(&resp), 0, "the return must not move: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
+}

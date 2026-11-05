@@ -292,6 +292,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 60: store the arrival tag and the returns of a record (ADR 0083
     // §4 and §5, task 006)
     include_str!("../migrations/0060_feed_move_state.sql"),
+    // Migration 61: give an arrival tag to each record that a candidate moved
+    // (ADR 0083 §4)
+    include_str!("../migrations/0061_feed_move_state_fill.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -8519,6 +8522,22 @@ mod tests {
             return_cooldown_end(1, Some(i64::MAX), i64::MAX),
             Some(i64::MAX),
             "a large time must not overflow"
+        );
+    }
+
+    #[test]
+    fn a_future_time_extends_the_wait_and_a_count_of_zero_ends_it() {
+        let now = 1_000_000;
+        let future = now + 30 * 86_400;
+        assert_eq!(
+            return_cooldown_end(1, Some(future), now),
+            Some(future + 3_600),
+            "a stored time in the future keeps the wait active past the limit"
+        );
+        assert_eq!(
+            return_cooldown_end(0, Some(future), now),
+            None,
+            "a relocation sets the count to zero, so the wait ends"
         );
     }
 

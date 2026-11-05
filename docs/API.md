@@ -449,7 +449,7 @@ these is true:
 
 1. The trigger is `new-feed-url` of the current source. A self link cannot
    start a return.
-2. The body at the left URL has a tag that names an own URL.
+2. The body at the left URL has a tag that names that left URL.
 3. The tag of the current source is not the arrival tag. The arrival tag is
    the tag of the body that moved the record to its source URL. A real change
    of the tag at the source clears it.
