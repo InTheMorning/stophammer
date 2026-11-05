@@ -1,5 +1,6 @@
-// ADR 0083 sections 2 to 6: a move by tag or by self link refuses a loop,
-// writes the two declaration columns, and keeps the left URLs. Each test
+// ADR 0083 sections 2 to 6: a return to a left URL needs a tag at each end, a
+// tag that is not the arrival tag, and no cooldown. A move writes the two
+// declaration columns, and keeps the left URLs. Each test
 // sends bodies through `POST /ingest/feed`, with a minimal verifier chain
 // (content_hash only) as tests/adr0052_move_trigger_tests.rs does.
 
@@ -160,6 +161,35 @@ impl Bench {
         )
     }
 
+    fn state(&self, guid: &str) -> stophammer::db::MoveState {
+        let conn = self.db.lock().expect("lock db");
+        stophammer::db::get_move_state(&conn, guid).expect("query move state")
+    }
+
+    /// Moves the time of the last return to `seconds_ago` seconds before now.
+    fn set_last_return(&self, guid: &str, seconds_ago: i64) {
+        let conn = self.db.lock().expect("lock db");
+        conn.execute(
+            "UPDATE feed_move_state SET last_return_at = ?2 WHERE feed_guid = ?1",
+            rusqlite::params![guid, stophammer::db::unix_now() - seconds_ago],
+        )
+        .expect("move the cooldown");
+    }
+
+    /// Sends a 301 from the stored source URL `from` to `to`.
+    async fn redirect(&self, from: &str, to: &str) -> serde_json::Value {
+        let payload = serde_json::json!({
+            "canonical_url": to,
+            "source_url": from,
+            "crawl_token": CRAWL_TOKEN,
+            "http_status": 200,
+            "content_hash": format!("redirect-{}", self.counter.fetch_add(1, Ordering::SeqCst)),
+            "redirects": [{ "url": from, "status": 301 }],
+            "feed_data": body_data(GUID, None, &serde_json::json!([])),
+        });
+        self.post(&payload).await
+    }
+
     fn copy_rows(&self, guid: &str, url: &str) -> i64 {
         let conn = self.db.lock().expect("lock db");
         conn.query_row(
@@ -197,6 +227,20 @@ fn moves(resp: &serde_json::Value) -> usize {
     })
 }
 
+/// The warning of a refused return or a waiting redirect.
+fn refusal_warning(url: &str) -> String {
+    format!("move to {url} refused: the record left that URL (ADR 0083)")
+}
+
+/// `true` when the response carries `warning`.
+fn has_warning(resp: &serde_json::Value, warning: &str) -> bool {
+    resp["warnings"]
+        .as_array()
+        .expect("warnings must be an array")
+        .iter()
+        .any(|w| w.as_str() == Some(warning))
+}
+
 /// Sends each step, and returns the total of moves.
 async fn run(b: &Bench, steps: &[(&str, Option<&str>, Option<&str>)]) -> usize {
     let mut total = 0;
@@ -218,8 +262,8 @@ async fn s3_two_tags_name_each_other() {
     for _ in 0..4 {
         total += run(&b, &round).await;
     }
-    assert_eq!(total, 0, "a loop of two tags must make no move");
-    assert_eq!(b.feed_url(GUID), UA, "the record must stay at A");
+    assert_eq!(total, 1, "a loop of two tags must make one move");
+    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
 }
 
 #[tokio::test]
@@ -230,8 +274,8 @@ async fn s3b_two_tags_with_one_hash_for_each_url() {
         total += moves(&b.sub(UA, GUID, Some(UB), None, Some("ha")).await);
         total += moves(&b.sub(UB, GUID, Some(UA), None, Some("hb")).await);
     }
-    assert_eq!(total, 0, "a loop of two tags must make no move");
-    assert_eq!(b.feed_url(GUID), UA, "the record must stay at A");
+    assert_eq!(total, 1, "a loop of two tags must make one move");
+    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
 }
 
 #[tokio::test]
@@ -270,8 +314,8 @@ async fn s12_a_loop_of_three_tags() {
     for _ in 0..4 {
         total += run(&b, &round).await;
     }
-    assert_eq!(total, 1, "the loop must make one move");
-    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
+    assert_eq!(total, 2, "the loop must make two moves");
+    assert_eq!(b.feed_url(GUID), UX, "the record must stay at X");
 }
 
 #[tokio::test]
@@ -434,9 +478,10 @@ async fn r3_an_operator_relocation_during_a_chain() {
     let total = run(&b, &[(UA, Some(UB), None), (UB, Some(UX), None)]).await;
     assert_eq!(total, 1, "the first move must happen");
     b.relocate(GUID, UY).await;
-    assert!(
-        b.left_urls(GUID).is_empty(),
-        "a relocation must delete the left URLs"
+    assert_eq!(
+        b.left_urls(GUID),
+        vec![UA.to_string(), UB.to_string()],
+        "a relocation must keep the left URLs and add the URL that it leaves"
     );
     let after = run(&b, &[(UX, Some(UX), None)]).await;
     assert_eq!(after, 0, "X must not move the record after the relocation");
@@ -507,39 +552,30 @@ async fn a_301_moves_the_record_and_the_old_url_is_a_left_url() {
 #[tokio::test]
 async fn a_refused_body_gets_source_conflict_the_warning_and_a_copy_row() {
     let b = Bench::new();
-    b.sub(UA, GUID, Some(UB), None, None).await;
-    let resp = b.sub(UB, GUID, Some(UA), None, None).await;
+    // A names B, B names A: one move. A then sends a body with the tag A.
+    run(&b, &[(UA, Some(UB), None), (UB, Some(UA), None)]).await;
+    let resp = b.sub(UA, GUID, Some(UA), None, None).await;
     assert_eq!(resp["reason"], "source_conflict", "{resp:?}");
     assert_eq!(resp["accepted"], false, "{resp:?}");
-    let expected = format!("move to {UB} refused: the body names {UA} (ADR 0083)");
     assert!(
-        resp["warnings"]
-            .as_array()
-            .expect("warnings must be an array")
-            .iter()
-            .any(|w| w.as_str() == Some(expected.as_str())),
+        has_warning(&resp, &refusal_warning(UA)),
         "the refusal must give the warning: {resp:?}"
     );
     assert_eq!(
-        b.copy_rows(GUID, UB),
+        b.copy_rows(GUID, UA),
         1,
         "the refusal must write a copy row"
     );
 }
 
 #[tokio::test]
-async fn a_self_link_refusal_names_the_self_link_value() {
+async fn a_self_link_refusal_gives_the_warning() {
     let b = Bench::new();
     run(&b, &[(UA, None, Some(UB)), (UB, None, Some(UA))]).await;
     let resp = b.sub(UA, GUID, None, Some(UB), None).await;
     assert_eq!(resp["reason"], "source_conflict", "{resp:?}");
-    let expected = format!("move to {UA} refused: the body names {UB} (ADR 0083)");
     assert!(
-        resp["warnings"]
-            .as_array()
-            .expect("warnings must be an array")
-            .iter()
-            .any(|w| w.as_str() == Some(expected.as_str())),
+        has_warning(&resp, &refusal_warning(UA)),
         "the refusal must give the warning: {resp:?}"
     );
 }
@@ -557,10 +593,26 @@ async fn a_mirror_body_at_a_url_that_no_value_names_gets_no_warning() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// Returns
+// ---------------------------------------------------------------------------
+
 #[tokio::test]
-async fn a_return_is_refused_when_its_self_link_names_a_held_url() {
+async fn a_stale_self_link_at_b_and_a_body_at_a_with_no_tag_or_a_tag() {
     let b = Bench::new();
-    // A moves to B. B then names A by tag, as an update at B.
+    // A moves to B. The body at B carries the tag B and a stale self link A.
+    let total = run(&b, &[(UA, Some(UB), None), (UB, Some(UB), Some(UA))]).await;
+    assert_eq!(total, 1, "the first move must happen");
+    for tag in [None, Some(UA), Some(UB)] {
+        let resp = b.sub(UA, GUID, tag, Some(UA), None).await;
+        assert_eq!(moves(&resp), 0, "the return must not move: {resp:?}");
+        assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
+    }
+}
+
+#[tokio::test]
+async fn a_return_with_a_tag_at_each_end_moves() {
+    let b = Bench::new();
     run(
         &b,
         &[
@@ -571,15 +623,108 @@ async fn a_return_is_refused_when_its_self_link_names_a_held_url() {
     )
     .await;
     assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
-    // The body at A names no own URL by tag, and its self link names B.
+    // The body at A names no own URL by tag.
     let resp = b.sub(UA, GUID, None, Some(UB), None).await;
     assert_eq!(moves(&resp), 0, "the return must not move: {resp:?}");
-    assert_eq!(resp["reason"], "source_conflict", "{resp:?}");
+    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
+    // The body at A names its own URL by tag.
+    let resp = b.sub(UA, GUID, Some(UA), Some(UB), None).await;
+    assert_eq!(moves(&resp), 1, "the return must move: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UA, "the record must return to A");
+    assert_eq!(b.state(GUID).return_count, 1, "a return adds one");
+}
+
+#[tokio::test]
+async fn a_return_with_self_links_only_stays() {
+    let b = Bench::new();
+    let total = run(
+        &b,
+        &[
+            (UA, None, Some(UB)),
+            (UB, None, Some(UA)),
+            (UA, None, Some(UA)),
+        ],
+    )
+    .await;
+    assert_eq!(total, 1, "only the first move must happen");
     assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
 }
 
 #[tokio::test]
-async fn a_return_moves_when_its_tag_names_its_own_url() {
+async fn a_copied_tag_does_not_start_a_return_until_it_changes() {
+    let b = Bench::new();
+    let total = run(&b, &[(UA, Some(UB), None), (UB, Some(UA), None)]).await;
+    assert_eq!(total, 1, "the first move must happen");
+    assert_eq!(
+        b.state(GUID).arrival_tag.as_deref(),
+        Some(UA),
+        "the move must store the tag of the body at B"
+    );
+    // The body at A has a tag. The tag at B is the arrival tag, so it is refused.
+    let resp = b.sub(UA, GUID, Some(UA), None, None).await;
+    assert_eq!(moves(&resp), 0, "a copied tag must not return: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UB, "the record must stay at B");
+    // B changes its tag, and then names A again: a real edit.
+    let total = run(&b, &[(UB, Some(UB), None)]).await;
+    assert_eq!(total, 0, "an update is not a move");
+    assert_eq!(
+        b.state(GUID).arrival_tag,
+        None,
+        "a tag that differs must clear the arrival tag"
+    );
+    let resp = b.sub(UA, GUID, Some(UA), None, None).await;
+    assert_eq!(moves(&resp), 0, "the tag B does not name A: {resp:?}");
+    let total = run(&b, &[(UB, Some(UA), None)]).await;
+    assert_eq!(total, 0, "an update is not a move");
+    let resp = b.sub(UA, GUID, Some(UA), None, None).await;
+    assert_eq!(
+        moves(&resp),
+        1,
+        "the changed tag must allow the return: {resp:?}"
+    );
+    assert_eq!(b.feed_url(GUID), UA, "the record must return to A");
+}
+
+#[tokio::test]
+async fn a_second_return_waits_one_hour() {
+    let b = Bench::new();
+    // A to B, then the first return to A.
+    run(
+        &b,
+        &[
+            (UA, Some(UB), None),
+            (UB, Some(UB), None),
+            (UB, Some(UA), None),
+            (UA, Some(UA), None),
+        ],
+    )
+    .await;
+    assert_eq!(b.feed_url(GUID), UA, "the first return must move");
+    assert_eq!(b.state(GUID).return_count, 1, "the first return counts");
+    // A names B again, and B names itself. This is a second return.
+    run(&b, &[(UA, Some(UB), None)]).await;
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(moves(&resp), 0, "the wait must hold the return: {resp:?}");
+    assert_eq!(resp["reason"], "source_conflict", "{resp:?}");
+    assert!(
+        has_warning(&resp, &refusal_warning(UB)),
+        "the wait must give the warning: {resp:?}"
+    );
+    assert_eq!(b.feed_url(GUID), UA, "the record must stay at A");
+    // The hour passes.
+    b.set_last_return(GUID, 3601);
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(
+        moves(&resp),
+        1,
+        "the return must move after the hour: {resp:?}"
+    );
+    assert_eq!(b.feed_url(GUID), UB, "the record must return to B");
+    assert_eq!(b.state(GUID).return_count, 2, "the second return counts");
+}
+
+#[tokio::test]
+async fn the_count_starts_again_after_30_days() {
     let b = Bench::new();
     run(
         &b,
@@ -587,10 +732,130 @@ async fn a_return_moves_when_its_tag_names_its_own_url() {
             (UA, Some(UB), None),
             (UB, Some(UB), None),
             (UB, Some(UA), None),
+            (UA, Some(UA), None),
         ],
     )
     .await;
-    let resp = b.sub(UA, GUID, Some(UA), Some(UB), None).await;
-    assert_eq!(moves(&resp), 1, "the return must move: {resp:?}");
-    assert_eq!(b.feed_url(GUID), UA, "the record must return to A");
+    // Three returns count, but the last one is 31 days old.
+    {
+        let conn = b.db.lock().expect("lock db");
+        conn.execute(
+            "UPDATE feed_move_state SET return_count = 3 WHERE feed_guid = ?1",
+            rusqlite::params![GUID],
+        )
+        .expect("set the count");
+    }
+    b.set_last_return(GUID, 31 * 86_400);
+    run(&b, &[(UA, Some(UB), None)]).await;
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(
+        moves(&resp),
+        1,
+        "no wait must apply after 30 days: {resp:?}"
+    );
+    assert_eq!(b.feed_url(GUID), UB, "the record must return to B");
+    assert_eq!(
+        b.state(GUID).return_count,
+        1,
+        "the count must start again at one"
+    );
+}
+
+#[tokio::test]
+async fn a_move_to_a_url_that_is_not_a_left_url_never_waits() {
+    let b = Bench::new();
+    run(
+        &b,
+        &[
+            (UA, Some(UB), None),
+            (UB, Some(UB), None),
+            (UB, Some(UA), None),
+            (UA, Some(UA), None),
+        ],
+    )
+    .await;
+    let before = b.state(GUID);
+    let total = run(&b, &[(UA, Some(UX), None), (UX, Some(UX), None)]).await;
+    assert_eq!(total, 1, "a move to a new URL must not wait");
+    assert_eq!(b.feed_url(GUID), UX, "the record must move to X");
+    let after = b.state(GUID);
+    assert_eq!(
+        (before.return_count, before.last_return_at),
+        (after.return_count, after.last_return_at),
+        "a move to a new URL must change neither the count nor the time"
+    );
+}
+
+#[tokio::test]
+async fn a_redirect_to_a_left_url_waits_and_then_moves() {
+    let b = Bench::new();
+    run(
+        &b,
+        &[
+            (UA, Some(UB), None),
+            (UB, Some(UB), None),
+            (UB, Some(UA), None),
+            (UA, Some(UA), None),
+        ],
+    )
+    .await;
+    assert_eq!(b.feed_url(GUID), UA, "the first return must move");
+    // B is a left URL, and the first return was just now.
+    let resp = b.redirect(UA, UB).await;
+    assert_eq!(moves(&resp), 0, "the wait must hold the redirect: {resp:?}");
+    assert_eq!(resp["accepted"], true, "the content must apply: {resp:?}");
+    assert!(
+        has_warning(&resp, &refusal_warning(UB)),
+        "the wait must give the warning: {resp:?}"
+    );
+    assert_eq!(b.feed_url(GUID), UA, "the source URL must stay");
+    b.set_last_return(GUID, 3601);
+    let resp = b.redirect(UA, UB).await;
+    assert_eq!(moves(&resp), 1, "the redirect must move: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UB, "the record must move to B");
+    assert_eq!(b.state(GUID).return_count, 2, "the redirect is a return");
+}
+
+#[tokio::test]
+async fn after_a_relocation_the_old_url_cannot_start_a_move_before_the_new_source_names_it() {
+    let b = Bench::new();
+    run(&b, &[(UA, Some(UB), None), (UB, Some(UB), None)]).await;
+    assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
+    b.relocate(GUID, UY).await;
+    assert_eq!(
+        b.state(GUID).arrival_tag,
+        None,
+        "a relocation clears the tag"
+    );
+    assert_eq!(
+        b.state(GUID).return_count,
+        0,
+        "a relocation zeroes the count"
+    );
+    // The relocation cleared the declarations: B cannot start a move.
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(moves(&resp), 0, "B must not move the record: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UY, "the record must stay at Y");
+}
+
+#[tokio::test]
+async fn after_a_relocation_a_stale_tag_at_the_new_source_cannot_bring_the_record_back() {
+    let b = Bench::new();
+    run(&b, &[(UA, Some(UB), None), (UB, Some(UB), None)]).await;
+    b.relocate(GUID, UY).await;
+    // The first body from Y names B. It can be a stale copy.
+    run(&b, &[(UY, Some(UB), None)]).await;
+    assert_eq!(
+        b.state(GUID).arrival_tag.as_deref(),
+        Some(UB),
+        "the first body after a relocation must give the arrival tag"
+    );
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(moves(&resp), 0, "the stale tag must not move: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UY, "the record must stay at Y");
+    // Y changes its tag and names B again, so the statement is real.
+    run(&b, &[(UY, Some(UY), None), (UY, Some(UB), None)]).await;
+    let resp = b.sub(UB, GUID, Some(UB), None, None).await;
+    assert_eq!(moves(&resp), 1, "the real statement must move: {resp:?}");
+    assert_eq!(b.feed_url(GUID), UB, "the record must be at B");
 }

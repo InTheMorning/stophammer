@@ -1779,6 +1779,7 @@ fn ingest_transaction_persists_source_claim_snapshots_and_events() {
         vec![],
         vec![],
         event_rows,
+        None,
         &signer,
     )
     .expect("ingest transaction");

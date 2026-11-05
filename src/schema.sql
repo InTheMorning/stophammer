@@ -580,3 +580,14 @@ CREATE TABLE IF NOT EXISTS feed_left_urls (
     url       TEXT NOT NULL,
     PRIMARY KEY (feed_guid, url)
 ) STRICT;
+
+-- The move state of a record (ADR 0083 sections 4 and 5): the tag of the body
+-- that moved the record to its source URL, the count of returns and the time
+-- of the last return. Local to the primary. No event carries the rows.
+CREATE TABLE IF NOT EXISTS feed_move_state (
+    feed_guid      TEXT PRIMARY KEY,
+    arrival_tag    TEXT,
+    return_count   INTEGER NOT NULL DEFAULT 0,
+    last_return_at INTEGER,
+    arrival_pending INTEGER NOT NULL DEFAULT 0
+) STRICT;

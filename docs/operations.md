@@ -1007,25 +1007,30 @@ restart does not write the hold again. The release signs no event.
 
 ### Ingest warns `move to ... refused`
 
-A feed body at a named URL can name a URL that the record holds or left. Then
-the node can refuse the move. `docs/API.md` gives the sequence of the test, and
-ADR 0083 section 2 owns it. The record stays at its source URL. The answer is
-`source_conflict`, with this warning:
+A record can leave a URL by a move or by an operator relocation. A later body
+at that left URL can name the record back. This is a return. ADR 0083 owns the
+rule, and `docs/API.md` gives the conditions. A return needs a tag at each end,
+and a tag that the current source did not already carry when the record
+arrived. A later return can also wait. The record stays at its source URL. The
+answer is `source_conflict`, with this warning:
 
 ```text
-move to <URL> refused: the body names <held URL> (ADR 0083)
+move to <URL> refused: the record left that URL (ADR 0083)
 ```
 
-The primary logs one warning with `feed_guid`, `target_url` and `held_url`.
-The two URLs can name each other, and the move would repeat without end. The
-node refuses it to prevent this.
+A permanent redirect to a left URL during a wait gives an accepted answer with
+the same warning. The node applies the body and keeps the source URL.
+
+The primary logs one warning with `feed_guid` and `target_url`.
 
 To end the refusal, use one of these steps:
 
-1. The publisher corrects the feed. The body at the refused URL stops naming
-   the held URL.
+1. The publisher changes the tag at the current source and names the left URL
+   again. The left URL must have a tag that names itself. For a wait, the
+   publisher waits for the end of the wait.
 2. The operator relocates the record with `PATCH /v1/feeds/{guid}`. The
-   relocation deletes the left URLs of the record.
+   relocation keeps each left URL, adds the URL that it leaves, and clears the
+   arrival tag and the count of returns.
 
 ### Search index rebuild at the first start
 

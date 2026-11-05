@@ -2339,6 +2339,9 @@ fn source_gone_response(
 struct MoveTarget {
     new_feed_url: String,
     trigger: &'static str,
+    /// For a return to a left URL (ADR 0083 section 5): the new count of
+    /// returns and the time of the return. `None` for each other move.
+    return_values: Option<(i64, i64)>,
 }
 
 /// The answer of [`move_target`].
@@ -2347,13 +2350,13 @@ enum MoveDecision {
     NoTrigger,
     /// A trigger matches, and the record moves.
     Move(MoveTarget),
-    /// A trigger matches, but ADR 0083 section 2 refuses the move.
-    /// `target_url` is the URL of the refused move, and `held_url` is the URL
-    /// that the body names.
-    Refused {
-        target_url: String,
-        held_url: String,
-    },
+    /// A mirror trigger matches, but ADR 0083 section 2 refuses the return.
+    /// `target_url` is the URL of the refused move.
+    Refused { target_url: String },
+    /// A permanent redirect names a left URL during a wait (ADR 0083 section
+    /// 6). The caller applies the body as an update and keeps the source URL.
+    /// `target_url` is the URL of the redirect.
+    WaitingRedirect { target_url: String },
 }
 
 impl MoveDecision {
@@ -2363,8 +2366,14 @@ impl MoveDecision {
     }
 }
 
-/// ADR 0052 sections 1 and 2, task 006, and ADR 0083 section 2: the one test
-/// for a source-triggered move.
+/// The text of the warning for a refused return or a waiting redirect (ADR
+/// 0083 section 7).
+fn refused_move_warning(target_url: &str) -> String {
+    format!("move to {target_url} refused: the record left that URL (ADR 0083)")
+}
+
+/// ADR 0052 sections 1 and 2, task 006, and ADR 0083 sections 2, 5 and 6: the
+/// one test for a source-triggered move.
 ///
 /// A submission moves the record on the first of these that matches:
 ///
@@ -2378,20 +2387,17 @@ impl MoveDecision {
 ///   `308`, and `canonical_url` is not the stored source URL: trigger
 ///   `permanent redirect`, target `canonical_url`.
 ///
-/// The function finds the trigger first. For a mirror submission, ADR 0083
-/// section 2 then examines `body` in this sequence, and the first match
-/// decides. A held URL is the stored source URL or a left URL, and an own URL
-/// is never a held URL. Each comparison is exact string equality.
-///
-/// 1. The tag of `body` names an own URL: the record moves.
-/// 2. The tag of `body` names a held URL: [`MoveDecision::Refused`].
-/// 3. The move is a return to a left URL, and the self link of `body` names a
-///    held URL: [`MoveDecision::Refused`].
-/// 4. In each other condition, the record moves.
+/// For a mirror submission, ADR 0083 section 2 then decides. A move to a
+/// URL that is not a left URL goes on. A move to a left URL is a return. A
+/// return goes on only when the trigger is `new-feed-url`, the tag of `body`
+/// is an own URL, the declared tag is not the arrival tag, and no cooldown is
+/// active. Otherwise the answer is [`MoveDecision::Refused`]. A permanent
+/// redirect to a left URL uses only the cooldown (ADR 0083 section 6), and
+/// gives [`MoveDecision::WaitingRedirect`] during a wait. Each comparison is
+/// exact string equality.
 ///
 /// A submission with no trigger gives [`MoveDecision::NoTrigger`], never a
-/// refusal. The update case (permanent redirect) applies none of these rules
-/// (ADR 0083 section 5).
+/// refusal.
 ///
 /// Both the read phase and the write phase of `handle_ingest_feed` call this
 /// function, so the two phases use one rule and cannot disagree.
@@ -2409,15 +2415,14 @@ fn move_target(
 ) -> Result<MoveDecision, ApiError> {
     let is_own = |url: &str| url == source_url || url == canonical_url;
     match db::classify_submission(conn, feed_guid, source_url, canonical_url)? {
-        db::SubmissionClass::Mirror {
-            source_url: stored_source_url,
-        } => {
+        db::SubmissionClass::Mirror { .. } => {
             let target = if let Some(new_feed_url) =
                 db::get_declared_new_feed_url(conn, feed_guid)?.filter(|declared| is_own(declared))
             {
                 MoveTarget {
                     new_feed_url,
                     trigger: "new-feed-url",
+                    return_values: None,
                 }
             } else if let Some(new_feed_url) =
                 db::get_declared_self_url(conn, feed_guid)?.filter(|declared| is_own(declared))
@@ -2425,44 +2430,39 @@ fn move_target(
                 MoveTarget {
                     new_feed_url,
                     trigger: "self link",
+                    return_values: None,
                 }
             } else {
                 return Ok(MoveDecision::NoTrigger);
             };
 
-            // ADR 0083 section 2, rule 1: the tag names an own URL.
-            let tag = body.new_feed_url.as_deref();
-            if tag.is_some_and(is_own) {
+            // ADR 0083 section 2: a move to a URL that is not a left URL
+            // goes on.
+            let left_urls = db::get_left_urls(conn, feed_guid)?;
+            if !left_urls.iter().any(|left| is_own(left)) {
                 return Ok(MoveDecision::Move(target));
             }
-            let left_urls = db::get_left_urls(conn, feed_guid)?;
-            let is_held = |url: &str| {
-                !is_own(url) && (url == stored_source_url || left_urls.iter().any(|l| l == url))
-            };
-            // Rule 2: the tag names a held URL.
-            if let Some(held_url) = tag.filter(|url| is_held(url)) {
-                return Ok(MoveDecision::Refused {
-                    target_url: target.new_feed_url,
-                    held_url: held_url.to_string(),
-                });
-            }
-            // Rule 3: a return whose self link names a held URL.
-            let is_return = left_urls.iter().any(|l| is_own(l));
-            if is_return
-                && let Some(link) = body
-                    .links
-                    .iter()
-                    .find(|link| link.link_type == "self_feed")
-                    .map(|link| link.url.as_str())
-                    .filter(|url| is_held(url))
+            // A return needs a tag at each end, a tag that is not the
+            // arrival tag, and no cooldown.
+            let state = db::get_move_state(conn, feed_guid)?;
+            let now = db::unix_now();
+            let tag_at_new_url = body.new_feed_url.as_deref().is_some_and(is_own);
+            let declared_is_arrival = state.arrival_tag.as_deref() == Some(&target.new_feed_url);
+            let waiting = db::return_cooldown_end(state.return_count, state.last_return_at, now)
+                .is_some_and(|end| end > now);
+            if target.trigger == "new-feed-url"
+                && tag_at_new_url
+                && !declared_is_arrival
+                && !waiting
             {
-                return Ok(MoveDecision::Refused {
-                    target_url: target.new_feed_url,
-                    held_url: link.to_string(),
-                });
+                return Ok(MoveDecision::Move(MoveTarget {
+                    return_values: Some(next_return_values(&state, now)),
+                    ..target
+                }));
             }
-            // Rule 4.
-            Ok(MoveDecision::Move(target))
+            Ok(MoveDecision::Refused {
+                target_url: target.new_feed_url,
+            })
         }
         db::SubmissionClass::Update => {
             let Some(stored_source_url) = db::get_feed(conn, feed_guid)?.map(|feed| feed.feed_url)
@@ -2478,15 +2478,39 @@ fn move_target(
             {
                 return Ok(MoveDecision::NoTrigger);
             }
-            Ok(MoveDecision::Move(MoveTarget {
+            let mut target = MoveTarget {
                 new_feed_url: canonical_url.to_string(),
                 trigger: "permanent redirect",
-            }))
+                return_values: None,
+            };
+            // ADR 0083 section 6: a redirect to a left URL is a return, and
+            // it uses only the cooldown.
+            let left_urls = db::get_left_urls(conn, feed_guid)?;
+            if left_urls.iter().any(|left| left == canonical_url) {
+                let state = db::get_move_state(conn, feed_guid)?;
+                let now = db::unix_now();
+                if db::return_cooldown_end(state.return_count, state.last_return_at, now)
+                    .is_some_and(|end| end > now)
+                {
+                    return Ok(MoveDecision::WaitingRedirect {
+                        target_url: target.new_feed_url,
+                    });
+                }
+                target.return_values = Some(next_return_values(&state, now));
+            }
+            Ok(MoveDecision::Move(target))
         }
         db::SubmissionClass::RecordConflict
         | db::SubmissionClass::GuidChange { .. }
         | db::SubmissionClass::NewFeed => Ok(MoveDecision::NoTrigger),
     }
+}
+
+/// The count and the time that a return stores: the count that counts at
+/// `now`, plus one (ADR 0083 section 5).
+fn next_return_values(state: &db::MoveState, now: i64) -> (i64, i64) {
+    let effective = db::effective_return_count(state.return_count, state.last_return_at, now);
+    (effective.saturating_add(1), now)
 }
 
 /// `true` when `value` is present and its scheme is not `http` or `https`.
@@ -2906,6 +2930,9 @@ async fn handle_ingest_feed(
         // move is under way. Its presence, not the classification above, is
         // what the rest of the handler checks from here on.
         let mut record_move: Option<(String, String, &'static str)> = None;
+        // The count and the time of a return, when the move is a return
+        // (ADR 0083 section 5).
+        let mut move_return: Option<(i64, i64)> = None;
         // ADR 0052 sections 4 and 5, task 007: events a GUID-change
         // transition signed, ahead of the events below that admit the body
         // as a new record. Empty unless that transition ran.
@@ -3024,7 +3051,7 @@ async fn handle_ingest_feed(
                 // the stored source URL moves the record. `move_target` is
                 // the one test for this; the read phase above calls the
                 // same function, so the two places cannot disagree.
-                if let MoveDecision::Move(target) = move_target(
+                match move_target(
                     &conn,
                     &feed_data.feed_guid,
                     &req.source_url,
@@ -3032,12 +3059,24 @@ async fn handle_ingest_feed(
                     &req.redirects,
                     feed_data,
                 )? {
-                    warnings.push(format!(
-                        "moved from {} to {} (ADR 0052 {})",
-                        req.source_url, target.new_feed_url, target.trigger
-                    ));
-                    record_move =
-                        Some((req.source_url.clone(), target.new_feed_url, target.trigger));
+                    MoveDecision::Move(target) => {
+                        warnings.push(format!(
+                            "moved from {} to {} (ADR 0052 {})",
+                            req.source_url, target.new_feed_url, target.trigger
+                        ));
+                        move_return = target.return_values;
+                        record_move =
+                            Some((req.source_url.clone(), target.new_feed_url, target.trigger));
+                    }
+                    MoveDecision::WaitingRedirect { target_url } => {
+                        tracing::warn!(
+                            feed_guid = feed_data.feed_guid.as_str(),
+                            target_url = target_url.as_str(),
+                            "ADR 0083 section 6: a redirect to a left URL waits for the cooldown"
+                        );
+                        warnings.push(refused_move_warning(&target_url));
+                    }
+                    MoveDecision::NoTrigger | MoveDecision::Refused { .. } => {}
                 }
             }
             db::SubmissionClass::NewFeed => {
@@ -3117,20 +3156,13 @@ async fn handle_ingest_feed(
                     feed_data,
                 )?;
                 let mut refusal_warnings: Vec<String> = Vec::new();
-                if let MoveDecision::Refused {
-                    target_url,
-                    held_url,
-                } = &decision
-                {
+                if let MoveDecision::Refused { target_url } = &decision {
                     tracing::warn!(
                         feed_guid = feed_data.feed_guid.as_str(),
                         target_url = target_url.as_str(),
-                        held_url = held_url.as_str(),
-                        "ADR 0083 section 2: a move was refused because the body names a held URL"
+                        "ADR 0083 section 2: a return to a left URL was refused"
                     );
-                    refusal_warnings.push(format!(
-                        "move to {target_url} refused: the body names {held_url} (ADR 0083)"
-                    ));
+                    refusal_warnings.push(refused_move_warning(target_url));
                 }
 
                 if let MoveDecision::Move(target) = decision {
@@ -3138,6 +3170,7 @@ async fn handle_ingest_feed(
                         "moved from {source_url} to {} (ADR 0052 {})",
                         target.new_feed_url, target.trigger
                     ));
+                    move_return = target.return_values;
                     record_move = Some((source_url, target.new_feed_url, target.trigger));
                     // Falls through: the rest of the handler applies the
                     // body as an update, at the new URL (step 7b).
@@ -3951,6 +3984,14 @@ async fn handle_ingest_feed(
             live_events,
             track_tuples,
             event_rows,
+            record_move
+                .as_ref()
+                .map(|(old_feed_url, new_feed_url, _)| db::FeedMoveWrite {
+                    old_url: old_feed_url.clone(),
+                    new_url: new_feed_url.clone(),
+                    arrival_tag: feed_data.new_feed_url.clone(),
+                    return_values: move_return,
+                }),
             &state2.signer,
         )?;
 
@@ -3960,14 +4001,12 @@ async fn handle_ingest_feed(
         // link, the `itunes:new-feed-url` value, and the `podcast:locked`
         // fact. A move writes them from the body at the new URL, so the next
         // hop needs no changed body. A mirror body with no move returns
-        // before this step and writes neither column. A move also adds the
-        // old URL to the left URLs of the record, and removes the new URL.
+        // before this step and writes neither column. The
+        // transaction of the ingest stores the history of a move.
         //
-        // The write runs right after `ingest_transaction`, under the same
-        // writer lock, rather than through a new parameter on that function.
-        // The lock already serializes every writer, so this UPDATE cannot
-        // interleave with another ingest; adding the write here keeps
-        // `ingest_transaction`'s already-large parameter list unchanged.
+        // The declaration write runs right after `ingest_transaction`, under
+        // the same writer lock. The lock serializes every writer, so this
+        // UPDATE cannot interleave with another ingest.
         let declared_self_url = feed_data
             .links
             .iter()
@@ -3981,9 +4020,11 @@ async fn handle_ingest_feed(
             feed_data.locked,
             feed_data.locked_owner.as_deref(),
         )?;
-        if let Some((old_feed_url, new_feed_url, _)) = &record_move {
-            db::add_left_url(&conn, feed_guid_str, old_feed_url)?;
-            db::remove_left_url(&conn, feed_guid_str, new_feed_url)?;
+        // ADR 0083 section 4: the transaction above stored the history of a
+        // move. An ingest with no move clears the arrival tag when its tag
+        // differs from it.
+        if record_move.is_none() {
+            db::clear_arrival_tag_unless(&conn, feed_guid_str, feed_data.new_feed_url.as_deref())?;
         }
 
         // ADR 0052 sections 1 and 2: a move updates the record to the new
@@ -5448,6 +5489,17 @@ fn relocate_feed(
         return Ok(RelocateOutcome::Conflict);
     }
 
+    let old_url: String = tx
+        .query_row(
+            "SELECT feed_url FROM feeds WHERE feed_guid = ?1",
+            params![feed_guid],
+            |row| row.get(0),
+        )
+        .optional()?
+        .ok_or_else(|| {
+            db::DbError::Other(format!("feed {feed_guid} vanished before relocation"))
+        })?;
+
     tx.execute(
         "UPDATE feeds SET feed_url = ?1, last_build_date = NULL, feed_host = ?3 \
          WHERE feed_guid = ?2",
@@ -5460,9 +5512,10 @@ fn relocate_feed(
     // ADR 0052 section 2, task 006: a stale new-feed-url declaration must
     // not point back at a URL the record just left.
     db::clear_declared_new_feed_url(tx, feed_guid)?;
-    // ADR 0083 section 4: an operator relocation starts a new history, so it
-    // deletes each left URL of the GUID.
-    db::clear_left_urls(tx, feed_guid)?;
+    // ADR 0083 section 4: an operator relocation keeps the old URL as a left
+    // URL, removes the new URL, marks the arrival tag as pending and sets the
+    // count of returns to zero.
+    db::write_relocation_state(tx, feed_guid, &old_url, new_url)?;
 
     let feed = db::get_feed_by_guid(tx, feed_guid)?
         .ok_or_else(|| db::DbError::Other(format!("feed {feed_guid} vanished after relocation")))?;

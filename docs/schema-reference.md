@@ -199,11 +199,38 @@ Key columns:
 Notes:
 - local to the primary
 - makes no event, so a community node holds no row
-- a move adds the old URL and removes the new URL
-- an operator relocation and a feed delete remove the rows of the GUID
+- a move adds the old URL and removes the new URL, in the ingest transaction
+- an operator relocation adds the old URL and removes the new URL, and keeps
+  each other row
 - `PATCH /v1/feeds/{guid}` and the `relocate` decision of
-  `POST /v1/feeds/{guid}/copies/resolve` clear the rows through `relocate_feed`
-- the refusal of a loop in ADR 0083 section 2 reads this table
+  `POST /v1/feeds/{guid}/copies/resolve` write the rows through `relocate_feed`
+- a feed delete removes the rows of the GUID
+- the return rule of ADR 0083 section 2 reads this table
+
+### `feed_move_state`
+Purpose: the arrival tag, the count of returns and the time of the last return
+of a record (ADR 0083 sections 4 and 5).
+Key columns:
+- `feed_guid` (primary key)
+- `arrival_tag`
+- `return_count`
+- `last_return_at`
+- `arrival_pending`
+
+Notes:
+- local to the primary
+- makes no event, so a community node holds no row
+- a record with no row has no arrival tag and a count of zero
+- after a relocation, `arrival_pending` is 1 until the first body from the new
+  source gives the arrival tag
+- a move stores the tag of the body at the new URL as the arrival tag, in the
+  ingest transaction
+- an update or a new-feed ingest whose tag differs from the arrival tag clears
+  it
+- a return sets `return_count` to the count that counts now, plus one, and sets
+  `last_return_at`. After 30 days with no return, the count counts as zero
+- an operator relocation clears the arrival tag and sets `return_count` to zero
+- a feed delete removes the row of the GUID
 
 ### `source_gone_answers`
 Purpose: the count of a gone answer (`404` or `410`) from the stored source

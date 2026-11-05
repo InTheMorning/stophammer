@@ -125,7 +125,7 @@ fn remove_left_url_removes_one_row_and_keeps_the_others() {
 }
 
 #[tokio::test]
-async fn a_relocation_removes_the_left_urls_of_that_guid_only() {
+async fn a_relocation_keeps_the_left_urls_and_adds_the_old_url() {
     let crawl_token = "adr0083-relocate-token";
     let db = common::test_db_arc();
     let state = test_app_state(Arc::clone(&db), crawl_token);
@@ -154,9 +154,14 @@ async fn a_relocation_removes_the_left_urls_of_that_guid_only() {
         .expect("send request");
     assert_eq!(resp.status(), 204, "the relocation must succeed: {resp:?}");
 
-    assert!(
-        left_urls(&db, guid).is_empty(),
-        "a relocation must remove each left URL of the GUID"
+    assert_eq!(
+        left_urls(&db, guid),
+        vec![
+            "https://left.example/feed/a".to_string(),
+            "https://left.example/old-1".to_string(),
+            "https://left.example/old-2".to_string(),
+        ],
+        "a relocation must keep each left URL and add the URL that it leaves"
     );
     assert_eq!(
         left_urls(&db, "adr0083-other-guid").len(),
@@ -176,7 +181,21 @@ async fn delete_feed_removes_the_left_urls_of_that_guid() {
     add(&db, "adr0083-other-guid", "https://left.example/old");
     {
         let mut conn = db.lock().expect("lock db");
+        conn.execute(
+            "INSERT INTO feed_move_state (feed_guid, arrival_tag, return_count, last_return_at) \
+             VALUES (?1, 'https://left.example/tag', 2, 100)",
+            rusqlite::params![guid],
+        )
+        .expect("insert move state");
         stophammer::db::delete_feed(&mut conn, guid).expect("delete feed");
+        let rows: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM feed_move_state WHERE feed_guid = ?1",
+                rusqlite::params![guid],
+                |row| row.get(0),
+            )
+            .expect("count move state");
+        assert_eq!(rows, 0, "a feed delete must remove the move state");
     }
     assert!(
         left_urls(&db, guid).is_empty(),

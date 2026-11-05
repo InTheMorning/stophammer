@@ -117,6 +117,7 @@ fn ingest_feed_with_tracks(
         vec![],
         tracks,
         event_rows,
+        None,
         signer,
     )
     .expect("ingest_transaction should succeed")

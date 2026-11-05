@@ -160,6 +160,7 @@ fn ingest_and_count_track_events(
         vec![],
         track_tuples,
         event_rows,
+        None,
         signer,
     )
     .expect("ingest_transaction should succeed");

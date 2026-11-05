@@ -89,7 +89,8 @@ arrival tag, because the source then changed its statement.
 An operator relocation adds the old URL, removes the new URL, clears the arrival tag
 and sets the number of returns to zero, in the transaction of `relocate_feed`. It
 keeps each other left URL, because an operator who moves a record away from a URL
-wants it to stay away.
+wants it to stay away. The first body from the new source then gives the arrival tag,
+because that body can hold a stale copy of a tag.
 
 ### 5. A return has a growing cooldown
 
@@ -195,6 +196,10 @@ loop can change the payment routes of a record again and again.
   return.
 - A return needs a tag at each end, and a copied tag must first change. The publisher changes
   the body once, or the operator relocates the record.
+- Nothing crawls a URL again when its wait ends. A return stays pending until the next
+  podping or pass reads the current source URL and that URL.
+- A wait can keep a record at a URL with incorrect content for up to 7 days. The source
+  can correct its content at once, and an operator relocation ends the wait.
 - A chain signs one `FeedUpserted` event for each hop, and it applies each body on the way.
   The record can stay at an intermediate URL between two passes.
 - A chain of more than one hop needs more passes. The `gossip` mode reaches the next URL only

@@ -516,6 +516,7 @@ fn ingest_transaction_writes_search_and_quality_atomically() {
                 warnings: vec![],
             },
         ],
+        None,
         &signer,
     );
     assert!(result.is_ok(), "ingest_transaction should succeed");
@@ -646,6 +647,7 @@ fn ingest_transaction_rolls_back_search_quality_on_failure() {
             created_at: now,
             warnings: vec![],
         }],
+        None,
         &signer2,
     );
 

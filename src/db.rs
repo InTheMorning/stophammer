@@ -289,6 +289,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 59: store the URLs that a record left by a move (ADR 0083 §4,
     // task 002)
     include_str!("../migrations/0059_feed_left_urls.sql"),
+    // Migration 60: store the arrival tag and the returns of a record (ADR 0083
+    // §4 and §5, task 006)
+    include_str!("../migrations/0060_feed_move_state.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -2965,9 +2968,14 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         "DELETE FROM feed_copy_overflow WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
-    // ADR 0083 section 4: a feed delete also removes the left URLs of the GUID.
+    // ADR 0083 section 4: a feed delete also removes the left URLs and the move
+    // state of the GUID.
     conn.execute(
         "DELETE FROM feed_left_urls WHERE feed_guid = ?1",
+        params![feed_guid],
+    )?;
+    conn.execute(
+        "DELETE FROM feed_move_state WHERE feed_guid = ?1",
         params![feed_guid],
     )?;
 
@@ -6772,6 +6780,7 @@ pub fn ingest_transaction(
     live_events: Vec<LiveEvent>,
     tracks: Vec<TrackIngestBundle>,
     event_rows: Vec<EventRow>,
+    feed_move: Option<FeedMoveWrite>,
     signer: &NodeSigner,
 ) -> Result<Vec<(i64, String, String)>, DbError> {
     let source_contributor_claims = dedupe_source_contributor_claims(&source_contributor_claims);
@@ -7330,6 +7339,12 @@ pub fn ingest_transaction(
     // successful ingest leaves a fully-populated read model.
     sync_source_read_models_for_feed(&tx, &feed.feed_guid)?;
 
+    // 7a. ADR 0083 section 4: a move stores its history in the same
+    // transaction, so a crash cannot lose it.
+    if let Some(mv) = &feed_move {
+        write_feed_move(&tx, &feed.feed_guid, mv)?;
+    }
+
     // 8. Commit
     tx.commit()?;
 
@@ -7531,15 +7546,161 @@ pub fn remove_left_url(conn: &Connection, feed_guid: &str, url: &str) -> Result<
     Ok(())
 }
 
-/// Removes each left URL of `feed_guid`. An operator relocation and a feed
-/// delete use it (ADR 0083 section 4).
+// ── feed_move_state (ADR 0083 sections 4 and 5) ─────────────────────────────
+
+/// The move state of a record (ADR 0083 sections 4 and 5). A record with no
+/// row has no arrival tag, a count of zero and no time of a last return.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MoveState {
+    /// The tag of the body that moved the record to its source URL.
+    pub arrival_tag: Option<String>,
+    /// The count of returns, before the 30 day reset.
+    pub return_count: i64,
+    /// The time of the last return, in seconds since the epoch.
+    pub last_return_at: Option<i64>,
+}
+
+/// A move that `ingest_transaction` stores with the ingest (ADR 0083 section
+/// 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeedMoveWrite {
+    /// The source URL that the record leaves.
+    pub old_url: String,
+    /// The source URL that the record takes.
+    pub new_url: String,
+    /// The tag of the body at the new URL, or `None`.
+    pub arrival_tag: Option<String>,
+    /// For a return: the new count and the time of the return. `None` leaves
+    /// both values as they are.
+    pub return_values: Option<(i64, i64)>,
+}
+
+/// Seconds of a wait after the first return (ADR 0083 section 5).
+const RETURN_WAIT_BASE_SECS: i64 = 3600;
+/// The limit of a wait, 7 days (ADR 0083 section 5).
+const RETURN_WAIT_LIMIT_SECS: i64 = 604_800;
+/// After this many seconds with no return, the count starts again (ADR 0083
+/// section 5), 30 days.
+const RETURN_COUNT_RESET_SECS: i64 = 2_592_000;
+
+/// The count of returns that counts at `now`: zero when 30 days or more passed
+/// since the last return (ADR 0083 section 5).
+#[must_use]
+pub fn effective_return_count(count: i64, last_return_at: Option<i64>, now: i64) -> i64 {
+    match last_return_at {
+        Some(last) if count > 0 && now.saturating_sub(last) < RETURN_COUNT_RESET_SECS => count,
+        _ => 0,
+    }
+}
+
+/// The end of the wait that follows the last return, or `None` when no wait
+/// applies (ADR 0083 section 5). A count of zero, or 30 days with no return,
+/// gives `None`. With an effective count `c` of 1 or more, the wait is
+/// `3600 * 2^(c - 1)` seconds with a limit of 604800. The caller compares the
+/// result with the time now: a wait is active while `now` is less than it.
+#[must_use]
+pub fn return_cooldown_end(count: i64, last_return_at: Option<i64>, now: i64) -> Option<i64> {
+    let effective = effective_return_count(count, last_return_at, now);
+    if effective < 1 {
+        return None;
+    }
+    // 2^20 times the base already passes the limit, so the shift is capped.
+    let shift = u32::try_from(effective - 1).unwrap_or(u32::MAX).min(20);
+    let wait = (RETURN_WAIT_BASE_SECS << shift).min(RETURN_WAIT_LIMIT_SECS);
+    last_return_at.map(|last| last.saturating_add(wait))
+}
+
+/// Returns the move state of `feed_guid`. A record with no row gives the
+/// default state.
 ///
 /// # Errors
 ///
-/// Returns [`DbError`] if the DELETE statement fails.
-pub fn clear_left_urls(conn: &Connection, feed_guid: &str) -> Result<(), DbError> {
+/// Returns [`DbError`] if the SELECT statement fails.
+pub fn get_move_state(conn: &Connection, feed_guid: &str) -> Result<MoveState, DbError> {
+    let row = conn
+        .query_row(
+            "SELECT arrival_tag, return_count, last_return_at FROM feed_move_state \
+             WHERE feed_guid = ?1",
+            params![feed_guid],
+            |r| {
+                Ok(MoveState {
+                    arrival_tag: r.get(0)?,
+                    return_count: r.get(1)?,
+                    last_return_at: r.get(2)?,
+                })
+            },
+        )
+        .optional()?;
+    Ok(row.unwrap_or_default())
+}
+
+/// Clears the arrival tag of `feed_guid` when `tag` differs from it (ADR 0083
+/// section 4). The source then changed its statement.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the UPDATE statement fails.
+pub fn clear_arrival_tag_unless(
+    conn: &Connection,
+    feed_guid: &str,
+    tag: Option<&str>,
+) -> Result<(), DbError> {
+    // ADR 0083 section 4: after a relocation, the first body from the new
+    // source gives the arrival tag.
     conn.execute(
-        "DELETE FROM feed_left_urls WHERE feed_guid = ?1",
+        "UPDATE feed_move_state SET \
+         arrival_tag = CASE \
+             WHEN arrival_pending = 1 THEN ?2 \
+             WHEN arrival_tag IS ?2 THEN arrival_tag \
+             ELSE NULL END, \
+         arrival_pending = 0 \
+         WHERE feed_guid = ?1",
+        params![feed_guid, tag],
+    )?;
+    Ok(())
+}
+
+/// Stores a move: adds the old URL, removes the new URL and stores the arrival
+/// tag. A return also stores the count and the time (ADR 0083 section 4).
+fn write_feed_move(conn: &Connection, feed_guid: &str, mv: &FeedMoveWrite) -> Result<(), DbError> {
+    add_left_url(conn, feed_guid, &mv.old_url)?;
+    remove_left_url(conn, feed_guid, &mv.new_url)?;
+    conn.execute(
+        "INSERT INTO feed_move_state (feed_guid, arrival_tag) VALUES (?1, ?2) \
+         ON CONFLICT(feed_guid) DO UPDATE SET arrival_tag = excluded.arrival_tag, \
+         arrival_pending = 0",
+        params![feed_guid, mv.arrival_tag],
+    )?;
+    if let Some((count, at)) = mv.return_values {
+        conn.execute(
+            "UPDATE feed_move_state SET return_count = ?2, last_return_at = ?3 \
+             WHERE feed_guid = ?1",
+            params![feed_guid, count, at],
+        )?;
+    }
+    Ok(())
+}
+
+/// Stores an operator relocation: adds the old URL, removes the new URL,
+/// clears the arrival tag, marks it as pending and sets the count of returns
+/// to zero. Each other left URL stays (ADR 0083 section 4).
+///
+/// # Errors
+///
+/// Returns [`DbError`] if a statement fails.
+pub fn write_relocation_state(
+    conn: &Connection,
+    feed_guid: &str,
+    old_url: &str,
+    new_url: &str,
+) -> Result<(), DbError> {
+    add_left_url(conn, feed_guid, old_url)?;
+    remove_left_url(conn, feed_guid, new_url)?;
+    conn.execute(
+        "INSERT INTO feed_move_state (feed_guid, arrival_tag, return_count, arrival_pending) \
+         VALUES (?1, NULL, 0, 1) \
+         ON CONFLICT(feed_guid) DO UPDATE SET arrival_tag = NULL, return_count = 0, \
+         arrival_pending = 1",
         params![feed_guid],
     )?;
     Ok(())
@@ -8265,7 +8426,10 @@ pub fn get_source_item_transcripts_for_feed_entity(
 
 #[cfg(test)]
 mod tests {
-    use super::{MIGRATIONS, ROUTE_HISTORY_EVENTS_SQL, migrations_can_advance};
+    use super::{
+        MIGRATIONS, ROUTE_HISTORY_EVENTS_SQL, effective_return_count, migrations_can_advance,
+        return_cooldown_end,
+    };
 
     /// musicindex.org request 8: the route history read parsed the payload of
     /// each `track_upserted` event. It must search the indexes of migration
@@ -8314,5 +8478,64 @@ mod tests {
             !migrations_can_advance(at_count + 1, total),
             "a recorded version above the migration count skips the next appended entry"
         );
+    }
+
+    // ADR 0083 section 5: the cooldown of a return.
+    #[test]
+    fn return_cooldown_gives_the_end_of_the_wait() {
+        let now = 10_000_000;
+        assert_eq!(return_cooldown_end(0, Some(now), now), None, "count 0");
+        assert_eq!(
+            return_cooldown_end(1, Some(now), now),
+            Some(now + 3600),
+            "after the first return the wait is 1 hour"
+        );
+        assert_eq!(
+            return_cooldown_end(2, Some(now), now),
+            Some(now + 7200),
+            "after the second return the wait is 2 hours"
+        );
+        assert_eq!(
+            return_cooldown_end(3, Some(now), now),
+            Some(now + 14_400),
+            "the wait doubles"
+        );
+        assert_eq!(
+            return_cooldown_end(40, Some(now), now),
+            Some(now + 604_800),
+            "the wait stops at 7 days"
+        );
+    }
+
+    #[test]
+    fn return_cooldown_does_not_overflow_on_a_large_count() {
+        let now = 10_000_000;
+        assert_eq!(
+            return_cooldown_end(i64::MAX, Some(now), now),
+            Some(now + 604_800),
+            "a large count gives the limit"
+        );
+        assert_eq!(
+            return_cooldown_end(1, Some(i64::MAX), i64::MAX),
+            Some(i64::MAX),
+            "a large time must not overflow"
+        );
+    }
+
+    #[test]
+    fn return_cooldown_resets_after_30_days() {
+        let last = 1_000_000;
+        assert_eq!(
+            return_cooldown_end(5, Some(last), last + 2_592_000),
+            None,
+            "30 days with no return start the count again"
+        );
+        assert!(
+            return_cooldown_end(5, Some(last), last + 2_591_999).is_some(),
+            "29 days and 23 hours still count"
+        );
+        assert_eq!(return_cooldown_end(5, None, last), None, "no time, no wait");
+        assert_eq!(effective_return_count(5, Some(last), last + 2_592_000), 0);
+        assert_eq!(effective_return_count(5, Some(last), last + 10), 5);
     }
 }

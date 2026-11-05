@@ -440,29 +440,39 @@ the move then reads as a mirror, and gets `source_conflict`.
 A self link or a `new_feed_url` value in a mirror body does not start a
 move. Only a value a source ingest stored counts.
 
-**A move refuses a loop (ADR 0083 section 2):**
+**A return needs a tag at each end (ADR 0083 sections 2, 5 and 6):**
 
-ADR 0083 owns the refusal. A move by `self link` or `new-feed-url` can be
-refused. A held URL is the stored source URL, or a URL that the record left by
-an earlier move. The node examines the body in this sequence:
+ADR 0083 owns the rule. A left URL is a URL that the record left by a move or
+by an operator relocation. A move to a URL that is not a left URL goes on. A
+move to a left URL is a return. The node makes a return only when each of
+these is true:
 
-1. The tag of the body names its own URL: the record moves.
-2. The tag of the body names a held URL: the node refuses the move.
-3. The move goes to a URL that the record left, and the self link of the body
-   names a held URL: the node refuses the move.
-4. In each other condition, the record moves.
+1. The trigger is `new-feed-url` of the current source. A self link cannot
+   start a return.
+2. The body at the left URL has a tag that names an own URL.
+3. The tag of the current source is not the arrival tag. The arrival tag is
+   the tag of the body that moved the record to its source URL. A real change
+   of the tag at the source clears it.
+4. No wait is active.
 
-A self link does not refuse a first move to a URL. After a refusal, the record
-stays at its source URL. The answer is `source_conflict`, and the node writes
-the usual copy row. The response carries this warning:
+The first return has no wait. Each later return waits from the last return:
+1 hour, 2 hours, and then twice as long, to a limit of 7 days. After 30 days
+with no return, the count starts again. A move to a URL that is not a left URL
+never waits.
+
+After a refusal, the record stays at its source URL. The answer is
+`source_conflict`, and the node writes the usual copy row. The response carries
+this warning:
 
 ```text
-move to <URL> refused: the body names <held URL> (ADR 0083)
+move to <URL> refused: the record left that URL (ADR 0083)
 ```
 
 The refusal warning appears only with a new body hash. A mirror body with an
-unchanged hash can still get `no_change`. A `permanent redirect` move is never
-refused.
+unchanged hash can still get `no_change`. A `permanent redirect` to a left URL
+is a return that uses only the wait. During a wait, the node applies the body
+as an update, keeps the source URL and gives the same warning. A `permanent
+redirect` to a URL that is not a left URL moves with no wait.
 
 A chain of URLs moves one hop in each pass. The source URL of the next pass is
 the last URL of the previous pass. An accepted move keeps its warning
