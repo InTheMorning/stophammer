@@ -20,7 +20,8 @@ parameter, setting or event type. It has one migration and a new warning text. S
 item 3 of that check applies, and the change raises PATCH.
 
 The tag `v0.18.0` is at commit `a34be18`, so release 0.18.0 does not hold ADR 0083.
-The next version after 0.18.0 holds it.
+Candidate `v0.18.1-rc.1` holds an earlier form of the rule, and it must not get a
+promotion. The next candidate `v0.18.1-rc.2` holds the rule of task 006.
 
 ADR 0083 §4 requires no refill pass. A declaration column gets its value at the
 next update or move. The left URLs start empty. No feed needs a new crawl.
