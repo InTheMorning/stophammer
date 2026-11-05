@@ -33,6 +33,13 @@ deployed, except the items below. The primary sets
   [The phase plan](docs/plans/funding-links-phase-plan.md) and tasks 004 and
   005 in `docs/tasks/` give the release, the deploy and the pass.
 
+- [ADR 0083](docs/adr/0083-a-feed-move-refuses-a-loop.md) is built on `main`, with
+  migrations 0060 and 0061, and no release holds this form. On 2026-11-04 the
+  primary runs candidate `v0.18.1-rc.1`, which holds an earlier form that a security
+  review rejected. Do not promote that candidate. The next candidate holds the
+  accepted form, and
+  [task 005](docs/tasks/adr-0083-task-005-release-and-record.md) gives the release.
+
 ### Open Items
 
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
@@ -62,13 +69,8 @@ deployed, except the items below. The primary sets
   gives four changes for the operator copy queue. They use the PodcastIndex
   lookalike pairs and first-seen times. No decision is recorded.
 - [The research request of 2026-11-04](docs/plans/research-feed-move-confirmation-request.md)
-  gives three changes for feed moves.
-  [ADR 0083](docs/adr/0083-a-feed-move-refuses-a-loop.md) is Proposed and
-  answers two of them with a different rule. On 2026-11-04 the primary runs
-  candidate `v0.18.1-rc.1`, which holds an earlier form of that rule. A security
-  review rejected that form, so do not promote this candidate. Task 006 in
-  `docs/tasks/` builds the current form, and the next candidate holds it. No
-  decision is recorded for the tag of a mirror in the copy queue.
+  gives three changes for feed moves. ADR 0083 answers two of them. No decision
+  is recorded for the tag of a mirror in the copy queue.
 - ADR 0080 §6: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took

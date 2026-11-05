@@ -253,8 +253,8 @@ Rejected.
 
 ## Invariants
 
-- Only an ingest in the update case of ADR 0051 writes
-  `feeds.declared_self_url`.
+- Only an ingest in the update or new-feed case of ADR 0051, or a move, writes
+  `feeds.declared_self_url` and `feeds.declared_new_feed_url` (ADR 0083).
 - The source URL changes only by a trigger in section 1.
 - An unavailable source never releases its record.
 - `superseded_by` never selects a payment route.
@@ -304,3 +304,17 @@ public.
   GUID that its feed declares, and a second record could claim the alias. The
   alternative "Keep a stable internal identity" above covers the storage
   cost. Deferred until an intended change occurs.
+
+## Amendment Of 2026-11-04
+
+[ADR 0083](0083-a-feed-move-refuses-a-loop.md) amends this record.
+
+- **Section 1.** A move by a tag or a self link to a URL that the record left also
+  needs the conditions of ADR 0083 section 2. A permanent redirect to such a URL has
+  the cooldown of ADR 0083 section 5.
+- **Section 2.** A move also writes the declarations of the body at the new URL
+  (ADR 0083 section 3).
+- **The first invariant.** The text above gives its new form.
+
+Section 1 said that "A move back needs a new trigger at `F`" and gave no limit. Two URLs
+that name each other could thus move a record with no end.

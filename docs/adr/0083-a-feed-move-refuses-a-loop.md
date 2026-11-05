@@ -1,8 +1,9 @@
 # ADR 0083: A Feed Move Refuses A Loop
 
 ## Status
-Proposed on 2026-11-04. It waits for the operator, after a security review of the
-final code. When accepted, it amends ADR 0052 sections 1 and 2 and one invariant.
+Accepted on 2026-11-04 by the operator, after three security reviews. No reviewer
+examined the last commit, `453a52f`. The operator accepted this.
+It amends ADR 0052 sections 1 and 2 and one invariant.
 Candidate `v0.18.1-rc.1` holds an earlier form of this rule, which "Alternatives
 Considered" gives. The next candidate replaces it.
 
@@ -152,7 +153,7 @@ body directly, so this ADR does not change it.
 
 ## Evidence
 
-The measurement of 35 real moved pairs gave 1 destination whose tag
+[The measurement](../reviews/adr-0083-self-link-measurement.md) of 35 real moved pairs gave 1 destination whose tag
 names itself and whose self link names the origin. It gave no evidence about a body with no
 tag, because the sample selected for that tag. So the choice that a self link refuses no
 first move rests on this reason: a wrong refusal strands a correct feed, and a return
@@ -221,7 +222,7 @@ loop can change the payment routes of a record again and again.
 
 ## Invariants
 
-These amend ADR 0052 when this ADR is accepted:
+These amend ADR 0052:
 
 - Only an ingest in the update or new-feed case of ADR 0051, or a move, writes
   `feeds.declared_self_url` and `feeds.declared_new_feed_url`.
@@ -263,8 +264,6 @@ link in a mirror body moves nothing" stay. A mirror body never gives a trigger.
 
 ## Follow-Up
 
-- `docs/tasks/adr-0083-task-006-return-rule.md` gives the build of this form.
-- `docs/tasks/adr-0083-task-001-measurement-and-acceptance.md` gives the acceptance, and
-  `adr-0083-task-005-release-and-record.md` gives the release.
+- `docs/tasks/adr-0083-task-005-release-and-record.md` gives the release.
 - Studio writes a tag that names its own URL at the destination of a move. The Studio record
   owns that work.

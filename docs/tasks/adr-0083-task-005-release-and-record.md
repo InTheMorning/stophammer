@@ -11,7 +11,7 @@ pushes, tags and deploys. This task starts after the commit of task 004.
 ## Goal
 
 A release holds ADR 0083 and runs in production. `AGENTS.md` describes the present,
-and tasks 001 to 005 are deleted.
+and tasks 001 to 006 are deleted.
 
 ## Context
 
@@ -41,7 +41,7 @@ next update or move. The left URLs start empty. No feed needs a new crawl.
 - New: `.idea/releases/<version>/deploy-<version>.md` and
   `release-<version>-notes.md`
 - Deleted: `docs/tasks/adr-0083-task-001-*.md` to
-  `docs/tasks/adr-0083-task-005-*.md`
+  `docs/tasks/adr-0083-task-006-*.md`
 
 ## Constraints
 
@@ -88,7 +88,7 @@ The operator:
 
 The agent:
 
-8. Changes `AGENTS.md` and the ADR status, deletes the five packets, and gives the
+8. Changes `AGENTS.md` and the ADR status, deletes the six packets, and gives the
    commit command with `git rm`.
 
 ## Acceptance Criteria
@@ -112,7 +112,7 @@ cd ~/build/stophammer/stophammer-parser && cargo build && cargo test && cargo cl
 cd ~/build/stophammer/stophammer-crawler && cargo build && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt -- --check
 cd ~/build/stophammer && cargo build && cargo test && cargo clippy --all-targets -- -D warnings && cargo fmt -- --check
 cd ~/build/stophammer && cargo test --test adr0045_governance_guards_tests
-rg 'adr-0083-task-00[1-5]' . stophammer-parser stophammer-crawler --glob '!target' --glob '!.idea'
+rg 'adr-0083-task-00[1-6]' . stophammer-parser stophammer-crawler --glob '!target' --glob '!.idea'
 ```
 
 ## Escalation Triggers

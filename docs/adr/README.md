@@ -77,8 +77,8 @@ disagree.
 | [0026](0026-signed-peer-registration.md) | Signed peer registration | Accepted |
 | [0027](0027-authenticate-sync-read-endpoints.md) | Authenticate sync read endpoints. The `X-Admin-Token` fallback is superseded by ADR 0028 | Accepted in part |
 | [0036](0036-sign-event-sequence-numbers.md) | Sign event sequence numbers | Accepted |
-| [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator | Accepted |
-| [0083](0083-a-feed-move-refuses-a-loop.md) | A move to a new URL goes on. A return to a URL that the record left needs a tag at each end, and it has a growing cooldown. A chain moves one hop in each pass. Then amends ADR 0052 | Proposed |
+| [0052](0052-a-source-moves-its-own-feed.md) | A feed moves by a permanent redirect, `itunes:new-feed-url` or its self link at its source URL, or by the operator. A GUID change at the source URL is public, automatic only for the UUIDv5 of the source URL, and otherwise needs the operator. ADR 0083 amends it | Accepted |
+| [0083](0083-a-feed-move-refuses-a-loop.md) | A move to a new URL goes on. A return to a URL that the record left needs a tag at each end, and it has a growing cooldown. A chain moves one hop in each pass. Amends ADR 0052 | Accepted |
 | [0053](0053-a-correction-stays-applied.md) | A block is a signed, replicated fact. An older copy does not replace a newer copy. Payment-recipient changes are visible | Accepted |
 | [0067](0067-a-gone-source-retires-its-feed.md) | Two gone answers from the source URL, 24 hours apart, retire the feed. A `404` counts only from a host in `SOURCE_GONE_HOSTS`, a `410` from any host. ADR 0079 amends §4 | Accepted |
 | [0079](0079-a-retired-guid-returns-only-from-its-source.md) | A retire with no block keeps a hold of the GUID and its source URL on the primary. A held GUID returns only from that URL, else `retired_source_conflict`. The operator can release a hold. Amends ADR 0057 §4 and ADR 0067 §4 | Accepted |

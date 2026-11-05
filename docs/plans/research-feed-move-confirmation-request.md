@@ -23,7 +23,7 @@ The research examined Stophammer at commit `d807f8b`, the parser at commit
 Stophammer examined this request on 2026-11-04 and corrected it. Each correction
 starts with **Correction**. The chain rule stays here as the proposal of the
 research.
-[ADR 0083](../adr/0083-a-feed-move-refuses-a-loop.md) is Proposed. It answers M1
+[ADR 0083](../adr/0083-a-feed-move-refuses-a-loop.md) is Accepted. It answers M1
 and M3 with a different rule, and it gives the reasons. No decision is recorded
 for M2.
 
