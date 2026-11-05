@@ -5,7 +5,8 @@ Accepted on 2026-11-04 by the operator, after three security reviews. No reviewe
 examined the last commit, `453a52f`. The operator accepted this.
 It amends ADR 0052 sections 1 and 2 and one invariant.
 Candidate `v0.18.1-rc.1` holds an earlier form of this rule, which "Alternatives
-Considered" gives. The next candidate replaces it.
+Considered" gives. Candidate `v0.18.1-rc.2` replaces it, and release 0.18.1 holds the
+accepted form.
 
 ## Date
 2026-11-04
@@ -264,6 +265,5 @@ link in a mirror body moves nothing" stay. A mirror body never gives a trigger.
 
 ## Follow-Up
 
-- `docs/tasks/adr-0083-task-005-release-and-record.md` gives the release.
 - Studio writes a tag that names its own URL at the destination of a move. The Studio record
   owns that work.

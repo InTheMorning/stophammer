@@ -3,9 +3,9 @@
 ## Status
 Accepted on 2026-10-31. The operator accepted the proposed values of the five
 questions of the proposal. "Open Questions" gives each answer.
-[The phase plan](../plans/funding-links-phase-plan.md) and tasks 001 to 003 in
-`docs/tasks/` give the build. Tasks 004 and 005 give the release 0.18.0, the
-deploy, the refill pass and the record.
+Release 0.18.0 holds the change.
+[The measurement record](../reviews/adr-0082-refill-measurement.md) gives the
+refill pass and the refill check.
 
 ## Date
 2026-10-31

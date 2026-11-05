@@ -6,13 +6,13 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.18.0 is open. It holds ADR 0082, and each `Cargo.toml` gives its
-version. Release 0.17.0 of 2026-10-31 delivered ADR 0081. Release 0.16.0 of
-2026-10-25 delivered ADR 0059 §6 and §7, and musicindex.org requests 17 and 18.
+No release is open. Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
+0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
+ADR 0081.
 
 ### Deployed
 
-Release 0.17.0 of 2026-10-31 is the latest release. The primary, the gossip
+Release 0.18.1 of 2026-11-05 is the latest release. The primary, the gossip
 crawler and the `podcastindex` pass run its GHCR images. A timer starts the
 pass at an interval of 3 hours (ADR 0081 §1). `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
@@ -26,19 +26,7 @@ deployed, except the items below. The primary sets
 
 ### Complete And Not Deployed
 
-- [ADR 0082](docs/adr/0082-a-funding-link-is-a-source-link.md) is built in
-  the parser and the node, and release 0.18.0 holds it. It keeps each
-  `podcast:funding` tag as a `source_links` row with a `label`. The held feeds
-  get their funding rows through the refill pass of ADR 0077, after the deploy.
-  [The phase plan](docs/plans/funding-links-phase-plan.md) and tasks 004 and
-  005 in `docs/tasks/` give the release, the deploy and the pass.
-
-- [ADR 0083](docs/adr/0083-a-feed-move-refuses-a-loop.md) is built on `main`, with
-  migrations 0060 and 0061, and no release holds this form. On 2026-11-04 the
-  primary runs candidate `v0.18.1-rc.1`, which holds an earlier form that a security
-  review rejected. Do not promote that candidate. The next candidate holds the
-  accepted form, and
-  [task 005](docs/tasks/adr-0083-task-005-release-and-record.md) gives the release.
+Nothing.
 
 ### Open Items
 
