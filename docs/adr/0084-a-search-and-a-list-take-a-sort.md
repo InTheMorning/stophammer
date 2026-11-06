@@ -114,8 +114,10 @@ A new migration adds the column. As with `feeds.title_sort`, a Rust fill in
 `open_db` sets each null value, and each write of a track derives it. The column
 holds no new value from a feed body, so ADR 0077 needs no refill pass.
 
-The column has no index. A search sorts its matching rows after a join, so an
-index cannot serve it.
+The column has no index at the start. The current search query starts from the
+search index rows and sorts after a join, so an index cannot serve that query form.
+A query with only `type=track` could be written to use an index. An index does not
+change the API, so a later change can add one for a query that is slow.
 
 ### 9. A cursor holds its sort and its direction
 A cursor names the sort, the direction, the key and the tie key of its last row.
@@ -232,6 +234,9 @@ start with 1,848 of them.
 - A primary and a community node can upgrade in each sequence, because a client
   reads section 11.
 - The change adds one migration and one fill at the start of the node.
+- With no index, each page of `sort=name` or `sort=date` reads and sorts its matching
+  rows again. So a client keeps `relevance` for a live search, and sends `sort=name`
+  or `sort=date` only when a person selects that sort.
 
 ## Invariants
 - A request with neither `sort` nor `reverse` gives the sequence and the fields of
