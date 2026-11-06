@@ -36,6 +36,8 @@ Nothing.
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - ADR 0070 §4a: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
+- [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) is Proposed. It
+  answers v4vmm request 15. The operator examines its text before acceptance.
 - ADR 0076: the v4vmm operator checks its two visual criteria on release
   0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of
