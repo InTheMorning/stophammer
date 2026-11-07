@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: request 21 is open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -670,6 +670,18 @@ The request: `GET /v1/feeds/recent` takes a name order with `medium` and `stated
 cursor and the `from` start of `GET /v1/artist-names`. It uses the sort key of ADR 0070 §1.
 
 Until Stophammer answers, the site shows no A to Z sort, and "A to Z" stays a destination.
+
+### 22. HTML Entities In A Description
+
+`GET /v1/tracks/ac06ffb0-8425-4d00-b94f-580d41c2a18d` gives the description of "Jorfest 2026" with HTML
+entities as text, for example `Jorbear&rsquo;s` and `&middot;`. The site shows these as text. On
+2026-11-06 the live API gave this value, and the capture of 2026-10-24 in the research repository has it.
+Stophammer ADR 0017 lists "decode entities" for the parser.
+
+The request: the API gives each description as decoded text. Each client then shows the same text. The
+site does not parse the value (the site rule is that Stophammer gives the data).
+
+No person examined the source feed or the parser for this request, so it does not state the cause.
 
 ## Stophammer Answers - 2026-09-25
 
