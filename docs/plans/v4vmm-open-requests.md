@@ -32,6 +32,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
 | 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
 | 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. v4vmm ADR 0089 shows no count for All until a total exists |
+| 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Sent - 2026-11-06. Waits for the Stophammer answer |
 | 15 | A sort direction for each list of feeds and names | API parameter addition | Answered - 2026-11-06. Stophammer ADR 0084 is Accepted and not built |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
@@ -322,7 +323,8 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 | The search request of the website | `../musicindex/docs/plans/research-ui-shell-and-search-request.md` |
 
 **What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change.
-v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. Until Stophammer supports a filter, a v4vmm query with that field shows no Index rows and names the field.
+
+v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. From 2026-11-06, v4vmm sends each field as its filter. Two filters still differ from the Library. Request 14 asks for the change.
 
 ### 11. A Feed Search Hit Gives Its Release Date And Its Named Feeds
 
@@ -404,6 +406,24 @@ The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 
 The weakest part: the count is useful but not necessary. v4vmm shows no count for All until a total exists.
 
 **Request.** Give a total with `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names`, for the same filters as the list. An approximate total is acceptable if the response says so.
+
+### 14. The Title Filter Of A Track And The Kind Filter Of Unknown Feeds
+
+**What happens.** On 2026-11-06, v4vmm read `GET /v1/search` with read-only requests. Two parts of request 10 do not match the Library.
+
+1. `title` on `type=track` matches the track title only. `title=assorted&type=track` gave no row. `release=assorted&type=track` gave 7 rows of the feed "Various & Assorted". The Library matches a track title or its release title for `title:`, as ADR 0087 Decision 2 states.
+2. `kind` matches the stated `release_kind` only. Most feeds state `unknown`. `kind=single&type=feed` and `kind=single&type=track` gave no row. `kind=album&type=feed` and `kind=ep&type=feed` gave no row. `kind=unknown&type=feed` gave 20 rows. The feed `GET /v1/feeds/{guid}` of a feed with one track states `release_kind` `unknown`.
+
+**Why v4vmm needs it.** The v4vmm client keeps the kind rule of musicindex ADR 0020 R-WORD-1, as the answer of 2026-10-24 to item 2 says. That rule needs two requests for `kind:single`: `kind=single`, and `kind=unknown&tracks=1`. The search of v4vmm allows three requests in each run, one for each type. Thus v4vmm cannot send the rule as the answer states it.
+
+**Request.**
+
+1. A track `title` filter also matches the title of the feed of the track, as the `release` filter does.
+2. One request gives the R-WORD-1 rule. `kind=single` also matches a feed with `release_kind` `unknown` and one track. `kind=album` also matches a feed with `release_kind` `unknown` and two or more tracks. Each of these uses one parameter, so that v4vmm sends one request for each type.
+
+The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `kind:single`, `kind:album` and `kind:ep` show no Index rows, and a track `title:` shows no track of a release title only.
+
+**Status.** Sent - 2026-11-06. Waits for the Stophammer answer.
 
 ### 15. A Sort Direction For Each List Of Feeds And Names
 
