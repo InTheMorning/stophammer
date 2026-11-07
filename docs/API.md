@@ -1320,7 +1320,27 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   collation. The node keeps a leading article such as "The", and it keeps
   punctuation and an accent.
 - **Query parameters:** common pagination params plus optional `include`,
-  `medium`, `from`, `artist_key`, `named_feed_guid` and `reverse`.
+  `medium`, `from`, `stated_rel`, `two_way_links`, `artist_key`,
+  `named_feed_guid` and `reverse`.
+- **`stated_rel` and `two_way_links`:** The two filters of `GET
+  /v1/feeds/recent` (ADR 0068 sections 4 and 5), with the same values and
+  the same checks. They need `medium=publisher`. A filter gives the link
+  facts on each row, and each row keeps `sort_name`. The sequence is the
+  sequence of the same list with no filter. `from` and `reverse` work with a
+  filter. ADR 0085 section 1.
+- **Scan limit:** A filtered request examines at most 1,000 rows, the same
+  limit as `GET /v1/feeds/recent`. At that limit, the cursor continues after
+  the last examined row. So a page can hold fewer rows than `limit`, or no
+  row, with `has_more` true. Follow the cursor until `has_more` is false. ADR
+  0085 section 2.
+- **Capability:** A node with no such change ignores `stated_rel` and
+  `two_way_links` on this route, and it gives each publisher. A client sends
+  them only when `GET /v1/node/capabilities` lists `sort`. ADR 0085 section 3.
+- **Errors:** `400` for a filter without `medium=publisher`, a `stated_rel`
+  that is not one token, a `two_way_links` value that is not `none`, and a
+  filter with `artist_key` or `named_feed_guid`. A `medium` other than
+  `publisher` with a filter gives `400`, where the route ignored the filter
+  before ADR 0085.
 - **`artist_key`:** Keeps only the music releases that the `name` row of
   `GET /v1/artist-names` with this `key` counts in `release_count`. The node
   reads the set from the copy in memory of that list, so the count and the
@@ -1353,7 +1373,7 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | `artist_key` with a `medium` other than `music`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key`. A `reverse` value that is not `true` or `false`. A cursor with a direction that differs from `reverse` |
+| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none`. A filter with `artist_key` or `named_feed_guid`. `artist_key` with a `medium` other than `music`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key`. A `reverse` value that is not `true` or `false`. A cursor with a direction that differs from `reverse` |
 
 ---
 

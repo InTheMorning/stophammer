@@ -33,8 +33,8 @@ deployed, except the items below. The primary sets
 ### Open Items
 
 - [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) is Accepted.
-  It answers musicindex.org request 21 and v4vmm request 14. Its two tasks in
-  `docs/tasks/` are not built.
+  It answers musicindex.org request 21 and v4vmm request 14. Task 001 is built.
+  Task 002 in `docs/tasks/` is not built.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.

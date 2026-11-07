@@ -102,6 +102,23 @@ these 24 feeds.
 
 `search.html` sends `stated_rel=label` and `stated_rel=artist` on its list groups.
 
+The backup holds 1,808 publisher feeds, so a filter that keeps few rows reads to the scan
+limit on most requests. These are measurements of one local copy with a release build, at
+`limit=50`. They are not a load test:
+
+| Request | Time |
+|---|---|
+| `GET /v1/feeds/by-name`, each filter, each direction, first page | 0.43 to 0.52 s |
+| `GET /v1/feeds/by-name`, each filter, each direction, second page | 0.34 to 0.39 s |
+| `GET /v1/feeds/recent`, the same filters, first page | 0.51 to 0.54 s |
+| `GET /v1/feeds/by-name` with no filter | 0.003 s |
+
+The first page of `stated_rel=label` holds no row, and the first reversed page holds 2. So
+a client follows the cursor to fill a list. The cost comes from the shared scan loop, which
+reads the link facts of each row. This ADR accepts that cost, because it is the cost of the
+filters that the site uses today. The node keeps these facts in the memory copy of the
+artist list (ADR 0071 §2), so a later change can use that copy.
+
 ## Alternatives Considered
 
 ### A name order on `GET /v1/feeds/recent`

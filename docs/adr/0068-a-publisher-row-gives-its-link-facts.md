@@ -6,7 +6,8 @@ carries it. Amended on 2026-10-01 before the build: the decision applies to
 the list route only. The search part is removed. See "Search is not in
 scope". Amended on 2026-10-02 with section 4, the two filters of
 musicindex.org request 10. Amended on 2026-10-02 with section 5: the link
-facts are role tokens, musicindex.org request 11.
+facts are role tokens, musicindex.org request 11. ADR 0085 adds the two filters
+of section 4 to `GET /v1/feeds/by-name`.
 
 Amended on 2026-10-18 by ADR 0071. `GET /v1/artist-names` and
 `GET /v1/feeds/by-name` give the link facts of section 1 with

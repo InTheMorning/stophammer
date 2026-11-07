@@ -4709,40 +4709,36 @@ fn recent_feed_rows(
 /// the end of the list, or after [`LINK_FACT_FILTER_SCAN_MAX`] examined
 /// rows. Gives the kept rows (at most `limit`), `has_more`, and the position
 /// for the next cursor.
-fn filtered_recent_rows(
+///
+/// `GET /v1/feeds/recent` and `GET /v1/feeds/by-name` both use this loop
+/// (ADR 0085 §2), so the scan limit is the same for the two routes. `read`
+/// gives the next batch after a position, and gets `None` for the first
+/// batch. `feed_of` and `position_of` read the feed row and the cursor
+/// position of an item.
+fn filtered_scan<T, C: Clone>(
     conn: &rusqlite::Connection,
-    medium: &str,
-    mut after: Option<RecentCursor>,
+    mut after: Option<C>,
     limit: i64,
     filter: &LinkFactFilter,
-    reverse: bool,
-) -> Result<(Vec<FeedRow>, bool, Option<RecentCursor>), api::ApiError> {
+    read: impl Fn(Option<C>, i64) -> Result<Vec<T>, api::ApiError>,
+    feed_of: impl Fn(&T) -> &FeedRow,
+    position_of: impl Fn(&T) -> C,
+) -> Result<(Vec<T>, bool, Option<C>), api::ApiError> {
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
-    let mut kept: Vec<FeedRow> = Vec::new();
+    let mut kept: Vec<T> = Vec::new();
     let mut examined = 0_usize;
     loop {
-        // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and this
-        // filter needs `medium=publisher` (ADR 0068 §4), so the two never
-        // apply at the same time. `only_guids` is always null here.
-        let batch = recent_feed_rows(
-            conn,
-            medium,
-            after.clone(),
-            None,
-            LINK_FACT_FILTER_BATCH,
-            reverse,
-        )?;
+        let batch = read(after.clone(), LINK_FACT_FILTER_BATCH)?;
         let at_end = batch.len() < usize::try_from(LINK_FACT_FILTER_BATCH).unwrap_or(usize::MAX);
-        for row in batch {
+        for item in batch {
             examined += 1;
-            after = Some((row.newest_item_at.unwrap_or(-1), row.feed_guid.clone()));
-            if filter.keeps(&link_facts(&load_publisher(conn, &row.feed_guid)?)) {
-                kept.push(row);
+            after = Some(position_of(&item));
+            let facts = link_facts(&load_publisher(conn, &feed_of(&item).feed_guid)?);
+            if filter.keeps(&facts) {
+                kept.push(item);
                 if kept.len() > limit {
                     kept.truncate(limit);
-                    let next = kept
-                        .last()
-                        .map(|r| (r.newest_item_at.unwrap_or(-1), r.feed_guid.clone()));
+                    let next = kept.last().map(&position_of);
                     return Ok((kept, true, next));
                 }
             }
@@ -4757,6 +4753,64 @@ fn filtered_recent_rows(
             return Ok((kept, false, None));
         }
     }
+}
+
+/// ADR 0068 §4: the filtered read of `GET /v1/feeds/recent`.
+fn filtered_recent_rows(
+    conn: &rusqlite::Connection,
+    medium: &str,
+    after: Option<RecentCursor>,
+    limit: i64,
+    filter: &LinkFactFilter,
+    reverse: bool,
+) -> Result<(Vec<FeedRow>, bool, Option<RecentCursor>), api::ApiError> {
+    filtered_scan(
+        conn,
+        after,
+        limit,
+        filter,
+        // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and this
+        // filter needs `medium=publisher` (ADR 0068 §4), so the two never
+        // apply at the same time. `only_guids` is always null here.
+        |after, count| recent_feed_rows(conn, medium, after, None, count, reverse),
+        |row| row,
+        |row| (row.newest_item_at.unwrap_or(-1), row.feed_guid.clone()),
+    )
+}
+
+/// The position after which `GET /v1/feeds/by-name` continues: the
+/// `title_sort` and the feed GUID of a row.
+type ByNameCursor = (String, String);
+
+/// The kept rows, `has_more` and the next position of a filtered name list.
+type ByNameScan = (Vec<(FeedRow, String)>, bool, Option<ByNameCursor>);
+
+/// ADR 0085 §1 and §2: the filtered read of `GET /v1/feeds/by-name`. `from_floor`
+/// applies to the first batch only. A later batch starts after the last row
+/// examined, so it ignores `from_floor`.
+fn filtered_by_name_rows(
+    conn: &rusqlite::Connection,
+    medium: &str,
+    after: Option<ByNameCursor>,
+    from_floor: Option<&str>,
+    limit: i64,
+    filter: &LinkFactFilter,
+    reverse: bool,
+) -> Result<ByNameScan, api::ApiError> {
+    filtered_scan(
+        conn,
+        after,
+        limit,
+        filter,
+        // ADR 0071 §4 and ADR 0076 §2: `artist_key` and `named_feed_guid`
+        // need `medium=music`, so `only_guids` is always null here.
+        |after, count| {
+            let floor = if after.is_none() { from_floor } else { None };
+            by_name_feed_rows(conn, medium, after, floor, None, count, reverse)
+        },
+        |(row, _sort)| row,
+        |(row, sort)| (sort.clone(), row.feed_guid.clone()),
+    )
 }
 
 /// Builds the `FeedResponse` of one row of `GET /v1/feeds/recent` or
@@ -5101,6 +5155,11 @@ async fn handle_get_feeds_by_name(
         // conflicts with `artist_key`. Each message names the conflict.
         check_named_feed_guid(&params, &medium)?;
 
+        // ADR 0085 §1: the two filters of ADR 0068 §4. They need
+        // `medium=publisher`, and `artist_key` needs `medium=music`, so a
+        // request with a filter has no `only_guids`.
+        let filter = LinkFactFilter::from_params(&params, &medium)?;
+
         // ADR 0071 §4: `artist_key` keeps the releases that the `name` row
         // with that key counts. The set comes from the same copy in memory as
         // `release_count`, so the count and the list agree. ADR 0076 §2:
@@ -5131,29 +5190,46 @@ async fn handle_get_feeds_by_name(
             }
         };
 
-        let rows = by_name_feed_rows(
-            &conn,
-            &medium,
-            cursor_after,
-            from_floor.as_deref(),
-            only_guids.as_deref(),
-            limit + 1,
-            reverse,
-        )?;
-        let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
-        let rows: Vec<(FeedRow, String)> = rows
-            .into_iter()
-            .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .collect();
+        let (rows, has_more, next_after) = if let Some(filter) = &filter {
+            filtered_by_name_rows(
+                &conn,
+                &medium,
+                cursor_after,
+                from_floor.as_deref(),
+                limit,
+                filter,
+                reverse,
+            )?
+        } else {
+            let rows = by_name_feed_rows(
+                &conn,
+                &medium,
+                cursor_after,
+                from_floor.as_deref(),
+                only_guids.as_deref(),
+                limit + 1,
+                reverse,
+            )?;
+            let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
+            let rows: Vec<(FeedRow, String)> = rows
+                .into_iter()
+                .take(usize::try_from(limit).unwrap_or(usize::MAX))
+                .collect();
+            let next_after = rows
+                .last()
+                .map(|(r, sort)| (sort.clone(), r.feed_guid.clone()));
+            (rows, has_more, next_after)
+        };
 
         let next_cursor = if has_more {
-            rows.last()
-                .map(|(r, sort)| encode_cursor_for(&format!("{sort}\0{}", r.feed_guid), reverse))
+            next_after.map(|(sort, guid)| encode_cursor_for(&format!("{sort}\0{guid}"), reverse))
         } else {
             None
         };
 
-        let include_link_facts = params.includes("link_facts");
+        // ADR 0085 §1: a filter also gives the link facts, as on
+        // `GET /v1/feeds/recent`.
+        let include_link_facts = params.includes("link_facts") || filter.is_some();
         let mut feeds = Vec::with_capacity(rows.len());
         for (r, title_sort) in rows {
             let mut resp = feed_list_row_to_response(
