@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, and ADR 0085 is built and not released. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -52,6 +52,11 @@ names the requests that the two clients share.
 | 18 | Summary fields on each remote value time split | API field addition | Deployed in release 0.16.0 on 2026-10-25 (ADR 0059 §7) |
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 | 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
+| 21 | A name order for each list of feeds | API parameter addition | Live in release 0.19.0 (ADR 0085) |
+| 22 | HTML entities in a description | Data correction | Open |
+| 23 | A search finds a playlist | Search behavior | Open |
+| 24 | A faster role filter on the publisher lists | Performance | Open |
+| 25 | A title match before a description match | Search behavior | Open |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
@@ -683,6 +688,73 @@ site does not parse the value (the site rule is that Stophammer gives the data).
 
 No person examined the source feed or the parser for this request, so it does not state the cause.
 
+### 23. A Search Finds A Playlist
+
+On 2026-11-07, `GET /v1/feeds/recent?medium=musicL` lists the playlist "Deck Darlings". The search
+`GET /v1/search?q=Deck%20Darlings` gives no row, also with `type=feed`. The search
+`q=Local%20Theory%20Full%20Catalog&type=feed` also gives no row.
+
+ADR 0023 R-SCOPE-1 item 2 puts playlists in the Releases scope, and the site sends that scope as
+`type=feed`. A person can thus not find a playlist by its title.
+
+The prefix match of Stophammer ADR 0086 does not change this. On 2026-11-07 after that change, `q=deck dar`
+also gives no row, with no type and with `type=feed`.
+
+The request: a search finds a feed with medium `musicL`. A row states that medium, so that the site can
+give its type.
+
+No person examined the search index for this request, so it does not state the cause.
+
+### 24. A Faster Role Filter On The Publisher Lists
+
+The site reads Labels and the stated artists with `stated_rel` (Stophammer ADR 0085). These are three
+times of each request on the live node on 2026-11-07, with `include=link_facts` and `limit=200`. They
+are not a load test:
+
+| Request | Time |
+| --- | --- |
+| `GET /v1/feeds/by-name?medium=publisher` | 0.22 to 0.26 s |
+| The same, `stated_rel=artist`, first page | 0.75 to 0.85 s |
+| The same, `stated_rel=artist`, second page | 0.57 to 0.66 s |
+| `GET /v1/artist-names` | 0.08 to 0.16 s |
+
+The list of Artists thus shows, and its stated artists arrive about 1.1 s later and push the rows down.
+
+The request: the filter reads the link facts from the memory copy of the artist list. ADR 0085 names
+this as a possible later change. The site asks for no change to the contract.
+
+### 25. A Title Match Before A Description Match
+
+On 2026-11-07, `q=love&type=publisher&limit=5` gives Strange Love, Love United, I love dafneestre, Callum
+and DJ Yo!. The word is in the description of Callum ("I love music."), and not in its title. The
+search `title=love&type=publisher` gives "Love Ethic" and "Strange Love (Wavlake)", and these two are not
+in the five rows.
+
+The site shows no description in a row, so the match of Callum looks random to a person.
+
+Evidence after the prefix match of Stophammer ADR 0086, on the live node on 2026-11-07. The node gives no
+version. The commit `f610586` holds that change, and `q=jsmo` now gives rows.
+
+- `q=love&type=publisher` gives the same five rows and the same `rank` values. "Love Ethic" is row 6, and
+  "Strange Love (Wavlake)" is row 8.
+- `q=lov&type=publisher` gives Strange Love, Love United, I love dafneestre, Loveska and JACK_1986, then
+  Callum. "Love Ethic" is row 8, and "Strange Love (Wavlake)" is row 16. The word of JACK_1986 is in its
+  description ("Music Lover"). So a hit by prefix has the same result as a whole word.
+- `q=the l&type=feed` starts with "THE FLOOD" (`rank` -9.608), and `q=the l` with no type starts with
+  "THE FLOOD" and "THE CREEK". The artist of these rows is `T.E.A.L`. The title has "the" and no word
+  that starts with "l". The text filter `artist=l` finds "THE FLOOD", the filter `title=l` does not, and
+  the phrase `"t e a l"` finds it. So the node reads `T.E.A.L` as the words t, e, a and l. The description
+  and the publisher title of the feed have the same text, so these results do not show which field gave
+  the hit.
+- A letter that is a whole word thus comes before each hit by prefix (ADR 0086 §2). With `type=feed`, 800
+  rows of `q=the l` held 17 hits with whole words and 783 hits by prefix. The first hit by prefix was
+  "On The Low". A person who types "the love" sees these rows one letter before the word. `q=the lov` and
+  `q=the love` give titles with "love" first.
+
+The request: with the sort `relevance`, a title match comes before a match in other text. Stophammer
+decides how, and whether the same rule applies to each type. No person examined how the node gives
+this order, so the request does not state the cause.
+
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at
@@ -811,6 +883,13 @@ GET /v1/feeds/by-name?medium=publisher&two_way_links=none
 - Send these filters on this route only when `GET /v1/node/capabilities` lists `sort`. A node with no such change ignores them and gives each publisher.
 - One request examines at most 1,000 rows, as on `GET /v1/feeds/recent`. So a page can be short or empty with `has_more` true. On the backup of 2026-11-05, the first page of `stated_rel=label` holds no row. The site must follow the cursor until `has_more` is false.
 - On a local copy, each filtered page took 0.34 to 0.52 s. The same filters on `GET /v1/feeds/recent` took 0.51 to 0.54 s.
+
+## Release 0.19.0
+
+On 2026-11-07 the live node lists the capability `sort`. `reverse=true` gives 200 on
+`GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names`, and
+`GET /v1/feeds/by-name` takes `stated_rel` with `medium=publisher`. This release gives request 21.
+The commit `f610586`, with the tag `v0.19.0-rc.2`, adds the prefix match of ADR 0086.
 
 ## Requests That v4vmm Also Makes
 
