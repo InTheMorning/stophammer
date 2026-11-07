@@ -3,7 +3,8 @@
 ## Status
 
 Answered in part - 2026-10-23. ADR 0078 (Accepted) answers the four defects
-and the first change of priority 1. The other changes have no decision.
+and the first change of priority 1. ADR 0086 (Accepted) answers the prefix match of
+priority 2, with no prefix index. The other changes have no decision.
 
 Priority - 2026-11-06. The operator puts the prefix match of this request before
 the fast routes for a sort. The Studio pickers and the live searches need it. On

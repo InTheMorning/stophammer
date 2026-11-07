@@ -199,31 +199,42 @@ pub fn delete_from_search_index(
 /// column filter or a prefix.
 #[must_use]
 pub fn fts5_phrases(input: &str) -> Vec<String> {
+    parse_phrases(input).0
+}
+
+/// The phrases of [`fts5_phrases`], and whether the last phrase is a word with
+/// no double quotes around it (ADR 0086 §1).
+fn parse_phrases(input: &str) -> (Vec<String>, bool) {
     let cleaned: String = input.chars().filter(|c| !c.is_control()).collect();
     let mut phrases = Vec::new();
+    let mut last_is_word = false;
     let mut rest = cleaned.as_str();
     while let Some(open) = rest.find('"') {
         let after = &rest[open + 1..];
         let Some(close) = after.find('"') else {
             break;
         };
-        push_words(&mut phrases, &rest[..open]);
+        last_is_word |= push_words(&mut phrases, &rest[..open]);
         let words: Vec<&str> = after[..close].split_whitespace().collect();
         if !words.is_empty() {
             phrases.push(format!("\"{}\"", words.join(" ")));
+            last_is_word = false;
         }
         rest = &after[close + 1..];
     }
-    push_words(&mut phrases, rest);
-    phrases
+    last_is_word |= push_words(&mut phrases, rest);
+    (phrases, last_is_word)
 }
 
-/// Adds each word of `text` to `phrases` as one quoted phrase.
-fn push_words(phrases: &mut Vec<String>, text: &str) {
+/// Adds each word of `text` to `phrases` as one quoted phrase. Returns whether
+/// `text` has a word.
+fn push_words(phrases: &mut Vec<String>, text: &str) -> bool {
+    let before = phrases.len();
     phrases.extend(
         text.split_whitespace()
             .map(|word| format!("\"{}\"", word.replace('"', "\"\""))),
     );
+    phrases.len() > before
 }
 
 /// Makes an FTS5 query of quoted phrases from the words and phrases of `input`.
@@ -233,6 +244,46 @@ fn push_words(phrases: &mut Vec<String>, text: &str) {
 #[must_use]
 pub fn fts5_query_from_words(input: &str) -> String {
     fts5_phrases(input).join(" ")
+}
+
+/// Makes the prefix form of [`fts5_query_from_words`] (ADR 0086 §1): FTS5 reads
+/// the last word as the start of a word. The result is `None` when the last
+/// phrase of `input` is text in double quotes, or when `input` has no word.
+#[must_use]
+pub fn fts5_prefix_query(input: &str) -> Option<String> {
+    let (phrases, last_is_word) = parse_phrases(input);
+    last_is_word.then(|| format!("{}*", phrases.join(" ")))
+}
+
+/// ADR 0086 §2: the value that a hit by prefix only adds to its rank. A BM25
+/// score is 0 or less, so each such hit comes after each hit with the whole
+/// word. The value is much larger than the lowest effective rank: in the
+/// backup of 2026-11-07 a word scores -18.7 or more, and the quality weight at
+/// most doubles a score.
+const PREFIX_RANK_OFFSET: &str = "1000000.0";
+
+/// The source of a search with a word in `query`: an SQL subquery with the
+/// columns `rowid`, `fts_rank` and `rank_offset`. It pushes the `MATCH` values
+/// to `values`, which must be empty.
+///
+/// ADR 0086 §2: the hits with the whole word have the BM25 score of the exact
+/// query. Each other hit of the prefix query follows with its own score and
+/// [`PREFIX_RANK_OFFSET`].
+fn match_source(query: &str, values: &mut Vec<Value>) -> String {
+    values.push(Value::Text(fts5_query_from_words(query)));
+    let exact = "SELECT rowid, bm25(search_index) AS fts_rank, 0.0 AS rank_offset \
+                 FROM search_index WHERE search_index MATCH ?1";
+    if let Some(prefix) = fts5_prefix_query(query) {
+        values.push(Value::Text(prefix));
+        format!(
+            "{exact} UNION ALL \
+             SELECT rowid, bm25(search_index), {PREFIX_RANK_OFFSET} \
+             FROM search_index WHERE search_index MATCH ?2 \
+             AND rowid NOT IN (SELECT rowid FROM search_index WHERE search_index MATCH ?1)"
+        )
+    } else {
+        exact.to_owned()
+    }
 }
 
 /// A field that a text filter reads (ADR 0080 §2 and §3).
@@ -558,9 +609,8 @@ pub fn search(
 /// are returned. The effective rank is the quality-adjusted BM25 score used
 /// as the primary ORDER BY key; `rowid` is the tiebreaker.
 ///
-/// The query is made by [`fts5_query_from_words`] before it goes to FTS5. If
-/// `query` has no word, the function returns an empty result set without a
-/// database query.
+/// The query is made by [`match_source`] before it goes to FTS5. If `query` has
+/// no word, the function returns an empty result set without a database query.
 ///
 /// ADR 0080 §2 and §3: `filters` adds one condition to the outer `WHERE` for
 /// each text filter and each exclusion. A filter selects rows and does not
@@ -603,14 +653,19 @@ pub fn search_filtered(
     //
     // The effective_rank expression must be repeated in the WHERE clause
     // because SQL does not allow referencing SELECT aliases in WHERE.
-    // ?1 = MATCH query.  Each later value is pushed to `values` in the same
-    // sequence as its `?N` in the SQL text, so the two cannot drift apart.
+    // `match_source` pushes the MATCH values first.  Each later value is pushed
+    // to `values` in the same sequence as its `?N` in the SQL text, so the two
+    // cannot drift apart.
     // ADR 0078 §4: a publisher feed has one quality row, of the type `feed`.
     // The join below reads that row for a `publisher` hit.  The select list,
     // the order and the keyset filter all use the same `q.score`.
-    let eff_rank_expr = "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0))";
+    // ADR 0086 §2: the quality weight applies to the score and not to the
+    // offset of a hit by prefix only.
+    let eff_rank_expr =
+        "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0) + m.rank_offset)";
 
-    let mut values: Vec<Value> = vec![Value::Text(safe_query)];
+    let mut values: Vec<Value> = Vec::new();
+    let source = match_source(query, &mut values);
     let mut where_parts = Vec::new();
 
     if let (Some(rank), Some(rowid)) = (cursor_rank, cursor_rowid) {
@@ -657,12 +712,11 @@ pub fn search_filtered(
     let value_joins = vf.joins(false);
 
     let sql = format!(
-        "SELECT e.entity_type, e.entity_id, m.fts_rank, \
+        "SELECT e.entity_type, e.entity_id, m.fts_rank + m.rank_offset, \
                 COALESCE(q.score, 0) AS quality_score, \
                 {eff_rank_expr} AS eff_rank, \
                 m.rowid \
-         FROM (SELECT rowid, bm25(search_index) AS fts_rank \
-               FROM search_index WHERE search_index MATCH ?1) m \
+         FROM ({source}) m \
          JOIN search_entities e ON e.rowid = m.rowid \
          LEFT JOIN entity_quality q \
            ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
@@ -903,9 +957,8 @@ pub fn search_sorted(
     cursor: Option<&KeyCursor>,
 ) -> Result<Vec<KeyedSearchResult>, DbError> {
     let (sort, reverse) = order;
-    let safe_query = fts5_query_from_words(query);
     tracing::info!(entity_type_filter = ?entity_type_filter, ?sort, reverse, "sorted search called");
-    let has_word = !safe_query.trim().is_empty();
+    let has_word = !fts5_query_from_words(query).trim().is_empty();
 
     let key_expr = match sort {
         KeySort::Name => "CASE e.entity_type WHEN 'track' THEN t.title_sort ELSE f.title_sort END",
@@ -925,16 +978,14 @@ pub fn search_sorted(
 
     let mut values: Vec<Value> = Vec::new();
     let (source, rank_expr, own_row) = if has_word {
-        values.push(Value::Text(safe_query));
+        let source = match_source(query, &mut values);
         (
-            "(SELECT rowid, bm25(search_index) AS fts_rank \
-              FROM search_index WHERE search_index MATCH ?1) m \
-             JOIN search_entities e ON e.rowid = m.rowid",
-            "m.fts_rank",
+            format!("({source}) m JOIN search_entities e ON e.rowid = m.rowid"),
+            "m.fts_rank + m.rank_offset",
             "m.rowid",
         )
     } else {
-        ("search_entities e", "0.0", "e.rowid")
+        ("search_entities e".to_owned(), "0.0", "e.rowid")
     };
 
     let mut where_parts = Vec::new();

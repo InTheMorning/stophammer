@@ -32,6 +32,9 @@ deployed, except the items below. The primary sets
 - [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) answers
   musicindex.org request 21 and v4vmm request 14. Its two tasks in `docs/tasks/`
   are built. No release carries them.
+- [ADR 0086](docs/adr/0086-a-search-matches-the-start-of-the-last-word.md) answers
+  the prefix match of the research request of 2026-10-23. It is built, with no
+  migration. No release carries it.
 
 ### Open Items
 
@@ -57,7 +60,8 @@ deployed, except the items below. The primary sets
   two research items.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
   gives a list of search changes. ADR 0078 answers its four defects and the
-  phrase change. No decision is recorded for the other changes.
+  phrase change, and ADR 0086 answers the prefix match. No decision is recorded
+  for the other changes.
 - [The research request of 2026-11-03](docs/plans/research-lookalike-feeds-and-first-seen-request.md)
   gives four changes for the operator copy queue. They use the PodcastIndex
   lookalike pairs and first-seen times. No decision is recorded.

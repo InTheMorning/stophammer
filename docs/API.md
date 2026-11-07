@@ -2121,7 +2121,7 @@ needs no call for each hit. ADR 0042 owns these fields.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `q` | string | none | Search words and phrases. A hit contains each word. `q` has no operator, column filter or prefix. A request with no word in `q` needs one positive filter, and gives the rows newest first. Otherwise it gives 400 |
+| `q` | string | none | Search words and phrases. A hit contains each word. The last word also matches as the start of a word, unless it is in double quotes. `q` has no operator or column filter. A request with no word in `q` needs one positive filter, and gives the rows newest first. Otherwise it gives 400 |
 | `type` | string | feed/track | Filter by entity type: `feed`, `track`, `publisher` |
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor. A cursor of a search with `q` gives 400 on a search with no `q`, and the reverse |
@@ -2139,6 +2139,15 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `min_duration`, `max_duration` | integer | none | Duration of a track in seconds, from 0. Each limit is included. Type `track` |
 | `host` | host | none | The host of the feed URL, or a subdomain of it. `wavlake.com` matches `feeds.wavlake.com` and not `notwavlake.com`. Types `feed`, `track` and `publisher` |
 | `not_host` | host | none | Remove each row whose feed host matches the value. A feed with no host stays. Types `feed`, `track` and `publisher` |
+
+**Prefix match (ADR 0086):**
+
+- `q=jsmo` matches `jSmovie`, and `q=night dr` needs the whole word `night` and a
+  word that starts with `dr`. `q="jsmo"` matches only the whole word.
+- A hit with the whole word comes first, with the `rank` that it has with
+  `q="jsmo"`. Each other hit has its BM25 score plus 1,000,000, so its `rank` is
+  above 0. A lower `rank` stays a better match.
+- A filter and an exclusion match whole words.
 
 **Filters (ADR 0080 sections 2 to 4):**
 

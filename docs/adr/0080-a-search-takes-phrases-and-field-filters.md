@@ -7,6 +7,8 @@ questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
 005 give the build. Amended on 2026-11-06 by ADR 0084: section 6 gives the default
 sequence, and `sort` and `reverse` can change it. Amended on 2026-11-07 by ADR
 0085: in section 2, `title` on a track also reads the title of its feed.
+Amended on 2026-11-07 by ADR 0086: in section 1, the last word of `q` matches as a
+prefix.
 
 It amends ADR 0078 §5: the text of `q` can hold phrases. The rest of ADR 0078
 stays.

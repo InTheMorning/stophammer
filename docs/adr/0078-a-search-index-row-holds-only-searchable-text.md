@@ -12,6 +12,9 @@ the last paragraph of the context.
 Amended on 2026-10-24 by ADR 0080 §1. The text of `q` can hold phrases in
 double quotes. The rest of §5 stays.
 
+Amended on 2026-11-07 by ADR 0086. The last word of `q` matches as a prefix. The
+rest of §5 stays.
+
 ## Date
 2026-10-23
 
