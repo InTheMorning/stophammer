@@ -255,35 +255,121 @@ pub fn fts5_prefix_query(input: &str) -> Option<String> {
     last_is_word.then(|| format!("{}*", phrases.join(" ")))
 }
 
-/// ADR 0086 §2: the value that a hit by prefix only adds to its rank. A BM25
-/// score is 0 or less, so each such hit comes after each hit with the whole
-/// word. The value is much larger than the lowest effective rank: in the
-/// backup of 2026-11-07 a word scores -18.7 or more, and the quality weight at
-/// most doubles a score.
-const PREFIX_RANK_OFFSET: &str = "1000000.0";
-
-/// The source of a search with a word in `query`: an SQL subquery with the
-/// columns `rowid`, `fts_rank` and `rank_offset`. It pushes the `MATCH` values
-/// to `values`, which must be empty.
+/// The hits of a search with a word in `query`: an SQL select with the columns
+/// `rowid`, `fts_rank` and `whole`. It pushes the `MATCH` values to `values`,
+/// which must be empty.
 ///
 /// ADR 0086 §2: the hits with the whole word have the BM25 score of the exact
-/// query. Each other hit of the prefix query follows with its own score and
-/// [`PREFIX_RANK_OFFSET`].
-fn match_source(query: &str, values: &mut Vec<Value>) -> String {
+/// query, and `whole` is 1. Each other hit of the prefix query follows with its
+/// own score.
+fn hit_source(query: &str, values: &mut Vec<Value>) -> String {
     values.push(Value::Text(fts5_query_from_words(query)));
-    let exact = "SELECT rowid, bm25(search_index) AS fts_rank, 0.0 AS rank_offset \
+    let exact = "SELECT rowid, bm25(search_index) AS fts_rank, 1 AS whole \
                  FROM search_index WHERE search_index MATCH ?1";
     if let Some(prefix) = fts5_prefix_query(query) {
         values.push(Value::Text(prefix));
         format!(
             "{exact} UNION ALL \
-             SELECT rowid, bm25(search_index), {PREFIX_RANK_OFFSET} \
+             SELECT rowid, bm25(search_index), 0 \
              FROM search_index WHERE search_index MATCH ?2 \
              AND rowid NOT IN (SELECT rowid FROM search_index WHERE search_index MATCH ?1)"
         )
     } else {
         exact.to_owned()
     }
+}
+
+/// ADR 0087 §3: the type of the current row of `search_index`. The engine calculates
+/// `bm25` only for a row that passes `WHERE`, so a row of another type costs one
+/// lookup and no score.
+const ROW_TYPE: &str =
+    "(SELECT s.entity_type FROM search_entities s WHERE s.rowid = search_index.rowid)";
+
+/// The source of a rank search with a word in `query`: an SQL subquery with the
+/// columns `rowid`, `fts_rank` and `group_offset`. It pushes the `MATCH` values
+/// to `values`, which must be empty.
+///
+/// ADR 0087 §1: the groups are all words in one field, all words in the title
+/// and the artist name together, and each other hit. In each group a hit with
+/// the whole word comes before a hit by prefix.
+///
+/// ADR 0087 §2: `group_offset` goes only into the effective rank, because the
+/// cursor holds one number and a `rowid`. Each group holds
+/// 1,000,000 values, which is much more than the lowest effective rank: in the
+/// backup of 2026-11-07 a word scores -18.7 or more, and the quality weight at
+/// most doubles a score.
+fn match_source(query: &str, scope: RankScope<'_>, values: &mut Vec<Value>) -> String {
+    let exact = fts5_query_from_words(query);
+    values.push(Value::Text(exact.clone()));
+    let prefix = fts5_prefix_query(query);
+    if let Some(prefix) = &prefix {
+        values.push(Value::Text(prefix.clone()));
+    }
+    let in_scope = match scope {
+        RankScope::All => String::new(),
+        RankScope::One(entity_type) => {
+            values.push(Value::Text(entity_type.to_owned()));
+            format!("AND {ROW_TYPE} = ?{} ", values.len())
+        }
+        RankScope::FeedsAndTracks => format!("AND {ROW_TYPE} IN ('feed', 'track') "),
+    };
+    let whole = format!(
+        "SELECT rowid, bm25(search_index) AS fts_rank, 1 AS whole \
+         FROM search_index WHERE search_index MATCH ?1 {in_scope}"
+    );
+    if exact.is_empty() {
+        return format!("SELECT rowid, fts_rank, 0.0 AS group_offset FROM ({whole})");
+    }
+    // The prefix branch reads the whole-word hits once more only to skip them.
+    let hits = if prefix.is_some() {
+        format!(
+            "SELECT rowid, fts_rank, whole FROM x UNION ALL \
+             SELECT rowid, bm25(search_index), 0 \
+             FROM search_index WHERE search_index MATCH ?2 {in_scope}\
+             AND rowid NOT IN (SELECT rowid FROM x)"
+        )
+    } else {
+        "SELECT rowid, fts_rank, whole FROM x".to_owned()
+    };
+    // One phrase is in one field, so the second group has no hit, and the first
+    // group needs only one column filter.
+    let one_phrase = fts5_phrases(query).len() == 1;
+    let both_fields = |words: &str| format!("{{name title}} : ({words})");
+    let one_field = |words: &str| {
+        if one_phrase {
+            both_fields(words)
+        } else {
+            format!("title : ({words}) OR name : ({words})")
+        }
+    };
+
+    let mut arms = Vec::new();
+    let mut push_arm = |offset: &str, value: String| {
+        values.push(Value::Text(value));
+        arms.push(format!(
+            "WHEN h.rowid IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{}) \
+             THEN {offset} ",
+            values.len()
+        ));
+    };
+    push_arm("0.0", one_field(&exact));
+    if let Some(prefix) = &prefix {
+        push_arm("1000000.0", one_field(prefix));
+    }
+    if !one_phrase {
+        push_arm("2000000.0", both_fields(&exact));
+        if let Some(prefix) = &prefix {
+            push_arm("3000000.0", both_fields(prefix));
+        }
+    }
+    let arms = arms.concat();
+    format!(
+        "WITH x AS MATERIALIZED ({whole}), h AS MATERIALIZED ({hits}), \
+         g AS MATERIALIZED (SELECT h.rowid AS rowid, h.fts_rank AS fts_rank, \
+             CASE {arms}WHEN h.whole = 1 THEN 4000000.0 ELSE 5000000.0 END AS group_offset \
+             FROM h) \
+         SELECT rowid, fts_rank, group_offset FROM g"
+    )
 }
 
 /// A field that a text filter reads (ADR 0080 §2 and §3).
@@ -574,6 +660,17 @@ impl TextFilter {
     }
 }
 
+/// The rows that a rank search reads.
+#[derive(Clone, Copy, Debug)]
+enum RankScope<'a> {
+    /// Each row type.
+    All,
+    /// One row type.
+    One(&'a str),
+    /// The rows of a request with no `type`.
+    FeedsAndTracks,
+}
+
 /// Searches the FTS5 index with no text filter. See [`search_filtered`].
 ///
 /// # Errors
@@ -630,8 +727,56 @@ pub fn search_filtered(
     cursor_rank: Option<f64>,
     cursor_rowid: Option<i64>,
 ) -> Result<Vec<SearchResult>, DbError> {
+    let scope = entity_type_filter.map_or(RankScope::All, RankScope::One);
+    rank_search(
+        conn,
+        query,
+        filters,
+        scope,
+        limit,
+        cursor_rank,
+        cursor_rowid,
+    )
+}
+
+/// Searches the feed rows and the track rows with one statement, for a request
+/// with no `type`. See [`search_filtered`].
+///
+/// A filter reads each row as ADR 0084 §6 gives for a search with no `type`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the FTS5 MATCH query fails.
+pub fn search_feeds_and_tracks(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    limit: i64,
+    cursor_rank: Option<f64>,
+    cursor_rowid: Option<i64>,
+) -> Result<Vec<SearchResult>, DbError> {
+    rank_search(
+        conn,
+        query,
+        filters,
+        RankScope::FeedsAndTracks,
+        limit,
+        cursor_rank,
+        cursor_rowid,
+    )
+}
+
+fn rank_search(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    scope: RankScope<'_>,
+    limit: i64,
+    cursor_rank: Option<f64>,
+    cursor_rowid: Option<i64>,
+) -> Result<Vec<SearchResult>, DbError> {
     let safe_query = fts5_query_from_words(query);
-    tracing::info!(original_query = ?query, safe_query = ?safe_query, entity_type_filter = ?entity_type_filter, "search called");
+    tracing::info!(original_query = ?query, safe_query = ?safe_query, ?scope, "search called");
     if safe_query.trim().is_empty() {
         tracing::warn!("search query has no word");
         return Ok(Vec::new());
@@ -653,19 +798,22 @@ pub fn search_filtered(
     //
     // The effective_rank expression must be repeated in the WHERE clause
     // because SQL does not allow referencing SELECT aliases in WHERE.
+    // ADR 0087 §3: `CROSS JOIN` makes the hits the outer loop. The planner does
+    // not know how many rows a materialized source holds, and it can read each
+    // row of the type from `search_entities`.
     // `match_source` pushes the MATCH values first.  Each later value is pushed
     // to `values` in the same sequence as its `?N` in the SQL text, so the two
     // cannot drift apart.
     // ADR 0078 §4: a publisher feed has one quality row, of the type `feed`.
     // The join below reads that row for a `publisher` hit.  The select list,
     // the order and the keyset filter all use the same `q.score`.
-    // ADR 0086 §2: the quality weight applies to the score and not to the
-    // offset of a hit by prefix only.
+    // ADR 0087 §2: the quality weight applies to the score and not to the
+    // offset of the group.
     let eff_rank_expr =
-        "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0) + m.rank_offset)";
+        "(m.fts_rank * (1.0 + CAST(COALESCE(q.score, 0) AS REAL) / 100.0) + m.group_offset)";
 
     let mut values: Vec<Value> = Vec::new();
-    let source = match_source(query, &mut values);
+    let source = match_source(query, scope, &mut values);
     let mut where_parts = Vec::new();
 
     if let (Some(rank), Some(rowid)) = (cursor_rank, cursor_rowid) {
@@ -678,16 +826,24 @@ pub fn search_filtered(
         ));
     }
 
-    if let Some(entity_type) = entity_type_filter {
-        values.push(Value::Text(entity_type.to_owned()));
-        where_parts.push(format!("e.entity_type = ?{}", values.len()));
-    }
+    let filter_type = match scope {
+        RankScope::All => "",
+        RankScope::One(entity_type) => {
+            values.push(Value::Text(entity_type.to_owned()));
+            where_parts.push(format!("e.entity_type = ?{}", values.len()));
+            entity_type
+        }
+        RankScope::FeedsAndTracks => {
+            where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
+            ""
+        }
+    };
 
     // ADR 0080 §2 and §3: a text filter is a condition on the index row, never
     // part of the `MATCH` above.  Each value is a bound parameter.
     TextFilter::push_conditions(
         filters,
-        entity_type_filter.unwrap_or(""),
+        filter_type,
         "m.rowid",
         &mut values,
         &mut where_parts,
@@ -712,12 +868,12 @@ pub fn search_filtered(
     let value_joins = vf.joins(false);
 
     let sql = format!(
-        "SELECT e.entity_type, e.entity_id, m.fts_rank + m.rank_offset, \
+        "SELECT e.entity_type, e.entity_id, m.fts_rank, \
                 COALESCE(q.score, 0) AS quality_score, \
                 {eff_rank_expr} AS eff_rank, \
                 m.rowid \
          FROM ({source}) m \
-         JOIN search_entities e ON e.rowid = m.rowid \
+         CROSS JOIN search_entities e ON e.rowid = m.rowid \
          LEFT JOIN entity_quality q \
            ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
           AND q.entity_id = e.entity_id \
@@ -727,7 +883,7 @@ pub fn search_filtered(
          LIMIT ?{limit_param_idx}"
     );
 
-    let mut stmt = conn.prepare(&sql)?;
+    let mut stmt = conn.prepare_cached(&sql)?;
 
     let map_row = |row: &rusqlite::Row<'_>| -> rusqlite::Result<SearchResult> {
         Ok(SearchResult {
@@ -978,10 +1134,10 @@ pub fn search_sorted(
 
     let mut values: Vec<Value> = Vec::new();
     let (source, rank_expr, own_row) = if has_word {
-        let source = match_source(query, &mut values);
+        let source = hit_source(query, &mut values);
         (
             format!("({source}) m JOIN search_entities e ON e.rowid = m.rowid"),
-            "m.fts_rank + m.rank_offset",
+            "m.fts_rank",
             "m.rowid",
         )
     } else {

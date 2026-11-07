@@ -35,6 +35,8 @@ deployed, except the items below. The primary sets
 - [ADR 0086](docs/adr/0086-a-search-matches-the-start-of-the-last-word.md) answers
   the prefix match of the research request of 2026-10-23. It is built, with no
   migration. No release carries it.
+- [ADR 0087](docs/adr/0087-a-search-orders-its-hits-by-field.md) answers
+  musicindex.org request 25. It is built, with no migration. No release carries it.
 
 ### Open Items
 
@@ -111,7 +113,7 @@ requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
-musicindex.org request 21 are answered, and no release carries their build.
+musicindex.org requests 21 and 25 are answered, and no release carries their build.
 musicindex.org request 22 waits for an answer.
 
 ### Governance

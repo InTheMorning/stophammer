@@ -2144,10 +2144,25 @@ needs no call for each hit. ADR 0042 owns these fields.
 
 - `q=jsmo` matches `jSmovie`, and `q=night dr` needs the whole word `night` and a
   word that starts with `dr`. `q="jsmo"` matches only the whole word.
-- A hit with the whole word comes first, with the `rank` that it has with
-  `q="jsmo"`. Each other hit has its BM25 score plus 1,000,000, so its `rank` is
-  above 0. A lower `rank` stays a better match.
+- A hit with the whole word has the `rank` that it has with `q="jsmo"`. Each other
+  hit has its BM25 score.
 - A filter and an exclusion match whole words.
+
+**Order of the hits with `sort=relevance` (ADR 0087):**
+
+The node puts each hit in the first group that matches. Each rule applies to each
+type.
+
+1. All words of `q` are in the title, or all words of `q` are in the artist name.
+2. All words of `q` are in the title and the artist name together.
+3. Each other hit. This includes a match in the description.
+
+In each group, a hit with the whole words comes before a hit by prefix. The score
+and the quality weight then give the sequence.
+
+The sequence of the rows is the order. `rank` is the BM25 score with no group and
+no quality weight, so it is 0 or less, and it does not give the order. Do not sort
+the rows by `rank`.
 
 **Filters (ADR 0080 sections 2 to 4):**
 

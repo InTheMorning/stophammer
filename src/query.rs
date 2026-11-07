@@ -6094,28 +6094,14 @@ async fn handle_search(
             Some(other) => Err(db::DbError::Other(format!(
                 "unsupported search type filter: {other}"
             ))),
-            None => {
-                let mut merged = Vec::new();
-                for entity_type in ["feed", "track"] {
-                    merged.extend(crate::search::search_filtered(
-                        &conn,
-                        &q,
-                        &filters,
-                        Some(entity_type),
-                        limit + 1,
-                        cursor_rank,
-                        cursor_rowid,
-                    )?);
-                }
-                merged.sort_by(|a, b| {
-                    a.effective_rank
-                        .partial_cmp(&b.effective_rank)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                        .then_with(|| a.rowid.cmp(&b.rowid))
-                });
-                merged.truncate(usize::try_from(limit + 1).unwrap_or(usize::MAX));
-                Ok(merged)
-            }
+            None => crate::search::search_feeds_and_tracks(
+                &conn,
+                &q,
+                &filters,
+                limit + 1,
+                cursor_rank,
+                cursor_rowid,
+            ),
         };
         // A rank search has no sort key.
         found.map(|rows| {

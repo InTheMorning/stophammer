@@ -180,8 +180,8 @@ fn a_hit_with_the_whole_word_comes_first() {
         "ADR 0086 §2: the whole word comes first, also with longer text"
     );
     assert!(
-        hits[0].rank <= 0.0 && hits[1].rank > 0.0,
-        "ADR 0086 §2: only a hit by prefix has a rank above 0, got {hits:?}"
+        hits[0].effective_rank < hits[1].effective_rank,
+        "ADR 0087 §2: the effective rank gives the sequence, got {hits:?}"
     );
 }
 

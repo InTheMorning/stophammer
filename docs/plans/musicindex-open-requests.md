@@ -884,6 +884,22 @@ GET /v1/feeds/by-name?medium=publisher&two_way_links=none
 - One request examines at most 1,000 rows, as on `GET /v1/feeds/recent`. So a page can be short or empty with `has_more` true. On the backup of 2026-11-05, the first page of `stated_rel=label` holds no row. The site must follow the cursor until `has_more` is false.
 - On a local copy, each filtered page took 0.34 to 0.52 s. The same filters on `GET /v1/feeds/recent` took 0.51 to 0.54 s.
 
+
+**Request 25, a title match before a description match.** Accepted in a different form. Stophammer [ADR 0087](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0087-a-search-orders-its-hits-by-field.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
+
+With `sort=relevance`, the node puts each hit in the first group that matches. The rule is the same for each type:
+
+1. All words of `q` are in the title, or all words of `q` are in the artist name.
+2. All words of `q` are in the title and the artist name together.
+3. Each other hit. This includes a match in the description.
+
+- In each group, a hit with the whole words comes before a hit by prefix. The score and the quality weight then give the sequence.
+- This differs from the request in one item: an artist name has the group of a title. A title-first order moved the rows of an artist down. In 33 of 285 sampled artist searches, these rows lost at least half of their places in the first 10.
+- A title prefix hit can come before a whole word in other text. `q=the l&type=feed` starts with "LVX3 l Into The Unknown l", "LVX1 l Answering the initial call l" and "On The Low". "THE FLOOD" comes later.
+- `q=love&type=publisher` gives Strange Love, Love United, I love dafneestre, Love Ethic and Strange Love (Wavlake). Callum is row 10.
+- `rank` is the BM25 score, 0 or less, and it does not give the order. The sequence of the rows is the order. The site must not sort by `rank`.
+- A site with no commit `4fa24eb` sorts each page by `rank` and loses the group order. On 2026-11-07 the live `search.html` equals commit `1f18039`, which holds that commit, so the site does not have to deploy first.
+
 ## Release 0.19.0
 
 On 2026-11-07 the live node lists the capability `sort`. `reverse=true` gives 200 on
