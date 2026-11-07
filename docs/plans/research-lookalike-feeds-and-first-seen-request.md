@@ -151,8 +151,63 @@ The proposal:
 - A pair with the same audio and different routes goes to the top of the
   queue. `valueCreatedOn` can show which feed had routes first.
 
+## Data For L2 And L4 - 2026-11-07
+
+Stophammer added this data after the request. It states no decision.
+
+The search `q=haleen&sort=name&type=feed` gives pairs of feeds with one title and
+one artist, and different GUIDs. A read-only query examined the backup of
+2026-11-07 20:56 UTC with `immutable=1`. It also read the public bodies of one pair,
+and it searched the lookalike capture of 2026-11-03.
+
+**Method.** A key is the `release_artist` and the `title` of a music feed, trimmed,
+with no case difference. Two feeds with one key are a pair. A group of three feeds
+gives three pairs. The index holds 125 such keys, 150 pairs and 42 artists.
+
+| Class | Pairs | Artists | Largest artists |
+|---|---|---|---|
+| A: other host, same track titles, lengths within 2 s, no shared route address | 109 | 20 | Haleen 40, Prosperous Soul 30, Steered 8, Under The Mulga Groove 7 |
+| C: same host, same track titles, lengths within 2 s | 6 | 4 | Sovereign Frequency 3 |
+| D: the track titles or the lengths differ | 28 | 21 | Prosperous Soul 5 |
+| E: test feeds | 7 | 2 | Test Artist 6 |
+
+**Limits.**
+
+- The match is exact. A different spelling of a title or an artist is not counted,
+  so the counts can be low.
+- The query compared no audio. Class A is an inference from titles and lengths.
+- `feed_copies` has no row for any of the 150 pairs.
+
+**Haleen (L2).** Haleen has 98 music feeds and 58 titles. 40 titles have one feed on
+`feeds.fountain.fm` and one on `wavlake.com`.
+
+- 97 of the 98 GUIDs are the UUIDv5 of the URL of the feed. Each of the two bodies
+  that the query read declares its GUID. So ADR 0058 cannot join these feeds.
+- The item GUIDs are different. In the three pairs that the query read in detail, the
+  audio files and the descriptions are also different.
+- The Wavlake item is later, with a median of 104 days. It is first in 2 pairs.
+- The node holds two publisher feeds with the title Haleen, one on each host.
+- This suggests two uploads by the artist. The data does not prove who made each
+  upload.
+
+L1 does not find these pairs. One row of 99,885 in the capture holds a URL of a
+Haleen music feed, and that row is the "Damn Your Idols" pair of L2. The Fountain
+feed of that pair states the author Haleen. The gap between the two uploads is a
+possible cause, because the detector needs shared item GUIDs or times less than 48
+hours apart. The query did not test this for each pair.
+
+**Routes (L4).** No Haleen pair shares a route address. The Fountain feeds pay
+`haleen@fountain.fm` and `boostbot@fountain.fm`. The Wavlake feeds pay one node
+address, and each of the 7,738 Wavlake music feeds uses that address. The address
+does not show if the payment reaches the same person.
+
+**No merge or hide is proposed.** The routes differ, so a selection of one feed
+decides who gets paid.
+
 ## Open Questions
 
+- Is a pair of class A a defect, or a correct listing of two uploads? The operator
+  has not decided. Nothing is built for this question.
 - Does `dateCrawled` keep the first time when PodcastIndex adds a feed again
   with a new ID? The "Live at Rockpile" pair suggests this. The research did
   not examine the API.
