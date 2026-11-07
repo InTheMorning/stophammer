@@ -37,8 +37,8 @@ Nothing.
 - ADR 0070 §4a: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) is Accepted, and
-  it answers v4vmm request 15. Task 001 is built. Tasks 002 and 003 in
-  `docs/tasks/` are not built, so this ADR is not deployed.
+  it answers v4vmm request 15. Tasks 001 and 002 are built. Task 003 in
+  `docs/tasks/` is not built, so this ADR is not deployed.
 - ADR 0076: the v4vmm operator checks its two visual criteria on release
   0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of

@@ -60,6 +60,62 @@ fn decode_cursor(cursor: &str) -> Result<String, api::ApiError> {
     })
 }
 
+/// ADR 0084 §9: the mark of a cursor in the reversed direction. The mark is
+/// not a character of the base64url alphabet. So a cursor of the usual
+/// direction can never start with it, and no name in a cursor can look like
+/// it.
+const REVERSE_CURSOR_MARK: &str = "r.";
+
+/// Encodes a cursor for the given direction. The usual direction keeps the
+/// form of a cursor from before ADR 0084.
+fn encode_cursor_for(value: &str, reverse: bool) -> String {
+    if reverse {
+        format!("{REVERSE_CURSOR_MARK}{}", encode_cursor(value))
+    } else {
+        encode_cursor(value)
+    }
+}
+
+/// Decodes a cursor and checks that its direction is the direction of the
+/// request (ADR 0084 §9). A cursor with no mark has the usual direction.
+fn decode_cursor_for(cursor: &str, reverse: bool) -> Result<String, api::ApiError> {
+    let (cursor_reverse, body) = match cursor.strip_prefix(REVERSE_CURSOR_MARK) {
+        Some(body) => (true, body),
+        None => (false, cursor),
+    };
+    if cursor_reverse != reverse {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "cursor direction differs from reverse (ADR 0084 section 9)".into(),
+            www_authenticate: None,
+        });
+    }
+    decode_cursor(body)
+}
+
+/// ADR 0084 §7: the exclusive upper bound of `from` in the reversed
+/// direction. The list starts at the last row whose sort key is below the
+/// bound. That row is the last row whose key starts with `prefix`, or the
+/// last row before the position of `prefix` when no key starts with it.
+///
+/// The bound is the smallest text that is after each text that starts with
+/// `prefix`, by code point. It is `None` when no such text exists: an empty
+/// `prefix`, or one that holds only the highest code point. The list then
+/// starts at its last row.
+fn reverse_from_bound(prefix: &str) -> Option<String> {
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(last) = chars.pop() {
+        let next = match last {
+            char::MAX => continue,
+            '\u{D7FF}' => '\u{E000}',
+            other => char::from_u32(u32::from(other) + 1)?,
+        };
+        chars.push(next);
+        return Some(chars.into_iter().collect());
+    }
+    None
+}
+
 // ── Response envelope ───────────────────────────────────────────────────────
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -119,9 +175,26 @@ pub struct ListQuery {
     /// each rank, confirmed or not. Needs `medium=music`, and conflicts with
     /// `artist_key`.
     named_feed_guid: Option<String>,
+    /// ADR 0084 §3: `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and
+    /// `GET /v1/artist-names` give the reversed sequence. Read with
+    /// [`ListQuery::reverse`], so a bad value gives the `400` of the route.
+    reverse: Option<String>,
 }
 
 impl ListQuery {
+    /// ADR 0084 §5: `reverse` accepts only `true` and `false`.
+    fn reverse(&self) -> Result<bool, api::ApiError> {
+        match self.reverse.as_deref() {
+            None | Some("false") => Ok(false),
+            Some("true") => Ok(true),
+            Some(_) => Err(api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "reverse accepts only true and false (ADR 0084 section 5)".into(),
+                www_authenticate: None,
+            }),
+        }
+    }
+
     fn capped_limit(&self) -> i64 {
         self.limit.unwrap_or(50).clamp(1, LIST_LIMIT_MAX)
     }
@@ -4390,8 +4463,8 @@ fn named_feed_guid_only_guids(
 }
 
 /// Decodes a cursor of `GET /v1/feeds/recent`.
-fn parse_recent_cursor(cursor: &str) -> Result<RecentCursor, api::ApiError> {
-    let decoded = decode_cursor(cursor)?;
+fn parse_recent_cursor(cursor: &str, reverse: bool) -> Result<RecentCursor, api::ApiError> {
+    let decoded = decode_cursor_for(cursor, reverse)?;
     let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
     if parts.len() != 2 {
         return Err(api::ApiError {
@@ -4416,6 +4489,10 @@ fn parse_recent_cursor(cursor: &str) -> Result<RecentCursor, api::ApiError> {
 /// Reads at most `count` rows of `GET /v1/feeds/recent` after `after`, in
 /// the sequence of the route.
 ///
+/// ADR 0084 §6: with `reverse`, the dated rows come oldest first, then the
+/// rows with no `newest_item_at`. Those rows come last in each direction.
+/// The tie key `feed_guid` follows the direction.
+///
 /// `only_guids` is null, or a JSON array of the feed GUIDs to keep (ADR 0076
 /// §2, the same condition [`by_name_feed_rows`] has for ADR 0071 §4).
 fn recent_feed_rows(
@@ -4424,20 +4501,35 @@ fn recent_feed_rows(
     after: Option<RecentCursor>,
     only_guids: Option<&str>,
     count: i64,
+    reverse: bool,
 ) -> Result<Vec<FeedRow>, api::ApiError> {
     let (cursor_ts, cursor_guid) = after.map_or((None, None), |(ts, guid)| (Some(ts), Some(guid)));
-    let mut stmt = conn.prepare(
+    // The cursor holds `COALESCE(newest_item_at, -1)`, so `-1` is a row with
+    // no date. In the reversed direction that row sorts after each dated row.
+    let (after_clause, order_clause) = if reverse {
+        (
+            "(newest_item_at IS NULL, COALESCE(newest_item_at, -1), feed_guid) \
+             > (?2 = -1, ?2, ?3)",
+            "newest_item_at IS NULL ASC, COALESCE(newest_item_at, -1) ASC, feed_guid ASC",
+        )
+    } else {
+        (
+            "(COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3)",
+            "COALESCE(newest_item_at, -1) DESC, feed_guid DESC",
+        )
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
          release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
          episode_count, newest_item_at, oldest_item_at, \
          created_at, updated_at, last_build_date, release_artist_source \
          FROM feeds \
          WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
-           AND (?2 IS NULL OR (COALESCE(newest_item_at, -1), feed_guid) < (?2, ?3)) \
+           AND (?2 IS NULL OR {after_clause}) \
            AND (?5 IS NULL OR feed_guid IN (SELECT value FROM json_each(?5))) \
-         ORDER BY COALESCE(newest_item_at, -1) DESC, feed_guid DESC \
-         LIMIT ?4",
-    )?;
+         ORDER BY {order_clause} \
+         LIMIT ?4"
+    ))?;
     let rows = stmt
         .query_map(
             params![medium, cursor_ts, cursor_guid, count, only_guids],
@@ -4481,6 +4573,7 @@ fn filtered_recent_rows(
     mut after: Option<RecentCursor>,
     limit: i64,
     filter: &LinkFactFilter,
+    reverse: bool,
 ) -> Result<(Vec<FeedRow>, bool, Option<RecentCursor>), api::ApiError> {
     let limit = usize::try_from(limit).unwrap_or(usize::MAX);
     let mut kept: Vec<FeedRow> = Vec::new();
@@ -4489,7 +4582,14 @@ fn filtered_recent_rows(
         // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and this
         // filter needs `medium=publisher` (ADR 0068 §4), so the two never
         // apply at the same time. `only_guids` is always null here.
-        let batch = recent_feed_rows(conn, medium, after.clone(), None, LINK_FACT_FILTER_BATCH)?;
+        let batch = recent_feed_rows(
+            conn,
+            medium,
+            after.clone(),
+            None,
+            LINK_FACT_FILTER_BATCH,
+            reverse,
+        )?;
         let at_end = batch.len() < usize::try_from(LINK_FACT_FILTER_BATCH).unwrap_or(usize::MAX);
         for row in batch {
             examined += 1;
@@ -4630,6 +4730,7 @@ async fn handle_get_recent_feeds(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let reverse = params.reverse()?;
         // ADR 0047: a corrective pass needs every feed the index holds, not one
         // medium. `all` skips the filter. The value is lowered here so the SQL
         // compares one lowered column against one lowered bind.
@@ -4648,11 +4749,11 @@ async fn handle_get_recent_feeds(
         let mut after = params
             .cursor
             .as_deref()
-            .map(parse_recent_cursor)
+            .map(|c| parse_recent_cursor(c, reverse))
             .transpose()?;
 
         let (items, has_more, next_after) = if let Some(filter) = &filter {
-            filtered_recent_rows(&conn, &medium, after, limit, filter)?
+            filtered_recent_rows(&conn, &medium, after, limit, filter, reverse)?
         } else {
             let rows = recent_feed_rows(
                 &conn,
@@ -4660,6 +4761,7 @@ async fn handle_get_recent_feeds(
                 after.take(),
                 only_guids.as_deref(),
                 limit + 1,
+                reverse,
             )?;
             let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
             let items: Vec<FeedRow> = rows
@@ -4677,8 +4779,9 @@ async fn handle_get_recent_feeds(
         // no dated item still gets a cursor, and `has_more: true` never pairs
         // with a null cursor.
         let next_cursor = if has_more {
-            next_after
-                .map(|(sort_key, feed_guid)| encode_cursor(&format!("{sort_key}\0{feed_guid}")))
+            next_after.map(|(sort_key, feed_guid)| {
+                encode_cursor_for(&format!("{sort_key}\0{feed_guid}"), reverse)
+            })
         } else {
             None
         };
@@ -4721,8 +4824,8 @@ async fn handle_get_recent_feeds(
 
 /// Decodes a cursor of `GET /v1/feeds/by-name`: the `title_sort` and the
 /// `feed_guid` of the last row of the page before.
-fn parse_by_name_cursor(cursor: &str) -> Result<(String, String), api::ApiError> {
-    let decoded = decode_cursor(cursor)?;
+fn parse_by_name_cursor(cursor: &str, reverse: bool) -> Result<(String, String), api::ApiError> {
+    let decoded = decode_cursor_for(cursor, reverse)?;
     let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
     if parts.len() != 2 {
         return Err(api::ApiError {
@@ -4743,6 +4846,10 @@ fn parse_by_name_cursor(cursor: &str) -> Result<(String, String), api::ApiError>
 ///
 /// `only_guids` is null, or a JSON array of the feed GUIDs to keep (ADR 0071
 /// §4).
+///
+/// ADR 0084 §3 and §6: with `reverse`, the order is `title_sort` then
+/// `feed_guid`, both descending. Then `from_floor` is the exclusive upper
+/// bound of [`reverse_from_bound`], not a floor.
 fn by_name_feed_rows(
     conn: &rusqlite::Connection,
     medium: &str,
@@ -4750,22 +4857,28 @@ fn by_name_feed_rows(
     from_floor: Option<&str>,
     only_guids: Option<&str>,
     count: i64,
+    reverse: bool,
 ) -> Result<Vec<(FeedRow, String)>, api::ApiError> {
     let (cursor_sort, cursor_guid) =
         after.map_or((None, None), |(sort, guid)| (Some(sort), Some(guid)));
-    let mut stmt = conn.prepare(
+    let (after_op, from_clause, order) = if reverse {
+        ("<", "title_sort < ?4", "DESC")
+    } else {
+        (">", "title_sort >= ?4", "ASC")
+    };
+    let mut stmt = conn.prepare(&format!(
         "SELECT feed_guid, feed_url, title, raw_medium, release_artist, \
          release_artist_sort, release_date, release_kind, description, image_url, publisher, language, explicit, \
          episode_count, newest_item_at, oldest_item_at, \
          created_at, updated_at, last_build_date, release_artist_source, title_sort \
          FROM feeds \
          WHERE (?1 = 'all' OR lower(raw_medium) = ?1) \
-           AND (?2 IS NULL OR (title_sort, feed_guid) > (?2, ?3)) \
-           AND (?4 IS NULL OR title_sort >= ?4) \
+           AND (?2 IS NULL OR (title_sort, feed_guid) {after_op} (?2, ?3)) \
+           AND (?4 IS NULL OR {from_clause}) \
            AND (?6 IS NULL OR feed_guid IN (SELECT value FROM json_each(?6))) \
-         ORDER BY title_sort ASC, feed_guid ASC \
-         LIMIT ?5",
-    )?;
+         ORDER BY title_sort {order}, feed_guid {order} \
+         LIMIT ?5"
+    ))?;
     let rows = stmt
         .query_map(
             params![
@@ -4820,16 +4933,24 @@ async fn handle_get_feeds_by_name(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let reverse = params.reverse()?;
         let medium = params.medium.as_deref().unwrap_or("music").to_lowercase();
 
         let cursor_after = params
             .cursor
             .as_deref()
-            .map(parse_by_name_cursor)
+            .map(|c| parse_by_name_cursor(c, reverse))
             .transpose()?;
         // ADR 0070 §2: `from` applies only when the request carries no cursor.
+        // ADR 0084 §7: with `reverse`, `from` gives an upper bound.
         let from_floor = if cursor_after.is_none() {
-            params.from.as_deref().map(sort_key)
+            params.from.as_deref().map(sort_key).and_then(|key| {
+                if reverse {
+                    reverse_from_bound(&key)
+                } else {
+                    Some(key)
+                }
+            })
         } else {
             None
         };
@@ -4875,6 +4996,7 @@ async fn handle_get_feeds_by_name(
             from_floor.as_deref(),
             only_guids.as_deref(),
             limit + 1,
+            reverse,
         )?;
         let has_more = rows.len() > usize::try_from(limit).unwrap_or(usize::MAX);
         let rows: Vec<(FeedRow, String)> = rows
@@ -4884,7 +5006,7 @@ async fn handle_get_feeds_by_name(
 
         let next_cursor = if has_more {
             rows.last()
-                .map(|(r, sort)| encode_cursor(&format!("{sort}\0{}", r.feed_guid)))
+                .map(|(r, sort)| encode_cursor_for(&format!("{sort}\0{}", r.feed_guid), reverse))
         } else {
             None
         };
@@ -5245,8 +5367,11 @@ impl ArtistNameCache {
 
 /// Decodes a cursor of `GET /v1/artist-names`: the `sort_name`, `kind` and
 /// `key` of the last row of the page before. ADR 0070 §3.
-fn parse_artist_names_cursor(cursor: &str) -> Result<(String, String, String), api::ApiError> {
-    let decoded = decode_cursor(cursor)?;
+fn parse_artist_names_cursor(
+    cursor: &str,
+    reverse: bool,
+) -> Result<(String, String, String), api::ApiError> {
+    let decoded = decode_cursor_for(cursor, reverse)?;
     let parts: Vec<&str> = decoded.splitn(3, '\0').collect();
     if parts.len() != 3 {
         return Err(api::ApiError {
@@ -5275,37 +5400,73 @@ async fn handle_get_artist_names(
             www_authenticate: None,
         })?;
         let limit = params.capped_limit();
+        let reverse = params.reverse()?;
         let list = state2.artist_name_cache.get_or_build(&conn)?;
         let all_rows = &list.rows;
 
         let cursor_after = params
             .cursor
             .as_deref()
-            .map(parse_artist_names_cursor)
+            .map(|c| parse_artist_names_cursor(c, reverse))
             .transpose()?;
 
         // ADR 0070 §3: `from` applies only when the request carries no
         // cursor, as it does for `GET /v1/feeds/by-name`.
-        let start = if let Some((sort, kind, key)) = &cursor_after {
-            all_rows.partition_point(|r| {
-                (r.sort_name.as_str(), r.kind.as_str(), r.key.as_str())
-                    <= (sort.as_str(), kind.as_str(), key.as_str())
-            })
-        } else if let Some(from) = params.from.as_deref().map(sort_key) {
-            all_rows.partition_point(|r| r.sort_name.as_str() < from.as_str())
-        } else {
-            0
-        };
-
+        //
+        // ADR 0084 §3: the copy holds the usual sequence. A reversed page
+        // reads the rows before `end`, from the last one. Its tie key is
+        // then `(sort_name, kind, key)` in descending order (§6).
         let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
-        let has_more = all_rows.len().saturating_sub(start) > limit_usize;
+        let (has_more, page): (bool, Vec<ArtistNameRow>) = if reverse {
+            let end = if let Some((sort, kind, key)) = &cursor_after {
+                all_rows.partition_point(|r| {
+                    (r.sort_name.as_str(), r.kind.as_str(), r.key.as_str())
+                        < (sort.as_str(), kind.as_str(), key.as_str())
+                })
+            } else if let Some(bound) = params
+                .from
+                .as_deref()
+                .map(sort_key)
+                .and_then(|key| reverse_from_bound(&key))
+            {
+                all_rows.partition_point(|r| r.sort_name.as_str() < bound.as_str())
+            } else {
+                all_rows.len()
+            };
+            (
+                end > limit_usize,
+                all_rows[..end]
+                    .iter()
+                    .rev()
+                    .take(limit_usize)
+                    .cloned()
+                    .collect(),
+            )
+        } else {
+            let start = if let Some((sort, kind, key)) = &cursor_after {
+                all_rows.partition_point(|r| {
+                    (r.sort_name.as_str(), r.kind.as_str(), r.key.as_str())
+                        <= (sort.as_str(), kind.as_str(), key.as_str())
+                })
+            } else if let Some(from) = params.from.as_deref().map(sort_key) {
+                all_rows.partition_point(|r| r.sort_name.as_str() < from.as_str())
+            } else {
+                0
+            };
+            (
+                all_rows.len().saturating_sub(start) > limit_usize,
+                all_rows[start..]
+                    .iter()
+                    .take(limit_usize)
+                    .cloned()
+                    .collect(),
+            )
+        };
         // ADR 0071 §2: the copy holds the link facts. A page gives them only
         // with `include=link_facts`.
         let include_link_facts = params.includes("link_facts");
-        let page: Vec<ArtistNameRow> = all_rows[start..]
-            .iter()
-            .take(limit_usize)
-            .cloned()
+        let page: Vec<ArtistNameRow> = page
+            .into_iter()
             .map(|row| {
                 if include_link_facts {
                     row
@@ -5316,8 +5477,9 @@ async fn handle_get_artist_names(
             .collect();
 
         let next_cursor = if has_more {
-            page.last()
-                .map(|r| encode_cursor(&format!("{}\0{}\0{}", r.sort_name, r.kind, r.key)))
+            page.last().map(|r| {
+                encode_cursor_for(&format!("{}\0{}\0{}", r.sort_name, r.kind, r.key), reverse)
+            })
         } else {
             None
         };

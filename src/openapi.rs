@@ -165,7 +165,8 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("stated_rel", "string", None, false, "With `medium=publisher`: keep only the rows with this role token in `stated_rels`. The value is lowercased (ADR 0068 sections 4 and 5). Gives the link facts."),
                     query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts."),
-                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2).")
+                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2)."),
+                    query_param("reverse", "boolean", None, false, "`true` gives the oldest item first. A feed with no dated item still comes last. The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (ADR 0084 sections 3, 6 and 9). Any other value than `true` or `false` gives 400.")
                 ],
                 None,
                 json!({
@@ -203,7 +204,8 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
                     query_param("artist_key", "string", None, false, "Keeps only the music releases that the `name` row of `GET /v1/artist-names` with this `key` counts in `release_count` (ADR 0071 section 4). Needs `medium=music`. A key with no `name` row gives an empty list."),
-                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2).")
+                    query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2)."),
+                    query_param("reverse", "boolean", None, false, "`true` gives Z to A, with `feed_guid` in descending order. Then `from` starts at the last row whose sort key starts with the sort key of the text (ADR 0084 sections 3 and 7). The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (section 9). Any other value than `true` or `false` gives 400.")
                 ],
                 None,
                 json!({
@@ -239,7 +241,8 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("cursor", "string", None, false, "Opaque pagination cursor."),
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
                     include_query_param(query::ARTIST_NAME_INCLUDES),
-                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present.")
+                    query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
+                    query_param("reverse", "boolean", None, false, "`true` gives Z to A, with `sort_name`, `kind` and `key` in descending order. Then `from` starts at the last row whose sort key starts with the sort key of the text (ADR 0084 sections 3 and 7). The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (section 9). Any other value than `true` or `false` gives 400.")
                 ],
                 None,
                 json!({

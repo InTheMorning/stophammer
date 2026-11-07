@@ -1235,7 +1235,11 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional
-  `medium` and `named_feed_guid`.
+  `medium`, `named_feed_guid` and `reverse`.
+- **`reverse`:** `reverse=true` gives the oldest item first. A feed with no
+  dated item still comes last, as in the usual sequence. `feed_guid`, the
+  tie key, then ascends. `reverse` accepts only `true` and `false`. Any
+  other value gives `400`. ADR 0084 sections 3, 5 and 6.
 - **`named_feed_guid`:** Keeps only the music releases with a `named_feeds`
   entry for this GUID, at each rank, confirmed or not. Includes a release
   that names a feed the node does not hold. Needs `medium=music`, and
@@ -1294,7 +1298,7 @@ with `has_more` true. Follow the cursor until `has_more` is false.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key` |
+| 400  | A filter without `medium=publisher`, a `stated_rel` that is not one token, or a `two_way_links` value that is not `none`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key`. A `reverse` value that is not `true` or `false`. A cursor with a direction that differs from `reverse` |
 
 ---
 
@@ -1316,7 +1320,7 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   collation. The node keeps a leading article such as "The", and it keeps
   punctuation and an accent.
 - **Query parameters:** common pagination params plus optional `include`,
-  `medium`, `from`, `artist_key` and `named_feed_guid`.
+  `medium`, `from`, `artist_key`, `named_feed_guid` and `reverse`.
 - **`artist_key`:** Keeps only the music releases that the `name` row of
   `GET /v1/artist-names` with this `key` counts in `release_count`. The node
   reads the set from the copy in memory of that list, so the count and the
@@ -1335,6 +1339,10 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. `from=M` starts at the first title that
   starts with `m`. A request with `cursor` ignores `from`.
+- **`reverse`:** `reverse=true` gives Z to A, with `feed_guid` in descending
+  order. Then `from=M` starts at the last title that starts with `m`. When
+  no title starts with the text, the list starts at the last row before its
+  position. ADR 0084 sections 3 and 7.
 
 Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 `sort_name`: the sort key of this row's `title`. No other route gives
@@ -1345,7 +1353,7 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
-| 400  | `artist_key` with a `medium` other than `music`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key` |
+| 400  | `artist_key` with a `medium` other than `music`. `named_feed_guid` with a `medium` other than `music`, or with `artist_key`. A `reverse` value that is not `true` or `false`. A cursor with a direction that differs from `reverse` |
 
 ---
 
@@ -1366,14 +1374,21 @@ sections 3 and 4 own this route.
   an agreed role set that excludes `artist`. The node derives no artist
   identity from this rule. A `name` row states a fact about a text, not a
   claim that the text names an artist.
-- **Query parameters:** common pagination params plus optional `include`
-  and `from`, as `GET /v1/feeds/by-name` takes them.
+- **Query parameters:** common pagination params plus optional `include`,
+  `from` and `reverse`, as `GET /v1/feeds/by-name` takes them.
 - **Include `link_facts`:** each `publisher` row gives the five fields of
   `GET /v1/feeds/recent` with the same include, with the same values. A
   `name` row gives none of them. The node calculates them in the build of
   the copy in memory. ADR 0071 section 2.
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. A request with `cursor` ignores `from`.
+- **`reverse`:** `reverse=true` gives Z to A, with `sort_name`, `kind` and
+  `key` in descending order. `from` then starts at the last row whose sort
+  key starts with the sort key of the text, as on `GET /v1/feeds/by-name`.
+  ADR 0084 sections 3, 6 and 7.
+- **Cursor and direction:** a cursor of a reversed page works only with
+  `reverse=true`. A cursor of the usual direction works only without it.
+  Each other case gives `400`. ADR 0084 section 9.
 - **Freshness:** The node keeps the full list in memory (ADR 0070 section
   4a). A write to the event log can make the copy stale. The node rebuilds
   the copy at most one time in each 30 seconds. A read of this route can
