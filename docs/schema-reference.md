@@ -82,6 +82,8 @@ Key columns:
 
 Notes:
 - `title` is the track title in v1.
+- `title_sort` is `model::sort_key(title)`. Each write derives it, and a node does
+  not copy it from an event. It has no index (ADR 0084 section 8).
 - `publisher` is source-first publisher text inherited from the resolved feed
   publisher in v1.
 - `track_artist` is stored separately from `feeds.release_artist`.

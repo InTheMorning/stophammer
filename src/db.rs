@@ -282,6 +282,9 @@ const MIGRATIONS: &[&str] = &[
     // Migration 61: give an arrival tag to each record that a candidate moved
     // (ADR 0083 §4)
     include_str!("../migrations/0061_feed_move_state_fill.sql"),
+    // Migration 62: store the sort key of each track title (ADR 0084 §8,
+    // task 001)
+    include_str!("../migrations/0062_track_title_sort.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -685,6 +688,20 @@ fn ensure_feed_title_sort_schema(conn: &Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Adds `tracks.title_sort` when migration 0062 could not run.
+///
+/// Migration versions are array positions, so a database whose watermark
+/// already reached this migration's position never runs it. ADR 0084 §8 owns
+/// the column.
+fn ensure_track_title_sort_schema(conn: &Connection) -> Result<(), DbError> {
+    if table_has_column(conn, "tracks", "title_sort")? {
+        return Ok(());
+    }
+
+    conn.execute_batch("ALTER TABLE tracks ADD COLUMN title_sort TEXT;")?;
+    Ok(())
+}
+
 /// Adds `feeds.feed_host` when migration 0057 could not run.
 ///
 /// Migration versions are array positions, so a database whose watermark
@@ -863,6 +880,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_feed_declared_self_url_schema(&conn)?;
     ensure_feed_move_declaration_schema(&conn)?;
     ensure_feed_title_sort_schema(&conn)?;
+    ensure_track_title_sort_schema(&conn)?;
     ensure_feed_host_schema(&conn)?;
     ensure_copy_item_facts_schema(&conn)?;
     ensure_value_time_split_forms_schema(&mut conn)?;
@@ -872,6 +890,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_search_index_track_identity(&mut conn)?;
     ensure_search_index_publisher_feeds(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
+    ensure_track_title_sort_filled(&mut conn)?;
     ensure_feed_host_filled(&mut conn)?;
     Ok(conn)
 }
@@ -1060,6 +1079,46 @@ fn ensure_feed_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
         feeds = rows.len(),
         elapsed_ms = started.elapsed().as_millis(),
         "db: filled feeds.title_sort from title"
+    );
+    Ok(())
+}
+
+/// Fills `tracks.title_sort` for each row where it is null.
+///
+/// `SQLite` cannot make the key, so [`sort_key`] makes it in Rust from the
+/// stored `title`. A database with no null `title_sort` skips the repair.
+/// `upsert_track` and `ingest_transaction` derive the value at each write, so
+/// a write never leaves a null row. ADR 0084 §8.
+fn ensure_track_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
+    let has_null_title_sort: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM tracks WHERE title_sort IS NULL)",
+        [],
+        |row| row.get(0),
+    )?;
+    if !has_null_title_sort {
+        return Ok(());
+    }
+
+    let started = std::time::Instant::now();
+    let tx = conn.transaction()?;
+    let rows: Vec<(String, String, String)> = tx
+        .prepare("SELECT feed_guid, track_guid, title FROM tracks WHERE title_sort IS NULL")?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    {
+        let mut stmt = tx.prepare(
+            "UPDATE tracks SET title_sort = ?1 WHERE feed_guid = ?2 AND track_guid = ?3",
+        )?;
+        for (feed_guid, track_guid, title) in &rows {
+            stmt.execute(params![sort_key(title), feed_guid, track_guid])?;
+        }
+    }
+    tx.commit()?;
+
+    tracing::info!(
+        tracks = rows.len(),
+        elapsed_ms = started.elapsed().as_millis(),
+        "db: filled tracks.title_sort from title"
     );
     Ok(())
 }
@@ -1486,8 +1545,8 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
     conn.execute(
         "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, \
          duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
-         explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
+         explicit, description, track_artist, track_artist_sort, created_at, updated_at, title_sort) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
          ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
            title            = excluded.title, \
            title_lower      = excluded.title_lower, \
@@ -1505,6 +1564,7 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
             description      = excluded.description, \
             track_artist     = excluded.track_artist, \
             track_artist_sort = excluded.track_artist_sort, \
+            title_sort       = excluded.title_sort, \
             updated_at       = excluded.updated_at",
         params![
             track.track_guid,
@@ -1527,6 +1587,8 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
             track.track_artist_sort,
             track.created_at,
             track.updated_at,
+            // ADR 0084 §8: derived from `title` at each write, as for feeds.
+            sort_key(&track.title),
         ],
     )?;
     Ok(())
@@ -7134,8 +7196,8 @@ pub fn ingest_transaction(
         tx.execute(
             "INSERT INTO tracks (track_guid, feed_guid, title, title_lower, pub_date, \
              duration_secs, image_url, publisher, language, enclosure_url, enclosure_type, enclosure_bytes, track_number, season, \
-             explicit, description, track_artist, track_artist_sort, created_at, updated_at) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20) \
+             explicit, description, track_artist, track_artist_sort, created_at, updated_at, title_sort) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21) \
              ON CONFLICT(feed_guid, track_guid) DO UPDATE SET \
                title            = excluded.title, \
                title_lower      = excluded.title_lower, \
@@ -7153,6 +7215,7 @@ pub fn ingest_transaction(
                description      = excluded.description, \
                track_artist     = excluded.track_artist, \
                track_artist_sort = excluded.track_artist_sort, \
+               title_sort       = excluded.title_sort, \
                updated_at       = excluded.updated_at",
             params![
                 track.track_guid,
@@ -7175,6 +7238,8 @@ pub fn ingest_transaction(
                 track.track_artist_sort,
                 track.created_at,
                 track.updated_at,
+                // ADR 0084 §8: derived from `title` at each write.
+                sort_key(&track.title),
             ],
         )?;
 

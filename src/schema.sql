@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     track_artist_sort TEXT,
     created_at       INTEGER NOT NULL,
     updated_at       INTEGER NOT NULL,
+    title_sort       TEXT,
     PRIMARY KEY (feed_guid, track_guid)
 ) STRICT;
 
