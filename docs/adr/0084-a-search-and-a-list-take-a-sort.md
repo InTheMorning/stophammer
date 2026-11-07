@@ -1,10 +1,9 @@
 # ADR 0084: A Search And A List Take A Sort
 
 ## Status
-Proposed on 2026-11-06. The operator accepted the design in principle on
-2026-11-06 and examines this text before acceptance.
-On acceptance, it adds to ADR 0070 §2 and §3 and to ADR 0080 §6. ADR 0080 §2 does
-not change.
+Accepted on 2026-11-06 by the operator, for v4vmm request 15. Tasks 001 to 003 give
+the build.
+It adds to ADR 0070 §2 and §3 and to ADR 0080 §6. ADR 0080 §2 does not change.
 
 ## Date
 2026-11-06
@@ -274,9 +273,9 @@ None in this repository. v4vmm and the website own the reverse icon. musicindex
 ADR 0043 gives their visual checks.
 
 ## Follow-Up
-- The operator accepts this ADR or changes it.
-- On acceptance, ADR 0070 and ADR 0080 state the addition, and task packets give
-  the work.
-- The change updates `docs/API.md`, `api.html`, `docs/schema-reference.md` and
-  `src/schema.sql`.
+- [Task 001](../tasks/adr-0084-task-001-track-sort-key.md) adds the track sort key.
+- [Task 002](../tasks/adr-0084-task-002-list-routes-reverse.md) adds `reverse` to the
+  three list routes.
+- [Task 003](../tasks/adr-0084-task-003-search-sort.md) adds `sort` and `reverse` to
+  search, and the capability.
 - v4vmm writes its packet 005 after the release.

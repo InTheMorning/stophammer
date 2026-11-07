@@ -3,7 +3,9 @@
 ## Status
 Accepted on 2026-10-17, for v4vmm request 6. Task 001 gives the sort key and
 the release list. Task 002 gives the artist list. Amended on 2026-10-17 with
-section 4a: the node keeps the artist list in memory.
+section 4a: the node keeps the artist list in memory. Amended on 2026-11-06 by
+ADR 0084 §3 and §7: the two lists take `reverse`. A request with no `reverse` keeps
+the sequence that sections 2 and 3 give.
 
 ## Date
 2026-10-17

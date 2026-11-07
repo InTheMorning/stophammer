@@ -4,7 +4,8 @@
 Accepted on 2026-10-24, for items 1 to 7 of v4vmm request 10. The v4vmm
 operator answered items 2 to 7 on 2026-10-24. The operator answered the three
 questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
-005 give the build.
+005 give the build. Amended on 2026-11-06 by ADR 0084: section 6 gives the default
+sequence, and `sort` and `reverse` can change it. Section 2 does not change.
 
 It amends ADR 0078 §5: the text of `q` can hold phrases. The rest of ADR 0078
 stays.
@@ -201,7 +202,8 @@ rules of ADR 0071 §5 apply.
   `400` on a search with `q`.
 - `rank` is 0 on each of its rows.
 
-A search with `q` keeps its order and its cursor (ADR 0022 and ADR 0078).
+A search with `q` keeps its order and its cursor (ADR 0022 and ADR 0078), unless
+the request sends `sort` or `reverse` (ADR 0084).
 
 A cursor is valid only with the parameters of the request that gave it.
 
