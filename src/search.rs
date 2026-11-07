@@ -240,7 +240,8 @@ pub fn fts5_query_from_words(input: &str) -> String {
 pub enum TextField {
     /// `artist`: the column `name`, and on a publisher the column `title`.
     Artist,
-    /// `title`: the column `title`.
+    /// `title`: the column `title`. On a track it also reads the title of the
+    /// feed (ADR 0085 §4).
     Title,
     /// `release`: the title of the feed. Unsupported on a publisher.
     Release,
@@ -413,6 +414,11 @@ impl ValueFilters {
     }
 }
 
+/// ADR 0080 §2: the row of the feed of a track, as an SQL expression.
+const FEED_ROW: &str = "(SELECT fe.rowid FROM search_entities fe \
+     WHERE fe.entity_type = 'feed' \
+     AND fe.entity_id = json_extract(e.entity_id, '$[0]'))";
+
 impl TextFilter {
     /// The row of `search_index` that this filter reads, as an SQL
     /// expression, and the columns it reads in that row (ADR 0080 §2).
@@ -424,10 +430,6 @@ impl TextFilter {
     ///
     /// Returns `None` when the entity type does not apply the field.
     fn target(&self, entity_type: &str, own_row: &str) -> Option<(String, &'static str)> {
-        // ADR 0080 §2: the row of the feed of a track.
-        const FEED_ROW: &str = "(SELECT fe.rowid FROM search_entities fe \
-             WHERE fe.entity_type = 'feed' \
-             AND fe.entity_id = json_extract(e.entity_id, '$[0]'))";
         let own = own_row.to_owned();
         match (self.field, entity_type) {
             (TextField::Release, "publisher") => None,
@@ -459,14 +461,21 @@ impl TextFilter {
             .map(|f| (f, false))
             .chain(filters.exclude.iter().map(|f| (f, true)))
         {
-            let Some((row, columns)) = filter.target(entity_type, own_row) else {
-                continue;
+            let membership = if filter.field == TextField::Title
+                && matches!(entity_type, "track" | "")
+                && !filter.phrases.is_empty()
+            {
+                filter.title_condition(entity_type, own_row, values)
+            } else {
+                let Some((row, columns)) = filter.target(entity_type, own_row) else {
+                    continue;
+                };
+                values.push(Value::Text(filter.expression(columns)));
+                format!(
+                    "{row} IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
+                    values.len()
+                )
             };
-            values.push(Value::Text(filter.expression(columns)));
-            let membership = format!(
-                "{row} IN (SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
-                values.len()
-            );
             // The feed of a track can be missing from the index. `COALESCE`
             // keeps such a track under an exclusion.
             where_parts.push(if excluded {
@@ -475,6 +484,33 @@ impl TextFilter {
                 membership
             });
         }
+    }
+
+    /// The condition of `title` on a track row (ADR 0085 §4).
+    ///
+    /// Each phrase has its own bound `MATCH` value, and it can match the title
+    /// of the track or the title of its feed. The phrases are an AND, so each
+    /// word can be in a different title. A phrase in double quotes stays in one
+    /// title. `COALESCE` keeps a null result of a track with no feed in the
+    /// index from making the row unknown. A feed row, in a search with no
+    /// `type`, reads only its own title.
+    fn title_condition(&self, entity_type: &str, own_row: &str, values: &mut Vec<Value>) -> String {
+        let mut parts = Vec::new();
+        for phrase in &self.phrases {
+            values.push(Value::Text(format!("title : {phrase}")));
+            let matching = format!(
+                "(SELECT rowid FROM search_index WHERE search_index MATCH ?{})",
+                values.len()
+            );
+            let own_in = format!("{own_row} IN {matching}");
+            let track_in = format!("({own_in} OR COALESCE({FEED_ROW} IN {matching}, 0))");
+            parts.push(if entity_type == "track" {
+                track_in
+            } else {
+                format!("CASE e.entity_type WHEN 'track' THEN {track_in} ELSE {own_in} END")
+            });
+        }
+        format!("({})", parts.join(" AND "))
     }
 
     /// The FTS5 expression of this filter: the column before each phrase.

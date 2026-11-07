@@ -533,3 +533,411 @@ async fn a_scan_limit_page_can_be_empty_with_a_cursor() {
         assert_eq!(next["pagination"]["has_more"], false, "{next}");
     }
 }
+
+// ── ADR 0085 §4 to §6: `title` on a track reads its feed ────────────────────
+
+fn title_feed(guid: &str, title: &str, count: i64, newest: i64) -> Feed {
+    let mut feed = filler(guid, title);
+    feed.raw_medium = Some("music".into());
+    feed.release_kind = Some("unknown".into());
+    feed.episode_count = count;
+    feed.newest_item_at = Some(newest);
+    feed
+}
+
+fn title_track(feed: &str, guid: &str, title: &str, pub_date: i64) -> stophammer::model::Track {
+    stophammer::model::Track {
+        track_guid: guid.into(),
+        feed_guid: feed.into(),
+        title: title.into(),
+        title_lower: title.to_lowercase(),
+        pub_date: Some(pub_date),
+        duration_secs: None,
+        enclosure_url: None,
+        enclosure_type: None,
+        enclosure_bytes: None,
+        track_number: None,
+        season: None,
+        image_url: None,
+        publisher: None,
+        language: None,
+        explicit: false,
+        description: None,
+        track_artist: None,
+        track_artist_sort: None,
+        created_at: 1_000_000,
+        updated_at: 1_000_000,
+    }
+}
+
+/// The `entity_id` of a track in a search result: its GUID.
+fn tid(_feed: &str, track: &str) -> String {
+    track.to_owned()
+}
+
+/// Feeds and tracks of the title tests. Each row has the word `common` in its
+/// description.
+///
+/// | Feed | Title | Tracks | Track titles (date) |
+/// |---|---|---|---|
+/// | `fa` | Moonlight Sonata | 2 | Prelude (30), Nocturne (20) |
+/// | `fb` | Single Wave | 1 | Tide (10) |
+/// | `fc` | Zebra Album | 2 | Moonlight Dance (50), Plain (40) |
+/// | `fd` | Orphan Album | 2 | Lonely Song (60), and no index row for the feed |
+///
+/// `pb1` is a publisher "Moonlight Pub", and `pb2` is "Other Pub".
+fn title_state() -> Arc<stophammer::api::AppState> {
+    let db = common::test_db_arc();
+    {
+        let conn = db.lock().expect("db lock");
+        let feeds = [
+            ("fa", "Moonlight Sonata", 2, 300),
+            ("fb", "Single Wave", 1, 200),
+            ("fc", "Zebra Album", 2, 100),
+            ("fd", "Orphan Album", 2, 150),
+        ];
+        for (guid, title, count, newest) in feeds {
+            stophammer::db::upsert_feed(&conn, &title_feed(guid, title, count, newest))
+                .expect("upsert feed");
+            stophammer::search::populate_search_index(
+                &conn, "feed", guid, "Artist", title, "common",
+            )
+            .expect("populate feed");
+        }
+        let tracks = [
+            ("fa", "ta1", "Prelude", 30),
+            ("fa", "ta2", "Nocturne", 20),
+            ("fb", "tb1", "Tide", 10),
+            ("fc", "tc1", "Moonlight Dance", 50),
+            ("fc", "tc2", "Plain", 40),
+            ("fd", "td1", "Lonely Song", 60),
+        ];
+        for (feed, guid, title, pub_date) in tracks {
+            stophammer::db::upsert_track(&conn, &title_track(feed, guid, title, pub_date))
+                .expect("upsert track");
+            stophammer::search::populate_search_index(
+                &conn,
+                "track",
+                &stophammer::db::canonical_track_entity_id(feed, guid),
+                "Artist",
+                title,
+                "common",
+            )
+            .expect("populate track");
+        }
+        for (guid, title) in [("pb1", "Moonlight Pub"), ("pb2", "Other Pub")] {
+            stophammer::search::populate_search_index(
+                &conn,
+                "publisher",
+                guid,
+                "",
+                title,
+                "common",
+            )
+            .expect("populate publisher");
+        }
+        stophammer::search::delete_from_search_index(&conn, "feed", "fd")
+            .expect("delete the index row of fd");
+    }
+    state(db)
+}
+
+/// The `entity_id` values of a `200` response, in response order.
+async fn ordered(st: &Arc<stophammer::api::AppState>, uri: &str) -> Vec<String> {
+    let (status, body) = get(st, uri).await;
+    assert_eq!(status, StatusCode::OK, "{uri} must give 200, got {body}");
+    body["data"]
+        .as_array()
+        .expect("data array")
+        .iter()
+        .map(|row| row["entity_id"].as_str().expect("entity_id").to_owned())
+        .collect()
+}
+
+async fn sorted(st: &Arc<stophammer::api::AppState>, uri: &str) -> Vec<String> {
+    let mut ids = ordered(st, uri).await;
+    ids.sort();
+    ids
+}
+
+fn sorted_ids(mut ids: Vec<String>) -> Vec<String> {
+    ids.sort();
+    ids
+}
+
+#[tokio::test]
+async fn title_on_a_track_reads_its_own_title_and_the_title_of_its_feed() {
+    let st = title_state();
+    // `moonlight` is in the feed title of `fa` and in the title of `tc1`.
+    let tracks = sorted_ids(vec![tid("fa", "ta1"), tid("fa", "ta2"), tid("fc", "tc1")]);
+    for uri in [
+        "/v1/search?q=common&type=track&title=moonlight",
+        "/v1/search?type=track&title=moonlight",
+    ] {
+        assert_eq!(
+            sorted(&st, uri).await,
+            tracks,
+            "ADR 0085 §4: title on a track must read its own title and the title of its \
+             feed ({uri}). Fix the track branch of TextFilter::title_condition."
+        );
+    }
+    // No `type`: a feed row reads only its own title.
+    let mut mixed = tracks;
+    mixed.push("fa".into());
+    let mixed = sorted_ids(mixed);
+    for uri in [
+        "/v1/search?q=common&title=moonlight",
+        "/v1/search?title=moonlight",
+    ] {
+        assert_eq!(
+            sorted(&st, uri).await,
+            mixed,
+            "ADR 0085 §4: a search with no type must apply the track rule to a track row \
+             and the feed rule to a feed row ({uri}). Fix the CASE in \
+             TextFilter::title_condition."
+        );
+    }
+}
+
+#[tokio::test]
+async fn title_on_a_track_holds_on_each_sort_form() {
+    let st = title_state();
+    let tracks = sorted_ids(vec![tid("fa", "ta1"), tid("fa", "ta2"), tid("fc", "tc1")]);
+    for q in ["q=common&", ""] {
+        for sort in ["", "&sort=name", "&sort=date"] {
+            let uri = format!("/v1/search?{q}type=track&title=moonlight{sort}");
+            assert_eq!(
+                sorted(&st, &uri).await,
+                tracks,
+                "ADR 0085 §4: each query form must use the track rule for title ({uri}). \
+                 The three forms share TextFilter::push_conditions."
+            );
+        }
+    }
+    assert_eq!(
+        ordered(&st, "/v1/search?type=track&title=moonlight&sort=name").await,
+        vec![tid("fc", "tc1"), tid("fa", "ta2"), tid("fa", "ta1")],
+        "ADR 0085 §4: sort=name must keep the name order with a title filter"
+    );
+    assert_eq!(
+        ordered(
+            &st,
+            "/v1/search?q=common&type=track&title=moonlight&sort=date"
+        )
+        .await,
+        vec![tid("fc", "tc1"), tid("fa", "ta1"), tid("fa", "ta2")],
+        "ADR 0085 §4: sort=date must keep the date order with a title filter"
+    );
+}
+
+#[tokio::test]
+async fn one_word_of_a_title_can_be_in_each_title_and_a_phrase_cannot_span_them() {
+    let st = title_state();
+    // `tide` is the track title and `wave` is in the feed title.
+    assert_eq!(
+        sorted(&st, "/v1/search?q=common&type=track&title=tide+wave").await,
+        vec![tid("fb", "tb1")],
+        "ADR 0085 §4: a two-word title must allow one word in each title"
+    );
+    assert_eq!(
+        sorted(&st, "/v1/search?type=track&title=wave+tide").await,
+        vec![tid("fb", "tb1")],
+        "ADR 0085 §4: the word order across the two titles must not matter"
+    );
+    for uri in [
+        "/v1/search?q=common&type=track&title=%22tide+wave%22",
+        "/v1/search?type=track&title=%22wave+tide%22",
+        "/v1/search?title=%22tide+wave%22",
+    ] {
+        assert!(
+            ordered(&st, uri).await.is_empty(),
+            "ADR 0085 §4: a phrase in double quotes must match in one title ({uri}). \
+             Bind one MATCH value for each phrase, not one for the two titles."
+        );
+    }
+    assert_eq!(
+        sorted(&st, "/v1/search?type=track&title=%22moonlight+dance%22").await,
+        vec![tid("fc", "tc1")],
+        "ADR 0085 §4: a phrase must still match inside one title"
+    );
+}
+
+#[tokio::test]
+async fn not_title_removes_a_track_by_either_title() {
+    let st = title_state();
+    // Own title `lonely`: only `td1`. Feed title `moonlight`: `ta1`, `ta2`.
+    let all = sorted_ids(vec![
+        tid("fa", "ta1"),
+        tid("fa", "ta2"),
+        tid("fb", "tb1"),
+        tid("fc", "tc1"),
+        tid("fc", "tc2"),
+        tid("fd", "td1"),
+    ]);
+    let without = |gone: &[String]| -> Vec<String> {
+        all.iter()
+            .filter(|id| !gone.contains(id))
+            .cloned()
+            .collect()
+    };
+    for (uri, gone) in [
+        (
+            "/v1/search?q=common&type=track&not_title=lonely",
+            vec![tid("fd", "td1")],
+        ),
+        (
+            "/v1/search?q=common&type=track&not_title=sonata",
+            vec![tid("fa", "ta1"), tid("fa", "ta2")],
+        ),
+        (
+            "/v1/search?q=common&type=track&not_title=moonlight",
+            vec![tid("fa", "ta1"), tid("fa", "ta2"), tid("fc", "tc1")],
+        ),
+        (
+            "/v1/search?q=common&type=track&not_title=tide+wave",
+            vec![tid("fb", "tb1")],
+        ),
+    ] {
+        assert_eq!(
+            sorted(&st, uri).await,
+            without(&gone),
+            "ADR 0085 §5: not_title must remove a track by its own title and by the title \
+             of its feed ({uri})"
+        );
+    }
+    assert_eq!(
+        sorted(
+            &st,
+            "/v1/search?q=common&type=track&not_title=%22tide+wave%22"
+        )
+        .await,
+        all,
+        "ADR 0085 §5: a phrase across the two titles must remove no track"
+    );
+}
+
+#[tokio::test]
+async fn a_track_with_no_feed_index_row_stays_under_not_title_and_matches_title() {
+    let st = title_state();
+    let td1 = tid("fd", "td1");
+    // The feed `fd` has no index row, so the feed condition is null. A null
+    // `IN` result needs a value set that is not empty, so the exclusions use
+    // the word `moonlight`, which other rows hold.
+    for uri in [
+        "/v1/search?q=common&type=track&title=lonely",
+        "/v1/search?type=track&title=lonely",
+        "/v1/search?q=common&title=lonely",
+    ] {
+        assert!(
+            ordered(&st, uri).await.contains(&td1),
+            "ADR 0085 §4: a track with no feed index row must match title by its own \
+             title ({uri}). Wrap the feed condition in COALESCE."
+        );
+    }
+    for uri in [
+        "/v1/search?q=common&type=track&not_title=moonlight",
+        "/v1/search?type=track&not_title=moonlight&title=lonely",
+        "/v1/search?q=common&not_title=moonlight",
+    ] {
+        assert!(
+            ordered(&st, uri).await.contains(&td1),
+            "ADR 0085 §5: a track with no feed index row must stay under not_title when \
+             its own title does not match ({uri}). Wrap the feed condition in COALESCE."
+        );
+    }
+    assert!(
+        !ordered(&st, "/v1/search?q=common&type=track&not_title=lonely")
+            .await
+            .contains(&td1),
+        "ADR 0085 §5: not_title must remove that track by its own title"
+    );
+    assert!(
+        ordered(&st, "/v1/search?type=track&title=orphan")
+            .await
+            .is_empty(),
+        "ADR 0085 §4: no index row of the feed means no match by the feed title"
+    );
+}
+
+#[tokio::test]
+async fn release_reads_only_the_feed_title_and_the_other_types_do_not_change() {
+    let st = title_state();
+    assert_eq!(
+        sorted(&st, "/v1/search?q=common&type=track&release=moonlight").await,
+        sorted_ids(vec![tid("fa", "ta1"), tid("fa", "ta2")]),
+        "ADR 0085 §4: release must read only the title of the feed, not the track title"
+    );
+    assert_eq!(
+        sorted(&st, "/v1/search?q=common&type=feed&title=moonlight").await,
+        vec!["fa".to_owned()],
+        "ADR 0085 §4: title on type=feed must read the feed title only"
+    );
+    assert!(
+        ordered(&st, "/v1/search?q=common&type=feed&title=prelude")
+            .await
+            .is_empty(),
+        "ADR 0085 §4: title on type=feed must not read a track title"
+    );
+    assert_eq!(
+        sorted(&st, "/v1/search?q=common&type=publisher&title=moonlight").await,
+        vec!["pb1".to_owned()],
+        "ADR 0085 §4: title on type=publisher must read the publisher title only"
+    );
+}
+
+#[tokio::test]
+async fn a_title_filter_does_not_change_the_rank() {
+    let st = title_state();
+    let rank_of = |body: &Value, id: &str| -> f64 {
+        body["data"]
+            .as_array()
+            .expect("data")
+            .iter()
+            .find(|row| row["entity_id"] == id)
+            .unwrap_or_else(|| panic!("row {id} in {body}"))["rank"]
+            .as_f64()
+            .expect("rank")
+    };
+    for kind in ["&type=track", ""] {
+        let (_, without) = get(&st, &format!("/v1/search?q=common{kind}")).await;
+        let (_, with) = get(&st, &format!("/v1/search?q=common{kind}&title=moonlight")).await;
+        for id in [tid("fa", "ta1"), tid("fc", "tc1")] {
+            assert!(
+                (rank_of(&without, &id) - rank_of(&with, &id)).abs() < f64::EPSILON,
+                "ADR 0085 §4 and ADR 0080 §2: a title filter must not change rank ({id}). \
+                 The filter must stay out of the MATCH of q."
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn kind_single_matches_no_unknown_feed_and_the_count_finds_the_two_shapes() {
+    let st = title_state();
+    assert!(
+        ordered(&st, "/v1/search?q=common&type=feed&kind=single")
+            .await
+            .is_empty(),
+        "ADR 0085 §6: kind=single must match no feed with release_kind unknown"
+    );
+    assert!(
+        ordered(&st, "/v1/search?q=common&type=track&kind=single")
+            .await
+            .is_empty(),
+        "ADR 0085 §6: kind=single must match no track of a feed with release_kind unknown"
+    );
+    assert_eq!(
+        sorted(&st, "/v1/search?q=common&type=feed&kind=unknown&tracks=1").await,
+        vec!["fb".to_owned()],
+        "ADR 0085 §6: kind=unknown&tracks=1 must find the one-track feed"
+    );
+    assert_eq!(
+        sorted(
+            &st,
+            "/v1/search?q=common&type=feed&kind=unknown&min_tracks=2"
+        )
+        .await,
+        vec!["fa".to_owned(), "fc".to_owned()],
+        "ADR 0085 §6: kind=unknown&min_tracks=2 must find the longer feeds"
+    );
+}

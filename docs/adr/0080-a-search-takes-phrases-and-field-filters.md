@@ -5,7 +5,8 @@ Accepted on 2026-10-24, for items 1 to 7 of v4vmm request 10. The v4vmm
 operator answered items 2 to 7 on 2026-10-24. The operator answered the three
 questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
 005 give the build. Amended on 2026-11-06 by ADR 0084: section 6 gives the default
-sequence, and `sort` and `reverse` can change it. Section 2 does not change.
+sequence, and `sort` and `reverse` can change it. Amended on 2026-11-07 by ADR
+0085: in section 2, `title` on a track also reads the title of its feed.
 
 It amends ADR 0078 §5: the text of `q` can hold phrases. The rest of ADR 0078
 stays.
@@ -86,7 +87,7 @@ with `q` and with each other filter. No filter gives an OR between two fields.
 | Parameter | Value | `type=feed` | `type=track` | `type=publisher` |
 |---|---|---|---|---|
 | `artist` | text | `release_artist` | `track_artist` | the publisher title |
-| `title` | text | the feed title | the track title | the publisher title |
+| `title` | text | the feed title | the track title or the title of the feed of the track (ADR 0085 §4) | the publisher title |
 | `release` | text | the feed title | the title of the feed of the track | unsupported |
 | `kind` | `album`, `ep`, `single`, `unknown`, with commas | `release_kind` | the `release_kind` of the feed of the track | unsupported |
 | `tracks`, `min_tracks`, `max_tracks` | a count | `episode_count` | the `episode_count` of the feed of the track | unsupported |

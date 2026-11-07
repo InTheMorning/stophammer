@@ -1419,6 +1419,7 @@ fn search_filter_params() -> Vec<Value> {
                 "after" | "before" => "Day in the form `YYYY-MM-DD`, in UTC. Compared with the newest item date of a feed, or the date of a track. `after` matches from 00:00:00 of the day. `before` matches to 23:59:59 of the day. A row with no date does not match.".to_owned(),
                 "min_duration" | "max_duration" => "Integer number of seconds from 0. Compared with the duration of a track. Each limit is included. A track with no duration does not match.".to_owned(),
                 "host" | "not_host" => "Host name or address, with no scheme, path, port or user. Matches the host of the feed URL and its subdomains. The case and a trailing dot do not matter. A feed with no host does not match `host`, and `not_host` keeps it.".to_owned(),
+                "title" | "not_title" => "Text filter of ADR 0080. Words and phrases, as in `q`. On a track it reads the title of the track or the title of its feed. Each word and each phrase can match either title, but a phrase in double quotes must match in one title (ADR 0085 section 4).".to_owned(),
                 _ => "Text filter of ADR 0080. Words and phrases, as in `q`.".to_owned(),
             };
             query_param(

@@ -2129,9 +2129,9 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `sort` | string | `relevance` with a word in `q`, `date` with no word | `relevance`, `name` or `date`. See the section on `sort` and `reverse` |
 | `reverse` | boolean | `false` | `true` reverses `name` and `date`. `relevance` cannot reverse |
 | `artist` | text | none | Each word and phrase must be in the artist. Types `feed`, `track` and `publisher` |
-| `title` | text | none | Each word and phrase must be in the title. Types `feed`, `track` and `publisher` |
-| `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track` |
-| `not_artist`, `not_title`, `not_release` | text | none | Remove each row that matches the value, in the field of the positive parameter |
+| `title` | text | none | Each word and phrase must be in the title. On a track, each word and phrase can be in the title of the track or in the title of its feed, but a phrase in double quotes must be in one title. Types `feed`, `track` and `publisher` |
+| `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track`. No filter now reads only the title of the track |
+| `not_artist`, `not_title`, `not_release` | text | none | Remove each row that matches the value, in the field of the positive parameter. `not_title` on a track removes it by its own title and by the title of its feed |
 | `not_q` | text | none | Remove each row that has each word and phrase in `name`, `title` or `description` |
 | `kind` | list | none | Release kinds of the feed: `album`, `ep`, `single` and `unknown`, with commas. The kinds are an OR. Types `feed` and `track` |
 | `tracks`, `min_tracks`, `max_tracks` | integer | none | Track count of the feed, from 0. Each limit is included. Types `feed` and `track` |

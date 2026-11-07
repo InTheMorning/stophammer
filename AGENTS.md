@@ -29,12 +29,12 @@ deployed, except the items below. The primary sets
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
   request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
   and the capability `sort`. No release carries them.
+- [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) answers
+  musicindex.org request 21 and v4vmm request 14. Its two tasks in `docs/tasks/`
+  are built. No release carries them.
 
 ### Open Items
 
-- [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) is Accepted.
-  It answers musicindex.org request 21 and v4vmm request 14. Task 001 is built.
-  Task 002 in `docs/tasks/` is not built.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.

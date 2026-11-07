@@ -115,7 +115,11 @@ async fn each_text_filter_matches_one_row_and_not_another() {
             vec!["f2"],
         ),
         ("/v1/search?q=common&type=track&artist=jsmovie", vec!["t1"]),
-        ("/v1/search?q=common&type=track&title=night", vec!["t1"]),
+        // ADR 0085 §4: `title` on a track also reads the feed title.
+        (
+            "/v1/search?q=common&type=track&title=%22night+drive%22",
+            vec!["t1"],
+        ),
         (
             "/v1/search?q=common&type=track&release=%22night+drive%22",
             vec!["t1"],
