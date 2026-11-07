@@ -6,14 +6,16 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-No release is open. Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
+Release 0.19.0 is open. Its candidate `v0.19.0-rc.3` runs on the primary, and it has
+no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
 0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
 ADR 0081.
 
 ### Deployed
 
-Release 0.18.1 of 2026-11-05 is the latest release. The primary, the gossip
-crawler and the `podcastindex` pass run its GHCR images. A timer starts the
+Release 0.18.1 of 2026-11-05 is the latest release. The gossip crawler and the
+`podcastindex` pass run its GHCR images. The primary runs the candidate
+`v0.19.0-rc.3` at commit `7f86fab`. A timer starts the
 pass at an interval of 3 hours (ADR 0081 §1). `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
@@ -21,22 +23,23 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-deployed, except the items below. The primary sets
+in a release, except the items below. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 
-### Complete And Not Deployed
+### On The Primary In A Candidate
+
+The candidate `v0.19.0-rc.3` holds these ADRs. A release promotes the candidate.
 
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
   request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
-  and the capability `sort`. No release carries them.
+  and the capability `sort`.
 - [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) answers
   musicindex.org request 21 and v4vmm request 14. Its two tasks in `docs/tasks/`
-  are built. No release carries them.
+  are built.
 - [ADR 0086](docs/adr/0086-a-search-matches-the-start-of-the-last-word.md) answers
-  the prefix match of the research request of 2026-10-23. It is built, with no
-  migration. No release carries it.
+  the prefix match of the research request of 2026-10-23. It has no migration.
 - [ADR 0087](docs/adr/0087-a-search-orders-its-hits-by-field.md) answers
-  musicindex.org request 25. It is built, with no migration. No release carries it.
+  musicindex.org request 25. It has no migration.
 
 ### Open Items
 
@@ -113,7 +116,8 @@ requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
-musicindex.org requests 21 and 25 are answered, and no release carries their build.
+musicindex.org requests 21 and 25 are answered. Their build is in the candidate
+`v0.19.0-rc.3`, and no release carries it.
 musicindex.org request 22 waits for an answer.
 
 ### Governance
