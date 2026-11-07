@@ -531,7 +531,9 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("type", "string", None, false, "Filter by entity type: `feed`, `track`, or `publisher`. A publisher feed matches only `type=publisher`. `type=feed` and no `type` match only a feed with the medium `music`."),
                     limit_query_param("Maximum results to return.", query::SEARCH_LIMIT_MAX),
                     query_param("cursor", "string", None, false, "Opaque keyset pagination cursor. A cursor is valid only for a search of its own form: with `q`, or with no `q`. The other form gives 400."),
-                    include_query_param(query::SEARCH_INCLUDES)
+                    include_query_param(query::SEARCH_INCLUDES),
+                    query_param("sort", "string", None, false, "`relevance`, `name` or `date`. The default is `relevance` with a word in `q`, and `date` with no word. `relevance` needs a word in `q`. `name` is A to Z by the sort key of the title. `date` is newest first by `newest_item_at` of a feed or a publisher, and by `pub_date` of a track. A row with no key comes last in each direction. With `sort=name` a row gives `sort_name`, and with `sort=date` a row gives `sort_date`, when the request sends that sort. `rank` keeps its value on each sort (ADR 0084 sections 2, 6 and 10)."),
+                    query_param("reverse", "boolean", None, false, "`true` reverses the sort: Z to A for `name`, oldest first for `date`. `relevance` cannot reverse, also when it is the default sort. The cursor of a page works only with the sort and the direction that gave it, and any other cursor gives 400. Any other value than `true` or `false` gives 400 with the code `unsupported_sort` (ADR 0084 sections 3, 5 and 9).")
                 ]
                 .into_iter()
                 .chain(search_filter_params())

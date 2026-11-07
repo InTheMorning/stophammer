@@ -511,6 +511,8 @@
       "rank",
       "release_artist",
       "release_artist_source",
+      "sort_date",
+      "sort_name",
       "stated_rels",
       "title",
       "track_artist",

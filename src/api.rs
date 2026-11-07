@@ -104,7 +104,9 @@ pub struct AmbiguousTrackGuidBody {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct SearchFilterErrorBody {
     pub error: String,
-    /// `unsupported_filter`, `invalid_filter` or `missing_positive_term`.
+    /// `unsupported_filter`, `invalid_filter`, `missing_positive_term`,
+    /// `unsupported_sort`, `relevance_needs_word` or `relevance_cannot_reverse`
+    /// (ADR 0084 §5).
     pub code: &'static str,
     /// The name of the parameter. Absent for `missing_positive_term`.
     #[serde(skip_serializing_if = "Option::is_none")]

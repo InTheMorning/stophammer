@@ -23,6 +23,25 @@
 //   this ADR continues (criterion 7),
 // - the filtered list of ADR 0068 §4 follows the direction and keeps its scan
 //   limit.
+//
+// ADR 0084 §2 to §5 and §9 to §11, task 003: `sort` and `reverse` on
+// `GET /v1/search`. Checks that:
+// - each sort, in each direction, with a word and with no word, for each
+//   `type` and for no `type`, gives the expected sequence over all pages at
+//   each page size, with no row that repeats or goes missing (criteria 1
+//   and 2),
+// - a request with neither parameter gives the sequence, the fields and the
+//   cursor forms of the release before this ADR, and no `sort_name` or
+//   `sort_date` (criterion 3),
+// - each error code has its condition, and the checks of ADR 0080 §4 run
+//   first (criterion 4),
+// - a row with no key comes last in both directions, also on the page break
+//   between keyed and unkeyed rows (criterion 5),
+// - a cursor with another sort or direction gives `400`, each malformed form
+//   gives `400`, and a cursor from before this ADR continues the default sort
+//   (criterion 7),
+// - the capability list ends with `sort`, and the contract and the field
+//   fixture state the new parameters and fields (criteria 9 and 10).
 
 mod common;
 
@@ -977,4 +996,998 @@ async fn a_legacy_cursor_continues_on_recent_and_the_artist_list() {
     let (status, body) = get(&st, &format!("/v1/artist-names?cursor={legacy}&limit=1")).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["data"][0]["key"], "madonna");
+}
+
+// ── Task 003: `sort` and `reverse` on `GET /v1/search` ──────────────────────
+
+#[derive(Clone, Debug)]
+struct SeedItem {
+    /// `feed`, `track` or `publisher`.
+    kind: &'static str,
+    /// The `entity_id` that a response row gives.
+    id: String,
+    /// `None` for a row whose sort key is null.
+    name_key: Option<String>,
+    date: Option<i64>,
+    /// The tie key of the row in the index.
+    rowid: i64,
+}
+
+impl SeedItem {
+    fn label(&self) -> String {
+        format!("{}:{}", self.kind, self.id)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SortKind {
+    Name,
+    Date,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum KeyValue {
+    Text(String),
+    Date(i64),
+}
+
+impl SortKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Name => "name",
+            Self::Date => "date",
+        }
+    }
+
+    fn key(self, item: &SeedItem) -> Option<KeyValue> {
+        match self {
+            Self::Name => item.name_key.clone().map(KeyValue::Text),
+            Self::Date => item.date.map(KeyValue::Date),
+        }
+    }
+}
+
+/// The sequence that ADR 0084 §2, §3 and §6 give, built in the test from the
+/// seed. A name goes up and a date goes down in the usual direction. A row
+/// with no key is last. The tie key `rowid` follows the direction.
+fn expected_sequence(
+    items: &[SeedItem],
+    kinds: &[&str],
+    sort: SortKind,
+    reverse: bool,
+) -> Vec<String> {
+    let mut rows: Vec<&SeedItem> = items.iter().filter(|i| kinds.contains(&i.kind)).collect();
+    let key_descends = (sort == SortKind::Date) != reverse;
+    rows.sort_by(|a, b| {
+        let by_key = match (sort.key(a), sort.key(b)) {
+            (Some(x), Some(y)) if key_descends => y.cmp(&x),
+            (Some(x), Some(y)) => x.cmp(&y),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => std::cmp::Ordering::Equal,
+        };
+        by_key.then_with(|| {
+            if reverse {
+                b.rowid.cmp(&a.rowid)
+            } else {
+                a.rowid.cmp(&b.rowid)
+            }
+        })
+    });
+    rows.iter().map(|i| i.label()).collect()
+}
+
+fn kinds_of(kind: Option<&str>) -> Vec<&'static str> {
+    match kind {
+        None => vec!["feed", "track"],
+        Some("feed") => vec!["feed"],
+        Some("track") => vec!["track"],
+        Some("publisher") => vec!["publisher"],
+        Some(other) => panic!("unknown type {other}"),
+    }
+}
+
+/// Twenty indexed rows. Each one has `common` in its description, so `q=common`
+/// and `host=example.com` select the same rows.
+///
+/// - Two feeds and one track share a key and a date (a tie across types).
+/// - Four feeds and two tracks have no date. One feed, one publisher and one
+///   track have a null `title_sort`.
+/// - The title of a feed is `s.mark`, and the title of a track is `r.mark`.
+fn seeded_search() -> (Arc<stophammer::api::AppState>, Vec<SeedItem>) {
+    let db = common::test_db_arc();
+    let mut items = Vec::new();
+    {
+        let conn = db.lock().expect("db lock");
+        let feeds: [(&str, &str, Option<i64>, bool); 12] = [
+            ("fd-1", "Bravo", Some(300), false),
+            ("fd-2", "alpha", Some(100), false),
+            ("fd-3", "Charlie", Some(200), false),
+            ("fd-4", "Same", Some(150), false),
+            ("fd-5", "Same", Some(150), false),
+            ("fd-6", "Delta", None, false),
+            ("fd-7", "echo", None, false),
+            ("fd-8", "s.mark", Some(250), false),
+            ("fd-9", "Nokey", Some(120), false),
+            ("pb-1", "Pub One", None, true),
+            ("pb-2", "Pub Two", Some(400), true),
+            ("pb-3", "alpha pub", None, true),
+        ];
+        let null_key = ["fd-9", "pb-3"];
+        for (guid, title, newest, publisher) in feeds {
+            let mut feed = music_feed(guid, title, newest);
+            if publisher {
+                feed.raw_medium = Some("publisher".into());
+            }
+            stophammer::db::upsert_feed(&conn, &feed).expect("upsert feed");
+            let kind = if publisher { "publisher" } else { "feed" };
+            stophammer::search::populate_search_index(&conn, kind, guid, title, title, "common")
+                .expect("populate");
+            items.push(SeedItem {
+                kind,
+                id: guid.into(),
+                name_key: (!null_key.contains(&guid)).then(|| sort_key(title)),
+                date: newest,
+                rowid: stophammer::search::rowid_for(kind, guid),
+            });
+        }
+        let tracks: [(&str, &str, &str, Option<i64>, bool); 8] = [
+            ("tr-1", "fd-1", "Zulu", Some(310), false),
+            ("tr-2", "fd-2", "alpha", Some(100), false),
+            ("tr-3", "fd-4", "Same", Some(150), false),
+            ("tr-4", "fd-6", "mike", None, false),
+            ("tr-5", "fd-7", "Yankee", None, false),
+            ("tr-6", "fd-8", "r.mark", Some(260), false),
+            ("tr-7", "fd-9", "Notrack", Some(50), true),
+            ("tr-8", "fd-1", "Quebec", Some(500), false),
+        ];
+        for (guid, feed, title, pub_date, null) in tracks {
+            let mut track = sample_track(feed, guid, title);
+            track.pub_date = pub_date;
+            stophammer::db::upsert_track(&conn, &track).expect("upsert track");
+            let entity_id = stophammer::db::canonical_track_entity_id(feed, guid);
+            stophammer::search::populate_search_index(
+                &conn, "track", &entity_id, title, title, "common",
+            )
+            .expect("populate track");
+            items.push(SeedItem {
+                kind: "track",
+                id: guid.into(),
+                name_key: (!null).then(|| sort_key(title)),
+                date: pub_date,
+                rowid: stophammer::search::rowid_for("track", &entity_id),
+            });
+        }
+        conn.execute(
+            "UPDATE feeds SET title_sort = NULL WHERE feed_guid IN ('fd-9', 'pb-3')",
+            [],
+        )
+        .expect("clear feed keys");
+        conn.execute(
+            "UPDATE tracks SET title_sort = NULL WHERE track_guid = 'tr-7'",
+            [],
+        )
+        .expect("clear track key");
+        conn.execute("UPDATE feeds SET feed_host = 'example.com'", [])
+            .expect("set host");
+    }
+    (list_state(db), items)
+}
+
+/// Reads each page of a search. Gives each row, and the cursor of each page
+/// that has more.
+async fn search_walk(
+    st: &Arc<stophammer::api::AppState>,
+    base: &str,
+    limit: usize,
+) -> (Vec<serde_json::Value>, Vec<String>) {
+    let mut rows = Vec::new();
+    let mut cursors = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..200 {
+        let mut uri = format!("{base}&limit={limit}");
+        if let Some(c) = &cursor {
+            uri = format!("{uri}&cursor={c}");
+        }
+        let (status, body) = get(st, &uri).await;
+        assert_eq!(status, StatusCode::OK, "GET {uri} gave {body}");
+        rows.extend(body["data"].as_array().expect("data array").iter().cloned());
+        if body["pagination"]["has_more"] == true {
+            let next = body["pagination"]["cursor"]
+                .as_str()
+                .expect("a page with has_more must give a cursor")
+                .to_string();
+            cursors.push(next.clone());
+            cursor = Some(next);
+        } else {
+            return (rows, cursors);
+        }
+    }
+    panic!("the walk of {base} did not end");
+}
+
+fn row_label(row: &serde_json::Value) -> String {
+    format!(
+        "{}:{}",
+        row["entity_type"].as_str().expect("entity_type"),
+        row["entity_id"].as_str().expect("entity_id")
+    )
+}
+
+fn labels(rows: &[serde_json::Value]) -> Vec<String> {
+    rows.iter().map(row_label).collect()
+}
+
+fn decoded(cursor: &str) -> String {
+    String::from_utf8(URL_SAFE_NO_PAD.decode(cursor).expect("base64url")).expect("utf-8")
+}
+
+/// The base of a request: `type`, the word or the filter, `sort`, `reverse`.
+fn search_base(
+    kind: Option<&str>,
+    word: bool,
+    sort: Option<&str>,
+    reverse: Option<&str>,
+) -> String {
+    let mut uri = String::from(if word {
+        "/v1/search?q=common"
+    } else {
+        "/v1/search?host=example.com"
+    });
+    if let Some(kind) = kind {
+        uri = format!("{uri}&type={kind}");
+    }
+    if let Some(sort) = sort {
+        uri = format!("{uri}&sort={sort}");
+    }
+    if let Some(reverse) = reverse {
+        uri = format!("{uri}&reverse={reverse}");
+    }
+    uri
+}
+
+const TYPES: [Option<&str>; 4] = [None, Some("feed"), Some("track"), Some("publisher")];
+
+#[tokio::test]
+async fn each_sort_gives_its_sequence_for_each_type_and_page_size() {
+    let (st, items) = seeded_search();
+    for word in [true, false] {
+        for kind in TYPES {
+            // The rank of a row with `sort=relevance`, for the check that a
+            // sort does not change it.
+            let ranks: HashMap<String, f64> = if word {
+                let (rows, _) =
+                    search_walk(&st, &search_base(kind, true, Some("relevance"), None), 100).await;
+                rows.iter()
+                    .map(|r| (row_label(r), r["rank"].as_f64().expect("rank")))
+                    .collect()
+            } else {
+                HashMap::new()
+            };
+            for sort in [SortKind::Name, SortKind::Date] {
+                for reverse in [false, true] {
+                    let base = search_base(
+                        kind,
+                        word,
+                        Some(sort.name()),
+                        Some(if reverse { "true" } else { "false" }),
+                    );
+                    let want = expected_sequence(&items, &kinds_of(kind), sort, reverse);
+                    for limit in [1, 3, 7, 100] {
+                        let (rows, _) = search_walk(&st, &base, limit).await;
+                        assert_eq!(
+                            labels(&rows),
+                            want,
+                            "ADR 0084 §2, §3 and §6: {base} at limit {limit} must give the sort \
+                             sequence with no repeat and no loss. Fix search_sorted in \
+                             src/search.rs or the cursor in src/query.rs."
+                        );
+                    }
+                    let (rows, _) = search_walk(&st, &base, 100).await;
+                    for row in &rows {
+                        let item = items
+                            .iter()
+                            .find(|i| i.label() == row_label(row))
+                            .expect("a seeded row");
+                        let rank = row["rank"].as_f64().expect("rank");
+                        if word {
+                            assert_eq!(
+                                Some(&rank),
+                                ranks.get(&item.label()),
+                                "ADR 0084 §1: {base} must keep the rank of {}",
+                                item.label()
+                            );
+                        } else {
+                            assert!(
+                                rank == 0.0,
+                                "ADR 0080 §6: a search with no word gives rank 0 on {base}"
+                            );
+                        }
+                        // ADR 0084 §10: only the sort of the request gives its value.
+                        let (name_field, date_field) = (&row["sort_name"], &row["sort_date"]);
+                        match sort {
+                            SortKind::Name => {
+                                assert!(
+                                    date_field.is_null(),
+                                    "ADR 0084 §10: {base} must not give sort_date"
+                                );
+                                assert_eq!(
+                                    name_field.as_str().map(str::to_owned),
+                                    item.name_key.clone(),
+                                    "ADR 0084 §10: sort_name of {} on {base}",
+                                    item.label()
+                                );
+                            }
+                            SortKind::Date => {
+                                assert!(
+                                    name_field.is_null(),
+                                    "ADR 0084 §10: {base} must not give sort_name"
+                                );
+                                assert_eq!(
+                                    date_field.as_i64(),
+                                    item.date,
+                                    "ADR 0084 §10: sort_date of {} on {base}, absent with no date",
+                                    item.label()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn every_page_break_of_a_merged_search_gives_each_row_one_time() {
+    // The break falls on each position, so it also falls on the boundary
+    // between keyed and unkeyed rows, and on a tie across a feed and a track.
+    let (st, items) = seeded_search();
+    for word in [true, false] {
+        for sort in [SortKind::Name, SortKind::Date] {
+            for reverse in ["false", "true"] {
+                let base = search_base(None, word, Some(sort.name()), Some(reverse));
+                let want = expected_sequence(&items, &kinds_of(None), sort, reverse == "true");
+                for limit in 1..=want.len() + 1 {
+                    let (rows, _) = search_walk(&st, &base, limit).await;
+                    assert_eq!(
+                        labels(&rows),
+                        want,
+                        "ADR 0084 §6 and §9: {base} at limit {limit} must give each row one \
+                         time. Fix the keyset condition in search_sorted in src/search.rs."
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_row_with_no_key_comes_last_in_both_directions_and_the_cursor_names_it() {
+    let (st, items) = seeded_search();
+    for sort in [SortKind::Name, SortKind::Date] {
+        for reverse in ["false", "true"] {
+            let base = search_base(None, false, Some(sort.name()), Some(reverse));
+            let (rows, _) = search_walk(&st, &base, 100).await;
+            let want = labels(&rows);
+            let keyed = items
+                .iter()
+                .filter(|i| kinds_of(None).contains(&i.kind) && sort.key(i).is_some())
+                .count();
+            let tail: Vec<&SeedItem> = want
+                .iter()
+                .skip(keyed)
+                .map(|l| items.iter().find(|i| &i.label() == l).expect("seeded row"))
+                .collect();
+            assert!(
+                !tail.is_empty() && tail.iter().all(|i| sort.key(i).is_none()),
+                "ADR 0084 §6: each row with no key must come last on {base}"
+            );
+            // The first page ends on the last keyed row. Its cursor holds a
+            // key. The next page starts with a row with no key.
+            let (status, page) = get(&st, &format!("{base}&limit={keyed}")).await;
+            assert_eq!(status, StatusCode::OK, "{base}: {page}");
+            let cursor = page["pagination"]["cursor"].as_str().expect("cursor");
+            // The usual date order with no word keeps the `d` cursor.
+            let legacy = sort == SortKind::Date && reverse == "false";
+            let body = |c: &str| {
+                if legacy {
+                    decoded(c)
+                } else {
+                    decoded(c.strip_prefix("s.").expect("keyed mark"))
+                }
+            };
+            assert!(
+                if legacy {
+                    body(cursor).starts_with('d') && !body(cursor).starts_with("d\0")
+                } else {
+                    body(cursor).contains("\0k\0")
+                },
+                "ADR 0084 §9: the cursor of a keyed row holds its key on {base}"
+            );
+            // A page of one row ends on a row with no key. Its cursor names that state.
+            let (_, page2) = get(&st, &format!("{base}&limit=1&cursor={cursor}")).await;
+            let cursor2 = page2["pagination"]["cursor"].as_str().expect("cursor 2");
+            assert!(
+                if legacy {
+                    body(cursor2).starts_with("d\0")
+                } else {
+                    body(cursor2).contains("\0n\0")
+                },
+                "ADR 0084 §9: the cursor of a row with no key names that state on {base}"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_default_request_keeps_its_sequence_fields_and_cursor_form() {
+    let (st, items) = seeded_search();
+
+    // With a word: the rank order, as the function of the release before this
+    // ADR gives it, and the rank cursor.
+    let (status, page) = get(&st, "/v1/search?q=common&type=feed&limit=2").await;
+    assert_eq!(status, StatusCode::OK, "{page}");
+    let first_rows = labels(page["data"].as_array().expect("data"));
+    let (all, _) = search_walk(&st, "/v1/search?q=common&type=feed", 100).await;
+    assert_eq!(
+        first_rows,
+        labels(&all)[..2].to_vec(),
+        "ADR 0084 §4: a request with neither parameter keeps the rank order"
+    );
+    let (explicit, _) = search_walk(&st, "/v1/search?q=common&type=feed&sort=relevance", 100).await;
+    assert_eq!(
+        labels(&explicit),
+        labels(&all),
+        "ADR 0084 §4: sort=relevance is the default sort with a word"
+    );
+    let cursor = page["pagination"]["cursor"].as_str().expect("rank cursor");
+    let body = decoded(cursor);
+    let parts: Vec<&str> = body.split('\0').collect();
+    assert!(
+        parts.len() == 2
+            && parts[0].parse::<u64>().is_ok()
+            && parts[1].parse::<i64>().is_ok()
+            && !cursor.contains('.'),
+        "ADR 0084 §9: the rank cursor keeps its form, got {body:?}"
+    );
+    for row in &all {
+        assert!(
+            row["sort_name"].is_null() && row["sort_date"].is_null(),
+            "ADR 0084 §10: a request with no sort gives neither sort_name nor sort_date: {row}"
+        );
+    }
+
+    // With no word: newest first, rowid order for the rows with no date, and
+    // the `d` cursor.
+    let feeds_dated: Vec<String> = ["fd-1", "fd-8", "fd-3", "fd-4", "fd-5", "fd-9", "fd-2"]
+        .iter()
+        .map(|g| format!("feed:{g}"))
+        .collect();
+    let mut undated = [
+        ("fd-6", stophammer::search::rowid_for("feed", "fd-6")),
+        ("fd-7", stophammer::search::rowid_for("feed", "fd-7")),
+    ];
+    undated.sort_by_key(|(_, rowid)| *rowid);
+    let mut want = feeds_dated;
+    // `fd-4` and `fd-5` share a date, so they come in rowid order.
+    let (i4, i5) = (
+        stophammer::search::rowid_for("feed", "fd-4"),
+        stophammer::search::rowid_for("feed", "fd-5"),
+    );
+    if i4 > i5 {
+        want.swap(3, 4);
+    }
+    want.extend(undated.iter().map(|(g, _)| format!("feed:{g}")));
+    let (rows, cursors) = search_walk(&st, "/v1/search?host=example.com&type=feed", 3).await;
+    assert_eq!(
+        labels(&rows),
+        want,
+        "ADR 0084 §4: a request with no word keeps the date order"
+    );
+    for row in &rows {
+        assert!(
+            row["sort_name"].is_null() && row["sort_date"].is_null(),
+            "ADR 0084 §10: a no-word request with no sort gives no sort_date: {row}"
+        );
+        assert!(row["rank"].as_f64() == Some(0.0), "rank stays 0: {row}");
+    }
+    let first_cursor = decoded(&cursors[0]);
+    let last_of_page = &want[2];
+    let guid = last_of_page.trim_start_matches("feed:");
+    let date = items.iter().find(|i| i.id == guid).expect("seed").date;
+    assert_eq!(
+        first_cursor,
+        format!(
+            "d{}\0{}",
+            date.expect("a dated row"),
+            stophammer::search::rowid_for("feed", guid)
+        ),
+        "ADR 0084 §9: the d cursor keeps its form"
+    );
+
+    // `reverse=false` is the usual direction.
+    let (plain, _) = search_walk(&st, "/v1/search?q=common&reverse=false", 100).await;
+    let (usual, _) = search_walk(&st, "/v1/search?q=common", 100).await;
+    assert_eq!(
+        labels(&plain),
+        labels(&usual),
+        "ADR 0084 §3: reverse=false is the usual direction, also with relevance"
+    );
+}
+
+#[tokio::test]
+async fn the_rank_order_of_a_default_request_equals_the_function_of_the_search_module() {
+    let (st, _items) = seeded_search();
+    let direct: Vec<String> = {
+        let writer = st.db.writer();
+        let db = writer.lock().expect("db lock");
+        stophammer::search::search_filtered(
+            &db,
+            "common",
+            &stophammer::search::SearchFilters::default(),
+            Some("feed"),
+            100,
+            None,
+            None,
+        )
+        .expect("search")
+        .into_iter()
+        .map(|r| format!("{}:{}", r.entity_type, r.entity_id))
+        .collect()
+    };
+    let (rows, _) = search_walk(&st, "/v1/search?q=common&type=feed", 4).await;
+    assert_eq!(
+        labels(&rows),
+        direct,
+        "ADR 0084 §4: the default sort with a word keeps the query of search_filtered"
+    );
+}
+
+#[tokio::test]
+async fn the_defaults_with_reverse_pick_the_expected_sort() {
+    let (st, items) = seeded_search();
+    // No word, reverse=true, no sort: the date sort, oldest first.
+    let (rows, _) = search_walk(&st, "/v1/search?host=example.com&reverse=true", 4).await;
+    assert_eq!(
+        labels(&rows),
+        expected_sequence(&items, &kinds_of(None), SortKind::Date, true),
+        "ADR 0084 §3: no word, reverse=true and no sort gives the date sort, oldest first"
+    );
+    for row in &rows {
+        assert!(
+            row["sort_date"].is_null() && row["sort_name"].is_null(),
+            "ADR 0084 §10: a request with no sort gives neither field: {row}"
+        );
+    }
+    // Explicit sort=date with no word keeps the default cursor and gives the value.
+    let (rows, cursors) =
+        search_walk(&st, "/v1/search?host=example.com&sort=date&type=feed", 3).await;
+    assert_eq!(
+        labels(&rows),
+        expected_sequence(&items, &["feed"], SortKind::Date, false),
+        "sort=date with no word is the default sort"
+    );
+    assert!(
+        cursors.iter().all(|c| !c.contains('.')),
+        "ADR 0084 §9: the default sort keeps the d cursor form"
+    );
+    assert!(
+        rows.iter().any(|r| r["sort_date"].is_i64())
+            && rows.iter().any(|r| r["sort_date"].is_null()),
+        "ADR 0084 §10: an explicit sort=date gives sort_date, absent on an undated row"
+    );
+    // A default cursor continues the explicit default sort, and the reverse.
+    let (_, page) = get(&st, "/v1/search?host=example.com&type=feed&limit=2").await;
+    let c = page["pagination"]["cursor"].as_str().expect("cursor");
+    let (status, next) = get(
+        &st,
+        &format!("/v1/search?host=example.com&type=feed&sort=date&limit=2&cursor={c}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+    let (_, page) = get(&st, "/v1/search?q=common&type=feed&limit=2").await;
+    let c = page["pagination"]["cursor"].as_str().expect("cursor");
+    let (status, next) = get(
+        &st,
+        &format!("/v1/search?q=common&type=feed&sort=relevance&limit=2&cursor={c}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{next}");
+}
+
+#[tokio::test]
+async fn the_publisher_type_sorts_by_the_key_of_its_feed() {
+    let (st, items) = seeded_search();
+    let (rows, _) = search_walk(
+        &st,
+        "/v1/search?host=example.com&type=publisher&sort=date",
+        1,
+    )
+    .await;
+    let got = labels(&rows);
+    assert_eq!(
+        got[0], "publisher:pb-2",
+        "ADR 0084 §2: the only publisher with a date comes first on sort=date"
+    );
+    assert_eq!(
+        got,
+        expected_sequence(&items, &["publisher"], SortKind::Date, false),
+        "undated publishers come in rowid order"
+    );
+}
+
+async fn error_of(st: &Arc<stophammer::api::AppState>, uri: &str) -> (String, Option<String>) {
+    let (status, body) = get(st, uri).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "GET {uri} gave {body}");
+    (
+        body["code"].as_str().expect("a code").to_owned(),
+        body["filter"].as_str().map(str::to_owned),
+    )
+}
+
+#[tokio::test]
+async fn each_error_code_has_its_condition() {
+    let (st, _items) = seeded_search();
+    for (uri, code, filter) in [
+        (
+            "/v1/search?q=common&sort=newest",
+            "unsupported_sort",
+            Some("sort"),
+        ),
+        (
+            "/v1/search?q=common&sort=",
+            "unsupported_sort",
+            Some("sort"),
+        ),
+        (
+            "/v1/search?q=common&sort=name&reverse=yes",
+            "unsupported_sort",
+            Some("reverse"),
+        ),
+        (
+            "/v1/search?q=common&reverse=",
+            "unsupported_sort",
+            Some("reverse"),
+        ),
+        (
+            "/v1/search?host=example.com&reverse=1",
+            "unsupported_sort",
+            Some("reverse"),
+        ),
+        (
+            "/v1/search?host=example.com&sort=relevance",
+            "relevance_needs_word",
+            Some("sort"),
+        ),
+        (
+            "/v1/search?q=%22%22&host=example.com&sort=relevance",
+            "relevance_needs_word",
+            Some("sort"),
+        ),
+        (
+            "/v1/search?q=common&reverse=true",
+            "relevance_cannot_reverse",
+            Some("reverse"),
+        ),
+        (
+            "/v1/search?q=common&sort=relevance&reverse=true",
+            "relevance_cannot_reverse",
+            Some("reverse"),
+        ),
+        // The ADR 0080 §4 checks come first.
+        ("/v1/search?sort=name", "missing_positive_term", None),
+        ("/v1/search?sort=relevance", "missing_positive_term", None),
+        (
+            "/v1/search?sort=bogus&reverse=maybe",
+            "missing_positive_term",
+            None,
+        ),
+        (
+            "/v1/search?q=common&type=publisher&release=x&sort=bogus",
+            "unsupported_filter",
+            Some("release"),
+        ),
+        (
+            "/v1/search?q=common&kind=album&kind=ep&sort=bogus",
+            "invalid_filter",
+            Some("kind"),
+        ),
+        // The sort value comes before the direction and before the word checks.
+        (
+            "/v1/search?host=example.com&sort=bogus&reverse=maybe",
+            "unsupported_sort",
+            Some("sort"),
+        ),
+    ] {
+        let (got_code, got_filter) = error_of(&st, uri).await;
+        assert_eq!(
+            (got_code.as_str(), got_filter.as_deref()),
+            (code, filter),
+            "ADR 0084 §5 and ADR 0080 §4: GET {uri} must give this code. Fix \
+             parse_search_request in src/query.rs."
+        );
+    }
+    // These requests are valid.
+    for uri in [
+        "/v1/search?q=common&reverse=false",
+        "/v1/search?q=common&sort=name&reverse=true",
+        "/v1/search?host=example.com&reverse=true",
+        "/v1/search?host=example.com&sort=date&reverse=true",
+        "/v1/search?q=common&sort=relevance&reverse=false",
+    ] {
+        let (status, body) = get(&st, uri).await;
+        assert_eq!(status, StatusCode::OK, "GET {uri} must give 200: {body}");
+    }
+    // An unknown name is still refused, and `sort` and `reverse` are not.
+    let (code, _) = error_of(&st, "/v1/search?q=common&order=asc").await;
+    assert_eq!(code, "unsupported_filter", "ADR 0080 §4: an unknown name");
+    let (status, body) = get(&st, "/v1/search?q=common&sort=name&sort=date").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "duplicate sort: {body}");
+}
+
+fn key_cursor(sort: &str, direction: &str, rowid: i64, state: &str, key: &str) -> String {
+    format!(
+        "s.{}",
+        b64(&format!("{sort}\0{direction}\0{rowid}\0{state}\0{key}"))
+    )
+}
+
+async fn cursor_of(st: &Arc<stophammer::api::AppState>, base: &str) -> String {
+    let (status, page) = get(st, &format!("{base}&limit=2")).await;
+    assert_eq!(status, StatusCode::OK, "{base}: {page}");
+    page["pagination"]["cursor"]
+        .as_str()
+        .expect("a cursor")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn a_cursor_with_another_sort_or_direction_gives_400() {
+    let (st, _items) = seeded_search();
+    // A cursor of each request form, with its own base.
+    let forms = [
+        ("name", "/v1/search?q=common&type=feed&sort=name"),
+        (
+            "name reverse",
+            "/v1/search?q=common&type=feed&sort=name&reverse=true",
+        ),
+        ("date word", "/v1/search?q=common&type=feed&sort=date"),
+        (
+            "date word reverse",
+            "/v1/search?q=common&type=feed&sort=date&reverse=true",
+        ),
+        (
+            "name no word",
+            "/v1/search?host=example.com&type=feed&sort=name",
+        ),
+        (
+            "date reverse no word",
+            "/v1/search?host=example.com&type=feed&reverse=true",
+        ),
+        ("rank", "/v1/search?q=common&type=feed"),
+        ("d", "/v1/search?host=example.com&type=feed"),
+    ];
+    let mut cursors = Vec::new();
+    for (name, base) in forms {
+        cursors.push((name, base, cursor_of(&st, base).await));
+    }
+    // Two requests with the same sort and direction share a cursor form.
+    let same_order = |a: &str, b: &str| {
+        let order = |n: &str| match n {
+            "name" | "name no word" => 1,
+            "date word reverse" | "date reverse no word" => 2,
+            other => other.len() + 10,
+        };
+        order(a) == order(b)
+    };
+    for (own_name, own_base, cursor) in &cursors {
+        // The own base continues.
+        let (status, body) = get(&st, &format!("{own_base}&limit=2&cursor={cursor}")).await;
+        assert_eq!(
+            status,
+            StatusCode::OK,
+            "ADR 0084 §9: the cursor of `{own_name}` must continue its own request: {body}"
+        );
+        for (other_name, other_base, _) in &cursors {
+            if same_order(other_name, own_name) {
+                continue;
+            }
+            // `date word` and `name` differ in sort. A pair with the same
+            // form of cursor and the same parameters is not tested here.
+            let (status, body) = get(&st, &format!("{other_base}&limit=2&cursor={cursor}")).await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "ADR 0084 §9: the cursor of `{own_name}` on the request `{other_name}` must \
+                 give 400, got {body}. Fix decode_search_key_cursor in src/query.rs."
+            );
+        }
+    }
+    // Explicit sort=name on the cursors of the default sorts.
+    let rank = &cursors[6].2;
+    let d = &cursors[7].2;
+    for uri in [
+        format!("/v1/search?q=common&sort=name&cursor={rank}"),
+        format!("/v1/search?q=common&sort=date&cursor={rank}"),
+        format!("/v1/search?host=example.com&sort=name&cursor={d}"),
+        format!("/v1/search?host=example.com&reverse=true&cursor={d}"),
+        format!("/v1/search?q=common&sort=date&reverse=true&cursor={d}"),
+    ] {
+        let (status, body) = get(&st, &uri).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "ADR 0084 §9: a cursor from before ADR 0084 is valid only for the default sort: \
+             GET {uri} gave {body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_malformed_search_cursor_gives_400() {
+    let (st, _items) = seeded_search();
+    let good_rowid = 5;
+    let bad = [
+        "s.".to_owned(),
+        "s.!!!".to_owned(),
+        "s.AAAA".to_owned(),
+        format!("s.{}", b64("name\0usual\0x")),
+        key_cursor("name", "usual", good_rowid, "k", "a").replace("s.", "s.s."),
+        key_cursor("sideways", "usual", good_rowid, "k", "a"),
+        key_cursor("name", "up", good_rowid, "k", "a"),
+        key_cursor("name", "usual", 0, "q", "a"),
+        key_cursor("name", "usual", 0, "n", "a"),
+        key_cursor("name", "usual", 0, "k", "a").replace(&b64("name\0usual\0"), "!"),
+        format!("s.{}", b64("name\0usual\0notanumber\0k\0a")),
+        format!("s.{}", b64("name\0usual\0\0k\0a")),
+        format!("s.{}", b64("name\0usual\0-9223372036854775809\0k\0a")),
+        format!("s.{}", b64("name\0usual\x001\0k")),
+        format!("s.{}", b64("")),
+        // A date key that is not an integer.
+        key_cursor("date", "usual", 0, "k", "yesterday"),
+        key_cursor("date", "usual", 0, "k", ""),
+        // The usual-form legacy shapes with the mark in front.
+        format!("s.{}", b64(&format!("{}\x001", 1.5_f64.to_bits()))),
+        format!("s.{}", b64("d100\x001")),
+    ];
+    for cursor in &bad {
+        for base in [
+            "/v1/search?q=common&sort=name",
+            "/v1/search?host=example.com&sort=date&reverse=true",
+            "/v1/search?host=example.com&sort=name&reverse=true",
+        ] {
+            let (status, body) = get(&st, &format!("{base}&cursor={cursor}")).await;
+            assert_eq!(
+                status,
+                StatusCode::BAD_REQUEST,
+                "ADR 0084 §9: GET {base} with the cursor {cursor:?} must give a clean 400, \
+                 got {body}. Fix decode_search_key_cursor in src/query.rs."
+            );
+        }
+    }
+    // The mark is never the start of a cursor of the default sort.
+    for uri in [
+        format!(
+            "/v1/search?q=common&cursor={}",
+            key_cursor("name", "usual", 1, "k", "a")
+        ),
+        format!(
+            "/v1/search?host=example.com&cursor={}",
+            key_cursor("date", "usual", 1, "k", "1")
+        ),
+    ] {
+        let (status, body) = get(&st, &uri).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "ADR 0084 §9: a keyed cursor on the default sort must give 400: {body}"
+        );
+    }
+    // A legacy cursor on a keyed request.
+    for uri in [
+        format!("/v1/search?q=common&sort=name&cursor={}", b64("1\x001")),
+        format!("/v1/search?q=common&sort=name&cursor={}", b64("d100\x001")),
+        "/v1/search?q=common&sort=name&cursor=not-base64!".to_owned(),
+    ] {
+        let (status, _) = get(&st, &uri).await;
+        assert_eq!(
+            status,
+            StatusCode::BAD_REQUEST,
+            "legacy cursor on a keyed sort: {uri}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_key_that_looks_like_a_mark_or_holds_a_nul_is_only_text() {
+    let (st, items) = seeded_search();
+    // The titles `s.mark` and `r.mark` round-trip through the cursor, at each
+    // page size.
+    for sort in ["name"] {
+        for reverse in ["false", "true"] {
+            let base = format!("/v1/search?q=common&sort={sort}&reverse={reverse}");
+            let want =
+                expected_sequence(&items, &kinds_of(None), SortKind::Name, reverse == "true");
+            for limit in [1, 2] {
+                let (rows, _) = search_walk(&st, &base, limit).await;
+                assert_eq!(labels(&rows), want, "{base} at limit {limit}");
+            }
+        }
+    }
+    // A hand-made cursor with a NUL in the key is read as the key. It admits
+    // each row after that key.
+    let cursor = key_cursor("name", "usual", 1, "k", "alpha\0b");
+    let (status, body) = get(
+        &st,
+        &format!("/v1/search?q=common&type=feed&sort=name&cursor={cursor}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "a key with a NUL is text: {body}");
+    let got = labels(body["data"].as_array().expect("data"));
+    assert!(
+        !got.is_empty() && !got.contains(&"feed:fd-2".to_owned()),
+        "the row with the key `alpha` is before the key `alpha NUL b`: {got:?}"
+    );
+}
+
+#[tokio::test]
+async fn capabilities_list_sort_last() {
+    let (st, _items) = seeded_search();
+    let (status, body) = get(&st, "/v1/node/capabilities").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let caps: Vec<&str> = body["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .iter()
+        .map(|c| c.as_str().expect("string"))
+        .collect();
+    assert_eq!(
+        caps.last(),
+        Some(&"sort"),
+        "ADR 0084 §11: `sort` is the last capability, got {caps:?}. Add it last in \
+         handle_capabilities in src/query.rs."
+    );
+    for old in ["query", "search", "sync", "push", "name_lists"] {
+        assert!(caps.contains(&old), "ADR 0084 §11: {old} stays listed");
+    }
+}
+
+#[test]
+fn the_contract_and_the_fixture_state_the_new_parameters_and_fields() {
+    let doc = serde_json::to_value(stophammer::openapi::primary_document()).expect("serialize");
+    let params: Vec<&str> = doc["paths"]["/v1/search"]["get"]["parameters"]
+        .as_array()
+        .expect("parameters")
+        .iter()
+        .map(|p| p["name"].as_str().expect("name"))
+        .collect();
+    for name in ["sort", "reverse"] {
+        assert!(
+            params.contains(&name),
+            "ADR 0084 §2 and §3: /v1/search must declare {name} in src/openapi.rs"
+        );
+    }
+    let props = &doc["components"]["schemas"]["SearchResponseItem"]["properties"];
+    for field in ["sort_name", "sort_date"] {
+        assert!(
+            props.get(field).is_some(),
+            "ADR 0084 §10: SearchResponseItem must declare {field}"
+        );
+    }
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("fixtures/v1-schema-fields.json")).expect("fixture json");
+    let listed: Vec<&str> = fixture["SearchResponseItem"]["properties"]
+        .as_array()
+        .expect("fixture properties")
+        .iter()
+        .map(|v| v.as_str().expect("name"))
+        .collect();
+    for field in ["sort_name", "sort_date"] {
+        assert!(
+            listed.contains(&field),
+            "ADR 0084 criterion 10: add {field} to SearchResponseItem in \
+             tests/fixtures/v1-schema-fields.json"
+        );
+    }
 }

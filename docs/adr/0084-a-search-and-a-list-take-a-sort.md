@@ -2,7 +2,7 @@
 
 ## Status
 Accepted on 2026-11-06 by the operator, for v4vmm request 15. Tasks 001 to 003 give
-the build.
+the build, which is complete and not deployed.
 It adds to ADR 0070 §2 and §3 and to ADR 0080 §6. ADR 0080 §2 does not change.
 
 ## Date
@@ -79,7 +79,7 @@ word and no positive filter.
 
 | Code | Condition |
 |---|---|
-| `unsupported_sort` | `sort` has a value that section 2 does not give |
+| `unsupported_sort` | `sort` has a value that section 2 does not give, or `reverse` is not `true` or `false`. `filter` names the parameter |
 | `relevance_needs_word` | `sort=relevance`, and `q` has no word |
 | `relevance_cannot_reverse` | `reverse=true`, and the sort is `relevance`, also by default |
 

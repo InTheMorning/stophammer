@@ -33,7 +33,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
 | 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. v4vmm ADR 0089 shows no count for All until a total exists |
 | 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Sent - 2026-11-06. Waits for the Stophammer answer |
-| 15 | A sort direction for each list of feeds and names | API parameter addition | Answered - 2026-11-06. Stophammer ADR 0084 is Accepted and not built |
+| 15 | A sort direction for each list of feeds and names | API parameter addition | Answered - 2026-11-06. Stophammer ADR 0084 is built and not released |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -439,7 +439,7 @@ The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `k
 
 Stophammer owns the name and the form of each parameter. The filters and the row content of each route do not change.
 
-**Status.** Answered - 2026-11-06. The v4vmm operator added this request. Stophammer ADR 0084 is Accepted and not built.
+**Status.** Answered - 2026-11-06. The v4vmm operator added this request. Stophammer ADR 0084 is built and not released.
 
 ## Stophammer Answers - 2026-09-25
 
@@ -631,7 +631,7 @@ and some without. Such a name shows two times: one `publisher` row and one
 
 ## Stophammer Answers - 2026-11-06
 
-**Request 15, a sort direction.** The report is correct. No route has a sort or a direction, and each cursor goes forward only. Stophammer [ADR 0084](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0084-a-search-and-a-list-take-a-sort.md) is Accepted on 2026-11-06. Stophammer did not start the build. A release record names the release that carries it.
+**Request 15, a sort direction.** The report is correct. No route has a sort or a direction, and each cursor goes forward only. Stophammer [ADR 0084](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0084-a-search-and-a-list-take-a-sort.md) is Accepted on 2026-11-06, and its build is complete. No release carries it yet. A client shows a reverse icon on an Index list only when `GET /v1/node/capabilities` lists `sort`. A release record names the release that carries it.
 
 - `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names` take `reverse=true`.
 - `GET /v1/search` takes `sort`, with the values `relevance`, `name` and `date`, and `reverse=true`. This is more than the request asks for. A direction alone cannot give A to Z on search, because search has no name order.

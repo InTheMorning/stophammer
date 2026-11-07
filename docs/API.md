@@ -2106,6 +2106,8 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `limit` | i64 | 20 | Max results (capped at 100) |
 | `cursor` | string | none | Keyset pagination cursor. A cursor of a search with `q` gives 400 on a search with no `q`, and the reverse |
 | `include` | string | none | Comma-separated include list. Supports `link_facts` |
+| `sort` | string | `relevance` with a word in `q`, `date` with no word | `relevance`, `name` or `date`. See the section on `sort` and `reverse` |
+| `reverse` | boolean | `false` | `true` reverses `name` and `date`. `relevance` cannot reverse |
 | `artist` | text | none | Each word and phrase must be in the artist. Types `feed`, `track` and `publisher` |
 | `title` | text | none | Each word and phrase must be in the title. Types `feed`, `track` and `publisher` |
 | `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track` |
@@ -2167,6 +2169,37 @@ needs no call for each hit. ADR 0042 owns these fields.
   `q`. A cursor of a search with `q` gives `400` with `invalid cursor format`
   on a search with no `q`, and the reverse.
 
+**`sort` and `reverse` (ADR 0084):**
+
+- `sort=relevance` is the rank order of a search with a word, and it is the
+  default with a word in `q`. It needs a word in `q`.
+- `sort=name` is A to Z by the sort key of the title (ADR 0070 section 1). A
+  `feed` row and a `publisher` row use the sort key of the feed. A `track` row
+  uses `tracks.title_sort`. A request with no `type` merges feeds and tracks by
+  this key.
+- `sort=date` is newest first. A `feed` row and a `publisher` row use
+  `newest_item_at`. A `track` row uses `pub_date`. It is the default with no
+  word in `q`. Most publisher feeds have no date, so `type=publisher` gives
+  most of them in rowid order.
+- `reverse=true` gives Z to A for `name`, and oldest first for `date`. The tie
+  key is `rowid`, and it follows the direction. A request with no word, with
+  `reverse=true` and no `sort` gives `date`, oldest first.
+- A row with no key comes last in both directions.
+- `sort` and `reverse` select the order only. A filter never changes `rank`.
+  With a word, `rank` keeps its value on each sort. With no word, `rank` is 0.
+- With `sort=name`, each row gives `sort_name`. With `sort=date`, each row gives
+  `sort_date`, and a row with no date gives none. A request that sends no
+  `sort` gives neither field, also when its default sort is `date`.
+- `reverse` accepts only `true` and `false`. A different value gives `400` with the
+  code `unsupported_sort` and `filter` set to `reverse`.
+- The cursor holds its sort and its direction. A cursor with another sort or
+  another direction than the request gives `400`. The rank cursor and the `d`
+  cursor stay valid for the default sort, with the usual direction. Another
+  request gives a cursor that starts with `s.`, then an opaque value. Treat
+  each cursor as opaque.
+- With no index, each page of `sort=name` or `sort=date` reads and sorts its
+  matching rows again. Use `relevance` for a live search.
+
 A `400` for a filter has this body. `filter` gives the name of the parameter,
 and is absent for `missing_positive_term`.
 
@@ -2179,6 +2212,12 @@ and is absent for `missing_positive_term`.
 | `unsupported_filter` | The type of the request does not apply the filter, or the node does not know the parameter |
 | `invalid_filter` | A positive filter repeats, a value has no word or is not in its form, or the request has more than 10 exclusions |
 | `missing_positive_term` | The request has no word and no phrase in `q` |
+| `unsupported_sort` | `sort` is not `relevance`, `name` or `date`, or `reverse` is not `true` or `false` |
+| `relevance_needs_word` | `sort=relevance` and `q` has no word |
+| `relevance_cannot_reverse` | `reverse=true` and the sort is `relevance`, also by default |
+
+The checks of ADR 0080 section 4 run first. So a request with no word and no
+positive filter gives `missing_positive_term`, whatever its `sort`.
 
 **Response (`200 OK`):**
 
@@ -2253,7 +2292,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2279,6 +2318,10 @@ index (ADR 0071 section 5).
 
 `name_lists` marks `GET /v1/feeds/by-name` and `GET /v1/artist-names` (ADR
 0070 section 6).
+
+`sort` marks the parameter `reverse` on the three list routes and the
+parameters `sort` and `reverse` on `GET /v1/search` (ADR 0084 section 11). A
+node with no `sort` ignores `reverse` on a list route.
 
 `publisher_text` on a track read is source-first publisher text. A track
 inherits the field from its parent feed at ingest. ADR 0035 and ADR 0049

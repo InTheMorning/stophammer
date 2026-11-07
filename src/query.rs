@@ -217,6 +217,141 @@ struct SearchRequest {
     include: Option<String>,
     /// ADR 0080 §2 and §3: the text filters and the exclusions.
     filters: crate::search::SearchFilters,
+    /// ADR 0084 §2: the `sort` of the request, when it sends one.
+    sort: Option<SearchSort>,
+    /// ADR 0084 §4: the sort that the request gets. It is `sort`, or the
+    /// default sort of the request.
+    effective_sort: SearchSort,
+    /// ADR 0084 §3: `reverse=true`.
+    reverse: bool,
+}
+
+/// A value of `sort` on `GET /v1/search` (ADR 0084 §2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchSort {
+    Relevance,
+    Name,
+    Date,
+}
+
+impl SearchSort {
+    fn parse(value: &str) -> Option<Self> {
+        match value {
+            "relevance" => Some(Self::Relevance),
+            "name" => Some(Self::Name),
+            "date" => Some(Self::Date),
+            _ => None,
+        }
+    }
+}
+
+/// The query form and the cursor form that a search uses (ADR 0084 §9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SearchPlan {
+    /// The rank order of a search with a word. The cursor is the rank cursor
+    /// from before ADR 0084.
+    Rank,
+    /// The usual date order of a search with no word. The cursor is the `d`
+    /// cursor from before ADR 0084.
+    LegacyDate,
+    /// One of the query forms of ADR 0084, with its own cursor.
+    Keyed(crate::search::KeySort),
+}
+
+impl SearchPlan {
+    fn of(sort: SearchSort, has_word: bool, reverse: bool) -> Self {
+        match sort {
+            SearchSort::Relevance => Self::Rank,
+            SearchSort::Date if !has_word && !reverse => Self::LegacyDate,
+            SearchSort::Date => Self::Keyed(crate::search::KeySort::Date),
+            SearchSort::Name => Self::Keyed(crate::search::KeySort::Name),
+        }
+    }
+}
+
+/// ADR 0084 §9: the mark of the cursor of a keyed search. The mark has a dot,
+/// which is not a character of the base64url alphabet. So a cursor from before
+/// ADR 0084 never starts with it, and no text in a key can look like it.
+const SEARCH_CURSOR_MARK: &str = "s.";
+
+/// Encodes the position of a keyed search. The body is
+/// `sort NUL direction NUL rowid NUL state NUL key`. The state is `k` for a row
+/// with a key and `n` for a row with none, and then the key is empty. The key
+/// is the last field, so it can hold any text.
+fn encode_search_key_cursor(
+    sort: crate::search::KeySort,
+    reverse: bool,
+    cursor: &crate::search::KeyCursor,
+) -> String {
+    let (state, key) = match &cursor.key {
+        Some(crate::search::SortValue::Text(text)) => ("k", text.clone()),
+        Some(crate::search::SortValue::Date(date)) => ("k", date.to_string()),
+        None => ("n", String::new()),
+    };
+    let sort = match sort {
+        crate::search::KeySort::Name => "name",
+        crate::search::KeySort::Date => "date",
+    };
+    let direction = if reverse { "reverse" } else { "usual" };
+    let body = format!("{sort}\0{direction}\0{}\0{state}\0{key}", cursor.rowid);
+    format!("{SEARCH_CURSOR_MARK}{}", encode_cursor(&body))
+}
+
+fn search_cursor_error(message: &str) -> api::ApiError {
+    api::ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: message.into(),
+        www_authenticate: None,
+    }
+}
+
+/// Reads the cursor of a keyed search and checks that its sort and its
+/// direction are those of the request (ADR 0084 §9).
+fn decode_search_key_cursor(
+    cursor: &str,
+    sort: crate::search::KeySort,
+    reverse: bool,
+) -> Result<crate::search::KeyCursor, api::ApiError> {
+    let Some(body) = cursor.strip_prefix(SEARCH_CURSOR_MARK) else {
+        return Err(search_cursor_error(
+            "cursor sort or direction differs from the request (ADR 0084 section 9)",
+        ));
+    };
+    let decoded = decode_cursor(body)?;
+    let parts: Vec<&str> = decoded.splitn(5, '\0').collect();
+    let [cursor_sort, cursor_direction, rowid, state, key] = parts.as_slice() else {
+        return Err(search_cursor_error("invalid cursor format"));
+    };
+    let (want_sort, want_direction) = (
+        match sort {
+            crate::search::KeySort::Name => "name",
+            crate::search::KeySort::Date => "date",
+        },
+        if reverse { "reverse" } else { "usual" },
+    );
+    if !["name", "date"].contains(cursor_sort) || !["usual", "reverse"].contains(cursor_direction) {
+        return Err(search_cursor_error("invalid cursor format"));
+    }
+    if *cursor_sort != want_sort || *cursor_direction != want_direction {
+        return Err(search_cursor_error(
+            "cursor sort or direction differs from the request (ADR 0084 section 9)",
+        ));
+    }
+    let rowid: i64 = rowid
+        .parse()
+        .map_err(|_err| search_cursor_error("invalid cursor rowid"))?;
+    let key = match (*state, sort) {
+        ("n", _) if key.is_empty() => None,
+        ("k", crate::search::KeySort::Name) => {
+            Some(crate::search::SortValue::Text((*key).to_owned()))
+        }
+        ("k", crate::search::KeySort::Date) => Some(crate::search::SortValue::Date(
+            key.parse()
+                .map_err(|_err| search_cursor_error("invalid cursor timestamp"))?,
+        )),
+        _ => return Err(search_cursor_error("invalid cursor format")),
+    };
+    Ok(crate::search::KeyCursor { key, rowid })
 }
 
 impl SearchRequest {
@@ -1037,6 +1172,13 @@ struct SearchResponseItem {
     /// 0076 §3.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_named_count: Option<i64>,
+    /// ADR 0084 §10: the sort key of the row, only with `sort=name`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sort_name: Option<String>,
+    /// ADR 0084 §10: the date of the row, only with `sort=date`. It is absent
+    /// on a row with no date.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sort_date: Option<i64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -5508,7 +5650,7 @@ async fn handle_get_artist_names(
 /// Reads the parameters of `GET /v1/search` from the raw query and applies the
 /// checks of ADR 0080 §4 in their sequence. The first error is the result.
 fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
-    const SINGLE: [&str; 5] = ["q", "type", "limit", "cursor", "include"];
+    const SINGLE: [&str; 7] = ["q", "type", "limit", "cursor", "include", "sort", "reverse"];
     let pairs: Vec<(String, String)> = url::form_urlencoded::parse(raw.as_bytes())
         .into_owned()
         .collect();
@@ -5538,6 +5680,8 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
     let kind = single("type")?;
     let cursor = single("cursor")?;
     let include = single("include")?;
+    let sort_raw = single("sort")?;
+    let reverse_raw = single("reverse")?;
     let limit = single("limit")?
         .map(|v| {
             v.parse::<i64>()
@@ -5664,6 +5808,54 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
         )));
     }
 
+    // Check 5 (ADR 0084 §5): `sort` and `reverse`. These checks run after
+    // the checks of ADR 0080 §4, so `missing_positive_term` stays first.
+    let has_word = !crate::search::fts5_query_from_words(&q).is_empty();
+    let sort = sort_raw
+        .as_deref()
+        .map(|value| {
+            SearchSort::parse(value).ok_or_else(|| {
+                filter_error(
+                    "unsupported_sort",
+                    "sort",
+                    "sort accepts only relevance, name and date".into(),
+                )
+            })
+        })
+        .transpose()?;
+    // ADR 0084 §5: a bad `reverse` has the code of a bad `sort`, and `filter`
+    // names `reverse`.
+    let reverse = match reverse_raw.as_deref() {
+        None | Some("false") => false,
+        Some("true") => true,
+        Some(_) => {
+            return Err(filter_error(
+                "unsupported_sort",
+                "reverse",
+                "reverse accepts only true and false".into(),
+            ));
+        }
+    };
+    if sort == Some(SearchSort::Relevance) && !has_word {
+        return Err(filter_error(
+            "relevance_needs_word",
+            "sort",
+            "sort=relevance needs a word in q".into(),
+        ));
+    }
+    let effective_sort = sort.unwrap_or(if has_word {
+        SearchSort::Relevance
+    } else {
+        SearchSort::Date
+    });
+    if effective_sort == SearchSort::Relevance && reverse {
+        return Err(filter_error(
+            "relevance_cannot_reverse",
+            "reverse",
+            "reverse=true is not possible with the sort relevance".into(),
+        ));
+    }
+
     Ok(SearchRequest {
         q,
         kind,
@@ -5671,6 +5863,9 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
         cursor,
         include,
         filters,
+        sort,
+        effective_sort,
+        reverse,
     })
 }
 
@@ -5694,7 +5889,11 @@ async fn handle_search(
     let include_link_facts = params.includes("link_facts");
 
     // ADR 0080 §6: a request with no word in `q` is a search by date.
-    let by_date = crate::search::fts5_query_from_words(&q).is_empty();
+    let has_word = !crate::search::fts5_query_from_words(&q).is_empty();
+    // ADR 0084 §4 and §9: the plan gives the query form and the cursor form.
+    let reverse = params.reverse;
+    let plan = SearchPlan::of(params.effective_sort, has_word, reverse);
+    let by_date = plan == SearchPlan::LegacyDate;
 
     // Issue-SEARCH-KEYSET — 2026-03-14
     // Parse keyset cursor: base64(f64_bits_as_decimal \0 rowid_as_decimal).
@@ -5702,48 +5901,61 @@ async fn handle_search(
     // ADR 0080 §6: the cursor of a search by date is `d<date>\0<rowid>`, where
     // `<date>` is empty for a row with no date. The `d` tells the two forms
     // apart, and each form gives 400 on the other search.
+    // ADR 0084 §9: these two forms are the cursors of the default sort. A
+    // keyed search has the cursor of `decode_search_key_cursor`, and each of
+    // the two groups gives 400 on the other.
     let mut date_cursor: Option<(Option<i64>, i64)> = None;
+    let mut key_cursor: Option<crate::search::KeyCursor> = None;
     let (cursor_rank, cursor_rowid) = if let Some(ref cursor_str) = params.cursor {
-        let decoded = decode_cursor(cursor_str)?;
-        let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
-        if parts.len() != 2 || parts[0].starts_with('d') != by_date {
-            return Err(api::ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "invalid cursor format".into(),
-                www_authenticate: None,
-            });
-        }
-        let rowid: i64 = parts[1].parse().map_err(|_err| api::ApiError {
-            status: StatusCode::BAD_REQUEST,
-            message: "invalid cursor rowid".into(),
-            www_authenticate: None,
-        })?;
-        if by_date {
-            let date = match parts[0].trim_start_matches('d') {
-                "" => None,
-                text => Some(text.parse::<i64>().map_err(|_err| api::ApiError {
-                    status: StatusCode::BAD_REQUEST,
-                    message: "invalid cursor timestamp".into(),
-                    www_authenticate: None,
-                })?),
-            };
-            date_cursor = Some((date, rowid));
+        if let SearchPlan::Keyed(sort) = plan {
+            key_cursor = Some(decode_search_key_cursor(cursor_str, sort, reverse)?);
             (None, None)
+        } else if cursor_str.starts_with(SEARCH_CURSOR_MARK) {
+            return Err(search_cursor_error(
+                "cursor sort or direction differs from the request (ADR 0084 section 9)",
+            ));
         } else {
-            let rank_bits: u64 = parts[0].parse().map_err(|_err| api::ApiError {
-                status: StatusCode::BAD_REQUEST,
-                message: "invalid cursor rank".into(),
-                www_authenticate: None,
-            })?;
-            let rank = f64::from_bits(rank_bits);
-            if rank.is_nan() || rank.is_infinite() {
+            let decoded = decode_cursor(cursor_str)?;
+            let parts: Vec<&str> = decoded.splitn(2, '\0').collect();
+            if parts.len() != 2 || parts[0].starts_with('d') != by_date {
                 return Err(api::ApiError {
                     status: StatusCode::BAD_REQUEST,
-                    message: "invalid cursor rank: non-finite value".into(),
+                    message: "invalid cursor format".into(),
                     www_authenticate: None,
                 });
             }
-            (Some(rank), Some(rowid))
+            let rowid: i64 = parts[1].parse().map_err(|_err| api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "invalid cursor rowid".into(),
+                www_authenticate: None,
+            })?;
+            if by_date {
+                let date = match parts[0].trim_start_matches('d') {
+                    "" => None,
+                    text => Some(text.parse::<i64>().map_err(|_err| api::ApiError {
+                        status: StatusCode::BAD_REQUEST,
+                        message: "invalid cursor timestamp".into(),
+                        www_authenticate: None,
+                    })?),
+                };
+                date_cursor = Some((date, rowid));
+                (None, None)
+            } else {
+                let rank_bits: u64 = parts[0].parse().map_err(|_err| api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "invalid cursor rank".into(),
+                    www_authenticate: None,
+                })?;
+                let rank = f64::from_bits(rank_bits);
+                if rank.is_nan() || rank.is_infinite() {
+                    return Err(api::ApiError {
+                        status: StatusCode::BAD_REQUEST,
+                        message: "invalid cursor rank: non-finite value".into(),
+                        www_authenticate: None,
+                    });
+                }
+                (Some(rank), Some(rowid))
+            }
         }
     } else {
         (None, None)
@@ -5761,6 +5973,32 @@ async fn handle_search(
                     kind.as_deref(),
                     limit + 1,
                     date_cursor,
+                )
+                .map(|rows| {
+                    rows.into_iter()
+                        .map(|row| crate::search::KeyedSearchResult {
+                            result: row.result,
+                            key: row.date.map(crate::search::SortValue::Date),
+                        })
+                        .collect()
+                }),
+                Some(other) => Err(db::DbError::Other(format!(
+                    "unsupported search type filter: {other}"
+                ))),
+            };
+        }
+        // ADR 0084 §2 and §3: one query form for `name` and `date`, with the
+        // direction, with a word and with no word.
+        if let SearchPlan::Keyed(sort) = plan {
+            return match kind.as_deref() {
+                None | Some("feed" | "track" | "publisher") => crate::search::search_sorted(
+                    &conn,
+                    &q,
+                    &filters,
+                    kind.as_deref(),
+                    (sort, reverse),
+                    limit + 1,
+                    key_cursor.as_ref(),
                 ),
                 Some(other) => Err(db::DbError::Other(format!(
                     "unsupported search type filter: {other}"
@@ -5803,11 +6041,10 @@ async fn handle_search(
                 Ok(merged)
             }
         };
-        // A search with `q` has no date. Only the cursor of a search by date
-        // reads it.
+        // A rank search has no sort key.
         found.map(|rows| {
             rows.into_iter()
-                .map(|result| crate::search::DatedSearchResult { result, date: None })
+                .map(|result| crate::search::KeyedSearchResult { result, key: None })
                 .collect()
         })
     })
@@ -5846,15 +6083,29 @@ async fn handle_search(
     // ADR 0080 §6: a search by date encodes the date and the rowid instead.
     let next_cursor = if has_more {
         let limit_usize = usize::try_from(limit).unwrap_or(0);
-        results.get(limit_usize.saturating_sub(1)).map(|r| {
-            if by_date {
-                let date = r.date.map_or_else(String::new, |d| d.to_string());
-                encode_cursor(&format!("d{date}\0{}", r.result.rowid))
-            } else {
-                let rank_bits = r.result.effective_rank.to_bits();
-                encode_cursor(&format!("{}\0{}", rank_bits, r.result.rowid))
-            }
-        })
+        results
+            .get(limit_usize.saturating_sub(1))
+            .map(|r| match plan {
+                SearchPlan::LegacyDate => {
+                    let date = match r.key {
+                        Some(crate::search::SortValue::Date(d)) => d.to_string(),
+                        _ => String::new(),
+                    };
+                    encode_cursor(&format!("d{date}\0{}", r.result.rowid))
+                }
+                SearchPlan::Rank => {
+                    let rank_bits = r.result.effective_rank.to_bits();
+                    encode_cursor(&format!("{}\0{}", rank_bits, r.result.rowid))
+                }
+                SearchPlan::Keyed(sort) => encode_search_key_cursor(
+                    sort,
+                    reverse,
+                    &crate::search::KeyCursor {
+                        key: r.key.clone(),
+                        rowid: r.result.rowid,
+                    },
+                ),
+            })
     } else {
         None
     };
@@ -5862,15 +6113,30 @@ async fn handle_search(
     let limited_results: Vec<_> = results
         .into_iter()
         .take(usize::try_from(limit).unwrap_or(0))
-        .map(|r| r.result)
         .collect();
+    let explicit_sort = params.sort;
     let pool = state.db.clone();
     let data =
         tokio::task::spawn_blocking(move || -> Result<Vec<SearchResponseItem>, api::ApiError> {
             let conn = pool.reader().map_err(api::ApiError::from)?;
             limited_results
                 .into_iter()
-                .map(|r| {
+                .map(|keyed| {
+                    // ADR 0084 §10: the value of the sort, only when the
+                    // request sends that sort.
+                    let sort_name = match (explicit_sort, &keyed.key) {
+                        (Some(SearchSort::Name), Some(crate::search::SortValue::Text(t))) => {
+                            Some(t.clone())
+                        }
+                        _ => None,
+                    };
+                    let sort_date = match (explicit_sort, &keyed.key) {
+                        (Some(SearchSort::Date), Some(crate::search::SortValue::Date(d))) => {
+                            Some(*d)
+                        }
+                        _ => None,
+                    };
+                    let r = keyed.result;
                     let (entity_id, feed_guid, href) = match (
                         r.entity_type.as_str(),
                         db::parse_canonical_track_entity_id(&r.entity_id),
@@ -5944,6 +6210,8 @@ async fn handle_search(
                         agreed_roles,
                         confirmed_release_artists,
                         first_named_count,
+                        sort_name,
+                        sort_date,
                     })
                 })
                 .collect()
@@ -6008,9 +6276,9 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         api_version: "v1",
         node_pubkey: state.node_pubkey_hex.clone(),
         // ADR 0070 §6: `name_lists` names the two routes that give an
-        // identity one row in sort-key order. Task 001 ships the release
-        // list, `GET /v1/feeds/by-name`.
-        capabilities: vec!["query", "search", "sync", "push", "name_lists"],
+        // identity one row in sort-key order. ADR 0084 §11: `sort` comes
+        // last. It tells a client that `reverse` and the search `sort` exist.
+        capabilities: vec!["query", "search", "sync", "push", "name_lists", "sort"],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.
         entity_types: vec!["feed", "track", "publisher"],

@@ -767,3 +767,209 @@ pub fn search_by_date(
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
 }
+
+/// A sort that has its own query form (ADR 0084 §2): `name` or `date`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeySort {
+    /// `feeds.title_sort` of a feed and a publisher, `tracks.title_sort` of a
+    /// track. The usual direction is A to Z.
+    Name,
+    /// `newest_item_at` of a feed and a publisher, `pub_date` of a track. The
+    /// usual direction is newest first.
+    Date,
+}
+
+/// The value of the sort key of one row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SortValue {
+    /// A sort key of `KeySort::Name`.
+    Text(String),
+    /// A date of `KeySort::Date`, as Unix seconds.
+    Date(i64),
+}
+
+/// The position of the last row of a page, in a search with a [`KeySort`].
+///
+/// `key` is `None` for a row with no key. The state "no key" is explicit, so
+/// that no value of a key can stand for it (ADR 0084 §6 and §9).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct KeyCursor {
+    pub key: Option<SortValue>,
+    pub rowid: i64,
+}
+
+/// A row of a sorted search, with its sort key. `key` is `None` for a row
+/// with no key, and for a sort that gives no key (`relevance`).
+#[derive(Debug)]
+pub struct KeyedSearchResult {
+    pub result: SearchResult,
+    pub key: Option<SortValue>,
+}
+
+/// Pushes the keyset condition of a [`KeyCursor`] and its bound values.
+///
+/// A row with no key comes after each row with a key, so a cursor with a key
+/// also admits each row with no key. A comparison with a null key is never
+/// true, so the rows with no key have their own terms. `ops` is the key
+/// expression, the key operator and the `rowid` operator.
+fn push_key_cursor(
+    cursor: &KeyCursor,
+    ops: (&str, &str, &str),
+    values: &mut Vec<Value>,
+    where_parts: &mut Vec<String>,
+) {
+    let (key_expr, key_op, row_op) = ops;
+    if let Some(key) = &cursor.key {
+        values.push(match key {
+            SortValue::Text(text) => Value::Text(text.clone()),
+            SortValue::Date(date) => Value::Integer(*date),
+        });
+        let p1 = values.len();
+        values.push(Value::Integer(cursor.rowid));
+        let p2 = values.len();
+        where_parts.push(format!(
+            "({key_expr} {key_op} ?{p1} OR {key_expr} IS NULL \
+              OR ({key_expr} = ?{p1} AND e.rowid {row_op} ?{p2}))"
+        ));
+    } else {
+        values.push(Value::Integer(cursor.rowid));
+        where_parts.push(format!(
+            "({key_expr} IS NULL AND e.rowid {row_op} ?{})",
+            values.len()
+        ));
+    }
+}
+
+/// Searches the index rows by name or by date (ADR 0084 §2 and §3).
+///
+/// This is one query form for both sorts and both directions. `query` can
+/// have no word. The rows are then the rows of the filters, as in
+/// [`search_by_date`], with `rank` 0. With a word, `rank` is the BM25 score,
+/// as in [`search_filtered`]. A filter selects rows and never changes `rank`.
+///
+/// The order is the key, with a row that has no key last in both directions,
+/// and then `rowid`. `reverse` reverses the key and the tie key `rowid`
+/// (ADR 0084 §6). `entity_type_filter` of `None` reads feed and track rows in
+/// one query, so each row has one `rowid` and no row repeats between pages.
+///
+/// `cursor` is the position of the last row of the previous page.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn search_sorted(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    entity_type_filter: Option<&str>,
+    order: (KeySort, bool),
+    limit: i64,
+    cursor: Option<&KeyCursor>,
+) -> Result<Vec<KeyedSearchResult>, DbError> {
+    let (sort, reverse) = order;
+    let safe_query = fts5_query_from_words(query);
+    tracing::info!(entity_type_filter = ?entity_type_filter, ?sort, reverse, "sorted search called");
+    let has_word = !safe_query.trim().is_empty();
+
+    let key_expr = match sort {
+        KeySort::Name => "CASE e.entity_type WHEN 'track' THEN t.title_sort ELSE f.title_sort END",
+        KeySort::Date => {
+            "CASE e.entity_type WHEN 'track' THEN t.pub_date ELSE f.newest_item_at END"
+        }
+    };
+    // The key of a name goes up in the usual direction, and the key of a date
+    // goes down. `rowid` goes up in the usual direction.
+    let key_descends = (sort == KeySort::Date) != reverse;
+    let (key_dir, key_op) = if key_descends {
+        ("DESC", "<")
+    } else {
+        ("ASC", ">")
+    };
+    let (row_dir, row_op) = if reverse { ("DESC", "<") } else { ("ASC", ">") };
+
+    let mut values: Vec<Value> = Vec::new();
+    let (source, rank_expr, own_row) = if has_word {
+        values.push(Value::Text(safe_query));
+        (
+            "(SELECT rowid, bm25(search_index) AS fts_rank \
+              FROM search_index WHERE search_index MATCH ?1) m \
+             JOIN search_entities e ON e.rowid = m.rowid",
+            "m.fts_rank",
+            "m.rowid",
+        )
+    } else {
+        ("search_entities e", "0.0", "e.rowid")
+    };
+
+    let mut where_parts = Vec::new();
+    if let Some(entity_type) = entity_type_filter {
+        values.push(Value::Text(entity_type.to_owned()));
+        where_parts.push(format!("e.entity_type = ?{}", values.len()));
+    } else {
+        where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
+    }
+
+    if let Some(cursor) = cursor {
+        push_key_cursor(
+            cursor,
+            (key_expr, key_op, row_op),
+            &mut values,
+            &mut where_parts,
+        );
+    }
+
+    TextFilter::push_conditions(
+        filters,
+        entity_type_filter.unwrap_or(""),
+        own_row,
+        &mut values,
+        &mut where_parts,
+    );
+    filters
+        .values
+        .push_conditions(&mut values, &mut where_parts);
+
+    values.push(Value::Integer(limit));
+    let limit_param_idx = values.len();
+
+    // The key reads the feed and the track of each hit.
+    let value_joins = filters.values.joins(true);
+    let sql = format!(
+        "SELECT e.entity_type, e.entity_id, {rank_expr} AS fts_rank, \
+                COALESCE(q.score, 0) AS quality_score, \
+                {key_expr} AS row_key, e.rowid \
+         FROM {source} \
+         LEFT JOIN entity_quality q \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+          AND q.entity_id = e.entity_id \
+         {value_joins}\
+         WHERE {} \
+         ORDER BY row_key {key_dir} NULLS LAST, e.rowid {row_dir} \
+         LIMIT ?{limit_param_idx}",
+        where_parts.join(" AND ")
+    );
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(values), |row| {
+            let rank: f64 = row.get(2)?;
+            let key = match row.get::<_, Value>(4)? {
+                Value::Text(text) => Some(SortValue::Text(text)),
+                Value::Integer(date) => Some(SortValue::Date(date)),
+                _ => None,
+            };
+            Ok(KeyedSearchResult {
+                result: SearchResult {
+                    entity_type: row.get(0)?,
+                    entity_id: row.get(1)?,
+                    rank,
+                    quality_score: row.get(3)?,
+                    effective_rank: rank,
+                    rowid: row.get(5)?,
+                },
+                key,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
