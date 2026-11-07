@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, and ADR 0085 is built and not released. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -793,6 +793,24 @@ owns the rule, and these answers are advisory.
 |---|---|
 | 17 | Accepted as ADR 0059 §6, with the names of the request. A row of `/v1/copies` gives `feed_image_url`. A row of `/v1/live-items` gives `feed_title` and `feed_image_url`. Each value is of the indexed feed that `feed_guid` names, not of a copy. Each field is null when the node holds no such feed, and each image passes the web URL rule of ADR 0054 §4. A copy gives its own image only on `GET /v1/feeds/{guid}/copies` |
 | 18 | Accepted as ADR 0059 §7. Each row of `include=value_time_splits` gives the feed fields and the track fields that a `remote_items` entry gives, with the same names. This includes `remote_episode_count`, which the request does not ask for. A split gives no URL, so the node finds its feed by `remote_feed_guid` only. When `remote_item_guid` is `""`, each track field is null. `include=local_value_time_splits` does not change |
+
+## Stophammer Answers - 2026-11-07
+
+These answers are advisory. Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0085-a-name-list-takes-the-role-filters.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
+
+**Request 21, a name order.** Accepted in a different form. `GET /v1/feeds/recent` takes no name order. `GET /v1/feeds/by-name` already has the name order, `from`, the cursor and the sort key of ADR 0070 §1, and it now takes the two filters:
+
+```text
+GET /v1/feeds/by-name?medium=publisher&stated_rel=label
+GET /v1/feeds/by-name?medium=publisher&stated_rel=artist
+GET /v1/feeds/by-name?medium=publisher&two_way_links=none
+```
+
+- The filters have the values and the checks of ADR 0068 §4 and §5. They give the link facts, and each row keeps `sort_name`.
+- `reverse=true` gives Z to A (ADR 0084).
+- Send these filters on this route only when `GET /v1/node/capabilities` lists `sort`. A node with no such change ignores them and gives each publisher.
+- One request examines at most 1,000 rows, as on `GET /v1/feeds/recent`. So a page can be short or empty with `has_more` true. On the backup of 2026-11-05, the first page of `stated_rel=label` holds no row. The site must follow the cursor until `has_more` is false.
+- On a local copy, each filtered page took 0.34 to 0.52 s. The same filters on `GET /v1/feeds/recent` took 0.51 to 0.54 s.
 
 ## Requests That v4vmm Also Makes
 

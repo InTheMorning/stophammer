@@ -32,7 +32,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
 | 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
 | 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. v4vmm ADR 0089 shows no count for All until a total exists |
-| 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Sent - 2026-11-06. Waits for the Stophammer answer |
+| 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends |
 | 15 | A sort direction for each list of feeds and names | API parameter addition | Answered - 2026-11-06. Stophammer ADR 0084 is built and not released |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
@@ -423,7 +423,7 @@ The weakest part: the count is useful but not necessary. v4vmm shows no count fo
 
 The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `kind:single`, `kind:album` and `kind:ep` show no Index rows, and a track `title:` shows no track of a release title only.
 
-**Status.** Sent - 2026-11-06. Waits for the Stophammer answer.
+**Status.** Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends.
 
 ### 15. A Sort Direction For Each List Of Feeds And Names
 
@@ -628,6 +628,31 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Stophammer Answers - 2026-11-07
+
+**Request 14, the title filter and the kind filter.** Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0085-a-name-list-takes-the-role-filters.md) answers this request. The build of part 1 is complete, and no release carries it yet. A release record names the release that carries it.
+
+**Part 1 is accepted.** `title` on a track reads the track title or the title of its feed. `title=assorted&type=track` then gives the 7 tracks of "Various & Assorted".
+
+- Each word and each phrase can match either title, as a term of the Library does. A phrase in double quotes must match in one title.
+- `not_title` follows `title`, so `-title:love` removes each track of an album "Love".
+- `release` still reads only the title of the feed. No filter now reads only the title of the track.
+- A filter does not change `rank`. So v4vmm ADR 0087 Known Difference 1 closes with this release.
+
+**Part 2 is declined.** The node still infers no kind (Stophammer ADR 0080 §2, ADR 0085 §6). Musicindex ADR 0020 R-WORD-1 gives this rule to the apps. An app can send the rule today as one request for each type, with no new release of Stophammer:
+
+| The person types | The app sends | Music feeds in the backup of 2026-11-05 |
+|---|---|---|
+| `kind:single` | `kind=unknown&tracks=1` | 6,228 |
+| `kind:album` | `kind=unknown&min_tracks=2` | 2,617 |
+| `kind:ep` | No Index request, because a count never gives EP | 0 |
+
+- This is correct today, because each of the 10,688 feeds in the backup has `release_kind` `unknown`.
+- On `type=track`, `kind` and `tracks` read the feed of the track.
+- `min_tracks=2` leaves out 24 music feeds with no track, which R-WORD-1 calls Album. Musicindex decides whether to record this as a known difference.
+- If the node stores a stated kind in the future, such a feed does not match `kind=unknown`. That change of the ingest then comes with a decision about this mapping.
+- The operator of Stophammer plans shared search code in `musicindex-lib`. This mapping can move there when an ADR accepts that subject.
 
 ## Stophammer Answers - 2026-11-06
 
