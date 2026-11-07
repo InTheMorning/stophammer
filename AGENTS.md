@@ -106,7 +106,9 @@ The requests of v4vmm and musicindex.org are in
 requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
-The v4vmm operator examines it before Stophammer answers.
+The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
+musicindex.org request 21 are answered, and no release carries their build.
+musicindex.org request 22 waits for an answer.
 
 ### Governance
 
