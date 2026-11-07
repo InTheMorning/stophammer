@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: request 21 is open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -658,6 +658,18 @@ the crawler may not list them, or they may answer `304`. If the rules of ADR
 
 This request does not ask the node to change the source or to index the album
 tracks as tracks. The publisher decides which file is the feed.
+
+### 21. A Name Order For Each List Of Feeds
+
+The site gives Artists and Labels the sort A to Z, and each list page can have it (ADR 0047
+R-SITE-4). `GET /v1/feeds/recent` has no name order. Stophammer ADR 0084 adds `reverse` to that
+route, and it adds `sort=name` only to `GET /v1/search`. That route refuses a request with no
+positive term.
+
+The request: `GET /v1/feeds/recent` takes a name order with `medium` and `stated_rel`, with the
+cursor and the `from` start of `GET /v1/artist-names`. It uses the sort key of ADR 0070 §1.
+
+Until Stophammer answers, the site shows no A to Z sort, and "A to Z" stays a destination.
 
 ## Stophammer Answers - 2026-09-25
 
