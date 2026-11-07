@@ -2,7 +2,8 @@
 
 ## Status
 Accepted. Amended on 2026-10-02: the check of item 3 reports only a recorded
-version above the migration count.
+version above the migration count. Amended on 2026-11-06: item 6 states what
+`src/schema.sql` is.
 
 ## Date
 2026-09-22
@@ -53,6 +54,15 @@ A migration version stays an array position. The runner is unchanged.
 4. The guard reports and does not refuse to start. The condition is already
    true in production, so a guard that blocked start would stop the node.
 5. `migrations_can_advance` holds the condition and carries unit tests.
+6. Only the migrations and the repairs build a database. `src/schema.sql` states
+   the shape that they build, and the node does not run it. A difference is a
+   defect in `src/schema.sql`, unless a new migration corrects the shape.
+
+   Amended on 2026-11-06. The file had become incorrect, and no test failed. A
+   renamed table keeps its index names. Migration 0032 renamed `tracks`. Migration
+   0047 then ran `CREATE INDEX IF NOT EXISTS` with such a name, and this created
+   nothing. Its drop of the renamed table removed the index, and the file
+   continued to list these indexes.
 
 `AGENTS.md` states this step in the migration procedure.
 
@@ -91,7 +101,7 @@ deploy. Rejected.
 - The error line appears only for a database that records a version above
   the migration count of the code that starts it.
 - A fresh database is unaffected. `run_migrations` applies every entry, and
-  `src/schema.sql` carries the same shape.
+  `src/schema.sql` states the same shape (item 6).
 - The reconciliation cost is deferred, not paid.
 
 ## Invariants
@@ -110,3 +120,6 @@ This fault reached three migrations. It earns a test.
   repair path, beside the two equivalent tests for 0032 and 0033.
 - `tests/adr0046_runner_report_tests.rs` checks rule 3: the `tracing::error!`
   at start, and no error for a correct database.
+- `tests/adr0046_schema_sql_tests.rs` checks item 6. It compares the tables, the
+  columns, the indexes and the triggers of `src/schema.sql` with the result of
+  `open_db`.

@@ -294,9 +294,6 @@ Purpose: names within an internal compatibility artist credit.
 ### `external_ids`
 Purpose: promoted external IDs that the system has chosen to store outside raw source evidence.
 
-### `entity_source`
-Purpose: provenance/trust records for entities managed by internal layers.
-
 ### `entity_quality`
 Purpose: cached quality scores for internal entity/search workflows.
 

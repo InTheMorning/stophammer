@@ -437,8 +437,9 @@ Binaries live in `src/bin/`. Current binaries:
    of the new file at the end of `tests/fixtures/migration_sha256.txt`.
    `tests/adr0023_migration_hash_tests.rs` fails when a committed migration
    changes, and its message gives the line to add (ADR 0023).
-3. Keep `src/schema.sql` consistent with the union of all migrations
-   (used for fresh bootstraps).
+3. `src/schema.sql` states the shape that the migrations build. The node does
+   not run it. `tests/adr0046_schema_sql_tests.rs` fails when the two differ
+   (ADR 0046 item 6).
 4. A migration version is its position in the `MIGRATIONS` array, not its
    file name. An existing database may already record that version, in which
    case the runner skips the migration and reports it with a `tracing::error!`

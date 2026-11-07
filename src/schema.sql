@@ -72,9 +72,6 @@ CREATE TABLE IF NOT EXISTS tracks (
     PRIMARY KEY (feed_guid, track_guid)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_tracks_feed     ON tracks(feed_guid);
-CREATE INDEX IF NOT EXISTS idx_tracks_pub_date ON tracks(pub_date DESC);
-CREATE INDEX IF NOT EXISTS idx_tracks_title    ON tracks(title_lower);
 CREATE INDEX IF NOT EXISTS idx_tracks_guid     ON tracks(track_guid);
 
 -- Track-level payment routes
@@ -108,8 +105,8 @@ CREATE TABLE IF NOT EXISTS feed_payment_routes (
     recipient_name  TEXT,
     route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
     address         TEXT NOT NULL,
-    custom_key      TEXT NOT NULL DEFAULT '',
-    custom_value    TEXT NOT NULL DEFAULT '',
+    custom_key      TEXT,
+    custom_value    TEXT,
     split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0
 ) STRICT;
@@ -219,9 +216,7 @@ CREATE TABLE IF NOT EXISTS live_events (
     PRIMARY KEY (feed_guid, live_item_guid)
 ) STRICT;
 
-CREATE INDEX IF NOT EXISTS idx_live_events_feed   ON live_events(feed_guid);
 CREATE INDEX IF NOT EXISTS idx_live_events_guid   ON live_events(live_item_guid);
-CREATE INDEX IF NOT EXISTS idx_live_events_status ON live_events(status);
 
 CREATE TABLE IF NOT EXISTS source_contributor_claims (
     id              INTEGER PRIMARY KEY,
@@ -518,22 +513,6 @@ CREATE TABLE IF NOT EXISTS peer_nodes (
 -- ---------------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------------
--- PROVENANCE
--- ---------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS entity_source (
-    id          INTEGER PRIMARY KEY,
-    entity_type TEXT NOT NULL,
-    entity_id   TEXT NOT NULL,
-    source_type TEXT NOT NULL,
-    source_url  TEXT,
-    trust_level INTEGER NOT NULL DEFAULT 0,
-    created_at  INTEGER NOT NULL
-) STRICT;
-
-CREATE INDEX IF NOT EXISTS idx_esrc_entity ON entity_source(entity_type, entity_id);
-
--- ---------------------------------------------------------------------------
 -- QUALITY
 -- ---------------------------------------------------------------------------
 
@@ -573,6 +552,9 @@ CREATE TABLE IF NOT EXISTS search_entities (
 CREATE INDEX IF NOT EXISTS idx_search_entities_entity
     ON search_entities(entity_type, entity_id);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_search_entities_type_id
+    ON search_entities(entity_type, entity_id);
+
 -- The URLs that a record left by a move (ADR 0083 section 4). Local to the
 -- primary. No event carries the rows, so a community node holds none.
 CREATE TABLE IF NOT EXISTS feed_left_urls (
@@ -591,3 +573,80 @@ CREATE TABLE IF NOT EXISTS feed_move_state (
     last_return_at INTEGER,
     arrival_pending INTEGER NOT NULL DEFAULT 0
 ) STRICT;
+
+-- ---------------------------------------------------------------------------
+-- CLEANUP
+-- ---------------------------------------------------------------------------
+
+CREATE TRIGGER IF NOT EXISTS trg_feeds_cleanup_before_delete
+BEFORE DELETE ON feeds
+FOR EACH ROW
+BEGIN
+    DELETE FROM feed_payment_routes
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM feed_list_value_raw
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM entity_quality
+    WHERE entity_type = 'feed'
+      AND entity_id = OLD.feed_guid;
+
+    DELETE FROM feed_remote_items_raw
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM live_events
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_contributor_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_entity_ids
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_entity_links
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_release_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_item_enclosures
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_item_transcripts
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM source_platform_claims
+    WHERE feed_guid = OLD.feed_guid;
+
+    DELETE FROM tracks
+    WHERE feed_guid = OLD.feed_guid;
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_tracks_cleanup_before_delete
+BEFORE DELETE ON tracks
+FOR EACH ROW
+BEGIN
+    DELETE FROM value_time_split_recipients
+    WHERE split_id IN (
+        SELECT id FROM value_time_splits
+        WHERE source_track_guid = OLD.track_guid
+          AND (source_feed_guid = OLD.feed_guid OR source_feed_guid IS NULL)
+    );
+
+    DELETE FROM value_time_splits
+    WHERE source_track_guid = OLD.track_guid
+      AND (source_feed_guid = OLD.feed_guid OR source_feed_guid IS NULL);
+
+    DELETE FROM payment_routes
+    WHERE track_guid = OLD.track_guid
+      AND feed_guid = OLD.feed_guid;
+
+    DELETE FROM track_remote_items_raw
+    WHERE track_guid = OLD.track_guid
+      AND (feed_guid = OLD.feed_guid OR feed_guid IS NULL);
+
+    DELETE FROM entity_quality
+    WHERE entity_type = 'track'
+      AND (entity_id = OLD.track_guid OR entity_id = json_array(OLD.feed_guid, OLD.track_guid));
+END;

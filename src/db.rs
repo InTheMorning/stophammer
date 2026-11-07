@@ -136,19 +136,6 @@ pub struct ExternalIdRow {
     pub value: String,
 }
 
-// ── EntitySourceRow ────────────────────────────────────────────────────────────
-
-/// A row from the `entity_source` table recording where an entity came from.
-// CRIT-03 Debug derive — 2026-03-13
-#[derive(Debug)]
-pub struct EntitySourceRow {
-    pub id: i64,
-    pub source_type: String,
-    pub source_url: Option<String>,
-    pub trust_level: i64,
-    pub created_at: i64,
-}
-
 // ── Migrations ───────────────────────────────────────────────────────────────
 // Issue-MIGRATIONS — 2026-03-14
 

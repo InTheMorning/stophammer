@@ -144,18 +144,6 @@ fn external_id_row_has_debug() {
 }
 
 #[test]
-fn entity_source_row_has_debug() {
-    let row = stophammer::db::EntitySourceRow {
-        id: 1,
-        source_type: "rss".into(),
-        source_url: Some("https://example.com".into()),
-        trust_level: 5,
-        created_at: 1000,
-    };
-    let _ = format!("{row:?}");
-}
-
-#[test]
 fn apply_outcome_has_debug() {
     let outcome = stophammer::apply::ApplyOutcome::Duplicate;
     let _ = format!("{outcome:?}");
