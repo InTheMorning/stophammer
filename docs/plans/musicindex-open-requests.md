@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers request 27. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers request 27, and request 28 is open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -786,6 +786,29 @@ gives for the URL of a copy.
 
 Until the route exists, the search field of the site does not promise a search by URL.
 
+### 28. A Release Date For Each Artist And Label
+
+On 2026-11-08 the live node ran v0.19.0-rc.5. Only 1 of the first 200 rows of `/v1/feeds/recent?medium=publisher`
+had `newest_item_at`. With `stated_rel=artist` 0 of 3 rows had it, and with `stated_rel=label` 0 of 1 had it. The
+Artists, Labels and No role pages of the site read these lists, so their sort Newest gave the order of the tie key.
+The site removed Newest from these pages (musicindex ADR 0050 R-SITE-9 item 5).
+
+Stophammer ADR 0089 gives `newest_release_at` on each row of `/v1/artist-names?sort=date`. That route has no filter for
+a stated role, so it cannot give the Artists list or the Labels list of the site.
+
+The rows of `include=publisher` on `/v1/feeds/{guid}` give no date. The site lists the releases of an artist or a label
+feed from these rows, so those sections have Feed Order and A to Z, and no Newest (musicindex ADR 0053).
+
+The request has two parts:
+
+1. A sort by release date of the publisher feeds, with the filters of `/v1/feeds/recent` that the site sends now
+   (`stated_rel`, `two_way_links`, `include=link_facts`). One form: `newest_release_at` on each publisher row of
+   `/v1/feeds/recent`, with a sort by it. Another form: `stated_rel` on `/v1/artist-names?sort=date`. Stophammer
+   selects the form.
+2. `newest_item_at` on each row of `include=publisher` of `/v1/feeds/{guid}`, for the release of that row.
+
+The site offers Newest again only when the node lists a capability for each part.
+
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at
@@ -943,7 +966,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 
 - A `200` answer gives `data` with `feed_guid`, `href` (`/v1/feeds/<guid>`), `match` and `matched_url`. `match` is `feed_url`, `copy` or `observed_url`.
 - The node compares these forms in sequence: the URL as given with no white space at each end, the parsed URL with no fragment (lowercase scheme and host, no default port), the other one of `http` and `https`, and the same two with the trailing slash added or removed. The query string and the path keep their text and case. `www.` is a different host. The node adds no rule for one host.
-- For each form, the `feed_url` of a feed comes first, then a copy URL, then a URL that gave the GUID at an earlier ingest. A copy URL gives the indexed record, not the copy (ADR 0008 of this site). The Wavlake short form `wavlake.com/feed/<id>` resolves through these earlier URLs.
+- For each form, the `feed_url` of a feed comes first, then a copy URL, then a URL that gave the GUID at an earlier ingest. A copy URL gives the indexed record, not the copy (ADR 0008 of this site). The Wavlake short form `wavlake.com/feed/<id>` resolves only when the node observed that URL: on 2026-11-07, for 1,405 of the 7,699 Wavlake music feeds. The stored form is `wavlake.com/feed/music/<id>`, so send that form when the site has it.
 - With no match, the answer is `404` with `{"error": "feed not found"}`, as on `GET /v1/feeds/{guid}`. It carries `superseded_by` when the URL names a GUID that a GUID change retired. A value that is not an `http` or `https` URL of at most 2,048 bytes gives `400`.
 - The node does not fetch the URL. A URL that the index does not hold gives `404`.
 - Send the route only when `GET /v1/node/capabilities` lists `feed_by_url`. A node with no such flag answers the path as a feed read of the GUID `by-url`, which also gives `404`.

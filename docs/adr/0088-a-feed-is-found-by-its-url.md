@@ -28,7 +28,8 @@ In the backup of 2026-11-07 20:56 UTC:
   port.
 - 2 feed URLs use `http`, 1 ends with a slash, and 2 have a query string.
 - 1,444 observations hold the short Wavlake form `wavlake.com/feed/<id>`. The
-  feed URL of those feeds is the form `wavlake.com/feed/music/<id>`.
+  feed URL of those feeds is the form `wavlake.com/feed/music/<id>`. These
+  observations cover 1,405 of the 7,699 Wavlake music feeds (18%).
 - Each of the 130 copy URLs is also an observation of the GUID of its record.
 
 The request gives the example `https://feeds.wavlake.com/feed/music/0d1aa48a-…`.
@@ -54,8 +55,9 @@ The node compares these forms in this sequence. The first match is the answer.
    path `/` does not change.
 
 The query string and the path keep their text and their case. A `www.` host and
-a host with no `www.` are two hosts. The node adds no rule for one host, and the
-Wavlake short form matches through its observations.
+a host with no `www.` are two hosts. The node adds no rule for one host. The
+Wavlake short form matches only when the node observed it, for 18% of the Wavlake
+music feeds on 2026-11-07.
 
 ### 2. The sources of a match
 For one form, the node reads three sources in this sequence:
