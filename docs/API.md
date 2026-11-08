@@ -1403,8 +1403,10 @@ The node does not fetch the URL. Read the feed at `href`.
      lowercase, and removes a default port.
   3. The same URL with the other one of `http` and `https`.
   4. Forms 2 and 3 with the trailing slash of the path added or removed.
+  5. For `https://wavlake.com/feed/<uuid>` only:
+     `https://wavlake.com/feed/music/<uuid>` (ADR 0088 section 1a).
 - **The query string and the path keep their case and their text.** `?id=7` and
-  `?id=8` are two URLs. The node adds no rule for one host.
+  `?id=8` are two URLs. Form 5 is the only rule for one host.
 - **Sources:** for one form, the `feed_url` of a feed comes first, then the URL
   of a copy (ADR 0058), then a URL that gave the GUID at an earlier ingest
   (ADR 0049 section 1). A copy URL gives the indexed record, not the copy.

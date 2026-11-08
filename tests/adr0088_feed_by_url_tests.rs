@@ -353,3 +353,95 @@ async fn the_capabilities_name_the_route() {
         "ADR 0088 §4: the flag feed_by_url, got {body}"
     );
 }
+
+const WL_ID: &str = "0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f";
+
+fn wl_music() -> String {
+    format!("https://wavlake.com/feed/music/{WL_ID}")
+}
+
+#[tokio::test]
+async fn the_wavlake_short_url_finds_the_music_url_with_no_observation() {
+    let db = common::test_db_arc();
+    put_feed(&db.lock().expect("lock"), "f-wl", &wl_music());
+
+    let (status, body) = by_url(&db, &format!("https://wavlake.com/feed/{WL_ID}")).await;
+    assert_eq!(
+        found(status, &body),
+        ("f-wl".to_owned(), "feed_url".to_owned()),
+        "ADR 0088 §1a: the short URL names the feed of the music URL"
+    );
+    assert_eq!(
+        body["data"]["matched_url"],
+        wl_music(),
+        "ADR 0088 §1a: matched_url is the stored music URL"
+    );
+}
+
+#[tokio::test]
+async fn the_wavlake_alias_ignores_the_scheme_a_slash_and_the_host_case() {
+    let db = common::test_db_arc();
+    put_feed(&db.lock().expect("lock"), "f-wl", &wl_music());
+
+    for url in [
+        format!("http://wavlake.com/feed/{WL_ID}"),
+        format!("https://wavlake.com/feed/{WL_ID}/"),
+        format!("https://WAVLAKE.COM/feed/{WL_ID}"),
+    ] {
+        let (status, body) = by_url(&db, &url).await;
+        assert_eq!(
+            found(status, &body),
+            ("f-wl".to_owned(), "feed_url".to_owned()),
+            "ADR 0088 §1a: {url} finds the music URL, got {body}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_wavlake_alias_comes_after_an_observation_of_the_short_url() {
+    let db = common::test_db_arc();
+    {
+        let conn = db.lock().expect("lock");
+        put_feed(&conn, "f-a", "https://example.com/a.xml");
+        put_feed(&conn, "f-b", &wl_music());
+        db::upsert_feed_url_observation(
+            &conn,
+            &format!("https://wavlake.com/feed/{WL_ID}"),
+            "f-a",
+            1000,
+        )
+        .expect("write observation");
+    }
+
+    let (status, body) = by_url(&db, &format!("https://wavlake.com/feed/{WL_ID}")).await;
+    assert_eq!(
+        found(status, &body),
+        ("f-a".to_owned(), "observed_url".to_owned()),
+        "ADR 0088 §1a: the alias form is last, so the observation matches first"
+    );
+}
+
+#[tokio::test]
+async fn the_wavlake_alias_does_not_apply_to_another_host_or_path() {
+    let db = common::test_db_arc();
+    {
+        let conn = db.lock().expect("lock");
+        put_feed(&conn, "f-wl", &wl_music());
+        put_feed(
+            &conn,
+            "f-ex",
+            &format!("https://example.com/feed/music/{WL_ID}"),
+        );
+    }
+
+    for url in [
+        format!("https://www.wavlake.com/feed/{WL_ID}"),
+        format!("https://feeds.wavlake.com/feed/{WL_ID}"),
+        "https://wavlake.com/feed/not-a-uuid".to_owned(),
+        format!("https://wavlake.com/feed/{WL_ID}/extra"),
+        format!("https://example.com/feed/{WL_ID}"),
+    ] {
+        let (status, body) = by_url(&db, &url).await;
+        assert_eq!(status, 404, "ADR 0088 §1a: {url} has no alias, got {body}");
+    }
+}

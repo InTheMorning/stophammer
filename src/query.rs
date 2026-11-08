@@ -6616,7 +6616,8 @@ struct FeedUrlMatch {
 /// lookup. The first form is the text as given, with no white space at each
 /// end. Then come the parsed URL with no fragment, the other one of `http`
 /// and `https`, and the same two with the trailing slash of the path added or
-/// removed. Gives `None` for a value that is not an absolute `http` or
+/// removed. The last form is the Wavlake music URL of a short Wavlake URL
+/// (ADR 0088 §1a). Gives `None` for a value that is not an absolute `http` or
 /// `https` URL of at most [`FEED_URL_MAX_LEN`] bytes, or that holds a user
 /// name or a password.
 fn feed_url_forms(input: &str) -> Option<Vec<String>> {
@@ -6653,13 +6654,33 @@ fn feed_url_forms(input: &str) -> Option<Vec<String>> {
             parsed.push(form);
         }
     }
+    let wavlake = wavlake_music_form(&parsed[0]);
     let mut forms = vec![input.to_owned()];
-    for form in parsed.into_iter().map(String::from) {
+    for form in parsed.into_iter().map(String::from).chain(wavlake) {
         if !forms.contains(&form) {
             forms.push(form);
         }
     }
     Some(forms)
+}
+
+/// ADR 0088 §1a: the music URL `https://wavlake.com/feed/music/<uuid>` for a
+/// short Wavlake URL `wavlake.com/feed/<uuid>`, with the query string kept.
+/// Gives `None` for each other URL.
+fn wavlake_music_form(url: &url::Url) -> Option<String> {
+    if url.host_str() != Some("wavlake.com") {
+        return None;
+    }
+    let id = url.path().strip_prefix("/feed/")?;
+    let id = id.strip_suffix('/').unwrap_or(id);
+    if id.len() != 36 {
+        return None;
+    }
+    uuid::Uuid::try_parse(id).ok()?;
+    let mut music = url.clone();
+    music.set_scheme("https").ok()?;
+    music.set_path(&format!("/feed/music/{id}"));
+    Some(music.into())
 }
 
 /// The result of `GET /v1/feeds/by-url` before it becomes a response.

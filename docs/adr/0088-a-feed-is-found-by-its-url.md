@@ -5,6 +5,10 @@ Accepted on 2026-11-08 by the operator, for musicindex.org request 27. The build
 is complete. The primary runs it in the candidate `v0.19.0-rc.5`, and no release
 carries it.
 
+§1a amends §1 on 2026-11-08. The orchestrator recorded it, and it applies the
+acceptance of the operator. The build of §1a is complete, and no candidate
+carries it.
+
 ## Date
 2026-11-08
 
@@ -55,9 +59,20 @@ The node compares these forms in this sequence. The first match is the answer.
    path `/` does not change.
 
 The query string and the path keep their text and their case. A `www.` host and
-a host with no `www.` are two hosts. The node adds no rule for one host. The
-Wavlake short form matches only when the node observed it, for 18% of the Wavlake
-music feeds on 2026-11-07.
+a host with no `www.` are two hosts. §1a gives the only rule for one host.
+
+### 1a. The short Wavlake form
+Wavlake gives the short form `https://wavlake.com/feed/<uuid>` for the feed
+`https://wavlake.com/feed/music/<uuid>`. The node observed the short form for
+only 18% of the Wavlake music feeds on 2026-11-07 (see Context). So the short
+form of the other 82% gave `404`.
+
+When the host of form 2 is `wavlake.com` and its path is `/feed/<uuid>`, the node
+compares one more form after each form of §1. That form is
+`https://wavlake.com/feed/music/<uuid>`, with the query string kept. A trailing
+slash after the UUID is permitted. The UUID must be the 36-character form with
+hyphens. The form comes last, so an observation of the short form matches before
+it.
 
 ### 2. The sources of a match
 For one form, the node reads three sources in this sequence:
@@ -85,7 +100,8 @@ the path as a feed read of the GUID `by-url`, which gives `404`. So a client sen
 the route only when the flag is listed.
 
 ### What this ADR does not decide
-- A rule for one host, such as `feeds.wavlake.com` for `wavlake.com`.
+- A rule for one host other than §1a, such as `feeds.wavlake.com` for
+  `wavlake.com`.
 - A match by a part of a URL, or by its host. A search with `host` does that
   (ADR 0080 §5).
 - A crawl of a URL that the node does not hold.
@@ -115,7 +131,7 @@ read does not do this, and the two routes must agree.
 ## Consequences
 - The site can find a feed by its URL, and can tell a copy URL from the URL of the
   feed.
-- A lookup reads at most five forms, each in three sources. Two sources have an
+- A lookup reads at most six forms, each in three sources. Two sources have an
   index on the URL. `feed_copies` has its key on `(feed_guid, url)`, so a copy
   lookup reads each copy row. The table holds 130 rows, and ADR 0058 §1a limits
   the rows for each GUID.
@@ -152,6 +168,11 @@ Tests in `tests/adr0088_feed_by_url_tests.rs` prove each of these:
 10. §1: no `url`, an empty value, a relative URL, `ftp`, a user name and a value
     over 2,048 bytes each give `400`.
 11. §4: the capabilities list `feed_by_url`.
+12. §1a: the short Wavlake form, with the other scheme, a trailing slash or an
+    upper-case host, gives the feed of the music form with `feed_url`.
+13. §1a: an observation of the short form comes before the music form.
+14. §1a: another host, a value that is not a UUID, or a longer path gives no
+    music form.
 
 The guards of ADR 0044 cover the OpenAPI path and the `FeedUrlMatch` schema.
 

@@ -58,6 +58,9 @@ The candidate `v0.19.0-rc.5` holds these ADRs. A release promotes the candidate.
 - [ADR 0090](docs/adr/0090-a-name-sorts-by-a-folded-key.md) gives each name list
   a folded order key and a `#` group, for the name order that v4vmm reported. It
   is built, with migration 0063. No candidate carries it.
+- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) §1a lets the short
+  Wavlake URL `wavlake.com/feed/<uuid>` find the feed of its music URL. It is
+  built, with no migration. No candidate carries it.
 
 ### Open Items
 

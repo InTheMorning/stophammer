@@ -956,7 +956,7 @@ With `sort=relevance`, the node puts each hit in the first group that matches. T
 
 ## Stophammer Answers - 2026-11-08
 
-These answers are advisory. Stophammer [ADR 0088](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0088-a-feed-is-found-by-its-url.md) owns the rule. Its build is complete, and no candidate carries it yet. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0088](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0088-a-feed-is-found-by-its-url.md) owns the rule. The primary runs it in the candidate `v0.19.0-rc.5`. The short Wavlake form of §1a is built, and no candidate carries it yet. A release record names the release that carries it.
 
 **Request 27, a feed by its URL.** Accepted in a different form. The route gives the GUID of the feed and how the URL matched, and the site reads the feed at `href`:
 
@@ -965,8 +965,8 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 ```
 
 - A `200` answer gives `data` with `feed_guid`, `href` (`/v1/feeds/<guid>`), `match` and `matched_url`. `match` is `feed_url`, `copy` or `observed_url`.
-- The node compares these forms in sequence: the URL as given with no white space at each end, the parsed URL with no fragment (lowercase scheme and host, no default port), the other one of `http` and `https`, and the same two with the trailing slash added or removed. The query string and the path keep their text and case. `www.` is a different host. The node adds no rule for one host.
-- For each form, the `feed_url` of a feed comes first, then a copy URL, then a URL that gave the GUID at an earlier ingest. A copy URL gives the indexed record, not the copy (ADR 0008 of this site). The Wavlake short form `wavlake.com/feed/<id>` resolves only when the node observed that URL: on 2026-11-07, for 1,405 of the 7,699 Wavlake music feeds. The stored form is `wavlake.com/feed/music/<id>`, so send that form when the site has it.
+- The node compares these forms in sequence: the URL as given with no white space at each end, the parsed URL with no fragment (lowercase scheme and host, no default port), the other one of `http` and `https`, and the same two with the trailing slash added or removed. The query string and the path keep their text and case. `www.` is a different host. The only rule for one host is the short Wavlake form (ADR 0088 §1a).
+- For each form, the `feed_url` of a feed comes first, then a copy URL, then a URL that gave the GUID at an earlier ingest. A copy URL gives the indexed record, not the copy (ADR 0008 of this site). On 2026-11-07 the node had observed the Wavlake short form `wavlake.com/feed/<uuid>` for only 1,405 of the 7,699 Wavlake music feeds. So ADR 0088 §1a adds one last form: for `https://wavlake.com/feed/<uuid>`, the node also compares `https://wavlake.com/feed/music/<uuid>`. An observation of the short form still matches first. Until a candidate carries §1a, send the music form when the site has it.
 - With no match, the answer is `404` with `{"error": "feed not found"}`, as on `GET /v1/feeds/{guid}`. It carries `superseded_by` when the URL names a GUID that a GUID change retired. A value that is not an `http` or `https` URL of at most 2,048 bytes gives `400`.
 - The node does not fetch the URL. A URL that the index does not hold gives `404`.
 - Send the route only when `GET /v1/node/capabilities` lists `feed_by_url`. A node with no such flag answers the path as a feed read of the GUID `by-url`, which also gives `404`.
