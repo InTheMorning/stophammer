@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Request 26 is open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -768,6 +768,23 @@ shows the kind and the count.
 
 The request: a feed row of `/v1/search` gives `release_kind` and `newest_item_at`, as a row of
 `/v1/feeds/recent` does. The site works without them, so this request blocks nothing.
+
+### 27. A Feed By Its URL
+
+On 2026-11-07 the operator asked that the search field of the site find a feed by its RSS URL. No route of
+Stophammer gives a feed for a URL. The routes are `/v1/feeds/{guid}`, `/v1/feeds/recent`, `/v1/feeds/by-name` and
+the routes under one GUID. A search with the full URL in `q` gives no row: on 2026-11-07,
+`q=https://feeds.wavlake.com/feed/music/0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f` gave none. A search for `wavlake.com`
+gives rows, because the full text index holds the words of the host.
+
+The site already opens a feed by its GUID: it reads `/v1/feeds/{guid}`. A URL can name a feed that is a copy of an
+indexed feed (ADR 0008 of this site), or a feed that the index does not hold.
+
+The request: a route gives the feed of one URL, with the same row as `/v1/feeds/{guid}`. Stophammer decides how a URL
+compares, for example the scheme, a trailing slash and the case of the host. Stophammer also decides what the route
+gives for the URL of a copy.
+
+Until the route exists, the search field of the site does not promise a search by URL.
 
 ## Stophammer Answers - 2026-09-25
 
