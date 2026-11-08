@@ -2,7 +2,7 @@
 
 ## Status
 Accepted on 2026-11-08 by the operator, for musicindex ADR 0053, the shared list
-control rule. The build is complete and not deployed.
+control rule. The build is complete. The primary runs it in the candidate `v0.19.0-rc.5`, and no release carries it.
 
 It adds to ADR 0084 §3 and §11 and to ADR 0071 §4. ADR 0084 §2 does not change.
 
