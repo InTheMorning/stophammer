@@ -33,7 +33,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
 | 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. v4vmm ADR 0089 shows no count for All until a total exists |
 | 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends |
-| 15 | A sort direction for each list of feeds and names | API parameter addition | Answered - 2026-11-06. Stophammer ADR 0084 is built and not released |
+| 15 | A sort direction for each list of feeds and names | API parameter addition | Delivered - 2026-11-07 |
 
 ### 1. Album Summary Fields In Each Publisher Relationship Entry
 
@@ -439,7 +439,7 @@ The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `k
 
 Stophammer owns the name and the form of each parameter. The filters and the row content of each route do not change.
 
-**Status.** Answered - 2026-11-06. The v4vmm operator added this request. Stophammer ADR 0084 is built and not released.
+**Status.** Delivered - 2026-11-07. The v4vmm operator added this request. The live node gives `reverse=true` on the three list routes and `sort` and `reverse` on `/v1/search`, under the capability `sort`. The stored contract 0.19.0 has each parameter. A reversed list keeps its sequence across the next page.
 
 ## Stophammer Answers - 2026-09-25
 
