@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 and 28. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 and 28, and request 29 is open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -808,6 +808,23 @@ The request has two parts:
 2. `newest_item_at` on each row of `include=publisher` of `/v1/feeds/{guid}`, for the release of that row.
 
 The site offers Newest again only when the node lists a capability for each part.
+
+### 29. The Artist Name Of A Publisher Row Of The Artist List
+
+On 2026-11-08 a `publisher` row of `/v1/artist-names` with `include=link_facts` gave `name`, `sort_name`, `key`,
+`feed_guid`, `image_url`, `newest_release_at`, `release_count`, `kind` and the link facts. It gave no `release_artist`
+and no `release_artist_source`. A row of `/v1/feeds/recent?medium=publisher` gives both.
+
+The site infers an artist from a feed with two-way links and no agreed role: an album artist of a confirmed link must
+match the title of the feed or its `release_artist` (musicindex ADR 0007). The inferred artists and the No role page
+have no node filter, so with Newest the site reads the full `/v1/artist-names?sort=date&include=link_facts` (Stophammer
+ADR 0089) and groups each row itself. On the live node, 1,773 publisher feeds were inferred artists with the two names,
+and 1,768 with the title only. Five feeds need `release_artist`, for example "Kolomona Myer - AKA Sir Libre" with the
+artist "Kolomona Myer", and "DJ Cricket- G-Funk Summer Mixes" with "DJ Cricket".
+
+The request: a `publisher` row of `/v1/artist-names` with `include=link_facts` gives `release_artist` and
+`release_artist_source`, with the values of `/v1/feeds/recent`, behind a capability. Until then the site groups these
+rows with the title only, and the five feeds are not in the Newest order of the inferred artists.
 
 ## Stophammer Answers - 2026-09-25
 
