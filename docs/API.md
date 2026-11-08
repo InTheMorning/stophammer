@@ -1377,6 +1377,60 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 
 ---
 
+### GET /v1/feeds/by-url
+
+Gives the GUID of the feed that one RSS URL names (ADR 0088, status Proposed).
+The node does not fetch the URL. Read the feed at `href`.
+
+- **Authentication:** None
+- **Query parameter:** `url`, required. An absolute `http` or `https` URL of at
+  most 2,048 bytes, with no user name or password. Encode it as a query value.
+- **Forms:** the node compares each form in this sequence, and the first match
+  is the answer:
+  1. The value as given, with no white space at each end.
+  2. The parsed URL with no fragment. Parsing makes the scheme and the host
+     lowercase, and removes a default port.
+  3. The same URL with the other one of `http` and `https`.
+  4. Forms 2 and 3 with the trailing slash of the path added or removed.
+- **The query string and the path keep their case and their text.** `?id=7` and
+  `?id=8` are two URLs. The node adds no rule for one host.
+- **Sources:** for one form, the `feed_url` of a feed comes first, then the URL
+  of a copy (ADR 0058), then a URL that gave the GUID at an earlier ingest
+  (ADR 0049 section 1). A copy URL gives the indexed record, not the copy.
+- A match whose feed the node no longer holds does not give that feed. When a
+  GUID change retired it, the answer is `404` with `superseded_by`. Otherwise
+  the next match counts.
+- A community node gives the same answer, because the copies and the URL
+  observations are signed events.
+
+```json
+{
+  "data": {
+    "feed_guid": "feed-guid",
+    "href": "/v1/feeds/feed-guid",
+    "match": "feed_url",
+    "matched_url": "https://example.com/feed.xml"
+  },
+  "pagination": { "cursor": null, "has_more": false },
+  "meta": { "api_version": "v1", "node_pubkey": "hex-pubkey" }
+}
+```
+
+| Field | Description |
+|---|---|
+| `feed_guid` | The GUID of the feed |
+| `href` | The path of the feed read |
+| `match` | `feed_url`, `copy` or `observed_url` |
+| `matched_url` | The form of the URL that matched |
+
+| Status | Meaning |
+|------|---------|
+| 200  | A feed that the node holds has the URL |
+| 400  | No `url`, or a value that is not a valid `http` or `https` URL of at most 2,048 bytes |
+| 404  | No feed has the URL: `{"error": "feed not found"}`. It carries `superseded_by` when the URL names a GUID that a GUID change retired (ADR 0052 section 5) |
+
+---
+
 ### GET /v1/artist-names
 
 Gives one `publisher` row for each feed with the medium `publisher`, and one
@@ -2336,7 +2390,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2366,6 +2420,10 @@ index (ADR 0071 section 5).
 `sort` marks the parameter `reverse` on the three list routes and the
 parameters `sort` and `reverse` on `GET /v1/search` (ADR 0084 section 11). A
 node with no `sort` ignores `reverse` on a list route.
+
+`feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
+`feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives
+`404`.
 
 `publisher_text` on a track read is source-first publisher text. A track
 inherits the field from its parent feed at ingest. ADR 0035 and ADR 0049

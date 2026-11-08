@@ -46,6 +46,9 @@ The candidate `v0.19.0-rc.4` holds these ADRs. A release promotes the candidate.
 
 ### Open Items
 
+- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) is Proposed, for
+  musicindex.org request 27. It is built, with no migration. The operator
+  decides.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.

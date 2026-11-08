@@ -1932,7 +1932,7 @@ async fn a_key_that_looks_like_a_mark_or_holds_a_nul_is_only_text() {
 }
 
 #[tokio::test]
-async fn capabilities_list_sort_last() {
+async fn capabilities_list_sort() {
     let (st, _items) = seeded_search();
     let (status, body) = get(&st, "/v1/node/capabilities").await;
     assert_eq!(status, StatusCode::OK, "{body}");
@@ -1942,10 +1942,9 @@ async fn capabilities_list_sort_last() {
         .iter()
         .map(|c| c.as_str().expect("string"))
         .collect();
-    assert_eq!(
-        caps.last(),
-        Some(&"sort"),
-        "ADR 0084 §11: `sort` is the last capability, got {caps:?}. Add it last in \
+    assert!(
+        caps.contains(&"sort"),
+        "ADR 0084 §11: the capabilities list `sort`, got {caps:?}. Add it in \
          handle_capabilities in src/query.rs."
     );
     for old in ["query", "search", "sync", "push", "name_lists"] {

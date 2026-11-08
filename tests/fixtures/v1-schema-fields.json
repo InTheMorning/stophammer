@@ -234,6 +234,14 @@
       "superseded_by"
     ]
   },
+  "FeedUrlMatch": {
+    "properties": [
+      "feed_guid",
+      "href",
+      "match",
+      "matched_url"
+    ]
+  },
   "GuidChangeDecisionResponse": {
     "properties": [
       "event_id"

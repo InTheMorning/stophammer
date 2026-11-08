@@ -191,6 +191,39 @@ fn spec_value(mode: DocMode) -> Value {
         }),
     );
     paths.insert(
+        "/v1/feeds/by-url".into(),
+        json!({
+            "get": operation(
+                "Get a feed by its URL",
+                "Gives the GUID of the feed that one RSS URL names (ADR 0088). The node compares the URL as given, then with no fragment, with the other one of `http` and `https`, and with the trailing slash added or removed. For each form, the `feed_url` of a feed comes first, then the URL of a copy, then a URL that gave the GUID at an earlier ingest. The node does not follow the URL. Read the feed at `href`.",
+                "Feeds",
+                vec![
+                    query_param("url", "string", None, true, "The RSS URL: an absolute `http` or `https` URL of at most 2048 bytes, with no user name or password.")
+                ],
+                None,
+                json!({
+                    "200": json_response(
+                        "The feed that the URL names, and how the URL names it.",
+                        envelope_schema(json!({ "$ref": "#/components/schemas/FeedUrlMatch" })),
+                        query_envelope_example(json!({
+                            "feed_guid": "feed-guid",
+                            "href": "/v1/feeds/feed-guid",
+                            "match": "feed_url",
+                            "matched_url": "https://example.com/feed.xml"
+                        }))
+                    ),
+                    "400": error_response("Missing or invalid `url` parameter."),
+                    "404": json_response(
+                        "No feed has the URL. Carries `superseded_by` when the URL names a GUID that a GUID change retired (ADR 0052 section 5).",
+                        json!({ "$ref": "#/components/schemas/FeedSupersededBody" }),
+                        json!({ "error": "feed not found", "superseded_by": "new-feed-guid" })
+                    )
+                }),
+                None
+            )
+        }),
+    );
+    paths.insert(
         "/v1/feeds/by-name".into(),
         json!({
             "get": operation(

@@ -6296,6 +6296,209 @@ async fn handle_search(
     .into_response())
 }
 
+// ── GET /v1/feeds/by-url ─────────────────────────────────────────────────────
+
+/// The longest `url` that `GET /v1/feeds/by-url` reads (ADR 0088 §1).
+pub(crate) const FEED_URL_MAX_LEN: usize = 2048;
+
+#[derive(Debug, Deserialize)]
+pub struct FeedByUrlQuery {
+    url: Option<String>,
+}
+
+/// How a URL names a feed (ADR 0088 §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum FeedUrlMatchKind {
+    /// The `feed_url` of the feed.
+    FeedUrl,
+    /// The URL of a copy of the feed (ADR 0058).
+    Copy,
+    /// A URL that gave the GUID of the feed at an earlier ingest (ADR 0049 §1).
+    ObservedUrl,
+}
+
+/// The item of `GET /v1/feeds/by-url` (ADR 0088 §3).
+#[derive(Debug, Serialize, ToSchema)]
+struct FeedUrlMatch {
+    feed_guid: String,
+    /// The path of the feed read.
+    href: String,
+    #[serde(rename = "match")]
+    match_kind: FeedUrlMatchKind,
+    /// The stored URL that matched.
+    matched_url: String,
+}
+
+/// ADR 0088 §1: the URL forms that `input` can name, in the sequence of the
+/// lookup. The first form is the text as given, with no white space at each
+/// end. Then come the parsed URL with no fragment, the other one of `http`
+/// and `https`, and the same two with the trailing slash of the path added or
+/// removed. Gives `None` for a value that is not an absolute `http` or
+/// `https` URL of at most [`FEED_URL_MAX_LEN`] bytes, or that holds a user
+/// name or a password.
+fn feed_url_forms(input: &str) -> Option<Vec<String>> {
+    let input = input.trim();
+    if input.is_empty() || input.len() > FEED_URL_MAX_LEN {
+        return None;
+    }
+    let mut url = url::Url::parse(input).ok()?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    url.set_fragment(None);
+    let mut other = url.clone();
+    other
+        .set_scheme(if url.scheme() == "https" {
+            "http"
+        } else {
+            "https"
+        })
+        .ok()?;
+    let mut parsed = vec![url, other];
+    let path = parsed[0].path().to_owned();
+    if path != "/" {
+        let toggled = path
+            .strip_suffix('/')
+            .map_or_else(|| format!("{path}/"), str::to_owned);
+        for index in 0..2 {
+            let mut form = parsed[index].clone();
+            form.set_path(&toggled);
+            parsed.push(form);
+        }
+    }
+    let mut forms = vec![input.to_owned()];
+    for form in parsed.into_iter().map(String::from) {
+        if !forms.contains(&form) {
+            forms.push(form);
+        }
+    }
+    Some(forms)
+}
+
+/// The result of `GET /v1/feeds/by-url` before it becomes a response.
+enum FeedByUrlOutcome {
+    Found(FeedUrlMatch),
+    Superseded { superseded_by: String },
+    NotFound,
+}
+
+/// ADR 0088 §2: looks up each form in sequence. For one form, the
+/// `feed_url` of a feed comes first, then a copy URL, then an observed URL.
+/// A match whose feed the node no longer holds gives the GUID that replaced
+/// it, when one did. Otherwise the lookup goes on to the next match.
+fn find_feed_by_url(
+    conn: &rusqlite::Connection,
+    forms: &[String],
+) -> Result<FeedByUrlOutcome, db::DbError> {
+    const LOOKUPS: [(FeedUrlMatchKind, &str); 3] = [
+        (
+            FeedUrlMatchKind::FeedUrl,
+            "SELECT feed_guid FROM feeds WHERE feed_url = ?1",
+        ),
+        (
+            FeedUrlMatchKind::Copy,
+            "SELECT feed_guid FROM feed_copies WHERE url = ?1 ORDER BY first_seen, feed_guid",
+        ),
+        (
+            FeedUrlMatchKind::ObservedUrl,
+            "SELECT feed_guid FROM feed_url_observations WHERE url = ?1",
+        ),
+    ];
+    let mut superseded_by = None;
+    for form in forms {
+        for (kind, sql) in LOOKUPS {
+            let mut stmt = conn.prepare_cached(sql)?;
+            let guids = stmt
+                .query_map(params![form], |row| row.get::<_, String>(0))?
+                .collect::<Result<Vec<_>, _>>()?;
+            for feed_guid in guids {
+                let held: bool = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM feeds WHERE feed_guid = ?1)",
+                    params![feed_guid],
+                    |row| row.get(0),
+                )?;
+                if held {
+                    return Ok(FeedByUrlOutcome::Found(FeedUrlMatch {
+                        href: format!("/v1/feeds/{feed_guid}"),
+                        feed_guid,
+                        match_kind: kind,
+                        matched_url: form.clone(),
+                    }));
+                }
+                if superseded_by.is_none() {
+                    superseded_by =
+                        db::get_guid_supersession(conn, &feed_guid)?.map(|row| row.new_guid);
+                }
+            }
+        }
+    }
+    Ok(
+        superseded_by.map_or(FeedByUrlOutcome::NotFound, |superseded_by| {
+            FeedByUrlOutcome::Superseded { superseded_by }
+        }),
+    )
+}
+
+async fn handle_get_feed_by_url(
+    State(state): State<Arc<api::AppState>>,
+    Query(params): Query<FeedByUrlQuery>,
+) -> Result<Response, api::ApiError> {
+    let Some(forms) = params.url.as_deref().and_then(feed_url_forms) else {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: format!(
+                "url must be an absolute http or https URL of at most {FEED_URL_MAX_LEN} bytes"
+            ),
+            www_authenticate: None,
+        });
+    };
+    let state2 = Arc::clone(&state);
+    let outcome = tokio::task::spawn_blocking(move || {
+        let conn = state2.db.reader().map_err(|e| api::ApiError {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            message: format!("database reader pool error: {e}"),
+            www_authenticate: None,
+        })?;
+        Ok::<_, api::ApiError>(find_feed_by_url(&conn, &forms)?)
+    })
+    .await
+    .map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("internal task panic: {e}"),
+        www_authenticate: None,
+    })??;
+
+    match outcome {
+        FeedByUrlOutcome::Found(data) => Ok(Json(QueryResponse {
+            data,
+            pagination: Pagination {
+                cursor: None,
+                has_more: false,
+            },
+            meta: meta(&state),
+        })
+        .into_response()),
+        FeedByUrlOutcome::NotFound => Err(api::ApiError {
+            status: StatusCode::NOT_FOUND,
+            message: "feed not found".into(),
+            www_authenticate: None,
+        }),
+        FeedByUrlOutcome::Superseded { superseded_by } => Ok((
+            StatusCode::NOT_FOUND,
+            Json(FeedSupersededBody {
+                error: "feed not found".into(),
+                superseded_by,
+            }),
+        )
+            .into_response()),
+    }
+}
+
 // ── GET /v1/node/capabilities ───────────────────────────────────────────────
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -6340,7 +6543,15 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
         // ADR 0070 §6: `name_lists` names the two routes that give an
         // identity one row in sort-key order. ADR 0084 §11: `sort` comes
         // last. It tells a client that `reverse` and the search `sort` exist.
-        capabilities: vec!["query", "search", "sync", "push", "name_lists", "sort"],
+        capabilities: vec![
+            "query",
+            "search",
+            "sync",
+            "push",
+            "name_lists",
+            "sort",
+            "feed_by_url",
+        ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.
         entity_types: vec!["feed", "track", "publisher"],
@@ -6786,6 +6997,7 @@ pub fn query_routes() -> axum::Router<Arc<api::AppState>> {
         .route("/v1/live-items", get(handle_list_live_items))
         .route("/v1/feeds/recent", get(handle_get_recent_feeds))
         .route("/v1/feeds/by-name", get(handle_get_feeds_by_name))
+        .route("/v1/feeds/by-url", get(handle_get_feed_by_url))
         .route("/v1/artist-names", get(handle_get_artist_names))
         .route("/v1/tracks", get(handle_artist_tracks))
         .route("/v1/tracks/{guid}", get(handle_get_track))
@@ -6836,6 +7048,8 @@ pub(crate) fn response_schemas() -> Vec<SchemaEntry> {
     register_schema::<CopyRecordResponse>(&mut schemas);
     register_schema::<GuidChangeResponse>(&mut schemas);
     register_schema::<FeedSupersededBody>(&mut schemas);
+    register_schema::<FeedUrlMatch>(&mut schemas);
+    register_schema::<FeedUrlMatchKind>(&mut schemas);
     register_schema::<LiveItemResponse>(&mut schemas);
     register_schema::<LiveItemListResponse>(&mut schemas);
     register_schema::<ArtistNameRow>(&mut schemas);
