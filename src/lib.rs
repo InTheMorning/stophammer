@@ -35,6 +35,10 @@
 //!   with [`community::build_community_push_router`].
 //! - **Verification**: [`verify::build_chain`] assembles the chain from env config.
 
+/// The `User-Agent` of each HTTP request that the node sends. Some hosts
+/// refuse a request with no `User-Agent`.
+pub const USER_AGENT: &str = concat!("stophammer/", env!("CARGO_PKG_VERSION"));
+
 pub mod api;
 pub mod apply;
 pub mod blocks;

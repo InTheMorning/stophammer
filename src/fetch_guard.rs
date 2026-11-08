@@ -153,6 +153,7 @@ pub fn is_url_ssrf_safe(url: &url::Url) -> bool {
 #[must_use]
 pub fn build_ssrf_safe_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .user_agent(crate::USER_AGENT)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             // Enforce maximum redirect depth.
             if attempt.previous().len() >= MAX_SSRF_REDIRECTS {
@@ -187,6 +188,7 @@ pub fn build_ssrf_safe_client_pinned(
     resolved_addrs: &[std::net::SocketAddr],
 ) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
+        .user_agent(crate::USER_AGENT)
         .redirect(reqwest::redirect::Policy::custom(|attempt| {
             if attempt.previous().len() >= MAX_SSRF_REDIRECTS {
                 return attempt.error(SsrfRedirectError::TooManyRedirects);
@@ -276,6 +278,7 @@ fn build_no_redirect_pinned_client(
     resolved_addrs: &[std::net::SocketAddr],
 ) -> reqwest::Client {
     let mut builder = reqwest::Client::builder()
+        .user_agent(crate::USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10));
 

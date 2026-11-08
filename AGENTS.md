@@ -263,7 +263,7 @@ album. `gossip` follows in two levels, with its own throttle.
 
 ```bash
 cd stophammer-parser
-cargo run --bin stophammer-parse -- <path-or-url>
+cargo run --bin stophammer-parse < feed.xml   # reads RSS from standard input
 ```
 
 ---

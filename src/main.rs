@@ -159,6 +159,7 @@ async fn run_primary(
     }
 
     let push_client = reqwest::Client::builder()
+        .user_agent(stophammer::USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(std::time::Duration::from_secs(10))
         .build()
@@ -230,6 +231,7 @@ async fn run_community(
         })?;
 
         let discovery_client = reqwest::Client::builder()
+            .user_agent(stophammer::USER_AGENT)
             .timeout(std::time::Duration::from_secs(5))
             .build()
             .map_err(|err| startup_error(format!("failed to build discovery client: {err}")))?;
@@ -281,6 +283,7 @@ async fn run_community(
     // section 4).
     let dummy_chain = verify::VerifierChain::new("community-node-unused-token".into(), vec![]);
     let push_client = reqwest::Client::builder()
+        .user_agent(stophammer::USER_AGENT)
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|err| startup_error(format!("failed to build push HTTP client: {err}")))?;

@@ -4775,6 +4775,7 @@ async fn verify_sync_register_target(
     })?;
 
     let mut client_builder = reqwest::Client::builder()
+        .user_agent(crate::USER_AGENT)
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(5));
 
