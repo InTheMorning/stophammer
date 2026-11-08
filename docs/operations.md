@@ -149,6 +149,27 @@ docker compose up -d --no-build primary gossip
 time in `built_at`. A promoted release is the same build as its candidate. The
 `info.version` of `/openapi.json` gives the version.
 
+**Known risk.** `deploy.sh --release` stops `gossip` before `primary` (ADR 0062
+section 8). It starts `gossip` again only after `primary` is healthy, because
+`gossip` has `depends_on: primary: condition: service_healthy`. The remote script
+runs with `set -euo pipefail`. If `primary` is unhealthy after its 12 retries, the
+script stops, and `gossip` can stay stopped.
+
+On 2026-11-07 a misread of
+`docker compose ps` suggested this. The full list showed `gossip` up on the new
+image, so the risk has not occurred.
+
+After each release deploy, run this on the host, in the Compose folder:
+
+```bash
+docker compose ps --format '{{.Service}} {{.Image}} {{.Status}}'
+```
+
+`gossip` must show `Up` on the image of the new version, as `primary` does. If
+`gossip` is missing or not `Up`, run `docker compose ps -a` and
+`docker compose logs --tail 60 gossip`. When `primary` is healthy, start it with
+`docker compose up -d --no-build gossip`.
+
 ### Container image
 
 ```bash

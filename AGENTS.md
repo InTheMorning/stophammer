@@ -91,6 +91,10 @@ The candidate `v0.19.0-rc.4` holds these ADRs. A release promotes the candidate.
 
 ### Operating Facts
 
+- A release deploy can leave `gossip` stopped when `primary` starts slowly.
+  After each release deploy, check that `gossip` is up on the new image.
+  [The operations guide](docs/operations.md), "Deploy a release with Compose",
+  gives the check. `deploy.sh` does not change for this.
 - The primary keys its rate limit by `X-Real-IP` with `TRUST_PROXY=true`, and
   uses the defaults of 50 requests a second and a burst of 100 for each client.
   `docker-compose.yml` publishes 8008 and 8089 on `127.0.0.1` only. CI runs
