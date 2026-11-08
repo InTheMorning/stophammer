@@ -29,7 +29,7 @@ use utoipa::ToSchema;
 
 use crate::model::{
     Feed, LiveEvent, RouteRecipient, ValueTimeSplit, ValueTimeSplitForm, guid_origin_matches,
-    sort_key, web_link_for_read, web_url_or_none,
+    order_key, sort_key, web_link_for_read, web_url_or_none,
 };
 use crate::{api, db, event, live, medium};
 
@@ -91,6 +91,17 @@ fn decode_cursor_for(cursor: &str, reverse: bool) -> Result<String, api::ApiErro
         });
     }
     decode_cursor(body)
+}
+
+/// The order key of the text of `from` (ADR 0090 §3). `from=#` gives the mark of
+/// the group of names with no letter from `a` to `z` at their start, so the list
+/// starts at the first row of that group.
+fn from_order_key(text: &str) -> String {
+    if sort_key(text) == crate::model::ORDER_KEY_OTHER_GROUP.to_string() {
+        crate::model::ORDER_KEY_OTHER_GROUP.to_string()
+    } else {
+        order_key(text)
+    }
 }
 
 /// ADR 0084 §7: the exclusive upper bound of `from` in the reversed
@@ -5177,7 +5188,7 @@ async fn handle_get_feeds_by_name(
         // ADR 0070 §2: `from` applies only when the request carries no cursor.
         // ADR 0084 §7: with `reverse`, `from` gives an upper bound.
         let from_floor = if cursor_after.is_none() {
-            params.from.as_deref().map(sort_key).and_then(|key| {
+            params.from.as_deref().map(from_order_key).and_then(|key| {
                 if reverse {
                     reverse_from_bound(&key)
                 } else {
@@ -5488,7 +5499,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
     };
 
     for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
-        let sort_name = sort_key(&title);
+        let sort_name = order_key(&title);
         // ADR 0071 §2: the build keeps the link facts of each publisher
         // feed, so a page with `include=link_facts` reads no database row.
         let facts = link_facts(&load_publisher(conn, &feed_guid)?);
@@ -5539,7 +5550,9 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
         rows.push(ArtistNameRow {
             kind: "name".to_string(),
             name: group.name(),
-            sort_name: key.clone(),
+            // ADR 0090 §1 and §3: `key` stays the identity, and `sort_name`
+            // gives the sequence.
+            sort_name: order_key(&key),
             key: key.clone(),
             feed_guid: None,
             image_url: None,
@@ -5913,7 +5926,7 @@ async fn handle_get_artist_names(
             } else if let Some(bound) = params
                 .from
                 .as_deref()
-                .map(sort_key)
+                .map(from_order_key)
                 .and_then(|key| reverse_from_bound(&key))
             {
                 all_rows.partition_point(|r| r.sort_name.as_str() < bound.as_str())
@@ -5935,7 +5948,7 @@ async fn handle_get_artist_names(
                     (r.sort_name.as_str(), r.kind.as_str(), r.key.as_str())
                         <= (sort.as_str(), kind.as_str(), key.as_str())
                 })
-            } else if let Some(from) = params.from.as_deref().map(sort_key) {
+            } else if let Some(from) = params.from.as_deref().map(from_order_key) {
                 all_rows.partition_point(|r| r.sort_name.as_str() < from.as_str())
             } else {
                 0

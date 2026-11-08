@@ -1316,14 +1316,19 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
 - **Constraint:** Defaults to feeds with `raw_medium = 'music'`. Pass
   `medium=publisher` for publisher feeds, or `medium=all` for every feed the
   index holds, whatever its medium.
-- **Sort key:** The node makes the key from `title`. It removes the white
-  space at the start and at the end. It replaces each internal run of white
-  space with one space. It changes each character to Unicode lowercase. ADR
-  0070 section 1 owns this rule.
+- **Sort key:** The node makes the order key of ADR 0090 from `title`. It
+  removes the white space at each end, joins each internal run of white space
+  into one space, and makes the text lowercase. It removes each accent, so
+  `ë` sorts as `e`, and it changes `ø` to `o`, `æ` to `ae` and `ß` to `ss`.
+  It puts zeros before each run of digits, to 20 digits, so `2` comes before
+  `10`.
+- **The `#` group:** a title that does not start with a letter from `a` to
+  `z` has a key that starts with `#`. Digits, symbols, emoji and other
+  scripts are in this group, which comes before `A`.
 - **Sort comparison:** Two sort keys compare by Unicode code point. This
   matches a byte comparison of UTF-8 text, and the SQLite `BINARY`
   collation. The node keeps a leading article such as "The", and it keeps
-  punctuation and an accent.
+  punctuation.
 - **Query parameters:** common pagination params plus optional `include`,
   `medium`, `from`, `stated_rel`, `two_way_links`, `artist_key`,
   `named_feed_guid` and `reverse`.
@@ -1363,15 +1368,16 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
   `GET /v1/feeds/recent` (ADR 0071 section 3).
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the sort key of this text. `from=M` starts at the first title that
-  starts with `m`. A request with `cursor` ignores `from`.
+  starts with `m`, and a title that folds to `m` is among them. `from=#`
+  starts at the `#` group. A request with `cursor` ignores `from`.
 - **`reverse`:** `reverse=true` gives Z to A, with `feed_guid` in descending
   order. Then `from=M` starts at the last title that starts with `m`. When
   no title starts with the text, the list starts at the last row before its
   position. ADR 0084 sections 3 and 7.
 
 Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
-`sort_name`: the sort key of this row's `title`. No other route gives
-`sort_name`.
+`sort_name`: the order key of this row's `title` (ADR 0090). `GET
+/v1/artist-names` and `sort=name` on `GET /v1/search` also give it.
 
 **Response:** Paginated array of feed objects, each with `sort_name`.
 
@@ -1469,7 +1475,8 @@ sections 3 and 4 own this route.
   `name` row gives none of them. The node calculates them in the build of
   the copy in memory. ADR 0071 section 2.
 - **`from`:** Starts the list at the first row with a sort key equal to or
-  after the sort key of this text. A request with `cursor` ignores `from`.
+  after the order key of this text. `from=#` starts at the `#` group. A
+  request with `cursor` ignores `from`.
 - **`reverse`:** `reverse=true` gives Z to A, with `sort_name`, `kind` and
   `key` in descending order. `from` then starts at the last row whose sort
   key starts with the sort key of the text, as on `GET /v1/feeds/by-name`.
@@ -1487,8 +1494,8 @@ Each row gives:
 | Field | `kind` `publisher` | `kind` `name` |
 |-------|---------------------|---------------|
 | `name` | The feed title | The raw `release_artist` text that the most releases of the row state. A tie keeps the first text in code point order |
-| `sort_name` | The sort key of `name` | The key of the row |
-| `key` | The feed GUID | The sort key of the group |
+| `sort_name` | The order key of `name` (ADR 0090) | The order key of `key` (ADR 0090) |
+| `key` | The feed GUID | The sort key of the group: lowercase, with the accents kept. `artist_key` reads it |
 | `feed_guid` | The feed GUID | `null` |
 | `image_url` | The feed image, as a web URL | `null` |
 | `release_count` | `null` | The number of name-level releases with this key. `GET /v1/feeds/by-name?artist_key=<key>` lists them |
@@ -2289,7 +2296,8 @@ the rows by `rank`.
 
 - `sort=relevance` is the rank order of a search with a word, and it is the
   default with a word in `q`. It needs a word in `q`.
-- `sort=name` is A to Z by the sort key of the title (ADR 0070 section 1). A
+- `sort=name` is A to Z by the order key of the title (ADR 0090), with the
+  `#` group first. A
   `feed` row and a `publisher` row use the sort key of the feed. A `track` row
   uses `tracks.title_sort`. A request with no `type` merges feeds and tracks by
   this key.

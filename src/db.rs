@@ -23,7 +23,7 @@ use crate::model::{
     PaymentRoute, RouteRecipient, RouteType, SourceContributorClaim, SourceEntityIdClaim,
     SourceEntityLink, SourceItemEnclosure, SourceItemTranscript, SourcePlatformClaim,
     SourceReleaseClaim, Track, TrackRemoteItemRaw, ValueTimeSplit, ValueTimeSplitForm,
-    ValueTimeSplitRecipient, feed_recipient_set, recipient_set, sort_key,
+    ValueTimeSplitRecipient, feed_recipient_set, order_key, recipient_set,
 };
 use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -285,6 +285,7 @@ const MIGRATIONS: &[&str] = &[
     // Migration 62: store the sort key of each track title (ADR 0084 §8,
     // task 001)
     include_str!("../migrations/0062_track_title_sort.sql"),
+    include_str!("../migrations/0063_title_sort_order_key.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -1042,9 +1043,10 @@ fn ensure_search_index_publisher_feeds(conn: &mut Connection) -> Result<(), DbEr
 
 /// Fills `feeds.title_sort` for each row where it is null.
 ///
-/// `SQLite` cannot give the Unicode lowercase the key needs, so
-/// [`sort_key`] computes it in Rust from the stored `title`, and this
-/// repair writes the result back. A database with no null `title_sort`
+/// `SQLite` cannot give the Unicode folding the key needs, so
+/// [`order_key`] computes it in Rust from the stored `title`, and this
+/// repair writes the result back. Migration 0063 clears each value, so the
+/// first start after it writes the order key of ADR 0090 into each row. A database with no null `title_sort`
 /// skips the repair. Migration 0051 adds the column with no value, so only
 /// a database that opened before migration 0051 ran still has a null row
 /// here: `upsert_feed` and `ingest_transaction` derive `title_sort` from
@@ -1070,7 +1072,7 @@ fn ensure_feed_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
     {
         let mut stmt = tx.prepare("UPDATE feeds SET title_sort = ?1 WHERE feed_guid = ?2")?;
         for (feed_guid, title) in &rows {
-            stmt.execute(params![sort_key(title), feed_guid])?;
+            stmt.execute(params![order_key(title), feed_guid])?;
         }
     }
     tx.commit()?;
@@ -1085,8 +1087,9 @@ fn ensure_feed_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
 
 /// Fills `tracks.title_sort` for each row where it is null.
 ///
-/// `SQLite` cannot make the key, so [`sort_key`] makes it in Rust from the
-/// stored `title`. A database with no null `title_sort` skips the repair.
+/// `SQLite` cannot make the key, so [`order_key`] makes it in Rust from the
+/// stored `title`. Migration 0063 clears each value for the order key of ADR
+/// 0090. A database with no null `title_sort` skips the repair.
 /// `upsert_track` and `ingest_transaction` derive the value at each write, so
 /// a write never leaves a null row. ADR 0084 §8.
 fn ensure_track_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> {
@@ -1110,7 +1113,7 @@ fn ensure_track_title_sort_filled(conn: &mut Connection) -> Result<(), DbError> 
             "UPDATE tracks SET title_sort = ?1 WHERE feed_guid = ?2 AND track_guid = ?3",
         )?;
         for (feed_guid, track_guid, title) in &rows {
-            stmt.execute(params![sort_key(title), feed_guid, track_guid])?;
+            stmt.execute(params![order_key(title), feed_guid, track_guid])?;
         }
     }
     tx.commit()?;
@@ -1525,7 +1528,7 @@ pub fn upsert_feed(conn: &Connection, feed: &Feed) -> Result<(), DbError> {
             // `title_sort` field, so a signed `FeedUpserted` event never
             // encodes this column, and a historical event cannot write a
             // stale or missing key over a correct one.
-            sort_key(&feed.title),
+            order_key(&feed.title),
             // ADR 0080 §5: the host comes from `feed_url` at each write. `Feed`
             // carries no `feed_host` field.
             feed_host_of(&feed.feed_url),
@@ -1588,7 +1591,7 @@ pub fn upsert_track(conn: &Connection, track: &Track) -> Result<(), DbError> {
             track.created_at,
             track.updated_at,
             // ADR 0084 §8: derived from `title` at each write, as for feeds.
-            sort_key(&track.title),
+            order_key(&track.title),
         ],
     )?;
     Ok(())
@@ -6899,7 +6902,7 @@ pub fn ingest_transaction(
             feed.release_artist_source,
             // ADR 0070 §1: derived from `title` at each write, not read
             // from `feed`. See the note in `upsert_feed`.
-            sort_key(&feed.title),
+            order_key(&feed.title),
             // ADR 0080 §5: the host comes from `feed_url` at each write. `Feed`
             // carries no `feed_host` field.
             feed_host_of(&feed.feed_url),
@@ -7239,7 +7242,7 @@ pub fn ingest_transaction(
                 track.created_at,
                 track.updated_at,
                 // ADR 0084 §8: derived from `title` at each write.
-                sort_key(&track.title),
+                order_key(&track.title),
             ],
         )?;
 

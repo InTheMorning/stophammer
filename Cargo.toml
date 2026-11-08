@@ -46,6 +46,7 @@ ratatui            = "0.29"
 crossterm          = "0.28"
 anyhow = "1.0.102"
 utoipa = "5"
+unicode-normalization = "0.1"
 
 # CRIT-02 test-util feature gate — 2026-03-13
 [features]

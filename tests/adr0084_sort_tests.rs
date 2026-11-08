@@ -1,6 +1,6 @@
 // ADR 0084 §8, task 001: a track stores its sort key.
 //
-// Checks that `tracks.title_sort` equals `model::sort_key(title)`:
+// Checks that `tracks.title_sort` equals `model::order_key(title)` (ADR 0090 §3):
 // - after the fill in `open_db` sets a null value,
 // - after `db::upsert_track`, for an insert and for an update,
 // - after an applied signed `TrackUpserted` event, which calls `upsert_track`,
@@ -59,7 +59,7 @@ use tower::ServiceExt;
 use stophammer::event::{
     Event, EventPayload, EventType, FeedUpsertedPayload, TrackUpsertedPayload,
 };
-use stophammer::model::{Feed, Track, sort_key};
+use stophammer::model::{Feed, Track, order_key};
 
 const MESSY_TITLE: &str = "  The  \u{c9}lan\tSession ";
 
@@ -144,8 +144,8 @@ fn fill_sets_each_null_title_sort_on_open() {
     for (guid, title) in [("fill-a", MESSY_TITLE), ("fill-b", "Plain")] {
         assert_eq!(
             stored_sort(&conn, guid),
-            Some(sort_key(title)),
-            "ADR 0084 §8: the fill in open_db must set tracks.title_sort to sort_key(title). \
+            Some(order_key(title)),
+            "ADR 0084 §8: the fill in open_db must set tracks.title_sort to order_key(title) (ADR 0090 §4). \
              Fix ensure_track_title_sort_filled in src/db.rs."
         );
     }
@@ -160,7 +160,7 @@ fn upsert_track_derives_title_sort_for_insert_and_update() {
         .expect("insert track");
     assert_eq!(
         stored_sort(&conn, "up-a"),
-        Some(sort_key(MESSY_TITLE)),
+        Some(order_key(MESSY_TITLE)),
         "ADR 0084 §8: an insert through upsert_track must derive title_sort from title."
     );
 
@@ -235,7 +235,7 @@ fn applied_track_upserted_event_derives_title_sort() {
     let conn = pool.reader().expect("reader connection");
     assert_eq!(
         stored_sort(&conn, track_guid),
-        Some(sort_key(MESSY_TITLE)),
+        Some(order_key(MESSY_TITLE)),
         "ADR 0084 §8: a node that applies a signed TrackUpserted event must derive \
          title_sort itself. The event format does not carry it."
     );
@@ -268,7 +268,7 @@ async fn ingest_feed_derives_title_sort_for_insert_and_update() {
     });
 
     for (hash, title, expected) in [
-        ("hash-1", MESSY_TITLE, sort_key(MESSY_TITLE)),
+        ("hash-1", MESSY_TITLE, order_key(MESSY_TITLE)),
         ("hash-2", "Changed  Title", "changed title".to_string()),
     ] {
         let url = "https://example.com/ingest-sort.xml";
@@ -579,7 +579,10 @@ const NAME_FEEDS: [(&str, &str); 10] = [
     ("n-emoji", "\u{1F596}"),
 ];
 
+/// ADR 0090 §2: the emoji title has no letter from `a` to `z` at its start, so it
+/// is in the `#` group before `A`.
 const NAME_ASC: [&str; 10] = [
+    "n-emoji",
     "n-alpha",
     "n-lemon",
     "n-m",
@@ -589,7 +592,6 @@ const NAME_ASC: [&str; 10] = [
     "n-hi",
     "n-zeta1",
     "n-zeta2",
-    "n-emoji",
 ];
 
 fn name_state() -> Arc<stophammer::api::AppState> {
@@ -616,7 +618,7 @@ async fn by_name_without_reverse_keeps_its_sequence_and_cursor_form() {
     );
     assert_eq!(
         cursors,
-        vec![b64("madonna\0n-madonna"), b64("zeta\0n-zeta1")],
+        vec![b64("m\0n-m"), b64("m\u{10FFFF}z\0n-hi")],
         "ADR 0084 §9: the cursor of the usual direction must keep its form"
     );
 }
@@ -646,8 +648,10 @@ async fn by_name_reverse_from_starts_at_the_last_title_with_the_prefix() {
         ("ma", "n-mango"),
         ("mb", "n-mango"),
         ("m%F4%8F%BF%BF", "n-hi"),
+        // ADR 0090 §2: the emoji is in the `#` group before `A`, so the last
+        // row of the list is "Zeta".
         ("%F4%8F%BF%BF", "n-emoji"),
-        ("", "n-emoji"),
+        ("", "n-zeta2"),
     ];
     for (from, first) in cases {
         let (status, body) = get(
@@ -674,7 +678,7 @@ async fn by_name_reverse_from_starts_at_the_last_title_with_the_prefix() {
     // A key before every row: the list is empty.
     let (_, body) = get(&st, "/v1/feeds/by-name?reverse=true&from=%20%20&limit=1").await;
     assert_eq!(
-        body["data"][0]["feed_guid"], "n-emoji",
+        body["data"][0]["feed_guid"], "n-zeta2",
         "an empty key starts at the last row"
     );
     // The usual direction still starts at the first row at or after the key.
@@ -790,7 +794,6 @@ async fn artist_names_reverse_from_starts_at_the_last_key_with_the_prefix() {
         ("M", "m\u{10FFFF}z"),
         ("ma", "mango"),
         ("mb", "mango"),
-        ("%F4%8F%BF%BF", "zed"),
         ("", "zed"),
         ("zzzz", "zed"),
     ] {
@@ -1126,7 +1129,7 @@ fn seeded_search() -> (Arc<stophammer::api::AppState>, Vec<SeedItem>) {
             items.push(SeedItem {
                 kind,
                 id: guid.into(),
-                name_key: (!null_key.contains(&guid)).then(|| sort_key(title)),
+                name_key: (!null_key.contains(&guid)).then(|| order_key(title)),
                 date: newest,
                 rowid: stophammer::search::rowid_for(kind, guid),
             });
@@ -1153,7 +1156,7 @@ fn seeded_search() -> (Arc<stophammer::api::AppState>, Vec<SeedItem>) {
             items.push(SeedItem {
                 kind: "track",
                 id: guid.into(),
-                name_key: (!null).then(|| sort_key(title)),
+                name_key: (!null).then(|| order_key(title)),
                 date: pub_date,
                 rowid: stophammer::search::rowid_for("track", &entity_id),
             });

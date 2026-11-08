@@ -53,6 +53,12 @@ The candidate `v0.19.0-rc.5` holds these ADRs. A release promotes the candidate.
   on `GET /v1/artist-names` and the capability `artist_newest`. It has no
   migration.
 
+### Complete And Not Deployed
+
+- [ADR 0090](docs/adr/0090-a-name-sorts-by-a-folded-key.md) gives each name list
+  a folded order key and a `#` group, for the name order that v4vmm reported. It
+  is built, with migration 0063. No candidate carries it.
+
 ### Open Items
 
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays

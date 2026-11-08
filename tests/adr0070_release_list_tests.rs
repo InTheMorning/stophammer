@@ -255,7 +255,7 @@ fn applying_a_feed_upserted_event_derives_title_sort_from_title() {
 
     assert_eq!(
         title_sort,
-        Some(stophammer::model::sort_key("  The  Caf\u{e9} Session ")),
+        Some(stophammer::model::order_key("  The  Caf\u{e9} Session ")),
         "ADR 0070 §1: the apply path derives title_sort from title, in src/db.rs"
     );
 }
@@ -263,7 +263,7 @@ fn applying_a_feed_upserted_event_derives_title_sort_from_title() {
 // ── GET /v1/feeds/by-name: order, ties, from, pagination, medium ───────────
 
 #[tokio::test]
-async fn orders_by_sort_key_in_code_point_order() {
+async fn orders_by_the_folded_order_key() {
     let crawl_token = "adr0070-order-token";
     let state = test_app_state(crawl_token);
     let app = stophammer::api::build_router(state);
@@ -289,8 +289,8 @@ async fn orders_by_sort_key_in_code_point_order() {
 
     assert_eq!(
         by_name_titles(&body),
-        vec![" A", "b", "Ä"],
-        "ADR 0070 §1: the sort key of \" A\", \"b\" and \"Ä\" orders them a, b, ä"
+        vec![" A", "Ä", "b"],
+        "ADR 0090 §2: \"Ä\" folds to a, so it comes with \" A\" before \"b\". The tie is feed_guid order."
     );
 }
 

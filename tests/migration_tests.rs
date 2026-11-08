@@ -718,13 +718,13 @@ fn open_db_fills_title_sort_for_a_feed_that_predates_migration_0051() {
 
     assert_eq!(
         title_sort,
-        Some(stophammer::model::sort_key("  The  Caf\u{e9} Session ")),
-        "open_db must fill title_sort from title with model::sort_key"
+        Some(stophammer::model::order_key("  The  Caf\u{e9} Session ")),
+        "open_db must fill title_sort from title with model::order_key (ADR 0090 §4)"
     );
     assert_eq!(
         title_sort,
-        Some("the caf\u{e9} session".to_string()),
-        "the sort key trims, collapses white space and lowercases"
+        Some("the cafe session".to_string()),
+        "the order key trims, collapses white space, lowercases and folds the accent (ADR 0090 §2)"
     );
 }
 
@@ -1021,9 +1021,9 @@ fn open_db_runs_feed_url_observations_migration_at_the_adr_0046_watermark() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 56,
-        "the runner must record version 56 after migrations 0036, 0037, 0038, 0039, 0040, \
-         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061 and 0062 run"
+        recorded_version, 57,
+        "the runner must record version 57 after migrations 0036, 0037, 0038, 0039, 0040, \
+         0041, 0042, 0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061, 0062 and 0063 run"
     );
 }
 
@@ -1141,9 +1141,9 @@ fn open_db_runs_feed_release_artist_source_migration_at_the_adr_0046_watermark()
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 56,
-        "the runner must record version 56 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
-         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061 and 0062 run"
+        recorded_version, 57,
+        "the runner must record version 57 after migrations 0037, 0038, 0039, 0040, 0041, 0042, \
+         0043, 0044, 0045, 0046, 0047, 0048, 0049, 0050, 0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061, 0062 and 0063 run"
     );
 }
 
@@ -1198,9 +1198,9 @@ fn open_db_runs_source_gone_answers_migration_at_position_39() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 56,
-        "the runner must record version 56 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
-         0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061 and 0062 run"
+        recorded_version, 57,
+        "the runner must record version 57 after migrations 0045, 0046, 0047, 0048, 0049, 0050, \
+         0051, 0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061, 0062 and 0063 run"
     );
 }
 
@@ -1263,9 +1263,9 @@ fn open_db_runs_drop_proof_tables_migration_at_position_40() {
         })
         .expect("read recorded migration version");
     assert_eq!(
-        recorded_version, 56,
-        "the runner must record version 56 after migrations 0046, 0047, 0048, 0049, 0050, 0051, \
-         0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061 and 0062 run"
+        recorded_version, 57,
+        "the runner must record version 57 after migrations 0046, 0047, 0048, 0049, 0050, 0051, \
+         0052, 0053, 0054, 0055, 0056, 0057, 0058, 0059, 0060, 0061, 0062 and 0063 run"
     );
 
     let trigger_sql: String = conn

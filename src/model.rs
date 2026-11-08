@@ -893,6 +893,77 @@ pub fn sort_key(text: &str) -> String {
         .to_lowercase()
 }
 
+/// The width of a run of digits in an order key (ADR 0090 §2). A longer run
+/// does not change.
+const ORDER_KEY_DIGITS: usize = 20;
+
+/// The first character of an order key whose text does not start with a letter
+/// from `a` to `z` (ADR 0090 §2). It comes before `a`.
+pub const ORDER_KEY_OTHER_GROUP: char = '#';
+
+/// Gives the key of a sequence of names (ADR 0090 §2).
+///
+/// The function starts with [`sort_key`], then takes three steps:
+///
+/// 1. It removes each combining mark after NFKD decomposition, and changes the
+///    letters that have no decomposition: `ø` to `o`, `æ` to `ae`, `œ` to
+///    `oe`, `ß` to `ss`, `ł` to `l`, `đ` to `d`, `þ` to `th`, `ð` to `d` and
+///    `ı` to `i`.
+/// 2. It puts zeros before each run of ASCII digits, to 20 digits, so that a
+///    number sorts by its value.
+/// 3. It puts [`ORDER_KEY_OTHER_GROUP`] first when the text does not start with
+///    a letter from `a` to `z`. An empty text gives an empty key.
+///
+/// Two order keys compare by code point. The identity of a name stays
+/// [`sort_key`] (ADR 0090 §1).
+#[must_use]
+pub fn order_key(text: &str) -> String {
+    use unicode_normalization::UnicodeNormalization;
+    use unicode_normalization::char::is_combining_mark;
+
+    let mut folded = String::new();
+    for ch in sort_key(text).nfkd().filter(|ch| !is_combining_mark(*ch)) {
+        match ch {
+            'ø' => folded.push('o'),
+            'æ' => folded.push_str("ae"),
+            'œ' => folded.push_str("oe"),
+            'ß' => folded.push_str("ss"),
+            'ł' => folded.push('l'),
+            'đ' | 'ð' => folded.push('d'),
+            'þ' => folded.push_str("th"),
+            'ı' => folded.push('i'),
+            other => folded.push(other),
+        }
+    }
+
+    // An empty text has an empty key, so an empty `from` names no position.
+    if folded.is_empty() {
+        return folded;
+    }
+    let mut key = String::with_capacity(folded.len() + 1);
+    if !folded.starts_with(|ch: char| ch.is_ascii_lowercase()) {
+        key.push(ORDER_KEY_OTHER_GROUP);
+    }
+    let mut digits = String::new();
+    for ch in folded.chars().chain(std::iter::once('\0')) {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+            continue;
+        }
+        if !digits.is_empty() {
+            for _ in digits.len()..ORDER_KEY_DIGITS {
+                key.push('0');
+            }
+            key.push_str(&digits);
+            digits.clear();
+        }
+        if ch != '\0' {
+            key.push(ch);
+        }
+    }
+    key
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
