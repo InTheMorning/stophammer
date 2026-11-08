@@ -167,9 +167,13 @@ pub struct ListQuery {
     /// sort key is equal to or after the sort key of this text. Ignored
     /// when `cursor` is present, and by every other route.
     from: Option<String>,
-    /// ADR 0071 §4: `GET /v1/feeds/by-name` gives only the releases that the
-    /// `name` row with this `key` counts. Ignored by every other route.
+    /// ADR 0071 §4 and ADR 0089 §1: `GET /v1/feeds/by-name` and
+    /// `GET /v1/feeds/recent` give only the releases that the `name` row with
+    /// this `key` counts. Ignored by every other route.
     artist_key: Option<String>,
+    /// ADR 0089 §2: `name` or `date` on `GET /v1/artist-names`. Ignored by
+    /// every other route.
+    sort: Option<String>,
     /// ADR 0076 §2: `GET /v1/feeds/by-name` and `GET /v1/feeds/recent` give
     /// only the music releases with a `named_feeds` entry for this GUID, at
     /// each rank, confirmed or not. Needs `medium=music`, and conflicts with
@@ -4589,6 +4593,32 @@ fn check_named_feed_guid(params: &ListQuery, medium: &str) -> Result<(), api::Ap
     Ok(())
 }
 
+/// The `only_guids` JSON array for `artist_key` (ADR 0071 §4 and ADR 0089
+/// §1): the releases that the `name` row with that key counts. The set comes
+/// from the copy in memory that gives `release_count`, so the count and the
+/// list agree. `artist_key` needs `medium=music`.
+fn artist_key_only_guids(
+    state: &api::AppState,
+    conn: &rusqlite::Connection,
+    key: &str,
+    medium: &str,
+) -> Result<String, api::ApiError> {
+    if medium != "music" {
+        return Err(api::ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: "artist_key needs medium=music".into(),
+            www_authenticate: None,
+        });
+    }
+    let list = state.artist_name_cache.get_or_build(conn)?;
+    let guids = list.name_releases.get(key).cloned().unwrap_or_default();
+    serde_json::to_string(&guids).map_err(|e| api::ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: format!("artist_key set encoding error: {e}"),
+        www_authenticate: None,
+    })
+}
+
 /// The `only_guids` JSON array for `named_feed_guid` (ADR 0076 §2): the
 /// feeds with a `named_feeds` entry for that GUID. [`by_name_feed_rows`] and
 /// [`recent_feed_rows`] take this same encoded form for `artist_key`.
@@ -4935,11 +4965,18 @@ async fn handle_get_recent_feeds(
         // ADR 0076 §2: `named_feed_guid` needs `medium=music`, and
         // conflicts with `artist_key`. Each message names the conflict.
         check_named_feed_guid(&params, &medium)?;
-        let only_guids = params
-            .named_feed_guid
-            .as_deref()
-            .map(|guid| named_feed_guid_only_guids(&conn, guid))
-            .transpose()?;
+        // ADR 0089 §1: `artist_key` keeps the releases of one `name` row, as
+        // on `GET /v1/feeds/by-name`. The check above keeps it apart from
+        // `named_feed_guid`.
+        let only_guids = if let Some(guid) = params.named_feed_guid.as_deref() {
+            Some(named_feed_guid_only_guids(&conn, guid)?)
+        } else {
+            params
+                .artist_key
+                .as_deref()
+                .map(|key| artist_key_only_guids(&state2, &conn, key, &medium))
+                .transpose()?
+        };
 
         let filter = LinkFactFilter::from_params(&params, &medium)?;
         let mut after = params
@@ -5169,25 +5206,11 @@ async fn handle_get_feeds_by_name(
         let only_guids = if let Some(guid) = params.named_feed_guid.as_deref() {
             Some(named_feed_guid_only_guids(&conn, guid)?)
         } else {
-            match params.artist_key.as_deref() {
-                None => None,
-                Some(_) if medium != "music" => {
-                    return Err(api::ApiError {
-                        status: StatusCode::BAD_REQUEST,
-                        message: "artist_key needs medium=music".into(),
-                        www_authenticate: None,
-                    });
-                }
-                Some(key) => {
-                    let list = state2.artist_name_cache.get_or_build(&conn)?;
-                    let guids = list.name_releases.get(key).cloned().unwrap_or_default();
-                    Some(serde_json::to_string(&guids).map_err(|e| api::ApiError {
-                        status: StatusCode::INTERNAL_SERVER_ERROR,
-                        message: format!("artist_key set encoding error: {e}"),
-                        www_authenticate: None,
-                    })?)
-                }
-            }
+            params
+                .artist_key
+                .as_deref()
+                .map(|key| artist_key_only_guids(&state2, &conn, key, &medium))
+                .transpose()?
         };
 
         let (rows, has_more, next_after) = if let Some(filter) = &filter {
@@ -5291,6 +5314,11 @@ struct ArtistNameRow {
     /// The count of music releases of the name level with this key. Null
     /// for a `publisher` row. ADR 0070 §3 and §4.
     release_count: Option<i64>,
+    /// The newest `newest_item_at` of the releases of the row, in Unix
+    /// seconds: the releases that a `name` row counts, or the music releases
+    /// that name a `publisher` feed. Null when no such release has a date.
+    /// ADR 0089 §2.
+    newest_release_at: Option<i64>,
     /// With `include=link_facts`, the ADR 0068 value for a `publisher` row.
     /// Absent on a `name` row. ADR 0071 §2.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -5406,6 +5434,37 @@ struct ArtistNameList {
     /// The feed GUIDs of the releases of each `name` row, by its `key`.
     /// `release_count` is the length of the same list. ADR 0071 §4.
     name_releases: BTreeMap<String, Vec<String>>,
+    /// The positions in `rows` in the date sequence of ADR 0089 §2, newest
+    /// first, then reversed.
+    by_date: [Vec<usize>; 2],
+}
+
+/// ADR 0089 §2: the date sequence of two artist rows. Newest first, or oldest
+/// first when `reverse` is set. A row with no date comes after each row with
+/// a date in each direction. The tie key `(sort_name, kind, key)` goes up,
+/// and goes down when `reverse` is set.
+fn artist_date_cmp(
+    a: (Option<i64>, &str, &str, &str),
+    b: (Option<i64>, &str, &str, &str),
+    reverse: bool,
+) -> std::cmp::Ordering {
+    let flip = |order: std::cmp::Ordering| if reverse { order } else { order.reverse() };
+    a.0.is_none()
+        .cmp(&b.0.is_none())
+        .then_with(|| flip(a.0.cmp(&b.0)))
+        .then_with(|| flip((b.1, b.2, b.3).cmp(&(a.1, a.2, a.3))))
+}
+
+impl ArtistNameRow {
+    /// The fields of [`artist_date_cmp`].
+    fn date_key(&self) -> (Option<i64>, &str, &str, &str) {
+        (
+            self.newest_release_at,
+            self.sort_name.as_str(),
+            self.kind.as_str(),
+            self.key.as_str(),
+        )
+    }
 }
 
 /// Builds every row of `GET /v1/artist-names`, sorted by `(sort_name, kind,
@@ -5418,12 +5477,28 @@ struct ArtistNameList {
 /// second role rule.
 fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList, api::ApiError> {
     let mut rows = Vec::new();
+    // ADR 0089 §2: the date of each music release, for `newest_release_at`.
+    let release_dates = music_release_dates(conn)?;
+    let naming_feeds = feeds_naming_each_feed(conn)?;
+    let newest_of = |guids: &[String]| {
+        guids
+            .iter()
+            .filter_map(|guid| release_dates.get(guid).copied().flatten())
+            .max()
+    };
 
     for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
         let sort_name = sort_key(&title);
         // ADR 0071 §2: the build keeps the link facts of each publisher
         // feed, so a page with `include=link_facts` reads no database row.
         let facts = link_facts(&load_publisher(conn, &feed_guid)?);
+        // ADR 0089 §2: the music releases that name this publisher feed, the
+        // set of `named_feed_guid` (ADR 0076 §2).
+        let newest_release_at = newest_of(
+            naming_feeds
+                .get(&feed_guid)
+                .map_or(&[][..], |guids| guids.as_slice()),
+        );
         rows.push(
             ArtistNameRow {
                 kind: "publisher".to_string(),
@@ -5433,6 +5508,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
                 feed_guid: Some(feed_guid),
                 image_url: web_url_or_none(image_url.as_deref()),
                 release_count: None,
+                newest_release_at,
                 two_way_link_count: None,
                 stated_rels: None,
                 agreed_roles: None,
@@ -5468,6 +5544,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             feed_guid: None,
             image_url: None,
             release_count: Some(release_count),
+            newest_release_at: newest_of(&group.feed_guids),
             two_way_link_count: None,
             stated_rels: None,
             agreed_roles: None,
@@ -5484,10 +5561,92 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             b.key.as_str(),
         ))
     });
+    let by_date = [false, true].map(|reverse| {
+        let mut order: Vec<usize> = (0..rows.len()).collect();
+        order.sort_by(|&a, &b| artist_date_cmp(rows[a].date_key(), rows[b].date_key(), reverse));
+        order
+    });
     Ok(ArtistNameList {
         rows,
         name_releases,
+        by_date,
     })
+}
+
+/// The feeds that name each feed in a `<podcast:publisher>` item, by the GUID
+/// of the named feed. ADR 0089 §2.
+///
+/// The result for one GUID is the set of [`db::get_feeds_naming_feed`] for that
+/// GUID. That function reads each item again for each feed, and this one
+/// resolves each item one time:
+///
+/// - The GUID step: an item names its listed GUID when that GUID resolves to
+///   itself, or to no held feed.
+/// - The URL step: an item names the held feed that it resolves to, when its
+///   listed URL is the stored URL or an observed URL of that feed.
+fn feeds_naming_each_feed(
+    conn: &rusqlite::Connection,
+) -> Result<HashMap<String, Vec<String>>, api::ApiError> {
+    let mut urls: HashMap<String, Vec<String>> = HashMap::new();
+    let mut url_stmt = conn.prepare(
+        "SELECT url, feed_guid FROM feed_url_observations \
+         UNION SELECT feed_url, feed_guid FROM feeds",
+    )?;
+    for pair in url_stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))? {
+        let (url, feed_guid): (String, String) = pair?;
+        urls.entry(url).or_default().push(feed_guid);
+    }
+    let mut item_stmt = conn.prepare(
+        "SELECT feed_guid, remote_feed_guid, remote_feed_url \
+         FROM feed_remote_items_raw \
+         WHERE medium = 'publisher' AND source = 'podcast_publisher'",
+    )?;
+    let items = item_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut naming: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+    for (feed_guid, listed_guid, listed_url) in items {
+        let resolution = db::resolve_listed_feed(conn, &listed_guid, listed_url.as_deref())?;
+        let resolved = resolution.feed_guid();
+        if resolved.is_none_or(|guid| guid == listed_guid) {
+            naming
+                .entry(listed_guid.clone())
+                .or_default()
+                .insert(feed_guid.clone());
+        }
+        if let (Some(resolved), Some(url)) = (resolved, listed_url.as_deref())
+            && urls
+                .get(url)
+                .is_some_and(|owners| owners.iter().any(|owner| owner == resolved))
+        {
+            naming
+                .entry(resolved.to_owned())
+                .or_default()
+                .insert(feed_guid);
+        }
+    }
+    Ok(naming
+        .into_iter()
+        .map(|(guid, set)| (guid, set.into_iter().collect()))
+        .collect())
+}
+
+/// The `newest_item_at` of each music feed, by its GUID. ADR 0089 §2.
+fn music_release_dates(
+    conn: &rusqlite::Connection,
+) -> Result<HashMap<String, Option<i64>>, api::ApiError> {
+    let mut stmt = conn
+        .prepare("SELECT feed_guid, newest_item_at FROM feeds WHERE lower(raw_medium) = 'music'")?;
+    let dates = stmt
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    Ok(dates)
 }
 
 /// ADR 0070 §4a: the node builds the artist list again at most one time in
@@ -5585,13 +5744,46 @@ impl ArtistNameCache {
 
 /// Decodes a cursor of `GET /v1/artist-names`: the `sort_name`, `kind` and
 /// `key` of the last row of the page before. ADR 0070 §3.
+/// ADR 0089 §2: the start of a decoded cursor of `sort=date` on
+/// `GET /v1/artist-names`. No sort key starts with a control character, so a
+/// name cursor never starts with it.
+const ARTIST_DATE_CURSOR_MARK: &str = "\u{1}date\0";
+
+/// The key of the last row of a page of `sort=date` (ADR 0089 §2).
+type ArtistDateCursor = (Option<i64>, String, String, String);
+
+fn parse_artist_date_cursor(
+    cursor: &str,
+    reverse: bool,
+) -> Result<ArtistDateCursor, api::ApiError> {
+    let invalid = || api::ApiError {
+        status: StatusCode::BAD_REQUEST,
+        message: "invalid cursor format".into(),
+        www_authenticate: None,
+    };
+    let decoded = decode_cursor_for(cursor, reverse)?;
+    let body = decoded
+        .strip_prefix(ARTIST_DATE_CURSOR_MARK)
+        .ok_or_else(invalid)?;
+    let parts: Vec<&str> = body.splitn(4, '\0').collect();
+    let [date, sort, kind, key] = parts[..] else {
+        return Err(invalid());
+    };
+    let date = if date.is_empty() {
+        None
+    } else {
+        Some(date.parse::<i64>().map_err(|_err| invalid())?)
+    };
+    Ok((date, sort.to_owned(), kind.to_owned(), key.to_owned()))
+}
+
 fn parse_artist_names_cursor(
     cursor: &str,
     reverse: bool,
 ) -> Result<(String, String, String), api::ApiError> {
     let decoded = decode_cursor_for(cursor, reverse)?;
     let parts: Vec<&str> = decoded.splitn(3, '\0').collect();
-    if parts.len() != 3 {
+    if parts.len() != 3 || decoded.starts_with(ARTIST_DATE_CURSOR_MARK) {
         return Err(api::ApiError {
             status: StatusCode::BAD_REQUEST,
             message: "invalid cursor format".into(),
@@ -5619,8 +5811,86 @@ async fn handle_get_artist_names(
         })?;
         let limit = params.capped_limit();
         let reverse = params.reverse()?;
+        // ADR 0089 §2: `sort=date` gives the newest release first. `from`
+        // names a letter, so it needs the name sequence.
+        let by_date = match params.sort.as_deref() {
+            None | Some("name") => false,
+            Some("date") => true,
+            Some(_) => {
+                return Err(api::ApiError {
+                    status: StatusCode::BAD_REQUEST,
+                    message: "sort must be name or date (ADR 0089 section 2)".into(),
+                    www_authenticate: None,
+                });
+            }
+        };
+        if by_date && params.from.is_some() {
+            return Err(api::ApiError {
+                status: StatusCode::BAD_REQUEST,
+                message: "from needs sort=name (ADR 0089 section 2)".into(),
+                www_authenticate: None,
+            });
+        }
         let list = state2.artist_name_cache.get_or_build(&conn)?;
         let all_rows = &list.rows;
+        let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
+
+        if by_date {
+            let date_after = params
+                .cursor
+                .as_deref()
+                .map(|c| parse_artist_date_cursor(c, reverse))
+                .transpose()?;
+            let order = &list.by_date[usize::from(reverse)];
+            let start = date_after.as_ref().map_or(0, |(date, sort, kind, key)| {
+                order.partition_point(|&index| {
+                    artist_date_cmp(
+                        all_rows[index].date_key(),
+                        (*date, sort.as_str(), kind.as_str(), key.as_str()),
+                        reverse,
+                    ) != std::cmp::Ordering::Greater
+                })
+            });
+            let has_more = order.len().saturating_sub(start) > limit_usize;
+            let include_link_facts = params.includes("link_facts");
+            let page: Vec<ArtistNameRow> = order[start..]
+                .iter()
+                .take(limit_usize)
+                .map(|&index| {
+                    let row = all_rows[index].clone();
+                    if include_link_facts {
+                        row
+                    } else {
+                        row.without_link_facts()
+                    }
+                })
+                .collect();
+            let next_cursor = if has_more {
+                page.last().map(|r| {
+                    let date = r
+                        .newest_release_at
+                        .map(|d| d.to_string())
+                        .unwrap_or_default();
+                    encode_cursor_for(
+                        &format!(
+                            "{ARTIST_DATE_CURSOR_MARK}{date}\0{}\0{}\0{}",
+                            r.sort_name, r.kind, r.key
+                        ),
+                        reverse,
+                    )
+                })
+            } else {
+                None
+            };
+            return Ok::<_, api::ApiError>(QueryResponse {
+                data: page,
+                pagination: Pagination {
+                    cursor: next_cursor,
+                    has_more,
+                },
+                meta: meta(&state2),
+            });
+        }
 
         let cursor_after = params
             .cursor
@@ -5634,7 +5904,6 @@ async fn handle_get_artist_names(
         // ADR 0084 §3: the copy holds the usual sequence. A reversed page
         // reads the rows before `end`, from the last one. Its tie key is
         // then `(sort_name, kind, key)` in descending order (§6).
-        let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
         let (has_more, page): (bool, Vec<ArtistNameRow>) = if reverse {
             let end = if let Some((sort, kind, key)) = &cursor_after {
                 all_rows.partition_point(|r| {
@@ -6551,6 +6820,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "name_lists",
             "sort",
             "feed_by_url",
+            "artist_newest",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.

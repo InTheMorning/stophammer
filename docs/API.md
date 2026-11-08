@@ -1235,7 +1235,7 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 - **Sequence:** the newest item comes first. A feed with no dated item, such
   as a publisher feed, comes after each feed that has one.
 - **Query parameters:** common pagination/include params plus optional
-  `medium`, `named_feed_guid` and `reverse`.
+  `medium`, `artist_key`, `named_feed_guid` and `reverse`.
 - **`reverse`:** `reverse=true` gives the oldest item first. A feed with no
   dated item still comes last, as in the usual sequence. `feed_guid`, the
   tie key, then ascends. `reverse` accepts only `true` and `false`. Any
@@ -1245,6 +1245,11 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
   that names a feed the node does not hold. Needs `medium=music`, and
   conflicts with `artist_key`. A GUID that no release names gives an empty
   list. ADR 0076 section 2.
+- **`artist_key`:** Keeps only the music releases that the `name` row of
+  `GET /v1/artist-names` with this `key` counts, newest item first. This is
+  the set of `GET /v1/feeds/by-name?artist_key=<key>`. Needs `medium=music`,
+  and conflicts with `named_feed_guid`. An unknown key gives an empty list.
+  ADR 0089 section 1, with the capability `artist_newest`.
 - **Include `link_facts`:** each publisher row gives five more fields. A row
   of another medium gives none of them. Without the include, no row gives
   them. ADR 0068 owns this include, and ADR 0071 section 2 adds
@@ -1449,7 +1454,16 @@ sections 3 and 4 own this route.
   identity from this rule. A `name` row states a fact about a text, not a
   claim that the text names an artist.
 - **Query parameters:** common pagination params plus optional `include`,
-  `from` and `reverse`, as `GET /v1/feeds/by-name` takes them.
+  `sort`, `from` and `reverse`. `from` and `reverse` work as on
+  `GET /v1/feeds/by-name`.
+- **`sort`:** `name`, the default, gives the sequence above. `date` gives the
+  newest `newest_release_at` first, then `sort_name`, `kind` and `key`. A row
+  with a null `newest_release_at` comes last. With `reverse=true`, the oldest
+  date comes first, a row with no date still comes last, and the tie key goes
+  down. `from` needs `name`, so `sort=date` with `from` gives `400`. Another
+  value gives `400`. ADR 0089 section 2, with the capability `artist_newest`.
+- **Cursor and sort:** a cursor of `sort=date` works only with `sort=date`, and
+  a cursor of `sort=name` only with `name`. Each other case gives `400`.
 - **Include `link_facts`:** each `publisher` row gives the five fields of
   `GET /v1/feeds/recent` with the same include, with the same values. A
   `name` row gives none of them. The node calculates them in the build of
@@ -1478,6 +1492,7 @@ Each row gives:
 | `feed_guid` | The feed GUID | `null` |
 | `image_url` | The feed image, as a web URL | `null` |
 | `release_count` | `null` | The number of name-level releases with this key. `GET /v1/feeds/by-name?artist_key=<key>` lists them |
+| `newest_release_at` | The newest `newest_item_at` of the music releases that name this feed, the set of `named_feed_guid`. `null` when no such release has a date | The newest `newest_item_at` of the releases that the row counts, the set of `artist_key`. `null` when no such release has a date |
 
 The node does not merge a `publisher` row and a `name` row that share the
 same text. The two rows can show together, each with its own `kind`.
@@ -1494,7 +1509,8 @@ same text. The two rows can show together, each with its own `kind`.
       "key": "a sorted artist",
       "feed_guid": null,
       "image_url": null,
-      "release_count": 1
+      "release_count": 1,
+      "newest_release_at": 1710288000
     },
     {
       "kind": "publisher",
@@ -1503,7 +1519,8 @@ same text. The two rows can show together, each with its own `kind`.
       "sort_name": "a sorted publisher",
       "key": "publisher-guid",
       "image_url": "https://example.com/cover.jpg",
-      "release_count": null
+      "release_count": null,
+      "newest_release_at": 1710288000
     }
   ],
   "pagination": { "cursor": null, "has_more": false },
@@ -1514,6 +1531,7 @@ same text. The two rows can show together, each with its own `kind`.
 | Code | Meaning |
 |------|---------|
 | 200  | Success |
+| 400  | A `sort` that is not `name` or `date`, `sort=date` with `from`, a `reverse` value that is not `true` or `false`, or a cursor of another sort or direction |
 
 ---
 
@@ -2390,7 +2408,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2420,6 +2438,11 @@ index (ADR 0071 section 5).
 `sort` marks the parameter `reverse` on the three list routes and the
 parameters `sort` and `reverse` on `GET /v1/search` (ADR 0084 section 11). A
 node with no `sort` ignores `reverse` on a list route.
+
+`artist_newest` marks `artist_key` on `GET /v1/feeds/recent`, and `sort` with
+the field `newest_release_at` on `GET /v1/artist-names` (ADR 0089 section 3). A
+node with no `artist_newest` ignores both parameters: it gives every release, or
+the name sequence.
 
 `feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
 `feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives

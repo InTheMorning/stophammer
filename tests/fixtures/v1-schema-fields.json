@@ -23,6 +23,7 @@
       "key",
       "kind",
       "name",
+      "newest_release_at",
       "release_count",
       "sort_name",
       "stated_rels",

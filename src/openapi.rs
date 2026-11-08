@@ -165,6 +165,7 @@ fn spec_value(mode: DocMode) -> Value {
                     query_param("medium", "string", None, false, "Optional feed medium filter. Defaults to `music`. Use `all` for every medium."),
                     query_param("stated_rel", "string", None, false, "With `medium=publisher`: keep only the rows with this role token in `stated_rels`. The value is lowercased (ADR 0068 sections 4 and 5). Gives the link facts."),
                     query_param("two_way_links", "string", None, false, "With `medium=publisher`: `none` keeps only the rows with `two_way_link_count` 0 (ADR 0068 section 4). Gives the link facts."),
+                    query_param("artist_key", "string", None, false, "Keeps only the music releases that the `name` row of `GET /v1/artist-names` with this `key` counts, as on `GET /v1/feeds/by-name` (ADR 0089 section 1). Needs `medium=music`, and conflicts with `named_feed_guid`. A node without the capability `artist_newest` ignores it."),
                     query_param("named_feed_guid", "string", None, false, "Keeps only the music releases with a `named_feeds` entry for this GUID, at each rank, confirmed or not. Includes a release that names a feed the node does not hold. Needs `medium=music`, and conflicts with `artist_key` (ADR 0076 section 2)."),
                     query_param("reverse", "boolean", None, false, "`true` gives the oldest item first. A feed with no dated item still comes last. The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (ADR 0084 sections 3, 6 and 9). Any other value than `true` or `false` gives 400.")
                 ],
@@ -277,6 +278,7 @@ fn spec_value(mode: DocMode) -> Value {
                     limit_query_param("Maximum rows to return.", query::LIST_LIMIT_MAX),
                     include_query_param(query::ARTIST_NAME_INCLUDES),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
+                    query_param("sort", "string", None, false, "`name` (default) or `date`. `date` gives the newest `newest_release_at` first, and a row with no date last, in each direction (ADR 0089 section 2). `from` needs `name`. A node without the capability `artist_newest` ignores it."),
                     query_param("reverse", "boolean", None, false, "`true` gives Z to A, with `sort_name`, `kind` and `key` in descending order. Then `from` starts at the last row whose sort key starts with the sort key of the text (ADR 0084 sections 3 and 7). The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (section 9). Any other value than `true` or `false` gives 400.")
                 ],
                 None,
