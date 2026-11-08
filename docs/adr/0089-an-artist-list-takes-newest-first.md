@@ -1,8 +1,8 @@
 # ADR 0089: An Artist List Takes Newest First
 
 ## Status
-Proposed on 2026-11-08, for musicindex ADR 0053, the shared list control rule. The
-operator decides. The build is complete and not deployed.
+Accepted on 2026-11-08 by the operator, for musicindex ADR 0053, the shared list
+control rule. The build is complete and not deployed.
 
 It adds to ADR 0084 §3 and §11 and to ADR 0071 §4. ADR 0084 §2 does not change.
 

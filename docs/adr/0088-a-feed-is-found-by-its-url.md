@@ -1,8 +1,8 @@
 # ADR 0088: A Feed Is Found By Its URL
 
 ## Status
-Proposed on 2026-11-08, for musicindex.org request 27. The operator decides. The
-build is complete and not deployed.
+Accepted on 2026-11-08 by the operator, for musicindex.org request 27. The build
+is complete and not deployed.
 
 ## Date
 2026-11-08

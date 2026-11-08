@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers request 27. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -930,6 +930,25 @@ With `sort=relevance`, the node puts each hit in the first group that matches. T
 - `q=love&type=publisher` gives Strange Love, Love United, I love dafneestre, Love Ethic and Strange Love (Wavlake). Callum is row 10.
 - `rank` is the BM25 score, 0 or less, and it does not give the order. The sequence of the rows is the order. The site must not sort by `rank`.
 - A site with no commit `4fa24eb` sorts each page by `rank` and loses the group order. On 2026-11-07 the live `search.html` equals commit `1f18039`, which holds that commit, so the site does not have to deploy first.
+
+## Stophammer Answers - 2026-11-08
+
+These answers are advisory. Stophammer [ADR 0088](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0088-a-feed-is-found-by-its-url.md) owns the rule. Its build is complete, and no candidate carries it yet. A release record names the release that carries it.
+
+**Request 27, a feed by its URL.** Accepted in a different form. The route gives the GUID of the feed and how the URL matched, and the site reads the feed at `href`:
+
+```text
+GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
+```
+
+- A `200` answer gives `data` with `feed_guid`, `href` (`/v1/feeds/<guid>`), `match` and `matched_url`. `match` is `feed_url`, `copy` or `observed_url`.
+- The node compares these forms in sequence: the URL as given with no white space at each end, the parsed URL with no fragment (lowercase scheme and host, no default port), the other one of `http` and `https`, and the same two with the trailing slash added or removed. The query string and the path keep their text and case. `www.` is a different host. The node adds no rule for one host.
+- For each form, the `feed_url` of a feed comes first, then a copy URL, then a URL that gave the GUID at an earlier ingest. A copy URL gives the indexed record, not the copy (ADR 0008 of this site). The Wavlake short form `wavlake.com/feed/<id>` resolves through these earlier URLs.
+- With no match, the answer is `404` with `{"error": "feed not found"}`, as on `GET /v1/feeds/{guid}`. It carries `superseded_by` when the URL names a GUID that a GUID change retired. A value that is not an `http` or `https` URL of at most 2,048 bytes gives `400`.
+- The node does not fetch the URL. A URL that the index does not hold gives `404`.
+- Send the route only when `GET /v1/node/capabilities` lists `feed_by_url`. A node with no such flag answers the path as a feed read of the GUID `by-url`, which also gives `404`.
+- The example of the request, `https://feeds.wavlake.com/feed/music/0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f`, gives `404`. On 2026-11-07 that host answered `404`, and the index held no feed with that ID.
+- On a copy of the backup of 2026-11-07, a lookup took 0.4 to 1.6 ms.
 
 ## Release 0.19.0
 

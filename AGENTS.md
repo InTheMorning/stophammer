@@ -44,13 +44,18 @@ The candidate `v0.19.0-rc.4` holds these ADRs. A release promotes the candidate.
 - [ADR 0087](docs/adr/0087-a-search-orders-its-hits-by-field.md) answers
   musicindex.org request 25. It has no migration.
 
+### Complete And Not Deployed
+
+- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) answers
+  musicindex.org request 27 with `GET /v1/feeds/by-url` and the capability
+  `feed_by_url`. It is built, with no migration. No candidate carries it.
+- [ADR 0089](docs/adr/0089-an-artist-list-takes-newest-first.md) answers
+  musicindex ADR 0053 with `artist_key` on `GET /v1/feeds/recent`, `sort=date`
+  on `GET /v1/artist-names` and the capability `artist_newest`. It is built,
+  with no migration. No candidate carries it.
+
 ### Open Items
 
-- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) is Proposed, for
-  musicindex.org request 27. It is built, with no migration. The operator
-  decides.
-- [ADR 0089](docs/adr/0089-an-artist-list-takes-newest-first.md) is Proposed,
-  for musicindex ADR 0053. It is built, with no migration. The operator decides.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
@@ -129,8 +134,9 @@ musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
 musicindex.org requests 21 and 25 are answered. Their build is in the candidate
-`v0.19.0-rc.4`, and no release carries it.
-musicindex.org request 22 waits for an answer.
+`v0.19.0-rc.4`, and no release carries it. musicindex.org request 27 is
+answered (ADR 0088), and no candidate carries its build. musicindex.org
+request 22 waits for an answer.
 
 ### Governance
 

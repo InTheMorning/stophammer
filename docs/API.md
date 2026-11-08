@@ -1384,7 +1384,7 @@ Each row gives the fields of a row of `GET /v1/feeds/recent`, plus
 
 ### GET /v1/feeds/by-url
 
-Gives the GUID of the feed that one RSS URL names (ADR 0088, status Proposed).
+Gives the GUID of the feed that one RSS URL names (ADR 0088).
 The node does not fetch the URL. Read the feed at `href`.
 
 - **Authentication:** None
