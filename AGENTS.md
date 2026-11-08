@@ -6,19 +6,20 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 is open. Its candidate `v0.19.0-rc.4` runs on the primary, and it has
-no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
+Release 0.19.0 is open. Its candidate `v0.19.0-rc.4` runs on the primary and the
+gossip crawler, and it has no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
 0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
 ADR 0081.
 
 ### Deployed
 
-Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary runs
-the GHCR image of the candidate `v0.19.0-rc.4`, at commit `6360674`. On 2026-11-07
-the gossip crawler ran the image of `v0.19.0-rc.3`. No record states its image after
-the deploy of `v0.19.0-rc.4`, and `docker compose ps` on the host shows it. A timer starts the `podcastindex` pass at an interval of 3 hours
-(ADR 0081 §1). `docker-compose.yml` gives the pass the same image variable as the
-gossip crawler. No record states the image of a pass. `GET /node/info` gives the revision of the running
+Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary, at
+commit `6360674`, and the gossip crawler run the GHCR images of the candidate
+`v0.19.0-rc.4`. The last runs of `import` and `import-wavlake` used release 0.18.1,
+before that deploy. A timer starts the `podcastindex` pass at an interval of 3 hours
+(ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
+of the gossip crawler, and a release deploy pins that variable in `.env`. No record
+states the image of a pass. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
 release promotes its candidate, and
 [ADR 0066](docs/adr/0066-a-version-number-tells-what-to-upgrade.md) gives the
