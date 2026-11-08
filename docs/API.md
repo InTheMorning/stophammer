@@ -1055,11 +1055,12 @@ then `false`. ADR 0064 section 6 owns these fields.
 | `remote_release_artist` | The `release_artist` of the named feed |
 | `remote_release_artist_source` | The source of that `release_artist` |
 | `remote_episode_count` | The `episode_count` of the named feed. Added 2026-10-18 |
+| `newest_item_at` | The `newest_item_at` of the named feed, in Unix seconds. Only on a `publisher` entry. On a `publisher_to_music` row it is the date of the release. On a `music_to_publisher` row it is the date of the publisher feed, which is null for most such feeds (ADR 0091 section 2) |
 
 The named feed of a `publisher` entry is the album on a `publisher_to_music`
 row, and the publisher on a `music_to_publisher` row. The node resolves the
 named feed at each read: by GUID, then by URL (ADR 0049 §3). When the node
-holds no feed for the entry, each of the four values is null. Each key is
+holds no feed for the entry, each of these values is null. Each key is
 always in the entry.
 
 Each response that carries a track reports artwork with three fields. ADR 0042
@@ -1462,8 +1463,14 @@ sections 3 and 4 own this route.
   identity from this rule. A `name` row states a fact about a text, not a
   claim that the text names an artist.
 - **Query parameters:** common pagination params plus optional `include`,
-  `sort`, `from` and `reverse`. `from` and `reverse` work as on
-  `GET /v1/feeds/by-name`.
+  `sort`, `from`, `reverse`, `stated_rel` and `two_way_links`. `from` and
+  `reverse` work as on `GET /v1/feeds/by-name`.
+- **`stated_rel` and `two_way_links`:** keep only the `publisher` rows whose
+  link facts match, with the values and the `400` rules of
+  `GET /v1/feeds/recent?medium=publisher`. A `name` row never matches. The
+  filters work with each `sort`, `reverse`, `from` and the cursor, and a page
+  reads no database row. ADR 0091 section 1, with the capability
+  `artist_role_filter`.
 - **`sort`:** `name`, the default, gives the sequence above. `date` gives the
   newest `newest_release_at` first, then `sort_name`, `kind` and `key`. A row
   with a null `newest_release_at` comes last. With `reverse=true`, the oldest
@@ -2418,7 +2425,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2453,6 +2460,13 @@ node with no `sort` ignores `reverse` on a list route.
 the field `newest_release_at` on `GET /v1/artist-names` (ADR 0089 section 3). A
 node with no `artist_newest` ignores both parameters: it gives every release, or
 the name sequence.
+
+`artist_role_filter` marks `stated_rel` and `two_way_links` on
+`GET /v1/artist-names` (ADR 0091 section 3). A node with no such flag ignores
+both parameters, and gives each row.
+
+`publisher_row_date` marks `newest_item_at` on each `include=publisher` row of
+`GET /v1/feeds/{guid}` (ADR 0091 section 3).
 
 `feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
 `feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives

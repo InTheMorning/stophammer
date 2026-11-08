@@ -279,6 +279,8 @@ fn spec_value(mode: DocMode) -> Value {
                     include_query_param(query::ARTIST_NAME_INCLUDES),
                     query_param("from", "string", None, false, "Starts the list at the first row whose sort key is equal to or after the sort key of this text. Ignored when `cursor` is present."),
                     query_param("sort", "string", None, false, "`name` (default) or `date`. `date` gives the newest `newest_release_at` first, and a row with no date last, in each direction (ADR 0089 section 2). `from` needs `name`. A node without the capability `artist_newest` ignores it."),
+                    query_param("stated_rel", "string", None, false, "Keeps only the `publisher` rows with this role token in `stated_rels`, the rows of `GET /v1/feeds/recent?medium=publisher` with the same value. A `name` row never matches (ADR 0091 section 1). A node without the capability `artist_role_filter` ignores it."),
+                    query_param("two_way_links", "string", None, false, "`none` keeps only the `publisher` rows with `two_way_link_count` 0. A `name` row never matches (ADR 0091 section 1). A node without the capability `artist_role_filter` ignores it."),
                     query_param("reverse", "boolean", None, false, "`true` gives Z to A, with `sort_name`, `kind` and `key` in descending order. Then `from` starts at the last row whose sort key starts with the sort key of the text (ADR 0084 sections 3 and 7). The cursor of a reversed page works only with `reverse=true`, and a cursor from the usual direction gives 400 (section 9). Any other value than `true` or `false` gives 400.")
                 ],
                 None,

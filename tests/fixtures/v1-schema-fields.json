@@ -402,6 +402,7 @@
       "music_feed_url",
       "music_names_publisher",
       "music_rel",
+      "newest_item_at",
       "publisher_feed_guid",
       "publisher_feed_url",
       "publisher_link_observed_at",

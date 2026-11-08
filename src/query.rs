@@ -1686,6 +1686,10 @@ struct PublisherResponse {
     /// album's own publisher-link items, in `position` order. Null when
     /// `album_names_as` is null. ADR 0069 §3a, added 2026-10-18.
     album_names_rank: Option<u32>,
+    /// The `newest_item_at` of the named feed, or null when the node holds
+    /// no feed for this entry or the feed has no dated item. On a
+    /// `publisher_to_music` row it is the date of the release. ADR 0091 §2.
+    newest_item_at: Option<i64>,
 }
 
 /// Intermediate row type for track queries to avoid complex tuple types.
@@ -2877,6 +2881,8 @@ struct NamedFeedSummary {
     release_artist_source: Option<String>,
     /// The `episode_count` of the named feed. ADR 0059 §1, added 2026-10-18.
     episode_count: Option<i64>,
+    /// The `newest_item_at` of the named feed. ADR 0091 §2.
+    newest_item_at: Option<i64>,
 }
 
 /// Reads the summary of `feed_guid` with one point read. Each field is null
@@ -2890,8 +2896,8 @@ fn named_feed_summary(
     };
     let summary = conn
         .query_row(
-            "SELECT title, image_url, release_artist, release_artist_source, episode_count \
-             FROM feeds WHERE feed_guid = ?1",
+            "SELECT title, image_url, release_artist, release_artist_source, episode_count, \
+             newest_item_at FROM feeds WHERE feed_guid = ?1",
             params![feed_guid],
             |row| {
                 Ok(NamedFeedSummary {
@@ -2902,6 +2908,7 @@ fn named_feed_summary(
                     release_artist: row.get(2)?,
                     release_artist_source: row.get(3)?,
                     episode_count: row.get(4)?,
+                    newest_item_at: row.get(5)?,
                 })
             },
         )
@@ -3458,6 +3465,7 @@ fn build_publisher_row(
         remote_episode_count: summary.episode_count,
         album_names_as,
         album_names_rank,
+        newest_item_at: summary.newest_item_at,
     }))
 }
 
@@ -4569,6 +4577,18 @@ impl LinkFactFilter {
             stated_rel,
             no_two_way_links,
         }))
+    }
+
+    /// ADR 0091 §1: the same test for a row of `GET /v1/artist-names`. A
+    /// `name` row has no link facts, so a filter never keeps it.
+    fn keeps_row(&self, row: &ArtistNameRow) -> bool {
+        row.kind == "publisher"
+            && self.stated_rel.as_ref().is_none_or(|rel| {
+                row.stated_rels
+                    .as_ref()
+                    .is_some_and(|stated| stated.iter().any(|s| s == rel))
+            })
+            && (!self.no_two_way_links || row.two_way_link_count == Some(0))
     }
 
     fn keeps(&self, facts: &LinkFacts) -> bool {
@@ -5810,6 +5830,16 @@ fn parse_artist_names_cursor(
     ))
 }
 
+/// Takes one page of `rows`: at most `limit` rows, and whether more rows
+/// follow.
+fn artist_name_page<'a>(
+    mut rows: impl Iterator<Item = &'a ArtistNameRow>,
+    limit: usize,
+) -> (bool, Vec<ArtistNameRow>) {
+    let page: Vec<ArtistNameRow> = rows.by_ref().take(limit).cloned().collect();
+    (rows.next().is_some(), page)
+}
+
 async fn handle_get_artist_names(
     State(state): State<Arc<api::AppState>>,
     Query(params): Query<ListQuery>,
@@ -5844,6 +5874,10 @@ async fn handle_get_artist_names(
                 www_authenticate: None,
             });
         }
+        // ADR 0091 §1: the role filters keep only the publisher rows whose
+        // link facts match, as on `GET /v1/feeds/recent?medium=publisher`.
+        let filter = LinkFactFilter::from_params(&params, "publisher")?;
+        let keeps = |row: &&ArtistNameRow| filter.as_ref().is_none_or(|f| f.keeps_row(row));
         let list = state2.artist_name_cache.get_or_build(&conn)?;
         let all_rows = &list.rows;
         let limit_usize = usize::try_from(limit).unwrap_or(usize::MAX);
@@ -5864,13 +5898,17 @@ async fn handle_get_artist_names(
                     ) != std::cmp::Ordering::Greater
                 })
             });
-            let has_more = order.len().saturating_sub(start) > limit_usize;
+            let (has_more, page) = artist_name_page(
+                order[start..]
+                    .iter()
+                    .map(|&index| &all_rows[index])
+                    .filter(keeps),
+                limit_usize,
+            );
             let include_link_facts = params.includes("link_facts");
-            let page: Vec<ArtistNameRow> = order[start..]
-                .iter()
-                .take(limit_usize)
-                .map(|&index| {
-                    let row = all_rows[index].clone();
+            let page: Vec<ArtistNameRow> = page
+                .into_iter()
+                .map(|row| {
                     if include_link_facts {
                         row
                     } else {
@@ -5933,15 +5971,7 @@ async fn handle_get_artist_names(
             } else {
                 all_rows.len()
             };
-            (
-                end > limit_usize,
-                all_rows[..end]
-                    .iter()
-                    .rev()
-                    .take(limit_usize)
-                    .cloned()
-                    .collect(),
-            )
+            artist_name_page(all_rows[..end].iter().rev().filter(keeps), limit_usize)
         } else {
             let start = if let Some((sort, kind, key)) = &cursor_after {
                 all_rows.partition_point(|r| {
@@ -5953,14 +5983,7 @@ async fn handle_get_artist_names(
             } else {
                 0
             };
-            (
-                all_rows.len().saturating_sub(start) > limit_usize,
-                all_rows[start..]
-                    .iter()
-                    .take(limit_usize)
-                    .cloned()
-                    .collect(),
-            )
+            artist_name_page(all_rows[start..].iter().filter(keeps), limit_usize)
         };
         // ADR 0071 §2: the copy holds the link facts. A page gives them only
         // with `include=link_facts`.
@@ -6855,6 +6878,8 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "sort",
             "feed_by_url",
             "artist_newest",
+            "artist_role_filter",
+            "publisher_row_date",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.
@@ -7509,6 +7534,7 @@ mod tests {
             remote_episode_count: None,
             album_names_as: None,
             album_names_rank: None,
+            newest_item_at: None,
         }
     }
 

@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers request 27, and request 28 is open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 and 28. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -972,6 +972,14 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - Send the route only when `GET /v1/node/capabilities` lists `feed_by_url`. A node with no such flag answers the path as a feed read of the GUID `by-url`, which also gives `404`.
 - The example of the request, `https://feeds.wavlake.com/feed/music/0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f`, gives `404`. On 2026-11-07 that host answered `404`, and the index held no feed with that ID.
 - On a copy of the backup of 2026-11-07, a lookup took 0.4 to 1.6 ms.
+
+**Request 28, a release date for each artist and label.** Accepted. Stophammer [ADR 0091](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0091-an-artist-list-takes-the-role-filters.md) owns the rule. Its build is complete, and no candidate carries it yet.
+
+- Part 1: `GET /v1/artist-names` takes `stated_rel` and `two_way_links`, with the values and the `400` rules of `GET /v1/feeds/recent`. With a filter, the list gives only the `publisher` rows that match, and no `name` row. A test proves that the set equals the set of `GET /v1/feeds/recent?medium=publisher` with the same filter. Stophammer selected this form because the list in memory already holds the release date and the link facts. A date sort on `GET /v1/feeds/recent` needs a stored column and a migration.
+- So the Artists page can read `GET /v1/artist-names?stated_rel=artist&sort=date&include=link_facts`. The Labels page uses `stated_rel=label`, and the No role page uses `two_way_links=none`. `sort=date` gives the newest `newest_release_at` first: the newest date of the music releases that name the feed (ADR 0089). A row with no date comes last. `reverse`, `from` and the cursor work as on the unfiltered list.
+- A `publisher` row gives `name`, `sort_name`, `key`, `feed_guid`, `image_url`, `newest_release_at` and, with `include=link_facts`, the link facts. It does not give the other fields of a feed row, such as the description.
+- Part 2: each row of `include=publisher` on `GET /v1/feeds/{guid}` gives `newest_item_at`, the date of the named feed. On a `publisher_to_music` row, that is the date of the release. On a `music_to_publisher` row, it is the date of the publisher feed, which is null for most feeds. It is null when the node holds no feed for the entry.
+- Send the filters only when `GET /v1/node/capabilities` lists `artist_role_filter`. A node with no such flag ignores them and gives each row. Use `newest_item_at` only when the node lists `publisher_row_date`.
 
 ## Release 0.19.0
 
