@@ -4,6 +4,10 @@
 Accepted on 2026-11-08 by the operator, for musicindex.org request 28. The build
 is complete, and no candidate carries it.
 
+§1a adds to §1 on 2026-11-08, for musicindex.org request 29. Request 29
+completes request 28. So the orchestrator decided §1a under the acceptance of
+the operator. Its build is complete, and no candidate carries it.
+
 It adds to ADR 0089 §2, ADR 0071 §2 and ADR 0059 §1. ADR 0068 §4 and §5 do not
 change.
 
@@ -47,6 +51,17 @@ facts (ADR 0071 §2), so a page reads no database row. A filtered page reads the
 rows of the sequence and skips each row that does not match. The list has
 approximately 2,100 rows.
 
+### 1a. A publisher row gives its release artist
+With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` also
+gives `release_artist` and `release_artist_source`. The values are the values
+of `GET /v1/feeds/recent` for the same feed, and each can be null. A `name` row
+gives neither field.
+
+The site infers an artist from the title of a publisher feed or from its
+`release_artist` (musicindex ADR 0007). On 2026-11-08, 5 of 1,773 inferred
+artists needed `release_artist`. The build of the copy in memory reads the
+two values in the same query as the title.
+
 ### 2. Each `include=publisher` row gives `newest_item_at`
 The value is the `newest_item_at` of the named feed, from the same read as
 `remote_feed_title` (ADR 0059 §1). It is null when the node holds no feed for
@@ -57,9 +72,9 @@ the entry, or when the feed has no dated item.
 - On a `music_to_publisher` row, the named feed is the publisher feed. Most
   publisher feeds have no dated item, so the value is mostly null.
 
-### 3. Two capabilities name the change
-`GET /v1/node/capabilities` lists `artist_role_filter` for §1 and
-`publisher_row_date` for §2. A node with no `artist_role_filter` ignores the two
+### 3. Capabilities name the change
+`GET /v1/node/capabilities` lists `artist_role_filter` for §1,
+`artist_row_release_artist` for §1a and `publisher_row_date` for §2. A node with no `artist_role_filter` ignores the two
 parameters on `GET /v1/artist-names` and gives each row. So a client sends them
 only when the flag is listed.
 
@@ -87,7 +102,8 @@ easier to read, and the null value tells the same fact.
   releases of an artist or a label feed.
 - A publisher row of `GET /v1/artist-names` gives `name`, `image_url`,
   `feed_guid`, `newest_release_at` and, with `include=link_facts`, the link
-  facts. It does not give the other fields of a feed row.
+  facts, `release_artist` and `release_artist_source`. It does not give the
+  other fields of a feed row.
 - Each change is an addition. No event, no table and no dependency changes, so
   it belongs in a MINOR release (ADR 0066).
 
@@ -116,10 +132,16 @@ Tests in `tests/adr0091_role_filters_and_row_date_tests.rs` prove each of these:
    each give `400`.
 7. §2: a `publisher_to_music` row gives the date of the album, and an entry
    that the node does not hold gives null.
-8. §3: the capabilities list `artist_role_filter` and `publisher_row_date`.
+8. §3: the capabilities list `artist_role_filter`, `artist_row_release_artist`
+   and `publisher_row_date`.
+9. §1a: with `include=link_facts`, each `publisher` row gives the
+   `release_artist` and `release_artist_source` of `GET /v1/feeds/recent`, also
+   when the value is null.
+10. §1a: without the include, no row gives the two fields, and a `name` row
+    never gives them.
 
-The guards of ADR 0044 cover the two parameters and the field `newest_item_at`
-of `PublisherResponse`.
+The guards of ADR 0044 cover the two parameters, the field `newest_item_at` of
+`PublisherResponse`, and the two fields of `ArtistNameRow` of §1a.
 
 ### Visual
 None in this repository. The site owns its sort controls.

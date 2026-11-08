@@ -542,3 +542,152 @@ async fn capabilities_list_both_flags() {
         );
     }
 }
+
+/// The fixture with `p-delta` set to no release artist, and `p-hotel` set to
+/// an owner-sourced one. The ingest path always sets both columns, so the
+/// test writes the rows directly.
+async fn stored_with_release_artists() -> Arc<stophammer::api::AppState> {
+    let st = stored().await;
+    {
+        let conn = st.db.writer().lock().expect("lock writer");
+        conn.execute(
+            "UPDATE feeds SET release_artist = NULL, release_artist_source = NULL \
+             WHERE feed_guid = 'p-delta'",
+            [],
+        )
+        .expect("clear the release artist of p-delta");
+        conn.execute(
+            "UPDATE feeds SET release_artist = 'Hotel Owner', \
+             release_artist_source = 'itunes_owner' WHERE feed_guid = 'p-hotel'",
+            [],
+        )
+        .expect("set the release artist of p-hotel");
+    }
+    st
+}
+
+/// Every row of `uri` over all pages of size 3.
+async fn rows_of(st: &Arc<stophammer::api::AppState>, uri: &str) -> Vec<Value> {
+    let mut rows = Vec::new();
+    let mut cursor: Option<String> = None;
+    for _ in 0..200 {
+        let mut full = format!("{uri}&limit=3");
+        if let Some(c) = &cursor {
+            full = format!("{full}&cursor={c}");
+        }
+        let body = ok(st, &full).await;
+        rows.extend(body["data"].as_array().expect("data array").clone());
+        if body["pagination"]["has_more"] != true {
+            return rows;
+        }
+        cursor = Some(
+            body["pagination"]["cursor"]
+                .as_str()
+                .expect("cursor")
+                .to_string(),
+        );
+    }
+    panic!("the walk of {uri} did not end");
+}
+
+#[tokio::test]
+async fn a_publisher_row_gives_the_release_artist_of_feeds_recent() {
+    let st = stored_with_release_artists().await;
+    let recent: HashMap<String, Value> = rows_of(&st, "/v1/feeds/recent?medium=publisher&x=1")
+        .await
+        .into_iter()
+        .map(|r| (r["feed_guid"].as_str().expect("feed_guid").to_string(), r))
+        .collect();
+    assert_eq!(recent.len(), 8, "ADR 0091 §1a: eight publisher feeds");
+    let names = rows_of(&st, "/v1/artist-names?include=link_facts").await;
+    let mut seen = 0;
+    for row in names.iter().filter(|r| r["kind"] == "publisher") {
+        let guid = row["feed_guid"].as_str().expect("feed_guid");
+        let want = &recent[guid];
+        for key in ["release_artist", "release_artist_source"] {
+            assert!(
+                row.get(key).is_some(),
+                "ADR 0091 §1a: the key {key} is present on the row of {guid}: {row}"
+            );
+            assert_eq!(
+                row[key], want[key],
+                "ADR 0091 §1a: {key} of {guid} equals the value of feeds/recent"
+            );
+        }
+        seen += 1;
+    }
+    assert_eq!(seen, 8, "ADR 0091 §1a: eight publisher rows");
+
+    let by_guid = |guid: &str| -> &Value {
+        names
+            .iter()
+            .find(|r| r["kind"] == "publisher" && r["feed_guid"] == guid)
+            .unwrap_or_else(|| panic!("no row for {guid}"))
+    };
+    let alpha = by_guid("p-alpha");
+    assert_eq!(
+        alpha["release_artist"], "Artist",
+        "ADR 0091 §1a: a feed with an author gives its release_artist"
+    );
+    assert_eq!(
+        alpha["release_artist_source"], "itunes_author",
+        "ADR 0091 §1a: the source of the author is itunes_author"
+    );
+    let hotel = by_guid("p-hotel");
+    assert_eq!(hotel["release_artist"], "Hotel Owner", "ADR 0091 §1a");
+    assert_eq!(
+        hotel["release_artist_source"], "itunes_owner",
+        "ADR 0091 §1a"
+    );
+    let delta = by_guid("p-delta");
+    for key in ["release_artist", "release_artist_source"] {
+        assert_eq!(
+            delta.get(key),
+            Some(&Value::Null),
+            "ADR 0091 §1a: {key} is a present key with a null value when the feed has none: {delta}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn the_release_artist_keys_need_link_facts_and_a_publisher_row() {
+    let st = stored_with_release_artists().await;
+    for uri in [
+        "/v1/artist-names?x=1",
+        "/v1/artist-names?include=link_facts",
+    ] {
+        let rows = rows_of(&st, uri).await;
+        assert!(
+            rows.iter().any(|r| r["kind"] == "name"),
+            "ADR 0091 §1a: {uri} lists a name row"
+        );
+        for row in &rows {
+            if row["kind"] == "name" {
+                for key in ["release_artist", "release_artist_source"] {
+                    assert!(
+                        row.get(key).is_none(),
+                        "ADR 0091 §1a: a name row never has {key} ({uri}): {row}"
+                    );
+                }
+            } else if !uri.contains("link_facts") {
+                for key in ["release_artist", "release_artist_source"] {
+                    assert!(
+                        row.get(key).is_none(),
+                        "ADR 0091 §1a: without include=link_facts no row has {key}: {row}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn capabilities_list_artist_row_release_artist() {
+    let st = stored().await;
+    let body = ok(&st, "/v1/node/capabilities").await;
+    let caps = body["capabilities"].as_array().expect("capabilities");
+    assert!(
+        caps.iter().any(|c| c == "artist_row_release_artist"),
+        "ADR 0091 §1a: capabilities list artist_row_release_artist: {body}"
+    );
+}

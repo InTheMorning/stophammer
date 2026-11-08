@@ -64,7 +64,8 @@ The candidate `v0.19.0-rc.5` holds these ADRs. A release promotes the candidate.
 - [ADR 0091](docs/adr/0091-an-artist-list-takes-the-role-filters.md) answers
   musicindex.org request 28 with the role filters on `GET /v1/artist-names`,
   `newest_item_at` on each `include=publisher` row, and the capabilities
-  `artist_role_filter` and `publisher_row_date`. It is built, with no
+  `artist_role_filter` and `publisher_row_date`. Its §1a answers request 29
+  with `release_artist` on a publisher row of that list. It is built, with no
   migration. No candidate carries it.
 
 ### Open Items
@@ -147,8 +148,8 @@ musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
 musicindex.org requests 21, 25 and 27 are answered. Their build is in the candidate
-`v0.19.0-rc.5`, and no release carries it. musicindex.org request 28 is
-answered (ADR 0091), and no candidate carries its build. musicindex.org
+`v0.19.0-rc.5`, and no release carries it. musicindex.org requests 28 and
+29 are answered (ADR 0091), and no candidate carries their build. musicindex.org
 request 22 waits for an answer.
 
 ### Governance

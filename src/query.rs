@@ -5371,6 +5371,24 @@ struct ArtistNameRow {
     /// `agreed_roles`. Absent on a `name` row. ADR 0071 §2.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_named_count: Option<i64>,
+    /// With `include=link_facts`, the `release_artist` of the publisher
+    /// feed, or null. Absent on a `name` row. ADR 0091 §1a.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes the key, and the inner None gives null (ADR 0091 §1a)"
+    )]
+    release_artist: Option<Option<String>>,
+    /// With `include=link_facts`, the `release_artist_source` of the
+    /// publisher feed, or null. Absent on a `name` row. ADR 0091 §1a.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes the key, and the inner None gives null (ADR 0091 §1a)"
+    )]
+    release_artist_source: Option<Option<String>>,
 }
 
 impl ArtistNameRow {
@@ -5391,6 +5409,8 @@ impl ArtistNameRow {
         self.agreed_roles = None;
         self.confirmed_release_artists = None;
         self.first_named_count = None;
+        self.release_artist = None;
+        self.release_artist_source = None;
         self
     }
 }
@@ -5429,14 +5449,34 @@ impl ArtistNameGroup {
 /// no music feed names.
 fn publisher_feed_rows(
     conn: &rusqlite::Connection,
-) -> Result<Vec<(String, String, Option<String>)>, api::ApiError> {
+) -> Result<Vec<PublisherFeedRow>, api::ApiError> {
     let mut stmt = conn.prepare(
-        "SELECT feed_guid, title, image_url FROM feeds WHERE lower(raw_medium) = 'publisher'",
+        "SELECT feed_guid, title, image_url, release_artist, release_artist_source \
+         FROM feeds WHERE lower(raw_medium) = 'publisher'",
     )?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .query_map([], |row| {
+            Ok(PublisherFeedRow {
+                feed_guid: row.get(0)?,
+                title: row.get(1)?,
+                image_url: row.get(2)?,
+                release_artist: row.get(3)?,
+                release_artist_source: row.get(4)?,
+            })
+        })?
         .collect::<Result<_, _>>()?;
     Ok(rows)
+}
+
+/// One publisher feed, as [`publisher_feed_rows`] reads it.
+struct PublisherFeedRow {
+    feed_guid: String,
+    title: String,
+    image_url: Option<String>,
+    /// ADR 0091 §1a.
+    release_artist: Option<String>,
+    /// ADR 0091 §1a.
+    release_artist_source: Option<String>,
 }
 
 /// Reads every feed with the medium `music` and a non-null `release_artist`:
@@ -5518,7 +5558,14 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             .max()
     };
 
-    for (feed_guid, title, image_url) in publisher_feed_rows(conn)? {
+    for PublisherFeedRow {
+        feed_guid,
+        title,
+        image_url,
+        release_artist,
+        release_artist_source,
+    } in publisher_feed_rows(conn)?
+    {
         let sort_name = order_key(&title);
         // ADR 0071 §2: the build keeps the link facts of each publisher
         // feed, so a page with `include=link_facts` reads no database row.
@@ -5545,6 +5592,10 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
                 agreed_roles: None,
                 confirmed_release_artists: None,
                 first_named_count: None,
+                // ADR 0091 §1a: the value of `GET /v1/feeds/recent`, which a
+                // page gives with `include=link_facts`.
+                release_artist: Some(release_artist),
+                release_artist_source: Some(release_artist_source),
             }
             .with_link_facts(facts),
         );
@@ -5583,6 +5634,8 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             agreed_roles: None,
             confirmed_release_artists: None,
             first_named_count: None,
+            release_artist: None,
+            release_artist_source: None,
         });
         name_releases.insert(key, group.feed_guids);
     }
@@ -6880,6 +6933,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "artist_newest",
             "artist_role_filter",
             "publisher_row_date",
+            "artist_row_release_artist",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.

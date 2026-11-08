@@ -24,6 +24,8 @@
       "kind",
       "name",
       "newest_release_at",
+      "release_artist",
+      "release_artist_source",
       "release_count",
       "sort_name",
       "stated_rels",

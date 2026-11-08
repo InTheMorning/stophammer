@@ -1483,6 +1483,11 @@ sections 3 and 4 own this route.
   `GET /v1/feeds/recent` with the same include, with the same values. A
   `name` row gives none of them. The node calculates them in the build of
   the copy in memory. ADR 0071 section 2.
+- **`release_artist` and `release_artist_source`:** with `include=link_facts`,
+  each `publisher` row also gives these two values of the feed, as
+  `GET /v1/feeds/recent` gives them. Each can be null. A `name` row gives
+  neither. ADR 0091 section 1a, with the capability
+  `artist_row_release_artist`.
 - **`from`:** Starts the list at the first row with a sort key equal to or
   after the order key of this text. `from=#` starts at the `#` group. A
   request with `cursor` ignores `from`.
@@ -2425,7 +2430,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2467,6 +2472,10 @@ both parameters, and gives each row.
 
 `publisher_row_date` marks `newest_item_at` on each `include=publisher` row of
 `GET /v1/feeds/{guid}` (ADR 0091 section 3).
+
+`artist_row_release_artist` marks `release_artist` and `release_artist_source`
+on each `publisher` row of `GET /v1/artist-names` with `include=link_facts`
+(ADR 0091 section 1a).
 
 `feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
 `feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives
