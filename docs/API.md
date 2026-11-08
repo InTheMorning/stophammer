@@ -1263,6 +1263,7 @@ Lists source feeds in recent-source order for provenance/debugging workflows.
 | `agreed_roles` | The role tokens of the rows with `role_agreement` `"both"`, sorted. A role that only one side states is not in it |
 | `confirmed_release_artists` | The same list as a read of that feed (ADR 0061 §1) |
 | `first_named_count` | The count of the confirmed links whose album names this feed first, with `album_names_rank` 1. A fallback for a feed with an empty `agreed_roles`. The node derives no artist from it (ADR 0069 §3a, ADR 0071 §2) |
+| `release_track_counts` | The confirmed links of `two_way_link_count` for each track count: an object from the `episode_count` of the album, as text, to the number of such albums. The values sum to `two_way_link_count`, and `{}` goes with 0. The node gives no release kind. A client applies its own rule (ADR 0092 §1) |
 
 Each value comes from the rows that `GET /v1/feeds/{guid}?include=publisher`
 gives for the same feed. The node splits a `rel` value into tokens as `role`
@@ -1517,6 +1518,7 @@ Each row gives:
 | `image_url` | The feed image, as a web URL | `null` |
 | `release_count` | `null` | The number of name-level releases with this key. `GET /v1/feeds/by-name?artist_key=<key>` lists them |
 | `newest_release_at` | The newest `newest_item_at` of the music releases that name this feed, the set of `named_feed_guid`. `null` when no such release has a date | The newest `newest_item_at` of the releases that the row counts, the set of `artist_key`. `null` when no such release has a date |
+| `release_track_counts` | With `include=link_facts` only: the map of `GET /v1/feeds/recent` for the releases of `two_way_link_count` | Always: an object from an `episode_count`, as text, to the number of the releases of `release_count` with it. The values sum to `release_count` (ADR 0092 §1) |
 
 The node does not merge a `publisher` row and a `name` row that share the
 same text. The two rows can show together, each with its own `kind`.
@@ -2206,7 +2208,8 @@ needs no call for each hit. ADR 0042 owns these fields.
 
 - **Include `link_facts`:** each `publisher` row gives `two_way_link_count`,
   `stated_rels`, `agreed_roles`, `confirmed_release_artists` and
-  `first_named_count`. The node calculates each value with the functions of
+  `first_named_count`, and `release_track_counts` (ADR 0092). The node
+  calculates each value with the functions of
   `GET /v1/feeds/by-name?medium=publisher&include=link_facts`, over the same
   feed. A `feed` row and a `track` row give none of them. Without the
   include, a `publisher` row gives none of them. ADR 0076 section 3.
@@ -2433,7 +2436,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist", "release_track_counts"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2479,6 +2482,10 @@ both parameters, and gives each row.
 `artist_row_release_artist` marks `release_artist` and `release_artist_source`
 on each `publisher` row of `GET /v1/artist-names` with `include=link_facts`
 (ADR 0091 section 1a).
+
+`release_track_counts` marks the field `release_track_counts` on each row with
+`two_way_link_count`, and on each `name` row of `GET /v1/artist-names` (ADR 0092
+section 2).
 
 `feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
 `feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives

@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27, 28 and 29. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -826,6 +826,37 @@ The request: a `publisher` row of `/v1/artist-names` with `include=link_facts` g
 `release_artist_source`, with the values of `/v1/feeds/recent`, behind a capability. Until then the site groups these
 rows with the title only, and the five feeds are not in the Newest order of the inferred artists.
 
+
+### 30. The Releases Of An Artist Row By Track Count
+
+On 2026-11-08 the search row of the publisher feed jSmovie (`44f2785c-6a55-4f59-b47f-4a7fcedc7d01`) gave
+`two_way_link_count` 17. The site showed "Inferred artist · 17 albums", but each of the 17 releases has one track and
+no stated kind, so each one is a single (musicindex ADR 0020 R-WORD-1). The site now writes "17 releases" (musicindex
+ADR 0023 R-SCOPE-1 item 2). The operator asked on 2026-11-08 for the exact count of each kind, for example "17
+singles".
+
+A row gives only a total now: `two_way_link_count` on each row with `include=link_facts`, and `release_count` on a
+`name` row of `/v1/artist-names`. On 2026-11-08 each of the 8,887 music feeds of the node had `release_kind`
+`unknown`, so a count of each stated kind gives nothing. musicindex ADR 0020 R-WORD-1 finds the kind from the track
+count: one track gives "Single", and each other track count, also zero, gives "Album".
+
+The request:
+
+1. Next to each total, `release_track_counts`: a map from a track count to the number of releases with that track
+   count. For example `"release_track_counts": {"1": 5, "9": 1, "12": 1}` next to a total of 7. The sum of the map is
+   the total. A key is the track count as text. A track count with no release is absent.
+2. The rows: each row with `include=link_facts` (`/v1/feeds/recent`, `/v1/feeds/by-name`, the publisher rows of
+   `/v1/artist-names` and `/v1/search?type=publisher`), for the releases that `two_way_link_count` counts. Also the
+   `name` rows of `/v1/artist-names`, for the releases that `release_count` counts.
+3. A capability flag in `/v1/node/capabilities`, so that a client sends no request for the map to a node without it.
+   A client with no flag keeps the word "releases".
+
+The rows of `include=publisher` on `/v1/feeds/{guid}` already give `remote_episode_count`, so a publisher page needs
+nothing more.
+
+The test case: jSmovie gives `{"1": 17}`. The artist feed OLAMIDE (`ff6c8ef7-e3d5-47bf-9cfb-e50c51597424`, 52
+confirmed releases) is a case with more than one track count.
+
 ## Stophammer Answers - 2026-09-25
 
 Stophammer examined each request against the live API and the source at
@@ -1003,6 +1034,15 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives `release_artist` and `release_artist_source`, with the values of `GET /v1/feeds/recent` for the same feed. Each can be null, and the key is then present with a null value.
 - Without `include=link_facts`, a row gives neither field. A `name` row never gives them.
 - Use the two fields only when `GET /v1/node/capabilities` lists `artist_row_release_artist`.
+
+**Request 30, the releases of an artist row by track count.** Accepted. Stophammer [ADR 0092](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0092-an-artist-row-counts-its-releases-by-track-count.md) owns the rule. Its build is complete, and no candidate carries it yet.
+
+- Each row with `two_way_link_count` gives `release_track_counts` with `include=link_facts`: on `GET /v1/feeds/recent`, `GET /v1/feeds/by-name`, and the `publisher` rows of `GET /v1/artist-names` and `GET /v1/search`. The map counts the confirmed links of `two_way_link_count`, and its values sum to that count. A row with no confirmed link gives `{}`.
+- Each `name` row of `GET /v1/artist-names` gives the map with no include, for the releases of `release_count`. Its values sum to `release_count`.
+- The key is the `episode_count` of the release, as text. The `tracks`, `min_tracks` and `max_tracks` filters read the same column, so a map agrees with R-WORD-1 requests. The node gives no kind, and the site applies R-WORD-1.
+- On a copy of the backup of 2026-11-08, jSmovie gives `{"1": 17}`, and OLAMIDE gives 12 track counts with a sum of 52.
+- One music feed of 8,887 has an `episode_count` that differs from its stored tracks: `87750227-32d0-5154-8944-a6c65cf57157` has `episode_count` 1 and no stored track. Its key is `"1"`.
+- Use the field only when `GET /v1/node/capabilities` lists `release_track_counts`.
 
 ## Release 0.19.0
 

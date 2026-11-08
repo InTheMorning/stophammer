@@ -751,6 +751,12 @@ struct FeedResponse {
     /// `two_way_link_count` is. ADR 0071 §2.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_named_count: Option<i64>,
+    /// The number of the releases of `two_way_link_count` for each track
+    /// count. The key is the `episode_count` of the release, as text, and the
+    /// sum of the values is `two_way_link_count`. Present only where
+    /// `two_way_link_count` is. ADR 0092 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_track_counts: Option<BTreeMap<i64, i64>>,
     language: Option<String>,
     explicit: bool,
     episode_count: Option<i64>,
@@ -1187,6 +1193,12 @@ struct SearchResponseItem {
     /// 0076 §3.
     #[serde(skip_serializing_if = "Option::is_none")]
     first_named_count: Option<i64>,
+    /// The number of the releases of `two_way_link_count` for each track
+    /// count. The key is the `episode_count` of the release, as text, and the
+    /// sum of the values is `two_way_link_count`. Present only where
+    /// `two_way_link_count` is. ADR 0092 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_track_counts: Option<BTreeMap<i64, i64>>,
     /// ADR 0084 §10: the sort key of the row, only with `sort=name`.
     #[serde(skip_serializing_if = "Option::is_none")]
     sort_name: Option<String>,
@@ -2113,6 +2125,8 @@ struct LinkFacts {
     confirmed_release_artists: Vec<String>,
     /// ADR 0071 §2: the confirmed links whose album names this feed first.
     first_named_count: i64,
+    /// ADR 0092 §1: the confirmed links for each `episode_count` of the album.
+    release_track_counts: BTreeMap<i64, i64>,
 }
 
 /// Derives [`LinkFacts`] from the `publisher` view rows of one feed, as
@@ -2141,12 +2155,19 @@ fn link_facts(rows: &[PublisherResponse]) -> LinkFacts {
         .iter()
         .filter(|row| row.album_names_rank == Some(1))
         .count();
+    // ADR 0092 §1: a confirmed link reads the items of its album, so the node
+    // holds the album and `remote_episode_count` is never null here.
+    let mut release_track_counts = BTreeMap::new();
+    for count in confirmed.iter().filter_map(|row| row.remote_episode_count) {
+        *release_track_counts.entry(count).or_insert(0) += 1;
+    }
     LinkFacts {
         two_way_link_count: i64::try_from(confirmed.len()).unwrap_or(i64::MAX),
         first_named_count: i64::try_from(first_named).unwrap_or(i64::MAX),
         stated_rels: stated_rels.into_iter().collect(),
         agreed_roles: agreed_roles.into_iter().collect(),
         confirmed_release_artists,
+        release_track_counts,
     }
 }
 
@@ -2373,6 +2394,7 @@ fn build_feed_response(
         stated_rels: None,
         agreed_roles: None,
         first_named_count: None,
+        release_track_counts: None,
         language: row.language,
         explicit: row.explicit_int != 0,
         episode_count: row.episode_count,
@@ -4908,16 +4930,23 @@ fn feed_list_row_to_response(
     } else {
         None
     };
-    let (two_way_link_count, stated_rels, agreed_roles, listed_confirmed, first_named_count) =
-        facts.map_or((None, None, None, None, None), |facts| {
-            (
-                Some(facts.two_way_link_count),
-                Some(facts.stated_rels),
-                Some(facts.agreed_roles),
-                Some(facts.confirmed_release_artists),
-                Some(facts.first_named_count),
-            )
-        });
+    let (
+        two_way_link_count,
+        stated_rels,
+        agreed_roles,
+        listed_confirmed,
+        first_named_count,
+        release_track_counts,
+    ) = facts.map_or((None, None, None, None, None, None), |facts| {
+        (
+            Some(facts.two_way_link_count),
+            Some(facts.stated_rels),
+            Some(facts.agreed_roles),
+            Some(facts.confirmed_release_artists),
+            Some(facts.first_named_count),
+            Some(facts.release_track_counts),
+        )
+    });
     Ok(FeedResponse {
         feed_guid: r.feed_guid,
         feed_url: r.feed_url,
@@ -4949,6 +4978,7 @@ fn feed_list_row_to_response(
         stated_rels,
         agreed_roles,
         first_named_count,
+        release_track_counts,
         language: r.language,
         explicit: r.explicit_int != 0,
         episode_count: r.episode_count,
@@ -5389,6 +5419,13 @@ struct ArtistNameRow {
         reason = "the outer None removes the key, and the inner None gives null (ADR 0091 §1a)"
     )]
     release_artist_source: Option<Option<String>>,
+    /// The number of releases for each track count, keyed by the
+    /// `episode_count` as text. On a `name` row, for the releases of
+    /// `release_count`. On a `publisher` row with `include=link_facts`, for
+    /// the releases of `two_way_link_count`. The values sum to that total.
+    /// ADR 0092 §1.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    release_track_counts: Option<BTreeMap<i64, i64>>,
 }
 
 impl ArtistNameRow {
@@ -5399,6 +5436,7 @@ impl ArtistNameRow {
         self.agreed_roles = Some(facts.agreed_roles);
         self.confirmed_release_artists = Some(facts.confirmed_release_artists);
         self.first_named_count = Some(facts.first_named_count);
+        self.release_track_counts = Some(facts.release_track_counts);
         self
     }
 
@@ -5411,6 +5449,11 @@ impl ArtistNameRow {
         self.first_named_count = None;
         self.release_artist = None;
         self.release_artist_source = None;
+        // ADR 0092 §1: a `name` row gives its map with no include, as it
+        // gives `release_count`.
+        if self.kind == "publisher" {
+            self.release_track_counts = None;
+        }
         self
     }
 }
@@ -5427,6 +5470,8 @@ struct ArtistNameGroup {
     /// `BTreeMap` key orders by byte value, which is code point order for a
     /// UTF-8 `String` (ADR 0070 §1).
     raw_counts: BTreeMap<String, i64>,
+    /// The releases of the group for each `episode_count`. ADR 0092 §1.
+    track_counts: BTreeMap<i64, i64>,
 }
 
 impl ArtistNameGroup {
@@ -5484,13 +5529,13 @@ struct PublisherFeedRow {
 /// null `release_artist` gives no row, so the query skips it here.
 fn music_feed_artist_rows(
     conn: &rusqlite::Connection,
-) -> Result<Vec<(String, String)>, api::ApiError> {
+) -> Result<Vec<(String, String, i64)>, api::ApiError> {
     let mut stmt = conn.prepare(
-        "SELECT feed_guid, release_artist FROM feeds \
+        "SELECT feed_guid, release_artist, episode_count FROM feeds \
          WHERE lower(raw_medium) = 'music' AND release_artist IS NOT NULL",
     )?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
         .collect::<Result<_, _>>()?;
     Ok(rows)
 }
@@ -5596,13 +5641,14 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
                 // page gives with `include=link_facts`.
                 release_artist: Some(release_artist),
                 release_artist_source: Some(release_artist_source),
+                release_track_counts: None,
             }
             .with_link_facts(facts),
         );
     }
 
     let mut groups: BTreeMap<String, ArtistNameGroup> = BTreeMap::new();
-    for (feed_guid, raw_artist) in music_feed_artist_rows(conn)? {
+    for (feed_guid, raw_artist, episode_count) in music_feed_artist_rows(conn)? {
         if raw_artist.trim().is_empty() {
             continue;
         }
@@ -5613,6 +5659,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
         let key = sort_key(&raw_artist);
         let group = groups.entry(key).or_default();
         group.feed_guids.push(feed_guid);
+        *group.track_counts.entry(episode_count).or_insert(0) += 1;
         *group.raw_counts.entry(raw_artist).or_insert(0) += 1;
     }
     let mut name_releases = BTreeMap::new();
@@ -5636,6 +5683,7 @@ fn build_artist_name_list(conn: &rusqlite::Connection) -> Result<ArtistNameList,
             first_named_count: None,
             release_artist: None,
             release_artist_source: None,
+            release_track_counts: Some(group.track_counts),
         });
         name_releases.insert(key, group.feed_guids);
     }
@@ -6593,6 +6641,7 @@ async fn handle_search(
                         agreed_roles,
                         confirmed_release_artists,
                         first_named_count,
+                        release_track_counts,
                     ) = if include_link_facts && r.entity_type == "publisher" {
                         let facts = link_facts(&load_publisher(&conn, &entity_id)?);
                         (
@@ -6601,9 +6650,10 @@ async fn handle_search(
                             Some(facts.agreed_roles),
                             Some(facts.confirmed_release_artists),
                             Some(facts.first_named_count),
+                            Some(facts.release_track_counts),
                         )
                     } else {
-                        (None, None, None, None, None)
+                        (None, None, None, None, None, None)
                     };
 
                     Ok(SearchResponseItem {
@@ -6630,6 +6680,7 @@ async fn handle_search(
                         agreed_roles,
                         confirmed_release_artists,
                         first_named_count,
+                        release_track_counts,
                         sort_name,
                         sort_date,
                     })
@@ -6934,6 +6985,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "artist_role_filter",
             "publisher_row_date",
             "artist_row_release_artist",
+            "release_track_counts",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.

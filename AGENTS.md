@@ -61,6 +61,13 @@ The candidate `v0.19.0-rc.6` holds these ADRs. A release promotes the candidate.
   row. The capabilities `artist_role_filter`, `artist_row_release_artist` and
   `publisher_row_date` name them. It has no migration.
 
+### Complete And Not Deployed
+
+- [ADR 0092](docs/adr/0092-an-artist-row-counts-its-releases-by-track-count.md)
+  answers musicindex.org request 30 with `release_track_counts` and the
+  capability of the same name. It is built, with no migration. No candidate
+  carries it.
+
 ### Open Items
 
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
@@ -141,7 +148,8 @@ musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
 musicindex.org requests 21, 25, 27, 28 and 29 are answered. Their build is in the
-candidate `v0.19.0-rc.6`, and no release carries it. musicindex.org request 22
+candidate `v0.19.0-rc.6`, and no release carries it. musicindex.org request 30
+is answered (ADR 0092), and no candidate carries its build. musicindex.org request 22
 waits for an answer.
 
 ### Governance
