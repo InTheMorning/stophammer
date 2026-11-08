@@ -2,12 +2,11 @@
 
 ## Status
 Accepted on 2026-11-08 by the operator, for musicindex.org request 27. The build
-is complete. The primary runs it in the candidate `v0.19.0-rc.5`, and no release
+is complete. The primary runs it in the candidate `v0.19.0-rc.6`, and no release
 carries it.
 
 §1a amends §1 on 2026-11-08. The orchestrator recorded it, and it applies the
-acceptance of the operator. The build of §1a is complete, and no candidate
-carries it.
+acceptance of the operator. The candidate `v0.19.0-rc.6` carries §1a.
 
 ## Date
 2026-11-08

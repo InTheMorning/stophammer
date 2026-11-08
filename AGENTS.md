@@ -6,19 +6,17 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 is open. Its candidate `v0.19.0-rc.5` runs on the primary, and it has
+Release 0.19.0 is open. Its candidate `v0.19.0-rc.6` runs on the primary, and it has
 no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
 0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
 ADR 0081.
 
 ### Deployed
 
-Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary runs
-the GHCR image of the candidate `v0.19.0-rc.5`, at commit `a0c0c5a`. Earlier on
-2026-11-08 the gossip crawler ran the image of `v0.19.0-rc.4`. No record states its
-image after the deploy of `v0.19.0-rc.5`, and `docker compose ps` on the host
-shows it. The last runs of `import` and `import-wavlake` used release 0.18.1,
-before that deploy. A timer starts the `podcastindex` pass at an interval of 3 hours
+Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary and
+the gossip crawler run the GHCR images of the candidate `v0.19.0-rc.6`. The
+primary gives the revision `af56f5c`. The last runs of `import` and
+`import-wavlake` used release 0.18.1, before the deploys of the candidates. A timer starts the `podcastindex` pass at an interval of 3 hours
 (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
 of the gossip crawler, and a release deploy pins that variable in `.env`. No record
 states the image of a pass. `GET /node/info` gives the revision of the running
@@ -33,7 +31,7 @@ in a release, except the items below. The primary sets
 
 ### On The Primary In A Candidate
 
-The candidate `v0.19.0-rc.5` holds these ADRs. A release promotes the candidate.
+The candidate `v0.19.0-rc.6` holds these ADRs. A release promotes the candidate.
 
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
   request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
@@ -52,21 +50,16 @@ The candidate `v0.19.0-rc.5` holds these ADRs. A release promotes the candidate.
   musicindex ADR 0053 with `artist_key` on `GET /v1/feeds/recent`, `sort=date`
   on `GET /v1/artist-names` and the capability `artist_newest`. It has no
   migration.
-
-### Complete And Not Deployed
-
 - [ADR 0090](docs/adr/0090-a-name-sorts-by-a-folded-key.md) gives each name list
-  a folded order key and a `#` group, for the name order that v4vmm reported. It
-  is built, with migration 0063. No candidate carries it.
-- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) §1a lets the short
-  Wavlake URL `wavlake.com/feed/<uuid>` find the feed of its music URL. It is
-  built, with no migration. No candidate carries it.
+  a folded order key and a `#` group, for the name order that v4vmm reported,
+  with migration 0063.
+- ADR 0088 §1a lets the short Wavlake URL `wavlake.com/feed/<uuid>` find the
+  feed of its music URL. It has no migration.
 - [ADR 0091](docs/adr/0091-an-artist-list-takes-the-role-filters.md) answers
-  musicindex.org request 28 with the role filters on `GET /v1/artist-names`,
-  `newest_item_at` on each `include=publisher` row, and the capabilities
-  `artist_role_filter` and `publisher_row_date`. Its §1a answers request 29
-  with `release_artist` on a publisher row of that list. It is built, with no
-  migration. No candidate carries it.
+  musicindex.org requests 28 and 29 with the role filters and `release_artist`
+  on `GET /v1/artist-names`, and `newest_item_at` on each `include=publisher`
+  row. The capabilities `artist_role_filter`, `artist_row_release_artist` and
+  `publisher_row_date` name them. It has no migration.
 
 ### Open Items
 
@@ -147,10 +140,9 @@ requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
-musicindex.org requests 21, 25 and 27 are answered. Their build is in the candidate
-`v0.19.0-rc.5`, and no release carries it. musicindex.org requests 28 and
-29 are answered (ADR 0091), and no candidate carries their build. musicindex.org
-request 22 waits for an answer.
+musicindex.org requests 21, 25, 27, 28 and 29 are answered. Their build is in the
+candidate `v0.19.0-rc.6`, and no release carries it. musicindex.org request 22
+waits for an answer.
 
 ### Governance
 

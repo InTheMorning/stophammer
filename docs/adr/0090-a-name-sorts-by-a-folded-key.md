@@ -2,7 +2,8 @@
 
 ## Status
 Accepted on 2026-11-08 by the operator, for the name order that v4vmm reported on
-2026-11-08 and musicindex ADR 0053. The build is complete and not deployed.
+2026-11-08 and musicindex ADR 0053. The build is complete. The primary runs it in
+the candidate `v0.19.0-rc.6`, and no release carries it.
 
 It amends ADR 0070 §1 and ADR 0084 §8. ADR 0049 §7 and the identity rules of ADR
 0070 §3 and ADR 0071 §4 keep their key.

@@ -2,7 +2,7 @@
 
 ## Status
 Accepted on 2026-11-06 by the operator, for v4vmm request 15. Tasks 001 to 003 give
-the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.5`, and no release carries it.
+the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.6`, and no release carries it.
 It adds to ADR 0070 §2 and §3 and to ADR 0080 §6. ADR 0080 §2 does not change.
 
 ## Date

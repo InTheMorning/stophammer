@@ -973,7 +973,7 @@ With `sort=relevance`, the node puts each hit in the first group that matches. T
 
 ## Stophammer Answers - 2026-11-08
 
-These answers are advisory. Stophammer [ADR 0088](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0088-a-feed-is-found-by-its-url.md) owns the rule. The primary runs it in the candidate `v0.19.0-rc.5`. The short Wavlake form of §1a is built, and no candidate carries it yet. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0088](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0088-a-feed-is-found-by-its-url.md) owns the rule. On 2026-11-08 the primary runs it, with the short Wavlake form of §1a, in the candidate `v0.19.0-rc.6`. A release record names the release that carries it.
 
 **Request 27, a feed by its URL.** Accepted in a different form. The route gives the GUID of the feed and how the URL matched, and the site reads the feed at `href`:
 
@@ -990,7 +990,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - The example of the request, `https://feeds.wavlake.com/feed/music/0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f`, gives `404`. On 2026-11-07 that host answered `404`, and the index held no feed with that ID.
 - On a copy of the backup of 2026-11-07, a lookup took 0.4 to 1.6 ms.
 
-**Request 28, a release date for each artist and label.** Accepted. Stophammer [ADR 0091](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0091-an-artist-list-takes-the-role-filters.md) owns the rule. Its build is complete, and no candidate carries it yet.
+**Request 28, a release date for each artist and label.** Accepted. Stophammer [ADR 0091](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0091-an-artist-list-takes-the-role-filters.md) owns the rule. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.6`.
 
 - Part 1: `GET /v1/artist-names` takes `stated_rel` and `two_way_links`, with the values and the `400` rules of `GET /v1/feeds/recent`. With a filter, the list gives only the `publisher` rows that match, and no `name` row. A test proves that the set equals the set of `GET /v1/feeds/recent?medium=publisher` with the same filter. Stophammer selected this form because the list in memory already holds the release date and the link facts. A date sort on `GET /v1/feeds/recent` needs a stored column and a migration.
 - So the stated artists can come from `GET /v1/artist-names?stated_rel=artist&sort=date&include=link_facts`, and the labels from `stated_rel=label`. `two_way_links=none` gives only the publisher feeds with no two-way link. No filter gives the inferred artists, or the feeds with two-way links and no role. For those groups, read the full list with `sort=date&include=link_facts` and group each row. `sort=date` gives the newest `newest_release_at` first: the newest date of the music releases that name the feed (ADR 0089). A row with no date comes last. `reverse`, `from` and the cursor work as on the unfiltered list.
@@ -998,7 +998,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - Part 2: each row of `include=publisher` on `GET /v1/feeds/{guid}` gives `newest_item_at`, the date of the named feed. On a `publisher_to_music` row, that is the date of the release. On a `music_to_publisher` row, it is the date of the publisher feed, which is null for most feeds. It is null when the node holds no feed for the entry.
 - Send the filters only when `GET /v1/node/capabilities` lists `artist_role_filter`. A node with no such flag ignores them and gives each row. Use `newest_item_at` only when the node lists `publisher_row_date`.
 
-**Request 29, the artist name of a publisher row.** Accepted, as ADR 0091 §1a. Request 29 completes request 28. Its build is complete, and no candidate carries it yet.
+**Request 29, the artist name of a publisher row.** Accepted, as ADR 0091 §1a. Request 29 completes request 28. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.6`.
 
 - With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives `release_artist` and `release_artist_source`, with the values of `GET /v1/feeds/recent` for the same feed. Each can be null, and the key is then present with a null value.
 - Without `include=link_facts`, a row gives neither field. A `name` row never gives them.
