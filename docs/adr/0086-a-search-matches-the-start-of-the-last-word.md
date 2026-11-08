@@ -3,7 +3,7 @@
 ## Status
 Accepted on 2026-11-07 by the operator, for the prefix match of
 [the research request of 2026-10-23](../plans/research-search-index-request.md).
-The build is complete. The primary runs this work in the candidate `v0.19.0-rc.3`, and no release carries it. It adds to ADR 0080 §1 and ADR 0078 §5,
+The build is complete. The primary runs this work in the candidate `v0.19.0-rc.4`, and no release carries it. It adds to ADR 0080 §1 and ADR 0078 §5,
 which give no prefix match. ADR 0080 §2 does not change.
 §2, the invariants and the consequence about a `rank` above 0 amended on 2026-11-07
 by ADR 0087: the groups of that ADR give the order, and `rank` has no offset.

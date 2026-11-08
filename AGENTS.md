@@ -6,16 +6,17 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 is open. Its candidate `v0.19.0-rc.3` runs on the primary and the
-gossip crawler, and it has no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
+Release 0.19.0 is open. Its candidate `v0.19.0-rc.4` runs on the primary, and it has
+no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
 0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
 ADR 0081.
 
 ### Deployed
 
-Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-07 the primary, at
-commit `7f86fab`, and the gossip crawler run the GHCR images of the candidate
-`v0.19.0-rc.3`. A timer starts the `podcastindex` pass at an interval of 3 hours
+Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary runs
+the GHCR image of the candidate `v0.19.0-rc.4`, at commit `6360674`. On 2026-11-07
+the gossip crawler ran the image of `v0.19.0-rc.3`. No record states its image after
+the deploy of `v0.19.0-rc.4`, and `docker compose ps` on the host shows it. A timer starts the `podcastindex` pass at an interval of 3 hours
 (ADR 0081 §1). `docker-compose.yml` gives the pass the same image variable as the
 gossip crawler. No record states the image of a pass. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
@@ -29,7 +30,7 @@ in a release, except the items below. The primary sets
 
 ### On The Primary In A Candidate
 
-The candidate `v0.19.0-rc.3` holds these ADRs. A release promotes the candidate.
+The candidate `v0.19.0-rc.4` holds these ADRs. A release promotes the candidate.
 
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
   request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
@@ -118,7 +119,7 @@ musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
 musicindex.org requests 21 and 25 are answered. Their build is in the candidate
-`v0.19.0-rc.3`, and no release carries it.
+`v0.19.0-rc.4`, and no release carries it.
 musicindex.org request 22 waits for an answer.
 
 ### Governance
