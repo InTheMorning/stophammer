@@ -1326,6 +1326,9 @@ Gives the feeds of one medium. The sequence is the stored sort key, then
 - **The `#` group:** a title that does not start with a letter from `a` to
   `z` has a key that starts with `#`. Digits, symbols, emoji and other
   scripts are in this group, which comes before `A`.
+- **A client copy of the key:** `tests/fixtures/order-key-vectors.json` gives
+  each test input with its key. A client that makes the same key checks its
+  function against that file (ADR 0090 section 2a).
 - **Sort comparison:** Two sort keys compare by Unicode code point. This
   matches a byte comparison of UTF-8 text, and the SQLite `BINARY`
   collation. The node keeps a leading article such as "The", and it keeps

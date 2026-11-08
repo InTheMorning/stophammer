@@ -1,0 +1,275 @@
+{
+  "description": "Stophammer ADR 0090 §2: each input with its sort_key and its order_key. tests/adr0090_order_key_tests.rs checks stophammer::model against this file. A client copy of the two functions must give the same keys.",
+  "vectors": [
+    {
+      "note": "empty",
+      "input": "",
+      "sort_key": "",
+      "order_key": ""
+    },
+    {
+      "note": "only white space",
+      "input": "   \t ",
+      "sort_key": "",
+      "order_key": ""
+    },
+    {
+      "note": "plain ASCII",
+      "input": "Abbey Road",
+      "sort_key": "abbey road",
+      "order_key": "abbey road"
+    },
+    {
+      "note": "white space runs and ends",
+      "input": "  The   Long\tRoad  ",
+      "sort_key": "the long road",
+      "order_key": "the long road"
+    },
+    {
+      "note": "upper case",
+      "input": "ZZ TOP",
+      "sort_key": "zz top",
+      "order_key": "zz top"
+    },
+    {
+      "note": "acute accent",
+      "input": "Café Tacvba",
+      "sort_key": "café tacvba",
+      "order_key": "cafe tacvba"
+    },
+    {
+      "note": "diaeresis",
+      "input": "Zëmar Red",
+      "sort_key": "zëmar red",
+      "order_key": "zemar red"
+    },
+    {
+      "note": "macron",
+      "input": "Zēmar Red",
+      "sort_key": "zēmar red",
+      "order_key": "zemar red"
+    },
+    {
+      "note": "grave accent",
+      "input": "À la carte",
+      "sort_key": "à la carte",
+      "order_key": "a la carte"
+    },
+    {
+      "note": "cedilla",
+      "input": "Façade",
+      "sort_key": "façade",
+      "order_key": "facade"
+    },
+    {
+      "note": "tilde",
+      "input": "São Paulo",
+      "sort_key": "são paulo",
+      "order_key": "sao paulo"
+    },
+    {
+      "note": "ring above",
+      "input": "Ångström",
+      "sort_key": "ångström",
+      "order_key": "angstrom"
+    },
+    {
+      "note": "caron",
+      "input": "Dvořák",
+      "sort_key": "dvořák",
+      "order_key": "dvorak"
+    },
+    {
+      "note": "table ø",
+      "input": "Øystein Berge",
+      "sort_key": "øystein berge",
+      "order_key": "oystein berge"
+    },
+    {
+      "note": "table æ",
+      "input": "Ægir",
+      "sort_key": "ægir",
+      "order_key": "aegir"
+    },
+    {
+      "note": "table œ",
+      "input": "Cœur de pirate",
+      "sort_key": "cœur de pirate",
+      "order_key": "coeur de pirate"
+    },
+    {
+      "note": "table ß",
+      "input": "Straße",
+      "sort_key": "straße",
+      "order_key": "strasse"
+    },
+    {
+      "note": "table ł",
+      "input": "Łódź",
+      "sort_key": "łódź",
+      "order_key": "lodz"
+    },
+    {
+      "note": "table đ",
+      "input": "Đorđe",
+      "sort_key": "đorđe",
+      "order_key": "dorde"
+    },
+    {
+      "note": "table ð",
+      "input": "Ðana",
+      "sort_key": "ðana",
+      "order_key": "dana"
+    },
+    {
+      "note": "table þ",
+      "input": "Þórir",
+      "sort_key": "þórir",
+      "order_key": "thorir"
+    },
+    {
+      "note": "table dotless i",
+      "input": "Işık",
+      "sort_key": "işık",
+      "order_key": "isik"
+    },
+    {
+      "note": "compatibility ligature",
+      "input": "ﬁre",
+      "sort_key": "ﬁre",
+      "order_key": "fire"
+    },
+    {
+      "note": "full width letters",
+      "input": "ＡＢＣ",
+      "sort_key": "ａｂｃ",
+      "order_key": "abc"
+    },
+    {
+      "note": "digits pad",
+      "input": "Track 2",
+      "sort_key": "track 2",
+      "order_key": "track 00000000000000000002"
+    },
+    {
+      "note": "digits order",
+      "input": "Track 10",
+      "sort_key": "track 10",
+      "order_key": "track 00000000000000000010"
+    },
+    {
+      "note": "digit first",
+      "input": "1point3",
+      "sort_key": "1point3",
+      "order_key": "#00000000000000000001point00000000000000000003"
+    },
+    {
+      "note": "leading zero",
+      "input": "007 Agent",
+      "sort_key": "007 agent",
+      "order_key": "#00000000000000000007 agent"
+    },
+    {
+      "note": "digit run of 20",
+      "input": "12345678901234567890 x",
+      "sort_key": "12345678901234567890 x",
+      "order_key": "#12345678901234567890 x"
+    },
+    {
+      "note": "digit run over 20",
+      "input": "123456789012345678901 x",
+      "sort_key": "123456789012345678901 x",
+      "order_key": "#123456789012345678901 x"
+    },
+    {
+      "note": "money",
+      "input": "$2 Holla",
+      "sort_key": "$2 holla",
+      "order_key": "#$00000000000000000002 holla"
+    },
+    {
+      "note": "zero and symbol",
+      "input": "0$",
+      "sort_key": "0$",
+      "order_key": "#00000000000000000000$"
+    },
+    {
+      "note": "punctuation first",
+      "input": ".Alexander William.",
+      "sort_key": ".alexander william.",
+      "order_key": "#.alexander william."
+    },
+    {
+      "note": "quote first",
+      "input": "\"Autumn\" Beat",
+      "sort_key": "\"autumn\" beat",
+      "order_key": "#\"autumn\" beat"
+    },
+    {
+      "note": "emoji first",
+      "input": "😌 Chill",
+      "sort_key": "😌 chill",
+      "order_key": "#😌 chill"
+    },
+    {
+      "note": "emoji inside",
+      "input": "Calm 🌊 Waves",
+      "sort_key": "calm 🌊 waves",
+      "order_key": "calm 🌊 waves"
+    },
+    {
+      "note": "symbol first",
+      "input": "⛧ZBD⛧Chill⛧Vibes⛧",
+      "sort_key": "⛧zbd⛧chill⛧vibes⛧",
+      "order_key": "#⛧zbd⛧chill⛧vibes⛧"
+    },
+    {
+      "note": "star symbol first",
+      "input": "✳ZBD✳",
+      "sort_key": "✳zbd✳",
+      "order_key": "#✳zbd✳"
+    },
+    {
+      "note": "Greek",
+      "input": "Ζεν Music",
+      "sort_key": "ζεν music",
+      "order_key": "#ζεν music"
+    },
+    {
+      "note": "Cyrillic",
+      "input": "Кино",
+      "sort_key": "кино",
+      "order_key": "#кино"
+    },
+    {
+      "note": "Japanese",
+      "input": "【Ado】うっせぇわ",
+      "sort_key": "【ado】うっせぇわ",
+      "order_key": "#【ado】うっせぇわ"
+    },
+    {
+      "note": "Latin then Greek",
+      "input": "ZΞΝ Music",
+      "sort_key": "zξν music",
+      "order_key": "zξν music"
+    },
+    {
+      "note": "superscript digit",
+      "input": "Mix²",
+      "sort_key": "mix²",
+      "order_key": "mix00000000000000000002"
+    },
+    {
+      "note": "hash first",
+      "input": "#LIII4PRESIDENT",
+      "sort_key": "#liii4president",
+      "order_key": "##liii00000000000000000004president"
+    },
+    {
+      "note": "leading article kept",
+      "input": "The Beatles",
+      "sort_key": "the beatles",
+      "order_key": "the beatles"
+    }
+  ]
+}

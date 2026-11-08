@@ -597,3 +597,33 @@ fn open_db_fills_a_null_title_sort_with_the_order_key() {
         );
     }
 }
+
+// ── The published vectors ───────────────────────────────────────────────────
+
+/// ADR 0090 §2a: `tests/fixtures/order-key-vectors.json` is the contract of a
+/// client copy. Each vector must give its `sort_key` and its `order_key`.
+#[test]
+fn the_published_vectors_match_the_functions() {
+    let doc: Value =
+        serde_json::from_str(include_str!("fixtures/order-key-vectors.json")).expect("valid JSON");
+    let vectors = doc["vectors"].as_array().expect("vectors array");
+    assert!(
+        vectors.len() >= 30,
+        "ADR 0090 §2a: the file holds at least 30 vectors"
+    );
+    for vector in vectors {
+        let input = vector["input"].as_str().expect("input");
+        assert_eq!(
+            sort_key(input),
+            vector["sort_key"].as_str().expect("sort_key"),
+            "ADR 0090 §2a: sort_key of {input:?} ({}). Correct the function or, after an ADR, the file",
+            vector["note"]
+        );
+        assert_eq!(
+            order_key(input),
+            vector["order_key"].as_str().expect("order_key"),
+            "ADR 0090 §2a: order_key of {input:?} ({}). Correct the function or, after an ADR, the file",
+            vector["note"]
+        );
+    }
+}

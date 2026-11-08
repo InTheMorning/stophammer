@@ -5,6 +5,9 @@ Accepted on 2026-11-08 by the operator, for the name order that v4vmm reported o
 2026-11-08 and musicindex ADR 0053. The build is complete. The primary runs it in
 the candidate `v0.19.0-rc.6`, and no release carries it.
 
+§2a adds to §2 on 2026-11-08. The orchestrator decided it, for the client copy of
+the key. No candidate carries the change, and the node does not change.
+
 It amends ADR 0070 §1 and ADR 0084 §8. ADR 0049 §7 and the identity rules of ADR
 0070 §3 and ADR 0071 §4 keep their key.
 
@@ -75,6 +78,16 @@ An empty text gives an empty key, so an empty `from` names no position.
 
 Two order keys compare by code point, as now. In the `#` group, the folded text
 gives the sequence.
+
+### 2a. A file of vectors is the contract of a copy
+`tests/fixtures/order-key-vectors.json` gives each input with its `sort_key`
+and its `order_key`. The vectors cover accents, the table of §2, digit runs, the
+`#` group, emoji, other scripts and the empty text. A test checks
+`model::sort_key` and `model::order_key` against each vector.
+
+A client that merges its own rows with the rows of the node makes the same key.
+musicindex-search holds the one client copy, and it checks that copy against
+this file. A change to the file needs an ADR, because each copy then changes.
 
 ### 3. Where the order key applies
 - `feeds.title_sort` and `tracks.title_sort` hold the order key of the title. Each
@@ -151,6 +164,9 @@ Unit tests of `order_key` in `src/model.rs`, and tests in
 6. §3: `sort=name` of `GET /v1/search` gives the order key sequence for feeds and
    tracks.
 7. §4: after migration 0063 and a start, each row has the order key.
+8. §2a: `model::sort_key` and `model::order_key` give the keys of each vector in
+   `tests/fixtures/order-key-vectors.json`, and the file holds 30 or more
+   vectors.
 
 ### Visual
 None in this repository. The apps own their letter bars.
