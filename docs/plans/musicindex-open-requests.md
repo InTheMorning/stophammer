@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Request 26 is open. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -754,6 +754,20 @@ version. The commit `f610586` holds that change, and `q=jsmo` now gives rows.
 The request: with the sort `relevance`, a title match comes before a match in other text. Stophammer
 decides how, and whether the same rule applies to each type. No person examined how the node gives
 this order, so the request does not state the cause.
+
+### 26. The Stated Kind And A Date On A Feed Row Of A Search
+
+On 2026-11-07 a feed row of `/v1/search` gives `entity_id`, `title`, `feed_image_url`, `release_artist`,
+`release_artist_source`, `episode_count`, `rank` and `quality_score`. It gives no `release_kind` and no date.
+A row of `/v1/feeds/recent` gives `release_kind` and `newest_item_at`.
+
+The site shows the kind of a release (musicindex ADR 0020 R-WORD-1) on each row. A search row has only the
+track count, so a feed that states a kind would get the kind of its count. Each sampled feed has `unknown`
+now, so the label is correct today. A list row shows the kind, then the date. A search row has no date, so it
+shows the kind and the count.
+
+The request: a feed row of `/v1/search` gives `release_kind` and `newest_item_at`, as a row of
+`/v1/feeds/recent` does. The site works without them, so this request blocks nothing.
 
 ## Stophammer Answers - 2026-09-25
 
