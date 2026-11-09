@@ -6,7 +6,7 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 is open. Its candidate `v0.19.0-rc.6` runs on the primary, and it has
+Release 0.19.0 is open. Its candidate `v0.19.0-rc.7` runs on the primary, and it has
 no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
 0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
 ADR 0081.
@@ -14,8 +14,8 @@ ADR 0081.
 ### Deployed
 
 Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-08 the primary and
-the gossip crawler run the GHCR images of the candidate `v0.19.0-rc.6`. The
-primary gives the revision `af56f5c`. The last runs of `import` and
+the gossip crawler run the GHCR images of the candidate `v0.19.0-rc.7`. The
+primary gives the revision `398d10f`. The last runs of `import` and
 `import-wavlake` used release 0.18.1, before the deploys of the candidates. A timer starts the `podcastindex` pass at an interval of 3 hours
 (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
 of the gossip crawler, and a release deploy pins that variable in `.env`. No record
@@ -31,7 +31,7 @@ in a release, except the items below. The primary sets
 
 ### On The Primary In A Candidate
 
-The candidate `v0.19.0-rc.6` holds these ADRs. A release promotes the candidate.
+The candidate `v0.19.0-rc.7` holds these ADRs. A release promotes the candidate.
 
 - [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
   request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
@@ -60,13 +60,9 @@ The candidate `v0.19.0-rc.6` holds these ADRs. A release promotes the candidate.
   on `GET /v1/artist-names`, and `newest_item_at` on each `include=publisher`
   row. The capabilities `artist_role_filter`, `artist_row_release_artist` and
   `publisher_row_date` name them. It has no migration.
-
-### Complete And Not Deployed
-
 - [ADR 0092](docs/adr/0092-an-artist-row-counts-its-releases-by-track-count.md)
   answers musicindex.org request 30 with `release_track_counts` and the
-  capability of the same name. It is built, with no migration. No candidate
-  carries it.
+  capability of the same name. It has no migration.
 
 ### Open Items
 
@@ -147,9 +143,8 @@ requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a draft.
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
-musicindex.org requests 21, 25, 27, 28 and 29 are answered. Their build is in the
-candidate `v0.19.0-rc.6`, and no release carries it. musicindex.org request 30
-is answered (ADR 0092), and no candidate carries its build. musicindex.org request 22
+musicindex.org requests 21, 25, 27, 28, 29 and 30 are answered. Their build is in the
+candidate `v0.19.0-rc.7`, and no release carries it. musicindex.org request 22
 waits for an answer.
 
 ### Governance

@@ -2,7 +2,7 @@
 
 ## Status
 Accepted on 2026-11-07 by the operator, for musicindex.org request 25. The build is
-complete. The primary runs this work in the candidate `v0.19.0-rc.6`, and no release carries it.
+complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 
 It amends ADR 0086 §2, the invariants of ADR 0086 and its consequence about a `rank`
 above 0.

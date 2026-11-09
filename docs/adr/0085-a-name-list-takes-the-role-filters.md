@@ -2,7 +2,7 @@
 
 ## Status
 Accepted on 2026-11-06 by the operator, for musicindex.org request 21 and v4vmm
-request 14. Tasks 001 and 002 give the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.6`, and no release carries it.
+request 14. Tasks 001 and 002 give the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 It adds to ADR 0068 §4 and ADR 0070 §2. It amends ADR 0080 §2 for `title` on a track.
 It keeps the sentence "The node infers no kind" of ADR 0080 §2.
 

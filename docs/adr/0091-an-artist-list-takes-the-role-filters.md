@@ -2,12 +2,12 @@
 
 ## Status
 Accepted on 2026-11-08 by the operator, for musicindex.org request 28. The build
-is complete. The primary runs it in the candidate `v0.19.0-rc.6`, and no release
+is complete. The primary runs it in the candidate `v0.19.0-rc.7`, and no release
 carries it.
 
 §1a adds to §1 on 2026-11-08, for musicindex.org request 29. Request 29
 completes request 28. So the orchestrator decided §1a under the acceptance of
-the operator. The candidate `v0.19.0-rc.6` carries §1a.
+the operator. The candidate `v0.19.0-rc.7` carries §1a.
 
 It adds to ADR 0089 §2, ADR 0071 §2 and ADR 0059 §1. ADR 0068 §4 and §5 do not
 change.

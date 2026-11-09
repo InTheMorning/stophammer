@@ -3,7 +3,7 @@
 ## Status
 Accepted on 2026-11-08 by the operator, for the name order that v4vmm reported on
 2026-11-08 and musicindex ADR 0053. The build is complete. The primary runs it in
-the candidate `v0.19.0-rc.6`, and no release carries it.
+the candidate `v0.19.0-rc.7`, and no release carries it.
 
 §2a adds to §2 on 2026-11-08. The orchestrator decided it, for the client copy of
 the key. No candidate carries the change, and the node does not change.

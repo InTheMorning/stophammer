@@ -2,8 +2,8 @@
 
 ## Status
 Accepted on 2026-11-08 by the operator, for musicindex.org request 30. The
-orchestrator selected the form. The build is complete, and no candidate carries
-it.
+orchestrator selected the form. On 2026-11-08 the primary runs it in the
+candidate `v0.19.0-rc.7`.
 
 It adds to ADR 0068 §5, ADR 0071 §2, ADR 0076 §3 and ADR 0070 §3. ADR 0080 §2 and
 ADR 0085 §6 do not change: the node infers no release kind.
