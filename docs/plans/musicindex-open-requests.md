@@ -1046,7 +1046,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 
 On 2026-11-08 the operator reports that the candidate `v0.19.0-rc.7` is deployed. `/openapi.json` gives the version `0.19.0`. `GET /v1/node/capabilities` lists `query`, `search`, `sync`, `push`, `name_lists`, `sort`, `feed_by_url`, `artist_newest`, `artist_role_filter`, `publisher_row_date`, `artist_row_release_artist` and `release_track_counts`.
 
-A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. At this time, the list rows of the site do not read the field. That work belongs to ADR 0023 R-WORD-9.
+A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. musicindex commit `b36d25f` (ADR 0023 R-WORD-9) makes the list rows of the site read the field.
 
 **Request 22, HTML entities in a description.** Accepted. Stophammer [ADR 0017](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0017-canonical-rss-parser-crate.md) owns the rule: the parser decodes entities. Parser commit `7130556` decodes the 252 named entities of HTML 4.01, and no release carries it.
 
