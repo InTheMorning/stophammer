@@ -7,6 +7,9 @@ Release 0.18.0 holds the change.
 [The measurement record](../reviews/adr-0082-refill-measurement.md) gives the
 refill pass and the refill check.
 
+Amended on 2026-11-09 by [ADR 0093](0093-a-live-item-gives-its-content-link-not-its-stream.md)
+§2: a `content_link` link of a live item also has a label.
+
 ## Date
 2026-10-31
 

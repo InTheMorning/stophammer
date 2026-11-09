@@ -22,6 +22,10 @@ Amended on 2026-10-17, musicindex.org request 14: section 6 gives each row
 `link`, the page that the live item advertises. The node already stores the
 value. The amendment changes only the read.
 
+Amended on 2026-11-09 by [ADR 0093](0093-a-live-item-gives-its-content-link-not-its-stream.md):
+`content_link` of §4 and §6 is the `href` of the first `podcast:contentLink`
+child element, and never the enclosure.
+
 ## Date
 2026-09-26
 

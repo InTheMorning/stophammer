@@ -1595,7 +1595,7 @@ fn build_source_entity_links(
                     "self_feed" => "feed.atom:link[@rel='self']",
                     "website" => "feed.link[*]",
                     "web_page" => "entity.link[*]",
-                    "content_stream" => "live_item.@contentLink",
+                    "content_link" => "live_item.podcast:contentLink",
                     _ => "entity.link",
                 }
                 .to_string()

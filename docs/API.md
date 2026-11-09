@@ -190,7 +190,7 @@ Crawler submission endpoint. Validates the feed through the verifier chain and, 
         "status": "pending",
         "start_at": 1710291600,
         "end_at": 1710298800,
-        "content_link": "https://example.com/stream",
+        "content_link": "https://example.com/live",
         "pub_date": 1710291600,
         "duration_secs": null,
         "enclosure_url": null,
@@ -942,7 +942,7 @@ Returns a single feed by its `podcast:guid`.
         "live_item_guid": "live-item-guid",
         "title": "Tonight's Listening Party",
         "status": "pending",
-        "content_link": "https://example.com/stream",
+        "content_link": "https://example.com/live",
         "scheduled_start": 1710291600,
         "scheduled_end": 1710298800,
         "live_value_uri": "https://relay.example.com/events/abc",
@@ -1028,6 +1028,12 @@ feed that it names. ADR 0059 owns them. A track read gives them too.
 `live_item_guid`. `GET /v1/feeds/{guid}` always gives the key, also when the
 list is empty. `GET /v1/feeds/recent` gives no `live_items` key. ADR 0064
 section 6 scopes the field to this single-feed read.
+
+`content_link` is the `href` of the first `<podcast:contentLink>` child
+element of the live item. It is a page for a person, for example a web player
+or a chat room. It is null when the live item has no content link. The
+enclosure of a live item is its stream, and it is not given in `content_link`.
+ADR 0093 owns this field.
 
 `confirming_relay` is `true` when `live_value_uri` is an `https` URL on a
 host of `CONFIRMING_RELAY_HOSTS`. A `live_value_uri` with no scheme is a bare
@@ -1876,7 +1882,7 @@ Gives the live-event rows of every public feed. Each row also names its
       "live_item_guid": "live-item-guid",
       "title": "Tonight's Listening Party",
       "status": "live",
-      "content_link": "https://example.com/stream",
+      "content_link": "https://example.com/live",
       "scheduled_start": 1710291600,
       "scheduled_end": 1710298800,
       "live_value_uri": "https://relay.example.com/events/abc",

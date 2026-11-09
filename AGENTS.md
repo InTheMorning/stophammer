@@ -106,6 +106,11 @@ The candidate `v0.19.0-rc.7` holds these ADRs. A release promotes the candidate.
   2026-10-31. On 2026-11-28, after 28 days, the result decides the schedule of
   `import`. [Task 011](docs/tasks/adr-0081-task-011-import-gap-decision.md)
   gives the steps.
+- [ADR 0093](docs/adr/0093-a-live-item-gives-its-content-link-not-its-stream.md)
+  answers [the research request of 2026-11-09](docs/plans/research-live-item-stream-request.md).
+  Migration 0064 and parser commit `e354b1b` are built, and no candidate holds
+  them. The node and the crawler image deploy together, because an older
+  crawler sends the stream as `content_link` again.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 

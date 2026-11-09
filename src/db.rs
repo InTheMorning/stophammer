@@ -286,6 +286,9 @@ const MIGRATIONS: &[&str] = &[
     // task 001)
     include_str!("../migrations/0062_track_title_sort.sql"),
     include_str!("../migrations/0063_title_sort_order_key.sql"),
+    // Migration 64: clear each live item content_link that is its stream
+    // (ADR 0093 §4)
+    include_str!("../migrations/0064_live_content_link_not_stream.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
