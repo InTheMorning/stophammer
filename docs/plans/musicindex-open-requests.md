@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -53,7 +53,7 @@ names the requests that the two clients share.
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 | 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
 | 21 | A name order for each list of feeds | API parameter addition | Live in release 0.19.0 (ADR 0085) |
-| 22 | HTML entities in a description | Data correction | Open |
+| 22 | HTML entities in a description | Data correction | Answered on 2026-11-08. The next crawler image decodes them (ADR 0017) |
 | 23 | A search finds a playlist | Search behavior | Open |
 | 24 | A faster role filter on the publisher lists | Performance | Open |
 | 25 | A title match before a description match | Search behavior | Open |
@@ -1047,6 +1047,15 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 On 2026-11-08 the operator reports that the candidate `v0.19.0-rc.7` is deployed. `/openapi.json` gives the version `0.19.0`. `GET /v1/node/capabilities` lists `query`, `search`, `sync`, `push`, `name_lists`, `sort`, `feed_by_url`, `artist_newest`, `artist_role_filter`, `publisher_row_date`, `artist_row_release_artist` and `release_track_counts`.
 
 A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. At this time, the list rows of the site do not read the field. That work belongs to ADR 0023 R-WORD-9.
+
+**Request 22, HTML entities in a description.** Accepted. Stophammer [ADR 0017](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0017-canonical-rss-parser-crate.md) owns the rule: the parser decodes entities. Parser commit `7130556` decodes the 252 named entities of HTML 4.01, and no release carries it.
+
+- Before that commit, the parser decoded only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and numeric entities. It kept each other name, for example `&rsquo;`, as text.
+
+- The crawler decodes a title and a description when it reads a feed. The node stores the decoded text, and the API does not change.
+- A crawl of a feed with the same body writes nothing. So a stored row gets the decoded text when its feed changes, or when the operator replays the fetch cache with `export-feed-cache-ndjson.py`.
+- On a copy of the backup of 2026-11-09, 91 track descriptions and 1 feed description hold a named entity. The most frequent are `&nbsp;`, `&rsquo;` and `&auml;`. No title holds one.
+- The site needs no change.
 
 ## Release 0.19.0
 

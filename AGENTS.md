@@ -145,7 +145,9 @@ request 16 is declined, and requests 19 and 20 are closed. v4vmm request 11 is a
 The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
 musicindex.org requests 21, 25, 27, 28, 29 and 30 are answered. Their build is in the
 candidate `v0.19.0-rc.7`, and no release carries it. musicindex.org request 22
-waits for an answer.
+is answered (ADR 0017). Parser commit `7130556` decodes the named entities of
+HTML 4.01, and no crawler image carries it. musicindex.org requests 23, 24 and
+26 wait for an answer.
 
 ### Governance
 
