@@ -8,7 +8,7 @@ Open - 2026-11-11. No ADR answers a section of this request.
 |---|---|---|
 | L1: Read The Pairs As An Input | Open | No decision. L1 to L4 and M2 of [the request of 2026-11-04](research-feed-move-confirmation-request.md) change one copy queue, and they get one decision. ADR 0081 reads the PodcastIndex music list, not the lookalike files |
 | L2: A Copy With A Different GUID | Open | No decision. The operator has not decided if a pair of class A is a defect or two correct uploads |
-| L3: First-Seen Times | Open | No decision. The open questions on `dateCrawled` and `bymedium` are not examined |
+| L3: First-Seen Times | Open | No decision. The API gives no `createdOn`, and `dateCrawled` does not keep the first time across feeds (see "Data From The PodcastIndex API") |
 | L4: Payment Routes | Open | No decision. It depends on the decision for L1 |
 
 Received - 2026-11-03. This request comes from the research repository at
@@ -213,15 +213,49 @@ does not show if the payment reaches the same person.
 **No merge or hide is proposed.** The routes differ, so a selection of one feed
 decides who gets paid.
 
+## Data From The PodcastIndex API - 2026-11-11
+
+Stophammer added this data after the request. It states no decision. A read-only
+probe sent 16 API requests, at most 10 in each minute, and 7 requests to
+`public.podcastindex.org`. It read `byfeedurl`, `episodes/byfeedid` and `byguid`
+for three titles. These are "Live at Rockpile" with three feeds, "Damn Your Idols"
+with two feeds, and the Haleen title "OM Vighnanashaya Namah" with two feeds.
+
+- **No first-seen time of a feed in the API.** The feed objects of `bymedium`,
+  `byfeedurl` and `byguid` have no `createdOn` and no `valueCreatedOn`, although
+  specification 1.12.1 names them. Only the snapshot gives `createdOn`.
+  `bymedium` ignores `max=3` and sends the full list.
+- **`dateCrawled` is the first time that one feed ID gave one item GUID.** The
+  Wavlake feed of "Live at Rockpile" gives its item GUIDs on 2026-05-03. The two
+  MSP feeds give the same item GUIDs on 2026-10-25, and they also keep 7 earlier
+  item GUIDs from 2026-06-03. A new feed ID or a new item GUID gets a new time.
+  So `dateCrawled` does not keep the first time across feeds.
+- **`dateCrawled` can be months after publication.** The Fountain item of the
+  Haleen title has `datePublished` 2025-09-30 and `dateCrawled` 2026-07-27. The
+  Wavlake item has 2026-02-02 for the two values. For "Damn Your Idols", the
+  Fountain items have `datePublished` 2026-06-17 and `dateCrawled` 2026-07-27. The
+  Kolomona items have 2026-06-19 and 2026-06-20. The two times give opposite
+  sequences for this pair.
+- **`byguid` gives one feed when three feeds share a GUID.** For "Live at
+  Rockpile" it gives ID 7612000 at `new.musicsideproject.com`, the lowest of the
+  three IDs. The node holds the source at `musicsideproject.com`.
+- **The daily files stay for 7 to 13 days.** The files of 2026-11-10, 2026-11-09
+  and 2026-11-04 exist. The files of 2026-10-28, 2026-10-12 and 2026-09-12 give
+  `403`. A reader of the daily files must read them each 7 days or more frequently, or read
+  `lookalike_feeds_all.csv`.
+- **The daily file has 36 columns,** the same count as on 2026-11-03. The first
+  columns are `detected_on`, `last_checked`, `changed_on`, `change`, `label`,
+  `confidence` and `previous_label`. A row can be a change of label of an earlier
+  pair, for example `label_changed` from `unclear` to `copy`.
+- **The detector cannot find the Haleen pair.** The two feeds have different
+  `podcast:guid` values and different item GUIDs, and their publication times are
+  125 days apart. The detector needs shared item GUIDs or times less than 48 hours
+  apart. This supports the possible cause in "Data For L2 And L4" for this one pair.
+
 ## Open Questions
 
 - Is a pair of class A a defect, or a correct listing of two uploads? The operator
   has not decided. Nothing is built for this question.
-- Does `dateCrawled` keep the first time when PodcastIndex adds a feed again
-  with a new ID? The "Live at Rockpile" pair suggests this. The research did
-  not examine the API.
-- How long does PodcastIndex keep the daily files, and is the column set
-  stable?
+- Is the column set of the daily files stable? Only the count was compared, not
+  each name.
 - Does the "Damn Your Idols" artist publish the two feeds?
-- Does the `bymedium` response give `createdOn`? The research did not examine
-  it.
