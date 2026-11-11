@@ -69,9 +69,8 @@ The candidate `v0.19.0-rc.8` holds these ADRs. A release promotes the candidate.
   answers [the research request of 2026-11-09](docs/plans/research-live-item-stream-request.md)
   with migration 0064 and parser commit `e354b1b`. The node and the crawler
   image deploy together, because an older crawler sends the stream as
-  `content_link` again. On 2026-11-12 the agent reads `GET /v1/live-items`
-  again, and gives the replay of ADR 0093 §4 for each feed that keeps a null
-  `content_link` while its body has `podcast:contentLink`.
+  `content_link` again. On 2026-11-11 a forced `feed` crawl of the 6 live feeds
+  gave the content links of the 3 live items that state one.
 - [ADR 0094](docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md)
   answers musicindex.org requests 23 and 26 and item 1 of v4vmm request 11,
   with the capabilities `search_medium` and `search_feed_summary`. It has no

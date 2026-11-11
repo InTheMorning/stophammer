@@ -2,14 +2,14 @@
 
 ## Status
 
-Answered - 2026-11-09. One check is open.
+Answered - 2026-11-09. The check of 2026-11-11 is complete.
 
 | Section | Status | Owner or blocker |
 |---|---|---|
 | L1, read each `podcast:contentLink` child | Answered | [ADR 0093](../adr/0093-a-live-item-gives-its-content-link-not-its-stream.md) §1 and §2 |
 | L2, keep the stream apart from the content link | Answered | ADR 0093 §1 and §3 |
 | L3, the 17 stored rows | Answered | ADR 0093 §4. Migration 0064 cleared them |
-| The read of `GET /v1/live-items` after one day | Open | It occurs on 2026-11-12. A feed that keeps a null `content_link` while its body has `podcast:contentLink` gets the replay of ADR 0093 §4 |
+| The check of the cleared rows | Complete | On 2026-11-11 the operator ran `stophammer-crawler feed --force` for the 6 live feeds. Boost Beach and the two Polar Embrace items give their content links. The other 14 live items give null, and their feed bodies have no `podcast:contentLink` |
 
 Received - 2026-11-09. This request comes from the research repository at
 `~/build/musicindex-research`, commit `82f56fe`. That repository has no Git
