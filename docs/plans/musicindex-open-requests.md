@@ -12,8 +12,8 @@ The Stophammer repository and the musicindex repository each hold a copy at
 `docs/plans/musicindex-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in
-its own ADR. The v4vmm client keeps its own list in
-`docs/plans/v4vmm-open-requests.md`. Section "Requests That v4vmm Also Makes"
+its own ADR. The HitIt client keeps its own list in
+`docs/plans/v4vmm-open-requests.md`. Section "Requests That HitIt Also Makes"
 names the requests that the two clients share.
 
 ## Evidence Base
@@ -1102,12 +1102,12 @@ Release 0.19.0 delivers requests 21, 22, 23 and 25 to 30 (Stophammer ADRs 0017 a
 - `GET /v1/search?q=Deck%20Darlings&type=feed&medium=music,musicL` gives the playlist `fd8afd2e-16e3-5509-b867-b94dcc65baa3` with `medium` `musicL`.
 - A feed hit of `GET /v1/search?q=love&type=feed` gives `medium`, `release_kind` and `newest_item_at`.
 
-## Requests That v4vmm Also Makes
+## Requests That HitIt Also Makes
 
-musicindex.org is a second client for these v4vmm requests. This may matter
-for their priority.
+musicindex.org is a second client for these HitIt requests. Thus they can be
+more important.
 
-| v4vmm # | Request | What it gives musicindex.org |
+| HitIt # | Request | What it gives musicindex.org |
 |---|---|---|
 | 1 | Album summary fields in each publisher relationship entry | The publisher page reads each album separately: a maximum of 24, six at a time, and a "Show all" control for the remainder (`ALBUM_PAGE_SIZE` and `FEED_FETCH_CONCURRENCY`, lines 1881 and 1882). With the fields, one request per publisher |
 | 2 | A deployed revision that a client can read | musicindex regenerates `api.json` after each Stophammer deploy. On 2026-09-25 the deploy was visible only from the new routes in `/openapi.json`, whose `info.version` stays `0.1.0` |
