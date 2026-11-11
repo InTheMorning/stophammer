@@ -1,10 +1,9 @@
 # ADR 0095: A Release On Two Platforms Is Two Feeds
 
 ## Status
-Proposed on 2026-11-11. It answers L1 to L4 of
+Accepted on 2026-11-11 by the operator. It answers L1 to L4 of
 [the research request of 2026-11-03](../plans/research-lookalike-feeds-and-first-seen-request.md).
 It also answers M2 of [the research request of 2026-11-04](../plans/research-feed-move-confirmation-request.md).
-The operator accepts, changes or rejects it.
 
 This ADR changes no code and no schema. It keeps the copy rule of ADR 0058 and
 the move rules of ADR 0052 and ADR 0083.
@@ -108,8 +107,7 @@ needed the value.
   `podcast:guid`.
 - A copy with a new GUID and changed payment routes stays invisible to the node.
   An artist or a listener reports it, and the operator acts on the report.
-- The research requests of 2026-11-03 and 2026-11-04 have no open section after
-  this ADR is accepted.
+- The research requests of 2026-11-03 and 2026-11-04 have no open section.
 
 ## Invariants
 - A match of content never changes a feed record. Only the rules of ADR 0052,

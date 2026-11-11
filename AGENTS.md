@@ -28,6 +28,8 @@ version number.
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
 in a release, except the items below. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
+[ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
+code, so no release carries it.
 
 ### On The Primary In A Candidate
 
@@ -104,13 +106,6 @@ The candidate `v0.19.0-rc.8` holds these ADRs. A release promotes the candidate.
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change, and ADR 0086 answers the prefix match. No decision is recorded
   for the other changes.
-- [The research request of 2026-11-03](docs/plans/research-lookalike-feeds-and-first-seen-request.md)
-  gives four changes for the operator copy queue, and
-  [the research request of 2026-11-04](docs/plans/research-feed-move-confirmation-request.md)
-  gives the tag of a mirror (M2). ADR 0083 answers the other two changes of the
-  request of 2026-11-04. [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md)
-  is Proposed. It builds none of the five changes. The operator accepts,
-  changes or rejects it.
 - ADR 0080 §6: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took

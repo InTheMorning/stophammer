@@ -2,14 +2,14 @@
 
 ## Status
 
-Open - 2026-11-11. [ADR 0095](../adr/0095-a-release-on-two-platforms-is-two-feeds.md) is Proposed. It answers each section with no build. Each section stays open until the operator accepts it.
+Answered - 2026-11-11. [ADR 0095](../adr/0095-a-release-on-two-platforms-is-two-feeds.md) is Accepted. It answers each section with no build.
 
 | Section | Status | Blocker |
 |---|---|---|
-| L1: Read The Pairs As An Input | Open | ADR 0095 §2 is Proposed: the node does not read the lookalike files |
-| L2: A Copy With A Different GUID | Open | ADR 0095 §1 is Proposed: the node does not join two feeds by a match of content |
-| L3: First-Seen Times | Open | ADR 0095 §3 is Proposed: the node shows no PodcastIndex first-seen time |
-| L4: Payment Routes | Open | ADR 0095 §5 is Proposed: no route comparison for a pair with different GUIDs |
+| L1: Read The Pairs As An Input | Answered with no build | ADR 0095 §2: the node does not read the lookalike files |
+| L2: A Copy With A Different GUID | Answered with no build | ADR 0095 §1: the node does not join two feeds by a match of content |
+| L3: First-Seen Times | Answered with no build | ADR 0095 §3: the node shows no PodcastIndex first-seen time |
+| L4: Payment Routes | Answered with no build | ADR 0095 §5: no route comparison for a pair with different GUIDs |
 
 Received - 2026-11-03. This request comes from the research repository at
 `~/build/musicindex-research`. That repository has no Git remote. Its index is
