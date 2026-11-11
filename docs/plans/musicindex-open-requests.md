@@ -57,6 +57,11 @@ names the requests that the two clients share.
 | 23 | A search finds a playlist | Search behavior | Live in release 0.19.0 on 2026-11-11 (ADR 0094). The site reads it after site search task 003 |
 | 24 | A faster role filter on the publisher lists | Performance | Closed on 2026-11-10. Met by ADR 0091 |
 | 25 | A title match before a description match | Search behavior | Live in release 0.19.0 on 2026-11-11 (ADR 0087) |
+| 26 | The stated kind and a date on a feed row of a search | API field addition | Live in release 0.19.0 on 2026-11-11 (ADR 0094 §3). The site reads it after site search task 003 |
+| 27 | A feed by its URL | API route addition | Accepted in a different form. Live in release 0.19.0 on 2026-11-11 (ADR 0088) |
+| 28 | A release date for each artist and label | API parameter addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091) |
+| 29 | The artist name of a publisher row of the artist list | API field addition | Live in release 0.19.0 on 2026-11-11 (ADR 0091 §1a) |
+| 30 | The releases of an artist row by track count | API field addition | Closed on 2026-11-08. Live in release 0.19.0 on 2026-11-11 (ADR 0092) |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
