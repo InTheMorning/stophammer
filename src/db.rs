@@ -892,7 +892,7 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     ensure_retired_source_hold_release_schema(&conn)?;
     ensure_search_index_text_columns(&mut conn)?;
     ensure_search_index_track_identity(&mut conn)?;
-    ensure_search_index_publisher_feeds(&mut conn)?;
+    ensure_search_index_feed_row_types(&mut conn)?;
     ensure_feed_title_sort_filled(&mut conn)?;
     ensure_track_title_sort_filled(&mut conn)?;
     ensure_feed_host_filled(&mut conn)?;
@@ -1004,23 +1004,26 @@ fn ensure_search_index_track_identity(conn: &mut Connection) -> Result<(), DbErr
     Ok(())
 }
 
-/// Adds a `publisher` search-entity row for each publisher feed that the
-/// index does not hold.
+/// Adds missing `publisher` and `playlist` search-entity rows.
 ///
-/// ADR 0071 §5: the search index holds a publisher feed as its own entity
-/// type, found only with `type=publisher`. A node that opened before this
-/// decision wrote no such row for a publisher feed it already held. This
-/// repair only adds the missing rows. It never clears an existing row. A
-/// database where each publisher feed already has a `search_entities` row
-/// skips the repair, so a second open adds none.
-fn ensure_search_index_publisher_feeds(conn: &mut Connection) -> Result<(), DbError> {
+/// ADR 0071 §5 and ADR 0094 §1a: the index holds a publisher feed and a
+/// `musicL` feed each as its own entity type. A node that opened before these
+/// decisions has no such row for a feed that it already held. This repair
+/// only adds the missing rows. It never clears an existing row, so a second
+/// open adds none.
+fn ensure_search_index_feed_row_types(conn: &mut Connection) -> Result<(), DbError> {
     let missing_feed_guids: Vec<String> = conn
         .prepare(
             "SELECT f.feed_guid FROM feeds f \
-             WHERE lower(f.raw_medium) = 'publisher' \
-             AND NOT EXISTS ( \
+             WHERE lower(f.raw_medium) = 'publisher' AND NOT EXISTS ( \
                  SELECT 1 FROM search_entities e \
                  WHERE e.entity_type = 'publisher' AND e.entity_id = f.feed_guid \
+             ) \
+             UNION ALL \
+             SELECT f.feed_guid FROM feeds f \
+             WHERE lower(f.raw_medium) = 'musicl' AND NOT EXISTS ( \
+                 SELECT 1 FROM search_entities e \
+                 WHERE e.entity_type = 'playlist' AND e.entity_id = f.feed_guid \
              )",
         )?
         .query_map([], |row| row.get(0))?
@@ -1039,7 +1042,7 @@ fn ensure_search_index_publisher_feeds(conn: &mut Connection) -> Result<(), DbEr
     tracing::info!(
         feeds = missing_feed_guids.len(),
         elapsed_ms = started.elapsed().as_millis(),
-        "db: added the publisher feeds the search index did not hold"
+        "db: added the publisher and playlist rows the search index did not hold"
     );
     Ok(())
 }
@@ -1615,13 +1618,17 @@ pub fn sync_source_read_models_for_feed(conn: &Connection, feed_guid: &str) -> R
 
     let is_music = crate::medium::is_music(feed.raw_medium.as_deref());
     let is_publisher_feed = crate::medium::is_publisher(feed.raw_medium.as_deref());
+    let is_playlist_feed = crate::medium::is_musicl(feed.raw_medium.as_deref());
 
-    // ADR 0071 §5: the index holds a publisher feed as its own entity type.
-    // A feed is at most one of the two row types, so a medium change (music
-    // to publisher or back) deletes the row of the type it left and writes
-    // the row of the type it entered. A `musicL` feed or a feed with no
-    // medium holds neither row.
-    for (entity_type, keep) in [("feed", is_music), ("publisher", is_publisher_feed)] {
+    // ADR 0071 §5 and ADR 0094 §1a: a feed holds at most one feed row type.
+    // A change of `raw_medium` removes the row type that the feed left and
+    // writes the row type that it entered. A feed with no `raw_medium` or an
+    // unknown value holds no row.
+    for (entity_type, keep) in [
+        ("feed", is_music),
+        ("publisher", is_publisher_feed),
+        ("playlist", is_playlist_feed),
+    ] {
         if keep {
             crate::search::populate_search_index(
                 conn,
@@ -2915,10 +2922,11 @@ pub(crate) fn delete_feed_sql(conn: &Connection, feed_guid: &str) -> Result<(), 
         .query_map(params![feed_guid], |row| row.get::<_, String>(0))?
         .collect::<Result<Vec<_>, _>>()?;
 
-    // ADR 0078 §3: delete the index rows of the feed, of its publisher entry
-    // and of its tracks before the feed row.
+    // ADR 0078 §3: delete the index rows of the feed, its publisher or
+    // playlist entry, and its tracks before the feed row.
     crate::search::delete_from_search_index(conn, "feed", feed_guid)?;
     crate::search::delete_from_search_index(conn, "publisher", feed_guid)?;
+    crate::search::delete_from_search_index(conn, "playlist", feed_guid)?;
     for track_guid in &track_guids {
         crate::search::delete_from_search_index(
             conn,
