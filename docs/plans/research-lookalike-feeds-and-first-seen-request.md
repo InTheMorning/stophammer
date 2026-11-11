@@ -2,14 +2,14 @@
 
 ## Status
 
-Open - 2026-11-11. No ADR answers a section of this request.
+Open - 2026-11-11. [ADR 0095](../adr/0095-a-release-on-two-platforms-is-two-feeds.md) is Proposed. It answers each section with no build. Each section stays open until the operator accepts it.
 
 | Section | Status | Blocker |
 |---|---|---|
-| L1: Read The Pairs As An Input | Open | No decision. L1 to L4 and M2 of [the request of 2026-11-04](research-feed-move-confirmation-request.md) change one copy queue, and they get one decision. ADR 0081 reads the PodcastIndex music list, not the lookalike files |
-| L2: A Copy With A Different GUID | Open | No decision. The operator has not decided if a pair of class A is a defect or two correct uploads |
-| L3: First-Seen Times | Open | No decision. The API gives no `createdOn`, and `dateCrawled` does not keep the first time across feeds (see "Data From The PodcastIndex API") |
-| L4: Payment Routes | Open | No decision. It depends on the decision for L1 |
+| L1: Read The Pairs As An Input | Open | ADR 0095 §2 is Proposed: the node does not read the lookalike files |
+| L2: A Copy With A Different GUID | Open | ADR 0095 §1 is Proposed: the node does not join two feeds by a match of content |
+| L3: First-Seen Times | Open | ADR 0095 §3 is Proposed: the node shows no PodcastIndex first-seen time |
+| L4: Payment Routes | Open | ADR 0095 §5 is Proposed: no route comparison for a pair with different GUIDs |
 
 Received - 2026-11-03. This request comes from the research repository at
 `~/build/musicindex-research`. That repository has no Git remote. Its index is
@@ -252,10 +252,15 @@ with two feeds, and the Haleen title "OM Vighnanashaya Namah" with two feeds.
   125 days apart. The detector needs shared item GUIDs or times less than 48 hours
   apart. This supports the possible cause in "Data For L2 And L4" for this one pair.
 
+## The Operator Answer - 2026-11-11
+
+The operator stated that Haleen uploads to Fountain and to Wavlake. Each platform
+makes the `podcast:guid` from its own feed URL. For "OM Vighnanashaya Namah", the
+UUIDv5 of each feed URL is equal to the GUID that PodcastIndex gives. So a pair of
+class A is two correct uploads, not a defect.
+
 ## Open Questions
 
-- Is a pair of class A a defect, or a correct listing of two uploads? The operator
-  has not decided. Nothing is built for this question.
 - Is the column set of the daily files stable? Only the count was compared, not
   each name.
 - Does the "Damn Your Idols" artist publish the two feeds?

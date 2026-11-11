@@ -2,13 +2,13 @@
 
 ## Status
 
-Answered in part - 2026-11-11. ADR 0083 answers M1 and M3. M2 is open.
+Answered in part - 2026-11-11. ADR 0083 answers M1 and M3. M2 is open, and ADR 0095 is Proposed for it.
 
 | Section | Status | Owner or blocker |
 |---|---|---|
 | The Defect | Answered | [ADR 0083](../adr/0083-a-feed-move-refuses-a-loop.md) §2 and §5. Release 0.18.1 holds it |
 | M1: The Chain Rule | Answered with a different rule | ADR 0083 §2 to §8. "Alternatives Considered" gives the reason to refuse the chain rule |
-| M2: Two Feeds That Name Themselves | Open | No decision. It changes the same copy queue as L1 to L4 of [the request of 2026-11-03](research-lookalike-feeds-and-first-seen-request.md), so the two requests get one decision (ADR 0083, "What this ADR does not decide") |
+| M2: Two Feeds That Name Themselves | Open | [ADR 0095](../adr/0095-a-release-on-two-platforms-is-two-feeds.md) §4 is Proposed: the copy row does not store the tag of a mirror. It stays open until the operator accepts it |
 | M3: Spelling | Answered with no change | ADR 0083 §9. The comparison stays exact |
 
 Received - 2026-11-04. This request comes from the research repository at
