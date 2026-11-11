@@ -1166,6 +1166,30 @@ struct SearchResponseItem {
     release_artist_source: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     episode_count: Option<i64>,
+    /// The stored `raw_medium` of a `feed` or `publisher` row. ADR 0094 §2.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes this field, and the inner None gives null (ADR 0094 §2)"
+    )]
+    medium: Option<Option<String>>,
+    /// The `release_kind` of a `feed` or `publisher` row. ADR 0094 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<String>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes this field, and the inner None gives null (ADR 0094 §3)"
+    )]
+    release_kind: Option<Option<String>>,
+    /// The `newest_item_at` of a `feed` or `publisher` row. ADR 0094 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<i64>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes this field, and the inner None gives null (ADR 0094 §3)"
+    )]
+    newest_item_at: Option<Option<i64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     track_artist: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1770,6 +1794,9 @@ struct SearchSummary {
     release_artist: Option<String>,
     release_artist_source: Option<String>,
     episode_count: Option<i64>,
+    medium: Option<String>,
+    release_kind: Option<String>,
+    newest_item_at: Option<i64>,
     track_artist: Option<String>,
     duration_secs: Option<i64>,
 }
@@ -1782,7 +1809,7 @@ fn feed_search_summary(
     feed_guid: &str,
 ) -> Result<SearchSummary, api::ApiError> {
     conn.query_row(
-        "SELECT title, image_url, release_artist, release_artist_source, episode_count FROM feeds WHERE feed_guid = ?1",
+        "SELECT title, image_url, release_artist, release_artist_source, episode_count, raw_medium, release_kind, newest_item_at FROM feeds WHERE feed_guid = ?1",
         params![feed_guid],
         |row| {
             Ok(SearchSummary {
@@ -1791,6 +1818,9 @@ fn feed_search_summary(
                 release_artist: row.get(2)?,
                 release_artist_source: row.get(3)?,
                 episode_count: row.get(4)?,
+                medium: row.get(5)?,
+                release_kind: row.get(6)?,
+                newest_item_at: row.get(7)?,
                 ..SearchSummary::default()
             })
         },
@@ -6631,6 +6661,8 @@ async fn handle_search(
                     } else {
                         summary = feed_search_summary(&conn, &entity_id)?;
                     }
+                    let include_feed_summary =
+                        matches!(r.entity_type.as_str(), "feed" | "publisher");
 
                     // ADR 0076 §3: a `publisher` row gives its link facts
                     // with the include, calculated as a list row does. A
@@ -6673,6 +6705,9 @@ async fn handle_search(
                         release_artist: summary.release_artist,
                         release_artist_source: summary.release_artist_source,
                         episode_count: summary.episode_count,
+                        medium: include_feed_summary.then_some(summary.medium),
+                        release_kind: include_feed_summary.then_some(summary.release_kind),
+                        newest_item_at: include_feed_summary.then_some(summary.newest_item_at),
                         track_artist: summary.track_artist,
                         duration_secs: summary.duration_secs,
                         two_way_link_count,
@@ -6986,6 +7021,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "publisher_row_date",
             "artist_row_release_artist",
             "release_track_counts",
+            "search_feed_summary",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.
