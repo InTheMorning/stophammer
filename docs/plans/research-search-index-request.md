@@ -24,7 +24,7 @@ and the shared client code have no decision.
 | Priority 3, an index on `tracks.publisher` | Open | No decision |
 | Priority 4, a test of search time on a copy | Open | No decision |
 | Priority 4, log the length of a query | Open | No decision. `src/search.rs` and `src/query.rs` still log the text of `q` |
-| Shared Client Code | Open | The operator selects the license first. The proposal also needs decisions in HitIt and Studio |
+| Shared Client Code | Open | The proposal needs decisions in Stophammer, HitIt and Studio. No license decision is necessary, because the three apps are AGPL-3.0-only |
 
 Priority - 2026-11-06. The operator puts the prefix match of this request before
 the fast routes for a sort. The Studio pickers and the live searches need it. On
@@ -90,8 +90,9 @@ HTTP code. HitIt and Studio can then decode with the same types.
 
 This proposal needs decisions in Stophammer, HitIt and Studio. Stophammer owns
 the contract (ADR 0045 §5). HitIt keeps a stored copy of the contract and guard
-tests (HitIt ADR 0075 §6). HitIt has no license, and Stophammer is
-AGPL-3.0-only. The operator selects the license first.
+tests (HitIt ADR 0075 §6). HitIt is AGPL-3.0-only (HitIt ADR 0095), and
+Stophammer and Studio are also AGPL-3.0-only. So no license decision is
+necessary for the shared crate.
 
 ## Not Examined
 
