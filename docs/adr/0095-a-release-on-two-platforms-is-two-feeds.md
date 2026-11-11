@@ -73,6 +73,21 @@ marks each pair and finds no fault. This answers L4.
 A client can show "also on another platform" for feeds with the same artist and
 title. That is a feature for a client request, not a correction of the index.
 
+On 2026-11-11 the operator agreed that the node exposes no such link until a
+client asks for it. Then a new ADR decides it, because the link is an inference
+and the node publishes only stated facts today (ADR 0061, ADR 0085). The operator
+agreed to this form for that ADR:
+
+- The node uses its own match of the artist, the title, the track titles and the
+  track lengths. It does not use the PodcastIndex labels, which PodcastIndex calls
+  "likely classifications for you to verify, not determinations".
+- Each link states its basis, for example `matched_on`, and its name does not say
+  "duplicate".
+- The contract tells a client that each feed pays through its own routes. A
+  client that shows one entry for the two feeds keeps the two routes or lets the
+  listener select one.
+- Pairs with different track lists and test feeds are not linked.
+
 ## Alternatives Considered
 
 ### Import the lookalike pairs as information for the operator
