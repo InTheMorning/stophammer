@@ -15,7 +15,7 @@ and the shared client code have no decision.
 | S4, a publisher hit has quality 0 | Answered | ADR 0078 §4 |
 | Priority 1, a new index | Answered | ADR 0078 §6 |
 | Priority 1, each word of `q` as a phrase | Answered | ADR 0078 §5, amended by ADR 0080 §1 |
-| Priority 1, `newest_item_at` on a feed hit | Answered | [ADR 0094](../adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) §3. Candidate `v0.19.0-rc.8` holds it |
+| Priority 1, `newest_item_at` on a feed hit | Answered | [ADR 0094](../adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) §3. Release 0.19.0 holds it |
 | Priority 2, the row order is the rank order | Answered | [ADR 0087](../adr/0087-a-search-orders-its-hits-by-field.md) §2. The sequence of the rows is the order, and a client must not sort by `rank` |
 | Priority 2, the prefix match | Answered with no prefix index | [ADR 0086](../adr/0086-a-search-matches-the-start-of-the-last-word.md). "Alternatives Considered" gives the reason for no `prefix='2 3'` |
 | Priority 3, one request for all types | Open | No decision. ADR 0087 §3 runs one statement for feeds and tracks, but a client still sends one request for each type |

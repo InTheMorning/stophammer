@@ -6,17 +6,15 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 is open. Its candidate `v0.19.0-rc.8` runs on the primary, and it has
-no release tag (ADR 0065). Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
-0.18.0 of 2026-10-31 delivered ADR 0082. Release 0.17.0 of 2026-10-31 delivered
-ADR 0081.
+Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to 0094 and parser commit
+`7130556` of ADR 0017. Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
+0.18.0 of 2026-10-31 delivered ADR 0082. No candidate is open.
 
 ### Deployed
 
-Release 0.18.1 of 2026-11-05 is the latest release. On 2026-11-11 the primary and
-the gossip crawler run the GHCR images of the candidate `v0.19.0-rc.8`. The
-primary gives the revision `9fcbdb5`. The last runs of `import` and
-`import-wavlake` used release 0.18.1, before the deploys of the candidates. A timer starts the `podcastindex` pass at an interval of 3 hours
+Release 0.19.0 of 2026-11-11 is the latest release. The primary and the gossip
+crawler run its GHCR images. The primary gives the revision `9fcbdb5`. The last
+runs of `import` and `import-wavlake` used release 0.18.1. A timer starts the `podcastindex` pass at an interval of 3 hours
 (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
 of the gossip crawler, and a release deploy pins that variable in `.env`. No record
 states the image of a pass. `GET /node/info` gives the revision of the running
@@ -26,58 +24,10 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, except the items below. The primary sets
+in a release. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
-
-### On The Primary In A Candidate
-
-The candidate `v0.19.0-rc.8` holds these ADRs. A release promotes the candidate.
-
-- [ADR 0084](docs/adr/0084-a-search-and-a-list-take-a-sort.md) answers v4vmm
-  request 15. Its three tasks in `docs/tasks/` are built, with migration 0062
-  and the capability `sort`.
-- [ADR 0085](docs/adr/0085-a-name-list-takes-the-role-filters.md) answers
-  musicindex.org request 21 and v4vmm request 14. Its two tasks in `docs/tasks/`
-  are built.
-- [ADR 0086](docs/adr/0086-a-search-matches-the-start-of-the-last-word.md) answers
-  the prefix match of the research request of 2026-10-23. It has no migration.
-- [ADR 0087](docs/adr/0087-a-search-orders-its-hits-by-field.md) answers
-  musicindex.org request 25. It has no migration.
-- [ADR 0088](docs/adr/0088-a-feed-is-found-by-its-url.md) answers
-  musicindex.org request 27 with `GET /v1/feeds/by-url` and the capability
-  `feed_by_url`. It has no migration.
-- [ADR 0089](docs/adr/0089-an-artist-list-takes-newest-first.md) answers
-  musicindex ADR 0053 with `artist_key` on `GET /v1/feeds/recent`, `sort=date`
-  on `GET /v1/artist-names` and the capability `artist_newest`. It has no
-  migration.
-- [ADR 0090](docs/adr/0090-a-name-sorts-by-a-folded-key.md) gives each name list
-  a folded order key and a `#` group, for the name order that v4vmm reported,
-  with migration 0063.
-- ADR 0088 §1a lets the short Wavlake URL `wavlake.com/feed/<uuid>` find the
-  feed of its music URL. It has no migration.
-- [ADR 0091](docs/adr/0091-an-artist-list-takes-the-role-filters.md) answers
-  musicindex.org requests 28 and 29 with the role filters and `release_artist`
-  on `GET /v1/artist-names`, and `newest_item_at` on each `include=publisher`
-  row. The capabilities `artist_role_filter`, `artist_row_release_artist` and
-  `publisher_row_date` name them. It has no migration.
-- [ADR 0092](docs/adr/0092-an-artist-row-counts-its-releases-by-track-count.md)
-  answers musicindex.org request 30 with `release_track_counts` and the
-  capability of the same name. It has no migration.
-- [ADR 0093](docs/adr/0093-a-live-item-gives-its-content-link-not-its-stream.md)
-  answers [the research request of 2026-11-09](docs/plans/research-live-item-stream-request.md)
-  with migration 0064 and parser commit `e354b1b`. The node and the crawler
-  image deploy together, because an older crawler sends the stream as
-  `content_link` again. On 2026-11-11 a forced `feed` crawl of the 6 live feeds
-  gave the content links of the 3 live items that state one.
-- [ADR 0094](docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md)
-  answers musicindex.org requests 23 and 26 and item 1 of v4vmm request 11,
-  with the capabilities `search_medium` and `search_feed_summary`. It has no
-  migration.
-- ADR 0017: parser commit `7130556` in the crawler image decodes the named
-  entities of HTML 4.01 (musicindex.org request 22).
-- The node and the crawler use `rusqlite` 0.41, for RUSTSEC-2026-0459.
 
 ### Open Items
 
@@ -151,10 +101,9 @@ The requests of v4vmm and musicindex.org are in
 requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. Item 2 of v4vmm request 11 is a draft.
-The v4vmm operator examines it before Stophammer answers. v4vmm requests 14 and 15 and
-musicindex.org requests 21, 22, 23, 25, 26, 27, 28, 29 and 30, and item 1 of
-v4vmm request 11, are answered. Their build is in the candidate
-`v0.19.0-rc.8`, and no release carries it. musicindex.org request 24 is closed, because ADR 0091 meets it.
+The v4vmm operator examines it before Stophammer answers. Release 0.19.0 delivers v4vmm requests
+14 and 15, item 1 of v4vmm request 11, and musicindex.org requests 21, 22, 23,
+25, 26, 27, 28, 29 and 30. musicindex.org request 24 is closed, because ADR 0091 meets it.
 
 ### Governance
 

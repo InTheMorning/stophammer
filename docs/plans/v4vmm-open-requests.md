@@ -2,7 +2,7 @@
 
 ## Status
 
-Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. This document consolidates each open request from the v4vmm client.
+Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. This document consolidates each open request from the v4vmm client.
 The Stophammer repository and the v4vmm repository each hold a copy at `docs/plans/v4vmm-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in its own ADR.
@@ -628,6 +628,14 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Release 0.19.0 - 2026-11-11
+
+Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer ADRs 0084, 0085 and 0094). It promotes the candidate `v0.19.0-rc.8`. `GET /node/info` gives `git_revision` `9fcbdb5`. The checks on the live API on 2026-11-11:
+
+- `info.version` of `/openapi.json` gives `0.19.0`.
+- `GET /v1/node/capabilities` lists `sort`, `search_feed_summary` and `search_medium`.
+- A feed hit of `GET /v1/search?q=love&type=feed` gives `medium`, `release_kind` and `newest_item_at`.
 
 ## Stophammer Answers - 2026-11-10
 

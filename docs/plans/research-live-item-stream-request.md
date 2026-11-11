@@ -27,8 +27,8 @@ the parser at commit `7130556` and the backup
 
 Stophammer examined this request on 2026-11-09 and agrees.
 [ADR 0093](../adr/0093-a-live-item-gives-its-content-link-not-its-stream.md) is
-Accepted. It answers L1, L2 and L3. On 2026-11-11 the primary runs it in the
-candidate `v0.19.0-rc.8`, and no release holds it.
+Accepted. It answers L1, L2 and L3. Release 0.19.0 of
+2026-11-11 holds it.
 
 ## Purpose
 

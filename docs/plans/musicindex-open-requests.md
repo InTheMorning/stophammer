@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. Updated on 2026-11-11: release 0.19.0 gives requests 21, 22, 23 and 25 to 30. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -1088,12 +1088,14 @@ GET /v1/search?q=<words>&type=feed&medium=music,musicL
 - Use the two fields only when `GET /v1/node/capabilities` lists `search_feed_summary`.
 - This answer also gives item 1 of v4vmm request 11.
 
-## Release 0.19.0
+## Release 0.19.0 - 2026-11-11
 
-On 2026-11-07 the live node lists the capability `sort`. `reverse=true` gives 200 on
-`GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names`, and
-`GET /v1/feeds/by-name` takes `stated_rel` with `medium=publisher`. This release gives request 21.
-The commit `f610586`, with the tag `v0.19.0-rc.2`, adds the prefix match of ADR 0086.
+Release 0.19.0 delivers requests 21, 22, 23 and 25 to 30 (Stophammer ADRs 0017 and 0084 to 0094). It promotes the candidate `v0.19.0-rc.8`. `GET /node/info` gives `git_revision` `9fcbdb5`. The checks on the live API on 2026-11-11:
+
+- `info.version` of `/openapi.json` gives `0.19.0`.
+- `GET /v1/node/capabilities` lists `sort`, `feed_by_url`, `artist_newest`, `artist_role_filter`, `publisher_row_date`, `artist_row_release_artist`, `release_track_counts`, `search_feed_summary` and `search_medium`.
+- `GET /v1/search?q=Deck%20Darlings&type=feed&medium=music,musicL` gives the playlist `fd8afd2e-16e3-5509-b867-b94dcc65baa3` with `medium` `musicL`.
+- A feed hit of `GET /v1/search?q=love&type=feed` gives `medium`, `release_kind` and `newest_item_at`.
 
 ## Requests That v4vmm Also Makes
 
