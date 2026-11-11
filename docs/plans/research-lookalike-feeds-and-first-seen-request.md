@@ -2,6 +2,15 @@
 
 ## Status
 
+Open - 2026-11-11. No ADR answers a section of this request.
+
+| Section | Status | Blocker |
+|---|---|---|
+| L1: Read The Pairs As An Input | Open | No decision. L1 to L4 and M2 of [the request of 2026-11-04](research-feed-move-confirmation-request.md) change one copy queue, and they get one decision. ADR 0081 reads the PodcastIndex music list, not the lookalike files |
+| L2: A Copy With A Different GUID | Open | No decision. The operator has not decided if a pair of class A is a defect or two correct uploads |
+| L3: First-Seen Times | Open | No decision. The open questions on `dateCrawled` and `bymedium` are not examined |
+| L4: Payment Routes | Open | No decision. It depends on the decision for L1 |
+
 Received - 2026-11-03. This request comes from the research repository at
 `~/build/musicindex-research`. That repository has no Git remote. Its index is
 `AGENTS.md`. The note is

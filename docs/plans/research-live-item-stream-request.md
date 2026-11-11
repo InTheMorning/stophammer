@@ -2,6 +2,15 @@
 
 ## Status
 
+Answered - 2026-11-09. One check is open.
+
+| Section | Status | Owner or blocker |
+|---|---|---|
+| L1, read each `podcast:contentLink` child | Answered | [ADR 0093](../adr/0093-a-live-item-gives-its-content-link-not-its-stream.md) §1 and §2 |
+| L2, keep the stream apart from the content link | Answered | ADR 0093 §1 and §3 |
+| L3, the 17 stored rows | Answered | ADR 0093 §4. Migration 0064 cleared them |
+| The read of `GET /v1/live-items` after one day | Open | It occurs on 2026-11-12. A feed that keeps a null `content_link` while its body has `podcast:contentLink` gets the replay of ADR 0093 §4 |
+
 Received - 2026-11-09. This request comes from the research repository at
 `~/build/musicindex-research`, commit `82f56fe`. That repository has no Git
 remote. Its index is `AGENTS.md`. The note is
