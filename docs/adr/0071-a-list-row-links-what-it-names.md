@@ -5,6 +5,8 @@ Accepted on 2026-10-18, for v4vmm request 8. It amends ADR 0038 Decision B and
 the section "Search is not in scope" of ADR 0068 (section 5). Tasks 001 to 005
 give the build. Amended on 2026-10-21 by ADR 0076: a `named_feeds` entry
 also gives `two_way_validated` (§3).
+Amended on 2026-11-10 by ADR 0094: the index holds each `musicL` feed, and a
+search gives it only when `medium` names `musicL` (§5).
 
 ## Date
 2026-10-18

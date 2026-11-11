@@ -4,7 +4,7 @@
 
 Open - 2026-09-25. Updated on 2026-10-21: requests 1 to 15, 19 and 20 are
 closed. Updated on 2026-10-25: release 0.16.0 deployed requests 17 and 18 (ADR
-0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. This document consolidates each open request from the
+0059 §6 and §7). Updated on 2026-11-06: requests 21 and 22 are open. Updated on 2026-11-07: Stophammer answers request 21, release 0.19.0 gives it, and requests 23 to 25 are open. Requests 26 and 27 are open. Updated on 2026-11-08: Stophammer answers requests 27 to 30. On 2026-11-08 the live node gives request 30, and request 30 is closed. Stophammer answers request 22. Updated on 2026-11-10: Stophammer answers requests 23, 24 and 26, and request 24 is closed. This document consolidates each open request from the
 musicindex.org web client: the search site (`search.html`) and the API console
 (`api.html`).
 
@@ -1056,6 +1056,37 @@ A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It g
 - A crawl of a feed with the same body writes nothing. So a stored row gets the decoded text when its feed changes, or when the operator replays the fetch cache with `export-feed-cache-ndjson.py`.
 - On a copy of the backup of 2026-11-09, 91 track descriptions and 1 feed description hold a named entity. The most frequent are `&nbsp;`, `&rsquo;` and `&auml;`. No title holds one.
 - The site needs no change.
+
+## Stophammer Answers - 2026-11-10
+
+These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. It is not built, and no candidate holds it. A release record names the release that carries it.
+
+**Request 23, a search finds a playlist.** Accepted in a different form. The site names the medium in the search:
+
+```text
+GET /v1/search?q=<words>&type=feed&medium=music,musicL
+```
+
+- The cause is a rule, not the prefix match. Stophammer ADR 0071 §5 keeps each feed with the medium `musicL` out of the search index. On 2026-11-10 the live node still gives no row for `q=Deck%20Darlings&type=feed`.
+- With no `medium`, a search gives the rows that it gives today. ADR 0071 §5 promises this to each present client, and v4vmm reads each `type=feed` hit as a release. So the node adds no playlist to a search that does not name it.
+- `medium=music,musicL` gives the music feeds and the playlists. `medium=musicL` gives only the playlists. `medium` applies to `type=feed` and to a search with no `type`. With `type=track` or `type=publisher`, it gives `400` with `unsupported_filter`.
+- A playlist hit gives the `entity_type` `feed`, and a read at `GET /v1/feeds/{guid}` gives the playlist.
+- Each feed hit and each publisher hit gives `medium`, the stored medium of the feed. So the site can give the type of a row.
+- On the first start of the release, the node adds each playlist to the index. The backup of 2026-11-09 holds 13 playlists. Each has `episode_count` 0 and no `newest_item_at`, because a playlist holds remote items, not tracks. So `min_tracks=1` removes a playlist.
+- Send `medium` only when `GET /v1/node/capabilities` lists `search_medium`. A node with no such flag gives `400` for the parameter.
+
+**Request 24, a faster role filter.** Met by Stophammer ADR 0091, and closed. No change to `GET /v1/feeds/by-name`.
+
+- The site already reads `GET /v1/artist-names` with `stated_rel` for a filtered list in name order. That route reads the link facts from the copy in memory of the artist list, which is the change that the request asks for.
+- On 2026-11-10 on the live node, `GET /v1/artist-names?stated_rel=artist&limit=200&include=link_facts` took 0.12 to 0.14 s. The orchestrator measured `GET /v1/feeds/by-name` with `stated_rel=artist` at 0.85 to 1.42 s on the same day. These times are not a load test.
+- The first call of the orchestrator on 2026-11-10 took 6.46 s. This is possibly the build of the copy in memory at the first read after a restart. It is not part of this request. Stophammer examines it if it occurs after each restart.
+
+**Request 26, the kind and the date on a feed row of a search.** Accepted, as ADR 0094 §3.
+
+- Each feed hit and each publisher hit of `GET /v1/search` gives `release_kind` and `newest_item_at`. Each value is the value of `GET /v1/feeds/recent` for the same feed. Each can be null, and the key is then present with a null value.
+- `pub_date` stays empty on a feed hit.
+- Use the two fields only when `GET /v1/node/capabilities` lists `search_feed_summary`.
+- This answer also gives item 1 of v4vmm request 11.
 
 ## Release 0.19.0
 

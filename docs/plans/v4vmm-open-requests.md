@@ -2,7 +2,7 @@
 
 ## Status
 
-Open - 2026-09-25. This document consolidates each open request from the v4vmm client.
+Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. This document consolidates each open request from the v4vmm client.
 The Stophammer repository and the v4vmm repository each hold a copy at `docs/plans/v4vmm-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in its own ADR.
@@ -628,6 +628,18 @@ release record names the release that carries them.
 In the backup of 2026-09-26, 34 names had some releases with a publisher feed
 and some without. Such a name shows two times: one `publisher` row and one
 `name` row. 19 publisher feeds had no music feed, and each one has a row.
+
+## Stophammer Answers - 2026-11-10
+
+**Request 11, a feed search hit gives its release date and its named feeds.** Item 1 is accepted. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule. It is Accepted on 2026-11-10. It is not built, and no candidate holds it. A release record names the release that carries it.
+
+- The v4vmm decision of 2026-10-25 lets v4vmm send item 1 before its walk. musicindex.org request 26 asks for the same value, and one answer gives both requests.
+- Each `type=feed` hit of `GET /v1/search` gives `newest_item_at`, with the value of `GET /v1/feeds/recent` for the same feed. A publisher hit also gives it. It can be null, and the key is then present with a null value.
+- `pub_date` stays empty on a feed hit. `newest_item_at` is the date of a feed hit, with the name and the meaning of the list rows.
+- Each feed hit also gives `release_kind`, and each feed hit and each publisher hit gives `medium`.
+- Use the date only when `GET /v1/node/capabilities` lists `search_feed_summary`.
+- A search with no `medium` gives the rows that it gives today. `medium=music,musicL` adds the playlists to the feed rows for musicindex.org request 23. v4vmm gets no playlist row until it sends that parameter.
+- Item 2, `include=named_feeds` on a search, stays a draft. It waits until the v4vmm operator walks ADR 0084 packet 012 and ADR 0086 packet 005 of v4vmm. Stophammer does not wait for that walk.
 
 ## Stophammer Answers - 2026-11-07
 

@@ -10,6 +10,9 @@ Decision A.
 Amended on 2026-10-18 by ADR 0071 §5: the search index holds the publisher
 feeds, and only `type=publisher` gives them. See "Amendment Of 2026-10-18".
 
+Amended on 2026-11-10 by ADR 0094: the search index holds each `musicL`
+feed, and a search gives it only when `medium` names `musicL`.
+
 ## Date
 2026-04-18
 
