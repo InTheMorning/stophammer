@@ -60,7 +60,7 @@ Thus each stored `content_link` is the stream of its live item.
 - No `source_entity_links` row of the backup has the type `content_stream`.
 - The ingest keeps the enclosure of a live item in `source_item_enclosures`.
   Thus the stream has its own field.
-- v4vmm shows `content_link` as a link out of its live page.
+- HitIt shows `content_link` as a link out of its live page.
 
 ## The Answer
 

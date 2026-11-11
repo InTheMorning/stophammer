@@ -24,7 +24,7 @@ and the shared client code have no decision.
 | Priority 3, an index on `tracks.publisher` | Open | No decision |
 | Priority 4, a test of search time on a copy | Open | No decision |
 | Priority 4, log the length of a query | Open | No decision. `src/search.rs` and `src/query.rs` still log the text of `q` |
-| Shared Client Code | Open | The operator selects the license first. The proposal also needs decisions in v4vmm and Studio |
+| Shared Client Code | Open | The operator selects the license first. The proposal also needs decisions in HitIt and Studio |
 
 Priority - 2026-11-06. The operator puts the prefix match of this request before
 the fast routes for a sort. The Studio pickers and the live searches need it. On
@@ -65,17 +65,17 @@ The same rebuild can also correct S2 and S3. ADR 0022 owns the index design.
 ## Requested Changes
 
 The research gives each change a priority from its effect on the three clients:
-v4vmm, the musicindex website and musicindex-studio. Two changes are also in the
-v4vmm requests. This document cites them and does not give them again.
+HitIt, the musicindex website and musicindex-studio. Two changes are also in the
+HitIt requests. This document cites them and does not give them again.
 
 | Priority | Change | Effect | Related request |
 |---|---|---|---|
 | 1 | Correct S1 to S4 with a new index | Correct results | None |
-| 1 | Put each word of `q` in quotation marks as an FTS5 phrase, so that each text gives 200. Capture `search-q-apostrophe.json` gives the 400 of today. | Each client can send all text | v4vmm request 10 item 1 |
-| 1 | `newest_item_at` on a feed hit. `feed_search_summary` (`src/query.rs:1296-1317`) does not read the column. | v4vmm saved searches can group singles | v4vmm request 11 item 1 |
+| 1 | Put each word of `q` in quotation marks as an FTS5 phrase, so that each text gives 200. Capture `search-q-apostrophe.json` gives the 400 of today. | Each client can send all text | HitIt request 10 item 1 |
+| 1 | `newest_item_at` on a feed hit. `feed_search_summary` (`src/query.rs:1296-1317`) does not read the column. | HitIt saved searches can group singles | HitIt request 11 item 1 |
 | 2 | Give `effective_rank`, or tell in the contract that the row order is the rank order | The website sorts each page again by `rank` and loses the quality weight (`search.html:5008` in the website) | None |
-| 2 | A prefix index (`prefix='2 3'`) and a prefix match on the last word of `q`. `src/search.rs:231` removes `*`. | Live search in v4vmm (ADR 0087 D4) and on the website finds the start of a word | None |
-| 3 | One request for all types, with a cursor or a count for each type | v4vmm sends three searches for one query, the website sends two, and the node runs the match three times (`src/query.rs:5147-5167`) | None |
+| 2 | A prefix index (`prefix='2 3'`) and a prefix match on the last word of `q`. `src/search.rs:231` removes `*`. | Live search in HitIt (ADR 0087 D4) and on the website finds the start of a word | None |
+| 3 | One request for all types, with a cursor or a count for each type | HitIt sends three searches for one query, the website sends two, and the node runs the match three times (`src/query.rs:5147-5167`) | None |
 | 3 | An `ETag` from `MAX(events.seq)`, as the artist name list uses, and a short `Cache-Control`. The captures `search-*.headers` do not show these headers. | Live searches cost less | None |
 | 3 | Read the summaries of all hits in one query with `IN (…)` | Fewer queries for each page | None |
 | 3 | An index on `tracks.publisher` for the count of each row of `/v1/publishers` (`src/query.rs:5440-5446`). This is an inference: the research found no such index in `src/schema.sql`. | Less work for each row | None |
@@ -86,11 +86,11 @@ v4vmm requests. This document cites them and does not give them again.
 
 The report also proposes a small crate in the Stophammer workspace. It holds the
 response structs, the envelope, the `include` names and the limits, with no
-HTTP code. v4vmm and Studio can then decode with the same types.
+HTTP code. HitIt and Studio can then decode with the same types.
 
-This proposal needs decisions in Stophammer, v4vmm and Studio. Stophammer owns
-the contract (ADR 0045 §5). v4vmm keeps a stored copy of the contract and guard
-tests (v4vmm ADR 0075 §6). v4vmm has no license, and Stophammer is
+This proposal needs decisions in Stophammer, HitIt and Studio. Stophammer owns
+the contract (ADR 0045 §5). HitIt keeps a stored copy of the contract and guard
+tests (HitIt ADR 0075 §6). HitIt has no license, and Stophammer is
 AGPL-3.0-only. The operator selects the license first.
 
 ## Not Examined

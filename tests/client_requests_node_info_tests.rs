@@ -77,7 +77,7 @@ async fn node_info_has_required_fields() {
     assert_eq!(
         status.as_u16(),
         200,
-        "v4vmm request 2: /node/info must respond with 200"
+        "HitIt request 2: /node/info must respond with 200"
     );
 
     assert!(
@@ -86,10 +86,10 @@ async fn node_info_has_required_fields() {
     );
     assert!(
         body.get("git_revision").is_some(),
-        "v4vmm request 2: response must have git_revision field"
+        "HitIt request 2: response must have git_revision field"
     );
     assert!(
         body.get("built_at").is_some(),
-        "v4vmm request 2: response must have built_at field"
+        "HitIt request 2: response must have built_at field"
     );
 }

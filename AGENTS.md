@@ -37,7 +37,7 @@ code, so no release carries it.
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
 - ADR 0070 §4a: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
-- ADR 0076: the v4vmm operator checks its two visual criteria on release
+- ADR 0076: the HitIt operator checks its two visual criteria on release
   0.13.0.
 - ADR 0062: no long replay of the podping archive has run on the crawler of
   release 0.3.0 or later. After the next stop of the gossip crawler, examine
@@ -95,15 +95,17 @@ code, so no release carries it.
 
 ### Client Requests
 
-The requests of v4vmm and musicindex.org are in
-[the v4vmm requests](docs/plans/v4vmm-open-requests.md) and
-[the musicindex.org requests](docs/plans/musicindex-open-requests.md). v4vmm
-requests 1 to 9, items 1 to 7 of v4vmm request 10 (ADR 0078 and ADR 0080), and
+The requests of HitIt and musicindex.org are in
+[the HitIt requests](docs/plans/v4vmm-open-requests.md) and
+[the musicindex.org requests](docs/plans/musicindex-open-requests.md). HitIt
+requests 1 to 9, items 1 to 7 of HitIt request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
-request 16 is declined, and requests 19 and 20 are closed. Item 2 of v4vmm request 11 is a draft.
-The v4vmm operator examines it before Stophammer answers. Release 0.19.0 delivers v4vmm requests
-14 and 15, item 1 of v4vmm request 11, and musicindex.org requests 21, 22, 23,
+request 16 is declined, and requests 19 and 20 are closed. Item 2 of HitIt request 11 is a draft.
+The HitIt operator examines it before Stophammer answers. Release 0.19.0 delivers HitIt requests
+14 and 15, item 1 of HitIt request 11, and musicindex.org requests 21, 22, 23,
 25, 26, 27, 28, 29 and 30. musicindex.org request 24 is closed, because ADR 0091 meets it.
+In archived records, finished tasks, reviews, release records, dated captures
+and accepted ADRs, the name v4vmm means HitIt (HitIt ADR 0096).
 
 ### Governance
 

@@ -432,7 +432,7 @@ fn like_contains_pattern(value: &str) -> String {
 }
 
 // ── Include lists ───────────────────────────────────────────────────────────
-// v4vmm request 3: `GET /v1/node/capabilities` and the include parsing of
+// HitIt request 3: `GET /v1/node/capabilities` and the include parsing of
 // each route read the same list, so the two cannot drift apart again.
 
 /// The include names `GET /v1/feeds/{guid}` accepts.
@@ -2472,7 +2472,7 @@ fn build_feed_response(
         publisher_rows = Some(rows);
     }
 
-    // v4vmm request 3: this loop reads `FEED_INCLUDES`, the same list
+    // HitIt request 3: this loop reads `FEED_INCLUDES`, the same list
     // `handle_capabilities` reports, so the two cannot drift apart again.
     for &name in FEED_INCLUDES {
         if !params.includes(name) {
@@ -2647,7 +2647,7 @@ fn build_track_response(
         publisher: None,
     };
 
-    // v4vmm request 3: this loop reads `TRACK_INCLUDES`, the same list
+    // HitIt request 3: this loop reads `TRACK_INCLUDES`, the same list
     // `handle_capabilities` reports, so the two cannot drift apart again.
     for &name in TRACK_INCLUDES {
         if !params.includes(name) {
@@ -7048,7 +7048,7 @@ struct CapabilitiesResponse {
 }
 
 async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl IntoResponse {
-    // v4vmm request 3: this reads `FEED_INCLUDES` and `TRACK_INCLUDES`, the
+    // HitIt request 3: this reads `FEED_INCLUDES` and `TRACK_INCLUDES`, the
     // same lists the include parsing of each route reads.
     let mut include_params = HashMap::new();
     include_params.insert("feed", FEED_INCLUDES.to_vec());

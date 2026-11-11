@@ -1,4 +1,4 @@
-// v4vmm request 5: a search gives each entity one time.
+// HitIt request 5: a search gives each entity one time.
 //
 // A database from before the feed-scoped track identity keeps a search row
 // and a quality row for each track under its bare track GUID. Search then

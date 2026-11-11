@@ -2,7 +2,7 @@
 //
 // Three checks:
 // - `GET /v1/node/capabilities` lists the includes each route accepts, and
-//   each listed include gives its key in the route response (v4vmm
+//   each listed include gives its key in the route response (HitIt
 //   request 3).
 // - Each `limit` parameter in the generated OpenAPI document states the
 //   maximum the code enforces for its route (musicindex request 4).
@@ -111,7 +111,7 @@ async fn ingest(app: axum::Router, payload: &serde_json::Value) {
 }
 
 // ── Item 1: the capabilities route gives the accepted includes ──────────────
-// v4vmm request 3.
+// HitIt request 3.
 
 /// For each include name `GET /v1/node/capabilities` lists for `feed`, a feed
 /// read with that include gives the include's key in the response. The same
@@ -181,11 +181,11 @@ async fn each_capability_include_gives_its_key_in_the_response() {
 
     assert!(
         track_includes.iter().any(|name| name == "remote_items"),
-        "v4vmm request 3: TRACK_INCLUDES in src/query.rs must list remote_items"
+        "HitIt request 3: TRACK_INCLUDES in src/query.rs must list remote_items"
     );
     assert!(
         track_includes.iter().any(|name| name == "publisher"),
-        "v4vmm request 3: TRACK_INCLUDES in src/query.rs must list publisher"
+        "HitIt request 3: TRACK_INCLUDES in src/query.rs must list publisher"
     );
 
     for name in &feed_includes {
@@ -194,7 +194,7 @@ async fn each_capability_include_gives_its_key_in_the_response() {
         assert_eq!(status, http::StatusCode::OK, "GET {uri} must answer 200");
         assert!(
             body["data"].get(name.as_str()).is_some(),
-            "v4vmm request 3: FEED_INCLUDES in src/query.rs lists {name}, \
+            "HitIt request 3: FEED_INCLUDES in src/query.rs lists {name}, \
              but GET {uri} gives no {name} key"
         );
     }
@@ -205,7 +205,7 @@ async fn each_capability_include_gives_its_key_in_the_response() {
         assert_eq!(status, http::StatusCode::OK, "GET {uri} must answer 200");
         assert!(
             body["data"].get(name.as_str()).is_some(),
-            "v4vmm request 3: TRACK_INCLUDES in src/query.rs lists {name}, \
+            "HitIt request 3: TRACK_INCLUDES in src/query.rs lists {name}, \
              but GET {uri} gives no {name} key"
         );
     }
