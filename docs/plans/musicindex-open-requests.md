@@ -13,7 +13,7 @@ The Stophammer repository and the musicindex repository each hold a copy at
 
 This document binds nothing in Stophammer. Stophammer records each decision in
 its own ADR. The HitIt client keeps its own list in
-`docs/plans/v4vmm-open-requests.md`. Section "Requests That HitIt Also Makes"
+`docs/plans/hitit-open-requests.md`. Section "Requests That HitIt Also Makes"
 names the requests that the two clients share.
 
 ## Evidence Base
