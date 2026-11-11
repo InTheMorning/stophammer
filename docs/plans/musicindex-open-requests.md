@@ -1069,7 +1069,7 @@ GET /v1/search?q=<words>&type=feed&medium=music,musicL
 
 - The cause is a rule, not the prefix match. Stophammer ADR 0071 §5 keeps each feed with the medium `musicL` out of the search index. On 2026-11-10 the live node still gives no row for `q=Deck%20Darlings&type=feed`.
 - With no `medium`, a search gives the rows that it gives today. ADR 0071 §5 promises this to each present client, and v4vmm reads each `type=feed` hit as a release. So the node adds no playlist to a search that does not name it.
-- `medium=music,musicL` gives the music feeds and the playlists. `medium=musicL` gives only the playlists. `medium` applies to `type=feed` and to a search with no `type`. With `type=track` or `type=publisher`, it gives `400` with `unsupported_filter`.
+- `medium=music,musicL` gives the music feeds and the playlists. With `type=feed`, `medium=musicL` gives only the playlists. `medium` applies to `type=feed` and to a search with no `type`. With `type=track` or `type=publisher`, it gives `400` with `unsupported_filter`.
 - A playlist hit gives the `entity_type` `feed`, and a read at `GET /v1/feeds/{guid}` gives the playlist.
 - Each feed hit and each publisher hit gives `medium`, the stored medium of the feed. So the site can give the type of a row.
 - On the first start of the release, the node adds each playlist to the index. The backup of 2026-11-09 holds 13 playlists. Each has `episode_count` 0 and no `newest_item_at`, because a playlist holds remote items, not tracks. So `min_tracks=1` removes a playlist.

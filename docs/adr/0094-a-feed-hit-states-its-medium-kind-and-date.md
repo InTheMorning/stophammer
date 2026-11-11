@@ -54,9 +54,10 @@ the same rows.
 
 - `medium=music,musicL` gives the music feeds and the playlists. The site sends
   this value for its Releases scope.
-- `medium=musicL` gives only the playlists.
+- With `type=feed`, `medium=musicL` gives only the playlists.
 - `medium` applies to the feed rows of `type=feed` and of a search with no
-  `type`. With `type=track` or `type=publisher`, `medium` gives `400` with
+  `type`. With no `type`, the track rows do not change, so `medium=musicL`
+  gives the playlists and the tracks. With `type=track` or `type=publisher`, `medium` gives `400` with
   `unsupported_filter`.
 - Each other value, `publisher` included, gives `400` with `invalid_filter`.
   `type=publisher` finds a publisher feed (ADR 0071 §5).
@@ -162,3 +163,11 @@ parameter in the OpenAPI document.
 
 ### Visual
 None in this repository. The site owns the words of a playlist row.
+
+## Follow-Up
+- [Task 001](../tasks/adr-0094-task-001-playlist-index-rows.md) adds the
+  `playlist` rows to the index.
+- [Task 002](../tasks/adr-0094-task-002-search-medium.md) adds `medium` to the
+  search. It needs tasks 001 and 003.
+- [Task 003](../tasks/adr-0094-task-003-feed-hit-summary.md) adds the three
+  fields to a feed hit.
