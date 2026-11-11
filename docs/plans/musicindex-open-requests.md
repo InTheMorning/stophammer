@@ -1048,7 +1048,7 @@ On 2026-11-08 the operator reports that the candidate `v0.19.0-rc.7` is deployed
 
 A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It gives 12 track counts with a sum of 52 for OLAMIDE, the same as its `two_way_link_count`. The `name` row of `$2 Holla` in `GET /v1/artist-names` gives `{"1": 2, "7": 1}` with `release_count` 3. This closes request 30. musicindex commit `b36d25f` (ADR 0023 R-WORD-9) makes the list rows of the site read the field.
 
-**Request 22, HTML entities in a description.** Accepted. Stophammer [ADR 0017](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0017-canonical-rss-parser-crate.md) owns the rule: the parser decodes entities. Parser commit `7130556` decodes the 252 named entities of HTML 4.01, and no release carries it.
+**Request 22, HTML entities in a description.** Accepted. Stophammer [ADR 0017](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0017-canonical-rss-parser-crate.md) owns the rule: the parser decodes entities. Parser commit `7130556` decodes the 252 named entities of HTML 4.01. On 2026-11-11 the gossip crawler runs it in the candidate `v0.19.0-rc.8`, and no release carries it.
 
 - Before that commit, the parser decoded only `&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;` and numeric entities. It kept each other name, for example `&rsquo;`, as text.
 
@@ -1059,7 +1059,7 @@ A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It g
 
 ## Stophammer Answers - 2026-11-10
 
-These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. It is built, and no candidate holds it. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
 
 **Request 23, a search finds a playlist.** Accepted in a different form. The site names the medium in the search:
 

@@ -1,7 +1,8 @@
 # ADR 0093: A Live Item Gives Its Content Link, Not Its Stream
 
 ## Status
-Accepted on 2026-11-09, for the research request of 2026-11-09.
+Accepted on 2026-11-09, for the research request of 2026-11-09. The candidate
+`v0.19.0-rc.8` holds it.
 
 It changes the source of `content_link` in ADR 0064 §4 and §6. It adds the link
 type `content_link` to the label rule of ADR 0082 §2.

@@ -631,7 +631,7 @@ and some without. Such a name shows two times: one `publisher` row and one
 
 ## Stophammer Answers - 2026-11-10
 
-**Request 11, a feed search hit gives its release date and its named feeds.** Item 1 is accepted. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule. It is Accepted on 2026-11-10. It is built, and no candidate holds it. A release record names the release that carries it.
+**Request 11, a feed search hit gives its release date and its named feeds.** Item 1 is accepted. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
 
 - The v4vmm decision of 2026-10-25 lets v4vmm send item 1 before its walk. musicindex.org request 26 asks for the same value, and one answer gives both requests.
 - Each `type=feed` hit of `GET /v1/search` gives `newest_item_at`, with the value of `GET /v1/feeds/recent` for the same feed. A publisher hit also gives it. It can be null, and the key is then present with a null value.

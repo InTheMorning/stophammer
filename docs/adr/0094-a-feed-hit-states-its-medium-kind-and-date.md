@@ -4,7 +4,7 @@
 Accepted on 2026-11-10, for musicindex.org requests 23 and 26 and item 1 of
 v4vmm request 11. The operator approved the research message of the
 orchestrator, and that message gives each decision to Stophammer. Stophammer
-selected the form of §1. It is built, and no candidate holds it.
+selected the form of §1. The candidate `v0.19.0-rc.8` holds it.
 
 It amends ADR 0071 §5 and the search rule of ADR 0038: a `musicL` feed is in the
 search index. It adds to ADR 0080 §2.
