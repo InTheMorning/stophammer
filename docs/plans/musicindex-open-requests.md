@@ -53,10 +53,10 @@ names the requests that the two clients share.
 | 19 | The value time splits of a feed that did not change after ADR 0073 | Data refill | Refilled on 2026-10-21 for the four feeds in the fetch cache |
 | 20 | No copy of two feeds whose old album files stay public | Data question | Copies recorded on 2026-10-22 |
 | 21 | A name order for each list of feeds | API parameter addition | Live in release 0.19.0 (ADR 0085) |
-| 22 | HTML entities in a description | Data correction | Answered on 2026-11-08. The next crawler image decodes them (ADR 0017) |
-| 23 | A search finds a playlist | Search behavior | Open |
-| 24 | A faster role filter on the publisher lists | Performance | Open |
-| 25 | A title match before a description match | Search behavior | Open |
+| 22 | HTML entities in a description | Data correction | Live in release 0.19.0 on 2026-11-11 (ADR 0017) |
+| 23 | A search finds a playlist | Search behavior | Live in release 0.19.0 on 2026-11-11 (ADR 0094). The site reads it after site search task 003 |
+| 24 | A faster role filter on the publisher lists | Performance | Closed on 2026-11-10. Met by ADR 0091 |
+| 25 | A title match before a description match | Search behavior | Live in release 0.19.0 on 2026-11-11 (ADR 0087) |
 
 ### 1. Summary Fields On Each `remote_items` Entry
 
