@@ -21,7 +21,7 @@ Six requests arrived after release 0.13.2 of 2026-10-21.
 | musicindex request 20 | [musicindex requests](../plans/musicindex-open-requests.md) | Answered. Copies recorded on 2026-10-22 |
 | musicindex request 17 | [musicindex requests](../plans/musicindex-open-requests.md) | Open. No answer |
 | musicindex request 18 | [musicindex requests](../plans/musicindex-open-requests.md) | Open. No answer |
-| v4vmm requests 10 and 11 | [v4vmm requests](../plans/v4vmm-open-requests.md) | Drafts. The v4vmm operator reviews them first |
+| v4vmm requests 10 and 11 | [v4vmm requests](../plans/hitit-open-requests.md) | Drafts. The v4vmm operator reviews them first |
 | Research request of 2026-10-23 | [search index request](../plans/research-search-index-request.md) | Received. No decision |
 
 The research addendum of 2026-10-22, in

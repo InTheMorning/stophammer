@@ -18,7 +18,7 @@ stays.
 
 ## Context
 
-[v4vmm request 10](../plans/v4vmm-open-requests.md#10-search-accepts-words-phrases-and-field-filters)
+[v4vmm request 10](../plans/hitit-open-requests.md#10-search-accepts-words-phrases-and-field-filters)
 asks for seven items. These are phrases in `q`, filter parameters, exclusions
 and a stable error code. They are also a search with no `q`, a contract for
 the filters, and a filter by host. v4vmm

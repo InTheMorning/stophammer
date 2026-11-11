@@ -1,9 +1,9 @@
-# v4vmm Open Requests To Stophammer
+# HitIt Open Requests To Stophammer
 
 ## Status
 
-Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. This document consolidates each open request from the v4vmm client.
-The Stophammer repository and the v4vmm repository each hold a copy at `docs/plans/v4vmm-open-requests.md`. Update both copies together.
+Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. This document consolidates each open request from the HitIt client.
+The Stophammer repository and the v4vmm repository each hold a copy at `docs/plans/hitit-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in its own ADR.
 The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
@@ -13,7 +13,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 - Live API: read-only GET requests to `https://api.musicindex.org` on 2026-09-25, and the contract at `/openapi.json`.
   The contract changed on 2026-09-25. The deploy of that day added `/v1/copies`, `/v1/feeds/{guid}/copies`, `/v1/feeds/{guid}/route-history`, `/v1/guid-changes` and `/v1/blocks`, and removed `/v1/proofs/challenge` and `/v1/proofs/assert`.
 - Stophammer source: the local checkout at commit `64052ea`, read on 2026-09-25. The deployed revision is unconfirmed. Request 2 asks for a way to confirm it.
-- v4vmm documents: `docs/plans/musicindex-api-change-request.md` (a deleted plan, in git history), `docs/plans/stophammer-publisher-relationship-request.md` (a deleted plan, in git history), and the album summary request that this document replaces.
+- HitIt documents: `docs/plans/musicindex-api-change-request.md` (a deleted plan, in git history), `docs/plans/stophammer-publisher-relationship-request.md` (a deleted plan, in git history), and the album summary request that this document replaces.
 
 ## Requests
 
@@ -30,8 +30,8 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 9 | A named feed entry states its confirmation | API field, filter and include additions | Deployed in release 0.13.0 on 2026-10-21 |
 | 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078 and ADR 0080, phrases deployed in release 0.15.0 on 2026-10-25. Items 2 to 7: ADR 0080, deployed in release 0.15.0 on 2026-10-25 |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
-| 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No v4vmm packet waits for it |
-| 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. v4vmm ADR 0089 shows no count for All until a total exists |
+| 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No HitIt packet waits for it |
+| 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. HitIt ADR 0089 shows no count for All until a total exists |
 | 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends |
 | 15 | A sort direction for each list of feeds and names | API parameter addition | Delivered - 2026-11-07 |
 
@@ -54,14 +54,14 @@ On 2026-09-24, one publisher listed 9 albums. The local database of 2026-04-19 h
 
 Each value is a value that the album channel states, or its existing source label. None of them is new derived data.
 
-**What v4vmm does with it.** The v4vmm publisher page sends one request for each publisher. v4vmm packets 0077-003 and 0077-004 wait for these fields.
+**What HitIt does with it.** The HitIt publisher page sends one request for each publisher. HitIt packets 0077-003 and 0077-004 wait for these fields.
 
 ### 2. A Deployed Revision That A Client Can Read
 
 **What happens.** `/openapi.json` gives `info.version` from `CARGO_PKG_VERSION` (`src/openapi.rs:796`), which stays `0.1.0` across deployments.
 `/node/info` returns only `node_pubkey`. `/v1/node/capabilities` returns `api_version: "v1"`.
 
-**What it costs.** A client cannot tell which revision serves a response. Each v4vmm verification records "deployed revision unconfirmed".
+**What it costs.** A client cannot tell which revision serves a response. Each HitIt verification records "deployed revision unconfirmed".
 
 **Request.** Report the source revision and the build time of the running node, for example in `/node/info`: `git_revision` and `built_at`.
 
@@ -88,13 +88,13 @@ Both hits have the same `entity_id`, `feed_guid` and `href`. Their ranks differ:
 The search for "How Bout You" on 2026-10-04 also gave one track two times.
 
 **Request.** Give each entity one time in one search response, with its best rank.
-v4vmm now drops a second hit of the same entity. That client fix does not correct the result count or the pagination.
+HitIt now drops a second hit of the same entity. That client fix does not correct the result count or the pagination.
 
 ### 6. A List Of Releases And Of Artists By Name
 
 **What happens.** On 2026-10-17, the contract of release 0.7.0 gives no list of releases or artists in name order. `GET /v1/feeds/recent` pages the releases newest first. `GET /v1/publishers` needs a search text `q`.
 
-**Why v4vmm needs it.** v4vmm ADR 0084 Decision 8 gives the Releases list and the Artists list a scope "Everything". It shows the Library items and the Index items together, in one name order. The v4vmm operator decided on 2026-10-17 to ask for this list, not to show a second order.
+**Why HitIt needs it.** HitIt ADR 0084 Decision 8 gives the Releases list and the Artists list a scope "Everything". It shows the Library items and the Index items together, in one name order. The v4vmm operator decided on 2026-10-17 to ask for this list, not to show a second order.
 
 **Request.** Two paged lists, each in name order, with a cursor:
 
@@ -112,8 +112,8 @@ It gives no position of the publisher feed in the `<podcast:publisher>` element 
 
 Stophammer has the position: the `position` of each `remote_items` entry with `source` `podcast_publisher`. Stophammer uses the lowest position to select `publisher_feed_title`.
 
-**Why v4vmm needs it.** v4vmm ADR 0085 Decision 2 gives the level "Unverified artist" only to the primary named feed of an album, the first one in RSS sequence. ADR 0084 Decision 6 splits the releases of an artist page into "Albums and EPs" and "Singles".
-v4vmm decides the kind itself: the stated `release_kind` first, then the track count (ADR 0084 Decision 5). The artist page reads one `?include=publisher` response. Without these fields, it sends one more request for each album.
+**Why HitIt needs it.** HitIt ADR 0085 Decision 2 gives the level "Unverified artist" only to the primary named feed of an album, the first one in RSS sequence. ADR 0084 Decision 6 splits the releases of an artist page into "Albums and EPs" and "Singles".
+HitIt decides the kind itself: the stated `release_kind` first, then the track count (ADR 0084 Decision 5). The artist page reads one `?include=publisher` response. Without these fields, it sends one more request for each album.
 
 **Request.** Add these fields to each `PublisherResponse` entry, for the album of the entry:
 
@@ -122,12 +122,12 @@ v4vmm decides the kind itself: the stated `release_kind` first, then the track c
 | `album_names_rank` | The sequence number of this publisher feed among the feeds that the album names in `<podcast:publisher>`, from 1. Null when the album does not name the feed |
 | `remote_episode_count` | The track count of the album, as `episode_count` in `/v1/feeds/recent` |
 
-The request does not include `remote_release_kind`. Stophammer stores `unknown` as the `release_kind` of each feed, because RSS states no album, EP or single kind. v4vmm decides the kind from the track count.
+The request does not include `remote_release_kind`. Stophammer stores `unknown` as the `release_kind` of each feed, because RSS states no album, EP or single kind. HitIt decides the kind from the track count.
 
 The rank comes from the `position` of each `remote_items` entry, as `publisher_feed_title` does. A raw position is not sufficient. The counter also counts other channel items, and one entry does not show the positions of the other named feeds.
 The track count is a count of the items of the album.
 
-**What v4vmm does with it.** v4vmm ADR 0084 packet 008, the artist page, waits for these fields. The v4vmm operator decided on 2026-10-18 that the packet waits, and that the app sends no request for each album.
+**What HitIt does with it.** HitIt ADR 0084 packet 008, the artist page, waits for these fields. The v4vmm operator decided on 2026-10-18 that the packet waits, and that the app sends no request for each album.
 
 ### 8. Each List Row And Each Search Row Is Complete
 
@@ -159,11 +159,11 @@ Since then, `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-
 
 - musicindex.org pays for gap A now. Its ADR 0010 item 7 reads the full publisher list on each visit: 1,772 feeds, 200 rows at a time.
   `confirmPublisherRows` in `search.html` then reads `GET /v1/feeds/{guid}?include=publisher` for each row that states a role without agreement. This is the pattern that ADR 0068 rejected.
-- v4vmm ADR 0084 Decision 8 gives the Artists list and the Releases list a scope "Everything". Without A, that scope shows label feeds as artists, which v4vmm ADR 0085 Decision 2 forbids.
-  Without B, the Index singles cannot form a group, because v4vmm ADR 0084 Decision 6 keys a group on the artist feed.
-- Without C, the v4vmm name level page (ADR 0084 Decision 7) has no Index releases.
-- Without D, a curator and a site visitor cannot find a label by its name (v4vmm flow map finding 6).
-- The weakest part: musicindex.org uses no rank today, so only v4vmm needs the rank 1 count of A. C and D are a v4vmm need and a defect of the API itself. The site has no screen for them today.
+- HitIt ADR 0084 Decision 8 gives the Artists list and the Releases list a scope "Everything". Without A, that scope shows label feeds as artists, which HitIt ADR 0085 Decision 2 forbids.
+  Without B, the Index singles cannot form a group, because HitIt ADR 0084 Decision 6 keys a group on the artist feed.
+- Without C, the HitIt name level page (ADR 0084 Decision 7) has no Index releases.
+- Without D, a curator and a site visitor cannot find a label by its name (HitIt flow map finding 6).
+- The weakest part: musicindex.org uses no rank today, so only HitIt needs the rank 1 count of A. C and D are a HitIt need and a defect of the API itself. The site has no screen for them today.
 
 **Request.**
 
@@ -176,20 +176,20 @@ Since then, `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-
 5. Gap D: `type=publisher` on `GET /v1/search`, which finds feeds with the medium `publisher` by title. The values `feed` and `track` keep their present results.
    This changes ADR 0038 and the operator decision of 2026-10-01. Stophammer decides it apart from items 1 to 4.
 6. A related correction: ADR 0070 §4 puts a release on the name level when each link has an agreed role set without `artist`.
-   v4vmm ADR 0085 Decision 6 uses the first named feed. The two rules give different results only for an album that names two feeds. `album_names_rank` lets Stophammer use the first named feed. Stophammer decides whether to align.
+   HitIt ADR 0085 Decision 6 uses the first named feed. The two rules give different results only for an album that names two feeds. `album_names_rank` lets Stophammer use the first named feed. Stophammer decides whether to align.
 
 The field names are a proposal. Stophammer selects the names in its own ADR.
 musicindex.org can add its own entry to `docs/plans/musicindex-open-requests.md` for items 1 and 2.
 
-**What v4vmm does with it.** v4vmm ADR 0084 packet 016 (the two scopes) and packet 017 (the name level page) wait for items 2 to 4. Packet 010 (search) waits for item 5.
-Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of a name. v4vmm sends no request for each row.
+**What HitIt does with it.** HitIt ADR 0084 packet 016 (the two scopes) and packet 017 (the name level page) wait for items 2 to 4. Packet 010 (search) waits for item 5.
+Until then, packet 010 can use `GET /v1/artist-names?from=` to find the start of a name. HitIt sends no request for each row.
 
 ### 9. A Named Feed Entry States Its Confirmation
 
 Status: Deployed - 2026-10-21 in release 0.13.0 (Stophammer ADR 0076).
 
 **What happens.** Release 0.12.0 (Stophammer ADR 0071) gives the named feeds of each release row, a filter for the releases of a name row, and publisher feeds in search.
-v4vmm ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
+HitIt ADR 0084 packets 010 and 016 use these routes. Their authors found three gaps on 2026-10-20.
 
 The v4vmm orchestrator checked the gaps again with 13 read-only GET requests to `https://api.musicindex.org` on 2026-10-20, from 20:02 local time (2026-10-21 00:02 UTC).
 `GET /node/info` gave `git_revision` `056199b`. `GET /openapi.json` gave `info.version` `0.12.0`.
@@ -216,21 +216,21 @@ Each row gives `entity_type`, `entity_id`, `rank`, `quality_score`, `title`, `fe
 - `GET /v1/feeds/by-name?medium=publisher&include=link_facts&from=Sir%20Libre&limit=1` gave Sir Libre Records with `two_way_link_count` 3, `agreed_roles` `["label"]` and `first_named_count` 0.
 - Thus the facts that make Sir Libre Records a label are on the list row, but not on the search row. Stophammer ADR 0068, "Search is not in scope", records this.
 
-**A note on the name level, not a request item.** Packet 016 found a second difference between Stophammer ADR 0070 §4 and v4vmm ADR 0085 Decision 6. v4vmm calls it D-2.
+**A note on the name level, not a request item.** Packet 016 found a second difference between Stophammer ADR 0070 §4 and HitIt ADR 0085 Decision 6. HitIt calls it D-2.
 An album names a held feed first, through a link that only the album states, with no agreed role.
-Stophammer does not put the album on the name level, so no `name` row counts it. v4vmm puts it on the name level, because the link is not confirmed.
+Stophammer does not put the album on the name level, so no `name` row counts it. HitIt puts it on the name level, because the link is not confirmed.
 
-ADR 0071 §6 keeps ADR 0070 §4, and v4vmm does not ask to change it. With item 1 of this request, v4vmm can find each D-2 album and report the count.
+ADR 0071 §6 keeps ADR 0070 §4, and HitIt does not ask to change it. With item 1 of this request, HitIt can find each D-2 album and report the count.
 
 **Why the two clients need it.**
 
-- v4vmm ADR 0084 Decision 6 shows the singles of one artist as one group. The group key is the artist feed.
-- v4vmm ADR 0085 Decision 6 selects the artist feed: the first named feed with an agreed `artist` role, else the primary named feed with a confirmed link.
-  On 2026-10-20, no entry on the first page had a role. Thus v4vmm needs the confirmation of each rank 1 entry.
+- HitIt ADR 0084 Decision 6 shows the singles of one artist as one group. The group key is the artist feed.
+- HitIt ADR 0085 Decision 6 selects the artist feed: the first named feed with an agreed `artist` role, else the primary named feed with a confirmed link.
+  On 2026-10-20, no entry on the first page had a role. Thus HitIt needs the confirmation of each rank 1 entry.
 - Without A, a group from an album-only link makes an artist, which ADR 0085 forbids.
 - Without B, a group of Index singles is not complete until the client reads the last page of the list.
-- v4vmm ADR 0085 Decision 2 puts no label feed in Artists. Without C, search shows Sir Libre Records with no fact that tells a label from an artist. A read for each row is the pattern that ADR 0068 rejected.
-- musicindex.org can use C to show a role on a search row. The weakest part: musicindex.org has no screen for A and B today, so only v4vmm needs them.
+- HitIt ADR 0085 Decision 2 puts no label feed in Artists. Without C, search shows Sir Libre Records with no fact that tells a label from an artist. A read for each row is the pattern that ADR 0068 rejected.
+- musicindex.org can use C to show a role on a search row. The weakest part: musicindex.org has no screen for A and B today, so only HitIt needs them.
 
 **Request.**
 
@@ -247,12 +247,12 @@ ADR 0071 §6 keeps ADR 0070 §4, and v4vmm does not ask to change it. With item 
 
 The field names are a proposal. Stophammer selects the names in its own ADR.
 
-**What v4vmm does with it.**
+**What HitIt does with it.**
 
 - Proposed packet 026 (Index singles groups) waits for items 1 and 2. The v4vmm operator decided on 2026-10-20 that packet 016 groups no Index singles until then.
 - Packet 016 shows each Index single as a release row until packet 026.
 - Packet 010 uses item 3 when it exists. Until then, it gives each Index publisher row the badge "Feed", unless the Library Artists list holds that feed.
-- v4vmm sends no read for each row in place of these items.
+- HitIt sends no read for each row in place of these items.
 
 ### 10. Search Accepts Words, Phrases And Field Filters
 
@@ -264,7 +264,7 @@ Thus an apostrophe in a name gives `400`. A colon after the name of an FTS5 colu
 No route filters a search by release kind, date or duration. The FTS5 table has the columns `name`, `title`, `description` and `tags`.
 
 **What it costs.** Names of music often have an apostrophe, for example "Rock 'n' Roll" or "Don't Stop". A curator who types such a name gets no Index results.
-v4vmm ADR 0087 gives the search field of v4vmm a set of fields, for example `artist:jsmovie kind:single after:2026-10-01`. v4vmm parses this text. It needs a way to send each field to Stophammer that is not query syntax.
+HitIt ADR 0087 gives the search field of HitIt a set of fields, for example `artist:jsmovie kind:single after:2026-10-01`. HitIt parses this text. It needs a way to send each field to Stophammer that is not query syntax.
 
 **Request.**
 
@@ -281,7 +281,7 @@ v4vmm ADR 0087 gives the search field of v4vmm a set of fields, for example `art
    | `min_duration`, `max_duration` | seconds | none | `duration_secs` |
 
 3. An exclusion for the words, the phrases and each text filter. One method is a second parameter for each, for example `not_q=remix` and `not_title=remix`. A row that matches an exclusion does not show.
-   v4vmm ADR 0087 lets a curator exclude a term with `-`, for example `-title:remix`. Without this item, a v4vmm query with an exclusion shows no Index rows.
+   HitIt ADR 0087 lets a curator exclude a term with `-`, for example `-title:remix`. Without this item, a HitIt query with an exclusion shows no Index rows.
 4. A filter that a type cannot apply gives `400` with a stable error code, for example `unsupported_filter`. A client can then tell the curator which field the Index did not apply.
 5. Allow a search with filters and no `q`, for example `kind=single&after=2026-10-01`.
 6. State the filters in the contract, so that a client can find which filters the deployed release supports.
@@ -292,7 +292,7 @@ Request 11 asks for the date and the named feeds of each feed hit. The two reque
 7. A filter by host, to include or exclude the feeds of one hosting service, for example `host=wavlake.com` and `not_host=wavlake.com`. The v4vmm operator asked for it on 2026-10-24.
    The host is the domain of `feed_url`. A host value matches that domain and each subdomain, so `wavlake.com` matches `feeds.wavlake.com`. Stophammer stores no host column today, so a stored and indexed column is a proposal. A track takes the host of its feed.
 
-**Operator answers - 2026-10-24.** The v4vmm operator reviewed items 2 to 7:
+**Operator answers - 2026-10-24.** The HitIt operator reviewed items 2 to 7:
 
 - **Item 1, phrases.** Release 0.14.0 puts quotes around each word of `q` (`fts5_query_from_words`, `src/search.rs:199-206`). Thus each text gives `200`, but a phrase in double quotes, for example `"night drive"`, matches its words in any order. The phrase part of item 1 is still open.
 - **Item 2, `kind`.** Stophammer stores `unknown` as the release kind of most feeds, and it infers no kind until the Podcasting 2.0 namespace gives guidance. Thus:
@@ -318,13 +318,13 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 | The kind rule of the apps | `../musicindex/docs/adr/0020-cross-app-interface-rules.md`, R-WORD-1 |
 | The search field and the pause of 300 ms | `../musicindex/docs/adr/0026-cross-app-controls-and-feedback.md`, R-SEARCH-1 |
 | A parser of the query text, and the field list | `../musicindex-research/research_notes/ui-design/mockups/kit/search.js` |
-| The search in the website and v4vmm mockups | `../musicindex-research/research_notes/ui-design/mockups/musicindex.html` and `v4vmm.html` |
+| The search in the website and HitIt mockups | `../musicindex-research/research_notes/ui-design/mockups/musicindex.html` and `v4vmm.html` |
 | The search report of 2026-10-23 | `../musicindex-research/reports/2026-10-23-search-code-sharing-and-stophammer.md` |
 | The search request of the website | `../musicindex/docs/plans/research-ui-shell-and-search-request.md` |
 
-**What v4vmm does with it.** v4vmm stops the report of a query error as a failure of the MusicIndex setup. That fix is in v4vmm and needs no Stophammer change.
+**What HitIt does with it.** HitIt stops the report of a query error as a failure of the MusicIndex setup. That fix is in HitIt and needs no Stophammer change.
 
-v4vmm ADR 0087 sends each field as a parameter, never as syntax in `q`. From 2026-11-06, v4vmm sends each field as its filter. Two filters still differ from the Library. Request 14 asks for the change.
+HitIt ADR 0087 sends each field as a parameter, never as syntax in `q`. From 2026-11-06, v4vmm sends each field as its filter. Two filters still differ from the Library. Request 14 asks for the change.
 
 ### 11. A Feed Search Hit Gives Its Release Date And Its Named Feeds
 
@@ -346,14 +346,14 @@ Since release 0.15.0, an unknown search parameter gives `400` with `unsupported_
 
 Thus a feed search hit does not follow the rule of request 8 item 1. A client must read each hit again to date it or to key it by its artist feed.
 
-**Why v4vmm needs it.** v4vmm ADR 0086 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 6).
+**Why HitIt needs it.** HitIt ADR 0086 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 6).
 
 The window of a single comes from its release date. The group key comes from the named feeds of the release. The New releases rows give both facts.
 A saved search runs `GET /v1/search`, and its rows give neither fact. Thus only the singles that the Library holds can group in a saved search. Each Index single shows as a tile of its own.
 
-ADR 0075 packet 047 of v4vmm forbids a detail read for each search row, so v4vmm cannot read each hit again.
+ADR 0075 packet 047 of HitIt forbids a detail read for each search row, so HitIt cannot read each hit again.
 
-The weakest part: only the saved searches need it. The toolbar search of v4vmm shows no groups.
+The weakest part: only the saved searches need it. The toolbar search of HitIt shows no groups.
 
 **Request.**
 
@@ -362,13 +362,13 @@ The weakest part: only the saved searches need it. The toolbar search of v4vmm s
 
 The field names are a proposal. Stophammer selects the names in its own ADR.
 
-**When v4vmm sends it.** The v4vmm operator decided on 2026-10-25:
+**When HitIt sends it.** The v4vmm operator decided on 2026-10-25:
 
-- v4vmm sends this request after the operator walks the open checks of ADR 0084 packet 012 (saved searches) and ADR 0086 packet 005 (their window groups). The walk can change the need.
-- If the operator sends it before that walk, v4vmm asks only for item 1. Item 2 waits until the walk shows that the artist text is not a sufficient group key.
+- HitIt sends this request after the operator walks the open checks of ADR 0084 packet 012 (saved searches) and ADR 0086 packet 005 (their window groups). The walk can change the need.
+- If the operator sends it before that walk, HitIt asks only for item 1. Item 2 waits until the walk shows that the artist text is not a sufficient group key.
 
-**What v4vmm does with it.** v4vmm ADR 0086 packet 005 groups the Library singles of a saved search. Its chain reads the release date of each row, so an Index hit groups when item 1 is deployed.
-Item 2 lets the hit use the artist feed key of New releases. Without item 2, an Index hit has only the text of its artist. When Stophammer deploys item 1 or item 2, v4vmm replaces the stored contract in the same change as the decode change (v4vmm ADR 0075 section 6).
+**What HitIt does with it.** HitIt ADR 0086 packet 005 groups the Library singles of a saved search. Its chain reads the release date of each row, so an Index hit groups when item 1 is deployed.
+Item 2 lets the hit use the artist feed key of New releases. Without item 2, an Index hit has only the text of its artist. When Stophammer deploys item 1 or item 2, HitIt replaces the stored contract in the same change as the decode change (HitIt ADR 0075 section 6).
 
 ### 12. A Track Gives Its Season, And The Index Keeps The License
 
@@ -379,10 +379,10 @@ Item 2 lets the hit use the artist feed key of New releases. Without item 2, an 
 
 Studio writes both elements. Studio ADR 0080 writes `podcast:season` as a disc, with an Experimental mark.
 
-**Why v4vmm needs it.** v4vmm ADR 0080 Decision 11 writes the RSS license to a file. v4vmm reads it from the RSS document, so it has no value for an Index track until the curator downloads the track.
-v4vmm ADR 0080 Decision 14 writes no season to a file until Studio removes the Experimental mark.
+**Why HitIt needs it.** HitIt ADR 0080 Decision 11 writes the RSS license to a file. HitIt reads it from the RSS document, so it has no value for an Index track until the curator downloads the track.
+HitIt ADR 0080 Decision 14 writes no season to a file until Studio removes the Experimental mark.
 
-The weakest part: no v4vmm screen needs either value today. Only the file tags need the license, and v4vmm reads it from RSS. Item 1 is thus only for a later decision.
+The weakest part: no HitIt screen needs either value today. Only the file tags need the license, and HitIt reads it from RSS. Item 1 is thus only for a later decision.
 
 **Request.**
 
@@ -391,19 +391,19 @@ The weakest part: no v4vmm screen needs either value today. Only the file tags n
 
 The field names are a proposal. Stophammer selects the names in its own ADR.
 
-**What v4vmm does with it.** v4vmm packet ADR 0080 task 010 reads the license from RSS, and does not wait. When Stophammer deploys item 2, v4vmm decodes the value as a separate source (v4vmm ADR 0075 Decision I).
+**What HitIt does with it.** HitIt packet ADR 0080 task 010 reads the license from RSS, and does not wait. When Stophammer deploys item 2, HitIt decodes the value as a separate source (HitIt ADR 0075 Decision I).
 
 
 **The retention of a publisher resolution.** When an album feed changes or disappears, what happens to its stored back-link resolution and its `publisher_link_observed_at`?
-The v4vmm publisher relationship request asked this for the Stophammer ADR. ADR 0049 does not state it.
+The HitIt publisher relationship request asked this for the Stophammer ADR. ADR 0049 does not state it.
 
 ### 13. A Total For Each List Of Feeds And Names
 
 **What happens.** On 2026-11-05, the v4vmm orchestrator read the stored contract of release 0.18.1. `Pagination` gives only `cursor` and `has_more`. No route gives the number of feeds or names in a list.
 
-**Why v4vmm needs it.** v4vmm ADR 0089 Decision 5 gives Releases and Artists the scope "All | In Library". The research request gives a count for each of the two. v4vmm can count In Library, but it has no source for All.
+**Why HitIt needs it.** HitIt ADR 0089 Decision 5 gives Releases and Artists the scope "All | In Library". The research request gives a count for each of the two. HitIt can count In Library, but it has no source for All.
 
-The weakest part: the count is useful but not necessary. v4vmm shows no count for All until a total exists.
+The weakest part: the count is useful but not necessary. HitIt shows no count for All until a total exists.
 
 **Request.** Give a total with `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names`, for the same filters as the list. An approximate total is acceptable if the response says so.
 
@@ -414,12 +414,12 @@ The weakest part: the count is useful but not necessary. v4vmm shows no count fo
 1. `title` on `type=track` matches the track title only. `title=assorted&type=track` gave no row. `release=assorted&type=track` gave 7 rows of the feed "Various & Assorted". The Library matches a track title or its release title for `title:`, as ADR 0087 Decision 2 states.
 2. `kind` matches the stated `release_kind` only. Most feeds state `unknown`. `kind=single&type=feed` and `kind=single&type=track` gave no row. `kind=album&type=feed` and `kind=ep&type=feed` gave no row. `kind=unknown&type=feed` gave 20 rows. The feed `GET /v1/feeds/{guid}` of a feed with one track states `release_kind` `unknown`.
 
-**Why v4vmm needs it.** The v4vmm client keeps the kind rule of musicindex ADR 0020 R-WORD-1, as the answer of 2026-10-24 to item 2 says. That rule needs two requests for `kind:single`: `kind=single`, and `kind=unknown&tracks=1`. The search of v4vmm allows three requests in each run, one for each type. Thus v4vmm cannot send the rule as the answer states it.
+**Why HitIt needs it.** The v4vmm client keeps the kind rule of musicindex ADR 0020 R-WORD-1, as the answer of 2026-10-24 to item 2 says. That rule needs two requests for `kind:single`: `kind=single`, and `kind=unknown&tracks=1`. The search of HitIt allows three requests in each run, one for each type. Thus HitIt cannot send the rule as the answer states it.
 
 **Request.**
 
 1. A track `title` filter also matches the title of the feed of the track, as the `release` filter does.
-2. One request gives the R-WORD-1 rule. `kind=single` also matches a feed with `release_kind` `unknown` and one track. `kind=album` also matches a feed with `release_kind` `unknown` and two or more tracks. Each of these uses one parameter, so that v4vmm sends one request for each type.
+2. One request gives the R-WORD-1 rule. `kind=single` also matches a feed with `release_kind` `unknown` and one track. `kind=album` also matches a feed with `release_kind` `unknown` and two or more tracks. Each of these uses one parameter, so that HitIt sends one request for each type.
 
 The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `kind:single`, `kind:album` and `kind:ep` show no Index rows, and a track `title:` shows no track of a release title only.
 
@@ -429,17 +429,17 @@ The v4vmm operator sent this request on 2026-11-06. Until Stophammer answers, `k
 
 **What happens.** On 2026-11-06, v4vmm read the live contract of release 0.18.1 at `/openapi.json`. `GET /v1/feeds/recent`, `GET /v1/feeds/by-name`, `GET /v1/artist-names` and `GET /v1/search` have no sort parameter and no direction parameter. Their cursors go forward only.
 
-**Why v4vmm needs it.** musicindex ADR 0043 R-LIST-7 gives each list a reverse icon: Newest becomes Oldest, and A to Z becomes Z to A. Item 9 reverses the whole list. If an app reverses only the loaded rows, the rows of a later page come in the wrong position. Item 10 removes the icon when an app cannot reverse the whole list. So v4vmm shows no reverse icon on a list from these routes.
+**Why HitIt needs it.** musicindex ADR 0043 R-LIST-7 gives each list a reverse icon: Newest becomes Oldest, and A to Z becomes Z to A. Item 9 reverses the whole list. If an app reverses only the loaded rows, the rows of a later page come in the wrong position. Item 10 removes the icon when an app cannot reverse the whole list. So HitIt shows no reverse icon on a list from these routes.
 
 **Request.**
 
 1. `GET /v1/feeds/recent`: the oldest item first, with a cursor in that direction.
 2. `GET /v1/feeds/by-name` and `GET /v1/artist-names`: Z to A. `from` starts the list at a letter, and the cursor goes in that direction.
-3. `GET /v1/search`: the same two directions, if its results have a stable sequence. If they do not, state that in the contract, and v4vmm keeps no reverse icon on search results.
+3. `GET /v1/search`: the same two directions, if its results have a stable sequence. If they do not, state that in the contract, and HitIt keeps no reverse icon on search results.
 
 Stophammer owns the name and the form of each parameter. The filters and the row content of each route do not change.
 
-**Status.** Delivered - 2026-11-07. The v4vmm operator added this request. The live node gives `reverse=true` on the three list routes and `sort` and `reverse` on `/v1/search`, under the capability `sort`. The stored contract 0.19.0 has each parameter. A reversed list keeps its sequence across the next page.
+**Status.** Delivered - 2026-11-07. The HitIt operator added this request. The live node gives `reverse=true` on the three list routes and `sort` and `reverse` on `/v1/search`, under the capability `sort`. The stored contract 0.19.0 has each parameter. A reversed list keeps its sequence across the next page.
 
 ## Stophammer Answers - 2026-09-25
 
@@ -512,7 +512,7 @@ gives the details.
 - `GET /node/info` gives `git_revision: null` and `built_at: null`. On 2026-09-26 it gave `264706e` and a build time.
   Request 2 of the deploy of 2026-09-26 is thus open again. A client cannot tell which commit serves a response.
 - `SearchResponseItem` also declares `release_artist`, `release_artist_source`, `track_artist`, `duration_secs` and `episode_count`. A live hit omits each null field.
-- The search route declares `q`, `type`, `limit` and `cursor`. v4vmm sent `fuzzy=true`. v4vmm packet 047 stops it.
+- The search route declares `q`, `type`, `limit` and `cursor`. HitIt sent `fuzzy=true`. HitIt packet 047 stops it.
 
 ## Stophammer Answers - 2026-10-01
 
@@ -555,10 +555,10 @@ The node keeps no artist credit (ADR 0034 §11). `release_artist` and
 - `info.version` of `/openapi.json` gives `0.7.0`. `GET /node/info` gives `git_revision` `5ba3d1f`.
 - The contract adds `role_agreement` and `album_names_as` to `PublisherResponse`, and `agreed_roles`, `co_credited_feeds`, `stated_rels` and `two_way_link_count` to `FeedResponse`. It removes no field.
 - The DETOX publisher feed `137aaa9c-75ff-4916-9f23-e02968b2d15e` gives 30 rows with `album_names_as` `publisher`, a null `role`, `role_source` `default` and a null `role_agreement`.
-- v4vmm ADR 0082 groups the albums of a publisher page by `album_names_as` and by `role_agreement`. Its packets decode these fields.
+- HitIt ADR 0082 groups the albums of a publisher page by `album_names_as` and by `role_agreement`. Its packets decode these fields.
 
 **Request: correct the `album_names_as` text of the contract.** The 0.7.0 contract text says `"publisher"`, `"credit"` or null.
-The release record and task 014 of ADR 0049 say `publisher` or null. v4vmm reads the release record. Please correct the description in `src/openapi.rs` or in the doc comment that it comes from.
+The release record and task 014 of ADR 0049 say `publisher` or null. HitIt reads the release record. Please correct the description in `src/openapi.rs` or in the doc comment that it comes from.
 
 ## Release 0.6.0 - 2026-10-02
 
@@ -580,7 +580,7 @@ content.
 ## Release 0.4.0 - 2026-10-02
 
 Release 0.4.0 adds fields for musicindex.org (ADR 0059 §5 and ADR 0068). One
-change of meaning can matter to v4vmm: a `rel` value with no comma is now a
+change of meaning can matter to HitIt: a `rel` value with no comma is now a
 list separated by white space, as HTML `rel` is (ADR 0049 §6). A value with a
 comma reads as before. No stored value changed its role.
 
@@ -597,8 +597,8 @@ The rank of a hit is the rank of the current text of the entity. It is not
 always the better rank of the two rows. For `arbiter`, the better rank came
 from the bare-GUID row.
 
-The key of `unique_hits` in v4vmm must hold `feed_guid`, because a track GUID
-is unique only in its feed. The v4vmm change to
+The key of `unique_hits` in HitIt must hold `feed_guid`, because a track GUID
+is unique only in its feed. The HitIt change to
 `src/application/queries/search.rs` adds it.
 
 ## Stophammer Answers - 2026-10-17
@@ -611,16 +611,16 @@ release record names the release that carries them.
 
 - `GET /v1/feeds/by-name` gives the releases in name order, with the fields of
   `/v1/feeds/recent`, `cursor` and `from`.
-- `GET /v1/artist-names` gives one row for each identity of v4vmm ADR 0084
+- `GET /v1/artist-names` gives one row for each identity of HitIt ADR 0084
   Decision 7. A `publisher` row is a publisher feed, with its `feed_guid`. A
   `name` row is the text of the releases that open the name level, with
   `release_count`. The node does not merge a `publisher` row and a `name` row
   with the same text.
 - A `name` row counts a release whose only links are links with
-  `role_agreement` `both` and no `artist` role, as the v4vmm decision of
+  `role_agreement` `both` and no `artist` role, as the HitIt decision of
   2026-10-08 gives.
 - Each row gives `sort_name`, the key of ADR 0049 §7. The node compares the
-  keys by Unicode code point. v4vmm can merge its Library rows by the same key.
+  keys by Unicode code point. HitIt can merge its Library rows by the same key.
   The node does not remove a leading "The".
 - The node keeps the artist list in memory (ADR 0070 §4a, amended on
   2026-10-17). After a change, the list can be at most 30 seconds old.
@@ -646,8 +646,8 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 - `pub_date` stays empty on a feed hit. `newest_item_at` is the date of a feed hit, with the name and the meaning of the list rows.
 - Each feed hit also gives `release_kind`, and each feed hit and each publisher hit gives `medium`.
 - Use the date only when `GET /v1/node/capabilities` lists `search_feed_summary`.
-- A search with no `medium` gives the rows that it gives today. `medium=music,musicL` adds the playlists to the feed rows for musicindex.org request 23. v4vmm gets no playlist row until it sends that parameter.
-- Item 2, `include=named_feeds` on a search, stays a draft. It waits until the v4vmm operator walks ADR 0084 packet 012 and ADR 0086 packet 005 of v4vmm. Stophammer does not wait for that walk.
+- A search with no `medium` gives the rows that it gives today. `medium=music,musicL` adds the playlists to the feed rows for musicindex.org request 23. HitIt gets no playlist row until it sends that parameter.
+- Item 2, `include=named_feeds` on a search, stays a draft. It waits until the HitIt operator walks ADR 0084 packet 012 and ADR 0086 packet 005 of HitIt. Stophammer does not wait for that walk.
 
 ## Stophammer Answers - 2026-11-07
 
@@ -658,7 +658,7 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 - Each word and each phrase can match either title, as a term of the Library does. A phrase in double quotes must match in one title.
 - `not_title` follows `title`, so `-title:love` removes each track of an album "Love".
 - `release` still reads only the title of the feed. No filter now reads only the title of the track.
-- A filter does not change `rank`. So v4vmm ADR 0087 Known Difference 1 closes with this release.
+- A filter does not change `rank`. So HitIt ADR 0087 Known Difference 1 closes with this release.
 
 **Part 2 is declined.** The node still infers no kind (Stophammer ADR 0080 §2, ADR 0085 §6). Musicindex ADR 0020 R-WORD-1 gives this rule to the apps. An app can send the rule today as one request for each type, with no new release of Stophammer:
 
@@ -680,22 +680,22 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 
 - `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names` take `reverse=true`.
 - `GET /v1/search` takes `sort`, with the values `relevance`, `name` and `date`, and `reverse=true`. This is more than the request asks for. A direction alone cannot give A to Z on search, because search has no name order.
-- `sort=relevance` does not reverse, so v4vmm shows no reverse icon on it (R-LIST-7 item 10). `sort=name` and `sort=date` reverse, also with a word in `q`. `sort=date` gives the sequence Newest of the v4vmm results.
+- `sort=relevance` does not reverse, so HitIt shows no reverse icon on it (R-LIST-7 item 10). `sort=name` and `sort=date` reverse, also with a word in `q`. `sort=date` gives the sequence Newest of the HitIt results.
 - A request with neither parameter does not change.
-- A row with no date comes last in the two directions. Oldest is thus not an exact mirror of Newest. v4vmm uses the same rule for its Library rows.
+- A row with no date comes last in the two directions. Oldest is thus not an exact mirror of Newest. HitIt uses the same rule for its Library rows.
 - With `reverse=true`, `from=M` starts at the last title that starts with "m".
-- A cursor from a different sort or direction gives `400`. v4vmm starts again from the first page after a change.
-- With `sort=name`, a search row gives `sort_name`. With `sort=date`, it gives `sort_date`. v4vmm can merge its Library rows by these values.
-- `GET /v1/node/capabilities` lists `sort`. An older node ignores `reverse` on a list route and gives no error, so v4vmm shows the icon only when the node lists `sort`.
+- A cursor from a different sort or direction gives `400`. HitIt starts again from the first page after a change.
+- With `sort=name`, a search row gives `sort_name`. With `sort=date`, it gives `sort_date`. HitIt can merge its Library rows by these values.
+- `GET /v1/node/capabilities` lists `sort`. An older node ignores `reverse` on a list route and gives no error, so HitIt shows the icon only when the node lists `sort`.
 
-Stophammer gives no answer to draft request 13 until the v4vmm operator sends it.
+Stophammer gives no answer to draft request 13 until the HitIt operator sends it.
 
 ## Release 0.18.1 - Checked By v4vmm On 2026-11-04
 
 - `info.version` of `/openapi.json` gives `0.18.1`. `GET /node/info` gives `git_revision` `61e8762`.
 - `SourceEntityLinkResponse` declares `label` and `url_scheme_added` (Stophammer ADR 0082).
 - `GET /v1/feeds/{guid}?include=source_links` gives one `funding` row for each of three Studio corpus feeds: `phafe-music-the-singles`, `jimmyv4v-music-jimmy-v-music` and `behindthesch3m3s-music-pixel-palace`. This check does not prove that the refill pass of ADR 0082 is complete.
-- v4vmm does not decode `label` on this date. v4vmm ADR 0080 packet 006 adds it.
+- HitIt does not decode `label` on this date. HitIt ADR 0080 packet 006 adds it.
 
 ## Release 0.15.0 - 2026-10-25
 
@@ -734,7 +734,7 @@ Release 0.13.0 delivers request 9 (Stophammer ADR 0076). `GET /node/info` gives 
 - `GET /v1/search?q=Libre&type=publisher&include=link_facts` gives Sir Libre Records and "Kolomona Myer - AKA Sir Libre". The five values of each row are the same as the values of the same feed in `GET /v1/feeds/by-name?medium=publisher&include=link_facts`. Without the include, the rows give no link facts.
 - `GET /v1/node/capabilities` gives `include_params.search` with `link_facts`.
 
-The two visual criteria of ADR 0076 are for the v4vmm operator: a group of Index singles holds each single of the feed on its first page, and the search shows a label feed apart from the artist feeds.
+The two visual criteria of ADR 0076 are for the HitIt operator: a group of Index singles holds each single of the feed on its first page, and the search shows a label feed apart from the artist feeds.
 
 ## Release 0.12.0 - 2026-10-18
 
@@ -762,7 +762,7 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 
 - `GET /v1/feeds/by-name` and `GET /v1/artist-names` give rows in name order, with `cursor`, `limit` and `from`. Each row gives `sort_name`. `/v1/node/capabilities` lists `name_lists`.
 - On 2026-10-18, the first artist list after a start of the node took about 7 seconds. A page from the copy in memory took less than 0.1 second.
-- The contract text of `album_names_as` gives `"publisher"` or null, as v4vmm asked at the check of release 0.7.0.
+- The contract text of `album_names_as` gives `"publisher"` or null, as HitIt asked at the check of release 0.7.0.
 - A feed that empties its payment routes or its remote items now signs an event. A community node then deletes the same rows.
 
 ## Stophammer Answers - 2026-10-18
@@ -771,7 +771,7 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 
 - `album_names_rank` is accepted as Stophammer ADR 0069 §3a. The node counts the items of the album with the source `podcast_publisher`, in the sequence of their `position`. An item that names a feed that the node does not hold also counts, so the rank does not change when the node indexes another feed. The rank is null when `album_names_as` is null. The node derives no main artist from the rank. In the backup of 2026-09-26, 6 albums named more than one publisher feed.
 - `remote_episode_count` is accepted as an amendment of ADR 0059 §1. It is on each `publisher` and `remote_items` entry, as the other `remote_*` fields are. In the backup, 6,036 of the music feeds had exactly one track.
-- `remote_release_kind` is declined. Each of the 10,424 feeds in the backup, and each of the 200 newest feeds on the live API on 2026-10-18, gives `release_kind` `unknown`. The ingest writes that value, because RSS has no element that states album, EP or single. `itunes:type` gives `episodic` or `serial`. So v4vmm ADR 0084 Decision 5 can use the track count alone.
+- `remote_release_kind` is declined. Each of the 10,424 feeds in the backup, and each of the 200 newest feeds on the live API on 2026-10-18, gives `release_kind` `unknown`. The ingest writes that value, because RSS has no element that states album, EP or single. `itunes:type` gives `episodic` or `serial`. So HitIt ADR 0084 Decision 5 can use the track count alone.
 
 A release record gives the release.
 
@@ -793,16 +793,16 @@ Three facts of the request are not correct:
 ## Deferred, Not Requested Now
 
 **A `musicL` playlist import.** Stophammer ADR 0060 is deployed on 2026-09-26. Each `remote_items` entry of a list feed gives `item_guid` and `item_title`.
-A v4vmm playlist could take a list feed by `feedGuid` and `itemGuid`, with no name match. v4vmm reads neither field on 2026-09-28.
+A HitIt playlist could take a list feed by `feedGuid` and `itemGuid`, with no name match. v4vmm reads neither field on 2026-09-28.
 
-This is new product scope, and it needs a v4vmm ADR before a request. The v4vmm operator deferred it on 2026-09-28.
+This is new product scope, and it needs a HitIt ADR before a request. The v4vmm operator deferred it on 2026-09-28.
 
 **The confirmed and unconfirmed artists.** Stophammer ADR 0061 is Accepted on 2026-09-27. Release 0.2.0 carries it.
-On 2026-09-29, the deployed contract is version 0.2.0 and declares the four fields. v4vmm ADR 0077 packet 007 can use them. This needs no Stophammer action.
+On 2026-09-29, the deployed contract is version 0.2.0 and declares the four fields. HitIt ADR 0077 packet 007 can use them. This needs no Stophammer action.
 
 ## Answered, No Action
 
-These items were open in earlier v4vmm documents. The Stophammer source or the live API answers each one.
+These items were open in earlier HitIt documents. The Stophammer source or the live API answers each one.
 
 | Item | Answer | Evidence |
 |---|---|---|
@@ -811,6 +811,6 @@ These items were open in earlier v4vmm documents. The Stophammer source or the l
 | The normalization rule of the artist count | Trim, collapse white space, Unicode lowercase. "feat." is not split | ADR 0049 §7 |
 | `Feed.name`, `Track.name`, `Track.feed_url` | No longer in the responses. v4vmm packet 046 removed its readers on 2026-09-26. No Stophammer action | Live responses, 2026-09-25. v4vmm source, 2026-09-26 |
 | `Track.artist_credit` | Removed on purpose on 2026-04-08 | Commit `a16a720` |
-| Search summary fields, separate track artwork, the publication-date label | Live since 2026-09-23 | v4vmm API change request, changes 1 to 3 |
-| The `last_build_date` claim | No Stophammer action. v4vmm ignores the field. v4vmm ADR 0076, amended on 2026-09-26 | v4vmm |
+| Search summary fields, separate track artwork, the publication-date label | Live since 2026-09-23 | HitIt API change request, changes 1 to 3 |
+| The `last_build_date` claim | No Stophammer action. HitIt ignores the field. v4vmm ADR 0076, amended on 2026-09-26 | HitIt |
 | The publisher relationship fields | Live since 2026-09-24 | ADR 0049 |

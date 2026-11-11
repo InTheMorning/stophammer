@@ -96,7 +96,7 @@ code, so no release carries it.
 ### Client Requests
 
 The requests of HitIt and musicindex.org are in
-[the HitIt requests](docs/plans/v4vmm-open-requests.md) and
+[the HitIt requests](docs/plans/hitit-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). HitIt
 requests 1 to 9, items 1 to 7 of HitIt request 10 (ADR 0078 and ADR 0080), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org

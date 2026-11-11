@@ -3,7 +3,7 @@
 ## Purpose
 
 This document records the checks that Stophammer made on request 5 in
-[the v4vmm open requests](../plans/v4vmm-open-requests.md).
+[the v4vmm open requests](../plans/hitit-open-requests.md).
 
 It holds the facts that the checks found. It states no rule.
 

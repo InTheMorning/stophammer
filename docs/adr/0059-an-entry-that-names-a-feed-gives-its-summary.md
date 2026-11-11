@@ -40,7 +40,7 @@ names `music_feed_title`, `music_feed_image_url`, `music_release_artist` and
 values on each `remote_items` entry, with the names `remote_feed_title`,
 `remote_feed_image_url`, `remote_release_artist` and
 `remote_release_artist_source`. The requests are in
-[the v4vmm requests](../plans/v4vmm-open-requests.md) and
+[the v4vmm requests](../plans/hitit-open-requests.md) and
 [the musicindex.org requests](../plans/musicindex-open-requests.md).
 
 ADR 0042 requires that a field name says which record gives the value. ADR
