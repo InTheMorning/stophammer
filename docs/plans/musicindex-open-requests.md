@@ -1059,7 +1059,7 @@ A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It g
 
 ## Stophammer Answers - 2026-11-10
 
-These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. It is not built, and no candidate holds it. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. It is built, and no candidate holds it. A release record names the release that carries it.
 
 **Request 23, a search finds a playlist.** Accepted in a different form. The site names the medium in the search:
 

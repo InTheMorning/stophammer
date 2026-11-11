@@ -312,6 +312,11 @@ fn match_source(query: &str, scope: RankScope<'_>, values: &mut Vec<Value>) -> S
             format!("AND {ROW_TYPE} = ?{} ", values.len())
         }
         RankScope::FeedsAndTracks => format!("AND {ROW_TYPE} IN ('feed', 'track') "),
+        RankScope::FeedMedium(scope) => format!("AND {ROW_TYPE} IN {} ", scope.entity_types()),
+        RankScope::FeedsAndTracksMedium(scope) => format!(
+            "AND ({ROW_TYPE} IN {} OR {ROW_TYPE} = 'track') ",
+            scope.entity_types()
+        ),
     };
     let whole = format!(
         "SELECT rowid, bm25(search_index) AS fts_rank, 1 AS whole \
@@ -669,6 +674,28 @@ enum RankScope<'a> {
     One(&'a str),
     /// The rows of a request with no `type`.
     FeedsAndTracks,
+    /// A feed search whose feed rows are selected by `medium`.
+    FeedMedium(FeedMediumScope),
+    /// A search with no `type`, whose feed rows are selected by `medium`.
+    FeedsAndTracksMedium(FeedMediumScope),
+}
+
+/// The feed row types that a `medium` parameter selects.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct FeedMediumScope {
+    pub(crate) music: bool,
+    pub(crate) music_l: bool,
+}
+
+impl FeedMediumScope {
+    fn entity_types(self) -> &'static str {
+        match (self.music, self.music_l) {
+            (true, true) => "('feed', 'playlist')",
+            (true, false) => "('feed')",
+            (false, true) => "('playlist')",
+            (false, false) => "('')",
+        }
+    }
 }
 
 /// Searches the FTS5 index with no text filter. See [`search_filtered`].
@@ -728,6 +755,41 @@ pub fn search_filtered(
     cursor_rowid: Option<i64>,
 ) -> Result<Vec<SearchResult>, DbError> {
     let scope = entity_type_filter.map_or(RankScope::All, RankScope::One);
+    rank_search(
+        conn,
+        query,
+        filters,
+        scope,
+        limit,
+        cursor_rank,
+        cursor_rowid,
+    )
+}
+
+/// Searches feed rows selected by `medium`, with optional track rows.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the FTS5 MATCH query fails.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Search inputs map directly to the existing query controls."
+)]
+pub(crate) fn search_filtered_with_medium(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    entity_type_filter: Option<&str>,
+    medium: FeedMediumScope,
+    limit: i64,
+    cursor_rank: Option<f64>,
+    cursor_rowid: Option<i64>,
+) -> Result<Vec<SearchResult>, DbError> {
+    let scope = match entity_type_filter {
+        Some("feed") => RankScope::FeedMedium(medium),
+        None => RankScope::FeedsAndTracksMedium(medium),
+        Some(other) => RankScope::One(other),
+    };
     rank_search(
         conn,
         query,
@@ -837,6 +899,17 @@ fn rank_search(
             where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
             ""
         }
+        RankScope::FeedMedium(feed_scope) => {
+            where_parts.push(format!("e.entity_type IN {}", feed_scope.entity_types()));
+            "feed"
+        }
+        RankScope::FeedsAndTracksMedium(feed_scope) => {
+            where_parts.push(format!(
+                "(e.entity_type IN {} OR e.entity_type = 'track')",
+                feed_scope.entity_types()
+            ));
+            ""
+        }
     };
 
     // ADR 0080 §2 and §3: a text filter is a condition on the index row, never
@@ -875,7 +948,7 @@ fn rank_search(
          FROM ({source}) m \
          CROSS JOIN search_entities e ON e.rowid = m.rowid \
          LEFT JOIN entity_quality q \
-           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' WHEN 'playlist' THEN 'feed' ELSE e.entity_type END \
           AND q.entity_id = e.entity_id \
          {value_joins}\
          {where_clause}\
@@ -930,17 +1003,52 @@ pub fn search_by_date(
     limit: i64,
     cursor: Option<(Option<i64>, i64)>,
 ) -> Result<Vec<DatedSearchResult>, DbError> {
+    search_by_date_with_medium(conn, filters, entity_type_filter, None, limit, cursor)
+}
+
+/// ADR 0094 §1: the condition on the row type of a search with no `q` or with
+/// a `sort`. `medium` selects the feed row types of `type=feed` and of a
+/// request with no `type`.
+fn row_type_condition(
+    entity_type_filter: Option<&str>,
+    medium: Option<FeedMediumScope>,
+    values: &mut Vec<Value>,
+) -> String {
+    match (entity_type_filter, medium) {
+        (Some("feed"), Some(feed_scope)) => {
+            format!("e.entity_type IN {}", feed_scope.entity_types())
+        }
+        (None, Some(feed_scope)) => format!(
+            "(e.entity_type IN {} OR e.entity_type = 'track')",
+            feed_scope.entity_types()
+        ),
+        (Some(entity_type), _) => {
+            values.push(Value::Text(entity_type.to_owned()));
+            format!("e.entity_type = ?{}", values.len())
+        }
+        (None, None) => "e.entity_type IN ('feed', 'track')".to_owned(),
+    }
+}
+
+/// Searches dated rows with an optional feed medium scope.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub(crate) fn search_by_date_with_medium(
+    conn: &Connection,
+    filters: &SearchFilters,
+    entity_type_filter: Option<&str>,
+    medium: Option<FeedMediumScope>,
+    limit: i64,
+    cursor: Option<(Option<i64>, i64)>,
+) -> Result<Vec<DatedSearchResult>, DbError> {
     tracing::info!(entity_type_filter = ?entity_type_filter, "search with no q called");
     let date_expr = "CASE e.entity_type WHEN 'track' THEN t.pub_date ELSE f.newest_item_at END";
     let mut values: Vec<Value> = Vec::new();
     let mut where_parts = Vec::new();
 
-    if let Some(entity_type) = entity_type_filter {
-        values.push(Value::Text(entity_type.to_owned()));
-        where_parts.push(format!("e.entity_type = ?{}", values.len()));
-    } else {
-        where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
-    }
+    where_parts.push(row_type_condition(entity_type_filter, medium, &mut values));
 
     // A row with no date comes after each dated row, so a cursor with a date
     // also admits each row with no date.
@@ -986,7 +1094,7 @@ pub fn search_by_date(
                 {date_expr} AS row_date, e.rowid \
          FROM search_entities e \
          LEFT JOIN entity_quality q \
-           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' WHEN 'playlist' THEN 'feed' ELSE e.entity_type END \
           AND q.entity_id = e.entity_id \
          {value_joins}\
          WHERE {} \
@@ -1112,6 +1220,37 @@ pub fn search_sorted(
     limit: i64,
     cursor: Option<&KeyCursor>,
 ) -> Result<Vec<KeyedSearchResult>, DbError> {
+    search_sorted_with_medium(
+        conn,
+        query,
+        filters,
+        entity_type_filter,
+        None,
+        order,
+        limit,
+        cursor,
+    )
+}
+
+/// Searches rows by name or date with an optional feed medium scope.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The query and its independently optional controls are separate values."
+)]
+pub(crate) fn search_sorted_with_medium(
+    conn: &Connection,
+    query: &str,
+    filters: &SearchFilters,
+    entity_type_filter: Option<&str>,
+    medium: Option<FeedMediumScope>,
+    order: (KeySort, bool),
+    limit: i64,
+    cursor: Option<&KeyCursor>,
+) -> Result<Vec<KeyedSearchResult>, DbError> {
     let (sort, reverse) = order;
     tracing::info!(entity_type_filter = ?entity_type_filter, ?sort, reverse, "sorted search called");
     let has_word = !fts5_query_from_words(query).trim().is_empty();
@@ -1145,12 +1284,7 @@ pub fn search_sorted(
     };
 
     let mut where_parts = Vec::new();
-    if let Some(entity_type) = entity_type_filter {
-        values.push(Value::Text(entity_type.to_owned()));
-        where_parts.push(format!("e.entity_type = ?{}", values.len()));
-    } else {
-        where_parts.push("e.entity_type IN ('feed', 'track')".to_owned());
-    }
+    where_parts.push(row_type_condition(entity_type_filter, medium, &mut values));
 
     if let Some(cursor) = cursor {
         push_key_cursor(
@@ -1183,7 +1317,7 @@ pub fn search_sorted(
                 {key_expr} AS row_key, e.rowid \
          FROM {source} \
          LEFT JOIN entity_quality q \
-           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' ELSE e.entity_type END \
+           ON q.entity_type = CASE e.entity_type WHEN 'publisher' THEN 'feed' WHEN 'playlist' THEN 'feed' ELSE e.entity_type END \
           AND q.entity_id = e.entity_id \
          {value_joins}\
          WHERE {} \

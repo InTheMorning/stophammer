@@ -2174,12 +2174,12 @@ Notes:
 Full-text search. A hit contains each word and each phrase of `q`. A phrase is
 text in double quotes, and its words must be in sequence. A double quote with no
 second double quote after it is part of its word. The index holds music feeds,
-their tracks, and publisher feeds.
+their tracks, publisher feeds, and `musicL` feeds as playlist rows (ADR 0094).
 
 - **Constraint:** A feed with `raw_medium = 'music'` is indexed as `feed`,
   and its tracks are indexed as `track`. A feed with `raw_medium =
-  'publisher'` is indexed as `publisher`. A `musicL` feed and a feed with no
-  medium are not indexed.
+  'publisher'` is indexed as `publisher`. A `musicL` feed is indexed as a
+  `playlist` row (ADR 0094).
 
 Default search includes:
 
@@ -2236,6 +2236,7 @@ needs no call for each hit. ADR 0042 owns these fields.
 | `include` | string | none | Comma-separated include list. Supports `link_facts` |
 | `sort` | string | `relevance` with a word in `q`, `date` with no word | `relevance`, `name` or `date`. See the section on `sort` and `reverse` |
 | `reverse` | boolean | `false` | `true` reverses `name` and `date`. `relevance` cannot reverse |
+| `medium` | list | `music` | Comma-separated `music` and `musicL`. It selects feed rows. With no `type`, track rows stay in the results. With `type=track` or `type=publisher`, it gives `400`. A playlist hit has `entity_type = "feed"` (ADR 0094) |
 | `artist` | text | none | Each word and phrase must be in the artist. Types `feed`, `track` and `publisher` |
 | `title` | text | none | Each word and phrase must be in the title. On a track, each word and phrase can be in the title of the track or in the title of its feed, but a phrase in double quotes must be in one title. Types `feed`, `track` and `publisher` |
 | `release` | text | none | Each word and phrase must be in the title of the feed. Types `feed` and `track`. No filter now reads only the title of the track |
@@ -2299,6 +2300,10 @@ the rows by `rank`.
   value is one exclusion. A request has at most 10 exclusions.
 - A request with no `type` accepts a filter only when `type=feed` and
   `type=track` each apply it.
+- A search with no `medium` reads no playlist row. `medium=musicL` selects
+  playlist rows. With no `type`, it also keeps track rows.
+- A playlist row follows the feed rules for text filters, value filters, host,
+  quality and sort. `min_tracks=1` removes a playlist row.
 - A parameter that the node does not know gives `400`. Remove an extra
   parameter, for example a cache key, from the request.
 - A request with no word in `q` and no positive filter gives
@@ -2445,7 +2450,7 @@ index (ADR 0071 section 5).
 {
   "api_version": "v1",
   "node_pubkey": "hex-pubkey",
-  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist", "release_track_counts", "search_feed_summary"],
+  "capabilities": ["query", "search", "sync", "push", "name_lists", "sort", "feed_by_url", "artist_newest", "artist_role_filter", "publisher_row_date", "artist_row_release_artist", "release_track_counts", "search_feed_summary", "search_medium"],
   "entity_types": ["feed", "track", "publisher"],
   "include_params": {
     "feed": ["tracks", "payment_routes", "source_links", "source_ids", "source_contributors", "source_platforms", "source_release_claims", "remote_items", "publisher"],
@@ -2498,6 +2503,9 @@ section 2).
 
 `search_feed_summary` marks `medium`, `release_kind` and `newest_item_at` on
 each feed and publisher hit of `GET /v1/search` (ADR 0094 sections 2 and 3).
+
+`search_medium` marks the `medium` parameter of `GET /v1/search` (ADR 0094
+section 4). A client sends `medium` only when the node lists `search_medium`.
 
 `feed_by_url` marks `GET /v1/feeds/by-url` (ADR 0088 section 4). A node with no
 `feed_by_url` answers that path as a feed read of the GUID `by-url`, which gives

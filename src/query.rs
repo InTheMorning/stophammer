@@ -226,6 +226,8 @@ impl ListQuery {
 struct SearchRequest {
     q: String,
     kind: Option<String>,
+    /// ADR 0094 §1: the feed row types selected by `medium`.
+    medium: Option<crate::search::FeedMediumScope>,
     limit: Option<i64>,
     cursor: Option<String>,
     /// ADR 0076 §3: `link_facts` on a `publisher` row.
@@ -6162,7 +6164,9 @@ async fn handle_get_artist_names(
 /// Reads the parameters of `GET /v1/search` from the raw query and applies the
 /// checks of ADR 0080 §4 in their sequence. The first error is the result.
 fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
-    const SINGLE: [&str; 7] = ["q", "type", "limit", "cursor", "include", "sort", "reverse"];
+    const SINGLE: [&str; 8] = [
+        "q", "type", "limit", "cursor", "include", "sort", "reverse", "medium",
+    ];
     let pairs: Vec<(String, String)> = url::form_urlencoded::parse(raw.as_bytes())
         .into_owned()
         .collect();
@@ -6190,6 +6194,7 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
     };
     let q = single("q")?.unwrap_or_default();
     let kind = single("type")?;
+    let medium_raw = single("medium")?;
     let cursor = single("cursor")?;
     let include = single("include")?;
     let sort_raw = single("sort")?;
@@ -6210,6 +6215,17 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
                 format!("{name} is not a parameter of this node"),
             ));
         }
+    }
+
+    if medium_raw.is_some() && matches!(kind.as_deref(), Some("track" | "publisher")) {
+        return Err(filter_error(
+            "unsupported_filter",
+            "medium",
+            format!(
+                "medium is not supported for type={}",
+                kind.as_deref().unwrap_or_default()
+            ),
+        ));
     }
 
     // Check 2: a filter that the type of the request does not apply. A
@@ -6237,6 +6253,28 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
             ));
         }
     }
+
+    let medium = medium_raw
+        .as_deref()
+        .map(|value| {
+            let mut music = false;
+            let mut music_l = false;
+            for item in value.split(',') {
+                match item {
+                    "music" => music = true,
+                    "musicL" => music_l = true,
+                    _ => {
+                        return Err(filter_error(
+                            "invalid_filter",
+                            "medium",
+                            "medium accepts music and musicL, separated by commas".into(),
+                        ));
+                    }
+                }
+            }
+            Ok(crate::search::FeedMediumScope { music, music_l })
+        })
+        .transpose()?;
 
     // Check 3: a repeated positive filter, a value in the wrong form, or the 11th
     // exclusion.
@@ -6371,6 +6409,7 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
     Ok(SearchRequest {
         q,
         kind,
+        medium,
         limit,
         cursor,
         include,
@@ -6392,6 +6431,7 @@ async fn handle_search(
     };
     let q = params.q.clone();
     let kind = params.kind.clone();
+    let medium = params.medium;
     let filters = params.filters.clone();
     tracing::info!(q = ?q, kind = ?kind, "search query received");
     // Issue-NEGATIVE-LIMIT — 2026-03-15
@@ -6479,21 +6519,24 @@ async fn handle_search(
         let conn = pool.reader()?;
         if by_date {
             return match kind.as_deref() {
-                None | Some("feed" | "track" | "publisher") => crate::search::search_by_date(
-                    &conn,
-                    &filters,
-                    kind.as_deref(),
-                    limit + 1,
-                    date_cursor,
-                )
-                .map(|rows| {
-                    rows.into_iter()
-                        .map(|row| crate::search::KeyedSearchResult {
-                            result: row.result,
-                            key: row.date.map(crate::search::SortValue::Date),
-                        })
-                        .collect()
-                }),
+                None | Some("feed" | "track" | "publisher") => {
+                    crate::search::search_by_date_with_medium(
+                        &conn,
+                        &filters,
+                        kind.as_deref(),
+                        medium,
+                        limit + 1,
+                        date_cursor,
+                    )
+                    .map(|rows| {
+                        rows.into_iter()
+                            .map(|row| crate::search::KeyedSearchResult {
+                                result: row.result,
+                                key: row.date.map(crate::search::SortValue::Date),
+                            })
+                            .collect()
+                    })
+                }
                 Some(other) => Err(db::DbError::Other(format!(
                     "unsupported search type filter: {other}"
                 ))),
@@ -6503,22 +6546,35 @@ async fn handle_search(
         // direction, with a word and with no word.
         if let SearchPlan::Keyed(sort) = plan {
             return match kind.as_deref() {
-                None | Some("feed" | "track" | "publisher") => crate::search::search_sorted(
-                    &conn,
-                    &q,
-                    &filters,
-                    kind.as_deref(),
-                    (sort, reverse),
-                    limit + 1,
-                    key_cursor.as_ref(),
-                ),
+                None | Some("feed" | "track" | "publisher") => {
+                    crate::search::search_sorted_with_medium(
+                        &conn,
+                        &q,
+                        &filters,
+                        kind.as_deref(),
+                        medium,
+                        (sort, reverse),
+                        limit + 1,
+                        key_cursor.as_ref(),
+                    )
+                }
                 Some(other) => Err(db::DbError::Other(format!(
                     "unsupported search type filter: {other}"
                 ))),
             };
         }
-        let found = match kind.as_deref() {
-            Some("feed" | "track" | "publisher") => crate::search::search_filtered(
+        let found = match (kind.as_deref(), medium) {
+            (Some("feed"), Some(feed_scope)) => crate::search::search_filtered_with_medium(
+                &conn,
+                &q,
+                &filters,
+                kind.as_deref(),
+                feed_scope,
+                limit + 1,
+                cursor_rank,
+                cursor_rowid,
+            ),
+            (Some("feed" | "track" | "publisher"), _) => crate::search::search_filtered(
                 &conn,
                 &q,
                 &filters,
@@ -6527,10 +6583,20 @@ async fn handle_search(
                 cursor_rank,
                 cursor_rowid,
             ),
-            Some(other) => Err(db::DbError::Other(format!(
+            (Some(other), _) => Err(db::DbError::Other(format!(
                 "unsupported search type filter: {other}"
             ))),
-            None => crate::search::search_feeds_and_tracks(
+            (None, Some(feed_scope)) => crate::search::search_filtered_with_medium(
+                &conn,
+                &q,
+                &filters,
+                None,
+                feed_scope,
+                limit + 1,
+                cursor_rank,
+                cursor_rowid,
+            ),
+            (None, None) => crate::search::search_feeds_and_tracks(
                 &conn,
                 &q,
                 &filters,
@@ -6662,7 +6728,7 @@ async fn handle_search(
                         summary = feed_search_summary(&conn, &entity_id)?;
                     }
                     let include_feed_summary =
-                        matches!(r.entity_type.as_str(), "feed" | "publisher");
+                        matches!(r.entity_type.as_str(), "feed" | "publisher" | "playlist");
 
                     // ADR 0076 §3: a `publisher` row gives its link facts
                     // with the include, calculated as a list row does. A
@@ -6689,7 +6755,11 @@ async fn handle_search(
                     };
 
                     Ok(SearchResponseItem {
-                        entity_type: r.entity_type,
+                        entity_type: if r.entity_type == "playlist" {
+                            "feed".to_owned()
+                        } else {
+                            r.entity_type
+                        },
                         entity_id,
                         rank: r.rank,
                         quality_score: r.quality_score,
@@ -7022,6 +7092,7 @@ async fn handle_capabilities(State(state): State<Arc<api::AppState>>) -> impl In
             "artist_row_release_artist",
             "release_track_counts",
             "search_feed_summary",
+            "search_medium",
         ],
         // ADR 0071 §5: `type=publisher` finds a publisher feed by a word of
         // its title.

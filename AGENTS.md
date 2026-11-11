@@ -112,8 +112,9 @@ The candidate `v0.19.0-rc.7` holds these ADRs. A release promotes the candidate.
   them. The node and the crawler image deploy together, because an older
   crawler sends the stream as `content_link` again.
 - [ADR 0094](docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md)
-  answers musicindex.org requests 23 and 26 and item 1 of v4vmm request 11. It
-  is Accepted and not built, and no candidate holds it.
+  answers musicindex.org requests 23 and 26 and item 1 of v4vmm request 11. Its
+  three tasks in `docs/tasks/` are built, with the capabilities `search_medium`
+  and `search_feed_summary`. It has no migration, and no candidate holds it.
 - A restart of the gossip crawler reads many cold pages of the podping archive
   in its first seconds. This costs only disk reads, and no decision is open.
 
@@ -155,8 +156,8 @@ musicindex.org requests 21, 25, 27, 28, 29 and 30 are answered. Their build is i
 candidate `v0.19.0-rc.7`, and no release carries it. musicindex.org request 22
 is answered (ADR 0017). Parser commit `7130556` decodes the named entities of
 HTML 4.01, and no crawler image carries it. musicindex.org requests 23 and 26,
-and item 1 of v4vmm request 11, are answered (ADR 0094), and no build carries
-them. musicindex.org request 24 is closed, because ADR 0091 meets it.
+and item 1 of v4vmm request 11, are answered (ADR 0094). Their build is on
+`main`, and no candidate holds it. musicindex.org request 24 is closed, because ADR 0091 meets it.
 
 ### Governance
 
