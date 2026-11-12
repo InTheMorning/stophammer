@@ -176,6 +176,33 @@ impl Bench {
         .expect("move the cooldown");
     }
 
+    /// Reads `return_wait_until` from `GET /v1/feeds/{guid}` (ADR 0097 §3).
+    async fn return_wait_until(&self, guid: &str) -> serde_json::Value {
+        let req = Request::builder()
+            .method("GET")
+            .uri(format!("/v1/feeds/{guid}"))
+            .body(Body::empty())
+            .expect("build request");
+        let resp = stophammer::api::build_router(Arc::clone(&self.state))
+            .oneshot(req)
+            .await
+            .expect("send request");
+        assert_eq!(resp.status(), 200, "the feed read must succeed");
+        let bytes = resp
+            .into_body()
+            .collect()
+            .await
+            .expect("read body")
+            .to_bytes();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).expect("parse json");
+        let data = body["data"].as_object().expect("data must be an object");
+        assert!(
+            data.contains_key("return_wait_until"),
+            "the single-feed read must give the field: {body:?}"
+        );
+        data["return_wait_until"].clone()
+    }
+
     /// Sends a 301 from the stored source URL `from` to `to`.
     async fn redirect(&self, from: &str, to: &str) -> serde_json::Value {
         let payload = serde_json::json!({
@@ -686,7 +713,9 @@ async fn a_copied_tag_does_not_start_a_return_until_it_changes() {
 }
 
 #[tokio::test]
-async fn a_second_return_waits_one_hour() {
+// ADR 0097: the default first wait is 60 seconds, and
+// `GET /v1/feeds/{guid}` gives its end in `return_wait_until`.
+async fn a_second_return_waits_and_the_feed_read_gives_the_end() {
     let b = Bench::new();
     // A to B, then the first return to A.
     run(
@@ -701,6 +730,12 @@ async fn a_second_return_waits_one_hour() {
     .await;
     assert_eq!(b.feed_url(GUID), UA, "the first return must move");
     assert_eq!(b.state(GUID).return_count, 1, "the first return counts");
+    let last = b.state(GUID).last_return_at.expect("the return time");
+    assert_eq!(
+        b.return_wait_until(GUID).await,
+        serde_json::json!(last + 60),
+        "the field must give the end of the 60-second wait"
+    );
     // A names B again, and B names itself. This is a second return.
     run(&b, &[(UA, Some(UB), None)]).await;
     let resp = b.sub(UB, GUID, Some(UB), None, None).await;
@@ -711,13 +746,18 @@ async fn a_second_return_waits_one_hour() {
         "the wait must give the warning: {resp:?}"
     );
     assert_eq!(b.feed_url(GUID), UA, "the record must stay at A");
-    // The hour passes.
-    b.set_last_return(GUID, 3601);
+    // The wait passes.
+    b.set_last_return(GUID, 61);
+    assert_eq!(
+        b.return_wait_until(GUID).await,
+        serde_json::Value::Null,
+        "the field must be null when no wait is active"
+    );
     let resp = b.sub(UB, GUID, Some(UB), None, None).await;
     assert_eq!(
         moves(&resp),
         1,
-        "the return must move after the hour: {resp:?}"
+        "the return must move after the wait: {resp:?}"
     );
     assert_eq!(b.feed_url(GUID), UB, "the record must return to B");
     assert_eq!(b.state(GUID).return_count, 2, "the second return counts");

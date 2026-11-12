@@ -2,6 +2,7 @@
 
 ## Status
 Accepted on 2026-11-12 by the operator. It amends ADR 0083 section 5.
+ADR 0097 amends section 1: the defaults are shorter.
 
 ## Date
 2026-11-12
@@ -33,8 +34,8 @@ with no fraction, zero or more.
 | `MOVE_RETURN_WAIT_LIMIT_SECS` | The limit of a wait | `604800` |
 | `MOVE_RETURN_COUNT_RESET_SECS` | The time with no return after which the count starts again | `2592000` |
 
-The defaults are the ADR 0083 values. The first return stays free. A value of `0` for
-`MOVE_RETURN_WAIT_SECS` removes each wait.
+ADR 0097 section 1 replaces these defaults with `60`, `3600` and `86400`. The first
+return stays free. A value of `0` for `MOVE_RETURN_WAIT_SECS` removes each wait.
 
 A value that is not a number with no fraction, zero or more, keeps its default, and the node writes
 a warning to its log. At start the node writes the values that it uses to its log.
@@ -62,7 +63,7 @@ Each criterion is mechanical. This ADR has no visual criterion.
 | Criterion | Test |
 |---|---|
 | Operator values replace the defaults, and a first wait of zero gives no wait | `return_cooldown_uses_the_operator_values` in `src/db.rs` |
-| With no variable, the node uses the ADR 0083 values | The same test, and the ADR 0083 guards in `tests/adr0083_move_refusal_tests.rs` |
+| With no variable, the node uses the ADR 0097 defaults | The same test, and the ADR 0083 guards in `tests/adr0083_move_refusal_tests.rs` |
 
 The parse of the variables in `src/main.rs` has no test. A manual check replaces it: after
 a restart, the start log gives the values that the node uses.

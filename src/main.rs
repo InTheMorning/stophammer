@@ -64,8 +64,8 @@ fn source_gone_hosts_from_env() -> Vec<String> {
 /// Reads the return cooldown of ADR 0096 from three server variables.
 ///
 /// Each variable gives a count of seconds. A variable that is not set keeps
-/// its ADR 0083 value. A value that is not a whole number of zero or more
-/// keeps its ADR 0083 value and gives a warning.
+/// its ADR 0097 default. A value that is not a whole number of zero or more
+/// keeps its ADR 0097 default and gives a warning.
 fn return_cooldown_from_env() -> db::ReturnCooldown {
     let read = |name: &str, default: i64| -> i64 {
         let Ok(raw) = std::env::var(name) else {
@@ -78,13 +78,13 @@ fn return_cooldown_from_env() -> db::ReturnCooldown {
                     variable = name,
                     value = %raw,
                     default,
-                    "ADR 0096: the value is not a whole number of zero or more; the node uses the ADR 0083 value"
+                    "ADR 0096: the value is not a whole number of zero or more; the node uses the ADR 0097 default"
                 );
                 default
             }
         }
     };
-    let defaults = db::ReturnCooldown::ADR_0083;
+    let defaults = db::ReturnCooldown::DEFAULT;
     db::ReturnCooldown {
         base_secs: read("MOVE_RETURN_WAIT_SECS", defaults.base_secs),
         limit_secs: read("MOVE_RETURN_WAIT_LIMIT_SECS", defaults.limit_secs),

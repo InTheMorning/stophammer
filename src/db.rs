@@ -7645,7 +7645,8 @@ pub struct FeedMoveWrite {
 }
 
 /// The values of the return cooldown (ADR 0083 section 5). The operator can
-/// set each value with a server variable (ADR 0096).
+/// set each value with a server variable (ADR 0096). ADR 0097 gives the
+/// defaults.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ReturnCooldown {
     /// Seconds of the wait after the first return. Zero gives no wait.
@@ -7657,23 +7658,23 @@ pub struct ReturnCooldown {
 }
 
 impl ReturnCooldown {
-    /// The values of ADR 0083 section 5: 1 hour, a limit of 7 days, and a
-    /// new count after 30 days.
-    pub const ADR_0083: Self = Self {
-        base_secs: 3_600,
-        limit_secs: 604_800,
-        reset_secs: 2_592_000,
+    /// The defaults of ADR 0097 section 1: 60 seconds, a limit of 1 hour, and
+    /// a new count after 1 day.
+    pub const DEFAULT: Self = Self {
+        base_secs: 60,
+        limit_secs: 3_600,
+        reset_secs: 86_400,
     };
 }
 
 impl Default for ReturnCooldown {
     fn default() -> Self {
-        Self::ADR_0083
+        Self::DEFAULT
     }
 }
 
 /// The return cooldown of this node (ADR 0096). `main.rs` sets it one time,
-/// at start. Before that call, and in tests, it has the ADR 0083 values.
+/// at start. Before that call, and in tests, it has the ADR 0097 defaults.
 static RETURN_COOLDOWN: OnceLock<ReturnCooldown> = OnceLock::new();
 
 /// Sets the return cooldown of this node. Only the first call has an effect.
@@ -7681,8 +7682,8 @@ pub fn set_return_cooldown(cooldown: ReturnCooldown) {
     let _ = RETURN_COOLDOWN.set(cooldown);
 }
 
-/// Gives the return cooldown that [`set_return_cooldown`] set, or the ADR 0083
-/// values before that call.
+/// Gives the return cooldown that [`set_return_cooldown`] set, or the ADR 0097
+/// defaults before that call.
 #[must_use]
 pub fn return_cooldown() -> ReturnCooldown {
     RETURN_COOLDOWN.get().copied().unwrap_or_default()
@@ -7753,6 +7754,29 @@ pub fn get_move_state(conn: &Connection, feed_guid: &str) -> Result<MoveState, D
         )
         .optional()?;
     Ok(row.unwrap_or_default())
+}
+
+/// The end of the active return wait of `feed_guid`, in Unix seconds, or
+/// `None` when no wait is active at `now` (ADR 0097 section 3). A return to a
+/// left URL before this time is refused. Only the primary stores the move
+/// state, so a community node always gives `None`.
+///
+/// # Errors
+///
+/// Returns [`DbError`] if the query fails.
+pub fn return_wait_until(
+    conn: &Connection,
+    feed_guid: &str,
+    now: i64,
+) -> Result<Option<i64>, DbError> {
+    let state = get_move_state(conn, feed_guid)?;
+    Ok(return_cooldown_end(
+        state.return_count,
+        state.last_return_at,
+        now,
+        return_cooldown(),
+    )
+    .filter(|end| *end > now))
 }
 
 /// Clears the arrival tag of `feed_guid` when `tag` differs from it (ADR 0083
@@ -8602,7 +8626,13 @@ mod tests {
     }
 
     // ADR 0083 section 5: the cooldown of a return.
-    const C: super::ReturnCooldown = super::ReturnCooldown::ADR_0083;
+    // The values of ADR 0083 section 5. An operator can still set them
+    // (ADR 0096), so the doubling and the limit are tested with them.
+    const C: super::ReturnCooldown = super::ReturnCooldown {
+        base_secs: 3_600,
+        limit_secs: 604_800,
+        reset_secs: 2_592_000,
+    };
 
     // ADR 0096: the operator values replace the ADR 0083 values.
     #[test]
@@ -8651,8 +8681,12 @@ mod tests {
         );
         assert_eq!(
             super::return_cooldown(),
-            C,
-            "the tests use the ADR 0083 values"
+            super::ReturnCooldown {
+                base_secs: 60,
+                limit_secs: 3_600,
+                reset_secs: 86_400,
+            },
+            "with no variable, the node uses the ADR 0097 defaults"
         );
     }
     #[test]

@@ -455,10 +455,12 @@ these is true:
    of the tag at the source clears it.
 4. No wait is active.
 
-The first return has no wait. Each later return waits from the last return:
-1 hour, 2 hours, and then twice as long, to a limit of 7 days. After 30 days
-with no return, the count starts again. A move to a URL that is not a left URL
-never waits.
+The first return has no wait. Each later return waits from the last return.
+With the defaults of ADR 0097, the waits are 1 minute, 2 minutes, and then twice
+as long, to a limit of 1 hour. After 1 day with no return, the count starts
+again. Server variables can change these values (ADR 0096). A move to a URL that
+is not a left URL never waits. `return_wait_until` of `GET /v1/feeds/{guid}`
+gives the end of an active wait.
 
 After a refusal, the record stays at its source URL. The answer is
 `source_conflict`, and the node writes the usual copy row. The response carries
@@ -810,6 +812,7 @@ Returns a single feed by its `podcast:guid`.
     "created_at": 1710288000,
     "updated_at": 1710288000,
     "pending_guid_change": null,
+    "return_wait_until": null,
     "tracks": [
       {
         "track_guid": "uuid", "title": "Track", "pub_date": 1710288000,
@@ -1217,6 +1220,11 @@ and `decision` for the GUID the feed's own source URL declares.
 `decision` is null until the operator decides, then `approve` or `reject`.
 ADR 0052 section 4 owns this field, and section 2 of this document owns
 `POST /ingest/feed`'s part in it.
+
+`return_wait_until` is null, or the end of the active return wait in Unix
+seconds. Before this time, the node refuses a move of the record back to a URL
+that it left. A move to a different URL does not wait. Only this route gives
+the field. A community node always gives null. ADR 0097 section 3 owns this field.
 
 ---
 

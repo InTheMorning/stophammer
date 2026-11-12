@@ -24,13 +24,16 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, except ADR 0096. The primary sets
+in a release, except ADRs 0096 and 0097. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
 [ADR 0096](docs/adr/0096-the-operator-sets-the-return-cooldown.md) is on `main`
 and in no release. It adds three server variables for the return cooldown of a
 feed move.
+[ADR 0097](docs/adr/0097-a-feed-read-gives-the-end-of-its-return-wait.md) is on
+`main` and in no release. It gives shorter defaults for those variables, and
+`GET /v1/feeds/{guid}` gives `return_wait_until`.
 
 ### Open Items
 

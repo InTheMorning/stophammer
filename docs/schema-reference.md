@@ -231,7 +231,8 @@ Notes:
 - an update or a new-feed ingest whose tag differs from the arrival tag clears
   it
 - a return sets `return_count` to the count that counts now, plus one, and sets
-  `last_return_at`. After 30 days with no return, the count counts as zero
+  `last_return_at`. After `MOVE_RETURN_COUNT_RESET_SECS` with no return, 1 day
+  by default (ADR 0097), the count counts as zero
 - an operator relocation clears the arrival tag and sets `return_count` to zero
 - a feed delete removes the row of the GUID
 

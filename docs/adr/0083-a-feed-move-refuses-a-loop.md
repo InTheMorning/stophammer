@@ -4,8 +4,8 @@
 Accepted on 2026-11-04 by the operator, after three security reviews. No reviewer
 examined the last commit, `453a52f`. The operator accepted this.
 It amends ADR 0052 sections 1 and 2 and one invariant.
-ADR 0096 amends section 5: server variables set the values of the cooldown, and the
-values of section 5 are the defaults.
+ADR 0096 amends section 5: server variables set the values of the cooldown. ADR 0097
+gives shorter defaults, and `GET /v1/feeds/{guid}` gives the end of a wait.
 Candidate `v0.18.1-rc.1` holds an earlier form of this rule, which "Alternatives
 Considered" gives. Candidate `v0.18.1-rc.2` replaces it, and release 0.18.1 holds the
 accepted form.
@@ -215,7 +215,8 @@ loop can change the payment routes of a record again and again.
 - A return needs a tag at each end, and a copied tag must first change. The publisher changes
   the body once, or the operator relocates the record.
 - Nothing crawls a URL again when its wait ends. A return stays pending until the next
-  podping or pass reads the current source URL and that URL.
+  podping or pass reads the current source URL and that URL. ADR 0097 gives the end of the
+  wait, so that a publisher can send a podping at that time.
 - A wait can keep a record at a URL with incorrect content for up to 7 days. The source
   can correct its content at once, and an operator relocation ends the wait.
 - A chain signs one `FeedUpserted` event for each hop, and it applies each body on the way.

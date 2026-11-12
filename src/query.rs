@@ -801,6 +801,17 @@ struct FeedResponse {
     /// declares (ADR 0052 section 4). `decision` is null until the operator
     /// decides, then `approve` or `reject`.
     pending_guid_change: Option<PendingGuidChangeResponse>,
+    /// The end of the active return wait, in Unix seconds, or null when no
+    /// wait is active. Before this time, a move of the record back to a URL
+    /// that it left is refused. Present only on `GET /v1/feeds/{guid}`. A
+    /// community node always gives null. ADR 0097 §3.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Option<i64>)]
+    #[expect(
+        clippy::option_option,
+        reason = "the outer None removes this field, and the inner None gives null (ADR 0097 §3)"
+    )]
+    return_wait_until: Option<Option<i64>>,
     /// Every stored live-item row of this feed, sorted by `live_item_guid`
     /// (ADR 0064 section 6).
     ///
@@ -2396,7 +2407,10 @@ fn build_feed_response(
         db::get_pending_guid_change_for_feed(conn, &feed_guid)?.map(pending_guid_change_response);
     // ADR 0064 section 6: the feed read takes one clock reading, so
     // in_now_view and in_upcoming_view agree across every row.
-    let live_items = Some(build_live_items_response(conn, &feed_guid, db::unix_now())?);
+    let now = db::unix_now();
+    let live_items = Some(build_live_items_response(conn, &feed_guid, now)?);
+    // ADR 0097 §3: the single-feed read gives the end of the return wait.
+    let return_wait_until = Some(db::return_wait_until(conn, &feed_guid, now)?);
 
     let mut resp = FeedResponse {
         feed_guid: row.feed_guid,
@@ -2447,6 +2461,7 @@ fn build_feed_response(
         co_credited_feeds: None,
         named_feeds: None,
         pending_guid_change,
+        return_wait_until,
         live_items,
         sort_name: None,
     };
@@ -5031,6 +5046,8 @@ fn feed_list_row_to_response(
         co_credited_feeds: None,
         named_feeds,
         pending_guid_change,
+        // ADR 0097 §3 scopes the return wait to the single-feed read.
+        return_wait_until: None,
         live_items: None,
         sort_name: None,
     })
