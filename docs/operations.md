@@ -67,6 +67,9 @@ See [ADR-0019](adr/0019-tls-acme-let-s-encrypt.md) for the full design.
 | `BLOCKED_FEED_URLS` | empty | Optional comma-separated URL list. The node seeds this list by the same procedure as `BLOCKED_FEED_GUIDS`. |
 | `CONFIRMING_RELAY_HOSTS` | empty | Optional comma-separated host list. A live item's `podcast:liveValue` link is a confirming relay when its `uri` is an `https` URL on one of these hosts. The host compare does not see a difference between capital and small letters ([ADR 0064](adr/0064-a-live-item-is-an-rss-fact.md) section 3). The node reads this list one time, at start. A primary node and a community node each read it. |
 | `SOURCE_GONE_HOSTS` | empty | Optional comma-separated host list, primary only. A `404` from a stored source URL counts only when the host of the URL is in this list. A `410` counts from each host ([ADR 0067](adr/0067-a-gone-source-retires-its-feed.md) section 2). The node reads this list one time, at start. Empty by default, so a `404` retires nothing until the operator names a host. The operator of `api.musicindex.org` sets `SOURCE_GONE_HOSTS=wavlake.com`. |
+| `MOVE_RETURN_WAIT_SECS` | `3600` | Primary only. The wait in seconds after the first return of a feed record to a URL that it left. Each subsequent return doubles the wait. `0` removes each wait ([ADR 0096](adr/0096-the-operator-sets-the-return-cooldown.md)). The node reads it one time, at start. |
+| `MOVE_RETURN_WAIT_LIMIT_SECS` | `604800` | Primary only. The limit of a return wait in seconds ([ADR 0096](adr/0096-the-operator-sets-the-return-cooldown.md)). |
+| `MOVE_RETURN_COUNT_RESET_SECS` | `2592000` | Primary only. After this many seconds with no return, the count of returns starts again ([ADR 0096](adr/0096-the-operator-sets-the-return-cooldown.md)). |
 
 ---
 

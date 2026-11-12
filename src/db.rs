@@ -29,7 +29,7 @@ use crate::signing::NodeSigner;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::{Arc, Mutex}; // Issue-SEQ-INTEGRITY — 2026-03-14
+use std::sync::{Arc, Mutex, OnceLock}; // Issue-SEQ-INTEGRITY — 2026-03-14
 
 pub type Db = Arc<Mutex<Connection>>;
 
@@ -7644,38 +7644,90 @@ pub struct FeedMoveWrite {
     pub return_values: Option<(i64, i64)>,
 }
 
-/// Seconds of a wait after the first return (ADR 0083 section 5).
-const RETURN_WAIT_BASE_SECS: i64 = 3600;
-/// The limit of a wait, 7 days (ADR 0083 section 5).
-const RETURN_WAIT_LIMIT_SECS: i64 = 604_800;
-/// After this many seconds with no return, the count starts again (ADR 0083
-/// section 5), 30 days.
-const RETURN_COUNT_RESET_SECS: i64 = 2_592_000;
+/// The values of the return cooldown (ADR 0083 section 5). The operator can
+/// set each value with a server variable (ADR 0096).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReturnCooldown {
+    /// Seconds of the wait after the first return. Zero gives no wait.
+    pub base_secs: i64,
+    /// The limit of a wait, in seconds.
+    pub limit_secs: i64,
+    /// After this many seconds with no return, the count starts again.
+    pub reset_secs: i64,
+}
 
-/// The count of returns that counts at `now`: zero when 30 days or more passed
-/// since the last return (ADR 0083 section 5).
+impl ReturnCooldown {
+    /// The values of ADR 0083 section 5: 1 hour, a limit of 7 days, and a
+    /// new count after 30 days.
+    pub const ADR_0083: Self = Self {
+        base_secs: 3_600,
+        limit_secs: 604_800,
+        reset_secs: 2_592_000,
+    };
+}
+
+impl Default for ReturnCooldown {
+    fn default() -> Self {
+        Self::ADR_0083
+    }
+}
+
+/// The return cooldown of this node (ADR 0096). `main.rs` sets it one time,
+/// at start. Before that call, and in tests, it has the ADR 0083 values.
+static RETURN_COOLDOWN: OnceLock<ReturnCooldown> = OnceLock::new();
+
+/// Sets the return cooldown of this node. Only the first call has an effect.
+pub fn set_return_cooldown(cooldown: ReturnCooldown) {
+    let _ = RETURN_COOLDOWN.set(cooldown);
+}
+
+/// Gives the return cooldown that [`set_return_cooldown`] set, or the ADR 0083
+/// values before that call.
 #[must_use]
-pub fn effective_return_count(count: i64, last_return_at: Option<i64>, now: i64) -> i64 {
+pub fn return_cooldown() -> ReturnCooldown {
+    RETURN_COOLDOWN.get().copied().unwrap_or_default()
+}
+
+/// The count of returns that counts at `now`: zero when `cooldown.reset_secs`
+/// or more passed since the last return (ADR 0083 section 5).
+#[must_use]
+pub fn effective_return_count(
+    count: i64,
+    last_return_at: Option<i64>,
+    now: i64,
+    cooldown: ReturnCooldown,
+) -> i64 {
     match last_return_at {
-        Some(last) if count > 0 && now.saturating_sub(last) < RETURN_COUNT_RESET_SECS => count,
+        Some(last) if count > 0 && now.saturating_sub(last) < cooldown.reset_secs => count,
         _ => 0,
     }
 }
 
 /// The end of the wait that follows the last return, or `None` when no wait
-/// applies (ADR 0083 section 5). A count of zero, or 30 days with no return,
-/// gives `None`. With an effective count `c` of 1 or more, the wait is
-/// `3600 * 2^(c - 1)` seconds with a limit of 604800. The caller compares the
-/// result with the time now: a wait is active while `now` is less than it.
+/// applies (ADR 0083 section 5). A count of zero, or `cooldown.reset_secs` with
+/// no return, gives `None`. With an effective count `c` of 1 or more, the wait
+/// is `base_secs * 2^(c - 1)` seconds with a limit of `limit_secs`. The caller
+/// compares the result with the time now: a wait is active while `now` is less
+/// than it. A `base_secs` of zero gives an end equal to the last return, so no
+/// wait is active.
 #[must_use]
-pub fn return_cooldown_end(count: i64, last_return_at: Option<i64>, now: i64) -> Option<i64> {
-    let effective = effective_return_count(count, last_return_at, now);
+pub fn return_cooldown_end(
+    count: i64,
+    last_return_at: Option<i64>,
+    now: i64,
+    cooldown: ReturnCooldown,
+) -> Option<i64> {
+    let effective = effective_return_count(count, last_return_at, now, cooldown);
     if effective < 1 {
         return None;
     }
-    // 2^20 times the base already passes the limit, so the shift is capped.
-    let shift = u32::try_from(effective - 1).unwrap_or(u32::MAX).min(20);
-    let wait = (RETURN_WAIT_BASE_SECS << shift).min(RETURN_WAIT_LIMIT_SECS);
+    // The shift is capped so that the factor stays in range. The product
+    // saturates and then stops at the limit.
+    let shift = u32::try_from(effective - 1).unwrap_or(u32::MAX).min(62);
+    let wait = cooldown
+        .base_secs
+        .saturating_mul(1_i64 << shift)
+        .min(cooldown.limit_secs);
     last_return_at.map(|last| last.saturating_add(wait))
 }
 
@@ -8550,27 +8602,80 @@ mod tests {
     }
 
     // ADR 0083 section 5: the cooldown of a return.
+    const C: super::ReturnCooldown = super::ReturnCooldown::ADR_0083;
+
+    // ADR 0096: the operator values replace the ADR 0083 values.
+    #[test]
+    fn return_cooldown_uses_the_operator_values() {
+        let now = 10_000_000;
+        let relaxed = super::ReturnCooldown {
+            base_secs: 60,
+            limit_secs: 3_600,
+            reset_secs: 86_400,
+        };
+        assert_eq!(
+            return_cooldown_end(1, Some(now), now, relaxed),
+            Some(now + 60)
+        );
+        assert_eq!(
+            return_cooldown_end(3, Some(now), now, relaxed),
+            Some(now + 240)
+        );
+        assert_eq!(
+            return_cooldown_end(40, Some(now), now, relaxed),
+            Some(now + 3_600),
+            "the operator limit applies"
+        );
+        assert_eq!(
+            return_cooldown_end(5, Some(now), now + 86_400, relaxed),
+            None,
+            "the operator reset applies"
+        );
+        let off = super::ReturnCooldown {
+            base_secs: 0,
+            ..relaxed
+        };
+        assert!(
+            return_cooldown_end(5, Some(now), now, off).is_none_or(|end| end <= now),
+            "a base of zero gives no active wait"
+        );
+        let large = super::ReturnCooldown {
+            base_secs: i64::MAX,
+            limit_secs: i64::MAX,
+            reset_secs: i64::MAX,
+        };
+        assert_eq!(
+            return_cooldown_end(i64::MAX, Some(now), now, large),
+            Some(i64::MAX),
+            "large values must not overflow"
+        );
+        assert_eq!(
+            super::return_cooldown(),
+            C,
+            "the tests use the ADR 0083 values"
+        );
+    }
     #[test]
     fn return_cooldown_gives_the_end_of_the_wait() {
         let now = 10_000_000;
-        assert_eq!(return_cooldown_end(0, Some(now), now), None, "count 0");
+        assert_eq!(return_cooldown_end(0, Some(now), now, C), None, "count 0");
         assert_eq!(
-            return_cooldown_end(1, Some(now), now),
+            return_cooldown_end(1, Some(now), now, C),
             Some(now + 3600),
             "after the first return the wait is 1 hour"
         );
         assert_eq!(
-            return_cooldown_end(2, Some(now), now),
+            return_cooldown_end(2, Some(now), now, C),
             Some(now + 7200),
             "after the second return the wait is 2 hours"
         );
         assert_eq!(
-            return_cooldown_end(3, Some(now), now),
+            return_cooldown_end(3, Some(now), now, C),
             Some(now + 14_400),
             "the wait doubles"
         );
         assert_eq!(
-            return_cooldown_end(40, Some(now), now),
+            return_cooldown_end(40, Some(now), now, C),
             Some(now + 604_800),
             "the wait stops at 7 days"
         );
@@ -8580,12 +8685,12 @@ mod tests {
     fn return_cooldown_does_not_overflow_on_a_large_count() {
         let now = 10_000_000;
         assert_eq!(
-            return_cooldown_end(i64::MAX, Some(now), now),
+            return_cooldown_end(i64::MAX, Some(now), now, C),
             Some(now + 604_800),
             "a large count gives the limit"
         );
         assert_eq!(
-            return_cooldown_end(1, Some(i64::MAX), i64::MAX),
+            return_cooldown_end(1, Some(i64::MAX), i64::MAX, C),
             Some(i64::MAX),
             "a large time must not overflow"
         );
@@ -8596,12 +8701,12 @@ mod tests {
         let now = 1_000_000;
         let future = now + 30 * 86_400;
         assert_eq!(
-            return_cooldown_end(1, Some(future), now),
+            return_cooldown_end(1, Some(future), now, C),
             Some(future + 3_600),
             "a stored time in the future keeps the wait active past the limit"
         );
         assert_eq!(
-            return_cooldown_end(0, Some(future), now),
+            return_cooldown_end(0, Some(future), now, C),
             None,
             "a relocation sets the count to zero, so the wait ends"
         );
@@ -8611,16 +8716,23 @@ mod tests {
     fn return_cooldown_resets_after_30_days() {
         let last = 1_000_000;
         assert_eq!(
-            return_cooldown_end(5, Some(last), last + 2_592_000),
+            return_cooldown_end(5, Some(last), last + 2_592_000, C),
             None,
             "30 days with no return start the count again"
         );
         assert!(
-            return_cooldown_end(5, Some(last), last + 2_591_999).is_some(),
+            return_cooldown_end(5, Some(last), last + 2_591_999, C).is_some(),
             "29 days and 23 hours still count"
         );
-        assert_eq!(return_cooldown_end(5, None, last), None, "no time, no wait");
-        assert_eq!(effective_return_count(5, Some(last), last + 2_592_000), 0);
-        assert_eq!(effective_return_count(5, Some(last), last + 10), 5);
+        assert_eq!(
+            return_cooldown_end(5, None, last, C),
+            None,
+            "no time, no wait"
+        );
+        assert_eq!(
+            effective_return_count(5, Some(last), last + 2_592_000, C),
+            0
+        );
+        assert_eq!(effective_return_count(5, Some(last), last + 10, C), 5);
     }
 }

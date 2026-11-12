@@ -2450,8 +2450,13 @@ fn move_target(
             let now = db::unix_now();
             let tag_at_new_url = body.new_feed_url.as_deref() == Some(target.new_feed_url.as_str());
             let declared_is_arrival = state.arrival_tag.as_deref() == Some(&target.new_feed_url);
-            let waiting = db::return_cooldown_end(state.return_count, state.last_return_at, now)
-                .is_some_and(|end| end > now);
+            let waiting = db::return_cooldown_end(
+                state.return_count,
+                state.last_return_at,
+                now,
+                db::return_cooldown(),
+            )
+            .is_some_and(|end| end > now);
             if target.trigger == "new-feed-url"
                 && tag_at_new_url
                 && !declared_is_arrival
@@ -2491,8 +2496,13 @@ fn move_target(
             if left_urls.iter().any(|left| left == canonical_url) {
                 let state = db::get_move_state(conn, feed_guid)?;
                 let now = db::unix_now();
-                if db::return_cooldown_end(state.return_count, state.last_return_at, now)
-                    .is_some_and(|end| end > now)
+                if db::return_cooldown_end(
+                    state.return_count,
+                    state.last_return_at,
+                    now,
+                    db::return_cooldown(),
+                )
+                .is_some_and(|end| end > now)
                 {
                     return Ok(MoveDecision::WaitingRedirect {
                         target_url: target.new_feed_url,
@@ -2511,7 +2521,12 @@ fn move_target(
 /// The count and the time that a return stores: the count that counts at
 /// `now`, plus one (ADR 0083 section 5).
 fn next_return_values(state: &db::MoveState, now: i64) -> (i64, i64) {
-    let effective = db::effective_return_count(state.return_count, state.last_return_at, now);
+    let effective = db::effective_return_count(
+        state.return_count,
+        state.last_return_at,
+        now,
+        db::return_cooldown(),
+    );
     (effective.saturating_add(1), now)
 }
 

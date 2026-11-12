@@ -61,6 +61,37 @@ fn source_gone_hosts_from_env() -> Vec<String> {
         .collect()
 }
 
+/// Reads the return cooldown of ADR 0096 from three server variables.
+///
+/// Each variable gives a count of seconds. A variable that is not set keeps
+/// its ADR 0083 value. A value that is not a whole number of zero or more
+/// keeps its ADR 0083 value and gives a warning.
+fn return_cooldown_from_env() -> db::ReturnCooldown {
+    let read = |name: &str, default: i64| -> i64 {
+        let Ok(raw) = std::env::var(name) else {
+            return default;
+        };
+        match raw.trim().parse::<i64>() {
+            Ok(value) if value >= 0 => value,
+            _ => {
+                tracing::warn!(
+                    variable = name,
+                    value = %raw,
+                    default,
+                    "ADR 0096: the value is not a whole number of zero or more; the node uses the ADR 0083 value"
+                );
+                default
+            }
+        }
+    };
+    let defaults = db::ReturnCooldown::ADR_0083;
+    db::ReturnCooldown {
+        base_secs: read("MOVE_RETURN_WAIT_SECS", defaults.base_secs),
+        limit_secs: read("MOVE_RETURN_WAIT_LIMIT_SECS", defaults.limit_secs),
+        reset_secs: read("MOVE_RETURN_COUNT_RESET_SECS", defaults.reset_secs),
+    }
+}
+
 fn init_tracing() {
     // FG-01 structured logging — 2026-03-13
     let (env_filter, invalid_filter_error) =
@@ -87,6 +118,11 @@ async fn run() -> Result<(), StartupError> {
     // ADR 0064 section 3: read the confirming relay hosts before either
     // start path runs, so a primary and a community node agree on the list.
     live::set_confirming_relay_hosts(confirming_relay_hosts_from_env());
+
+    // ADR 0096: the operator sets the return cooldown of ADR 0083 section 5.
+    let return_cooldown = return_cooldown_from_env();
+    tracing::info!(?return_cooldown, "return cooldown of a feed move");
+    db::set_return_cooldown(return_cooldown);
 
     // Issue-WAL-POOL — 2026-03-14: use DbPool (writer + reader pool) instead of
     // single Arc<Mutex<Connection>>.

@@ -4,6 +4,8 @@
 Accepted on 2026-11-04 by the operator, after three security reviews. No reviewer
 examined the last commit, `453a52f`. The operator accepted this.
 It amends ADR 0052 sections 1 and 2 and one invariant.
+ADR 0096 amends section 5: server variables set the values of the cooldown, and the
+values of section 5 are the defaults.
 Candidate `v0.18.1-rc.1` holds an earlier form of this rule, which "Alternatives
 Considered" gives. Candidate `v0.18.1-rc.2` replaces it, and release 0.18.1 holds the
 accepted form.
