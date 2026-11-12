@@ -3,7 +3,7 @@
 ## Status
 
 Open - 2026-09-25. Updated on 2026-11-10: Stophammer answers item 1 of request 11, and item 2 stays a draft. Updated on 2026-11-11: release 0.19.0 gives requests 14 and 15 and item 1 of request 11. This document consolidates each open request from the HitIt client.
-The Stophammer repository and the v4vmm repository each hold a copy at `docs/plans/hitit-open-requests.md`. Update both copies together.
+The Stophammer repository and the HitIt repository each hold a copy at `docs/plans/hitit-open-requests.md`. Update both copies together.
 
 This document binds nothing in Stophammer. Stophammer records each decision in its own ADR.
 The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
@@ -314,7 +314,7 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 
 | Data | Path |
 | --- | --- |
-| The query text, the fields and the live results | `../v4vmm/docs/adr/0087-search-fields-and-live-results.md` |
+| The query text, the fields and the live results | `../HitIt/docs/adr/0087-search-fields-and-live-results.md` |
 | The kind rule of the apps | `../musicindex/docs/adr/0020-cross-app-interface-rules.md`, R-WORD-1 |
 | The search field and the pause of 300 ms | `../musicindex/docs/adr/0026-cross-app-controls-and-feedback.md`, R-SEARCH-1 |
 | A parser of the query text, and the field list | `../musicindex-research/research_notes/ui-design/mockups/kit/search.js` |
@@ -324,7 +324,7 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 
 **What HitIt does with it.** HitIt stops the report of a query error as a failure of the MusicIndex setup. That fix is in HitIt and needs no Stophammer change.
 
-HitIt ADR 0087 sends each field as a parameter, never as syntax in `q`. From 2026-11-06, v4vmm sends each field as its filter. Two filters still differ from the Library. Request 14 asks for the change.
+HitIt ADR 0087 sends each field as a parameter, never as syntax in `q`. From 2026-11-06, HitIt sends each field as its filter. Two filters still differ from the Library. Request 14 asks for the change.
 
 ### 11. A Feed Search Hit Gives Its Release Date And Its Named Feeds
 
