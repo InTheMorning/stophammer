@@ -16,7 +16,9 @@ Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to 0094 and parser commit
 Release 0.19.0 of 2026-11-11 is the latest release. On 2026-11-12, the primary
 runs candidate `v0.20.0-rc.1` and gives the revision `508e4db`. Its start log
 gives the return cooldown 60 s, a limit of 3600 s and a reset after 86400 s. The
-gossip crawler runs the image `stophammer-crawler:0.20.0-rc.1`.
+gossip crawler runs the image `stophammer-crawler:0.20.0-rc.1`. On 2026-11-12, a
+Studio move test passed on this candidate. Studio commit `f7d14c2` records it
+in `docs/tasks/studio-v1-task-127-return-wait.md`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
 starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
@@ -40,9 +42,6 @@ shorter defaults for those variables, and `GET /v1/feeds/{guid}` gives
 
 ### Open Items
 
-- ADR 0097: no Studio move test checked candidate `v0.20.0-rc.1` yet. The
-  test waits until Studio has the code of its ADR 0190. Studio then sends the
-  times and the `return_wait_until` values through the orchestrator.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
