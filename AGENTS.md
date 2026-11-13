@@ -68,6 +68,11 @@ and in no release.
   gives a list of search changes. ADR 0078 answers its four defects and the
   phrase change, and ADR 0086 answers the prefix match. No decision is recorded
   for the other changes.
+- [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
+  Proposed. It answers
+  [the research request of 2026-11-13](docs/plans/research-value-block-type-request.md).
+  Until a release delivers it, the parser stores each recipient of a
+  `podcast:value` block that is not `lightning` as a Lightning route.
 - ADR 0080 §6: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
