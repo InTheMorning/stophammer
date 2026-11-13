@@ -8,14 +8,19 @@ update this file in the same change that drifts it.
 
 Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to 0094 and parser commit
 `7130556` of ADR 0017. Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
-0.18.0 of 2026-10-31 delivered ADR 0082. No candidate is open.
+0.18.0 of 2026-10-31 delivered ADR 0082. Candidate `v0.20.0-rc.1` of
+2026-11-12 holds ADRs 0096 and 0097, and it is not promoted.
 
 ### Deployed
 
-Release 0.19.0 of 2026-11-11 is the latest release. The primary and the gossip
-crawler run its GHCR images. The primary gives the revision `9fcbdb5`. The last
-runs of `import` and `import-wavlake` used release 0.18.1. A timer starts the `podcastindex` pass at an interval of 3 hours
-(ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
+Release 0.19.0 of 2026-11-11 is the latest release. On 2026-11-12, the primary
+runs candidate `v0.20.0-rc.1` and gives the revision `508e4db`. Its start log
+gives the return cooldown 60 s, a limit of 3600 s and a reset after 86400 s. The
+deploy also put the gossip crawler on that candidate. No check of its image is
+recorded.
+
+The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
+starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
 of the gossip crawler, and a release deploy pins that variable in `.env`. No record
 states the image of a pass. `GET /node/info` gives the revision of the running
 node. [ADR 0065](docs/adr/0065-a-release-promotes-its-candidate.md) gives how a
@@ -28,12 +33,11 @@ in a release, except ADRs 0096 and 0097. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
-[ADR 0096](docs/adr/0096-the-operator-sets-the-return-cooldown.md) is on `main`
-and in no release. It adds three server variables for the return cooldown of a
-feed move.
-[ADR 0097](docs/adr/0097-a-feed-read-gives-the-end-of-its-return-wait.md) is on
-`main` and in no release. It gives shorter defaults for those variables, and
-`GET /v1/feeds/{guid}` gives `return_wait_until`.
+[ADR 0096](docs/adr/0096-the-operator-sets-the-return-cooldown.md) adds three
+server variables for the return cooldown of a feed move.
+[ADR 0097](docs/adr/0097-a-feed-read-gives-the-end-of-its-return-wait.md) gives
+shorter defaults for those variables, and `GET /v1/feeds/{guid}` gives
+`return_wait_until`. The two are in candidate `v0.20.0-rc.1` and in no release.
 
 ### Open Items
 
