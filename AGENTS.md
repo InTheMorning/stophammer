@@ -6,18 +6,18 @@ update this file in the same change that drifts it.
 
 ## Where The Work Stands
 
-Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to 0094 and parser commit
-`7130556` of ADR 0017. Release 0.18.1 of 2026-11-05 delivered ADR 0083. Release
-0.18.0 of 2026-10-31 delivered ADR 0082. Candidate `v0.20.0-rc.1` of
-2026-11-12 holds ADRs 0096 and 0097, and it is not promoted.
+Release 0.20.0 of 2026-11-12 delivered ADRs 0096 and 0097. It promotes
+candidate `v0.20.0-rc.1`. Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to
+0094 and parser commit `7130556` of ADR 0017. Release 0.18.1 of 2026-11-05
+delivered ADR 0083.
 
 ### Deployed
 
-Release 0.19.0 of 2026-11-11 is the latest release. On 2026-11-12, the primary
-runs candidate `v0.20.0-rc.1` and gives the revision `508e4db`. Its start log
+Release 0.20.0 of 2026-11-12 is the latest release. The primary gives the
+revision `508e4db`, which is the commit of `v0.20.0` and of `v0.20.0-rc.1`. Its start log
 gives the return cooldown 60 s, a limit of 3600 s and a reset after 86400 s. The
-gossip crawler runs the image `stophammer-crawler:0.20.0-rc.1`. On 2026-11-12, a
-Studio move test passed on this candidate. Studio commit `f7d14c2` records it
+gossip crawler ran the image `stophammer-crawler:0.20.0-rc.1` on 2026-11-12. On
+2026-11-12, a Studio move test passed on this candidate. Studio commit `f7d14c2` records it
 in `docs/tasks/studio-v1-task-127-return-wait.md`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
@@ -30,7 +30,7 @@ release promotes its candidate, and
 version number.
 
 Each ADR in [the index](docs/adr/README.md) with the status Accepted is
-in a release, except ADRs 0096 and 0097. The primary sets
+in a release. The primary sets
 `SOURCE_GONE_HOSTS=wavlake.com` (ADR 0067).
 [ADR 0095](docs/adr/0095-a-release-on-two-platforms-is-two-feeds.md) changes no
 code, so no release carries it.
@@ -38,9 +38,9 @@ code, so no release carries it.
 server variables for the return cooldown of a feed move.
 [ADR 0097](docs/adr/0097-a-feed-read-gives-the-end-of-its-return-wait.md) gives
 shorter defaults for those variables, and `GET /v1/feeds/{guid}` gives
-`return_wait_until`. The two are in candidate `v0.20.0-rc.1` and in no release.
-The change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect,
-is in the crawler `main` and in no candidate.
+`return_wait_until`. Release 0.20.0 holds the two. The change of ADR 0050 §3
+on 2026-11-13, a `304` after a permanent redirect, is in the crawler `main`
+and in no release.
 
 ### Open Items
 
