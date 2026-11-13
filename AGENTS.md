@@ -40,6 +40,9 @@ shorter defaults for those variables, and `GET /v1/feeds/{guid}` gives
 
 ### Open Items
 
+- ADR 0097: no Studio move test checked candidate `v0.20.0-rc.1` yet. The
+  test waits until Studio has the code of its ADR 0190. Studio then sends the
+  times and the `return_wait_until` values through the orchestrator.
 - [ADR 0055](docs/adr/0055-the-primary-fetches-what-it-signs.md) stays
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
