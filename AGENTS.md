@@ -39,6 +39,8 @@ server variables for the return cooldown of a feed move.
 [ADR 0097](docs/adr/0097-a-feed-read-gives-the-end-of-its-return-wait.md) gives
 shorter defaults for those variables, and `GET /v1/feeds/{guid}` gives
 `return_wait_until`. The two are in candidate `v0.20.0-rc.1` and in no release.
+The change of ADR 0050 §3 on 2026-11-13, a `304` after a permanent redirect,
+is in the crawler `main` and in no candidate.
 
 ### Open Items
 

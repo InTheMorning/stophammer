@@ -4,7 +4,8 @@
 Accepted. Amended on 2026-10-02: §3, a `304` to a request with no conditional
 header is a fetch error. Amended on 2026-10-20 by ADR 0072: §2, a stored `ETag`
 with a compression suffix is sent with its base tag (ADR 0072 §5), and §6, the
-report counts a wasted `200` (ADR 0072 §6).
+report counts a wasted `200` (ADR 0072 §6). Amended on 2026-11-13: §3, a
+`304` after a permanent redirect submits the kept body.
 
 ## Date
 2026-09-24
@@ -93,6 +94,14 @@ each header for which it has a value.
   error, as before this decision. Each row keeps its body, so a conditional
   request always has a kept body. The first text of this item, one more GET
   with no conditional header, had no case that could reach it.
+- **`304` after a permanent redirect.** Amended on 2026-11-13. The fetch can
+  follow a `301` or `308`, and then receive `304` at the last hop. The crawler then
+  submits the kept body with the redirect hops. The canonical URL is the URL at
+  the end of the chain, so the node applies ADR 0052 §2, which owns the move.
+  A `302`, `303` or `307` hop does not cause this.
+
+  Cause: on 2026-11-13, the node did not see the redirect of the feed
+  "Some Songs", because of a `304`.
 - **Any other status.** The crawler behaves as today, and it does not change the
   row.
 
