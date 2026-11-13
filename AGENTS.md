@@ -16,8 +16,7 @@ Release 0.19.0 of 2026-11-11 delivered ADRs 0084 to 0094 and parser commit
 Release 0.19.0 of 2026-11-11 is the latest release. On 2026-11-12, the primary
 runs candidate `v0.20.0-rc.1` and gives the revision `508e4db`. Its start log
 gives the return cooldown 60 s, a limit of 3600 s and a reset after 86400 s. The
-deploy also put the gossip crawler on that candidate. No check of its image is
-recorded.
+gossip crawler runs the image `stophammer-crawler:0.20.0-rc.1`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
 starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
