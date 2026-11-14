@@ -202,11 +202,9 @@ Every commit must be green for the crate(s) touched:
 2. `cargo test`
 3. `cargo clippy --all-targets -- -D warnings`
 4. `cargo fmt -- --check`
-5. `python3 ~/.agents/skills/project-baseline/scripts/check_adr_links.py --skip limit .`
+5. `python3 ~/.agents/skills/project-baseline/scripts/check_adr_links.py .`
    for each change in `docs/adr/` or `AGENTS.md` (project-baseline
-   §A Binding Rule Lives In A Decision Record). The option `--skip limit`
-   stays until one consolidated ADR replaces the list ADRs and one replaces
-   the search ADRs.
+   §A Binding Rule Lives In A Decision Record).
 
 Do not skip. Do not use `--no-verify`.
 
