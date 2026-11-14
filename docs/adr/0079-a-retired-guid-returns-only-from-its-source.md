@@ -2,12 +2,14 @@
 
 ## Status
 Accepted on 2026-10-23, after the review of ADR 0078. Tasks 001 to 003 give
-the build. It amends ADR 0057 §4 and ADR 0067 §4. A retired feed comes back as a
-new feed only through its last source URL.
+the build. A retired feed comes back as a new feed only through its last
+source URL.
 
-Amended on 2026-10-24, before the deploy. A release marks the hold and keeps
-the row. The review found that a release that deletes the row lets the fill of
-§4 write the hold again at the next start.
+- Changes: ADR 0057 §4.
+- Changes: ADR 0067 §4.
+- Revised: 2026-10-24, before the deploy. A release marks the hold and keeps
+  the row. The review found that a release that deletes the row lets the fill
+  of §4 write the hold again at the next start.
 
 ## Date
 2026-10-23

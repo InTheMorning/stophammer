@@ -6,8 +6,9 @@ v4vmm request 11. The operator approved the research message of the
 orchestrator, and that message gives each decision to Stophammer. Stophammer
 selected the form of §1. Release 0.19.0 holds it.
 
-It amends ADR 0071 §5 and the search rule of ADR 0038: a `musicL` feed is in the
-search index. It adds to ADR 0080 §2.
+- Changes: ADR 0071 §5: a `musicL` feed is in the search index.
+- Changes: ADR 0038, the search rule: a `musicL` feed is in the search index.
+- Changes: ADR 0080 §2: it adds to it.
 
 ## Date
 2026-11-10

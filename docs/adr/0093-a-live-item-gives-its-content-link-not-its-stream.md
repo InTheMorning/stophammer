@@ -4,8 +4,8 @@
 Accepted on 2026-11-09, for the research request of 2026-11-09. Release
 0.19.0 holds it.
 
-It changes the source of `content_link` in ADR 0064 §4 and §6. It adds the link
-type `content_link` to the label rule of ADR 0082 §2.
+- Changes: ADR 0064 §4 and §6: the source of `content_link`.
+- Changes: ADR 0082 §2: it adds the link type `content_link` to the label rule.
 
 ## Date
 2026-11-09

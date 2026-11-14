@@ -2,18 +2,17 @@
 
 ## Status
 Accepted on 2026-10-23, for the research request on the search index and item 1
-of v4vmm request 10. Tasks 001 to 004 give the build. It amends ADR 0022: the columns of `search_index`, the
-contentless mode, and step 2 of "Insert/update". The rest of ADR 0022 stays.
+of v4vmm request 10. Tasks 001 to 004 give the build.
 
-Amended on 2026-10-23, during task 001. The table keeps a copy of its text, and
-it does not use `contentless_delete=1`. The fact that causes this change is in
-the last paragraph of the context.
-
-Amended on 2026-10-24 by ADR 0080 §1. The text of `q` can hold phrases in
-double quotes. The rest of §5 stays.
-
-Amended on 2026-11-07 by ADR 0086. The last word of `q` matches as a prefix. The
-rest of §5 stays.
+- Changes: ADR 0022: the columns of `search_index`, the contentless mode, and
+  step 2 of "Insert/update". The rest of ADR 0022 stays.
+- Revised: 2026-10-23, during task 001. The table keeps a copy of its text, and
+  it does not use `contentless_delete=1`. The fact that causes this change is
+  in the last paragraph of the context.
+- Changed by: ADR 0080 §1, on 2026-10-24. The text of `q` can hold phrases in
+  double quotes. The rest of §5 stays.
+- Changed by: ADR 0086, on 2026-11-07. The last word of `q` matches as a
+  prefix. The rest of §5 stays.
 
 ## Date
 2026-10-23

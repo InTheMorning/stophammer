@@ -1,8 +1,10 @@
 # ADR 0097: A Feed Read Gives The End Of Its Return Wait
 
 ## Status
-Accepted on 2026-11-12 by the operator. It amends ADR 0096 section 1, the defaults.
+Accepted on 2026-11-12 by the operator.
 It answers three points of a Studio request through the orchestrator.
+
+- Changes: ADR 0096 section 1, the defaults.
 
 ## Date
 2026-11-12

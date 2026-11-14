@@ -1,11 +1,13 @@
 # ADR 0069: An Album Confirms Each Publisher That It Credits
 
 ## Status
-Accepted on 2026-10-02. Amended on 2026-10-02 with §1a, musicindex.org
-request 11: the credit of §1 is removed. Only an item inside
-`<podcast:publisher>` is a publisher link, as podcast-namespace PR #793 gives.
-Amended on 2026-10-18 with §3a, v4vmm request 7: each row gives the rank of
-the publisher feed in `<podcast:publisher>` of the album.
+Accepted on 2026-10-02.
+
+- Revised: 2026-10-02, musicindex.org request 11. §1a: the credit of §1 is
+  removed. Only an item inside `<podcast:publisher>` is a publisher link, as
+  podcast-namespace PR #793 gives.
+- Revised: 2026-10-18, v4vmm request 7. §3a: each row gives the rank of the
+  publisher feed in `<podcast:publisher>` of the album.
 
 ## Date
 2026-10-02
@@ -107,8 +109,10 @@ read gives the value of the matching item of the album.
 
 ### 1a. Only an item inside `<podcast:publisher>` is a link
 
-Amended on 2026-10-02, musicindex.org request 11. ADR 0068 §5 changed for
-the same request. Podcast-namespace PR #793
+- Revised: 2026-10-02, musicindex.org request 11. ADR 0068 §5 changed for
+  the same request.
+
+Podcast-namespace PR #793
 puts one `remoteItem` for each party inside `<podcast:publisher>`, and an app
 ignores `rel` on an item that is not in a publisher link. So the credit of
 section 1 has no place in the namespace, and no tool writes it. It is removed.

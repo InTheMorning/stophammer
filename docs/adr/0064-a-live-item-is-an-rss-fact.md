@@ -5,26 +5,22 @@ Accepted on 2026-09-26
 
 Supersedes [ADR 0021](archive/0021-live-events.md).
 
-Amended on 2026-09-26: the sections "Invariants", "Non-Goals" and
-"Alternatives Considered" are added for the implementation plan. They change
-no decision.
-
-Amended on 2026-09-27: section 4 also drops an item with an unknown status.
-The review of task 002b found that such an item made the whole ingest of its
-feed fail.
-
-Amended on 2026-10-01, accepted the same day: section 6 gives each row two derived
-fields, `in_now_view` and `in_upcoming_view`. v4vmm reported two rows of the
-"100% Retro" feeds with the status `live` and an end in December 2022. `view=now`
-leaves them out, but `view=all` gives them with no sign of that.
-
-Amended on 2026-10-17, musicindex.org request 14: section 6 gives each row
-`link`, the page that the live item advertises. The node already stores the
-value. The amendment changes only the read.
-
-Amended on 2026-11-09 by [ADR 0093](0093-a-live-item-gives-its-content-link-not-its-stream.md):
-`content_link` of §4 and §6 is the `href` of the first `podcast:contentLink`
-child element, and never the enclosure.
+- Revised: 2026-09-26. The sections "Invariants", "Non-Goals" and
+  "Alternatives Considered" are added for the implementation plan. They change
+  no decision.
+- Revised: 2026-09-27. Section 4 also drops an item with an unknown status.
+  The review of task 002b found that such an item made the whole ingest of its
+  feed fail.
+- Revised: 2026-10-01, accepted the same day. Section 6 gives each row two
+  derived fields, `in_now_view` and `in_upcoming_view`. v4vmm reported two rows
+  of the "100% Retro" feeds with the status `live` and an end in December 2022.
+  `view=now` leaves them out, but `view=all` gives them with no sign of that.
+- Revised: 2026-10-17, musicindex.org request 14. Section 6 gives each row
+  `link`, the page that the live item advertises. The node already stores the
+  value. The change applies only to the read.
+- Changed by: [ADR 0093](0093-a-live-item-gives-its-content-link-not-its-stream.md),
+  on 2026-11-09: `content_link` of §4 and §6 is the `href` of the first
+  `podcast:contentLink` child element, and never the enclosure.
 
 ## Date
 2026-09-26

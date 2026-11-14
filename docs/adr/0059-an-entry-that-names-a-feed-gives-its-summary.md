@@ -3,18 +3,17 @@
 ## Status
 Accepted on 2026-09-25
 
-Amended on 2026-10-01, accepted the same day, for release 0.4.0: section 5 applies the same rule to an entry
-that names a track. musicindex.org request 5 reported that a playlist page
-needs one request for each entry to show the title of the track.
-
-Amended on 2026-10-18, v4vmm request 7: section 1 adds
-`remote_episode_count`.
-
-Amended on 2026-10-25, accepted the same day, musicindex.org requests 17 and
-18. Section 6 adds the image and the title of the indexed feed to each row of
-`GET /v1/copies` and `GET /v1/live-items`. Section 7 adds the summary of
-sections 1 and 5 to each remote value time split. "Operator Answers -
-2026-10-25" gives the decisions of the operator.
+- Revised: 2026-10-01, accepted the same day, for release 0.4.0. Section 5
+  applies the same rule to an entry that names a track. musicindex.org request
+  5 reported that a playlist page needs one request for each entry to show the
+  title of the track.
+- Revised: 2026-10-18, v4vmm request 7. Section 1 adds `remote_episode_count`.
+- Revised: 2026-10-25, accepted the same day, musicindex.org requests 17 and
+  18. Section 6 adds the image and the title of the indexed feed to each row of
+  `GET /v1/copies` and `GET /v1/live-items`. Section 7 adds the summary of
+  sections 1 and 5 to each remote value time split. "Operator Answers -
+  2026-10-25" gives the decisions of the operator.
+- Changed by: ADR 0091: it adds to §1.
 
 ## Date
 2026-09-25

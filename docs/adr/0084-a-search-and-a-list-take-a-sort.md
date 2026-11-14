@@ -3,7 +3,11 @@
 ## Status
 Accepted on 2026-11-06 by the operator, for v4vmm request 15. Tasks 001 to 003 give
 the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
-It adds to ADR 0070 §2 and §3 and to ADR 0080 §6. ADR 0080 §2 does not change.
+
+- Changes: ADR 0070 §2 and §3: it adds to them.
+- Changes: ADR 0080 §6: it adds to it. ADR 0080 §2 does not change.
+- Changed by: ADR 0089: it adds to §3 and §11. §2 does not change.
+- Changed by: ADR 0090: it changes §8.
 
 ## Date
 2026-11-06

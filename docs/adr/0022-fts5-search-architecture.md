@@ -1,9 +1,11 @@
 # ADR 0022: FTS5 Contentless Search with Companion Table
 
 ## Status
-Accepted. ADR 0078 amends it on 2026-10-23: the columns of `search_index`,
-step 2 of "Insert/update", and the contentless mode. The index keeps a copy of
-its text.
+Accepted.
+
+- Changed by: ADR 0078, on 2026-10-23: the columns of `search_index`, step 2 of
+  "Insert/update", and the contentless mode. The index keeps a copy of its
+  text.
 
 ## Context
 

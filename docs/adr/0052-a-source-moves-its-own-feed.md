@@ -3,6 +3,8 @@
 ## Status
 Accepted on 2026-09-25
 
+- Changed by: ADR 0083: sections 1 and 2 and one invariant.
+
 ## Date
 2026-09-24
 

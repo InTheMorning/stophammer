@@ -1,12 +1,17 @@
 # ADR 0071: A List Row Links What It Names
 
 ## Status
-Accepted on 2026-10-18, for v4vmm request 8. It amends ADR 0038 Decision B and
-the section "Search is not in scope" of ADR 0068 (section 5). Tasks 001 to 005
-give the build. Amended on 2026-10-21 by ADR 0076: a `named_feeds` entry
-also gives `two_way_validated` (§3).
-Amended on 2026-11-10 by ADR 0094: the index holds each `musicL` feed, and a
-search gives it only when `medium` names `musicL` (§5).
+Accepted on 2026-10-18, for v4vmm request 8. Tasks 001 to 005 give the build.
+
+- Changes: ADR 0038 Decision B.
+- Changes: ADR 0068, the section "Search is not in scope" (section 5).
+- Changed by: ADR 0076, on 2026-10-21: a `named_feeds` entry also gives
+  `two_way_validated` (§3).
+- Changed by: ADR 0089: it adds to §4.
+- Changed by: ADR 0091: it adds to §2.
+- Changed by: ADR 0092: it adds to §2.
+- Changed by: ADR 0094, on 2026-11-10: the index holds each `musicL` feed, and
+  a search gives it only when `medium` names `musicL` (§5).
 
 ## Date
 2026-10-18

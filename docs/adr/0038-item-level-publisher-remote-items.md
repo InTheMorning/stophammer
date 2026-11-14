@@ -3,15 +3,13 @@
 ## Status
 Accepted on 2026-09-27.
 
-Amended on 2026-09-27: `GET /v1/feeds/recent` keeps its `medium` parameter.
-See "Amendment Of 2026-09-27". ADR 0049 replaces the Wavlake caveat of
-Decision A.
-
-Amended on 2026-10-18 by ADR 0071 §5: the search index holds the publisher
-feeds, and only `type=publisher` gives them. See "Amendment Of 2026-10-18".
-
-Amended on 2026-11-10 by ADR 0094: the search index holds each `musicL`
-feed, and a search gives it only when `medium` names `musicL`.
+- Revised: 2026-09-27. `GET /v1/feeds/recent` keeps its `medium` parameter.
+  See "Amendment Of 2026-09-27".
+- Changed by: ADR 0049: it replaces the Wavlake caveat of Decision A.
+- Changed by: ADR 0071 §5, on 2026-10-18: the search index holds the publisher
+  feeds, and only `type=publisher` gives them. See "Amendment Of 2026-10-18".
+- Changed by: ADR 0094, on 2026-11-10: the search index holds each `musicL`
+  feed, and a search gives it only when `medium` names `musicL`.
 
 ## Date
 2026-04-18

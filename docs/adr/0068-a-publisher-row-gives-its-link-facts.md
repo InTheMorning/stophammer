@@ -2,18 +2,22 @@
 
 ## Status
 Accepted on 2026-10-01, in the opt-in form of section 1. Release 0.4.0
-carries it. Amended on 2026-10-01 before the build: the decision applies to
-the list route only. The search part is removed. See "Search is not in
-scope". Amended on 2026-10-02 with section 4, the two filters of
-musicindex.org request 10. Amended on 2026-10-02 with section 5: the link
-facts are role tokens, musicindex.org request 11. ADR 0085 adds the two filters
-of section 4 to `GET /v1/feeds/by-name`.
+carries it.
 
-Amended on 2026-10-18 by ADR 0071. `GET /v1/artist-names` and
-`GET /v1/feeds/by-name` give the link facts of section 1 with
-`include=link_facts`. Search finds a publisher feed with `type=publisher`. Amended on 2026-10-21 by
-ADR 0076 §3: a `publisher` search row gives the link facts with
-`include=link_facts`.
+- Revised: 2026-10-01, before the build. The decision applies to the list route
+  only. The search part is removed. See "Search is not in scope".
+- Revised: 2026-10-02. Section 4 gives the two filters of musicindex.org
+  request 10.
+- Revised: 2026-10-02. Section 5: the link facts are role tokens,
+  musicindex.org request 11.
+- Changed by: ADR 0071, on 2026-10-18: `GET /v1/artist-names` and
+  `GET /v1/feeds/by-name` give the link facts of section 1 with
+  `include=link_facts`. Search finds a publisher feed with `type=publisher`.
+- Changed by: ADR 0076 §3, on 2026-10-21: a `publisher` search row gives the
+  link facts with `include=link_facts`.
+- Changed by: ADR 0085: it adds the two filters of section 4 to
+  `GET /v1/feeds/by-name`.
+- Changed by: ADR 0092: it adds to §5.
 
 ## Date
 2026-10-01
@@ -77,7 +81,9 @@ decision goes back to the operator before the deploy.
 
 ### 4. The list can keep only the rows with a link fact
 
-Amended on 2026-10-02, musicindex.org request 10. On 2026-10-02 the list held
+- Revised: 2026-10-02, musicindex.org request 10.
+
+On 2026-10-02 the list held
 1,772 publisher feeds. Only 4 rows stated a `rel`, and only 15 rows had no
 two-way link. To show these rows, the page read the full list.
 
@@ -105,8 +111,10 @@ publisher rows with the facts took 801 ms of node time.
 
 ### 5. The link facts are role tokens
 
-Amended on 2026-10-02, musicindex.org request 11. ADR 0069 §1a changed for
-the same request. A `rel` value is a set of
+- Revised: 2026-10-02, musicindex.org request 11. ADR 0069 §1a changed for
+  the same request.
+
+A `rel` value is a set of
 role tokens (ADR 0049 §6, podcast-namespace PR #793). A feed that states
 `rel="artist host author label producer"` has five roles. A raw value cannot
 be filtered by one of them.

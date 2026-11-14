@@ -1,8 +1,10 @@
 # ADR 0096: The Operator Sets The Return Cooldown
 
 ## Status
-Accepted on 2026-11-12 by the operator. It amends ADR 0083 section 5.
-ADR 0097 amends section 1: the defaults are shorter.
+Accepted on 2026-11-12 by the operator.
+
+- Changes: ADR 0083 section 5.
+- Changed by: ADR 0097: section 1. The defaults are shorter.
 
 ## Date
 2026-11-12
