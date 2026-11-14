@@ -298,7 +298,7 @@ Request 11 asks for the date and the named feeds of each feed hit. The two reque
 - **Item 2, `kind`.** Stophammer stores `unknown` as the release kind of most feeds, and it infers no kind until the Podcasting 2.0 namespace gives guidance. Thus:
   - `kind` matches the stated `release_kind` only. `kind=unknown` matches a feed with no stated kind.
   - New filters `tracks`, `min_tracks` and `max_tracks` match the track count of a feed, or of the feed of a track.
-  - The client keeps the kind rule of musicindex ADR 0020 R-WORD-1. For `kind:single` it sends `kind=single`, and `kind=unknown&tracks=1`. For `kind:album` it sends `kind=album`, and `kind=unknown&min_tracks=2`. For `kind:ep` it sends `kind=ep` only.
+  - The client keeps the kind rule of musicindex ADR 0069 R-WORD-1. For `kind:single` it sends `kind=single`, and `kind=unknown&tracks=1`. For `kind:album` it sends `kind=album`, and `kind=unknown&min_tracks=2`. For `kind:ep` it sends `kind=ep` only.
 - **Item 2, the other filters.** Accepted as written: `artist`, `title`, `release`, `after`, `before`, `min_duration` and `max_duration` on `type=feed` and `type=track`. On `type=publisher`, `artist` and `title` match the name of the publisher. Each other filter gives the error of item 4.
 - **Item 3.** Accepted as written: `not_q` for the words and the phrases, and `not_artist`, `not_title`, `not_release` and `not_host` for the text filters. Each can repeat. A query with exclusions and no positive term gives `400` with the code `missing_positive_term`.
 - **Item 4.** Accepted as written: `400` with the code `unsupported_filter` and the name of the filter.
@@ -315,7 +315,7 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 | Data | Path |
 | --- | --- |
 | The query text, the fields and the live results | `../HitIt/docs/adr/archive/0087-search-fields-and-live-results.md` |
-| The kind rule of the apps | `../musicindex/docs/adr/0020-cross-app-interface-rules.md`, R-WORD-1 |
+| The kind rule of the apps | musicindex ADR 0069, R-WORD-1 |
 | The search field and the pause of 300 ms | `../musicindex/docs/adr/0026-cross-app-controls-and-feedback.md`, R-SEARCH-1 |
 | A parser of the query text, and the field list | `../musicindex-research/research_notes/ui-design/mockups/kit/search.js` |
 | The search in the website and HitIt mockups | `../musicindex-research/research_notes/ui-design/mockups/musicindex.html` and `v4vmm.html` |
@@ -414,7 +414,7 @@ The weakest part: the count is useful but not necessary. HitIt shows no count fo
 1. `title` on `type=track` matches the track title only. `title=assorted&type=track` gave no row. `release=assorted&type=track` gave 7 rows of the feed "Various & Assorted". The Library matches a track title or its release title for `title:`, as ADR 0087 Decision 2 states.
 2. `kind` matches the stated `release_kind` only. Most feeds state `unknown`. `kind=single&type=feed` and `kind=single&type=track` gave no row. `kind=album&type=feed` and `kind=ep&type=feed` gave no row. `kind=unknown&type=feed` gave 20 rows. The feed `GET /v1/feeds/{guid}` of a feed with one track states `release_kind` `unknown`.
 
-**Why HitIt needs it.** The v4vmm client keeps the kind rule of musicindex ADR 0020 R-WORD-1, as the answer of 2026-10-24 to item 2 says. That rule needs two requests for `kind:single`: `kind=single`, and `kind=unknown&tracks=1`. The search of HitIt allows three requests in each run, one for each type. Thus HitIt cannot send the rule as the answer states it.
+**Why HitIt needs it.** The v4vmm client keeps the kind rule of musicindex ADR 0069 R-WORD-1, as the answer of 2026-10-24 to item 2 says. That rule needs two requests for `kind:single`: `kind=single`, and `kind=unknown&tracks=1`. The search of HitIt allows three requests in each run, one for each type. Thus HitIt cannot send the rule as the answer states it.
 
 **Request.**
 
@@ -660,7 +660,7 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 - `release` still reads only the title of the feed. No filter now reads only the title of the track.
 - A filter does not change `rank`. So HitIt ADR 0087 Known Difference 1 closes with this release.
 
-**Part 2 is declined.** The node still infers no kind (Stophammer ADR 0080 §2, ADR 0085 §6). Musicindex ADR 0020 R-WORD-1 gives this rule to the apps. An app can send the rule today as one request for each type, with no new release of Stophammer:
+**Part 2 is declined.** The node still infers no kind (Stophammer ADR 0080 §2, ADR 0085 §6). Musicindex ADR 0069 R-WORD-1 gives this rule to the apps. An app can send the rule today as one request for each type, with no new release of Stophammer:
 
 | The person types | The app sends | Music feeds in the backup of 2026-11-05 |
 |---|---|---|
