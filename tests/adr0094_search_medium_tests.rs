@@ -237,7 +237,28 @@ async fn medium_errors_and_repeated_values_follow_search_contract() {
     )
     .await;
     assert_eq!(status, 400, "{body}");
-    assert_eq!(body["error"], "duplicate parameter `medium`");
+    assert_eq!(
+        body["code"], "invalid_filter",
+        "ADR 0100 item 9: a repeated medium gives invalid_filter: {body}"
+    );
+    assert_eq!(body["filter"], "medium", "{body}");
+}
+
+#[tokio::test]
+async fn medium_is_not_a_positive_term() {
+    let st = fixture().await;
+    for path in [
+        "/v1/search?type=feed&medium=musicL",
+        "/v1/search?medium=music,musicL",
+        "/v1/search?type=feed&medium=music&not_q=Deck",
+    ] {
+        let (status, body) = send(&st, path).await;
+        assert_eq!(status, 400, "{path}: {body}");
+        assert_eq!(
+            body["code"], "missing_positive_term",
+            "ADR 0100 item 9: medium alone is not a positive term. {path}: {body}"
+        );
+    }
 }
 
 #[tokio::test]

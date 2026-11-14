@@ -22,6 +22,9 @@ Accepted
 - Restates: the change of ADR 0078 to ADR 0022, in items 1 and 2.
 - Restates: the changes of ADR 0071 §5 and ADR 0094 to ADR 0038 Decision B,
   in items 7 to 9.
+- Revised: 2026-11-14, by the operator decision of that day (musicindex-research
+  `reports/2026-11-14-adr-overuse-global-decision.md`). Item 9: `medium` is not
+  a positive term, and a repeated `medium` gives `invalid_filter`.
 - Uses: [ADR 0022](0022-fts5-search-architecture.md) for `search_entities`, the
   rowid, the quality weight and the cursor.
   [ADR 0099](0099-the-lists-and-their-rows.md) for `sort`, `reverse`, the order
@@ -140,6 +143,12 @@ Accepted
      `unsupported_filter`.
    - Each other value, `publisher` included, gives `400` with
      `invalid_filter`.
+   - `medium` is not a positive term of item 21. It always has a value, so as a
+     positive term it would let a search with no word list the full index. A
+     request with `medium` and no other positive term gives
+     `missing_positive_term`.
+   - A repeated `medium` gives `400` with `invalid_filter`, as a repeated
+     positive filter does.
    - The filters of items 15 to 21 apply to a playlist and to a music feed in
      the same way. A playlist has `episode_count` 0, so `min_tracks=1` removes
      it.
@@ -295,7 +304,7 @@ Accepted
     | Code | Cause |
     |---|---|
     | `unsupported_filter` | The type of the request cannot apply the filter, or the node does not know the parameter |
-    | `invalid_filter` | The value is not correct, a positive filter repeats, or the request has more than 10 exclusions |
+    | `invalid_filter` | The value is not correct, a positive filter or `medium` repeats, or the request has more than 10 exclusions |
     | `missing_positive_term` | The request has no word, no phrase and no filter of item 15 |
 
     - `filter` gives the name of the parameter. A body with the code

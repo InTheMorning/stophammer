@@ -6211,7 +6211,20 @@ fn parse_search_request(raw: &str) -> Result<SearchRequest, Box<Response>> {
     };
     let q = single("q")?.unwrap_or_default();
     let kind = single("type")?;
-    let medium_raw = single("medium")?;
+    // ADR 0100 item 9: a repeated `medium` gives `invalid_filter`, as a
+    // repeated positive filter does (operator decision of 2026-11-14).
+    let medium_raw = {
+        let mut values = pairs.iter().filter(|(n, _)| n == "medium").map(|(_, v)| v);
+        let first = values.next().cloned();
+        if values.next().is_some() {
+            return Err(filter_error(
+                "invalid_filter",
+                "medium",
+                "medium can appear one time".into(),
+            ));
+        }
+        first
+    };
     let cursor = single("cursor")?;
     let include = single("include")?;
     let sort_raw = single("sort")?;

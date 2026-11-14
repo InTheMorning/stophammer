@@ -2316,7 +2316,8 @@ the rows by `rank`.
   parameter, for example a cache key, from the request.
 - A request with no word in `q` and no positive filter gives
   `missing_positive_term`. A positive filter is any filter that is not a `not_`
-  parameter.
+  parameter and not `medium`. A repeated `medium` gives `invalid_filter`
+  (ADR 0100 item 9).
 
 **A search with no `q` (ADR 0080 section 6):**
 
