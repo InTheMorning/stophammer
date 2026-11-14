@@ -28,6 +28,8 @@ Accepted
   An Artist Row Counts Its Releases By Track Count.
 - Restates: the change of ADR 0091 §2 to ADR 0059 §1, in item 49.
 - Restates: the change of ADR 0092 to ADR 0076 §3, in item 14.
+- Revised: 2026-11-14. Item 36 and its invariant: a page reads no row of the
+  list. It reads the highest `seq` of the event log, to find a stale copy.
 - Uses: [ADR 0049](archive/0049-publisher-relationships-are-rss-facts.md) for
   the `publisher` view, the role tokens (§6), the confirmed links (§6a) and the
   artist count (§7). [ADR 0061](0061-a-publisher-read-counts-its-listed-artists.md)
@@ -293,7 +295,8 @@ Accepted
 35. The name level uses the link facts of the `publisher` view. The node has no
     second rule for it.
 36. The node builds the full artist list with items 29 to 35 and keeps it in
-    memory. A page reads the copy in memory and no database row.
+    memory. A page reads the copy in memory and no row of the list. It reads
+    only the highest `seq` of the event log, to find a stale copy.
     - The copy records the highest `seq` of the event log at its build.
     - When the highest `seq` changes, the copy is stale. The next request builds
       the list again.
@@ -441,7 +444,8 @@ Accepted
 - The artist list merges no `publisher` row and no `name` row by text.
 - The artist list in memory is at most 30 seconds older than the last change of
   the event log.
-- A page of `GET /v1/artist-names` reads no database row.
+- A page of `GET /v1/artist-names` reads no row of the list. It reads only the
+  highest `seq` of the event log.
 - With a filter, `GET /v1/artist-names` gives no `name` row, and its set equals
   the set of `GET /v1/feeds/recent?medium=publisher` with the same filter.
 - Each key of the `#` group comes before each key that starts with a letter. A
