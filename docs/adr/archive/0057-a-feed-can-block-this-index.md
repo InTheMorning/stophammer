@@ -4,8 +4,8 @@
 Archived on 2026-10-20, because a test enforces each rule of this
 decision. The tests own the rules now. Read this record for history only.
 
-ADR 0079 amends §4 on 2026-10-23. The feed comes back only through its last
-source URL, or after an operator release. ADR 0079 owns that rule.
+- Changed by: ADR 0079, on 2026-10-23: §4. The feed comes back only through its
+  last source URL, or after an operator release. ADR 0079 owns that rule.
 
 Accepted on 2026-09-25
 
