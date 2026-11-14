@@ -28,6 +28,8 @@ Accepted
   An Artist Row Counts Its Releases By Track Count.
 - Restates: the change of ADR 0091 §2 to ADR 0059 §1, in item 49.
 - Restates: the change of ADR 0092 to ADR 0076 §3, in item 14.
+- Revised: 2026-11-14. Item 18: the map and the count of a row come from the
+  same rows, also in the copy in memory of `GET /v1/artist-names`.
 - Revised: 2026-11-14. Item 36 and its invariant: a page reads no row of the
   list. It reads the highest `seq` of the event log, to find a stale copy.
 - Uses: [ADR 0049](archive/0049-publisher-relationships-are-rss-facts.md) for
@@ -190,7 +192,9 @@ Accepted
     filters `tracks`, `min_tracks` and `max_tracks` read (ADR 0100). On a
     confirmed link, the value is the `remote_episode_count` of the row (ADR 0059
     §1). The map of a row with `two_way_link_count` comes from the same rows as
-    that count, so no route reads the copy in memory for it.
+    that count. On `GET /v1/artist-names`, the copy in memory holds the map and
+    the count from the same rows. So the two agree, and each is at most 30
+    seconds old (item 36).
 
 ### The Release Lists
 

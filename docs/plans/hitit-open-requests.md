@@ -31,7 +31,7 @@ The v4vmm operator reviewed each item on 2026-09-24 and 2026-09-25.
 | 10 | Search accepts words, phrases and field filters | Search correction and API parameter additions | Item 1: ADR 0078 and ADR 0080, phrases deployed in release 0.15.0 on 2026-10-25. Items 2 to 7: ADR 0080, deployed in release 0.15.0 on 2026-10-25 |
 | 11 | A feed search hit gives its release date and its named feeds | API field and include additions | Draft - 2026-10-23. Not sent. On 2026-10-25 the v4vmm operator decided to send it after the walk of the saved search checks |
 | 12 | A track gives its season, and the index keeps the license | API field and parser additions | Draft - 2026-11-04. The v4vmm operator agreed on 2026-11-04 that v4vmm writes this request. No HitIt packet waits for it |
-| 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. HitIt ADR 0089 shows no count for All until a total exists |
+| 13 | A total for each list of feeds and names | API field addition | Draft - 2026-11-05. Not sent. HitIt ADR 0098 Decision 4 shows no count for All until a total exists |
 | 14 | The title filter of a track and the kind filter of unknown feeds | Search correction and API parameter addition | Answered - 2026-11-07. Part 1: Stophammer ADR 0085 is built and not released. Part 2 is declined, and the answer gives the filters that an app sends |
 | 15 | A sort direction for each list of feeds and names | API parameter addition | Delivered - 2026-11-07 |
 
@@ -314,7 +314,7 @@ musicindex.org will also send these filters. On 2026-10-24 the operator decided 
 
 | Data | Path |
 | --- | --- |
-| The query text, the fields and the live results | `../HitIt/docs/adr/0087-search-fields-and-live-results.md` |
+| The query text, the fields and the live results | `../HitIt/docs/adr/archive/0087-search-fields-and-live-results.md` |
 | The kind rule of the apps | `../musicindex/docs/adr/0020-cross-app-interface-rules.md`, R-WORD-1 |
 | The search field and the pause of 300 ms | `../musicindex/docs/adr/0026-cross-app-controls-and-feedback.md`, R-SEARCH-1 |
 | A parser of the query text, and the field list | `../musicindex-research/research_notes/ui-design/mockups/kit/search.js` |
@@ -346,7 +346,7 @@ Since release 0.15.0, an unknown search parameter gives `400` with `unsupported_
 
 Thus a feed search hit does not follow the rule of request 8 item 1. A client must read each hit again to date it or to key it by its artist feed.
 
-**Why HitIt needs it.** HitIt ADR 0086 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 6).
+**Why HitIt needs it.** HitIt ADR 0098 Decision 9.1 groups the singles of one artist in one window of 14 days. New releases and the saved searches of Discover use the same groups (Decision 9.6).
 
 The window of a single comes from its release date. The group key comes from the named feeds of the release. The New releases rows give both facts.
 A saved search runs `GET /v1/search`, and its rows give neither fact. Thus only the singles that the Library holds can group in a saved search. Each Index single shows as a tile of its own.
@@ -401,7 +401,7 @@ The HitIt publisher relationship request asked this for the Stophammer ADR. ADR 
 
 **What happens.** On 2026-11-05, the v4vmm orchestrator read the stored contract of release 0.18.1. `Pagination` gives only `cursor` and `has_more`. No route gives the number of feeds or names in a list.
 
-**Why HitIt needs it.** HitIt ADR 0089 Decision 5 gives Releases and Artists the scope "All | In Library". The research request gives a count for each of the two. HitIt can count In Library, but it has no source for All.
+**Why HitIt needs it.** HitIt ADR 0098 Decision 4 gives Releases and Artists the scope "All | In Library". The research request gives a count for each of the two. HitIt can count In Library, but it has no source for All.
 
 The weakest part: the count is useful but not necessary. HitIt shows no count for All until a total exists.
 
