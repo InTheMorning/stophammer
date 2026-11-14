@@ -1,8 +1,10 @@
 # ADR 0086: A Search Matches The Start Of The Last Word
 
 ## Status
+Superseded by [ADR 0100](../0100-the-search.md) on 2026-11-14.
+
 Accepted on 2026-11-07 by the operator, for the prefix match of
-[the research request of 2026-10-23](../plans/research-search-index-request.md).
+[the research request of 2026-10-23](../../plans/research-search-index-request.md).
 The build is complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 
 - Changes: ADR 0080 §1, which gives no prefix match: it adds to it. ADR 0080 §2

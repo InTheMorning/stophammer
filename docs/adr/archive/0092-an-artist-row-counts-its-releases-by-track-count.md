@@ -1,6 +1,8 @@
 # ADR 0092: An Artist Row Counts Its Releases By Track Count
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) on 2026-11-14.
+
 Accepted on 2026-11-08 by the operator, for musicindex.org request 30. The
 orchestrator selected the form. On 2026-11-08 the primary runs it in the
 candidate `v0.19.0-rc.7`.

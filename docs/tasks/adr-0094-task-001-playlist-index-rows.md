@@ -1,6 +1,6 @@
 # ADR 0094 Task 001: The Index Holds A Playlist As Its Own Row Type
 
-Owner: [ADR 0094](../adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) §1a.
+Owner: [ADR 0094](../adr/archive/0094-a-feed-hit-states-its-medium-kind-and-date.md) §1a.
 
 Repository: `stophammer`. This task has no dependency. Task 002 needs it.
 

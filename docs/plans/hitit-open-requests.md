@@ -605,7 +605,7 @@ is unique only in its feed. The HitIt change to
 
 **Request 6, lists in name order.** The report is correct. No route gives
 either list. Stophammer
-[ADR 0070](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0070-a-name-list-gives-each-identity-one-row.md)
+[ADR 0070](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0070-a-name-list-gives-each-identity-one-row.md)
 is Accepted on 2026-10-17. Its tasks 001 and 002 give the two routes. A
 release record names the release that carries them.
 
@@ -639,7 +639,7 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 
 ## Stophammer Answers - 2026-11-10
 
-**Request 11, a feed search hit gives its release date and its named feeds.** Item 1 is accepted. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
+**Request 11, a feed search hit gives its release date and its named feeds.** Item 1 is accepted. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
 
 - The v4vmm decision of 2026-10-25 lets v4vmm send item 1 before its walk. musicindex.org request 26 asks for the same value, and one answer gives both requests.
 - Each `type=feed` hit of `GET /v1/search` gives `newest_item_at`, with the value of `GET /v1/feeds/recent` for the same feed. A publisher hit also gives it. It can be null, and the key is then present with a null value.
@@ -651,7 +651,7 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 
 ## Stophammer Answers - 2026-11-07
 
-**Request 14, the title filter and the kind filter.** Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0085-a-name-list-takes-the-role-filters.md) answers this request. The build of part 1 is complete, and no release carries it yet. A release record names the release that carries it.
+**Request 14, the title filter and the kind filter.** Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0085-a-name-list-takes-the-role-filters.md) answers this request. The build of part 1 is complete, and no release carries it yet. A release record names the release that carries it.
 
 **Part 1 is accepted.** `title` on a track reads the track title or the title of its feed. `title=assorted&type=track` then gives the 7 tracks of "Various & Assorted".
 
@@ -676,7 +676,7 @@ Release 0.19.0 delivers requests 14 and 15 and item 1 of request 11 (Stophammer 
 
 ## Stophammer Answers - 2026-11-06
 
-**Request 15, a sort direction.** The report is correct. No route has a sort or a direction, and each cursor goes forward only. Stophammer [ADR 0084](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0084-a-search-and-a-list-take-a-sort.md) is Accepted on 2026-11-06, and its build is complete. No release carries it yet. A client shows a reverse icon on an Index list only when `GET /v1/node/capabilities` lists `sort`. A release record names the release that carries it.
+**Request 15, a sort direction.** The report is correct. No route has a sort or a direction, and each cursor goes forward only. Stophammer [ADR 0084](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0084-a-search-and-a-list-take-a-sort.md) is Accepted on 2026-11-06, and its build is complete. No release carries it yet. A client shows a reverse icon on an Index list only when `GET /v1/node/capabilities` lists `sort`. A release record names the release that carries it.
 
 - `GET /v1/feeds/recent`, `GET /v1/feeds/by-name` and `GET /v1/artist-names` take `reverse=true`.
 - `GET /v1/search` takes `sort`, with the values `relevance`, `name` and `date`, and `reverse=true`. This is more than the request asks for. A direction alone cannot give A to Z on search, because search has no name order.
@@ -775,7 +775,7 @@ Release 0.9.0 delivers request 6 (Stophammer ADR 0070). `GET /node/info` gives `
 
 A release record gives the release.
 
-**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0071-a-list-row-links-what-it-names.md) is Accepted on 2026-10-18. Release 0.12.0 delivers it.
+**Request 8.** The four gaps are correct. The Stophammer operator decided the scope on 2026-10-18. Stophammer [ADR 0071](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0071-a-list-row-links-what-it-names.md) is Accepted on 2026-10-18. Release 0.12.0 delivers it.
 
 - Item 1 is accepted in a form that a test can check. A field that gives the title of another feed also gives its GUID. A count has a route or a filter that lists the same items. A route declares each `include` that it accepts. The node derives no kind, as ADR 0061 §4 gives.
 - Item 2 is accepted. With `include=link_facts`, each `publisher` row of `GET /v1/artist-names` gives the four fields of ADR 0068. `first_named_count` counts only the confirmed links with `album_names_rank` 1. It is a fallback for a feed with an empty `agreed_roles`. Thus an album that states a link with no answer from the feed does not change the count.

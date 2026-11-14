@@ -1,6 +1,8 @@
 # ADR 0090: A Name Sorts By A Folded Key
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) on 2026-11-14.
+
 Accepted on 2026-11-08 by the operator, for the name order that v4vmm reported on
 2026-11-08 and musicindex ADR 0053. The build is complete. The primary runs it in
 the candidate `v0.19.0-rc.7`, and no release carries it.

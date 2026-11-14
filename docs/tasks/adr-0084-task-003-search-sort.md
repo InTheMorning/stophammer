@@ -1,6 +1,6 @@
 # ADR 0084 Task 003: Search Takes `sort` And `reverse`
 
-Owner: [ADR 0084](../adr/0084-a-search-and-a-list-take-a-sort.md) §2 to §5, §9 to §11.
+Owner: [ADR 0084](../adr/archive/0084-a-search-and-a-list-take-a-sort.md) §2 to §5, §9 to §11.
 
 Repository: `stophammer`. This task needs tasks 001 and 002.
 

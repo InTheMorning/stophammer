@@ -48,7 +48,7 @@ and in no release.
   Proposed until a crawler or a nominator runs outside the host of the
   primary, or a leak of `CRAWL_TOKEN` is suspected.
 - ADR 0064: `CONFIRMING_RELAY_HOSTS` stays empty until the relay gives a lease.
-- ADR 0070 §4a: the time of a build of the artist list after a change is not
+- ADR 0099 item 36: the time of a build of the artist list after a change is not
   measured. Measure it when the gossip crawler sends changes.
 - ADR 0076: the HitIt operator checks its two visual criteria on release
   0.13.0.
@@ -65,15 +65,15 @@ and in no release.
   gives the other open items: the four pending GUID changes of ADR 0052, and
   two research items.
 - [The research request of 2026-10-23](docs/plans/research-search-index-request.md)
-  gives a list of search changes. ADR 0078 answers its four defects and the
-  phrase change, and ADR 0086 answers the prefix match. No decision is recorded
+  gives a list of search changes. ADR 0100 answers its four defects, the
+  phrase change and the prefix match. No decision is recorded
   for the other changes.
 - [ADR 0098](docs/adr/0098-a-value-block-keeps-its-type-and-method.md) is
   Proposed. It answers
   [the research request of 2026-11-13](docs/plans/research-value-block-type-request.md).
   Until a release delivers it, the parser stores each recipient of a
   `podcast:value` block that is not `lightning` as a Lightning route.
-- ADR 0080 §6: after a restart of the primary, the first search with no `q`
+- ADR 0100 item 22: after a restart of the primary, the first search with no `q`
   can be slow, because the database pages are not in memory. On 2026-10-25,
   the first `type=track&host=wavlake.com` took 14.5 s, and the next ones took
   approximately 195 ms. Such a track search sorts each matching row with no
@@ -116,12 +116,12 @@ and in no release.
 The requests of HitIt and musicindex.org are in
 [the HitIt requests](docs/plans/hitit-open-requests.md) and
 [the musicindex.org requests](docs/plans/musicindex-open-requests.md). HitIt
-requests 1 to 9, items 1 to 7 of HitIt request 10 (ADR 0078 and ADR 0080), and
+requests 1 to 9, items 1 to 7 of HitIt request 10 (ADR 0100), and
 musicindex.org requests 1 to 15, 17 and 18 are deployed. musicindex.org
 request 16 is declined, and requests 19 and 20 are closed. Item 2 of HitIt request 11 is a draft.
 The HitIt operator examines it before Stophammer answers. Release 0.19.0 delivers HitIt requests
 14 and 15, item 1 of HitIt request 11, and musicindex.org requests 21, 22, 23,
-25, 26, 27, 28, 29 and 30. musicindex.org request 24 is closed, because ADR 0091 meets it.
+25, 26, 27, 28, 29 and 30. musicindex.org request 24 is closed, because ADR 0099 meets it.
 In archived records, finished tasks, reviews, release records, dated captures
 and accepted ADRs, the name v4vmm means HitIt (HitIt ADR 0096).
 

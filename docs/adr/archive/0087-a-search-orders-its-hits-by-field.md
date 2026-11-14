@@ -1,6 +1,8 @@
 # ADR 0087: A Search Orders Its Hits By Field
 
 ## Status
+Superseded by [ADR 0100](../0100-the-search.md) on 2026-11-14.
+
 Accepted on 2026-11-07 by the operator, for musicindex.org request 25. The build is
 complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 

@@ -1,6 +1,8 @@
 # ADR 0094: A Feed Hit States Its Medium, Kind And Date
 
 ## Status
+Superseded by [ADR 0100](../0100-the-search.md) on 2026-11-14.
+
 Accepted on 2026-11-10, for musicindex.org requests 23 and 26 and item 1 of
 v4vmm request 11. The operator approved the research message of the
 orchestrator, and that message gives each decision to Stophammer. Stophammer
@@ -166,9 +168,9 @@ parameter in the OpenAPI document.
 None in this repository. The site owns the words of a playlist row.
 
 ## Follow-Up
-- [Task 001](../tasks/adr-0094-task-001-playlist-index-rows.md) adds the
+- [Task 001](../../tasks/adr-0094-task-001-playlist-index-rows.md) adds the
   `playlist` rows to the index.
-- [Task 002](../tasks/adr-0094-task-002-search-medium.md) adds `medium` to the
+- [Task 002](../../tasks/adr-0094-task-002-search-medium.md) adds `medium` to the
   search. It needs tasks 001 and 003.
-- [Task 003](../tasks/adr-0094-task-003-feed-hit-summary.md) adds the three
+- [Task 003](../../tasks/adr-0094-task-003-feed-hit-summary.md) adds the three
   fields to a feed hit.

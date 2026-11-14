@@ -1,6 +1,8 @@
 # ADR 0089: An Artist List Takes Newest First
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) on 2026-11-14.
+
 Accepted on 2026-11-08 by the operator, for musicindex ADR 0053, the shared list
 control rule. The build is complete. The primary runs it in the candidate `v0.19.0-rc.7`, and no release carries it.
 

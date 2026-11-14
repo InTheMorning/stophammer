@@ -1,6 +1,6 @@
 # ADR 0085 Task 002: A Track Title Filter Reads Its Feed
 
-Owner: [ADR 0085](../adr/0085-a-name-list-takes-the-role-filters.md) §4 to §6.
+Owner: [ADR 0085](../adr/archive/0085-a-name-list-takes-the-role-filters.md) §4 to §6.
 
 Repository: `stophammer`. This task has no dependency on task 001.
 

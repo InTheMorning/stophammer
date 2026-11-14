@@ -1,6 +1,8 @@
 # ADR 0085: A Name List Takes The Role Filters, And A Track Title Filter Reads Its Feed
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) and [ADR 0100](../0100-the-search.md) on 2026-11-14. ADR 0100 restates §4 to §6, and ADR 0099 restates §1 to §3.
+
 Accepted on 2026-11-06 by the operator, for musicindex.org request 21 and v4vmm
 request 14. Tasks 001 and 002 give the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 
@@ -187,6 +189,6 @@ Tests in `tests/adr0085_name_filter_tests.rs` prove each of these:
 None in this repository.
 
 ## Follow-Up
-- [Task 001](../tasks/adr-0085-task-001-by-name-filters.md) adds the two filters.
-- [Task 002](../tasks/adr-0085-task-002-track-title-filter.md) changes `title` on a track.
+- [Task 001](../../tasks/adr-0085-task-001-by-name-filters.md) adds the two filters.
+- [Task 002](../../tasks/adr-0085-task-002-track-title-filter.md) changes `title` on a track.
 - Stophammer answers musicindex.org request 21 and v4vmm request 14.

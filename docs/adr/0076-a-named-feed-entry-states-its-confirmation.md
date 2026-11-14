@@ -5,7 +5,7 @@ Accepted on 2026-10-21, for v4vmm request 9. Tasks 001 to 003 give the build.
 
 - Changes: ADR 0071 §3.
 - Changes: ADR 0068, the section "Search is not in scope" (section 5).
-- Changed by: ADR 0092: it adds to §3.
+- Changed by: ADR 0092: it adds to §3. ADR 0099 item 14 restates the addition.
 
 ## Date
 2026-10-21

@@ -9,7 +9,8 @@ Accepted on 2026-09-27.
 - Changed by: ADR 0071 §5, on 2026-10-18: the search index holds the publisher
   feeds, and only `type=publisher` gives them. See "Amendment Of 2026-10-18".
 - Changed by: ADR 0094, on 2026-11-10: the search index holds each `musicL`
-  feed, and a search gives it only when `medium` names `musicL`.
+  feed, and a search gives it only when `medium` names `musicL`. ADR 0100
+  items 7 to 9 restate the two search changes.
 
 ## Date
 2026-04-18
@@ -241,7 +242,7 @@ The other parts of Decision A and Decision B are implemented on this date.
 
 ## Amendment Of 2026-10-18
 
-[ADR 0071](0071-a-list-row-links-what-it-names.md) §5 changes Decision B for
+[ADR 0071](archive/0071-a-list-row-links-what-it-names.md) §5 changes Decision B for
 search. The search index holds each publisher feed as an entity of the type
 `publisher`. Only a search with `type=publisher` gives such a row. A search with
 `type=feed`, with `type=track` or with no `type` gives only music feeds and

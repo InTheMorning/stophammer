@@ -1,6 +1,6 @@
 # ADR 0094 Task 002: A Search Takes The Medium
 
-Owner: [ADR 0094](../adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) §1 and
+Owner: [ADR 0094](../adr/archive/0094-a-feed-hit-states-its-medium-kind-and-date.md) §1 and
 the capability `search_medium` of §4.
 
 Repository: `stophammer`. Do this task after task 001 and task 003.

@@ -1,6 +1,6 @@
 # ADR 0085 Task 001: The Name List Takes The Role Filters
 
-Owner: [ADR 0085](../adr/0085-a-name-list-takes-the-role-filters.md) §1 to §3.
+Owner: [ADR 0085](../adr/archive/0085-a-name-list-takes-the-role-filters.md) §1 to §3.
 
 Repository: `stophammer`. This task has no dependency on task 002.
 

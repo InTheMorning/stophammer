@@ -1,6 +1,8 @@
 # ADR 0080: A Search Takes Phrases And Field Filters
 
 ## Status
+Superseded by [ADR 0100](../0100-the-search.md) on 2026-11-14.
+
 Accepted on 2026-10-24, for items 1 to 7 of v4vmm request 10. The v4vmm
 operator answered items 2 to 7 on 2026-10-24. The operator answered the three
 questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
@@ -21,7 +23,7 @@ questions of this ADR on the same day (see "Operator Answers"). Tasks 001 to
 
 ## Context
 
-[v4vmm request 10](../plans/hitit-open-requests.md#10-search-accepts-words-phrases-and-field-filters)
+[v4vmm request 10](../../plans/hitit-open-requests.md#10-search-accepts-words-phrases-and-field-filters)
 asks for seven items. These are phrases in `q`, filter parameters, exclusions
 and a stable error code. They are also a search with no `q`, a contract for
 the filters, and a filter by host. v4vmm

@@ -13,7 +13,7 @@ Accepted on 2026-09-25
   `GET /v1/copies` and `GET /v1/live-items`. Section 7 adds the summary of
   sections 1 and 5 to each remote value time split. "Operator Answers -
   2026-10-25" gives the decisions of the operator.
-- Changed by: ADR 0091: it adds to §1.
+- Changed by: ADR 0091: it adds to §1. ADR 0099 item 49 restates the addition.
 
 ## Date
 2026-09-25

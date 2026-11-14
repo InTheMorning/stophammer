@@ -1,6 +1,8 @@
 # ADR 0084: A Search And A List Take A Sort
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) on 2026-11-14.
+
 Accepted on 2026-11-06 by the operator, for v4vmm request 15. Tasks 001 to 003 give
 the build, which is complete. The primary runs this work in the candidate `v0.19.0-rc.7`, and no release carries it.
 
@@ -154,7 +156,7 @@ icon on an Index list only when the node states `sort`.
 - A total for a list (v4vmm draft request 13).
 - The sort Newest of Artists. `GET /v1/artist-names` has no date, and v4vmm ADR 0089
   states that a name has no source for it.
-- The prefix match of [the research request](../plans/research-search-index-request.md).
+- The prefix match of [the research request](../../plans/research-search-index-request.md).
 - The `title` and `kind` changes of v4vmm draft request 14.
 
 ## Evidence
@@ -277,9 +279,9 @@ None in this repository. v4vmm and the website own the reverse icon. musicindex
 ADR 0043 gives their visual checks.
 
 ## Follow-Up
-- [Task 001](../tasks/adr-0084-task-001-track-sort-key.md) adds the track sort key.
-- [Task 002](../tasks/adr-0084-task-002-list-routes-reverse.md) adds `reverse` to the
+- [Task 001](../../tasks/adr-0084-task-001-track-sort-key.md) adds the track sort key.
+- [Task 002](../../tasks/adr-0084-task-002-list-routes-reverse.md) adds `reverse` to the
   three list routes.
-- [Task 003](../tasks/adr-0084-task-003-search-sort.md) adds `sort` and `reverse` to
+- [Task 003](../../tasks/adr-0084-task-003-search-sort.md) adds `sort` and `reverse` to
   search, and the capability.
 - v4vmm writes its packet 005 after the release.

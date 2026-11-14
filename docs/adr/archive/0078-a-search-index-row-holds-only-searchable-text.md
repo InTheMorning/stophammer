@@ -1,6 +1,8 @@
 # ADR 0078: A Search Index Row Holds Only Searchable Text
 
 ## Status
+Superseded by [ADR 0100](../0100-the-search.md) on 2026-11-14.
+
 Accepted on 2026-10-23, for the research request on the search index and item 1
 of v4vmm request 10. Tasks 001 to 004 give the build.
 
@@ -19,9 +21,9 @@ of v4vmm request 10. Tasks 001 to 004 give the build.
 
 ## Context
 
-[The research request of 2026-10-23](../plans/research-search-index-request.md)
+[The research request of 2026-10-23](../../plans/research-search-index-request.md)
 reports four defects in the search index.
-[The review of 2026-10-23](../reviews/requests-after-release-0.13.2-review.md)
+[The review of 2026-10-23](../../reviews/requests-after-release-0.13.2-review.md)
 and its addendum confirm each defect in the source at `9ce7e16`. S1, S3 and S4
 are also observed on the live API or in an SQLite test.
 

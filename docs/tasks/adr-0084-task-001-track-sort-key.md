@@ -1,6 +1,6 @@
 # ADR 0084 Task 001: A Track Stores Its Sort Key
 
-Owner: [ADR 0084](../adr/0084-a-search-and-a-list-take-a-sort.md) §8.
+Owner: [ADR 0084](../adr/archive/0084-a-search-and-a-list-take-a-sort.md) §8.
 
 Repository: `stophammer`. This task has no dependency, and task 003 needs it.
 

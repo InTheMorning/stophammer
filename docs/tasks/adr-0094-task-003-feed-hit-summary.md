@@ -1,6 +1,6 @@
 # ADR 0094 Task 003: A Feed Hit Gives Its Medium, Kind And Date
 
-Owner: [ADR 0094](../adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) §2, §3
+Owner: [ADR 0094](../adr/archive/0094-a-feed-hit-states-its-medium-kind-and-date.md) §2, §3
 and the capability `search_feed_summary` of §4.
 
 Repository: `stophammer`. This task has no dependency. Task 002 needs it.

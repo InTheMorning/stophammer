@@ -5,7 +5,7 @@ Accepted.
 
 - Changed by: ADR 0078, on 2026-10-23: the columns of `search_index`, step 2 of
   "Insert/update", and the contentless mode. The index keeps a copy of its
-  text.
+  text. ADR 0100 items 1 and 2 restate the change.
 
 ## Context
 

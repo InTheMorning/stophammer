@@ -975,7 +975,7 @@ owns the rule, and these answers are advisory.
 
 ## Stophammer Answers - 2026-11-07
 
-These answers are advisory. Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0085-a-name-list-takes-the-role-filters.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0085](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0085-a-name-list-takes-the-role-filters.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
 
 **Request 21, a name order.** Accepted in a different form. `GET /v1/feeds/recent` takes no name order. `GET /v1/feeds/by-name` already has the name order, `from`, the cursor and the sort key of ADR 0070 §1, and it now takes the two filters:
 
@@ -992,7 +992,7 @@ GET /v1/feeds/by-name?medium=publisher&two_way_links=none
 - On a local copy, each filtered page took 0.34 to 0.52 s. The same filters on `GET /v1/feeds/recent` took 0.51 to 0.54 s.
 
 
-**Request 25, a title match before a description match.** Accepted in a different form. Stophammer [ADR 0087](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0087-a-search-orders-its-hits-by-field.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
+**Request 25, a title match before a description match.** Accepted in a different form. Stophammer [ADR 0087](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0087-a-search-orders-its-hits-by-field.md) owns the rule. Its build is complete, and no release carries it yet. A release record names the release that carries it.
 
 With `sort=relevance`, the node puts each hit in the first group that matches. The rule is the same for each type:
 
@@ -1026,7 +1026,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - The example of the request, `https://feeds.wavlake.com/feed/music/0d1aa48a-3e7b-4d0a-ad8c-7d47e57b1a6f`, gives `404`. On 2026-11-07 that host answered `404`, and the index held no feed with that ID.
 - On a copy of the backup of 2026-11-07, a lookup took 0.4 to 1.6 ms.
 
-**Request 28, a release date for each artist and label.** Accepted. Stophammer [ADR 0091](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0091-an-artist-list-takes-the-role-filters.md) owns the rule. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.7`.
+**Request 28, a release date for each artist and label.** Accepted. Stophammer [ADR 0091](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0091-an-artist-list-takes-the-role-filters.md) owns the rule. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.7`.
 
 - Part 1: `GET /v1/artist-names` takes `stated_rel` and `two_way_links`, with the values and the `400` rules of `GET /v1/feeds/recent`. With a filter, the list gives only the `publisher` rows that match, and no `name` row. A test proves that the set equals the set of `GET /v1/feeds/recent?medium=publisher` with the same filter. Stophammer selected this form because the list in memory already holds the release date and the link facts. A date sort on `GET /v1/feeds/recent` needs a stored column and a migration.
 - So the stated artists can come from `GET /v1/artist-names?stated_rel=artist&sort=date&include=link_facts`, and the labels from `stated_rel=label`. `two_way_links=none` gives only the publisher feeds with no two-way link. No filter gives the inferred artists, or the feeds with two-way links and no role. For those groups, read the full list with `sort=date&include=link_facts` and group each row. `sort=date` gives the newest `newest_release_at` first: the newest date of the music releases that name the feed (ADR 0089). A row with no date comes last. `reverse`, `from` and the cursor work as on the unfiltered list.
@@ -1040,7 +1040,7 @@ GET /v1/feeds/by-url?url=<the RSS URL, encoded as a query value>
 - Without `include=link_facts`, a row gives neither field. A `name` row never gives them.
 - Use the two fields only when `GET /v1/node/capabilities` lists `artist_row_release_artist`.
 
-**Request 30, the releases of an artist row by track count.** Accepted. Stophammer [ADR 0092](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0092-an-artist-row-counts-its-releases-by-track-count.md) owns the rule. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.7`.
+**Request 30, the releases of an artist row by track count.** Accepted. Stophammer [ADR 0092](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0092-an-artist-row-counts-its-releases-by-track-count.md) owns the rule. On 2026-11-08 the primary runs it in the candidate `v0.19.0-rc.7`.
 
 - Each row with `two_way_link_count` gives `release_track_counts` with `include=link_facts`: on `GET /v1/feeds/recent`, `GET /v1/feeds/by-name`, and the `publisher` rows of `GET /v1/artist-names` and `GET /v1/search`. The map counts the confirmed links of `two_way_link_count`, and its values sum to that count. A row with no confirmed link gives `{}`.
 - Each `name` row of `GET /v1/artist-names` gives the map with no include, for the releases of `release_count`. Its values sum to `release_count`.
@@ -1064,7 +1064,7 @@ A `type=publisher&include=link_facts` search gives `{"1": 17}` for jSmovie. It g
 
 ## Stophammer Answers - 2026-11-10
 
-These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
+These answers are advisory. Stophammer [ADR 0094](https://github.com/InTheMorning/stophammer/blob/main/docs/adr/archive/0094-a-feed-hit-states-its-medium-kind-and-date.md) owns the rule for requests 23 and 26. It is Accepted on 2026-11-10. On 2026-11-11 the primary runs it in the candidate `v0.19.0-rc.8`. A release record names the release that carries it.
 
 **Request 23, a search finds a playlist.** Accepted in a different form. The site names the medium in the search:
 

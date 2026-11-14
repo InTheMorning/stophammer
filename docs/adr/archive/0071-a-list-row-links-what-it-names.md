@@ -1,6 +1,8 @@
 # ADR 0071: A List Row Links What It Names
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) and [ADR 0100](../0100-the-search.md) on 2026-11-14. ADR 0100 restates §5, and ADR 0099 restates the other sections.
+
 Accepted on 2026-10-18, for v4vmm request 8. Tasks 001 to 005 give the build.
 
 - Changes: ADR 0038 Decision B.

@@ -1,6 +1,8 @@
 # ADR 0068: A Publisher Row Gives Its Link Facts
 
 ## Status
+Superseded by [ADR 0099](../0099-the-lists-and-their-rows.md) on 2026-11-14.
+
 Accepted on 2026-10-01, in the opt-in form of section 1. Release 0.4.0
 carries it.
 

@@ -1,6 +1,6 @@
 # ADR 0084 Task 002: The Three List Routes Take `reverse`
 
-Owner: [ADR 0084](../adr/0084-a-search-and-a-list-take-a-sort.md) §3, §6, §7 and §9.
+Owner: [ADR 0084](../adr/archive/0084-a-search-and-a-list-take-a-sort.md) §3, §6, §7 and §9.
 
 Repository: `stophammer`. This task has no dependency on task 001.
 
