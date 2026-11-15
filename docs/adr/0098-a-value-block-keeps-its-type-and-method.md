@@ -3,7 +3,14 @@
 ## Status
 Accepted on 2026-11-14. No release holds it. It answers
 [the research request of 2026-11-13](../plans/research-value-block-type-request.md),
-V1 to V4 and its three questions. No task packet exists.
+V1 to V4 and its three questions.
+
+- Revised: 2026-11-14. The search for the code locations found five points
+  that the text did not state. §1 says that only an item has a value time
+  split. §3 gives the sum check of each block. §4 gives the stored rows with
+  no block, the block with only splits and the routes that a track gets from
+  its feed. §5 gives the event for a change of only the routes of a track. §6
+  says that the pass can read the cached body.
 
 ## Date
 2026-11-13
@@ -78,6 +85,9 @@ Each recipient and each value time split keeps the three values of its block.
 The parser keeps a block of each type. It skips no block because Stophammer
 does not know its type. A block with no recipient and no split gives no row.
 
+Only an item and a live item have a value time split. The parser reads no
+split of a channel, as before this ADR.
+
 ### 2. A recipient keeps the type that the feed gives (V2)
 
 The parser keeps the `type` of a recipient, trimmed and in lowercase. A
@@ -104,6 +114,9 @@ A value time split is a child of one `podcast:value` block. The split and the
 recipients of a local split get the type, the method and the index of that
 block. This answers question 3.
 
+The optional verifier `payment_route_sum` adds the splits of each block of a
+track, not the splits of all its blocks. A block passes when its sum is 100.
+
 ### 4. The API gives the blocks and keeps the old lists safe (V4)
 
 The include `payment_routes` of a feed and of a track keeps each field that it
@@ -115,6 +128,10 @@ agrees with all these conditions:
 - The route has `route_type` `node` or `lnaddress`.
 - A `node` route has an address of 66 hexadecimal characters.
 
+A track with no stored route gets the routes of its feed, as before this ADR.
+A track with a stored route does not get them, also when the conditions remove
+each of its routes. The conditions apply to the routes of the feed too.
+
 A client that reads only `payment_routes` thus gets no USDC route and no route
 of an unknown type. It also gets no `node` route that is not a public key. The third
 condition also removes the 60 stored rows of §Context before the refill pass
@@ -123,7 +140,16 @@ of §6.
 A new include `value_blocks` gives each block in source order, with
 `block_index`, `value_type`, `value_method` and its recipients. Each recipient
 has the fields of a route in `payment_routes`, and `route_type` is the text
-that the feed gives. It applies no filter of this section. The includes
+that the feed gives. It applies no filter of this section.
+
+`value_blocks` reads the same rows as `payment_routes`. A track with no stored
+route gets the blocks of its feed. The stored rows with `NULL` in the block
+columns give one block, with `null` in `block_index`, `value_type` and
+`value_method`. That block is the first one. A block with only value time
+splits is not in `value_blocks`. The split includes give its splits with the
+block fields.
+
+The includes
 `value_time_splits` and `local_value_time_splits` add the fields
 `block_index`, `value_type` and `value_method`. The OpenAPI document declares
 each new name (ADR 0071 §1c).
@@ -137,10 +163,19 @@ the optional fields `value_type`, `value_method` and `block_index`. A node appli
 Missing fields give `NULL`. A `route_type` of `wallet` or `keysend` in an
 event from before this ADR keeps its value. Community nodes upgrade before the primary (ADR 0066).
 
+On 2026-11-14, `build_changed_events` in `src/db.rs` gave a `TrackUpserted`
+event only when a field of the track changed. A change of only the routes or
+the value time splits of a track gave no event, and a community node kept the
+old rows. An ingest now gives a `TrackUpserted` event when the routes or the
+value time splits of a known track change. The block fields are part of this
+comparison.
+
 ### 6. A refill pass replaces the rows that the parser changed (question 2)
 
 The node does not change a stored row from a guess. A forced `feed` pass reads
 the feed again and replaces its routes with the rule of this ADR (ADR 0077).
+After a `304` the crawler parses the body in its fetch cache, and that is
+sufficient for this pass.
 The refill pass of this ADR is a `feed` pass with `--force` of these feeds:
 
 - Each feed with a `node` row in a route table with an address that is not 66
@@ -212,7 +247,10 @@ Each guard is mechanical.
   new columns `NULL`.
 - Node tests: an event payload from before this ADR applies. A payload with
   `route_type` `address` applies on a community node and reads back as
-  `address`.
+  `address`. A change of only the routes of a known track gives a
+  `TrackUpserted` event. The verifier `payment_route_sum` passes two blocks
+  that each have the sum 100.
 - Contract tests: `payment_routes` gives no route of a USDC block, no route
   with an unknown `route_type` and no `node` route that is not 66 hexadecimal
-  characters. `value_blocks` gives each block in source order.
+  characters. `value_blocks` gives each block in source order, and the rows
+  with `NULL` block columns as one block.
