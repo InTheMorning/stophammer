@@ -10,6 +10,8 @@
 //
 // This test runs `git`, not `cargo`, so it does not wait on the build lock
 // of the outer `cargo test`.
+//
+// Guard 3 runs the shared ADR link guard of the `project-baseline` skill.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -135,4 +137,44 @@ fn every_adr_file_has_a_row_and_every_row_names_a_file() {
              not exist. Fix the link, or remove the row."
         );
     }
+}
+
+/// Runs the shared ADR link guard on this repository, with no `--skip`.
+///
+/// The guard is a script of the `project-baseline` skill, outside this
+/// repository. A machine with no such script, for example a CI runner, cannot
+/// run it. The test then prints a note and passes.
+#[test]
+fn adr_link_guard_passes() {
+    let Some(home) = std::env::var_os("HOME") else {
+        eprintln!("ADR link guard not run: HOME is not set.");
+        return;
+    };
+    let script =
+        PathBuf::from(home).join(".agents/skills/project-baseline/scripts/check_adr_links.py");
+    if !script.is_file() {
+        eprintln!("ADR link guard not run: no file {}.", script.display());
+        return;
+    }
+    let output = Command::new("python3")
+        .arg(&script)
+        .arg(".")
+        .current_dir(manifest_dir())
+        .output()
+        .unwrap_or_else(|e| {
+            panic!(
+                "project-baseline §A Binding Rule Lives In A Decision Record: could not run \
+                 `python3 {}` ({e}). Install python3 and put it on PATH.",
+                script.display()
+            )
+        });
+    assert!(
+        output.status.success(),
+        "project-baseline §A Binding Rule Lives In A Decision Record: the ADR link guard \
+         found a defect in `docs/adr/` or in `AGENTS.md`. Correct each line below, then run \
+         `python3 {} .` again.\n{}{}",
+        script.display(),
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
