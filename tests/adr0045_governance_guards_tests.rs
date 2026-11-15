@@ -158,6 +158,7 @@ fn adr_link_guard_passes() {
     }
     let output = Command::new("python3")
         .arg(&script)
+        .args(["--bar-from", "0101"])
         .arg(".")
         .current_dir(manifest_dir())
         .output()

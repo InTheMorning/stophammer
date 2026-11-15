@@ -583,6 +583,13 @@ do not overlap, and neither one holds the other's rules.
   modules, storage shape, and the HTTP contract. This file may point at such a
   rule and name the ADR that decides it. It does not state one as its own.
 
+The ADR link guard in the gate does the bar check from ADR 0101. From that
+number, each new ADR has one line `- Bar: CONDITION, REASON`. The conditions
+are `crosses modules`, `crosses repositories`, `difficult to change` and
+`opposite choice by mistake`. An ADR with a `- Supersedes:` line needs no
+`- Bar:` line. If no condition applies, write an "Operator choice" line in the
+task file and no ADR. The `project-baseline` skill owns this rule.
+
 Stophammer is three repositories. `stophammer`, `stophammer-crawler` and
 `stophammer-parser` each have their own GitHub upstream under `InTheMorning`.
 Only `stophammer` holds decision records. A change that spans two repositories
