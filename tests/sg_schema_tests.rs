@@ -54,69 +54,6 @@ fn insert_track(conn: &rusqlite::Connection, track_guid: &str, feed_guid: &str, 
 // `idx_aar_rel`, are dropped. `test_tag_fk_indexes_exist` is removed with
 // the table.
 // ===========================================================================
-// SG-04: CHECK constraint on route_type columns
-// ===========================================================================
-
-#[test]
-fn test_route_type_check_constraint_payment_routes() {
-    let conn = common::test_db();
-    let now = stophammer::db::unix_now();
-    seed_feed(&conn);
-    insert_track(&conn, "track-sg-rt", "feed-sg", now);
-
-    let result = conn.execute(
-        "INSERT INTO payment_routes (track_guid, feed_guid, route_type, address, split) \
-         VALUES ('track-sg-rt', 'feed-sg', 'INVALID', 'addr', 100)",
-        [],
-    );
-    assert!(
-        result.is_err(),
-        "payment_routes should reject invalid route_type"
-    );
-}
-
-#[test]
-fn test_route_type_check_constraint_feed_payment_routes() {
-    let conn = common::test_db();
-    seed_feed(&conn);
-
-    let result = conn.execute(
-        "INSERT INTO feed_payment_routes (feed_guid, route_type, address, split) \
-         VALUES ('feed-sg', 'BOGUS', 'addr', 100)",
-        [],
-    );
-    assert!(
-        result.is_err(),
-        "feed_payment_routes should reject invalid route_type"
-    );
-}
-
-#[test]
-fn test_route_type_check_accepts_valid_values() {
-    let conn = common::test_db();
-    let now = stophammer::db::unix_now();
-    seed_feed(&conn);
-    insert_track(&conn, "track-sg-valid", "feed-sg", now);
-
-    for rt in &["node", "wallet", "keysend", "lnaddress"] {
-        conn.execute(
-            "INSERT INTO payment_routes (track_guid, feed_guid, route_type, address, split) \
-             VALUES ('track-sg-valid', 'feed-sg', ?1, 'addr', 100)",
-            params![rt],
-        )
-        .unwrap_or_else(|e| panic!("payment_routes should accept route_type={rt}: {e}"));
-    }
-
-    for rt in &["node", "wallet", "keysend", "lnaddress"] {
-        conn.execute(
-            "INSERT INTO feed_payment_routes (feed_guid, route_type, address, split) \
-             VALUES ('feed-sg', ?1, 'addr', 100)",
-            params![rt],
-        )
-        .unwrap_or_else(|e| panic!("feed_payment_routes should accept route_type={rt}: {e}"));
-    }
-}
-
 // ===========================================================================
 // SG-05: CHECK constraint on split columns (>= 0)
 // ===========================================================================

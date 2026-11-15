@@ -142,13 +142,55 @@ pub struct Track {
 }
 
 // Issue-11 RouteType alignment — 2026-03-13
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RouteType {
     Node,
     Wallet,
     Keysend,
     Lnaddress,
+    Other(String),
+}
+
+impl Serialize for RouteType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for RouteType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        String::deserialize(deserializer).map(|value| Self::from_text(&value))
+    }
+}
+
+impl RouteType {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Node => "node",
+            Self::Wallet => "wallet",
+            Self::Keysend => "keysend",
+            Self::Lnaddress => "lnaddress",
+            Self::Other(value) => value,
+        }
+    }
+
+    #[must_use]
+    pub fn from_text(value: &str) -> Self {
+        match value {
+            "node" => Self::Node,
+            "wallet" => Self::Wallet,
+            "keysend" => Self::Keysend,
+            "lnaddress" => Self::Lnaddress,
+            other => Self::Other(other.to_owned()),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

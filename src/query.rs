@@ -1388,10 +1388,7 @@ fn local_vts_response_from_split(split: ValueTimeSplit) -> Option<LocalVtsRespon
         .into_iter()
         .map(|r| RouteResponse {
             recipient_name: r.recipient_name,
-            route_type: serde_json::to_string(&r.route_type)
-                .expect("serializing RouteType cannot fail")
-                .trim_matches('"')
-                .to_string(),
+            route_type: r.route_type.as_str().to_owned(),
             address: r.address,
             custom_key: r.custom_key,
             custom_value: r.custom_value,
@@ -2675,10 +2672,7 @@ fn build_track_response(
                         .into_iter()
                         .map(|route| RouteResponse {
                             recipient_name: route.recipient_name,
-                            route_type: serde_json::to_string(&route.route_type)
-                                .expect("serializing RouteType cannot fail")
-                                .trim_matches('"')
-                                .to_string(),
+                            route_type: route.route_type.as_str().to_owned(),
                             address: route.address,
                             custom_key: route.custom_key,
                             custom_value: route.custom_value,

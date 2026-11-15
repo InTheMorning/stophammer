@@ -289,6 +289,8 @@ const MIGRATIONS: &[&str] = &[
     // Migration 64: clear each live item content_link that is its stream
     // (ADR 0093 §4)
     include_str!("../migrations/0064_live_content_link_not_stream.sql"),
+    // Migration 65: keep route text and reserve value block fields (ADR 0098 §2).
+    include_str!("../migrations/0065_value_block_fields.sql"),
 ];
 
 /// First line of a migration that must run with foreign key enforcement
@@ -784,9 +786,10 @@ fn ensure_retired_source_hold_release_schema(conn: &Connection) -> Result<(), Db
 /// Migration versions are array positions, so a database whose watermark
 /// already reached this migration's position never runs it (ADR 0046). This
 /// repair tests for the `form` column. When the column is absent, it runs
-/// the SQL of migration 0053 in one transaction. Migration 0053 comes after
-/// migration 0047 (ADR 0034 §11), so no pre-`run_migrations` guard is
-/// needed. ADR 0073 §2, task 001 owns the columns.
+/// the SQL of migration 0053 in one transaction. `try_open_db` also runs this
+/// repair before `run_migrations`, because migration 0065 (ADR 0098 §2)
+/// rebuilds `value_time_split_recipients`, a table of migration 0053.
+/// ADR 0073 §2, task 001 owns the columns.
 fn ensure_value_time_split_forms_schema(conn: &mut Connection) -> Result<(), DbError> {
     if table_has_column(conn, "value_time_splits", "form")? {
         return Ok(());
@@ -874,6 +877,10 @@ pub fn try_open_db(path: impl AsRef<std::path::Path>) -> Result<Connection, DbEr
     if recorded_before_open >= 35 {
         // Migration 0041, `ensure_feed_move_declaration_schema`.
         ensure_feed_move_declaration_schema(&conn)?;
+    }
+    if recorded_before_open >= 47 {
+        // Migration 0053, `ensure_value_time_split_forms_schema`.
+        ensure_value_time_split_forms_schema(&mut conn)?;
     }
     run_migrations(&mut conn)?;
     ensure_feed_scoped_track_identity_schema(&mut conn)?;
@@ -1204,21 +1211,6 @@ fn event_type_str(et: &EventType) -> Result<String, DbError> {
     Ok(s.trim_matches('"').to_string())
 }
 
-fn route_type_from_db(rt_str: &str, context: &str) -> RouteType {
-    match serde_json::from_str::<RouteType>(&format!("\"{rt_str}\"")) {
-        Ok(route_type) => route_type,
-        Err(err) => {
-            tracing::warn!(
-                route_type = %rt_str,
-                context,
-                error = %err,
-                "db: invalid route_type in stored row, defaulting to node"
-            );
-            RouteType::Node
-        }
-    }
-}
-
 /// Returns the internal track entity key used for search and quality rows.
 ///
 /// # Panics
@@ -1279,7 +1271,7 @@ pub fn get_payment_routes_for_track(
             track_guid: row.get(1)?,
             feed_guid: row.get(2)?,
             recipient_name: row.get(3)?,
-            route_type: route_type_from_db(&rt_str, "payment_routes"),
+            route_type: RouteType::from_text(&rt_str),
             address: row.get(5)?,
             custom_key: row.get(6)?,
             custom_value: row.get(7)?,
@@ -1312,7 +1304,7 @@ pub fn get_payment_routes_for_feed_track(
             track_guid: row.get(1)?,
             feed_guid: row.get(2)?,
             recipient_name: row.get(3)?,
-            route_type: route_type_from_db(&rt_str, "payment_routes"),
+            route_type: RouteType::from_text(&rt_str),
             address: row.get(5)?,
             custom_key: row.get(6)?,
             custom_value: row.get(7)?,
@@ -1381,7 +1373,7 @@ fn attach_value_time_split_recipients(
             let fee_i: i64 = row.get(6)?;
             Ok(ValueTimeSplitRecipient {
                 recipient_name: row.get(0)?,
-                route_type: route_type_from_db(&rt_str, "value_time_split_recipients"),
+                route_type: RouteType::from_text(&rt_str),
                 address: row.get(2)?,
                 custom_key: row.get(3)?,
                 custom_value: row.get(4)?,
@@ -1423,8 +1415,7 @@ fn insert_value_time_split(
     )?;
     let split_id = conn.last_insert_rowid();
     for (position, r) in s.recipients.iter().enumerate() {
-        let route_type = serde_json::to_string(&r.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO value_time_split_recipients (split_id, position, recipient_name, \
              route_type, address, custom_key, custom_value, split, fee) \
@@ -1696,8 +1687,7 @@ pub fn replace_payment_routes(
         params![track_guid],
     )?;
     for r in routes {
-        let route_type = serde_json::to_string(&r.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
              custom_key, custom_value, split, fee) \
@@ -1729,8 +1719,7 @@ pub fn replace_payment_routes_for_feed_track(
         params![feed_guid, track_guid],
     )?;
     for r in routes {
-        let route_type = serde_json::to_string(&r.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
              custom_key, custom_value, split, fee) \
@@ -1768,8 +1757,7 @@ pub fn replace_feed_payment_routes(
         params![feed_guid],
     )?;
     for r in routes {
-        let route_type = serde_json::to_string(&r.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = r.route_type.as_str();
         conn.execute(
             "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, \
              custom_key, custom_value, split, fee) \
@@ -1804,8 +1792,7 @@ pub fn replace_feed_list_value_raw(
         params![feed_guid],
     )?;
     for v in list_values {
-        let route_type = serde_json::to_string(&v.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = v.route_type.as_str();
         conn.execute(
             "INSERT INTO feed_list_value_raw (feed_guid, recipient_name, route_type, address, \
              custom_key, custom_value, split, fee, position) \
@@ -3508,7 +3495,7 @@ pub fn get_feed_payment_routes_for_feed(
             id: row.get(0)?,
             feed_guid: row.get(1)?,
             recipient_name: row.get(2)?,
-            route_type: route_type_from_db(&rt_str, "feed_payment_routes"),
+            route_type: RouteType::from_text(&rt_str),
             address: row.get(4)?,
             custom_key: row.get(5)?,
             custom_value: row.get(6)?,
@@ -3544,7 +3531,7 @@ fn get_feed_list_value_raw_for_feed(
             id: row.get(0)?,
             feed_guid: row.get(1)?,
             recipient_name: row.get(2)?,
-            route_type: route_type_from_db(&rt_str, "feed_list_value_raw"),
+            route_type: RouteType::from_text(&rt_str),
             address: row.get(4)?,
             custom_key: row.get(5)?,
             custom_value: row.get(6)?,
@@ -6941,8 +6928,7 @@ pub fn ingest_transaction(
         params![feed.feed_guid],
     )?;
     for r in &feed_routes {
-        let route_type = serde_json::to_string(&r.route_type)?;
-        let route_type = route_type.trim_matches('"');
+        let route_type = r.route_type.as_str();
         tx.execute(
             "INSERT INTO feed_payment_routes (feed_guid, recipient_name, route_type, address, \
              custom_key, custom_value, split, fee) \
@@ -7263,8 +7249,7 @@ pub fn ingest_transaction(
             params![track.feed_guid, track.track_guid],
         )?;
         for r in routes {
-            let route_type = serde_json::to_string(&r.route_type)?;
-            let route_type = route_type.trim_matches('"');
+            let route_type = r.route_type.as_str();
             tx.execute(
                 "INSERT INTO payment_routes (track_guid, feed_guid, recipient_name, route_type, address, \
                  custom_key, custom_value, split, fee) \

@@ -91,12 +91,23 @@ Notes:
 
 ### `payment_routes`
 Purpose: track-level `podcast:value` routes.
+`route_type` keeps the source text. `value_type`, `value_method` and
+`block_index` are nullable fields for value block metadata.
 
 ### `feed_payment_routes`
 Purpose: feed-level `podcast:value` routes used when a track has no track-specific routes.
+`route_type` keeps the source text. `value_type`, `value_method` and
+`block_index` are nullable fields for value block metadata.
 
 ### `value_time_splits`
 Purpose: `podcast:valueTimeSplit` rows for time-ranged payment overrides.
+`value_type`, `value_method` and `block_index` are nullable fields for value
+block metadata.
+
+### `value_time_split_recipients`
+This table stores recipient rows for local `podcast:valueTimeSplit` blocks.
+`route_type` keeps the source text. `value_type`, `value_method` and
+`block_index` are nullable fields for value block metadata.
 
 ## Preserved Source Evidence
 
@@ -117,6 +128,8 @@ Purpose: the channel `podcast:value` routes of a `musicL` feed, kept as
 source data. Migration 0043, ADR 0060 §4.
 Notes:
 - has the columns of `feed_payment_routes`, plus `position`
+- keeps the source text in `route_type` and nullable value block metadata in
+  `value_type`, `value_method` and `block_index`
 - no read route gives these rows. They are not a payment route of the list
   feed or of a track that the list names
 - the `FeedListValueReplaced` event carries each change, so a community node

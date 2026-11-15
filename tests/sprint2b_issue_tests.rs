@@ -47,7 +47,7 @@ fn test_issue11_route_type_keysend_serializes() {
 
 #[test]
 fn test_issue11_all_route_types_roundtrip() {
-    for val in &["node", "wallet", "keysend", "lnaddress"] {
+    for val in &["node", "wallet", "keysend", "lnaddress", "address"] {
         let json = format!("\"{val}\"");
         let rt: stophammer::model::RouteType = serde_json::from_str(&json)
             .unwrap_or_else(|e| panic!("'{val}' should deserialize: {e}"));

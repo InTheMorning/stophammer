@@ -86,12 +86,15 @@ CREATE TABLE IF NOT EXISTS payment_routes (
     track_guid      TEXT NOT NULL,
     feed_guid       TEXT NOT NULL,
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    route_type      TEXT NOT NULL,
     address         TEXT NOT NULL,
     custom_key      TEXT NOT NULL DEFAULT '',
     custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0,
+    value_type      TEXT,
+    value_method    TEXT,
+    block_index     INTEGER,
     FOREIGN KEY (feed_guid, track_guid) REFERENCES tracks(feed_guid, track_guid)
 ) STRICT;
 
@@ -104,12 +107,15 @@ CREATE TABLE IF NOT EXISTS feed_payment_routes (
     id              INTEGER PRIMARY KEY,
     feed_guid       TEXT NOT NULL REFERENCES feeds(feed_guid),
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    route_type      TEXT NOT NULL,
     address         TEXT NOT NULL,
     custom_key      TEXT,
     custom_value    TEXT,
     split           INTEGER NOT NULL CHECK(split >= 0),
-    fee             INTEGER NOT NULL DEFAULT 0
+    fee             INTEGER NOT NULL DEFAULT 0,
+    value_type      TEXT,
+    value_method    TEXT,
+    block_index     INTEGER
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feed_routes_guid ON feed_payment_routes(feed_guid);
@@ -118,13 +124,16 @@ CREATE TABLE IF NOT EXISTS feed_list_value_raw (
     id              INTEGER PRIMARY KEY,
     feed_guid       TEXT NOT NULL REFERENCES feeds(feed_guid),
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    route_type      TEXT NOT NULL,
     address         TEXT NOT NULL,
     custom_key      TEXT NOT NULL DEFAULT '',
     custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
     fee             INTEGER NOT NULL DEFAULT 0,
-    position        INTEGER NOT NULL
+    position        INTEGER NOT NULL,
+    value_type      TEXT,
+    value_method    TEXT,
+    block_index     INTEGER
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_feed_list_value_guid ON feed_list_value_raw(feed_guid);
@@ -144,6 +153,9 @@ CREATE TABLE IF NOT EXISTS value_time_splits (
     remote_start_time_secs REAL,
     remote_percentage      REAL,
     created_at             INTEGER NOT NULL,
+    value_type             TEXT,
+    value_method           TEXT,
+    block_index            INTEGER,
     CHECK(form = 'local' OR remote_feed_guid IS NOT NULL),
     FOREIGN KEY (source_feed_guid, source_track_guid) REFERENCES tracks(feed_guid, track_guid)
 ) STRICT;
@@ -157,12 +169,15 @@ CREATE TABLE IF NOT EXISTS value_time_split_recipients (
     split_id        INTEGER NOT NULL REFERENCES value_time_splits(id) ON DELETE CASCADE,
     position        INTEGER NOT NULL,
     recipient_name  TEXT,
-    route_type      TEXT NOT NULL CHECK(route_type IN ('node','wallet','keysend','lnaddress')),
+    route_type      TEXT NOT NULL,
     address         TEXT NOT NULL,
     custom_key      TEXT NOT NULL DEFAULT '',
     custom_value    TEXT NOT NULL DEFAULT '',
     split           INTEGER NOT NULL CHECK(split >= 0),
-    fee             INTEGER NOT NULL DEFAULT 0
+    fee             INTEGER NOT NULL DEFAULT 0,
+    value_type      TEXT,
+    value_method    TEXT,
+    block_index     INTEGER
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_vts_recipients_split ON value_time_split_recipients(split_id);
