@@ -22,8 +22,8 @@ commit `f7d14c2` records it in `docs/tasks/studio-v1-task-127-return-wait.md`.
 
 On 2026-11-14, the primary runs candidate `v0.20.1-rc.1` and gives the revision
 `e881b48`. The record `07adf84f-c1fa-47a7-a121-0fb544e859bd` keeps the feed URL
-of its move of 2026-11-13. The deploy also put the gossip crawler on that
-candidate. No check of its image is recorded.
+of its move of 2026-11-13. On 2026-11-14, the gossip crawler is up
+on the image `stophammer-crawler:0.20.1-rc.1`.
 
 The last runs of `import` and `import-wavlake` used release 0.18.1. A timer
 starts the `podcastindex` pass at an interval of 3 hours (ADR 0081 §1). `docker-compose.yml` gives these three services the image variable
